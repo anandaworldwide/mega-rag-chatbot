@@ -21,7 +21,14 @@
       "master_swami": "Master and Swami",
       "whole_library": "All authors"
     },
-    "includedLibraries": ["Ananda Library", "Ananda Youtube", "Treasures", "The Bhaktan Files"],
+    "includedLibraries": [
+      "Ananda Library",
+      "Ananda Youtube",
+      "Treasures",
+      "The Bhaktan Files",
+      "ananda.org",
+      "Crystal Clarity"
+    ],
     "excludedAccessLevels": ["kriyaban"],
     "accessLevelPathMap": {
       "kriyaban": ["Kriyaban Only"]
