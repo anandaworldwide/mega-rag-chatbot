@@ -1,524 +1,383 @@
-# Demo Videos & Animated GIFs Implementation Plan
+# Demo Media Implementation Plan
 
-**Objective**: Enhance README visibility and engagement by incorporating demo videos and animated GIFs showcasing all 5
-sites running on the open source codebase.
+**Objective**: Enhance README visibility and drive adoption through compelling visual demonstrations organized by
+marketing impact priority.
 
-**Strategy**: Hybrid approach combining immediate visual impact in README (Option 1) with detailed demos page (Option 4)
-for maintainability and scalability.
+**Strategy**: Start with high-impact quick wins, build toward comprehensive showcase.
 
-**Demo Mode Integration**: Cookie-based demo mode allows safe demonstration of admin interfaces without exposing real
-user data. Enable via `?demo=1` URL parameter.
+**Demo Mode**: Cookie-based PII protection via `?demo=1` URL parameter for safe admin interface demonstrations.
 
 ---
 
-## Phase 1: Content Creation & Asset Preparation
+## PHASE 1: Quick Visual Impact - Site Demo GIFs
 
-### [ ] 1.1 Create Assets Directory Structure
+**Goal**: Create immediate visual engagement in README with 3 compelling site demos
 
-- [ ] Create `docs/assets/` directory if it doesn't exist
-- [ ] Create subdirectories:
-  - [ ] `docs/assets/gifs/` for animated GIFs
-  - [ ] `docs/assets/thumbnails/` for custom thumbnails
+**Deliverable**: 3 animated GIFs embedded in README showing different sites in action
 
-### [ ] 1.2 Identify the 5 Sites to Showcase
+**Marketing Impact**: HIGH - First impression for GitHub visitors
 
-- [ ] List all 4 sites with their unique characteristics:
-  1. [ ] Ananda (Luca) - flagship site (for full video demo)
-  2. [ ] Crystal Clarity - publisher catalog
-  3. [ ] Ananda Public (Vivek) - public knowledge base
-  4. [ ] Photo site - public demo with photography tips and tricks (limited dataset for hands-on exploration)
-- [ ] Document key differentiating features for each site
-- [ ] Choose 3 most visually distinct sites for README GIF showcase
+### Phase 1 Tasks
 
-### [ ] 1.3 Create Animated GIFs for Simpler Sites (3-4 sites)
+- [ ] 1.1 Create assets directory structure
 
-**Tools**: LICEcap
+  - [ ] Create `docs/assets/gifs/` directory
+  - [ ] Create `docs/assets/thumbnails/` directory
 
-For each site GIF:
+- [ ] 1.2 Select 3 most visually distinct sites for GIFs
 
-- [ ] Site 1: [name] GIF
+  - [ ] Site 1: [name] - [key differentiator]
+  - [ ] Site 2: [name] - [key differentiator]
+  - [ ] Site 3: [name] - [key differentiator]
+
+- [ ] 1.3 Record site demo GIFs (LICEcap or ScreenToGif)
+
+  For each site:
 
   - [ ] Record 10-20 second demo showing key feature
-  - [ ] Target: 800-1200px wide, < 5MB file size
-  - [ ] Frame rate: 10-15 fps
-  - [ ] Show: Search query → Results → Key interaction → Admin demo mode (if applicable)
+  - [ ] Target: 800-1200px wide, < 5MB, 10-15 fps
+  - [ ] Show: Search query → Results → Key interaction
   - [ ] Save as `docs/assets/gifs/[site-name]-demo.gif`
-  - [ ] Verify file size and quality
+  - [ ] Write alt text (100-125 characters)
 
-- [ ] Site 2: [name] GIF
+- [ ] 1.4 Add GIF showcase to README
 
-  - [ ] Record 10-20 second demo
-  - [ ] Target: 800-1200px wide, < 5MB
-  - [ ] Frame rate: 10-15 fps
-  - [ ] Show: [key differentiating feature] → Admin demo mode (if applicable)
-  - [ ] Save as `docs/assets/gifs/[site-name]-demo.gif`
-  - [ ] Verify file size and quality
+  - [ ] Create "🎥 See It In Action" section after "Why Choose This RAG System?" heading
+  - [ ] Add 3-column table with GIFs
+  - [ ] Include short captions (10-15 words max)
+  - [ ] Test rendering on GitHub
 
-- [ ] Site 3: [name] GIF
+- [ ] 1.5 Quality check
+  - [ ] Verify GIFs load quickly (< 5MB each)
+  - [ ] Test on mobile GitHub view
+  - [ ] Check accessibility (alt text present)
 
-  - [ ] Record 10-20 second demo
-  - [ ] Target: 800-1200px wide, < 5MB
-  - [ ] Frame rate: 10-15 fps
-  - [ ] Show: [key differentiating feature] → Admin demo mode (if applicable)
-  - [ ] Save as `docs/assets/gifs/[site-name]-demo.gif`
-  - [ ] Verify file size and quality
+**Success Metric**: README has visual demos, GitHub stars increase
 
-- [ ] Optional Site 4: [name] GIF (if creating 4 GIFs)
-  - [ ] Record 10-20 second demo
-  - [ ] Same specs as above
-  - [ ] Save as `docs/assets/gifs/[site-name]-demo.gif`
+---
 
-### [ ] 1.4 Create Full Ananda (Luca) Demo Video
+## PHASE 2: Comprehensive Platform Demo Video
 
-**Platform**: YouTube (recommended) or Loom
+**Goal**: Create authoritative 3-5 minute video showcasing full platform capabilities
 
-- [ ] Script the demo walkthrough (3-5 minutes)
+**Deliverable**: YouTube video with prominent README placement and custom thumbnail
 
-  - [ ] Introduction (30 seconds)
-  - [ ] Semantic search demonstration (60 seconds)
-  - [ ] Multi-turn conversation (60 seconds)
-  - [ ] Source attribution and media integration (45 seconds)
-  - [ ] Conversation history and sharing (45 seconds)
-  - [ ] Admin interface demo with `?demo=1` PII masking (60 seconds)
-  - [ ] Wrap-up and call to action (30 seconds)
+**Marketing Impact**: HIGH - Builds credibility and shows depth
 
-- [ ] Record the video
+### Phase 2 Tasks
 
-  - [ ] High resolution (1080p minimum)
+- [ ] 2.1 Plan video content
+
+  - [ ] Script demo walkthrough (3-5 minutes)
+    - Introduction (30s)
+    - Semantic search (60s)
+    - Multi-turn conversation (60s)
+    - Source attribution & media (45s)
+    - Conversation history & sharing (45s)
+    - Admin interface with demo mode (60s)
+    - Wrap-up & CTA (30s)
+  - [ ] Select best site for full demo (likely Ananda/Luca)
+
+- [ ] 2.2 Record video
+
+  - [ ] High resolution recording (1080p minimum)
   - [ ] Clear audio narration
-  - [ ] Show mouse cursor for clarity
-  - [ ] Demonstrate real queries with meaningful results
-  - [ ] Include timestamps in video for key sections
+  - [ ] Show real queries with meaningful results
+  - [ ] Demonstrate demo mode PII masking
 
-- [ ] Edit the video
+- [ ] 2.3 Edit video
 
   - [ ] Add intro title card
   - [ ] Add section transitions
-  - [ ] Include captions/subtitles (for accessibility)
+  - [ ] Include captions/subtitles
   - [ ] Add outro with GitHub link
 
-- [ ] Upload to YouTube
+- [ ] 2.4 Create custom thumbnail
 
-  - [ ] Create custom high-res thumbnail
-  - [ ] Write compelling title (e.g., "Mega RAG Chatbot - Complete Platform Demo | AI-Powered Knowledge Assistant")
+  - [ ] Design 1280x720px thumbnail
+  - [ ] Include project branding
+  - [ ] Add compelling text overlay
+  - [ ] Save as `docs/assets/thumbnails/platform-demo-thumbnail.png`
+
+- [ ] 2.5 Upload to YouTube
+
+  - [ ] Write compelling title
   - [ ] Add detailed description with timestamps
-  - [ ] Add YouTube chapters for easy navigation
-  - [ ] Tag appropriately (RAG, AI, chatbot, open source, etc.)
-  - [ ] Set visibility to Public
-  - [ ] Save YouTube video ID and URL
+  - [ ] Add YouTube chapters for navigation
+  - [ ] Tag appropriately (RAG, AI, chatbot, open source)
+  - [ ] Upload custom thumbnail
+  - [ ] Set to Public
+  - [ ] Save video ID and URL
 
-- [ ] Alternative: Upload to Loom (if preferred)
-  - [ ] Upload video
-  - [ ] Generate share link
-  - [ ] Save Loom URL
+- [ ] 2.6 Add video badge to README
+  - [ ] Create prominent video badge/button
+  - [ ] Place before "Quick Start" section
+  - [ ] Link to YouTube video
+  - [ ] Test link functionality
 
-### [ ] 1.5 Create Custom Thumbnail for YouTube Video
-
-- [ ] Design custom thumbnail (1280x720px)
-- [ ] Include project branding/logo
-- [ ] Add compelling text overlay
-- [ ] Save as `docs/assets/thumbnails/ananda-demo-thumbnail.png`
-- [ ] Upload to YouTube
-
-### [ ] 1.5 Demo Mode Preparation
-
-**Cookie-based Demo Mode**: Implemented in `web/src/utils/client/demoMode.ts`
-
-- [ ] Verify demo mode functionality works across all admin pages
-- [ ] Test `?demo=1` URL parameter sets demo cookie correctly
-- [ ] Test `?demo=0` URL parameter removes demo cookie
-- [ ] Confirm PII masking: emails show as `u***@e***.com`, names as fake names
-- [ ] Document demo mode behavior in demo scripts
-
-### [ ] 1.6 Accessibility Preparation
-
-- [ ] Write alt text descriptions for each GIF (concise, descriptive)
-- [ ] Create video transcript (optional but recommended)
-- [ ] Save transcript as `docs/assets/videos/ananda-demo-transcript.md` (if creating)
+**Success Metric**: Professional video showcasing full capabilities, positioned prominently in README
 
 ---
 
-## Phase 2: README Implementation
+## PHASE 3: Technical Differentiation - Data Ingestion Demos
 
-### [ ] 2.1 Add Hero GIF Showcase Section
+**Goal**: Demonstrate technical sophistication with data ingestion pipeline GIFs
 
-**Location**: After "Why Choose This RAG System?" heading (around line 10 in current README)
+**Deliverable**: 6 animated GIFs showing different ingestion methods
 
-- [ ] Create new section titled "🎥 See It In Action"
-- [ ] Add 3-column table/layout with GIFs of most visually distinct sites
-- [ ] Include short captions for each GIF (10-15 words max)
-- [ ] Add alt text for accessibility
-- [ ] Test GIF loading and performance
+**Marketing Impact**: MEDIUM-HIGH - Appeals to technical users, shows depth
 
-**Example structure**:
+### Phase 3 Tasks
 
-```markdown
-## 🎥 See It In Action
+- [ ] 3.1 Record PDF ingestion GIF (15-25s)
 
-<table>
-<tr>
-<td width="33%">
+  - [ ] Show: Running `pdf_to_vector_db.py` with sample PDFs
+  - [ ] Highlight: Semantic chunking, metadata extraction
+  - [ ] Save as `docs/assets/gifs/ingestion-pdf-demo.gif`
 
-### Crystal Clarity
+- [ ] 3.2 Record audio/video transcription GIF (15-25s)
 
-![Crystal Clarity demo showing search and book recommendations](docs/assets/gifs/crystal-demo.gif) _Publisher catalog AI
-with intelligent book search_
+  - [ ] Show: Transcription pipeline with sample media
+  - [ ] Highlight: Whisper transcription, timestamps
+  - [ ] Save as `docs/assets/gifs/ingestion-audio-video-demo.gif`
 
-</td>
-<td width="33%">
+- [ ] 3.3 Record web crawling GIF (15-25s)
 
-### Photo Site
+  - [ ] Show: Crawler in action with URL queue
+  - [ ] Highlight: Content extraction, rate limiting
+  - [ ] Save as `docs/assets/gifs/ingestion-web-crawl-demo.gif`
 
-![Photo site demo showing photography Q&A](docs/assets/gifs/photo-site-demo.gif) _Public demo site for photography tips
-and tricks_
+- [ ] 3.4 Record WordPress SQL ingestion GIF (15-25s)
 
-</td>
-<td width="33%">
+  - [ ] Show: WordPress database extraction script
+  - [ ] Highlight: wp_posts/wp_postmeta queries, field mapping
+  - [ ] Save as `docs/assets/gifs/ingestion-wordpress-sql-demo.gif`
 
-### Ananda Public
+- [ ] 3.5 Record WordPress chatbot plugin GIF (15-25s)
 
-![Ananda Public demo showing community knowledge search](docs/assets/gifs/ananda-public-demo.gif) _Public knowledge base
-with geo-awareness_
+  - [ ] Show: WordPress site with chatbot popup
+  - [ ] Highlight: User interaction, seamless integration
+  - [ ] Save as `docs/assets/gifs/wordpress-chatbot-plugin-demo.gif`
 
-</td>
-</tr>
-</table>
-```
+- [ ] 3.6 Record complete pipeline overview GIF (20-30s)
 
-### [ ] 2.2 Add Video Badge Near Quick Start
+  - [ ] Show: Multi-source ingestion dashboard
+  - [ ] Highlight: Parallel processing, queue management
+  - [ ] Save as `docs/assets/gifs/ingestion-overview-demo.gif`
 
-**Location**: Just before or after "Quick Start" section (around line 56)
+- [ ] 3.7 (Optional) Add data ingestion showcase to README
+  - [ ] Create "📥 Flexible Data Ingestion" section
+  - [ ] Add 2-3 most impressive GIFs (PDF + Web Crawling)
+  - [ ] Link to DEMOS.md for complete details
+  - [ ] Keep brief to avoid README bloat
 
-- [ ] Create prominent video badge/button
-- [ ] Link to YouTube video
-- [ ] Use shield.io badge or custom styling
-- [ ] Make it visually distinct and clickable
-- [ ] Test link functionality
-
-**Example**:
-
-```markdown
-## 🎬 Watch Full Platform Demo
-
-[![Watch Complete Demo](<https://img.shields.io/badge/▶️_Watch-Full_Demo_(5_min)-FF0000?style=for-the-badge&logo=youtube>)](https://www.youtube.com/watch?v=YOUR_VIDEO_ID)
-
-_See Ananda (Luca) AI Assistant in action: semantic search, conversation management, and intelligent Q&A_
-```
-
-### [ ] 2.3 Update "Real-World Success Stories" Section
-
-**Location**: Existing section around line 48
-
-- [ ] Add note about demo videos being available
-- [ ] Link to DEMOS.md page for detailed site-by-site demos
-- [ ] Keep section concise, point to demos page for visuals
-
-**Example addition**:
-
-```markdown
-**Want to see these in action?** Check out our [live demos](docs/DEMOS.md) showcasing each deployment.
-```
-
-### [ ] 2.4 Test README Rendering
-
-- [ ] Test on GitHub (commit to branch and preview)
-- [ ] Verify GIFs load correctly
-- [ ] Check badge/button rendering
-- [ ] Test video link functionality
-- [ ] Verify mobile rendering (GitHub mobile view)
-- [ ] Check accessibility (screen reader compatibility)
+**Success Metric**: 6 technical GIFs demonstrating comprehensive ingestion capabilities
 
 ---
 
-## Phase 3: Create Detailed Demos Page
+## PHASE 4: Detailed Documentation - Complete DEMOS Page
 
-### [ ] 3.1 Create `docs/DEMOS.md` File
+**Goal**: Create comprehensive demos page with all visual content and detailed explanations
 
-- [ ] Create new file: `docs/DEMOS.md`
-- [ ] Add front matter and introduction
-- [ ] Structure with clear sections for each site
+**Deliverable**: `docs/DEMOS.md` file with all GIFs, descriptions, and usage examples
 
-### [ ] 3.2 Add Full Ananda Video Embed
+**Marketing Impact**: MEDIUM - Provides depth for interested users
 
-- [ ] Add prominent section at top for featured demo
-- [ ] Embed YouTube video (iframe or markdown link)
-- [ ] Include video description and key highlights
-- [ ] Add timestamp links for quick navigation
-- [ ] Link to transcript (if created)
+### Phase 4 Tasks
 
-**Example structure**:
+- [ ] 4.1 Create `docs/DEMOS.md` file
 
-```markdown
-# 🎬 Mega RAG Chatbot - Live Demos
+  - [ ] Add front matter and introduction
+  - [ ] Structure with clear sections
 
-See our multi-site RAG chatbot system in action across 5 different deployments.
+- [ ] 4.2 Add featured video section at top
 
----
+  - [ ] Embed YouTube video (or link with thumbnail)
+  - [ ] Include video description and highlights
+  - [ ] Add timestamp links for navigation
 
-## 🌟 Featured: Ananda (Luca) - Complete Platform Tour
+- [ ] 4.3 Add site-by-site demo sections
 
-<div align="center">
-<a href="https://www.youtube.com/watch?v=YOUR_VIDEO_ID">
-  <img src="../docs/assets/thumbnails/ananda-demo-thumbnail.png" width="100%" alt="Ananda Complete Demo">
-</a>
-</div>
+  For each of 4-5 sites:
 
-**Watch this 5-minute comprehensive demo** featuring:
-
-- **[0:30]** Semantic search across 7,000+ documents
-- **[1:30]** Real-time answer generation with source attribution
-- **[2:30]** Multi-turn conversations with context preservation
-- **[3:15]** Audio/video integration with timestamp navigation
-- **[4:00]** Conversation history, starring, and sharing features
-- **[4:45]** Admin interface with demo mode PII protection
-
-[🎥 Watch on YouTube](https://www.youtube.com/watch?v=YOUR_VIDEO_ID) |
-[📄 Read Transcript](assets/videos/ananda-demo-transcript.md)
-
----
-```
-
-### [ ] 3.3 Add Site-by-Site Demo Sections
-
-For each of the 5 sites:
-
-- [ ] Site 1: [name]
-
-  - [ ] Add GIF (include demo mode for admin sites: `?demo=1` in URL)
-  - [ ] Write detailed description (2-3 paragraphs)
-  - [ ] List key features (include demo mode PII protection for admin interfaces)
+  - [ ] Add site GIF with demo mode examples
+  - [ ] Write 2-3 paragraph description
+  - [ ] List key features
   - [ ] Document unique configuration
   - [ ] Add use case examples
-  - [ ] Include setup instructions (if different from main README)
 
-- [ ] Site 2: [name]
+- [ ] 4.4 Add data ingestion methods section
 
-  - [ ] Same structure as above
+  - [ ] Create "📥 Data Ingestion Methods" heading
+  - [ ] Add introduction explaining pipelines
+  - [ ] For each ingestion method:
+    - [ ] Add GIF with caption
+    - [ ] Explain process and features
+    - [ ] Include command-line usage example
+    - [ ] Link to source code
+    - [ ] Note prerequisites
+  - [ ] For WordPress: Clarify 2 methods (SQL ingestion + chatbot plugin)
 
-- [ ] Site 3: [name]
+- [ ] 4.5 Add technical details section
 
-  - [ ] Same structure as above
+  - [ ] Explain site configuration
+  - [ ] Document demo mode: `?demo=1` for PII masking
+  - [ ] Link to relevant documentation (PRD, file structure)
+  - [ ] Include code snippets
 
-- [ ] Site 4: [name]
+- [ ] 4.6 Add call to action
 
-  - [ ] Same structure as above
+  - [ ] Encourage contributions
+  - [ ] Link to main README for setup
+  - [ ] Link to GitHub issues/discussions
 
-- [ ] Site 5: [name]
-  - [ ] Same structure as above
+- [ ] 4.7 Test DEMOS.md rendering
 
-**Example structure for each site**:
+  - [ ] Commit to branch and preview on GitHub
+  - [ ] Verify all images load
+  - [ ] Test all links
+  - [ ] Verify mobile rendering
 
-````markdown
-## Crystal Clarity Library Magic
+- [ ] 4.8 Update documentation links
+  - [ ] Add DEMOS.md to main README
+  - [ ] Add link in "Real-World Success Stories" section
+  - [ ] Update any other relevant docs
 
-![Crystal Clarity Demo](../docs/assets/gifs/crystal-demo.gif)
-
-### Overview
-
-Crystal Clarity Library Magic is a specialized deployment for Crystal Clarity Publishers, providing intelligent search
-and recommendation capabilities across their extensive book catalog.
-
-### Key Features
-
-- **Intelligent Book Search**: Semantic search across full catalog
-- **Author Discovery**: Find books by writing style and topic
-- **Content Recommendations**: AI-powered book suggestions
-- **Private Access**: Login-required for publisher staff
-- **Demo Mode**: Cookie-based PII protection for safe demonstrations
-
-### Configuration Highlights
-
-```json
-{
-  "name": "Crystal Clarity Library Magic",
-  "requireLogin": true,
-  "includedLibraries": ["Crystal Clarity"],
-  "temperature": 0.2
-}
-```
-````
-
-### Use Cases
-
-1. **Customer Support**: Staff can quickly find relevant books for customer inquiries
-2. **Catalog Management**: Discover related titles and identify content gaps
-3. **Marketing Research**: Analyze book themes and reader interests
-
-[← Back to Main README](../README.md)
-
-### [ ] 3.4 Add Technical Details Section
-
-- [ ] Add section explaining how to configure different sites
-- [ ] Include demo mode documentation: `?demo=1` for cookie-based PII masking
-- [ ] Link to relevant documentation (PRD, file structure, etc.)
-- [ ] Include code snippets for site configuration
-- [ ] Add troubleshooting tips for demo mode
-
-### [ ] 3.5 Add Call to Action
-
-- [ ] Add section encouraging contributions
-- [ ] Link to main README for setup instructions
-- [ ] Link to GitHub issues/discussions
-- [ ] Include contact information (if appropriate)
-
-### [ ] 3.6 Test DEMOS.md Rendering
-
-- [ ] Commit to branch and preview on GitHub
-- [ ] Verify all images load correctly
-- [ ] Check video embed functionality
-- [ ] Test all internal links
-- [ ] Verify mobile rendering
+**Success Metric**: Comprehensive DEMOS.md page with all visual content and detailed explanations
 
 ---
 
-## Phase 4: Link Integration & Cross-References
+## PHASE 5: Optimization & Promotion
 
-### [ ] 4.1 Update Documentation Links
+**Goal**: Polish assets, optimize performance, and promote the demos
 
-- [ ] Add DEMOS.md to main README documentation section
-- [ ] Update docs/PRD.md to reference demo page (if appropriate)
-- [ ] Add link in docs/deployment-guide.md
-- [ ] Update any other relevant documentation files
+**Deliverable**: Optimized assets and promotional activities
 
-### [ ] 4.2 Add Navigation Breadcrumbs
+**Marketing Impact**: MEDIUM - Improves user experience and reach
 
-- [ ] Add "Back to README" links in DEMOS.md
-- [ ] Ensure consistent navigation across docs
-- [ ] Test all cross-references
+### Phase 5 Tasks
 
-### [ ] 4.3 Update Table of Contents (if present)
+- [ ] 5.1 File size optimization
 
-- [ ] Add DEMOS.md to any documentation index
-- [ ] Update README table of contents (if it exists)
-- [ ] Ensure proper ordering and hierarchy
+  - [ ] Check all GIF file sizes (< 5MB target)
+  - [ ] Optimize any oversized GIFs (ezgif.com, Gifski, ImageOptim)
+  - [ ] Verify total asset size is reasonable
+  - [ ] Consider Git LFS if needed
 
----
+- [ ] 5.2 Cross-browser testing
 
-## Phase 5: Quality Assurance & Optimization
+  - [ ] Test README rendering in Chrome, Firefox, Safari
+  - [ ] Test on mobile browsers (iOS Safari, Chrome mobile)
+  - [ ] Verify video embed compatibility
 
-### [ ] 5.1 File Size Optimization
+- [ ] 5.3 Accessibility audit
 
-- [ ] Check all GIF file sizes (should be < 5MB each)
-- [ ] Optimize GIFs if needed (reduce colors, resize, lower frame rate)
-- [ ] Verify total asset size is reasonable
-- [ ] Consider Git LFS if assets exceed GitHub recommendations
+  - [ ] Verify all images have alt text
+  - [ ] Check color contrast for any text overlays
+  - [ ] Test with screen reader (macOS VoiceOver)
+  - [ ] Ensure video has captions/transcript
+  - [ ] Validate markdown structure
 
-### [ ] 5.2 Cross-Browser Testing
+- [ ] 5.4 Performance testing
 
-- [ ] Test README rendering in Chrome
-- [ ] Test README rendering in Firefox
-- [ ] Test README rendering in Safari
-- [ ] Test on mobile browsers (iOS Safari, Chrome mobile)
-- [ ] Verify video embed compatibility
+  - [ ] Verify GIFs don't cause layout shift
+  - [ ] Test on mobile data connection
+  - [ ] Check page load times
 
-### [ ] 5.3 Accessibility Audit
+- [ ] 5.5 Final quality review
 
-- [ ] Verify all images have alt text
-- [ ] Check color contrast for any text overlays
-- [ ] Test with screen reader (macOS VoiceOver)
-- [ ] Ensure video has captions/transcript
-- [ ] Validate markdown structure (headings hierarchy)
+  - [ ] Proofread all content for typos/grammar
+  - [ ] Verify all links work
+  - [ ] Check consistency in terminology
+  - [ ] Ensure code snippets are accurate
+  - [ ] Run markdownlint on modified files
 
-### [ ] 5.4 Performance Testing
+- [ ] 5.6 Promotion
 
-- [ ] Check if GIFs auto-play or need click (GitHub behavior)
-- [ ] Verify no layout shift when images load
-- [ ] Test on mobile data connection
+  - [ ] Create PR with clear description and screenshots
+  - [ ] Merge to main branch
+  - [ ] Update GitHub repo description to mention demos
+  - [ ] Consider GitHub Discussions post announcing demos
+  - [ ] Update external documentation/links if applicable
 
-### [ ] 5.5 Final Review
+- [ ] 5.7 Monitor engagement
+  - [ ] Track GitHub stars/forks after demo addition
+  - [ ] Monitor video views on YouTube
+  - [ ] Check for community feedback in issues/discussions
 
-- [ ] Proofread all new content for typos/grammar
-- [ ] Verify all links work correctly
-- [ ] Check consistency in terminology and branding
-- [ ] Ensure code snippets are accurate
-- [ ] Run markdownlint on modified files
+**Success Metric**: Polished assets, optimized performance, community awareness
 
 ---
 
-## Phase 6: Deployment & Promotion
+## PHASE 6: Maintenance & Iteration
 
-### [ ] 6.1 Create Pull Request
+**Goal**: Keep demos current and respond to community feedback
 
-- [ ] Create feature branch: `feature/demo-media-showcase`
-- [ ] Commit all changes with clear commit messages
-- [ ] Push to GitHub
-- [ ] Create PR with detailed description
-- [ ] Add screenshots of changes in PR description
-- [ ] Request review (if applicable)
+**Deliverable**: Updated demos when features change
 
-### [ ] 6.2 Merge and Deploy
+**Marketing Impact**: LOW - Ongoing maintenance
 
-- [ ] Address any review feedback
-- [ ] Merge PR to main branch
-- [ ] Verify changes on main branch README
-- [ ] Test all links and media one final time
+### Phase 6 Tasks
 
-### [ ] 6.3 Update Project Promotion
+- [ ] 6.1 Plan for updates
 
-- [ ] Update GitHub repo description to mention demos
-- [ ] Update social media posts (if applicable)
-- [ ] Consider creating GitHub Discussions post announcing demos
-- [ ] Update any external documentation/links
+  - [ ] Document process for updating demos when features change
+  - [ ] Set reminder to review demos quarterly
+  - [ ] Create process for adding new site demos
 
-### [ ] 6.4 Monitor Engagement
+- [ ] 6.2 Community feedback integration
 
-- [ ] Track GitHub stars/forks after demo addition
-- [ ] Monitor video views on YouTube
-- [ ] Check for community feedback in issues/discussions
-- [ ] Collect metrics on README engagement (if available)
+  - [ ] Monitor issues/discussions for demo-related feedback
+  - [ ] Consider adding more detailed demos based on requests
+  - [ ] Update demos based on common questions
+
+- [ ] 6.3 Update memory files
+  - [ ] Document lessons learned in `.remember/memory/self.md`
+  - [ ] Add preferences to `.remember/memory/project.md`
+  - [ ] Note optimization techniques discovered
+
+**Success Metric**: Demos stay current with platform evolution
 
 ---
 
-## Phase 7: Maintenance & Iteration
-
-### [ ] 7.1 Plan for Updates
-
-- [ ] Document process for updating demos when features change
-- [ ] Set reminder to review demos quarterly
-- [ ] Create process for adding new site demos
-- [ ] Plan for video updates when UI significantly changes
-
-### [ ] 7.2 Community Feedback Integration
-
-- [ ] Monitor issues/discussions for demo-related feedback
-- [ ] Consider adding more detailed demos based on requests
-- [ ] Update demos based on common questions
-- [ ] Create additional videos for complex features (if needed)
-
-### [ ] 7.3 Update Memory Files
-
-- [ ] Document any lessons learned in `.remember/memory/self.md`
-- [ ] Add any new preferences to `.remember/memory/project.md`
-- [ ] Note any optimization techniques discovered
-
----
-
-## Technical Specifications Reference
+## Technical Specifications
 
 ### GIF Specifications
 
-- **Dimensions**: 800-1200px wide (maintain aspect ratio)
-- **File Size**: < 5MB each (< 3MB preferred)
-- **Frame Rate**: 10-15 fps
-- **Duration**: 10-20 seconds
-- **Format**: GIF (not video format)
-- **Optimization**: Use tools like Gifski or ezgif.com
+**Site Demo GIFs:**
+
+- Dimensions: 800-1200px wide (maintain aspect ratio)
+- File Size: < 5MB (< 3MB preferred)
+- Frame Rate: 10-15 fps
+- Duration: 10-20 seconds
+- Format: GIF
+- Optimization: Gifski or ezgif.com
+
+**Data Ingestion GIFs:**
+
+- Dimensions: 800-1200px wide
+- File Size: < 5MB (< 3MB preferred)
+- Frame Rate: 10-15 fps
+- Duration: 15-30 seconds
+- Format: GIF
+- Content: Terminal output or web interface
+- Optimization: Gifski or ezgif.com
 
 ### Video Specifications
 
-- **Platform**: YouTube or Loom
-- **Resolution**: 1080p minimum (1920x1080)
-- **Duration**: 3-5 minutes (Ananda demo)
-- **Format**: MP4 (before upload)
-- **Audio**: Clear narration, no background music unless subtle
-- **Thumbnail**: 1280x720px, high contrast, readable text
+- Platform: YouTube (or Loom)
+- Resolution: 1080p minimum (1920x1080)
+- Duration: 3-5 minutes
+- Format: MP4 (before upload)
+- Audio: Clear narration
+- Thumbnail: 1280x720px
 
 ### Accessibility Requirements
 
-- **Alt Text**: Descriptive, concise (100-125 characters)
-- **Video Captions**: Full transcript or YouTube auto-captions
-- **Color Contrast**: WCAG AA minimum for any text overlays
-- **Semantic HTML**: Proper heading hierarchy in markdown
+- Alt Text: Descriptive, concise (100-125 characters)
+- Video Captions: Full transcript or YouTube auto-captions
+- Color Contrast: WCAG AA minimum
+- Semantic HTML: Proper heading hierarchy in markdown
 
 ---
 
@@ -528,7 +387,7 @@ and recommendation capabilities across their extensive book catalog.
 
 - **Screen Recording**: QuickTime (macOS), OBS Studio (cross-platform)
 - **GIF Creation**: ScreenToGif (Windows), Gifski (macOS), LICEcap (cross-platform)
-- **Video Editing**: iMovie (macOS), DaVinci Resolve (free, cross-platform), OpenShot (open source)
+- **Video Editing**: iMovie (macOS), DaVinci Resolve (free), OpenShot (open source)
 
 ### Optimization Tools
 
@@ -547,9 +406,15 @@ and recommendation capabilities across their extensive book catalog.
 
 ## Notes
 
-- Prioritize quality over quantity - 3 excellent GIFs better than 5 mediocre ones
+- **Phase 1** delivers immediate visual impact - prioritize completion
+- **Phase 2** builds credibility with comprehensive video - high value for effort
+- **Phase 3** shows technical depth - appeals to developer audience
+- **Phase 4** provides detailed reference - completes the showcase
+- **Phase 5** polishes and promotes - maximizes reach
+- **Phase 6** maintains relevance - ongoing commitment
 - Keep README changes minimal to maintain scannability
 - Use DEMOS.md as the detailed showcase page
-- Update demos when major UI/UX changes occur
-- Consider user feedback for future demo improvements
-- Demo mode implemented: Use `?demo=1` URL parameter for cookie-based PII masking in admin interfaces
+- Demo mode implemented: `?demo=1` for cookie-based PII masking
+- WordPress has 2 integration methods: SQL database ingestion + chatbot plugin (with admin config panel)
+- Terminal recordings should use clear fonts and adequate color contrast
+- Prioritize quality over quantity - 3 excellent GIFs better than 5 mediocre ones
