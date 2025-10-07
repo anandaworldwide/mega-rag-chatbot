@@ -122,7 +122,7 @@ export default function AdminLeaderboardPage({ siteConfig }: AdminLeaderboardPag
                     </Link>
                     <div className="flex items-start gap-2 text-sm">
                       <span className="material-icons text-gray-400 text-sm mt-0.5">email</span>
-                      <span className="text-gray-600 break-all">{user.email}</span>
+                      <span className="text-gray-600 break-all">{maskUserPII(user).email}</span>
                     </div>
                   </div>
                 ))}

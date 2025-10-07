@@ -6,7 +6,7 @@ import type { GetServerSideProps, NextApiRequest } from "next";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { isAdminPageAllowed } from "@/utils/server/adminPageGate";
 import { AdminLayout } from "@/components/AdminLayout";
-import { maskUserPII } from "@/utils/client/demoMode";
+import { maskUserPII, isDemoModeEnabled } from "@/utils/client/demoMode";
 
 interface UserDetail {
   id: string;
@@ -316,11 +316,16 @@ export default function EditUserPage({ siteConfig }: PageProps) {
               <input
                 id="email"
                 type="email"
-                className="w-full rounded border px-3 py-2"
-                value={email}
+                className="w-full rounded border px-3 py-2 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                value={isDemoModeEnabled() ? maskUserPII({ email, uuid: user?.uuid }).email : email}
                 onChange={(e) => setEmail(e.target.value)}
+                disabled={isDemoModeEnabled()}
               />
-              <p className="mt-1 text-xs text-gray-600">Changing email keeps UUID and sessions intact.</p>
+              <p className="mt-1 text-xs text-gray-600">
+                {isDemoModeEnabled()
+                  ? "Email editing is disabled in demo mode."
+                  : "Changing email keeps UUID and sessions intact."}
+              </p>
             </div>
             <div>
               <label className="block text-sm font-medium mb-1">Role</label>

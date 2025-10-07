@@ -19,23 +19,20 @@ user data. Enable via `?demo=1` URL parameter.
 - [ ] Create subdirectories:
   - [ ] `docs/assets/gifs/` for animated GIFs
   - [ ] `docs/assets/thumbnails/` for custom thumbnails
-  - [ ] `docs/assets/videos/` for any locally hosted video files (if needed)
-- [ ] Add `.gitattributes` entry for large files (Git LFS if needed)
 
 ### [ ] 1.2 Identify the 5 Sites to Showcase
 
-- [ ] List all 5 sites with their unique characteristics:
+- [ ] List all 4 sites with their unique characteristics:
   1. [ ] Ananda (Luca) - flagship site (for full video demo)
   2. [ ] Crystal Clarity - publisher catalog
   3. [ ] Ananda Public (Vivek) - public knowledge base
   4. [ ] Photo site - public demo with photography tips and tricks (limited dataset for hands-on exploration)
-  5. [ ] [Fifth site] - [description]
 - [ ] Document key differentiating features for each site
 - [ ] Choose 3 most visually distinct sites for README GIF showcase
 
 ### [ ] 1.3 Create Animated GIFs for Simpler Sites (3-4 sites)
 
-**Tools**: ScreenToGif, Gifski, or LICEcap
+**Tools**: LICEcap
 
 For each site GIF:
 
@@ -424,7 +421,6 @@ and recommendation capabilities across their extensive book catalog.
 
 ### [ ] 5.4 Performance Testing
 
-- [ ] Test README load time on slow connection
 - [ ] Check if GIFs auto-play or need click (GitHub behavior)
 - [ ] Verify no layout shift when images load
 - [ ] Test on mobile data connection
@@ -557,7 +553,3 @@ and recommendation capabilities across their extensive book catalog.
 - Update demos when major UI/UX changes occur
 - Consider user feedback for future demo improvements
 - Demo mode implemented: Use `?demo=1` URL parameter for cookie-based PII masking in admin interfaces
-
----
-
-**Status**: Demo Mode Implemented (Cookie-based) **Last Updated**: October 7, 2025 **Owner**: [Your Name]

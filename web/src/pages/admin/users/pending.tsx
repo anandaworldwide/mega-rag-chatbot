@@ -7,6 +7,7 @@ import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { isAdminPageAllowed } from "@/utils/server/adminPageGate";
 import { AdminLayout } from "@/components/AdminLayout";
 import { ResendInvitationModal } from "@/components/ResendInvitationModal";
+import { maskEmail } from "@/utils/client/demoMode";
 
 interface PendingUser {
   email: string;
@@ -292,7 +293,7 @@ export default function AdminPendingUsersPage({ siteConfig }: AdminPendingUsersP
                 <div className="space-y-3">
                   <div className="flex items-start gap-2">
                     <span className="material-icons text-gray-400 text-sm mt-0.5">email</span>
-                    <span className="text-gray-900 font-medium break-all flex-1">{u.email}</span>
+                    <span className="text-gray-900 font-medium break-all flex-1">{maskEmail(u.email)}</span>
                   </div>
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div>
@@ -340,7 +341,7 @@ export default function AdminPendingUsersPage({ siteConfig }: AdminPendingUsersP
               <tbody className="divide-y divide-gray-200">
                 {pending.map((u) => (
                   <tr key={u.email} className="hover:bg-gray-50">
-                    <td className="py-3 px-4 font-medium text-gray-900">{u.email}</td>
+                    <td className="py-3 px-4 font-medium text-gray-900">{maskEmail(u.email)}</td>
                     <td className="py-3 px-4 text-gray-600">{u.invitedAt || "–"}</td>
                     <td className="py-3 px-4 text-gray-600">{u.expiresAt || "–"}</td>
                     <td className="py-3 px-4 text-gray-600">

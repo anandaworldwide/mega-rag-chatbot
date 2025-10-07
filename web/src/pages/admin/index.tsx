@@ -7,6 +7,7 @@ import { SiteConfig } from "@/types/siteConfig";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { AdminLayout } from "@/components/AdminLayout";
 import Layout from "@/components/layout";
+import { maskUserPII } from "@/utils/client/demoMode";
 
 interface ActiveUser {
   email: string;
@@ -48,8 +49,9 @@ function DateDisplay({ dateString }: { dateString: string | null }) {
 
 // Helper function to get display name
 function getDisplayName(user: ActiveUser): string {
-  const firstName = user.firstName?.trim() || "";
-  const lastName = user.lastName?.trim() || "";
+  const maskedUser = maskUserPII(user);
+  const firstName = maskedUser.firstName?.trim() || "";
+  const lastName = maskedUser.lastName?.trim() || "";
 
   if (firstName && lastName) {
     return `${firstName} ${lastName}`;
@@ -58,7 +60,7 @@ function getDisplayName(user: ActiveUser): string {
   } else if (lastName) {
     return lastName;
   } else {
-    return user.email; // Email comes from API response mapping (doc.id)
+    return maskedUser.email; // Email comes from API response mapping (doc.id)
   }
 }
 
@@ -424,7 +426,7 @@ export default function AdminDashboardPage({ isSudoAdmin, siteConfig }: AdminDas
                   <div className="space-y-1 text-sm">
                     <div className="flex items-start gap-2">
                       <span className="material-icons text-gray-400 text-sm mt-0.5">email</span>
-                      <span className="text-gray-700 break-all">{u.email}</span>
+                      <span className="text-gray-700 break-all">{maskUserPII(u).email}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="material-icons text-gray-400 text-sm">schedule</span>
@@ -537,8 +539,8 @@ export default function AdminDashboardPage({ isSudoAdmin, siteConfig }: AdminDas
                       </a>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span title={u.email} className="text-gray-900">
-                        {truncateEmail(u.email)}
+                      <span title={maskUserPII(u).email} className="text-gray-900">
+                        {truncateEmail(maskUserPII(u).email)}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-gray-900">{u.role || "–"}</td>
