@@ -7,6 +7,7 @@ import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { AdminLayout } from "@/components/AdminLayout";
 import { getToken } from "@/utils/client/tokenManager";
 import { marked } from "marked";
+import { maskEmail } from "@/utils/client/demoMode";
 
 interface NewsletterPageProps {
   siteConfig: SiteConfig | null;
@@ -728,7 +729,7 @@ For external images: ![Alt text](https://external-site.com/image.jpg)
                     </span>
                   </div>
                   <div className="text-sm text-gray-600 mb-2">
-                    Sent by: {newsletter.sentBy} • Recipients: {newsletter.recipientCount} • Success:{" "}
+                    Sent by: {maskEmail(newsletter.sentBy)} • Recipients: {newsletter.recipientCount} • Success:{" "}
                     {newsletter.successCount}
                     {newsletter.errorCount > 0 && ` • Errors: ${newsletter.errorCount}`}
                   </div>

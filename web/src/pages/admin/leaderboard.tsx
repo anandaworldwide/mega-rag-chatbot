@@ -7,6 +7,7 @@ import { isAdminPageAllowed } from "@/utils/server/adminPageGate";
 import { AdminLayout } from "@/components/AdminLayout";
 import Link from "next/link";
 import { getToken } from "@/utils/client/tokenManager";
+import { maskUserPII } from "@/utils/client/demoMode";
 
 interface LeaderboardUser {
   email: string;
@@ -168,10 +169,12 @@ export default function AdminLeaderboardPage({ siteConfig }: AdminLeaderboardPag
                             href={`/admin/users/${encodeURIComponent(user.email)}`}
                             className="text-blue-600 hover:text-blue-800 font-medium"
                           >
-                            {user.displayName}
+                            {maskUserPII(user).firstName && maskUserPII(user).lastName
+                              ? `${maskUserPII(user).firstName} ${maskUserPII(user).lastName}`
+                              : maskUserPII(user).email}
                           </Link>
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{user.email}</td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{maskUserPII(user).email}</td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                             {user.questionCount.toLocaleString()}

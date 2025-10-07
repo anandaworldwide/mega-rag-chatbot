@@ -122,6 +122,33 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   // Initialize scroll depth and interaction tracking
   useScrollDepthTracking();
 
+  // Handle demo mode cookie based on URL parameters
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const demoParam = urlParams.get("demo");
+
+    if (demoParam === "1") {
+      // Set demo cookie to true
+      Cookies.set("demo", "true", {
+        path: "/",
+        expires: 7, // 7 days
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+      });
+      // Clean up URL by removing the demo parameter
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.delete("demo");
+      window.history.replaceState({}, document.title, newUrl.pathname + newUrl.search);
+    } else if (demoParam === "0") {
+      // Delete demo cookie
+      Cookies.remove("demo", { path: "/" });
+      // Clean up URL by removing the demo parameter
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.delete("demo");
+      window.history.replaceState({}, document.title, newUrl.pathname + newUrl.search);
+    }
+  }, []);
+
   // State variables for various features and UI elements
   const [isMaintenanceMode] = useState<boolean>(false);
   const [viewOnlyMode, setViewOnlyMode] = useState<boolean>(false);

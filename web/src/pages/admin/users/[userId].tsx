@@ -6,6 +6,7 @@ import type { GetServerSideProps, NextApiRequest } from "next";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { isAdminPageAllowed } from "@/utils/server/adminPageGate";
 import { AdminLayout } from "@/components/AdminLayout";
+import { maskUserPII } from "@/utils/client/demoMode";
 
 interface UserDetail {
   id: string;
@@ -31,8 +32,10 @@ interface PageProps {
 
 // Helper function to get display name
 function getDisplayName(user: UserDetail): string {
-  const firstName = user.firstName?.trim() || "";
-  const lastName = user.lastName?.trim() || "";
+  // Apply demo mode masking if enabled
+  const maskedUser = maskUserPII(user);
+  const firstName = maskedUser.firstName?.trim() || "";
+  const lastName = maskedUser.lastName?.trim() || "";
 
   if (firstName && lastName) {
     return `${firstName} ${lastName}`;
@@ -41,7 +44,7 @@ function getDisplayName(user: UserDetail): string {
   } else if (lastName) {
     return lastName;
   } else {
-    return user.email; // Email comes from API response mapping (doc.id)
+    return maskedUser.email; // Email comes from API response mapping (doc.id)
   }
 }
 
@@ -379,7 +382,7 @@ export default function EditUserPage({ siteConfig }: PageProps) {
           <div className="bg-white rounded-lg max-w-md w-full p-6">
             <h3 className="text-lg font-semibold text-gray-900 mb-4">Delete User</h3>
             <p className="text-sm text-gray-600 mb-6">
-              Are you sure you want to delete <strong>{getDisplayName(user)}</strong> ({user.email})?
+              Are you sure you want to delete <strong>{getDisplayName(user)}</strong> ({maskUserPII(user).email})?
               <br />
               <br />
               <span className="text-red-600 font-medium">This action cannot be undone.</span>
