@@ -421,7 +421,8 @@ const SourcesList: React.FC<SourcesListProps> = ({
       e.preventDefault();
 
       // Only show interstitial for the main Ananda site (not ananda-public)
-      const shouldShowInterstitial = siteConfig?.siteId === "ananda";
+      // AND only for Ananda Library content (not ananda.org, Crystal Clarity, etc.)
+      const shouldShowInterstitial = siteConfig?.siteId === "ananda" && doc.metadata.library === "Ananda Library";
 
       // Check if user wants to skip the interstitial or if this site shouldn't show interstitial
       if (!shouldShowAccessInterstitial() || !shouldShowInterstitial) {

@@ -264,9 +264,18 @@ describe("SourcesList", () => {
     expect(analyticsModule.logEvent).not.toHaveBeenCalledWith("click_source", "UI", expect.any(String));
   });
 
-  it("shows Go to source button for text sources when expanded (Ananda site)", () => {
+  it("shows Go to source button for text sources when expanded (Ananda site with Ananda Library)", () => {
+    // Create a source specifically from Ananda Library
+    const anandaLibrarySource: Document<DocMetadata> = {
+      ...textSource,
+      metadata: {
+        ...textSource.metadata,
+        library: "Ananda Library",
+      },
+    };
+
     const anandaSiteConfig = { ...mockSiteConfig, siteId: "ananda" };
-    render(<SourcesList sources={[textSource]} siteConfig={anandaSiteConfig} />);
+    render(<SourcesList sources={[anandaLibrarySource]} siteConfig={anandaSiteConfig} />);
 
     // First expand the text source
     const expandButton = screen.getByText("Test Document").closest("summary")!;
@@ -297,6 +306,38 @@ describe("SourcesList", () => {
     // Should open the source link
     expect(mockOpen).toHaveBeenCalledWith("https://test.com/document", "_blank", "noopener,noreferrer");
     expect(analyticsModule.logEvent).toHaveBeenCalledWith("click_source", "UI", "https://test.com/document");
+  });
+
+  it("does not show interstitial for Ananda site with non-Ananda Library content (e.g., ananda.org)", () => {
+    // Create a source from ananda.org (not Ananda Library)
+    const anandaOrgSource: Document<DocMetadata> = {
+      ...textSource,
+      metadata: {
+        ...textSource.metadata,
+        library: "ananda.org",
+      },
+    };
+
+    const anandaSiteConfig = { ...mockSiteConfig, siteId: "ananda" };
+    render(<SourcesList sources={[anandaOrgSource]} siteConfig={anandaSiteConfig} />);
+
+    // First expand the text source
+    const expandButton = screen.getByText("Test Document").closest("summary")!;
+    fireEvent.click(expandButton);
+
+    // Should show the Go to source button
+    const goToSourceButton = screen.getByText("Go to source");
+    expect(goToSourceButton).toBeInTheDocument();
+
+    // Click the button should directly open the source without showing interstitial
+    fireEvent.click(goToSourceButton);
+
+    // Should NOT show the access interstitial popup
+    expect(screen.queryByText("Access to Source")).not.toBeInTheDocument();
+    expect(screen.queryByText(/This content comes from/)).not.toBeInTheDocument();
+
+    // Should directly open the link
+    expect(mockOpen).toHaveBeenCalledWith("https://test.com/document", "_blank", "noopener,noreferrer");
   });
 
   it("does not show interstitial for ananda-public site (direct link like Crystal)", () => {
@@ -370,6 +411,15 @@ describe("SourcesList", () => {
   });
 
   it("allows users to skip the access interstitial with 'don't show again' option", () => {
+    // Create a source specifically from Ananda Library
+    const anandaLibrarySource: Document<DocMetadata> = {
+      ...textSource,
+      metadata: {
+        ...textSource.metadata,
+        library: "Ananda Library",
+      },
+    };
+
     // Mock localStorage
     const mockSetItem = jest.fn();
     const mockGetItem = jest.fn().mockReturnValue(null);
@@ -383,7 +433,7 @@ describe("SourcesList", () => {
     });
 
     const anandaSiteConfig = { ...mockSiteConfig, siteId: "ananda" };
-    render(<SourcesList sources={[textSource]} siteConfig={anandaSiteConfig} />);
+    render(<SourcesList sources={[anandaLibrarySource]} siteConfig={anandaSiteConfig} />);
 
     // First expand the text source
     const expandButton = screen.getByText("Test Document").closest("summary")!;
@@ -412,7 +462,7 @@ describe("SourcesList", () => {
 
     // Clear the current DOM and re-render with the localStorage preference set
     document.body.innerHTML = "";
-    render(<SourcesList sources={[textSource]} />);
+    render(<SourcesList sources={[anandaLibrarySource]} siteConfig={anandaSiteConfig} />);
 
     // Expand the source again
     const expandButton2 = screen.getByText("Test Document").closest("summary")!;
