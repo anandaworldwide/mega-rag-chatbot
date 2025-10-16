@@ -49,6 +49,7 @@ describe("SearchOptionsDropdown", () => {
     showVoting: true,
     showRelatedQuestions: true,
     defaultNumSources: 4,
+    includedLibraries: ["Ananda Library", "Crystal Clarity"],
   };
 
   const defaultProps = {
@@ -57,6 +58,8 @@ describe("SearchOptionsDropdown", () => {
     handleMediaTypeChange: jest.fn(),
     collection: "master_swami",
     handleCollectionChange: jest.fn(),
+    selectedLibraries: ["Ananda Library", "Crystal Clarity"],
+    handleLibraryChange: jest.fn(),
     sourceCount: 4,
     setSourceCount: jest.fn(),
   };
@@ -187,6 +190,7 @@ describe("SearchOptionsDropdown", () => {
       enableMediaTypeSelection: false,
       enableAuthorSelection: false,
       showSourceCountSelector: false,
+      includedLibraries: [], // No libraries either
     };
 
     const propsWithNoOptions = {
@@ -286,5 +290,70 @@ describe("SearchOptionsDropdown", () => {
     // Should show gray tune icon in default state
     const tuneIcon = button.querySelector(".material-icons");
     expect(tuneIcon).toHaveClass("text-gray-500");
+  });
+
+  describe("Library Selection", () => {
+    it("renders library checkboxes when multiple libraries are available", () => {
+      render(<SearchOptionsDropdown {...defaultProps} />);
+
+      // Open the dropdown
+      const button = screen.getByRole("button", { name: /chat options/i });
+      fireEvent.click(button);
+
+      // Check that both libraries appear as checkboxes
+      expect(screen.getByLabelText("Ananda Library")).toBeInTheDocument();
+      expect(screen.getByLabelText("Crystal Clarity")).toBeInTheDocument();
+    });
+
+    it("calls handleLibraryChange when library checkbox is toggled", () => {
+      const mockHandleLibraryChange = jest.fn();
+      render(<SearchOptionsDropdown {...defaultProps} handleLibraryChange={mockHandleLibraryChange} />);
+
+      // Open the dropdown
+      const button = screen.getByRole("button", { name: /chat options/i });
+      fireEvent.click(button);
+
+      // Click on a library checkbox
+      const checkbox = screen.getByLabelText("Ananda Library");
+      fireEvent.click(checkbox);
+
+      expect(mockHandleLibraryChange).toHaveBeenCalledWith("Ananda Library");
+    });
+
+    it("disables the last selected library checkbox", () => {
+      const propsWithOneLibrary = {
+        ...defaultProps,
+        selectedLibraries: ["Ananda Library"], // Only one library selected
+      };
+      render(<SearchOptionsDropdown {...propsWithOneLibrary} />);
+
+      // Open the dropdown
+      const button = screen.getByRole("button", { name: /chat options/i });
+      fireEvent.click(button);
+
+      // The selected library should be disabled
+      const anandaCheckbox = screen.getByLabelText("Ananda Library") as HTMLInputElement;
+      expect(anandaCheckbox.disabled).toBe(true);
+      expect(anandaCheckbox.checked).toBe(true);
+
+      // The unselected library should be enabled
+      const crystalCheckbox = screen.getByLabelText("Crystal Clarity") as HTMLInputElement;
+      expect(crystalCheckbox.disabled).toBe(false);
+      expect(crystalCheckbox.checked).toBe(false);
+    });
+
+    it("shows modified indicator when library selection differs from default", () => {
+      const propsWithModifiedLibraries = {
+        ...defaultProps,
+        selectedLibraries: ["Ananda Library"], // Only one of two libraries selected
+      };
+      render(<SearchOptionsDropdown {...propsWithModifiedLibraries} />);
+
+      const button = screen.getByRole("button", { name: /chat options/i });
+
+      // Should show yellow background tune icon when libraries are modified
+      const tuneIcon = button.querySelector(".material-icons");
+      expect(tuneIcon).toHaveClass("text-gray-700");
+    });
   });
 });

@@ -53,6 +53,8 @@ interface ChatInputProps {
   textAreaRef: React.RefObject<HTMLTextAreaElement>;
   mediaTypes: { text: boolean; audio: boolean; youtube: boolean };
   handleMediaTypeChange: (type: "text" | "audio" | "youtube") => void;
+  selectedLibraries: string[];
+  handleLibraryChange: (library: string) => void;
   siteConfig: SiteConfig | null;
   input: string;
   handleInputChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
@@ -86,6 +88,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   textAreaRef,
   mediaTypes,
   handleMediaTypeChange,
+  selectedLibraries,
+  handleLibraryChange,
   siteConfig,
   input,
   handleInputChange,
@@ -460,6 +464,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               handleMediaTypeChange={handleMediaTypeChange}
               collection={collection}
               handleCollectionChange={handleCollectionChange}
+              selectedLibraries={selectedLibraries}
+              handleLibraryChange={handleLibraryChange}
               sourceCount={sourceCount}
               setSourceCount={setSourceCount}
             />

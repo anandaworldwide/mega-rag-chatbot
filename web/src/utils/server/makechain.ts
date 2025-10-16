@@ -361,7 +361,6 @@ async function retrieveDocumentsByLibrary(
   }
 
   const documents = await retriever.vectorStore.similaritySearch(query, k, finalFilter);
-
   return documents;
 }
 
@@ -382,7 +381,8 @@ export const makeChain = async (
   geoTools: any[] = [],
   request?: NextRequest,
   siteConfig?: AppSiteConfig | null,
-  originalQuestion?: string // Add this parameter to pass the original question
+  originalQuestion?: string, // Add this parameter to pass the original question
+  selectedLibraries?: string[] // Selected libraries for filtering
 ) => {
   const { model, temperature, label } = modelConfig;
   let answerModel: BaseLanguageModel; // Renamed for clarity
@@ -396,7 +396,19 @@ export const makeChain = async (
   }
 
   // Get included libraries from siteConfig if available
-  const includedLibraries: Array<string | { name: string; weight?: number }> = siteConfig?.includedLibraries || [];
+  let includedLibraries: Array<string | { name: string; weight?: number }> = siteConfig?.includedLibraries || [];
+
+  // Filter libraries based on user selection if provided
+  if (selectedLibraries && selectedLibraries.length > 0) {
+    includedLibraries = includedLibraries.filter((lib) => {
+      const libName = typeof lib === "string" ? lib : lib.name;
+      return selectedLibraries.includes(libName);
+    });
+    if (sendData && includedLibraries.length > 0) {
+      const libraryNames = includedLibraries.map((lib) => (typeof lib === "string" ? lib : lib.name)).join(", ");
+      sendData({ log: `[RAG] Filtering to selected libraries: ${libraryNames}` });
+    }
+  }
 
   try {
     // Initialize location intent detector if geo-awareness is enabled
@@ -1064,7 +1076,8 @@ export async function setupAndExecuteLanguageModelChain(
   temporarySession: boolean = false,
   request?: NextRequest,
   timingMetrics?: any, // Accept timing metrics for detailed tracking
-  modelOverride?: string // Optional model override for testing/comparison
+  modelOverride?: string, // Optional model override for testing/comparison
+  selectedLibraries?: string[] // Selected libraries for filtering
 ): Promise<{ fullResponse: string; finalDocs: Document[]; restatedQuestion: string; suggestions: string[] }> {
   const TIMEOUT_MS = process.env.NODE_ENV === "test" ? 1000 : 30000;
   const RETRY_DELAY_MS = process.env.NODE_ENV === "test" ? 10 : 1000;
@@ -1121,7 +1134,8 @@ export async function setupAndExecuteLanguageModelChain(
         geoTools,
         request,
         siteConfig,
-        sanitizedQuestion // Pass original question for intent detection
+        sanitizedQuestion, // Pass original question for intent detection
+        selectedLibraries // Pass selected libraries for filtering
       );
 
       // Format chat history for the language model

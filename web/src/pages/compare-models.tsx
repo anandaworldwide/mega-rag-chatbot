@@ -83,6 +83,7 @@ const ModelComparison: React.FC<ModelComparisonProps> = ({ siteConfig, isSudoAdm
     },
     collection: "master_swami",
     sourceCount: siteConfig?.defaultNumSources || 4,
+    selectedLibraries: (siteConfig?.includedLibraries || []).map((lib) => (typeof lib === "string" ? lib : lib.name)),
   });
   const [isModalOpen, setIsModalOpen] = useState(false);
 

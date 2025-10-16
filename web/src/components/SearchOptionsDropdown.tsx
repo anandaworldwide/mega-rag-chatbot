@@ -27,6 +27,8 @@ interface SearchOptionsDropdownProps {
   handleMediaTypeChange: (type: "text" | "audio" | "youtube") => void;
   collection: string;
   handleCollectionChange: (newCollection: string) => void;
+  selectedLibraries: string[];
+  handleLibraryChange: (library: string) => void;
   sourceCount: number;
   setSourceCount: (count: number) => void;
 }
@@ -37,6 +39,8 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
   handleMediaTypeChange,
   collection,
   handleCollectionChange,
+  selectedLibraries,
+  handleLibraryChange,
   sourceCount,
   setSourceCount,
 }) => {
@@ -52,6 +56,14 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
   const showSourceCountSelector = siteConfig?.showSourceCountSelector ?? false;
   const enabledMediaTypes = getEnabledMediaTypes(siteConfig);
   const collectionsConfig = getCollectionsConfig(siteConfig);
+
+  // Get available libraries and check if we should show library selector
+  const availableLibraries = (siteConfig?.includedLibraries || []).slice().sort((a, b) => {
+    const nameA = typeof a === "string" ? a : a.name;
+    const nameB = typeof b === "string" ? b : b.name;
+    return nameA.toLowerCase().localeCompare(nameB.toLowerCase());
+  });
+  const showLibrarySelection = availableLibraries.length > 1;
 
   // Helper function to determine if options have been changed from defaults
   const areOptionsModified = () => {
@@ -104,13 +116,21 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
     // Check if source count has been changed from default (only if feature is enabled)
     const sourceCountChanged = showSourceCountSelector && sourceCount !== defaultSourceCount;
 
-    return mediaTypesChanged || collectionChanged || sourceCountChanged;
+    // Check if library selection has been changed from default (only if feature is enabled)
+    const defaultLibraries = availableLibraries.map((lib) => (typeof lib === "string" ? lib : lib.name));
+    const librariesChanged =
+      showLibrarySelection &&
+      (selectedLibraries.length !== defaultLibraries.length ||
+        !selectedLibraries.every((lib) => defaultLibraries.includes(lib)));
+
+    return mediaTypesChanged || collectionChanged || sourceCountChanged || librariesChanged;
   };
 
   const isModified = areOptionsModified();
 
   // Check if any options are available
-  const hasAnyOptions = showMediaTypeSelection || showAuthorSelection || showSourceCountSelector;
+  const hasAnyOptions =
+    showMediaTypeSelection || showAuthorSelection || showSourceCountSelector || showLibrarySelection;
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -230,6 +250,22 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
     }
   };
 
+  const handleLibraryToggle = (library: string) => {
+    handleLibraryChange(library);
+
+    // Calculate the new selection for localStorage
+    const isCurrentlySelected = selectedLibraries.includes(library);
+    const newSelection = isCurrentlySelected
+      ? selectedLibraries.filter((lib) => lib !== library)
+      : [...selectedLibraries, library];
+
+    // Save library preferences to localStorage (only if change is allowed)
+    if (newSelection.length > 0) {
+      localStorage.setItem("selectedLibraries", JSON.stringify(newSelection));
+      logEvent("toggle_library", "Settings", library);
+    }
+  };
+
   const handleSourceCountToggle = (checked: boolean) => {
     const defaultSources = siteConfig?.defaultNumSources || 4;
     const extraSources = 10;
@@ -286,7 +322,7 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
         createPortal(
           <div
             ref={dropdownMenuRef}
-            className="fixed w-80 bg-white border border-gray-200 rounded-xl shadow-lg z-[90]"
+            className="fixed w-80 bg-white border border-gray-200 rounded-xl shadow-lg z-[90] max-h-[calc(100vh-8rem)] overflow-y-auto"
             style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px` }}
           >
             <div className="p-4 space-y-4">
@@ -369,6 +405,33 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
                 </div>
               )}
 
+              {/* Library Selection Group */}
+              {showLibrarySelection && (
+                <div>
+                  <h4 className="text-sm font-medium text-gray-900 mb-2">Content Libraries</h4>
+                  <div className="space-y-2">
+                    {availableLibraries.map((lib) => {
+                      const libraryName = typeof lib === "string" ? lib : lib.name;
+                      const isLastSelected = selectedLibraries.length === 1 && selectedLibraries.includes(libraryName);
+                      return (
+                        <label key={libraryName} className="flex items-center cursor-pointer py-1">
+                          <input
+                            type="checkbox"
+                            checked={selectedLibraries.includes(libraryName)}
+                            onChange={() => handleLibraryToggle(libraryName)}
+                            disabled={isLastSelected}
+                            className="mr-2 h-5 w-5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                          />
+                          <span className={`text-sm ${isLastSelected ? "text-gray-500" : "text-gray-700"}`}>
+                            {libraryName}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Extra Sources Option */}
               {showSourceCountSelector && (
                 <div>
@@ -433,6 +496,16 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
                 <div>
                   <h4 className="font-medium mb-1">Collection Selection</h4>
                   <p className="text-sm text-gray-600">Select specific collections or authors to focus your search.</p>
+                </div>
+              )}
+
+              {showLibrarySelection && (
+                <div>
+                  <h4 className="font-medium mb-1">Library Selection</h4>
+                  <p className="text-sm text-gray-600">
+                    Choose which content libraries to search. You can select one or more libraries to narrow your search
+                    to specific sources. At least one library must remain selected.
+                  </p>
                 </div>
               )}
 

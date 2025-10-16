@@ -123,6 +123,7 @@ interface ChatRequestBody {
   collection?: string;
   temporarySession?: boolean;
   mediaTypes?: Partial<MediaTypes>;
+  selectedLibraries?: string[]; // selected content libraries to search
   sourceCount?: number;
   siteId?: string;
   uuid: string; // required client UUID (persisted regardless of auth)
@@ -989,7 +990,8 @@ async function handleChatRequest(req: NextRequest) {
           sanitizedInput.temporarySession || false,
           req, // Pass the request object for geo-awareness
           timingMetrics, // Pass timing metrics for detailed tracking
-          sanitizedInput.modelOverride // Pass model override if provided
+          sanitizedInput.modelOverride, // Pass model override if provided
+          sanitizedInput.selectedLibraries // Pass selected libraries for filtering
         );
         // --- End of Encapsulated Call ---
         timingMetrics.answerStreamingComplete = Date.now();

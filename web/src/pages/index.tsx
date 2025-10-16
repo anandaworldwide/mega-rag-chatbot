@@ -138,6 +138,17 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     youtube: boolean;
   }>({ text: true, audio: true, youtube: true });
 
+  // Library selection state - initialize with all libraries
+  const [selectedLibraries, setSelectedLibraries] = useState<string[]>(() => {
+    const availableLibraries = siteConfig?.includedLibraries || [];
+    return availableLibraries.map((lib) => (typeof lib === "string" ? lib : lib.name));
+  });
+  // Keep a ref in sync to avoid stale closures during rapid toggles/submit
+  const selectedLibrariesRef = useRef<string[]>(selectedLibraries);
+  useEffect(() => {
+    selectedLibrariesRef.current = selectedLibraries;
+  }, [selectedLibraries]);
+
   // Chat state management using custom hook
   const {
     messageState,
@@ -146,7 +157,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     setLoading,
     error: chatError,
     setError,
-  } = useChat(collection, temporarySession, mediaTypes, siteConfig);
+  } = useChat(collection, temporarySession, mediaTypes, siteConfig, selectedLibraries);
   const { messages } = messageState as {
     messages: ExtendedAIMessage[];
   };
@@ -235,6 +246,24 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         });
       }
     }
+  };
+
+  // Function to handle library selection
+  const handleLibraryChange = (library: string) => {
+    setSelectedLibraries((prev) => {
+      const isCurrentlySelected = prev.includes(library);
+
+      // Prevent deselecting the last library
+      if (isCurrentlySelected && prev.length === 1) {
+        logEvent("library_selection_prevented", "Settings", "last_library_deselection_blocked");
+        return prev;
+      }
+
+      const newSelection = isCurrentlySelected ? prev.filter((lib) => lib !== library) : [...prev, library];
+
+      logEvent("library_selection_changed", "Settings", library, newSelection.length);
+      return newSelection;
+    });
   };
 
   // Helper function to load conversation content without URL updates
@@ -583,6 +612,23 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         );
       }
 
+      // Load library selection preferences
+      const savedLibraries = localStorage.getItem("selectedLibraries");
+      if (savedLibraries) {
+        const parsedLibraries = JSON.parse(savedLibraries);
+        // Validate that saved libraries are still available in siteConfig
+        const availableLibraries = (siteConfig?.includedLibraries || []).map((lib) =>
+          typeof lib === "string" ? lib : lib.name
+        );
+        const validLibraries = parsedLibraries.filter((lib: string) => availableLibraries.includes(lib));
+        // Only restore if there's at least one valid library
+        if (validLibraries.length > 0) {
+          setSelectedLibraries(validLibraries);
+          preferencesLoaded = true;
+          logEvent("search_preferences_loaded", "Settings", "libraries_restored", validLibraries.length);
+        }
+      }
+
       // Load extra sources preference
       const savedUseExtraSources = localStorage.getItem("useExtraSources");
       if (savedUseExtraSources !== null) {
@@ -605,7 +651,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       // Analytics for localStorage errors
       logEvent("search_preferences_error", "Settings", "localStorage_parse_error");
     }
-  }, [siteConfig?.defaultNumSources]);
+  }, [siteConfig?.defaultNumSources, siteConfig?.includedLibraries]);
 
   const handleAISuggestionsRefreshReady = useCallback((fn: () => void) => {
     aiSuggestionsRefreshRef.current = fn;
@@ -1148,6 +1194,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           collection,
           temporarySession,
           mediaTypes,
+          selectedLibraries: selectedLibrariesRef.current,
           sourceCount: sourceCount,
           uuid: getOrCreateUUID(),
           convId: currentConvIdRef.current, // Pass current conversation ID for follow-ups
@@ -1453,6 +1500,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             history: messageState.history.slice(0, messageIndex), // Include conversation history up to this point
             collection: apiMessage.collection || collection,
             mediaTypes: mediaTypes,
+            selectedLibraries: selectedLibrariesRef.current,
             sourceCount: apiMessage.sourceDocs?.length || sourceCount,
             temporarySession: temporarySession,
             uuid: getOrCreateUUID(),
@@ -1938,6 +1986,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                     textAreaRef={textAreaRef}
                     mediaTypes={mediaTypes}
                     handleMediaTypeChange={handleMediaTypeChange}
+                    selectedLibraries={selectedLibraries}
+                    handleLibraryChange={handleLibraryChange}
                     siteConfig={siteConfig}
                     input={query}
                     handleInputChange={handleInputChange}

@@ -12,7 +12,8 @@ export function useChat(
   collection: string,
   temporarySession: boolean,
   mediaTypes: { text: boolean; audio: boolean },
-  siteConfig?: SiteConfig | null
+  siteConfig?: SiteConfig | null,
+  selectedLibraries?: string[]
 ) {
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,6 +80,7 @@ export function useChat(
           history: messageState.history,
           temporarySession,
           mediaTypes,
+          selectedLibraries,
           siteConfig,
           uuid: getOrCreateUUID(),
         }),

@@ -20,6 +20,7 @@ export interface SavedState {
   };
   collection: string;
   sourceCount: number;
+  selectedLibraries: string[];
 }
 
 interface ModelComparisonChatProps {
@@ -59,6 +60,7 @@ const ModelComparisonChat: React.FC<ModelComparisonChatProps> = ({ siteConfig, s
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
   const [mediaTypes, setMediaTypes] = useState(savedState.mediaTypes);
   const [collection, setCollection] = useState(savedState.collection);
+  const [selectedLibraries, setSelectedLibraries] = useState<string[]>(savedState.selectedLibraries);
   const accumulatedResponseA = useRef("");
   const accumulatedResponseB = useRef("");
   const [copiedMessageA, setCopiedMessageA] = useState<string | null>(null);
@@ -141,8 +143,19 @@ const ModelComparisonChat: React.FC<ModelComparisonChatProps> = ({ siteConfig, s
       mediaTypes,
       collection,
       sourceCount,
+      selectedLibraries,
     });
-  }, [modelA, modelB, temperatureA, temperatureB, mediaTypes, collection, onStateChange, sourceCount]);
+  }, [
+    modelA,
+    modelB,
+    temperatureA,
+    temperatureB,
+    mediaTypes,
+    collection,
+    onStateChange,
+    sourceCount,
+    selectedLibraries,
+  ]);
 
   useEffect(() => {
     const checkAdminStatus = async () => {
@@ -249,6 +262,7 @@ const ModelComparisonChat: React.FC<ModelComparisonChatProps> = ({ siteConfig, s
         historyA: historyA, // Separate history for model A
         historyB: historyB, // Separate history for model B
         sourceCount,
+        selectedLibraries,
         useExtraSources: false,
         uuid: getOrCreateUUID(),
       };
@@ -558,6 +572,19 @@ const ModelComparisonChat: React.FC<ModelComparisonChatProps> = ({ siteConfig, s
     }
   };
 
+  const handleLibraryChange = (library: string) => {
+    setSelectedLibraries((prev) => {
+      const isCurrentlySelected = prev.includes(library);
+
+      // Prevent deselecting the last library
+      if (isCurrentlySelected && prev.length === 1) {
+        return prev;
+      }
+
+      return isCurrentlySelected ? prev.filter((lib) => lib !== library) : [...prev, library];
+    });
+  };
+
   const chatInputProps = {
     loading,
     handleSubmit,
@@ -586,6 +613,8 @@ const ModelComparisonChat: React.FC<ModelComparisonChatProps> = ({ siteConfig, s
     textAreaRef,
     mediaTypes,
     handleMediaTypeChange,
+    selectedLibraries,
+    handleLibraryChange,
     siteConfig,
     input,
     handleInputChange,
