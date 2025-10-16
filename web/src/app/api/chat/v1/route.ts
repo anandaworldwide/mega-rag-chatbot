@@ -1047,13 +1047,15 @@ async function handleChatRequest(req: NextRequest) {
                           console.log(`Updated document ${savedDocId} with generated title: "${generatedTitle}"`);
                         }
                       } catch (titleUpdateError) {
-                        console.error("Failed to update document with generated title:", titleUpdateError);
-                        // Continue without title update - it's not critical for functionality
+                        // Non-critical: title update failed after 3 retry attempts (14s timeout per attempt)
+                        console.warn(
+                          `Title update skipped for ${savedDocId} after 3 retry attempts - user experience unaffected`
+                        );
                       }
                     }
                   })
-                  .catch((titleError) => {
-                    console.error("Title generation promise failed:", titleError);
+                  .catch(() => {
+                    // Non-critical: title generation failed - silently continue
                   });
               }
               // For follow-up messages, no title generation needed
