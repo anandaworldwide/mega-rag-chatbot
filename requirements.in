@@ -29,9 +29,9 @@ h11==0.16.0
 httpcore==1.0.9
 httpx==0.28.1
 huggingface-hub==0.33.0
-langchain-core==0.3.65
-langchain-openai==0.3.22
-langchain-text-splitters==0.3.8
+langchain-core>=0.3.72
+langchain-openai>=0.3.22
+langchain-text-splitters>=0.3.9
 langsmith==0.3.45
 matplotlib
 moviepy==1.0.3
@@ -70,7 +70,7 @@ seaborn
 spacy==3.8.7
 tenacity==8.2.2
 tokenizers==0.21.1
-torch>=2.2.0,<2.3.0
+torch>=2.2.0  # TODO: Upgrade to 2.6.0+ when Python 3.12 support available (CVE-2024-XXXXX)
 tqdm==4.67.1
 transformers==4.52.4
 typer==0.16.0
