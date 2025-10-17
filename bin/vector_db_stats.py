@@ -12,18 +12,47 @@ efficient metadata fetching (100 vectors per API call).
 
 Usage:
     python bin/vector_db_stats.py --site <site_id> [--prefix <id_prefix>] [--use-non-ingest|-n]
+    python bin/vector_db_stats.py --site <site_id> --env <dev|prod> --write-firestore
 
 Example:
     python bin/vector_db_stats.py --site ananda
     python bin/vector_db_stats.py --site ananda --prefix "text||Crystal Clarity||"
     python bin/vector_db_stats.py --site ananda --use-non-ingest
+    python bin/vector_db_stats.py --site ananda --env prod --write-firestore
+
+Firestore Integration:
+    Use --write-firestore flag to write stats directly to Firestore for UI consumption.
+    Stats are written to the 'libraryStats' collection with site ID as document ID.
+    The --env flag (dev or prod) determines which Firestore environment to write to.
+
+Weekly Cron Setup:
+    To automatically update stats weekly, add to crontab (run weekly on Sundays at 2 AM):
+
+    # Ananda site - prod
+    0 2 * * 0 cd /path/to/mega-rag-chatbot && python bin/vector_db_stats.py --site ananda --env prod --write-firestore >> /var/log/library_stats_ananda_prod.log 2>&1
+
+    # Ananda site - dev
+    30 2 * * 0 cd /path/to/mega-rag-chatbot && python bin/vector_db_stats.py --site ananda --env dev --write-firestore >> /var/log/library_stats_ananda_dev.log 2>&1
+
+    # Ananda-public site - prod
+    0 3 * * 0 cd /path/to/mega-rag-chatbot && python bin/vector_db_stats.py --site ananda-public --env prod --write-firestore >> /var/log/library_stats_ananda_public_prod.log 2>&1
+
+    # Ananda-public site - dev
+    30 3 * * 0 cd /path/to/mega-rag-chatbot && python bin/vector_db_stats.py --site ananda-public --env dev --write-firestore >> /var/log/library_stats_ananda_public_dev.log 2>&1
+
+    Note: Stagger jobs by 30 minutes to avoid overloading the system.
+    Note: Replace /path/to/mega-rag-chatbot with your actual project path.
 """
 
 import argparse
+import json
 import os
 import time
 from collections import Counter
+from datetime import datetime, timezone
 
+import firebase_admin
+from firebase_admin import credentials, firestore
 from pinecone import Pinecone
 from tqdm import tqdm
 
@@ -274,6 +303,90 @@ def print_stats(stats, library_doc_counts):
                 print(f"  {item}: {count:,}")
 
 
+def write_stats_to_firestore(stats, site, env):
+    """
+    Write stats directly to Firestore.
+
+    Args:
+        stats: Dictionary containing Counters for each metadata field
+        site: Site ID (e.g., 'ananda', 'ananda-public')
+        env: Environment ('dev' or 'prod')
+    """
+    print(f"\nInitializing Firebase Admin for {env} environment...")
+
+    # Initialize Firebase Admin if not already done
+    if not firebase_admin._apps:
+        # Use Google Application Credentials from environment
+        google_credentials_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+
+        if not google_credentials_json:
+            raise ValueError(
+                "GOOGLE_APPLICATION_CREDENTIALS environment variable is not set.\n"
+                "This should contain the full JSON service account credentials."
+            )
+
+        try:
+            # Parse the service account JSON
+            service_account = json.loads(google_credentials_json)
+
+            # Validate required fields
+            required_fields = ["type", "project_id", "private_key", "client_email"]
+            missing_fields = [
+                field for field in required_fields if field not in service_account
+            ]
+
+            if missing_fields:
+                raise ValueError(
+                    f"Service account JSON missing required fields: {', '.join(missing_fields)}"
+                )
+
+            cred = credentials.Certificate(service_account)
+            firebase_admin.initialize_app(cred)
+
+            print(
+                f"✓ Firebase Admin initialized for project: {service_account.get('project_id')}"
+            )
+
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"Failed to parse GOOGLE_APPLICATION_CREDENTIALS as JSON: {e}\n"
+                "Ensure the environment variable contains valid JSON."
+            ) from e
+
+    db = firestore.client()
+
+    # Prepare authors data with total count for "All authors" / "whole_library"
+    authors_dict = dict(stats["author"])
+
+    # Calculate total for "whole_library" (All authors) - sum of all author counts
+    # This represents the total when no author filter is applied (radio button: "All authors")
+    total_count = sum(stats["author"].values())
+    authors_dict["whole_library"] = total_count
+
+    # Prepare data - convert Counters to regular dicts
+    stats_data = {
+        "site": site,
+        "libraries": dict(stats["library"]),
+        "mediaTypes": dict(stats["type"]),
+        "authors": authors_dict,
+        "calculatedAt": datetime.now(timezone.utc),
+        "lastUpdated": firestore.SERVER_TIMESTAMP,
+    }
+
+    print(f"\nWriting stats to Firestore for site: {site}")
+    print(f"  - Libraries: {len(stats_data['libraries'])} entries")
+    print(f"  - Media types: {len(stats_data['mediaTypes'])} entries")
+    print(f"  - Authors: {len(stats_data['authors'])} entries")
+
+    # Write to Firestore
+    doc_ref = db.collection("libraryStats").document(site)
+    doc_ref.set(stats_data)
+
+    print("\n✓ Successfully wrote stats to Firestore!")
+    print(f"  Document path: libraryStats/{site}")
+    print(f"  Environment: {env}")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Get Pinecone vector statistics")
     parser.add_argument(
@@ -290,6 +403,16 @@ if __name__ == "__main__":
         "--max-vectors",
         type=int,
         help="Maximum number of vectors to process (default: all)",
+    )
+    parser.add_argument(
+        "--env",
+        choices=["dev", "prod"],
+        help="Target environment (dev or prod Firestore)",
+    )
+    parser.add_argument(
+        "--write-firestore",
+        action="store_true",
+        help="Write results directly to Firestore",
     )
     args = parser.parse_args()
 
@@ -316,3 +439,11 @@ if __name__ == "__main__":
 
     print(f"\nCompleted in {end_time - start_time:.1f} seconds")
     print_stats(stats, library_doc_counts)
+
+    # Write to Firestore if requested
+    if args.write_firestore:
+        if not args.env:
+            print("\nError: --env is required when using --write-firestore")
+            print("Usage: --env [dev|prod] --write-firestore")
+            exit(1)
+        write_stats_to_firestore(stats, args.site, args.env)

@@ -47,6 +47,21 @@ import { ChatMessage, convertChatHistory } from "@/utils/shared/chatHistory";
 import { NextRequest } from "next/server";
 import { sendOpsAlert } from "./emailOps";
 
+// Custom error for when no sources are found
+export class NoSourcesError extends Error {
+  constructor(
+    message: string,
+    public filters: {
+      libraries?: string[];
+      mediaTypes?: { text?: boolean; audio?: boolean; youtube?: boolean };
+      collection?: string;
+    }
+  ) {
+    super(message);
+    this.name = "NoSourcesError";
+  }
+}
+
 // S3 client for loading remote templates and configurations
 const s3Client = new S3Client({
   region: process.env.AWS_REGION || "us-west-1",
@@ -699,19 +714,36 @@ Error details: ${errorString}`,
       } catch (err) {
         if (sendData) sendData({ log: `[RAG] Error retrieving documents: ${err}` });
       }
+
+      // Check for empty documents IMMEDIATELY - throw error to prevent answering without sources
+      // This must happen BEFORE any sendData calls to prevent the LLM from receiving empty context
+      if (allDocuments.length === 0) {
+        const warningMsg = `⚠️ NO SOURCES: No documents retrieved for question: "${input.question.substring(0, 100)}..."`;
+        console.warn(warningMsg);
+        if (sendData) sendData({ log: warningMsg });
+
+        // Throw NoSourcesError with filter information
+        throw new NoSourcesError("No sources found for your query with the current chat options.", {
+          libraries: selectedLibraries && selectedLibraries.length > 0 ? selectedLibraries : undefined,
+          mediaTypes:
+            baseFilter && baseFilter.type
+              ? (baseFilter.type as { $in?: string[] }).$in?.reduce((acc: any, type: string) => {
+                  if (type === "text") acc.text = true;
+                  if (type === "audio") acc.audio = true;
+                  if (type === "youtube") acc.youtube = true;
+                  return acc;
+                }, {})
+              : undefined,
+          collection: baseFilter && baseFilter.author ? String(baseFilter.author) : undefined,
+        });
+      }
+
       if (sendData) {
         // DEBUG: Add extensive logging for sources debugging
         try {
           const debugMsg1 = `🔍 SOURCES DEBUG: Retrieved ${allDocuments.length} documents`;
           console.log(debugMsg1);
           sendData({ log: debugMsg1 });
-
-          // Check for empty documents
-          if (allDocuments.length === 0) {
-            const warningMsg = `⚠️ SOURCES WARNING: No documents retrieved for question: "${input.question.substring(0, 100)}..."`;
-            console.warn(warningMsg);
-            sendData({ log: warningMsg });
-          }
 
           // DEBUG: Check for problematic content that could break JSON serialization
           const problematicSources = allDocuments.filter((doc, index) => {
@@ -1385,6 +1417,11 @@ export async function setupAndExecuteLanguageModelChain(
         suggestions: generatedSuggestions, // Include suggestions for saving
       };
     } catch (error) {
+      // Don't retry NoSourcesError - it's a user-facing error that won't be fixed by retrying
+      if (error instanceof NoSourcesError) {
+        throw error;
+      }
+
       lastError = error as Error;
       retryCount++;
       if (retryCount < MAX_RETRIES) {

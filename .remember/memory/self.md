@@ -670,3 +670,28 @@ const handleStreamingResponse = useCallback(
 
 - Unescaped entities: Use `&apos;` instead of `'` in JSX text
 - Next.js links: Use `<Link>` from `next/link` instead of `<a>` for internal navigation
+
+### 26. Python Exception Chaining in Except Blocks
+
+**Wrong**: Raising new exceptions in `except` blocks without proper chaining.
+
+```python
+try:
+    result = json.loads(data)
+except json.JSONDecodeError as e:
+    raise ValueError(f"Invalid JSON: {e}")  # Loses original traceback
+```
+
+**Correct**: Use `raise ... from e` to chain exceptions and preserve traceback.
+
+```python
+try:
+    result = json.loads(data)
+except json.JSONDecodeError as e:
+    raise ValueError(f"Invalid JSON: {e}") from e  # Preserves full traceback
+```
+
+**Pattern**: Always use exception chaining when re-raising exceptions to maintain full error context:
+
+- Use `raise ... from e` when the original exception is relevant
+- Use `raise ... from None` when you want to suppress the original exception (rare cases)

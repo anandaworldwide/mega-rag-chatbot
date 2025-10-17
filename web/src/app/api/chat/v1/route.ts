@@ -46,7 +46,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Document } from "langchain/document";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { PineconeStore } from "@langchain/pinecone";
-import { makeChain, setupAndExecuteLanguageModelChain } from "@/utils/server/makechain";
+import { makeChain, setupAndExecuteLanguageModelChain, NoSourcesError } from "@/utils/server/makechain";
 import { getCachedPineconeIndex } from "@/utils/server/pinecone-client";
 
 import { getPineconeIndexName } from "@/utils/server/pinecone-config";
@@ -440,7 +440,47 @@ async function saveOrUpdateDocument(
 function handleError(error: unknown, sendData: (data: StreamingResponseData) => void) {
   if (error instanceof Error) {
     // Handle specific error cases
-    if (error.name === "PineconeNotFoundError") {
+    if (error instanceof NoSourcesError) {
+      // Build actionable error message based on active filters as a chat response
+      let message = "No sources found matching your search criteria. ";
+      const suggestions: string[] = [];
+
+      if (error.filters.libraries && error.filters.libraries.length > 0) {
+        if (error.filters.libraries.length === 1) {
+          message += `You're searching only in "${error.filters.libraries[0]}". `;
+          suggestions.push("Try selecting additional libraries");
+        }
+      }
+
+      if (error.filters.mediaTypes) {
+        const activeTypes = Object.entries(error.filters.mediaTypes)
+          .filter(([, isActive]) => isActive)
+          .map(([type]) => type);
+
+        if (activeTypes.length > 0 && activeTypes.length < 3) {
+          const typeNames = activeTypes.map((t) => (t === "youtube" ? "video" : t));
+          message += `You're only searching ${typeNames.join(" and ")} content. `;
+          suggestions.push("Try including other media types");
+        }
+      }
+
+      if (error.filters.collection) {
+        message += `You're filtering by collection: "${error.filters.collection}". `;
+        suggestions.push("Try changing your collection filter");
+      }
+
+      if (suggestions.length > 0) {
+        message += "\n\nSuggestions:\n";
+        suggestions.forEach((suggestion) => {
+          message += `• ${suggestion}\n`;
+        });
+      } else {
+        message += "Try adjusting your chat options or rephrasing your question.";
+      }
+
+      // Send as error message
+      sendData({ error: message });
+    } else if (error.name === "PineconeNotFoundError") {
       sendData({
         error: "The specified Pinecone index does not exist. Please notify your administrator.",
       });

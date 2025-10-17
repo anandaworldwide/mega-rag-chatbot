@@ -20,6 +20,7 @@ import {
   getCollectionsConfig,
 } from "@/utils/client/siteConfig";
 import { logEvent } from "@/utils/client/analytics";
+import { useLibraryStats } from "@/hooks/useLibraryStats";
 
 interface SearchOptionsDropdownProps {
   siteConfig: SiteConfig | null;
@@ -49,6 +50,9 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
   const dropdownMenuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+
+  // Fetch library stats
+  const { stats } = useLibraryStats(siteConfig);
 
   // Get configuration options from siteConfig
   const showMediaTypeSelection = getEnableMediaTypeSelection(siteConfig);
@@ -127,6 +131,37 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
   };
 
   const isModified = areOptionsModified();
+
+  // Helper function to format large numbers
+  const formatCount = (count: number): string => {
+    if (count >= 1000) {
+      return `${(count / 1000).toFixed(1)}k`;
+    }
+    return count.toLocaleString();
+  };
+
+  // Helper function to get collection count based on author filters
+  const getCollectionCount = (collectionKey: string): number => {
+    if (!stats?.authors) return 0;
+
+    // Map collection to author filters from siteConfig
+    if (collectionKey === "master_swami") {
+      return (stats.authors["Paramhansa Yogananda"] || 0) + (stats.authors["Swami Kriyananda"] || 0);
+    }
+
+    if (collectionKey === "whole_library") {
+      // Use the precomputed total from backend if available
+      if (stats.authors["whole_library"] !== undefined) {
+        return stats.authors["whole_library"];
+      }
+      // Fallback: sum all authors (excluding whole_library key to avoid double-counting)
+      return Object.entries(stats.authors)
+        .filter(([key]) => key !== "whole_library")
+        .reduce((sum, [, count]) => sum + count, 0);
+    }
+
+    return 0;
+  };
 
   // Check if any options are available
   const hasAnyOptions =
@@ -354,7 +389,12 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
                           onChange={() => handleMediaTypeToggle("text")}
                           className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                         />
-                        <span className="text-sm text-gray-700">Writings</span>
+                        <span className="text-sm text-gray-700">
+                          Writings
+                          {stats?.mediaTypes?.text && (
+                            <span className="text-gray-400 ml-1">({formatCount(stats.mediaTypes.text)})</span>
+                          )}
+                        </span>
                       </label>
                     )}
                     {enabledMediaTypes.includes("audio") && (
@@ -365,7 +405,12 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
                           onChange={() => handleMediaTypeToggle("audio")}
                           className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                         />
-                        <span className="text-sm text-gray-700">Audio</span>
+                        <span className="text-sm text-gray-700">
+                          Audio
+                          {stats?.mediaTypes?.audio && (
+                            <span className="text-gray-400 ml-1">({formatCount(stats.mediaTypes.audio)})</span>
+                          )}
+                        </span>
                       </label>
                     )}
                     {enabledMediaTypes.includes("youtube") && (
@@ -376,7 +421,12 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
                           onChange={() => handleMediaTypeToggle("youtube")}
                           className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                         />
-                        <span className="text-sm text-gray-700">Video</span>
+                        <span className="text-sm text-gray-700">
+                          Video
+                          {stats?.mediaTypes?.youtube && (
+                            <span className="text-gray-400 ml-1">({formatCount(stats.mediaTypes.youtube)})</span>
+                          )}
+                        </span>
                       </label>
                     )}
                   </div>
@@ -388,19 +438,25 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
                 <div>
                   <h4 className="text-sm font-medium text-gray-900 mb-2">Authors</h4>
                   <div className="space-y-2">
-                    {Object.entries(collectionsConfig).map(([key, value]) => (
-                      <label key={key} className="flex items-center">
-                        <input
-                          type="radio"
-                          name="collection"
-                          value={key}
-                          checked={collection === key}
-                          onChange={() => handleCollectionSelect(key)}
-                          className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
-                        />
-                        <span className="text-sm text-gray-700">{value}</span>
-                      </label>
-                    ))}
+                    {Object.entries(collectionsConfig).map(([key, value]) => {
+                      const count = getCollectionCount(key);
+                      return (
+                        <label key={key} className="flex items-center">
+                          <input
+                            type="radio"
+                            name="collection"
+                            value={key}
+                            checked={collection === key}
+                            onChange={() => handleCollectionSelect(key)}
+                            className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                          />
+                          <span className="text-sm text-gray-700">
+                            {value}
+                            {count > 0 && <span className="text-gray-400 ml-1">({formatCount(count)})</span>}
+                          </span>
+                        </label>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -424,6 +480,9 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
                           />
                           <span className={`text-sm ${isLastSelected ? "text-gray-500" : "text-gray-700"}`}>
                             {libraryName}
+                            {stats?.libraries?.[libraryName] && (
+                              <span className="text-gray-400 ml-1">({formatCount(stats.libraries[libraryName])})</span>
+                            )}
                           </span>
                         </label>
                       );
@@ -447,6 +506,29 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
                       Use 10 sources instead of 4 for more comprehensive responses
                     </span>
                   </label>
+                </div>
+              )}
+
+              {/* Stats Legend */}
+              {stats && (
+                <div className="pt-3 mt-3 border-t border-gray-200">
+                  <div className="flex items-start text-xs text-gray-500">
+                    <svg
+                      className="w-4 h-4 mr-1.5 mt-0.5 flex-shrink-0"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                      xmlns="http://www.w3.org/2000/svg"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                    <span>Numbers indicate searchable content chunks available in each category</span>
+                  </div>
                 </div>
               )}
             </div>
