@@ -925,10 +925,15 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
 
     @patch("time.sleep")
     @patch(
-        "crawler.website_crawler.sync_playwright"
-    )  # Mock playwright to prevent actual browser launch
-    def test_daemon_sleeps_when_no_urls(self, mock_sync_playwright, mock_time_sleep):
+        "crawler.website_crawler._setup_crawler_browser"
+    )  # Mock browser setup to prevent actual browser launch
+    def test_daemon_sleeps_when_no_urls(self, mock_setup_browser, mock_time_sleep):
         """Test that the daemon loop sleeps when no URLs are ready to crawl."""
+        # Mock the browser and page objects
+        mock_browser = MagicMock()
+        mock_page = MagicMock()
+        mock_setup_browser.return_value = (mock_browser, mock_page)
+
         crawler = WebsiteCrawler(self.site_id, self.site_config)
 
         # Empty the queue to ensure get_next_url_to_crawl returns None
@@ -943,6 +948,7 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
             mock_args.stop_after = (
                 None  # Set stop_after to None to avoid comparison error
             )
+            mock_args.max_runtime_minutes = 0  # Set to 0 to avoid comparison error
 
             # Mock is_exiting from shared utilities to be False for a few iterations
             with patch("crawler.website_crawler.is_exiting") as mock_is_exiting:
@@ -955,13 +961,18 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
 
                 mock_is_exiting.side_effect = exit_requested_side_effect
 
-                # Mock os.getenv to return a dummy index name
-                with patch("os.getenv") as mock_getenv:
-                    mock_getenv.return_value = "test-index"
-                    from crawler.website_crawler import run_crawl_loop
+                # Mock sync_playwright to prevent actual playwright launch
+                with patch("crawler.website_crawler.sync_playwright") as mock_playwright:
+                    mock_p = MagicMock()
+                    mock_playwright.return_value.__enter__.return_value = mock_p
 
-                    # Run the loop with a short timeout to prevent infinite loop in test
-                    run_crawl_loop(crawler, MagicMock(), mock_args)
+                    # Mock os.getenv to return a dummy index name
+                    with patch("os.getenv") as mock_getenv:
+                        mock_getenv.return_value = "test-index"
+                        from crawler.website_crawler import run_crawl_loop
+
+                        # Run the loop with a short timeout to prevent infinite loop in test
+                        run_crawl_loop(crawler, MagicMock(), mock_args)
 
         # Verify that sleep was called due to no URLs
         mock_time_sleep.assert_called()
@@ -969,9 +980,14 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
         crawler.close()
 
     @patch("time.sleep")
-    @patch("crawler.website_crawler.sync_playwright")
-    def test_daemon_csv_check_during_sleep(self, mock_sync_playwright, mock_time_sleep):
+    @patch("crawler.website_crawler._setup_crawler_browser")
+    def test_daemon_csv_check_during_sleep(self, mock_setup_browser, mock_time_sleep):
         """Test that CSV checking occurs during daemon sleep periods."""
+        # Mock the browser and page objects
+        mock_browser = MagicMock()
+        mock_page = MagicMock()
+        mock_setup_browser.return_value = (mock_browser, mock_page)
+
         # Configure CSV mode
         csv_config = {
             "domain": "example.com",
@@ -999,6 +1015,7 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
         ):
             mock_args = MagicMock()
             mock_args.stop_after = None
+            mock_args.max_runtime_minutes = 0  # Set to 0 to avoid comparison error
 
             with patch("crawler.website_crawler.is_exiting") as mock_is_exiting:
                 effect_count = 0
@@ -1010,11 +1027,16 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
 
                 mock_is_exiting.side_effect = exit_requested_side_effect
 
-                with patch("os.getenv") as mock_getenv:
-                    mock_getenv.return_value = "test-index"
-                    from crawler.website_crawler import run_crawl_loop
+                # Mock sync_playwright to prevent actual playwright launch
+                with patch("crawler.website_crawler.sync_playwright") as mock_playwright:
+                    mock_p = MagicMock()
+                    mock_playwright.return_value.__enter__.return_value = mock_p
 
-                    run_crawl_loop(crawler, MagicMock(), mock_args)
+                    with patch("os.getenv") as mock_getenv:
+                        mock_getenv.return_value = "test-index"
+                        from crawler.website_crawler import run_crawl_loop
+
+                        run_crawl_loop(crawler, MagicMock(), mock_args)
 
         # Verify CSV check was called
         mock_csv_check.assert_called()
