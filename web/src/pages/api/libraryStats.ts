@@ -31,8 +31,27 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       });
     }
 
-    const stats = statsDoc.data();
-    return res.status(200).json(stats);
+    const stats = statsDoc.data() as any;
+
+    // Safeguard: ensure "All authors" reflects total vectors (sum of media types)
+    // Some vectors may lack author metadata; the UI treats "All authors" as no author filter
+    const mediaTypes = stats?.mediaTypes && typeof stats.mediaTypes === "object" ? stats.mediaTypes : {};
+    const totalVectors = Object.values(mediaTypes).reduce((sum: number, val: any) => {
+      const n = typeof val === "number" ? val : 0;
+      return sum + n;
+    }, 0);
+
+    const authors = stats?.authors && typeof stats.authors === "object" ? stats.authors : {};
+    if (totalVectors > 0) {
+      authors["whole_library"] = totalVectors;
+    }
+
+    const responseBody = {
+      ...stats,
+      authors,
+    };
+
+    return res.status(200).json(responseBody);
   } catch (error) {
     console.error("Error fetching library stats:", error);
     return res.status(500).json({ error: "Failed to fetch stats" });
