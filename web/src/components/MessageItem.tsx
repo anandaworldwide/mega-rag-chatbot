@@ -191,6 +191,17 @@ const MessageItem: React.FC<MessageItemProps> = ({
                   siteConfig={siteConfig}
                 />
 
+                {/* Regenerate answer button - works in all modes including temporary */}
+                {!readOnly && onRegenerateAnswer && (
+                  <button
+                    onClick={() => onRegenerateAnswer(index)}
+                    className="flex items-center hover:bg-gray-200 p-1 rounded"
+                    title="Regenerate this answer"
+                  >
+                    <span className="material-icons text-gray-500">refresh</span>
+                  </button>
+                )}
+
                 {/* Link and vote buttons - always visible after loading, but disabled until docId available */}
                 {!temporarySession && (
                   <>
@@ -206,17 +217,6 @@ const MessageItem: React.FC<MessageItemProps> = ({
                         {linkCopied === message.docId ? "check" : "link"}
                       </span>
                     </button>
-
-                    {/* Regenerate answer button */}
-                    {!readOnly && onRegenerateAnswer && (
-                      <button
-                        onClick={() => onRegenerateAnswer(index)}
-                        className="flex items-center hover:bg-gray-200 p-1 rounded"
-                        title="Regenerate this answer"
-                      >
-                        <span className="material-icons text-gray-500">refresh</span>
-                      </button>
-                    )}
 
                     {!readOnly &&
                       (message.docId ? (
