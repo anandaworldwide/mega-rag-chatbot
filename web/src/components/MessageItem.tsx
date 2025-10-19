@@ -38,6 +38,7 @@ interface MessageItemProps {
   readOnly?: boolean; // New prop to disable interactive elements
   onTryGPT41?: (messageIndex: number) => void; // New prop for regenerating with GPT-4.1
   isRegenerating?: boolean; // Track if this message is being regenerated
+  onRegenerateAnswer?: (messageIndex: number) => void; // New prop for regenerating answer
 }
 
 const MessageItem: React.FC<MessageItemProps> = ({
@@ -61,6 +62,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
   readOnly = false,
   onTryGPT41,
   isRegenerating = false,
+  onRegenerateAnswer,
 }) => {
   const { isSudoUser } = useSudo();
 
@@ -204,6 +206,17 @@ const MessageItem: React.FC<MessageItemProps> = ({
                         {linkCopied === message.docId ? "check" : "link"}
                       </span>
                     </button>
+
+                    {/* Regenerate answer button */}
+                    {!readOnly && onRegenerateAnswer && (
+                      <button
+                        onClick={() => onRegenerateAnswer(index)}
+                        className="flex items-center hover:bg-gray-200 p-1 rounded"
+                        title="Regenerate this answer"
+                      >
+                        <span className="material-icons text-gray-500">refresh</span>
+                      </button>
+                    )}
 
                     {!readOnly &&
                       (message.docId ? (

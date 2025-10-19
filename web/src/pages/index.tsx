@@ -1467,6 +1467,148 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     logEvent("cancel_feedback", "Engagement", "");
   };
 
+  // Function to handle answer regeneration
+  const handleRegenerateAnswer = useCallback(
+    async (messageIndex: number) => {
+      if (loading) return; // Prevent regeneration during active loading
+
+      const apiMessage = messages[messageIndex];
+      if (apiMessage.type !== "apiMessage") return;
+
+      const userMessage = messages[messageIndex - 1];
+      if (!userMessage || userMessage.type !== "userMessage") return;
+
+      logEvent("regenerate_answer_clicked", "Engagement", `Message Index: ${messageIndex}`);
+
+      setLoading(true);
+      setError(null);
+      accumulatedResponseRef.current = "";
+
+      try {
+        const newAbortController = new AbortController();
+        setAbortController(newAbortController);
+
+        const response = await fetchWithAuth("/api/chat/v1", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question: userMessage.message,
+            history: messageState.history.slice(0, messageIndex - 1), // Include conversation history before this Q&A pair
+            collection: apiMessage.collection || collection,
+            mediaTypes: mediaTypes,
+            selectedLibraries: selectedLibrariesRef.current,
+            sourceCount: apiMessage.sourceDocs?.length || sourceCount,
+            temporarySession: temporarySession,
+            uuid: getOrCreateUUID(),
+            convId: currentConvIdRef.current,
+          }),
+          signal: newAbortController.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status}`);
+        }
+
+        if (!response.body) {
+          throw new Error("No response body");
+        }
+
+        // Replace the existing message with an empty one to prepare for streaming
+        setMessageState((prevState) => {
+          const newMessages = [...prevState.messages];
+          newMessages[messageIndex] = {
+            type: "apiMessage",
+            message: "",
+            sourceDocs: [],
+          };
+          return {
+            ...prevState,
+            messages: newMessages,
+          };
+        });
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          const lines = chunk.split("\n");
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              try {
+                const data = JSON.parse(line.slice(5));
+
+                if (data.token) {
+                  accumulatedResponseRef.current += data.token;
+                  setMessageState((prevState) => {
+                    const newMessages = [...prevState.messages];
+                    newMessages[messageIndex] = {
+                      ...newMessages[messageIndex],
+                      message: accumulatedResponseRef.current,
+                    };
+                    return {
+                      ...prevState,
+                      messages: newMessages,
+                    };
+                  });
+                }
+
+                if (data.sourceDocs) {
+                  const immutableSourceDocs = Array.isArray(data.sourceDocs) ? [...data.sourceDocs] : [];
+                  setMessageState((prevState) => {
+                    const newMessages = [...prevState.messages];
+                    newMessages[messageIndex] = {
+                      ...newMessages[messageIndex],
+                      sourceDocs: immutableSourceDocs,
+                    };
+                    return {
+                      ...prevState,
+                      messages: newMessages,
+                    };
+                  });
+                }
+
+                if (data.docId) {
+                  setMessageState((prevState) => {
+                    const newMessages = [...prevState.messages];
+                    newMessages[messageIndex] = {
+                      ...newMessages[messageIndex],
+                      docId: data.docId,
+                    };
+                    return {
+                      ...prevState,
+                      messages: newMessages,
+                    };
+                  });
+                }
+
+                if (data.done) {
+                  setLoading(false);
+                  accumulatedResponseRef.current = "";
+                  toast.success("Answer regenerated successfully!");
+                }
+              } catch (e) {
+                console.error("Error parsing SSE data:", e);
+              }
+            }
+          }
+        }
+
+        setLoading(false);
+      } catch (error) {
+        console.error("Error regenerating answer:", error);
+        toast.error("Failed to regenerate answer. Please try again.");
+        setLoading(false);
+        setError(error instanceof Error ? error.message : "An error occurred while regenerating the answer.");
+      }
+    },
+    [loading, messages, collection, mediaTypes, sourceCount, temporarySession, messageState.history, setLoading, setError, setMessageState]
+  );
+
   // Function to handle GPT-4.1 regeneration
   const handleTryGPT41 = useCallback(
     async (messageIndex: number) => {
@@ -1915,6 +2057,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                         onSuggestionClick={handleSuggestionClick}
                         onTryGPT41={handleTryGPT41}
                         isRegenerating={isRegenerating && regeneratingMessageIndex === index}
+                        onRegenerateAnswer={handleRegenerateAnswer}
                       />
 
                       {/* Show comparison UI if this message is being regenerated */}

@@ -140,6 +140,16 @@
 - **Current model**: Using "gpt-4.1" model for comparison
 - **UI Flow**: Button appears below comparison after streaming completes (user-controlled, no auto-popup)
 
+## Answer Regeneration Feature
+
+- **Feature**: Regenerate button for re-generating answers with the same model
+- **Location**: Right of the link icon in MessageItem component
+- **Icon**: Google Material icon "refresh"
+- **Handler**: `handleRegenerateAnswer` in index.tsx
+- **Behavior**: Replaces the existing answer in-place with streaming updates
+- **State**: Uses existing `loading` state to prevent concurrent regenerations
+- **Analytics**: Logs "regenerate_answer_clicked" event with message index
+
 ## Never Do Again
 
 1. Cross-evaluate between different embedding model generations
