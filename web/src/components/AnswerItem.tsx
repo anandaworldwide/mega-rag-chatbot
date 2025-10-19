@@ -190,7 +190,7 @@ const AnswerItem: React.FC<AnswerItemProps> = ({
             {handleCopyLink && (
               <button
                 onClick={() => handleCopyLink(answer.id)}
-                className="text-gray-600 hover:text-gray-900 flex items-center p-1 rounded hover:bg-gray-200"
+                className="text-gray-600 hover:text-gray-900 flex items-center hover:bg-gray-100 p-2 rounded-xl h-8 w-8 justify-center transition-colors"
                 title="Copy link to clipboard"
               >
                 <span className="material-icons">{linkCopied === answer.id ? "check" : "link"}</span>
@@ -200,10 +200,10 @@ const AnswerItem: React.FC<AnswerItemProps> = ({
             {handleDelete && isSudoUser && (
               <button
                 onClick={() => handleDelete(answer.id)}
-                className="text-red-600 hover:text-red-800 flex items-center text-lg"
+                className="text-red-600 hover:text-red-800 hover:bg-red-50 flex items-center px-3 py-2 rounded-xl text-sm transition-colors h-8"
                 title="Delete this answer"
               >
-                <span className="material-icons text-lg mr-1">delete</span>
+                <span className="material-icons text-sm mr-1">delete</span>
                 Delete
               </button>
             )}

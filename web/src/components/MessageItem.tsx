@@ -100,7 +100,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
           onClick={() => handleVote(docId, true)}
           className={`${styles.voteButton} ${
             vote === 1 ? styles.voteButtonActive : ""
-          } hover:bg-gray-200 flex items-center`}
+          } hover:bg-gray-100 flex items-center p-2 rounded-xl h-8 w-8 justify-center transition-colors`}
           title={vote === 1 ? "Clear upvote" : "Upvote this answer"}
         >
           <span className={`material-icons ${vote === 1 ? "text-green-600" : "text-gray-500"}`}>
@@ -113,7 +113,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
           onClick={() => handleVote(docId, false)}
           className={`${styles.voteButton} ${
             vote === -1 ? styles.voteButtonDownActive : ""
-          } hover:bg-gray-200 flex items-center`}
+          } hover:bg-gray-100 flex items-center p-2 rounded-xl h-8 w-8 justify-center transition-colors`}
           title={vote === -1 ? "Clear downvote" : "Downvote (provide feedback)"}
         >
           <span className={`material-icons ${vote === -1 ? "text-red-600" : "text-gray-500"}`}>
@@ -186,7 +186,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
                 {!readOnly && onRegenerateAnswer && (
                   <button
                     onClick={() => onRegenerateAnswer(index)}
-                    className="flex items-center hover:bg-gray-200 p-1 rounded"
+                    className="flex items-center hover:bg-gray-100 p-2 rounded-xl h-8 w-8 justify-center transition-colors"
                     title="Regenerate this answer"
                   >
                     <span className="material-icons text-gray-500">refresh</span>
@@ -207,7 +207,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
                   <>
                     <button
                       onClick={() => message.docId && handleCopyLink(message.docId)}
-                      className={`flex items-center hover:bg-gray-200 p-1 rounded ${!message.docId ? "opacity-50 cursor-not-allowed" : ""}`}
+                      className={`flex items-center hover:bg-gray-100 p-2 rounded-xl h-8 w-8 justify-center transition-colors ${!message.docId ? "opacity-50 cursor-not-allowed" : ""}`}
                       title={message.docId ? "Copy link to clipboard" : "Waiting for link..."}
                       disabled={!message.docId}
                     >
@@ -225,14 +225,14 @@ const MessageItem: React.FC<MessageItemProps> = ({
                         <div className="flex items-center space-x-1">
                           <button
                             disabled
-                            className="opacity-50 cursor-not-allowed hover:bg-gray-200 flex items-center"
+                            className="opacity-50 cursor-not-allowed hover:bg-gray-100 flex items-center p-2 rounded-xl h-8 w-8 justify-center transition-colors"
                             title="Waiting for document ID..."
                           >
                             <span className="material-icons text-gray-500">thumb_up_off_alt</span>
                           </button>
                           <button
                             disabled
-                            className="opacity-50 cursor-not-allowed hover:bg-gray-200 flex items-center"
+                            className="opacity-50 cursor-not-allowed hover:bg-gray-100 flex items-center p-2 rounded-xl h-8 w-8 justify-center transition-colors"
                             title="Waiting for document ID..."
                           >
                             <span className="material-icons text-gray-500">thumb_down_off_alt</span>
@@ -244,7 +244,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
                     {!readOnly && onTryGPT41 && !isRegenerating && (
                       <button
                         onClick={() => onTryGPT41(index)}
-                        className="flex items-center space-x-1 px-2 py-1 rounded bg-gradient-to-r from-purple-500 to-blue-500 text-white text-sm hover:from-purple-600 hover:to-blue-600 transition-all"
+                        className="flex items-center space-x-1 px-3 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-blue-500 text-white text-sm hover:from-purple-600 hover:to-blue-600 transition-all h-8"
                         title="Regenerate this answer using GPT-4.1 for comparison"
                       >
                         <span className="material-icons text-sm">auto_awesome</span>

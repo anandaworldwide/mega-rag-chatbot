@@ -150,7 +150,11 @@ const CopyButton: React.FC<CopyButtonProps> = ({ markdown, answerId, sources, qu
   };
 
   return (
-    <button onClick={handleCopy} className="p-1 rounded hover:bg-gray-200" title="Copy answer to clipboard">
+    <button
+      onClick={handleCopy}
+      className="flex items-center hover:bg-gray-100 p-2 rounded-xl h-8 w-8 justify-center transition-colors"
+      title="Copy answer to clipboard"
+    >
       {copied ? (
         <span className="material-icons text-black">check</span>
       ) : (
