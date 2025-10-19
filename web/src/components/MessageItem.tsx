@@ -182,15 +182,6 @@ const MessageItem: React.FC<MessageItemProps> = ({
             {/* Action buttons for AI messages */}
             {message.type === "apiMessage" && index !== 0 && (!loading || !isLastMessage) && (
               <div className="mt-2 flex items-center space-x-2">
-                {/* Copy content button always shown when message is complete */}
-                <CopyButton
-                  markdown={message.message}
-                  answerId={message.docId || "unknown"}
-                  sources={message.sourceDocs}
-                  question={previousMessage?.message ?? ""}
-                  siteConfig={siteConfig}
-                />
-
                 {/* Regenerate answer button - works in all modes including temporary */}
                 {!readOnly && onRegenerateAnswer && (
                   <button
@@ -201,6 +192,15 @@ const MessageItem: React.FC<MessageItemProps> = ({
                     <span className="material-icons text-gray-500">refresh</span>
                   </button>
                 )}
+
+                {/* Copy content button always shown when message is complete */}
+                <CopyButton
+                  markdown={message.message}
+                  answerId={message.docId || "unknown"}
+                  sources={message.sourceDocs}
+                  question={previousMessage?.message ?? ""}
+                  siteConfig={siteConfig}
+                />
 
                 {/* Link and vote buttons - always visible after loading, but disabled until docId available */}
                 {!temporarySession && (
