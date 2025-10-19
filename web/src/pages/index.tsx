@@ -1589,7 +1589,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                 if (data.done) {
                   setLoading(false);
                   accumulatedResponseRef.current = "";
-                  toast.success("Answer regenerated successfully!");
                 }
               } catch (e) {
                 console.error("Error parsing SSE data:", e);
