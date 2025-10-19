@@ -12,6 +12,8 @@ interface PendingUser {
   email: string;
   invitedAt: string | null;
   expiresAt: string | null;
+  invitedByEmail?: string | null;
+  invitedByName?: string | null;
 }
 
 interface AdminPendingUsersPageProps {
@@ -116,6 +118,8 @@ export default function AdminPendingUsersPage({ siteConfig }: AdminPendingUsersP
         email: it.email,
         invitedAt: it.invitedAt || null,
         expiresAt: it.expiresAt || null,
+        invitedByEmail: it.invitedByEmail || null,
+        invitedByName: it.invitedByName || null,
       }));
       setPending(items);
       setPagination(data.pagination);
@@ -300,6 +304,15 @@ export default function AdminPendingUsersPage({ siteConfig }: AdminPendingUsersP
                       <div className="text-gray-700">{u.expiresAt || "–"}</div>
                     </div>
                   </div>
+                  {(u.invitedByEmail || u.invitedByName) && (
+                    <div className="text-xs text-gray-600">
+                      <span className="text-gray-500">Sent by:</span>
+                      <span className="ml-1 text-gray-700">
+                        {u.invitedByName ? u.invitedByName : u.invitedByEmail}
+                        {u.invitedByName && u.invitedByEmail ? ` (${u.invitedByEmail})` : ""}
+                      </span>
+                    </div>
+                  )}
                   <button
                     className="w-full inline-flex items-center justify-center px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 transition-colors"
                     onClick={() => handleResendClick(u.email)}
@@ -320,6 +333,7 @@ export default function AdminPendingUsersPage({ siteConfig }: AdminPendingUsersP
                   <th className="py-3 px-4 font-medium text-gray-900">Email</th>
                   <th className="py-3 px-4 font-medium text-gray-900">Invited</th>
                   <th className="py-3 px-4 font-medium text-gray-900">Expires</th>
+                  <th className="py-3 px-4 font-medium text-gray-900">Sent By</th>
                   <th className="py-3 px-4 font-medium text-gray-900">Actions</th>
                 </tr>
               </thead>
@@ -329,6 +343,16 @@ export default function AdminPendingUsersPage({ siteConfig }: AdminPendingUsersP
                     <td className="py-3 px-4 font-medium text-gray-900">{u.email}</td>
                     <td className="py-3 px-4 text-gray-600">{u.invitedAt || "–"}</td>
                     <td className="py-3 px-4 text-gray-600">{u.expiresAt || "–"}</td>
+                    <td className="py-3 px-4 text-gray-600">
+                      {u.invitedByEmail || u.invitedByName ? (
+                        <span>
+                          {u.invitedByName ? u.invitedByName : u.invitedByEmail}
+                          {u.invitedByName && u.invitedByEmail ? ` (${u.invitedByEmail})` : ""}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">–</span>
+                      )}
+                    </td>
                     <td className="py-3 px-4">
                       <button
                         className="inline-flex items-center px-3 py-1 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 transition-colors"

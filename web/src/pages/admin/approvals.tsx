@@ -67,7 +67,7 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
     initJwt();
   }, []);
 
-  // Fetch pending requests
+  // Fetch requests (pending by default; also fetch recently approved)
   useEffect(() => {
     if (!jwt) return;
 
@@ -104,7 +104,30 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
           throw new Error(data.error || "Failed to fetch pending requests");
         }
 
-        setRequests(data.requests || []);
+        const pendingList = data.requests || [];
+        // Additionally fetch recently approved for the "Recently Approved" section
+        let approvedList: ApprovalRequest[] = [];
+        try {
+          const approvedRes = await fetch("/api/admin/pendingRequests?status=approved&limit=10", {
+            headers: { Authorization: `Bearer ${jwt}` },
+          });
+          const approvedData = await approvedRes.json();
+          if (!approvedRes.ok) {
+            if (approvedData?.type === "firestore_index_error") {
+              const adminMsg = approvedData.adminMessage || "Database configuration required";
+              const idxUrl = approvedData.indexUrl;
+              const composed = idxUrl ? `${adminMsg}\n\nFirebase Console: ${idxUrl}` : adminMsg;
+              setMessage((prev) => (prev ? prev : composed));
+              setMessageType("error");
+            }
+          } else {
+            approvedList = approvedData.requests || [];
+          }
+        } catch (e) {
+          // non-fatal
+        }
+
+        setRequests([...pendingList, ...approvedList]);
 
         // If there's a specific request ID in the URL, select it
         if (requestId && typeof requestId === "string") {
@@ -189,6 +212,10 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
 
   const pendingRequests = requests.filter((r) => r.status === "pending");
   const processedRequests = requests.filter((r) => r.status !== "pending");
+  const recentlyApproved = processedRequests
+    .filter((r) => r.status === "approved")
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    .slice(0, 5);
 
   const mainContent = (
     <>
@@ -289,33 +316,43 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
         </div>
       )}
 
-      {dataLoaded && processedRequests.length > 0 && (
-        <div className="mt-8">
-          <h2 className="text-2xl font-bold mb-4">Recently Processed</h2>
-          <div className="space-y-4">
-            {processedRequests.slice(0, 5).map((request) => (
-              <div key={request.requestId} className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h3 className="font-semibold text-gray-900">{request.requesterName}</h3>
-                    <p className="text-sm text-gray-600">{request.requesterEmail}</p>
+      {dataLoaded &&
+        ((userRole === "superuser" && recentlyApproved.length > 0) ||
+          (userRole !== "superuser" && recentlyApproved.length > 0)) && (
+          <div className="mt-8">
+            <h2 className="text-2xl font-bold mb-4">Recently Approved</h2>
+            <div className="space-y-4">
+              {recentlyApproved.map((request) => (
+                <div key={request.requestId} className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="font-semibold text-gray-900">{request.requesterName}</h3>
+                      <p className="text-sm text-gray-600">{request.requesterEmail}</p>
+                    </div>
+                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
+                      Approved
+                    </span>
                   </div>
-                  <span
-                    className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                      request.status === "approved" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
-                    }`}
-                  >
-                    {request.status === "approved" ? "Approved" : "Denied"}
-                  </span>
+                  <div className="grid grid-cols-2 gap-4 text-sm mt-2">
+                    <div>
+                      <span className="text-gray-500">Approved at:</span>
+                      <span className="ml-2 text-gray-900">{new Date(request.updatedAt).toLocaleString()}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Approved by:</span>
+                      <span className="ml-2 text-gray-900">
+                        {request.adminName} ({request.adminEmail})
+                      </span>
+                    </div>
+                  </div>
+                  {request.adminMessage && (
+                    <p className="mt-2 text-sm text-gray-600 italic">&ldquo;{request.adminMessage}&rdquo;</p>
+                  )}
                 </div>
-                {request.adminMessage && (
-                  <p className="mt-2 text-sm text-gray-600 italic">&ldquo;{request.adminMessage}&rdquo;</p>
-                )}
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       {/* Action Modal */}
       <Modal

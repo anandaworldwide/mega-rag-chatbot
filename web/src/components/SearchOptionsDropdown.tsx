@@ -297,7 +297,9 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
     // Save library preferences to localStorage (only if change is allowed)
     if (newSelection.length > 0) {
       localStorage.setItem("selectedLibraries", JSON.stringify(newSelection));
-      logEvent("toggle_library", "Settings", library);
+      const status = isCurrentlySelected ? "disabled" : "enabled";
+      // Log library toggle with status in label and current selected count as value
+      logEvent("toggle_library", "Settings", `${library}:${status}`, newSelection.length);
     }
   };
 

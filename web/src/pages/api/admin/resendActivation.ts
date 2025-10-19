@@ -3,7 +3,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import firebase from "firebase-admin";
 import { db } from "@/services/firebase";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
-import { withJwtAuth } from "@/utils/server/jwtUtils";
+import { withJwtAuth, getTokenFromRequest } from "@/utils/server/jwtUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreGet, firestoreSet } from "@/utils/server/firestoreRetryUtils";
@@ -48,6 +48,26 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const userDocRef = db.collection(usersCol).doc(email.toLowerCase());
 
   try {
+    // Identify inviter admin from JWT and fetch name from users collection (if available)
+    let inviterEmail: string | undefined;
+    let inviterName: string | undefined;
+    try {
+      const token = getTokenFromRequest(req);
+      inviterEmail = token.email?.toLowerCase();
+      if (inviterEmail && db) {
+        const inviterSnap = await firestoreGet(
+          db.collection(usersCol).doc(inviterEmail),
+          "get inviter user",
+          inviterEmail
+        );
+        const inviterData = inviterSnap.exists ? (inviterSnap.data() as any) : undefined;
+        const first = (inviterData?.firstName || "").toString().trim();
+        const last = (inviterData?.lastName || "").toString().trim();
+        const full = `${first} ${last}`.trim();
+        inviterName = full || undefined;
+      }
+    } catch {}
+
     const existing = await firestoreGet(userDocRef, "get user", email);
     if (!existing.exists) return res.status(404).json({ error: "User not found" });
     const data = existing.data() as any;
@@ -58,7 +78,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const inviteExpiresAt = firebase.firestore.Timestamp.fromDate(getInviteExpiryDate(14));
     await firestoreSet(
       userDocRef,
-      { inviteTokenHash: tokenHash, inviteExpiresAt, updatedAt: firebase.firestore.Timestamp.now() },
+      {
+        inviteTokenHash: tokenHash,
+        inviteExpiresAt,
+        updatedAt: firebase.firestore.Timestamp.now(),
+        invitedByEmail: inviterEmail || data?.invitedByEmail,
+        invitedByName: inviterName || data?.invitedByName,
+      },
       { merge: true },
       "resend activation"
     );

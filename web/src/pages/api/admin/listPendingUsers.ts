@@ -61,6 +61,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         email: d.id, // Email is stored as document ID
         invitedAt: data.createdAt?.toDate?.() ? data.createdAt.toDate().toLocaleString() : null,
         expiresAt: data.inviteExpiresAt?.toDate?.() ? data.inviteExpiresAt.toDate().toLocaleString() : null,
+        invitedByEmail: data.invitedByEmail || null,
+        invitedByName: data.invitedByName || null,
       };
     });
 

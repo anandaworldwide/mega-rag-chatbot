@@ -3,7 +3,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import firebase from "firebase-admin";
 import { db } from "@/services/firebase";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
-import { withJwtAuth } from "@/utils/server/jwtUtils";
+import { withJwtAuth, getTokenFromRequest } from "@/utils/server/jwtUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreGet, firestoreSet } from "@/utils/server/firestoreRetryUtils";
@@ -45,6 +45,27 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     typeof customMessage === "string" && customMessage.trim() ? customMessage.trim() : undefined;
 
   const usersCol = getUsersCollectionName();
+  // Identify inviter admin from JWT and fetch name from users collection (if available)
+  let inviterEmail: string | undefined;
+  let inviterName: string | undefined;
+  try {
+    const token = getTokenFromRequest(req);
+    inviterEmail = token.email?.toLowerCase();
+    if (inviterEmail && db) {
+      const inviterSnap = await firestoreGet(
+        db.collection(usersCol).doc(inviterEmail),
+        "get inviter user",
+        inviterEmail
+      );
+      const inviterData = inviterSnap.exists ? (inviterSnap.data() as any) : undefined;
+      const first = (inviterData?.firstName || "").toString().trim();
+      const last = (inviterData?.lastName || "").toString().trim();
+      const full = `${first} ${last}`.trim();
+      inviterName = full || undefined;
+    }
+  } catch {
+    // best-effort only
+  }
   const userDocRef = db.collection(usersCol).doc(email.toLowerCase());
 
   try {
@@ -91,6 +112,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         inviteStatus: "pending",
         inviteTokenHash: tokenHash,
         inviteExpiresAt,
+        invitedByEmail: inviterEmail,
+        invitedByName: inviterName,
         newsletterSubscribed: true, // Default opt-in for newsletter
         createdAt: now,
         updatedAt: now,

@@ -163,18 +163,26 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const envPrefix = isDevelopment() ? "dev_" : "prod_";
   const collectionName = `${envPrefix}admin_approval_requests`;
 
-  // GET - List pending requests for this admin (or all if superuser)
+  // GET - List requests by status (default: pending). Admins see their own; superusers see all.
   if (req.method === "GET") {
     try {
-      let query = db.collection(collectionName).where("status", "==", "pending");
+      const status = typeof req.query.status === "string" ? req.query.status : "pending";
+      const limit = Math.min(parseInt((req.query.limit as string) || "50", 10) || 50, 100);
 
-      // Regular admins only see requests assigned to them
-      // Superusers see all pending requests
+      let query = db.collection(collectionName).where("status", "==", status);
+
+      // Regular admins: pending → filter by adminEmail; processed → filter by processedBy
       if (token.role !== "superuser") {
-        query = query.where("adminEmail", "==", adminEmail);
+        if (status === "pending") {
+          query = query.where("adminEmail", "==", adminEmail);
+        } else {
+          query = query.where("processedBy", "==", adminEmail);
+        }
       }
 
-      const requestsSnapshot = await query.orderBy("createdAt", "desc").limit(50).get();
+      // Sort by appropriate timestamp
+      const orderField = status === "pending" ? "createdAt" : "updatedAt";
+      const requestsSnapshot = await query.orderBy(orderField, "desc").limit(limit).get();
 
       const requests: ApprovalRequest[] = [];
       requestsSnapshot.forEach((doc) => {
@@ -189,14 +197,28 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return res.status(200).json({ requests });
     } catch (error: any) {
       // Check if this is a Firestore index error
+      const status = typeof req.query.status === "string" ? req.query.status : "pending";
+      const fieldsForIndex = (() => {
+        if (token.role === "superuser") return ["status", status === "pending" ? "createdAt" : "updatedAt"];
+        return [
+          "status",
+          status === "pending" ? "adminEmail" : "processedBy",
+          status === "pending" ? "createdAt" : "updatedAt",
+        ];
+      })();
+
       const errorResponse = createIndexErrorResponse(error, {
         endpoint: "/api/admin/pendingRequests",
         collection: collectionName,
-        fields: token.role !== "superuser" ? ["status", "adminEmail", "createdAt"] : ["status", "createdAt"],
+        fields: fieldsForIndex,
         query:
           token.role !== "superuser"
-            ? "pending requests filtered by admin email, ordered by creation date"
-            : "all pending requests ordered by creation date",
+            ? status === "pending"
+              ? "pending requests filtered by admin email, ordered by creation date"
+              : "processed requests filtered by processedBy, ordered by update date"
+            : status === "pending"
+              ? "all pending requests ordered by creation date"
+              : "all processed requests ordered by update date",
       });
 
       if (errorResponse.type === "firestore_index_error") {
@@ -287,6 +309,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
                 inviteStatus: "pending",
                 inviteTokenHash: tokenHash,
                 inviteExpiresAt,
+                invitedByEmail: request.adminEmail?.toLowerCase(),
+                invitedByName: request.adminName,
                 newsletterSubscribed: true,
                 firstName: firstName || undefined,
                 lastName: lastName || undefined,
