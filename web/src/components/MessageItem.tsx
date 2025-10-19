@@ -182,8 +182,8 @@ const MessageItem: React.FC<MessageItemProps> = ({
             {/* Action buttons for AI messages */}
             {message.type === "apiMessage" && index !== 0 && (!loading || !isLastMessage) && (
               <div className="mt-2 flex items-center space-x-2">
-                {/* Regenerate answer button - works in all modes including temporary */}
-                {!readOnly && onRegenerateAnswer && (
+                {/* Regenerate answer button - only show for the last answer */}
+                {!readOnly && onRegenerateAnswer && isLastMessage && (
                   <button
                     onClick={() => onRegenerateAnswer(index)}
                     className="flex items-center hover:bg-gray-100 p-2 rounded-xl h-8 w-8 justify-center transition-colors"
