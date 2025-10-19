@@ -19,33 +19,29 @@ marketing impact priority.
 
 ### Phase 1 Tasks
 
-- [ ] 1.1 Create assets directory structure
+- [x] 1.1 Create assets directory structure
+  - [x] Create `docs/assets/gifs/` directory
+  - [x] Create `docs/assets/thumbnails/` directory
 
-  - [ ] Create `docs/assets/gifs/` directory
-  - [ ] Create `docs/assets/thumbnails/` directory
+- [x] 1.2 Select 3 most visually distinct sites for GIFs
+  - [x] Site 1: Ananda Community - Multi-format content library
+  - [x] Site 2: Ananda Public - Public knowledge base with WordPress integration
+  - [x] Site 3: Crystal Clarity - Publisher catalog and book recommendations
 
-- [ ] 1.2 Select 3 most visually distinct sites for GIFs
-
-  - [ ] Site 1: [name] - [key differentiator]
-  - [ ] Site 2: [name] - [key differentiator]
-  - [ ] Site 3: [name] - [key differentiator]
-
-- [ ] 1.3 Record site demo GIFs (LICEcap or ScreenToGif)
+- [x] 1.3 Record site demo GIFs (LICEcap or ScreenToGif)
 
   For each site:
+  - [x] Record 10-20 second demo showing key feature
+  - [x] Target: 800-1200px wide, < 5MB, 10-15 fps
+  - [x] Show: Search query → Results → Key interaction
+  - [x] Save as `docs/assets/gifs/[site-name]-demo.gif`
+  - [x] Write alt text (100-125 characters)
 
-  - [ ] Record 10-20 second demo showing key feature
-  - [ ] Target: 800-1200px wide, < 5MB, 10-15 fps
-  - [ ] Show: Search query → Results → Key interaction
-  - [ ] Save as `docs/assets/gifs/[site-name]-demo.gif`
-  - [ ] Write alt text (100-125 characters)
-
-- [ ] 1.4 Add GIF showcase to README
-
-  - [ ] Create "🎥 See It In Action" section after "Why Choose This RAG System?" heading
-  - [ ] Add 3-column table with GIFs
-  - [ ] Include short captions (10-15 words max)
-  - [ ] Test rendering on GitHub
+- [x] 1.4 Add GIF showcase to README
+  - [x] Create "🎥 See It In Action" section after "Why Choose This RAG System?" heading
+  - [x] Add 3-column table with GIFs
+  - [x] Include short captions (10-15 words max)
+  - [x] Test rendering on GitHub
 
 - [ ] 1.5 Quality check
   - [ ] Verify GIFs load quickly (< 5MB each)
@@ -67,7 +63,6 @@ marketing impact priority.
 ### Phase 2 Tasks
 
 - [ ] 2.1 Plan video content
-
   - [ ] Script demo walkthrough (3-5 minutes)
     - Introduction (30s)
     - Semantic search (60s)
@@ -79,28 +74,24 @@ marketing impact priority.
   - [ ] Select best site for full demo (likely Ananda/Luca)
 
 - [ ] 2.2 Record video
-
   - [ ] High resolution recording (1080p minimum)
   - [ ] Clear audio narration
   - [ ] Show real queries with meaningful results
   - [ ] Demonstrate demo mode PII masking
 
 - [ ] 2.3 Edit video
-
   - [ ] Add intro title card
   - [ ] Add section transitions
   - [ ] Include captions/subtitles
   - [ ] Add outro with GitHub link
 
 - [ ] 2.4 Create custom thumbnail
-
   - [ ] Design 1280x720px thumbnail
   - [ ] Include project branding
   - [ ] Add compelling text overlay
   - [ ] Save as `docs/assets/thumbnails/platform-demo-thumbnail.png`
 
 - [ ] 2.5 Upload to YouTube
-
   - [ ] Write compelling title
   - [ ] Add detailed description with timestamps
   - [ ] Add YouTube chapters for navigation
@@ -130,37 +121,31 @@ marketing impact priority.
 ### Phase 3 Tasks
 
 - [ ] 3.1 Record PDF ingestion GIF (15-25s)
-
   - [ ] Show: Running `pdf_to_vector_db.py` with sample PDFs
   - [ ] Highlight: Semantic chunking, metadata extraction
   - [ ] Save as `docs/assets/gifs/ingestion-pdf-demo.gif`
 
 - [ ] 3.2 Record audio/video transcription GIF (15-25s)
-
   - [ ] Show: Transcription pipeline with sample media
   - [ ] Highlight: Whisper transcription, timestamps
   - [ ] Save as `docs/assets/gifs/ingestion-audio-video-demo.gif`
 
 - [ ] 3.3 Record web crawling GIF (15-25s)
-
   - [ ] Show: Crawler in action with URL queue
   - [ ] Highlight: Content extraction, rate limiting
   - [ ] Save as `docs/assets/gifs/ingestion-web-crawl-demo.gif`
 
 - [ ] 3.4 Record WordPress SQL ingestion GIF (15-25s)
-
   - [ ] Show: WordPress database extraction script
   - [ ] Highlight: wp_posts/wp_postmeta queries, field mapping
   - [ ] Save as `docs/assets/gifs/ingestion-wordpress-sql-demo.gif`
 
 - [ ] 3.5 Record WordPress chatbot plugin GIF (15-25s)
-
   - [ ] Show: WordPress site with chatbot popup
   - [ ] Highlight: User interaction, seamless integration
   - [ ] Save as `docs/assets/gifs/wordpress-chatbot-plugin-demo.gif`
 
 - [ ] 3.6 Record complete pipeline overview GIF (20-30s)
-
   - [ ] Show: Multi-source ingestion dashboard
   - [ ] Highlight: Parallel processing, queue management
   - [ ] Save as `docs/assets/gifs/ingestion-overview-demo.gif`
@@ -186,12 +171,10 @@ marketing impact priority.
 ### Phase 4 Tasks
 
 - [ ] 4.1 Create `docs/DEMOS.md` file
-
   - [ ] Add front matter and introduction
   - [ ] Structure with clear sections
 
 - [ ] 4.2 Add featured video section at top
-
   - [ ] Embed YouTube video (or link with thumbnail)
   - [ ] Include video description and highlights
   - [ ] Add timestamp links for navigation
@@ -199,7 +182,6 @@ marketing impact priority.
 - [ ] 4.3 Add site-by-site demo sections
 
   For each of 4-5 sites:
-
   - [ ] Add site GIF with demo mode examples
   - [ ] Write 2-3 paragraph description
   - [ ] List key features
@@ -207,7 +189,6 @@ marketing impact priority.
   - [ ] Add use case examples
 
 - [ ] 4.4 Add data ingestion methods section
-
   - [ ] Create "📥 Data Ingestion Methods" heading
   - [ ] Add introduction explaining pipelines
   - [ ] For each ingestion method:
@@ -219,20 +200,17 @@ marketing impact priority.
   - [ ] For WordPress: Clarify 2 methods (SQL ingestion + chatbot plugin)
 
 - [ ] 4.5 Add technical details section
-
   - [ ] Explain site configuration
   - [ ] Document demo mode: `?demo=1` for PII masking
   - [ ] Link to relevant documentation (PRD, file structure)
   - [ ] Include code snippets
 
 - [ ] 4.6 Add call to action
-
   - [ ] Encourage contributions
   - [ ] Link to main README for setup
   - [ ] Link to GitHub issues/discussions
 
 - [ ] 4.7 Test DEMOS.md rendering
-
   - [ ] Commit to branch and preview on GitHub
   - [ ] Verify all images load
   - [ ] Test all links
@@ -258,20 +236,17 @@ marketing impact priority.
 ### Phase 5 Tasks
 
 - [ ] 5.1 File size optimization
-
   - [ ] Check all GIF file sizes (< 5MB target)
   - [ ] Optimize any oversized GIFs (ezgif.com, Gifski, ImageOptim)
   - [ ] Verify total asset size is reasonable
   - [ ] Consider Git LFS if needed
 
 - [ ] 5.2 Cross-browser testing
-
   - [ ] Test README rendering in Chrome, Firefox, Safari
   - [ ] Test on mobile browsers (iOS Safari, Chrome mobile)
   - [ ] Verify video embed compatibility
 
 - [ ] 5.3 Accessibility audit
-
   - [ ] Verify all images have alt text
   - [ ] Check color contrast for any text overlays
   - [ ] Test with screen reader (macOS VoiceOver)
@@ -279,13 +254,11 @@ marketing impact priority.
   - [ ] Validate markdown structure
 
 - [ ] 5.4 Performance testing
-
   - [ ] Verify GIFs don't cause layout shift
   - [ ] Test on mobile data connection
   - [ ] Check page load times
 
 - [ ] 5.5 Final quality review
-
   - [ ] Proofread all content for typos/grammar
   - [ ] Verify all links work
   - [ ] Check consistency in terminology
@@ -293,7 +266,6 @@ marketing impact priority.
   - [ ] Run markdownlint on modified files
 
 - [ ] 5.6 Promotion
-
   - [ ] Create PR with clear description and screenshots
   - [ ] Merge to main branch
   - [ ] Update GitHub repo description to mention demos
@@ -320,13 +292,11 @@ marketing impact priority.
 ### Phase 6 Tasks
 
 - [ ] 6.1 Plan for updates
-
   - [ ] Document process for updating demos when features change
   - [ ] Set reminder to review demos quarterly
   - [ ] Create process for adding new site demos
 
 - [ ] 6.2 Community feedback integration
-
   - [ ] Monitor issues/discussions for demo-related feedback
   - [ ] Consider adding more detailed demos based on requests
   - [ ] Update demos based on common questions

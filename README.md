@@ -83,6 +83,15 @@ npm run dev mysite
 **Ready to transform your content into an intelligent AI assistant?** This battle-tested system handles everything from
 data ingestion to production deployment.
 
+## 🎥 **See It In Action**
+
+Experience the power of our RAG system across different organizations:
+
+|                              Ananda Community                              |                             Ananda Public                              |                          Crystal Clarity                           |
+| :------------------------------------------------------------------------: | :--------------------------------------------------------------------: | :----------------------------------------------------------------: |
+|         ![Ananda Community Demo](docs/assets/gifs/ananda-demo.gif)         | ![Wordpress Integration Demo](docs/assets/gifs/ananda-public-demo.gif) |     ![Crystal Clarity Demo](docs/assets/gifs/crystal-demo.gif)     |
+| **Rich media knowledge base** - Chat across PDFs, audio, and video content |       **Public knowledge base** - Accessible spiritual resources       | **Publisher catalog** - Book recommendations and content discovery |
+
 ## ⚡ **Feature Showcase**
 
 ### 💬 **Intelligent Conversation Management**
