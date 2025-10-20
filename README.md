@@ -1,6 +1,5 @@
 # 🚀 Mega RAG Chatbot - Enterprise Multi-Site AI Knowledge Platform
 
-[![Run All Tests](https://github.com/anandaworldwide/mega-rag-chatbot/actions/workflows/tests.yml/badge.svg)](https://github.com/anandaworldwide/mega-rag-chatbot/actions/workflows/tests.yml)
 [![Comprehensive Tests](https://github.com/anandaworldwide/mega-rag-chatbot/actions/workflows/comprehensive-tests.yml/badge.svg)](https://github.com/anandaworldwide/mega-rag-chatbot/actions/workflows/comprehensive-tests.yml)
 
 **An advanced open-source RAG (Retrieval-Augmented Generation) system for building intelligent chatbots that understand
