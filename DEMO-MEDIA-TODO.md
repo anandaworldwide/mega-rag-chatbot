@@ -145,18 +145,13 @@ marketing impact priority.
   - [ ] Highlight: User interaction, seamless integration
   - [ ] Save as `docs/assets/gifs/wordpress-chatbot-plugin-demo.gif`
 
-- [ ] 3.6 Record complete pipeline overview GIF (20-30s)
-  - [ ] Show: Multi-source ingestion dashboard
-  - [ ] Highlight: Parallel processing, queue management
-  - [ ] Save as `docs/assets/gifs/ingestion-overview-demo.gif`
-
-- [ ] 3.7 (Optional) Add data ingestion showcase to README
+- [ ] 3.6 (Optional) Add data ingestion showcase to README
   - [ ] Create "📥 Flexible Data Ingestion" section
   - [ ] Add 2-3 most impressive GIFs (PDF + Web Crawling)
   - [ ] Link to DEMOS.md for complete details
   - [ ] Keep brief to avoid README bloat
 
-**Success Metric**: 6 technical GIFs demonstrating comprehensive ingestion capabilities
+**Success Metric**: 5 technical GIFs demonstrating comprehensive ingestion capabilities
 
 ---
 
@@ -281,35 +276,6 @@ marketing impact priority.
 
 ---
 
-## PHASE 6: Maintenance & Iteration
-
-**Goal**: Keep demos current and respond to community feedback
-
-**Deliverable**: Updated demos when features change
-
-**Marketing Impact**: LOW - Ongoing maintenance
-
-### Phase 6 Tasks
-
-- [ ] 6.1 Plan for updates
-  - [ ] Document process for updating demos when features change
-  - [ ] Set reminder to review demos quarterly
-  - [ ] Create process for adding new site demos
-
-- [ ] 6.2 Community feedback integration
-  - [ ] Monitor issues/discussions for demo-related feedback
-  - [ ] Consider adding more detailed demos based on requests
-  - [ ] Update demos based on common questions
-
-- [ ] 6.3 Update memory files
-  - [ ] Document lessons learned in `.remember/memory/self.md`
-  - [ ] Add preferences to `.remember/memory/project.md`
-  - [ ] Note optimization techniques discovered
-
-**Success Metric**: Demos stay current with platform evolution
-
----
-
 ## Technical Specifications
 
 ### GIF Specifications
@@ -381,7 +347,6 @@ marketing impact priority.
 - **Phase 3** shows technical depth - appeals to developer audience
 - **Phase 4** provides detailed reference - completes the showcase
 - **Phase 5** polishes and promotes - maximizes reach
-- **Phase 6** maintains relevance - ongoing commitment
 - Keep README changes minimal to maintain scannability
 - Use DEMOS.md as the detailed showcase page
 - Demo mode implemented: `?demo=1` for cookie-based PII masking
