@@ -226,6 +226,94 @@ describe("/api/admin/newsletters", () => {
     expect(responseData.newsletters[0].status).toBe("completed");
   });
 
+  // REGRESSION TEST: Fix for newsletter disappearing from dropdown after first batch
+  it("should include 'in_progress' newsletters when filtering by 'queued' status", async () => {
+    const mockNewsletters = [
+      {
+        id: "newsletter1",
+        data: () => ({
+          subject: "Queued Newsletter",
+          content: "Content",
+          status: "queued",
+          totalQueued: 100,
+          sentCount: 0,
+          failedCount: 0,
+          createdAt: { toDate: () => new Date("2024-01-15T10:00:00Z") },
+          sentBy: "admin@example.com",
+        }),
+      },
+      {
+        id: "newsletter2",
+        data: () => ({
+          subject: "In Progress Newsletter",
+          content: "Content",
+          status: "in_progress",
+          totalQueued: 100,
+          sentCount: 50,
+          failedCount: 0,
+          createdAt: { toDate: () => new Date("2024-01-15T10:00:00Z") },
+          sentBy: "admin@example.com",
+        }),
+      },
+    ];
+
+    mockFirestoreQueryGet.mockResolvedValue({
+      docs: mockNewsletters,
+    } as any);
+
+    const { req, res } = createMocks({
+      method: "GET",
+      query: { status: "queued" },
+    });
+
+    await handler(req as any, res as any);
+
+    expect(res._getStatusCode()).toBe(200);
+    const responseData = JSON.parse(res._getData());
+
+    // Should include both 'queued' and 'in_progress' newsletters
+    expect(responseData.newsletters).toHaveLength(2);
+    expect(responseData.newsletters[0].status).toBe("queued");
+    expect(responseData.newsletters[1].status).toBe("in_progress");
+  });
+
+  // REGRESSION TEST: Ensure non-'queued' status filters still work correctly
+  it("should filter by exact status for non-'queued' status values", async () => {
+    const mockNewsletters = [
+      {
+        id: "newsletter1",
+        data: () => ({
+          subject: "In Progress Newsletter",
+          content: "Content",
+          status: "in_progress",
+          totalQueued: 100,
+          sentCount: 50,
+          failedCount: 0,
+          createdAt: { toDate: () => new Date("2024-01-15T10:00:00Z") },
+          sentBy: "admin@example.com",
+        }),
+      },
+    ];
+
+    mockFirestoreQueryGet.mockResolvedValue({
+      docs: mockNewsletters,
+    } as any);
+
+    const { req, res } = createMocks({
+      method: "GET",
+      query: { status: "in_progress" },
+    });
+
+    await handler(req as any, res as any);
+
+    expect(res._getStatusCode()).toBe(200);
+    const responseData = JSON.parse(res._getData());
+
+    // Should only include 'in_progress' newsletters
+    expect(responseData.newsletters).toHaveLength(1);
+    expect(responseData.newsletters[0].status).toBe("in_progress");
+  });
+
   it("should handle newsletters with missing optional fields", async () => {
     const mockNewsletters = [
       {

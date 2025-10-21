@@ -246,4 +246,100 @@ describe("/api/admin/newsletters/history", () => {
       details: "Database connection failed",
     });
   });
+
+  // REGRESSION TEST: Fix for field name mismatch in history display
+  it("should use correct field names from Firestore (totalQueued, sentCount, failedCount)", async () => {
+    const mockNewsletters = [
+      {
+        id: "newsletter1",
+        data: () => ({
+          subject: "Test Newsletter",
+          content: "Test content",
+          sentAt: { toDate: () => new Date("2024-01-15T10:00:00Z") },
+          sentBy: "admin@example.com",
+          // Use the actual Firestore field names
+          totalQueued: 100,
+          sentCount: 95,
+          failedCount: 5,
+          ctaUrl: "https://example.com",
+          ctaText: "Click Here",
+        }),
+      },
+    ];
+
+    mockFirestoreQueryGet.mockResolvedValue({
+      docs: mockNewsletters,
+    } as any);
+
+    const { req, res } = createMocks({
+      method: "GET",
+    });
+
+    await handler(req as any, res as any);
+
+    expect(res._getStatusCode()).toBe(200);
+    const responseData = JSON.parse(res._getData());
+
+    expect(responseData.newsletters[0]).toEqual({
+      id: "newsletter1",
+      subject: "Test Newsletter",
+      content: "Test content",
+      sentAt: "2024-01-15T10:00:00.000Z",
+      sentBy: "admin@example.com",
+      // Should map to the correct response field names
+      recipientCount: 100, // mapped from totalQueued
+      successCount: 95, // mapped from sentCount
+      errorCount: 5, // mapped from failedCount
+      ctaUrl: "https://example.com",
+      ctaText: "Click Here",
+    });
+  });
+
+  // REGRESSION TEST: Ensure field mapping works when Firestore has old field names
+  it("should handle newsletters with old field names gracefully", async () => {
+    const mockNewsletters = [
+      {
+        id: "newsletter1",
+        data: () => ({
+          subject: "Legacy Newsletter",
+          content: "Legacy content",
+          sentAt: { toDate: () => new Date("2024-01-15T10:00:00Z") },
+          sentBy: "admin@example.com",
+          // Old field names that might exist in some records
+          recipientCount: 50,
+          successCount: 48,
+          errorCount: 2,
+          ctaUrl: "https://legacy.com",
+          ctaText: "Legacy Button",
+        }),
+      },
+    ];
+
+    mockFirestoreQueryGet.mockResolvedValue({
+      docs: mockNewsletters,
+    } as any);
+
+    const { req, res } = createMocks({
+      method: "GET",
+    });
+
+    await handler(req as any, res as any);
+
+    expect(res._getStatusCode()).toBe(200);
+    const responseData = JSON.parse(res._getData());
+
+    expect(responseData.newsletters[0]).toEqual({
+      id: "newsletter1",
+      subject: "Legacy Newsletter",
+      content: "Legacy content",
+      sentAt: "2024-01-15T10:00:00.000Z",
+      sentBy: "admin@example.com",
+      // Should fall back to 0 since old field names are not mapped
+      recipientCount: 0, // totalQueued || 0 = 0
+      successCount: 0, // sentCount || 0 = 0
+      errorCount: 0, // failedCount || 0 = 0
+      ctaUrl: "https://legacy.com",
+      ctaText: "Legacy Button",
+    });
+  });
 });
