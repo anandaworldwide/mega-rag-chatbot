@@ -50,6 +50,7 @@ export default function NewslettersPage({ siteConfig }: NewsletterPageProps) {
     errors: string[];
   } | null>(null);
   const [newsletters, setNewsletters] = useState<any[]>([]);
+  const [isProcessingBatch, setIsProcessingBatch] = useState(false);
 
   // Check if selected newsletter has remaining emails
   const selectedNewsletterRemainingCount = useMemo(() => {
@@ -260,8 +261,9 @@ export default function NewslettersPage({ siteConfig }: NewsletterPageProps) {
   };
 
   const handleProcessBatch = async () => {
-    if (!selectedNewsletterId) return;
+    if (!selectedNewsletterId || isProcessingBatch) return;
 
+    setIsProcessingBatch(true);
     try {
       const token = await getToken();
       if (!token) {
@@ -284,6 +286,8 @@ export default function NewslettersPage({ siteConfig }: NewsletterPageProps) {
       await fetchNewsletters();
     } catch (error) {
       console.error("Failed to process batch:", error);
+    } finally {
+      setIsProcessingBatch(false);
     }
   };
 
@@ -402,24 +406,51 @@ export default function NewslettersPage({ siteConfig }: NewsletterPageProps) {
             onChange={(e) => setSelectedNewsletterId(e.target.value)}
             className="mb-4 p-2 border rounded w-full"
           >
-            <option value="">Select a newsletter to process</option>
-            {newsletters.map((nl) => (
-              <option key={nl.id} value={nl.id}>
-                {nl.subject} ({nl.totalQueued - nl.sentCount - nl.failedCount} remaining)
-              </option>
-            ))}
+            <option value="">
+              {newsletters.filter((nl) => {
+                const remaining = nl.totalQueued - nl.sentCount - nl.failedCount;
+                return remaining > 0;
+              }).length === 0
+                ? "No newsletters with remaining emails"
+                : "Select a newsletter to process"}
+            </option>
+            {newsletters
+              .filter((nl) => {
+                const remaining = nl.totalQueued - nl.sentCount - nl.failedCount;
+                return remaining > 0;
+              })
+              .map((nl) => (
+                <option key={nl.id} value={nl.id}>
+                  {nl.subject} ({nl.totalQueued - nl.sentCount - nl.failedCount} remaining)
+                </option>
+              ))}
           </select>
           <div className="flex gap-3">
             <button
               onClick={handleProcessBatch}
-              disabled={!selectedNewsletterId || !selectedNewsletterHasRemaining}
-              className="bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50 hover:bg-blue-700"
+              disabled={!selectedNewsletterId || !selectedNewsletterHasRemaining || isProcessingBatch}
+              className="bg-blue-600 text-white px-4 py-2 rounded disabled:opacity-50 hover:bg-blue-700 flex items-center gap-2"
             >
-              Process Next 50 Emails
+              {isProcessingBatch && (
+                <svg
+                  className="animate-spin h-4 w-4 text-white"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  ></path>
+                </svg>
+              )}
+              {isProcessingBatch ? "Processing..." : "Process Next 50 Emails"}
             </button>
             <button
               onClick={handleDeleteQueue}
-              disabled={!selectedNewsletterId || !selectedNewsletterHasRemaining}
+              disabled={!selectedNewsletterId || !selectedNewsletterHasRemaining || isProcessingBatch}
               className="bg-red-600 text-white px-4 py-2 rounded disabled:opacity-50 hover:bg-red-700"
             >
               Delete remaining {selectedNewsletterRemainingCount} messages
