@@ -466,7 +466,7 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
               {/* Library Selection Group */}
               {showLibrarySelection && (
                 <div>
-                  <h4 className="text-sm font-medium text-gray-900 mb-2">Content Libraries</h4>
+                  <h4 className="text-sm font-medium text-gray-900 mb-2">Content Collections</h4>
                   <div className="space-y-2">
                     {availableLibraries.map((lib) => {
                       const libraryName = typeof lib === "string" ? lib : lib.name;
@@ -587,8 +587,8 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
                 <div>
                   <h4 className="font-medium mb-1">Library Selection</h4>
                   <p className="text-sm text-gray-600">
-                    Choose which content libraries to search. You can select one or more libraries to narrow your search
-                    to specific sources. At least one library must remain selected.
+                    Choose which content collections to search. You can select one or more libraries to narrow your
+                    search to specific sources. At least one library must remain selected.
                   </p>
                 </div>
               )}
