@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import Head from "next/head";
+import { useRouter } from "next/router";
 import type { GetServerSideProps, NextApiRequest } from "next";
 import { isSuperuserPageAllowed } from "@/utils/server/adminPageGate";
 import { SiteConfig } from "@/types/siteConfig";
@@ -25,6 +26,7 @@ interface NewsletterHistory {
 }
 
 export default function NewslettersPage({ siteConfig }: NewsletterPageProps) {
+  const router = useRouter();
   const [subject, setSubject] = useState("");
   const [content, setContent] = useState("");
   const [ctaUrl, setCtaUrl] = useState("");
@@ -63,12 +65,39 @@ export default function NewslettersPage({ siteConfig }: NewsletterPageProps) {
 
   const selectedNewsletterHasRemaining = selectedNewsletterRemainingCount > 0;
 
+  // Newsletter Queue Processor functions
+  const fetchNewsletters = useCallback(async () => {
+    try {
+      const token = await getToken();
+      if (!token) {
+        console.error("No authentication token available");
+        return;
+      }
+
+      const response = await fetch("/api/admin/newsletters?status=queued", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      const data = await response.json();
+      const fetchedNewsletters = data.newsletters || [];
+      setNewsletters(fetchedNewsletters);
+
+      // Auto-select the first newsletter if there's only one option
+      if (fetchedNewsletters.length === 1 && !selectedNewsletterId) {
+        setSelectedNewsletterId(fetchedNewsletters[0].id);
+      }
+    } catch (error) {
+      console.error("Failed to fetch newsletters:", error);
+    }
+  }, [selectedNewsletterId]);
+
   // Load newsletter history and CTA fields from localStorage
   useEffect(() => {
     loadHistory();
     loadCtaFromLocalStorage();
     fetchNewsletters();
-  }, []);
+  }, [fetchNewsletters]);
 
   // Load CTA fields from localStorage
   function loadCtaFromLocalStorage() {
@@ -238,27 +267,6 @@ export default function NewslettersPage({ siteConfig }: NewsletterPageProps) {
       setSending(false);
     }
   }
-
-  // Newsletter Queue Processor functions
-  const fetchNewsletters = async () => {
-    try {
-      const token = await getToken();
-      if (!token) {
-        console.error("No authentication token available");
-        return;
-      }
-
-      const response = await fetch("/api/admin/newsletters?status=queued", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      const data = await response.json();
-      setNewsletters(data.newsletters || []);
-    } catch (error) {
-      console.error("Failed to fetch newsletters:", error);
-    }
-  };
 
   const handleProcessBatch = async () => {
     if (!selectedNewsletterId || isProcessingBatch) return;
@@ -751,9 +759,13 @@ For external images: ![Alt text](https://external-site.com/image.jpg)
           ) : (
             <div className="space-y-4">
               {history.map((newsletter) => (
-                <div key={newsletter.id} className="border rounded-lg p-4">
+                <div
+                  key={newsletter.id}
+                  className="border rounded-lg p-4 cursor-pointer hover:bg-gray-50 transition-colors"
+                  onClick={() => router.push(`/admin/newsletters/${newsletter.id}`)}
+                >
                   <div className="flex justify-between items-start mb-2">
-                    <h3 className="font-medium text-gray-900">{newsletter.subject}</h3>
+                    <h3 className="font-medium text-gray-900 hover:text-blue-600">{newsletter.subject}</h3>
                     <span className="text-xs text-gray-500">
                       {new Date(newsletter.sentAt).toLocaleDateString()} at{" "}
                       {new Date(newsletter.sentAt).toLocaleTimeString()}
@@ -767,6 +779,9 @@ For external images: ![Alt text](https://external-site.com/image.jpg)
                   <div className="text-sm text-gray-700 line-clamp-3">
                     {newsletter.content.substring(0, 200)}
                     {newsletter.content.length > 200 && "..."}
+                  </div>
+                  <div className="mt-2 text-xs text-blue-600 hover:text-blue-800">
+                    Click to view detailed statistics →
                   </div>
                 </div>
               ))}
