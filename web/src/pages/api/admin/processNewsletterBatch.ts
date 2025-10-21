@@ -138,20 +138,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
-    // Update metadata
-    const metaRef = db.collection(getNewslettersCollectionName()).doc(newsletterId);
-    await firestoreUpdate(metaRef, {
-      sentCount: firebase.firestore.FieldValue.increment(sent),
-      failedCount: firebase.firestore.FieldValue.increment(failed),
-      status: itemsSnapshot.size === 0 ? "completed" : "in_progress",
-    });
-
-    // Get remaining
+    // Get remaining count after processing
     const remainingQuery = db
       .collection(`${getNewslettersCollectionName()}/${newsletterId}/queueItems`)
       .where("status", "==", "pending");
     const remainingSnapshot = await firestoreQueryGet(remainingQuery, "get remaining count", "newsletter process");
     const remaining = remainingSnapshot.size;
+
+    // Update metadata
+    const metaRef = db.collection(getNewslettersCollectionName()).doc(newsletterId);
+    await firestoreUpdate(metaRef, {
+      sentCount: firebase.firestore.FieldValue.increment(sent),
+      failedCount: firebase.firestore.FieldValue.increment(failed),
+      status: remaining === 0 ? "completed" : "in_progress",
+    });
 
     return res.status(200).json({ sent, failed, remaining, errors });
   } catch (error: any) {

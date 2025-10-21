@@ -7,7 +7,6 @@ import { SiteConfig } from "@/types/siteConfig";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { AdminLayout } from "@/components/AdminLayout";
 import { getToken } from "@/utils/client/tokenManager";
-import { maskEmail } from "@/utils/client/demoMode";
 
 interface NewsletterDetailsPageProps {
   siteConfig: SiteConfig | null;
@@ -322,7 +321,7 @@ export default function NewsletterDetailsPage({ siteConfig }: NewsletterDetailsP
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-600">Sent By:</span>
-                    <span className="text-sm font-medium">{maskEmail(newsletter.sentBy)}</span>
+                    <span className="text-sm font-medium">{newsletter.sentBy}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-600">Sent At:</span>
@@ -374,7 +373,7 @@ export default function NewsletterDetailsPage({ siteConfig }: NewsletterDetailsP
                           />
                         </svg>
                       </div>
-                      <span className="text-sm font-medium">{maskEmail(recipient.email)}</span>
+                      <span className="text-sm font-medium">{recipient.email}</span>
                     </div>
                     <div className="text-xs text-gray-500">
                       {recipient.updatedAt && formatDate(recipient.updatedAt)}
@@ -404,7 +403,7 @@ export default function NewsletterDetailsPage({ siteConfig }: NewsletterDetailsP
                             />
                           </svg>
                         </div>
-                        <span className="text-sm font-medium">{maskEmail(recipient.email)}</span>
+                        <span className="text-sm font-medium">{recipient.email}</span>
                       </div>
                       <div className="text-xs text-gray-500">Attempts: {recipient.attempts}</div>
                     </div>
@@ -433,7 +432,7 @@ export default function NewsletterDetailsPage({ siteConfig }: NewsletterDetailsP
                           />
                         </svg>
                       </div>
-                      <span className="text-sm font-medium">{maskEmail(recipient.email)}</span>
+                      <span className="text-sm font-medium">{recipient.email}</span>
                     </div>
                     <div className="text-xs text-gray-500">Attempts: {recipient.attempts}</div>
                   </div>

@@ -95,6 +95,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const failedCount = queueItems.filter((item: any) => item.status === "failed").length;
     const pendingCount = queueItems.filter((item: any) => item.status === "pending").length;
 
+    // Determine actual status based on queue items
+    let actualStatus = newsletterData.status || "unknown";
+    if (pendingCount === 0 && queueItems.length > 0) {
+      // All emails have been processed (sent or failed)
+      actualStatus = "completed";
+    } else if (sentCount > 0 || failedCount > 0) {
+      // Some emails have been processed
+      actualStatus = "in_progress";
+    } else if (queueItems.length > 0) {
+      // Emails are queued but none processed yet
+      actualStatus = "queued";
+    }
+
     // Prepare response
     const response: NewsletterDetailsResponse = {
       id: newsletterDoc.id,
@@ -107,7 +120,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       sentCount,
       failedCount,
       pendingCount,
-      status: newsletterData.status || "unknown",
+      status: actualStatus,
       ctaUrl: newsletterData.ctaUrl,
       ctaText: newsletterData.ctaText,
       recipients: queueItems,
