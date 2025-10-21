@@ -35,8 +35,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     let newslettersQuery = db.collection(newslettersCol).orderBy("createdAt", "desc").limit(50);
 
     // Filter by status if provided
+    // For 'queued' status, also include 'in_progress' newsletters (they have remaining items)
     if (status && typeof status === "string") {
-      newslettersQuery = newslettersQuery.where("status", "==", status);
+      if (status === "queued") {
+        newslettersQuery = newslettersQuery.where("status", "in", ["queued", "in_progress"]);
+      } else {
+        newslettersQuery = newslettersQuery.where("status", "==", status);
+      }
     }
 
     const newslettersSnapshot = await firestoreQueryGet(

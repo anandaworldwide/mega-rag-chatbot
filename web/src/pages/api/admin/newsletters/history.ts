@@ -46,9 +46,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         content: data.content || "",
         sentAt: data.sentAt?.toDate?.()?.toISOString() || data.sentAt,
         sentBy: data.sentBy || "unknown",
-        recipientCount: data.recipientCount || 0,
-        successCount: data.successCount || 0,
-        errorCount: data.errorCount || 0,
+        recipientCount: data.totalQueued || 0, // Use totalQueued instead of recipientCount
+        successCount: data.sentCount || 0, // Use sentCount instead of successCount
+        errorCount: data.failedCount || 0, // Use failedCount instead of errorCount
         ctaUrl: data.ctaUrl || null,
         ctaText: data.ctaText || null,
       };
