@@ -82,15 +82,10 @@ export default function NewslettersPage({ siteConfig }: NewsletterPageProps) {
       const data = await response.json();
       const fetchedNewsletters = data.newsletters || [];
       setNewsletters(fetchedNewsletters);
-
-      // Auto-select the first newsletter if there's only one option
-      if (fetchedNewsletters.length === 1 && !selectedNewsletterId) {
-        setSelectedNewsletterId(fetchedNewsletters[0].id);
-      }
     } catch (error) {
       console.error("Failed to fetch newsletters:", error);
     }
-  }, [selectedNewsletterId]);
+  }, []);
 
   // Load newsletter history and CTA fields from localStorage
   useEffect(() => {
@@ -98,6 +93,20 @@ export default function NewslettersPage({ siteConfig }: NewsletterPageProps) {
     loadCtaFromLocalStorage();
     fetchNewsletters();
   }, [fetchNewsletters]);
+
+  // Auto-select the first newsletter when newsletters are loaded
+  useEffect(() => {
+    // Filter newsletters to only those with remaining emails
+    const newslettersWithRemaining = newsletters.filter((nl) => {
+      const remaining = nl.totalQueued - nl.sentCount - nl.failedCount;
+      return remaining > 0;
+    });
+
+    // Auto-select if there's only one newsletter with remaining emails
+    if (newslettersWithRemaining.length === 1 && !selectedNewsletterId) {
+      setSelectedNewsletterId(newslettersWithRemaining[0].id);
+    }
+  }, [newsletters, selectedNewsletterId]);
 
   // Load CTA fields from localStorage
   function loadCtaFromLocalStorage() {
