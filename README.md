@@ -68,6 +68,13 @@ Ready to build your AI assistant? Here's what you'll need:
 - **WordPress Plugin** - Drop-in chatbot widget for WordPress sites
 - **Docker Ready** - Containerized deployment with environment separation
 
+## 👨‍💻 About the Developer
+
+**Michael Olivier** is the lead architect and developer behind the Mega RAG Chatbot. With expertise in building
+production-scale solutions at top-tier internet companies and a track record of shipping 1.0 products from the ground
+up, he designed and implemented this multi-site RAG platform to help organizations make their knowledge bases more
+accessible through AI. ([LinkedIn](https://www.linkedin.com/in/michaelo/))
+
 ## 🌟 Real-World Success Stories
 
 This system powers AI assistants for:
