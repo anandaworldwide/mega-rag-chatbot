@@ -63,7 +63,7 @@ Ready to build your AI assistant? Here's what you'll need:
 ### 🔧 Developer-Friendly Architecture
 
 - **Modern Tech Stack** - Next.js 14, TypeScript, React, Python 3.12+
-- **Comprehensive Testing** - 200+ tests with Jest, pytest, and integration coverage
+- **Comprehensive Testing** - 1,600+ TypeScript tests (Jest) and 520+ Python tests (pytest) with integration coverage
 - **Production Monitoring** - Built-in analytics, error tracking, and health checks
 - **WordPress Plugin** - Drop-in chatbot widget for WordPress sites
 - **Docker Ready** - Containerized deployment with environment separation
