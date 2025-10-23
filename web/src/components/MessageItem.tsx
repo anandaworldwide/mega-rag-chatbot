@@ -39,6 +39,11 @@ interface MessageItemProps {
   onTryGPT41?: (messageIndex: number) => void; // New prop for regenerating with GPT-4.1
   isRegenerating?: boolean; // Track if this message is being regenerated
   onRegenerateAnswer?: (messageIndex: number) => void; // New prop for regenerating answer
+  onEditQuestion?: (messageIndex: number, originalText: string) => void; // New prop for editing question
+  isEditing?: boolean; // Track if this message is being edited
+  editingText?: string; // Current editing text
+  onSaveEdit?: (messageIndex: number, editedText: string) => void; // Handler for saving edit
+  onCancelEdit?: (messageIndex: number) => void; // Handler for canceling edit
 }
 
 const MessageItem: React.FC<MessageItemProps> = ({
@@ -63,8 +68,21 @@ const MessageItem: React.FC<MessageItemProps> = ({
   onTryGPT41,
   isRegenerating = false,
   onRegenerateAnswer,
+  onEditQuestion,
+  isEditing = false,
+  editingText = "",
+  onSaveEdit,
+  onCancelEdit,
 }) => {
   const { isSudoUser } = useSudo();
+  const [localEditingText, setLocalEditingText] = React.useState(editingText);
+
+  // Sync local editing text when editing state changes
+  React.useEffect(() => {
+    if (isEditing) {
+      setLocalEditingText(editingText);
+    }
+  }, [isEditing, editingText]);
 
   const renderSources = () => {
     if (message.sourceDocs && message.sourceDocs.length > 0) {
@@ -147,15 +165,56 @@ const MessageItem: React.FC<MessageItemProps> = ({
         {message.type === "userMessage" ? (
           // User messages: right-aligned with limited width
           <div className="flex justify-end">
-            <div className="max-w-md bg-blue-100 rounded-xl px-4 py-2">
-              <ReactMarkdown
-                remarkPlugins={[gfm]}
-                components={components}
-                className={`${markdownStyles.markdownanswer} text-[16px] text-black font-normal leading-normal font-sans`}
-              >
-                {message.message.replace(/\n/g, "  \n").replace(/\n\n/g, "\n\n")}
-              </ReactMarkdown>
-            </div>
+            {isEditing ? (
+              // Edit mode: editable textarea with save/cancel buttons
+              <div className="max-w-4xl w-full bg-blue-100 rounded-xl px-4 py-2">
+                <textarea
+                  value={localEditingText}
+                  onChange={(e) => setLocalEditingText(e.target.value)}
+                  className="w-full bg-white border border-blue-300 rounded-lg px-3 py-2 text-[16px] text-black font-normal leading-normal font-sans resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  rows={Math.max(3, localEditingText.split("\n").length)}
+                  autoFocus
+                />
+                <div className="flex justify-end gap-2 mt-2">
+                  <button
+                    onClick={() => onCancelEdit && onCancelEdit(index)}
+                    className="px-3 py-1 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-200 rounded-lg transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => onSaveEdit && onSaveEdit(index, localEditingText)}
+                    className="px-3 py-1 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded-lg transition-colors"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+            ) : (
+              // Normal mode: display message with edit button
+              <div className="relative group max-w-md bg-blue-100 rounded-xl px-4 py-2">
+                <ReactMarkdown
+                  remarkPlugins={[gfm]}
+                  components={components}
+                  className={`${markdownStyles.markdownanswer} text-[16px] text-black font-normal leading-normal font-sans`}
+                >
+                  {message.message.replace(/\n/g, "  \n").replace(/\n\n/g, "\n\n")}
+                </ReactMarkdown>
+                {/* Edit button - only show for non-read-only mode */}
+                {!readOnly && onEditQuestion && (
+                  <button
+                    onClick={() => {
+                      setLocalEditingText(message.message);
+                      onEditQuestion(index, message.message);
+                    }}
+                    className="absolute -left-8 top-2 opacity-0 group-hover:opacity-100 hover:bg-gray-200 p-1 rounded-lg transition-opacity"
+                    title="Edit question"
+                  >
+                    <span className="material-icons text-gray-500 text-lg">edit</span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         ) : (
           // AI messages: left-aligned with 85% width for detailed responses

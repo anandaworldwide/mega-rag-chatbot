@@ -613,6 +613,10 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const [savedDocId, setSavedDocId] = useState<string | null>(null);
   const accumulatedResponseRef = useRef("");
 
+  // State for editing questions
+  const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
+  const [editingText, setEditingText] = useState<string>("");
+
   const [sourceCount, setSourceCount] = useState<number>(siteConfig?.defaultNumSources || 4);
   const [, setAiSuggestionsRefresh] = useState<(() => void) | null>(null);
   const aiSuggestionsRefreshRef = useRef<(() => void) | null>(null);
@@ -1632,7 +1636,223 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setError(error instanceof Error ? error.message : "An error occurred while regenerating the answer.");
       }
     },
-    [loading, messages, collection, mediaTypes, sourceCount, temporarySession, messageState.history, setLoading, setError, setMessageState]
+    [
+      loading,
+      messages,
+      collection,
+      mediaTypes,
+      sourceCount,
+      temporarySession,
+      messageState.history,
+      setLoading,
+      setError,
+      setMessageState,
+    ]
+  );
+
+  // Function to handle starting question edit
+  const handleEditQuestion = useCallback((messageIndex: number, originalText: string) => {
+    setEditingMessageIndex(messageIndex);
+    setEditingText(originalText);
+    logEvent("edit_question_started", "Engagement", `Message Index: ${messageIndex}`);
+  }, []);
+
+  // Function to handle canceling question edit
+  const handleCancelEdit = useCallback((messageIndex: number) => {
+    setEditingMessageIndex(null);
+    setEditingText("");
+    logEvent("edit_question_cancelled", "Engagement", `Message Index: ${messageIndex}`);
+  }, []);
+
+  // Function to handle saving edited question
+  const handleSaveEdit = useCallback(
+    async (messageIndex: number, editedText: string) => {
+      if (!editedText.trim()) {
+        toast.error("Question cannot be empty");
+        return;
+      }
+
+      logEvent("edit_question_saved", "Engagement", `Message Index: ${messageIndex}`);
+
+      // Kill any ongoing stream
+      if (abortController) {
+        abortController.abort();
+        setAbortController(null);
+      }
+
+      setLoading(true);
+      setError(null);
+      setEditingMessageIndex(null);
+      setEditingText("");
+
+      try {
+        // Find the API message after this user message
+        const apiMessageIndex = messageIndex + 1;
+        const apiMessage = messages[apiMessageIndex];
+
+        // Get the docId if it exists (for deleting from Firestore)
+        const docIdToDelete = apiMessage?.docId;
+
+        // Delete follow-up messages from UI (everything after the answer to this question)
+        // This includes the answer itself and any follow-up Q&A pairs
+        const newMessages = messages.slice(0, messageIndex + 1); // Keep user message and everything before it
+        const newHistory = messageState.history.slice(0, messageIndex); // Keep history up to the user message
+
+        // Update the user message with edited text
+        newMessages[messageIndex] = {
+          ...newMessages[messageIndex],
+          message: editedText,
+        };
+
+        setMessageState({
+          messages: newMessages,
+          history: newHistory,
+        });
+
+        // Delete from Firestore if docId exists
+        if (docIdToDelete && currentConvIdRef.current) {
+          try {
+            await fetchWithAuth("/api/deleteFollowUpMessages", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                convId: currentConvIdRef.current,
+                startAfterDocId: docIdToDelete,
+              }),
+            });
+          } catch (error) {
+            console.error("Error deleting follow-up messages from Firestore:", error);
+            // Continue even if deletion fails
+          }
+        }
+
+        // Resubmit the edited question
+        const newAbortController = new AbortController();
+        setAbortController(newAbortController);
+
+        const response = await fetchWithAuth("/api/chat/v1", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            collection,
+            question: editedText,
+            history: newHistory,
+            temporarySession,
+            mediaTypes,
+            selectedLibraries: selectedLibrariesRef.current,
+            uuid: getOrCreateUUID(),
+            convId: currentConvIdRef.current,
+          }),
+          signal: newAbortController.signal,
+        });
+
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status}`);
+        }
+
+        if (!response.body) {
+          throw new Error("No response body");
+        }
+
+        // Add empty API message for streaming
+        setMessageState((prevState) => ({
+          ...prevState,
+          messages: [
+            ...prevState.messages,
+            {
+              type: "apiMessage",
+              message: "",
+              sourceDocs: [],
+            },
+          ],
+          history: [...prevState.history, { role: "user", content: editedText }, { role: "assistant", content: "" }],
+        }));
+
+        // Handle streaming response
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        accumulatedResponseRef.current = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value);
+          const lines = chunk.split("\n");
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              try {
+                const data = JSON.parse(line.slice(5));
+
+                if (data.token) {
+                  accumulatedResponseRef.current += data.token;
+                  updateMessageState(accumulatedResponseRef.current, []);
+                }
+
+                if (data.sourceDocs) {
+                  const immutableSourceDocs = Array.isArray(data.sourceDocs) ? [...data.sourceDocs] : [];
+                  setSourceDocs(immutableSourceDocs);
+                  updateMessageState(accumulatedResponseRef.current, immutableSourceDocs);
+                }
+
+                if (data.docId) {
+                  setMessageState((prevState) => {
+                    const updatedMessages = [...prevState.messages];
+                    const lastMessage = updatedMessages[updatedMessages.length - 1];
+                    if (lastMessage.type === "apiMessage") {
+                      updatedMessages[updatedMessages.length - 1] = {
+                        ...lastMessage,
+                        docId: data.docId,
+                      };
+                    }
+                    return {
+                      ...prevState,
+                      messages: updatedMessages,
+                    };
+                  });
+                  setSavedDocId(data.docId);
+                }
+
+                if (data.convId) {
+                  setCurrentConvId(data.convId);
+                }
+
+                if (data.done) {
+                  setLoading(false);
+                  accumulatedResponseRef.current = "";
+                }
+              } catch (e) {
+                console.error("Error parsing SSE data:", e);
+              }
+            }
+          }
+        }
+
+        setLoading(false);
+      } catch (error) {
+        console.error("Error saving edited question:", error);
+        toast.error("Failed to save edited question. Please try again.");
+        setLoading(false);
+        setError(error instanceof Error ? error.message : "An error occurred while saving the edited question.");
+      }
+    },
+    [
+      messages,
+      messageState.history,
+      collection,
+      temporarySession,
+      mediaTypes,
+      abortController,
+      setMessageState,
+      setLoading,
+      setError,
+      setAbortController,
+      updateMessageState,
+      setSourceDocs,
+      setSavedDocId,
+      setCurrentConvId,
+    ]
   );
 
   // Function to handle GPT-4.1 regeneration
@@ -2084,6 +2304,11 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                         onTryGPT41={handleTryGPT41}
                         isRegenerating={isRegenerating && regeneratingMessageIndex === index}
                         onRegenerateAnswer={handleRegenerateAnswer}
+                        onEditQuestion={handleEditQuestion}
+                        isEditing={editingMessageIndex === index}
+                        editingText={editingText}
+                        onSaveEdit={handleSaveEdit}
+                        onCancelEdit={handleCancelEdit}
                       />
 
                       {/* Show comparison UI if this message is being regenerated */}
