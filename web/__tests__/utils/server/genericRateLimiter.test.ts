@@ -229,7 +229,7 @@ describe("genericRateLimiter", () => {
     expect(result).toBe(false);
     expect(mockRes.status).toHaveBeenCalledWith(429);
     expect(mockRes.json).toHaveBeenCalledWith({
-      message: "Too many test requests, please try again later.",
+      error: "Too many test requests. Please wait a moment and try again.",
     });
     expect(consoleLogSpy).toHaveBeenCalledWith("Rate limit exceeded for IP 127.0.0.1, category: test");
   });
@@ -516,7 +516,7 @@ describe("genericRateLimiter", () => {
     expect(firstResult).toBe(false);
     expect(mockRes.status).toHaveBeenCalledWith(429);
     expect(mockRes.json).toHaveBeenCalledWith({
-      message: "Too many test requests, please try again later.",
+      error: "Too many test requests. Please wait a moment and try again.",
     });
 
     // Reset mocks for second attempt

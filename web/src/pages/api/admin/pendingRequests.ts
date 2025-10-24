@@ -139,8 +139,9 @@ Thank you for your interest in ${brand}.`;
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const allowed = await genericRateLimiter(req, res, {
     windowMs: 60 * 1000, // 1 minute
-    max: 30, // 30 requests per minute
+    max: 15, // requests per minute
     name: "admin_pending_requests",
+    message: "Too many requests. Please wait a minute and try again.",
   });
   if (!allowed) return;
 

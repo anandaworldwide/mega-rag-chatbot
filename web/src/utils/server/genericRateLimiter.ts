@@ -10,6 +10,7 @@ type RateLimitConfig = {
   max: number;
   name: string;
   collectionPrefix?: string;
+  message?: string; // User-friendly error message (defaults to generic message)
 };
 
 const defaultRateLimitConfig: Partial<RateLimitConfig> = {
@@ -30,7 +31,7 @@ export async function genericRateLimiter(
     return true;
   }
 
-  const { windowMs, max, name, collectionPrefix } = {
+  const { windowMs, max, name, collectionPrefix, message } = {
     ...defaultRateLimitConfig,
     ...config,
   };
@@ -67,7 +68,7 @@ export async function genericRateLimiter(
               if (res) {
                 if ("status" in res && typeof res.status === "function") {
                   res.status(429).json({
-                    message: `Too many ${name} requests, please try again later.`,
+                    error: message || `Too many ${name} requests. Please wait a moment and try again.`,
                   });
                 } else if (res instanceof NextResponse) {
                   return false;

@@ -87,7 +87,15 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
           },
         });
 
-        const data = await res.json();
+        let data;
+        try {
+          data = await res.json();
+        } catch (jsonError) {
+          // If response isn't valid JSON, show a server error message
+          setMessage("Server returned an invalid response. Please try again.");
+          setMessageType("error");
+          return;
+        }
 
         if (!res.ok) {
           // Check if this is a Firestore index error
@@ -97,6 +105,13 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
             const errorMessage = indexUrl ? `${adminMessage}\n\nFirebase Console: ${indexUrl}` : adminMessage;
 
             setMessage(errorMessage);
+            setMessageType("error");
+            return;
+          }
+
+          // Handle rate limit errors specifically
+          if (res.status === 429) {
+            setMessage(data.error || "Too many requests. Please wait a minute and try again.");
             setMessageType("error");
             return;
           }

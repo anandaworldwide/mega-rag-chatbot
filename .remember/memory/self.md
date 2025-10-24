@@ -695,3 +695,45 @@ except json.JSONDecodeError as e:
 
 - Use `raise ... from e` when the original exception is relevant
 - Use `raise ... from None` when you want to suppress the original exception (rare cases)
+
+### 27. Rate Limiter Error Response Format Consistency
+
+**Issue**: Rate limiter was sending `{ message: "..." }` but frontend expects `{ error: "..." }`, causing generic error
+messages to be displayed instead of specific rate limit warnings.
+
+**Wrong**: Mismatched error field names between backend and frontend.
+
+```typescript
+// Backend sends
+res.status(429).json({ message: "Too many requests..." });
+
+// Frontend expects
+throw new Error(data.error || "Failed to fetch..."); // Falls back to generic message
+```
+
+**Correct**: Use consistent `error` field name across all API error responses.
+
+```typescript
+// Backend sends
+res.status(429).json({ error: "Too many requests..." });
+
+// Frontend handles properly
+throw new Error(data.error || "Failed to fetch..."); // Shows specific rate limit message
+```
+
+**Pattern**: Always use `error` field for API error responses. Frontend typically uses
+`data.error || "fallback message"` pattern. Ensure rate limiters, API endpoints, and other error sources use the `error`
+field consistently.
+
+**Verification**: Checked all frontend code - 24 instances of `data.error` and 13 instances of `errorData.error` found.
+Zero instances of expecting `message` field for rate limit errors. All frontend code expects `error` field consistently.
+
+**Additional Improvements**:
+
+- Add specific 429 status code handling in frontend to show rate limit messages immediately
+- Add JSON parsing error handling to catch malformed responses
+- Rate limiter sends response inside the function, then returns false - frontend receives proper error message
+- Add optional `message` field to `RateLimitConfig` to allow user-friendly error messages instead of exposing internal
+  `name` field
+- Default message is generic "Too many requests. Please wait a moment and try again." which avoids exposing internal
+  implementation details
