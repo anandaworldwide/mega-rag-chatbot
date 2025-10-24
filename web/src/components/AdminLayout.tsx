@@ -25,6 +25,7 @@ export function AdminLayout({ siteConfig, children, pageTitle }: AdminLayoutProp
   const router = useRouter();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [pendingCounts, setPendingCounts] = useState<PendingCounts>({ approvals: 0, invitations: 0 });
+  const [isSuperuser, setIsSuperuser] = useState(false);
 
   const loginRequired = !!siteConfig?.requireLogin;
 
@@ -64,6 +65,63 @@ export function AdminLayout({ siteConfig, children, pageTitle }: AdminLayoutProp
 
     fetchCounts();
   }, []);
+
+  // Fetch user role to determine if superuser
+  useEffect(() => {
+    const fetchRole = async () => {
+      // Early return: Skip API call if site doesn't require login
+      if (!loginRequired) {
+        return;
+      }
+
+      // Check sessionStorage cache first
+      try {
+        const cached = sessionStorage.getItem("userRole");
+        if (cached) {
+          const { role, timestamp } = JSON.parse(cached);
+          // Cache valid for 1 hour
+          if (Date.now() - timestamp < 60 * 60 * 1000) {
+            setIsSuperuser(role === "superuser");
+            return;
+          }
+        }
+      } catch {
+        // Invalid cache, continue to API call
+      }
+
+      // Make API call only when necessary
+      try {
+        const res = await fetch("/api/profile", { credentials: "include" });
+        if (!res.ok) {
+          setIsSuperuser(false);
+          return;
+        }
+
+        const data = await res.json();
+        const role = (data?.role as string) || "user";
+        const isSuper = role === "superuser";
+
+        // Cache the result
+        try {
+          sessionStorage.setItem(
+            "userRole",
+            JSON.stringify({
+              role,
+              timestamp: Date.now(),
+            })
+          );
+        } catch {
+          // sessionStorage failed, continue without caching
+        }
+
+        setIsSuperuser(isSuper);
+      } catch {
+        setIsSuperuser(false);
+      }
+    };
+
+    fetchRole();
+  }, [loginRequired]);
 
   // Render the appropriate header based on siteConfig
   const renderHeader = () => {
@@ -182,19 +240,21 @@ export function AdminLayout({ siteConfig, children, pageTitle }: AdminLayoutProp
         <div>
           <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-3">Other</h3>
           <nav className="space-y-1">
-            <Link
-              href="/admin/downvotes"
-              className={`flex items-center px-3 py-2 text-sm rounded-md ${
-                router.pathname === "/admin/downvotes"
-                  ? "bg-blue-100 text-blue-700 font-semibold"
-                  : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
-              }`}
-            >
-              <span className="material-icons text-sm mr-2">thumb_down</span>
-              Review Downvotes
-            </Link>
+            {isSuperuser && (
+              <Link
+                href="/admin/downvotes"
+                className={`flex items-center px-3 py-2 text-sm rounded-md ${
+                  router.pathname === "/admin/downvotes"
+                    ? "bg-blue-100 text-blue-700 font-semibold"
+                    : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                }`}
+              >
+                <span className="material-icons text-sm mr-2">thumb_down</span>
+                Review Downvotes
+              </Link>
+            )}
 
-            {loginRequired && (
+            {loginRequired && isSuperuser && (
               <Link
                 href="/admin/newsletters"
                 className={`flex items-center px-3 py-2 text-sm rounded-md ${

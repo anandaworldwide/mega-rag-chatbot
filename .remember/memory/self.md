@@ -737,3 +737,59 @@ Zero instances of expecting `message` field for rate limit errors. All frontend 
   `name` field
 - Default message is generic "Too many requests. Please wait a moment and try again." which avoids exposing internal
   implementation details
+
+### 28. Hide Superuser-Only Features from Regular Admins
+
+**Problem**: Admin navigation shows links to features that require superuser access (e.g., downvotes, newsletters).
+Regular admins see these links but get 403 errors when clicking them, creating poor UX.
+
+**Wrong**: Showing all admin links to all admins without role-based filtering.
+
+```typescript
+// AdminLayout shows all links to all admins
+<Link href="/admin/downvotes">Review Downvotes</Link>
+<Link href="/admin/newsletters">Newsletter Management</Link>
+```
+
+**Correct**: Fetch user role and conditionally render superuser-only links.
+
+```typescript
+// AdminLayout.tsx
+const [isSuperuser, setIsSuperuser] = useState(false);
+
+useEffect(() => {
+  const fetchRole = async () => {
+    if (!loginRequired) return;
+
+    // Check cache first
+    const cached = sessionStorage.getItem("userRole");
+    if (cached) {
+      const { role, timestamp } = JSON.parse(cached);
+      if (Date.now() - timestamp < 60 * 60 * 1000) {
+        setIsSuperuser(role === "superuser");
+        return;
+      }
+    }
+
+    // Fetch from API
+    const res = await fetch("/api/profile", { credentials: "include" });
+    const data = await res.json();
+    const role = (data?.role as string) || "user";
+    setIsSuperuser(role === "superuser");
+
+    // Cache result
+    sessionStorage.setItem("userRole", JSON.stringify({ role, timestamp: Date.now() }));
+  };
+
+  fetchRole();
+}, [loginRequired]);
+
+// Conditionally render
+{isSuperuser && <Link href="/admin/downvotes">Review Downvotes</Link>}
+{loginRequired && isSuperuser && <Link href="/admin/newsletters">Newsletter Management</Link>}
+```
+
+**Pattern**: When features are restricted to superusers, fetch the user's role client-side (with sessionStorage caching)
+and conditionally render UI elements. This prevents regular admins from seeing links they can't access, improving UX.
+
+**Applied To**: AdminLayout navigation - hides downvotes and newsletters links for non-superuser admins.

@@ -40,12 +40,12 @@ const Footer: React.FC<FooterProps> = ({ siteConfig }) => {
         return;
       }
 
-      // Check sessionStorage cache first (5-minute TTL)
+      // Check sessionStorage cache first (1-minute TTL for faster role updates)
       try {
         const cached = sessionStorage.getItem("userRole");
         if (cached) {
           const parsed = JSON.parse(cached);
-          const isExpired = Date.now() - parsed.timestamp > 5 * 60 * 1000; // 5 minutes
+          const isExpired = Date.now() - parsed.timestamp > 60 * 1000; // 1 minute (reduced from 5 minutes)
           if (!isExpired && parsed.role) {
             const isAdmin = parsed.role === "admin" || parsed.role === "superuser";
             if (mounted) setIsAdminRole(isAdmin);
@@ -92,8 +92,18 @@ const Footer: React.FC<FooterProps> = ({ siteConfig }) => {
     }
 
     checkRole();
+
+    // Listen for storage events to refresh role when it changes
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "userRole" && mounted) {
+        checkRole();
+      }
+    };
+    window.addEventListener("storage", handleStorageChange);
+
     return () => {
       mounted = false;
+      window.removeEventListener("storage", handleStorageChange);
     };
   }, [router.asPath, siteConfig?.requireLogin]);
   const footerConfig = getFooterConfig(siteConfig);
