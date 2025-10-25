@@ -193,7 +193,7 @@ describe("/api/admin/requestApproval", () => {
   it("should create approval request successfully", async () => {
     /* eslint-disable @typescript-eslint/no-var-requires */
     const mockGet = jest.fn().mockResolvedValue({ empty: true, docs: [] });
-    const mockWhere = jest.fn(() => ({
+    const mockWhere: any = jest.fn(() => ({
       where: mockWhere,
       limit: jest.fn(() => ({
         get: mockGet,
@@ -263,7 +263,7 @@ describe("/api/admin/requestApproval", () => {
   it("should create approval request with reference note", async () => {
     /* eslint-disable @typescript-eslint/no-var-requires */
     const mockGet = jest.fn().mockResolvedValue({ empty: true, docs: [] });
-    const mockWhere = jest.fn(() => ({
+    const mockWhere: any = jest.fn(() => ({
       where: mockWhere,
       limit: jest.fn(() => ({
         get: mockGet,
@@ -324,7 +324,7 @@ describe("/api/admin/requestApproval", () => {
   it("should handle errors gracefully", async () => {
     /* eslint-disable @typescript-eslint/no-var-requires */
     const mockGet = jest.fn().mockResolvedValue({ empty: true, docs: [] });
-    const mockWhere = jest.fn(() => ({
+    const mockWhere: any = jest.fn(() => ({
       where: mockWhere,
       limit: jest.fn(() => ({
         get: mockGet,
@@ -370,8 +370,16 @@ describe("/api/admin/requestApproval", () => {
     const mockDoc = jest.fn(() => ({
       delete: mockDelete,
     }));
+    const mockGet = jest.fn().mockResolvedValue({ empty: true, docs: [] });
+    const mockWhere: any = jest.fn(() => ({
+      where: mockWhere,
+      limit: jest.fn(() => ({
+        get: mockGet,
+      })),
+    }));
     const mockCollection = jest.fn(() => ({
       doc: mockDoc,
+      where: mockWhere,
     }));
 
     genericRateLimiter.mockResolvedValue(true);
@@ -427,7 +435,7 @@ describe("/api/admin/requestApproval", () => {
       delete: mockDelete,
     }));
     const mockGet = jest.fn().mockResolvedValue({ empty: true, docs: [] });
-    const mockWhere = jest.fn(() => ({
+    const mockWhere: any = jest.fn(() => ({
       where: mockWhere,
       limit: jest.fn(() => ({
         get: mockGet,
@@ -496,7 +504,7 @@ describe("/api/admin/requestApproval", () => {
         },
       ],
     });
-    const mockWhere = jest.fn(() => ({
+    const mockWhere: any = jest.fn(() => ({
       where: mockWhere,
       limit: jest.fn(() => ({
         get: mockGet,
@@ -562,7 +570,7 @@ describe("/api/admin/requestApproval", () => {
       empty: true,
       docs: [],
     });
-    const mockWhere = jest.fn(() => ({
+    const mockWhere: any = jest.fn(() => ({
       where: mockWhere,
       limit: jest.fn(() => ({
         get: mockGet,
@@ -624,7 +632,7 @@ describe("/api/admin/requestApproval", () => {
       empty: true,
       docs: [],
     });
-    const mockWhere = jest.fn(() => ({
+    const mockWhere: any = jest.fn(() => ({
       where: mockWhere,
       limit: jest.fn(() => ({
         get: mockGet,
