@@ -1,6 +1,6 @@
 /**
  * API endpoint to clone a conversation from a shared link
- * 
+ *
  * This endpoint:
  * 1. Verifies the user is authenticated (has valid JWT with email)
  * 2. Loads the source conversation by docId
@@ -32,7 +32,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     // Verify authentication - user must be logged in
     const tokenPayload = getTokenFromRequest(req);
-    
+
     if (!tokenPayload.email || !tokenPayload.uuid) {
       return res.status(401).json({ error: "Authentication required. Please log in to continue." });
     }
@@ -47,10 +47,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(500).json({ error: "Database connection not available" });
     }
 
+    // TypeScript guard: db is not null at this point
+    const database = db;
+
     const collectionName = getAnswersCollectionName();
 
     // Fetch the source document to get convId
-    const sourceDocRef = db.collection(collectionName).doc(docId);
+    const sourceDocRef = database.collection(collectionName).doc(docId);
     const sourceDocSnapshot = await sourceDocRef.get();
 
     if (!sourceDocSnapshot.exists) {
@@ -64,7 +67,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Fetch all messages in the source conversation
     const sourceConvId = sourceData.convId;
-    const conversationQuery = db
+    const conversationQuery = database
       .collection(collectionName)
       .where("convId", "==", sourceConvId)
       .orderBy("timestamp", "asc");
@@ -81,15 +84,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const userEmail = tokenPayload.email;
 
     // Clone all messages in the conversation
-    const batch = db.batch();
+    const batch = database.batch();
     const clonedMessages: any[] = [];
 
     conversationSnapshot.docs.forEach((doc) => {
       const data = doc.data();
-      
+
       // Create new document reference for cloned message
-      const newDocRef = db.collection(collectionName).doc();
-      
+      const newDocRef = database.collection(collectionName).doc();
+
       // Clone the message data with new IDs and ownership
       const clonedData = {
         ...data,
@@ -115,7 +118,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
   } catch (error: any) {
     console.error("Error cloning conversation:", error);
-    
+
     // Handle authentication errors specifically
     if (error.message === "No token provided" || error.message === "Invalid or expired token") {
       return res.status(401).json({ error: "Authentication required. Please log in to continue." });

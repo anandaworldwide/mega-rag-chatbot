@@ -4,14 +4,18 @@
 
 import { NextApiRequest, NextApiResponse } from "next";
 import handler from "@/pages/api/clone-conversation";
-import { db } from "@/services/firebase";
 
-// Mock Firebase
+// Mock Firebase module - create mock object
 jest.mock("@/services/firebase", () => ({
   db: {
     collection: jest.fn(),
+    batch: jest.fn(),
   },
 }));
+
+// Get reference to the mocked module for dynamic reassignment
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const mockFirebase = require("@/services/firebase");
 
 // Mock JWT utils
 jest.mock("@/utils/server/jwtUtils", () => ({
@@ -51,6 +55,12 @@ describe("/api/clone-conversation", () => {
     res = {
       status: statusMock,
       json: jsonMock,
+    };
+
+    // Reset db mock to default
+    mockFirebase.db = {
+      collection: jest.fn(),
+      batch: jest.fn(),
     };
 
     jest.clearAllMocks();
@@ -127,7 +137,7 @@ describe("/api/clone-conversation", () => {
     req.body = { docId: "test-doc-id" };
 
     // Mock db as null
-    (db as any) = null;
+    mockFirebase.db = null;
 
     await handler(req as NextApiRequest, res as NextApiResponse);
 
@@ -158,7 +168,7 @@ describe("/api/clone-conversation", () => {
       doc: mockDoc,
     });
 
-    (db as any) = {
+    mockFirebase.db = {
       collection: mockCollection,
     };
 
@@ -236,7 +246,7 @@ describe("/api/clone-conversation", () => {
       where: mockWhere,
     });
 
-    (db as any) = {
+    mockFirebase.db = {
       collection: mockCollection,
       batch: jest.fn(() => mockBatch),
     };

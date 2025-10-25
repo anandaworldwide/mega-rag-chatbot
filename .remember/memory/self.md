@@ -822,3 +822,63 @@ annotation to break the circular type inference.
 
 **Applied To**: Fixed all `mockWhere` instances in `requestApproval.test.ts` that create recursive Firestore query
 chains.
+
+### 30. Jest Mock Dynamic Reassignment Pattern
+
+**Issue**: Tests that need to reassign mocked module exports (like `db`) fail because:
+
+1. Const imports can't be reassigned (`(db as any) = ...` fails)
+2. Mock factories run before variables are initialized (hoisting issues)
+3. Need to dynamically change mocks per test case
+
+**Wrong**: Trying to reassign const imports or using variables in mock factories.
+
+```typescript
+import { db } from "@/services/firebase";
+
+jest.mock("@/services/firebase", () => ({
+  db: mockDb, // ReferenceError: mockDb not initialized
+}));
+
+// Later in test
+(db as any) = null; // Error: Assignment to constant variable
+```
+
+**Correct**: Create mock, then use require() to get reference to module object for dynamic reassignment.
+
+```typescript
+// Mock Firebase module
+jest.mock("@/services/firebase", () => ({
+  db: {
+    collection: jest.fn(),
+    batch: jest.fn(),
+  },
+}));
+
+// Get reference to mocked module for dynamic reassignment
+const mockFirebase = require("@/services/firebase");
+
+// In beforeEach, reset to default
+beforeEach(() => {
+  mockFirebase.db = {
+    collection: jest.fn(),
+    batch: jest.fn(),
+  };
+});
+
+// In specific tests, reassign as needed
+it("should handle missing database", async () => {
+  mockFirebase.db = null; // Can reassign module object property
+  // ... test code
+});
+```
+
+**Pattern**: For tests that need dynamic mock reassignment:
+
+1. Create mock with basic structure in jest.mock()
+2. Use `require()` to get reference to mocked module object
+3. Reassign properties of the module object (`mockFirebase.db = ...`)
+4. Reset in beforeEach for isolation
+
+**Applied To**: Fixed clone-conversation tests that needed to mock `db` as null or with different implementations per
+test.
