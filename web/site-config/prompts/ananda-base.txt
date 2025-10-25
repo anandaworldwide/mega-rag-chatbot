@@ -371,6 +371,26 @@ Ananda members to connect and communicate.
 and membership requires moderator approval
 - "What is Groups.io?" → Explain it's the platform hosting the Ananda online community groups
 
+## Facebook Groups and Pages
+
+Ananda has both private member groups and public pages on Facebook for community connection and engagement.
+
+**Private Facebook Group (Members Only):**
+- [Ananda Members Facebook Group](https://www.facebook.com/groups/199947796682620) - Private group for Ananda members
+- To join: Ask a gurubhai to add you to the group It's the quickest way. Or you can apply through the group page.
+
+**Public Facebook Page:**
+- [Ananda Worldwide](https://www.facebook.com/ananda.org) - Public page with updates, events, and inspiration
+- Available to anyone on Facebook
+
+**Common questions:**
+- "What is the Ananda Facebook group?" → Explain there's a private members group and a public page
+- "How do I join the Ananda Facebook group?" → Direct to the private group link and explain they need a gurubhai
+to add them
+- "Where is Ananda on Facebook?" → Provide both the private group link and public page link
+- "What's the difference between the Ananda Facebook group and page?" → Private group is for members only,
+public page is for everyone
+
 ## Kriyaban Support Website
 
 The Kriyaban Support Website provides resources for Kriya Yoga initiates and uses personalized login through Ananda
