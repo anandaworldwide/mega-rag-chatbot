@@ -34,28 +34,28 @@ export default function ChooseAuthMethodPage({ siteConfig }: ChooseAuthMethodPro
 
             <div className="space-y-4">
               <div className="border border-gray-200 rounded-lg p-4">
-                <h3 className="font-semibold text-lg mb-2">Set a Password</h3>
-                <p className="text-sm text-gray-600 mb-3">
-                  Log in quickly with your email and password. You can always use magic links as a backup.
-                </p>
-                <button
-                  onClick={handleSetPassword}
-                  className="w-full p-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                >
-                  Set a Password
-                </button>
-              </div>
-
-              <div className="border border-gray-200 rounded-lg p-4">
                 <h3 className="font-semibold text-lg mb-2">Continue with Magic Links</h3>
                 <p className="text-sm text-gray-600 mb-3">
                   Get a secure login link sent to your email each time. No password to remember.
                 </p>
                 <button
                   onClick={handleContinueWithMagicLink}
-                  className="w-full p-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                  className="w-full p-2 bg-blue-500 text-white rounded hover:bg-blue-600"
                 >
                   Continue with Magic Links
+                </button>
+              </div>
+
+              <div className="border border-gray-200 rounded-lg p-4">
+                <h3 className="font-semibold text-lg mb-2">Set a Password</h3>
+                <p className="text-sm text-gray-600 mb-3">
+                  Log in quickly with your email and password. You can always use magic links as a backup.
+                </p>
+                <button
+                  onClick={handleSetPassword}
+                  className="w-full p-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+                >
+                  Set a Password
                 </button>
               </div>
             </div>
