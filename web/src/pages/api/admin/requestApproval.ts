@@ -187,9 +187,57 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    // Generate unique request ID
-    const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const envPrefix = isDevelopment() ? "dev" : "prod";
+    const collectionName = `${envPrefix}_admin_approval_requests`;
 
+    // Check if there's already a pending request for this requesterEmail + adminEmail combination
+    const existingRequestsQuery = await db
+      .collection(collectionName)
+      .where("requesterEmail", "==", requesterEmail.toLowerCase())
+      .where("adminEmail", "==", adminEmail.toLowerCase())
+      .where("status", "==", "pending")
+      .limit(1)
+      .get();
+
+    // If pending request exists, resend the email reminder instead of creating a new entry
+    if (!existingRequestsQuery.empty) {
+      const existingRequest = existingRequestsQuery.docs[0];
+      const existingData = existingRequest.data() as ApprovalRequestData;
+
+      // Resend the admin approval email (reminder)
+      try {
+        await sendApprovalRequestEmail(
+          requesterEmail,
+          requesterName,
+          adminEmail,
+          adminName,
+          existingData.requestId,
+          referenceNote,
+          req
+        );
+      } catch (emailError) {
+        console.error("Error sending reminder email:", emailError);
+        return res.status(500).json({
+          error: "Failed to send reminder email. Please try again or contact support.",
+        });
+      }
+
+      // Log audit event for reminder
+      await writeAuditLog(req, "admin_approval_reminder", requesterEmail.toLowerCase(), {
+        outcome: "reminder_sent",
+        adminEmail: adminEmail.toLowerCase(),
+        requestId: existingData.requestId,
+      });
+
+      return res.status(200).json({
+        message: "A pending request already exists. We've sent the administrator another reminder.",
+        requestId: existingData.requestId,
+        isReminder: true,
+      });
+    }
+
+    // No pending request exists, create a new one
+    const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const now = firebase.firestore.Timestamp.now();
 
     const approvalRequest: ApprovalRequestData = {
@@ -206,9 +254,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     };
 
     // Store in Firestore
-    const envPrefix = isDevelopment() ? "dev" : "prod";
-    const collectionName = `${envPrefix}_admin_approval_requests`;
-
     await firestoreSet(
       db.collection(collectionName).doc(requestId),
       approvalRequest,

@@ -191,10 +191,29 @@ describe("/api/admin/requestApproval", () => {
   });
 
   it("should create approval request successfully", async () => {
+    /* eslint-disable @typescript-eslint/no-var-requires */
+    const mockGet = jest.fn().mockResolvedValue({ empty: true, docs: [] });
+    const mockWhere: any = jest.fn(() => ({
+      where: mockWhere,
+      limit: jest.fn(() => ({
+        get: mockGet,
+      })),
+    }));
+    const mockDoc = jest.fn(() => ({}));
+    const mockCollection = jest.fn(() => ({
+      doc: mockDoc,
+      where: mockWhere,
+    }));
+
     genericRateLimiter.mockResolvedValue(true);
     loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
     firestoreRetryUtils.firestoreSet.mockResolvedValue(undefined);
     writeAuditLog.mockResolvedValue(undefined);
+
+    // Mock the db collection
+    const { db } = require("@/services/firebase");
+    /* eslint-enable @typescript-eslint/no-var-requires */
+    db.collection = mockCollection;
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "POST",
@@ -242,10 +261,29 @@ describe("/api/admin/requestApproval", () => {
   });
 
   it("should create approval request with reference note", async () => {
+    /* eslint-disable @typescript-eslint/no-var-requires */
+    const mockGet = jest.fn().mockResolvedValue({ empty: true, docs: [] });
+    const mockWhere: any = jest.fn(() => ({
+      where: mockWhere,
+      limit: jest.fn(() => ({
+        get: mockGet,
+      })),
+    }));
+    const mockDoc = jest.fn(() => ({}));
+    const mockCollection = jest.fn(() => ({
+      doc: mockDoc,
+      where: mockWhere,
+    }));
+
     genericRateLimiter.mockResolvedValue(true);
     loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
     firestoreRetryUtils.firestoreSet.mockResolvedValue(undefined);
     writeAuditLog.mockResolvedValue(undefined);
+
+    // Mock the db collection
+    const { db } = require("@/services/firebase");
+    /* eslint-enable @typescript-eslint/no-var-requires */
+    db.collection = mockCollection;
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "POST",
@@ -284,10 +322,29 @@ describe("/api/admin/requestApproval", () => {
   });
 
   it("should handle errors gracefully", async () => {
+    /* eslint-disable @typescript-eslint/no-var-requires */
+    const mockGet = jest.fn().mockResolvedValue({ empty: true, docs: [] });
+    const mockWhere: any = jest.fn(() => ({
+      where: mockWhere,
+      limit: jest.fn(() => ({
+        get: mockGet,
+      })),
+    }));
+    const mockDoc = jest.fn(() => ({}));
+    const mockCollection = jest.fn(() => ({
+      doc: mockDoc,
+      where: mockWhere,
+    }));
+
     genericRateLimiter.mockResolvedValue(true);
     loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
     firestoreRetryUtils.firestoreSet.mockRejectedValue(new Error("Database error"));
     writeAuditLog.mockResolvedValue(undefined);
+
+    // Mock the db collection
+    const { db } = require("@/services/firebase");
+    /* eslint-enable @typescript-eslint/no-var-requires */
+    db.collection = mockCollection;
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "POST",
@@ -313,8 +370,16 @@ describe("/api/admin/requestApproval", () => {
     const mockDoc = jest.fn(() => ({
       delete: mockDelete,
     }));
+    const mockGet = jest.fn().mockResolvedValue({ empty: true, docs: [] });
+    const mockWhere: any = jest.fn(() => ({
+      where: mockWhere,
+      limit: jest.fn(() => ({
+        get: mockGet,
+      })),
+    }));
     const mockCollection = jest.fn(() => ({
       doc: mockDoc,
+      where: mockWhere,
     }));
 
     genericRateLimiter.mockResolvedValue(true);
@@ -369,8 +434,16 @@ describe("/api/admin/requestApproval", () => {
     const mockDoc = jest.fn(() => ({
       delete: mockDelete,
     }));
+    const mockGet = jest.fn().mockResolvedValue({ empty: true, docs: [] });
+    const mockWhere: any = jest.fn(() => ({
+      where: mockWhere,
+      limit: jest.fn(() => ({
+        get: mockGet,
+      })),
+    }));
     const mockCollection = jest.fn(() => ({
       doc: mockDoc,
+      where: mockWhere,
     }));
 
     genericRateLimiter.mockResolvedValue(true);
@@ -410,5 +483,200 @@ describe("/api/admin/requestApproval", () => {
     expect(mockCollection).toHaveBeenCalledWith("dev_admin_approval_requests");
     expect(mockDoc).toHaveBeenCalled();
     expect(mockDelete).toHaveBeenCalled();
+  });
+
+  it("should resend reminder email when pending request already exists for same requester and admin", async () => {
+    /* eslint-disable @typescript-eslint/no-var-requires */
+    const existingRequestId = "req_123456789_abc123";
+    const mockGet = jest.fn().mockResolvedValue({
+      empty: false,
+      docs: [
+        {
+          data: () => ({
+            requestId: existingRequestId,
+            requesterEmail: "requester@example.com",
+            requesterName: "Test Requester",
+            adminEmail: "admin@example.com",
+            adminName: "Test Admin",
+            adminLocation: "Test City, CA",
+            status: "pending",
+          }),
+        },
+      ],
+    });
+    const mockWhere: any = jest.fn(() => ({
+      where: mockWhere,
+      limit: jest.fn(() => ({
+        get: mockGet,
+      })),
+    }));
+    const mockCollection = jest.fn(() => ({
+      where: mockWhere,
+    }));
+
+    genericRateLimiter.mockResolvedValue(true);
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    writeAuditLog.mockResolvedValue(undefined);
+
+    // Mock the db collection
+    const { db } = require("@/services/firebase");
+    /* eslint-enable @typescript-eslint/no-var-requires */
+    db.collection = mockCollection;
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: {
+        requesterEmail: "requester@example.com",
+        requesterName: "Test Requester",
+        adminEmail: "admin@example.com",
+        adminName: "Test Admin",
+        adminLocation: "Test City, CA",
+      },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    const response = res._getJSONData();
+    expect(response.message).toBe("A pending request already exists. We've sent the administrator another reminder.");
+    expect(response.requestId).toBe(existingRequestId);
+    expect(response.isReminder).toBe(true);
+
+    // Verify no new Firestore document was created
+    expect(firestoreRetryUtils.firestoreSet).not.toHaveBeenCalled();
+
+    // Verify query was made with correct parameters
+    expect(mockCollection).toHaveBeenCalledWith("dev_admin_approval_requests");
+    expect(mockWhere).toHaveBeenCalledWith("requesterEmail", "==", "requester@example.com");
+    expect(mockWhere).toHaveBeenCalledWith("adminEmail", "==", "admin@example.com");
+    expect(mockWhere).toHaveBeenCalledWith("status", "==", "pending");
+
+    // Verify audit log was called for reminder
+    expect(writeAuditLog).toHaveBeenCalledWith(
+      req,
+      "admin_approval_reminder",
+      "requester@example.com",
+      expect.objectContaining({
+        outcome: "reminder_sent",
+        adminEmail: "admin@example.com",
+        requestId: existingRequestId,
+      })
+    );
+  });
+
+  it("should allow new request if previous request to same admin was already processed", async () => {
+    /* eslint-disable @typescript-eslint/no-var-requires */
+    const mockGet = jest.fn().mockResolvedValue({
+      empty: true,
+      docs: [],
+    });
+    const mockWhere: any = jest.fn(() => ({
+      where: mockWhere,
+      limit: jest.fn(() => ({
+        get: mockGet,
+      })),
+    }));
+    const mockDoc = jest.fn(() => ({}));
+    const mockCollection = jest.fn(() => ({
+      where: mockWhere,
+      doc: mockDoc,
+    }));
+
+    genericRateLimiter.mockResolvedValue(true);
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    firestoreRetryUtils.firestoreSet.mockResolvedValue(undefined);
+    writeAuditLog.mockResolvedValue(undefined);
+
+    // Mock the db collection
+    const { db } = require("@/services/firebase");
+    /* eslint-enable @typescript-eslint/no-var-requires */
+    db.collection = mockCollection;
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: {
+        requesterEmail: "requester@example.com",
+        requesterName: "Test Requester",
+        adminEmail: "admin@example.com",
+        adminName: "Test Admin",
+        adminLocation: "Test City, CA",
+      },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    const response = res._getJSONData();
+    expect(response.message).toBe("Approval request submitted successfully");
+    expect(response.requestId).toMatch(/^req_\d+_[a-z0-9]+$/);
+    expect(response.isReminder).toBeUndefined();
+
+    // Verify new Firestore document was created
+    expect(firestoreRetryUtils.firestoreSet).toHaveBeenCalled();
+
+    // Verify audit log was called for new request
+    expect(writeAuditLog).toHaveBeenCalledWith(
+      req,
+      "admin_approval_request",
+      "requester@example.com",
+      expect.objectContaining({
+        outcome: "request_created",
+        adminEmail: "admin@example.com",
+      })
+    );
+  });
+
+  it("should allow new request to different admin even if pending request exists with another admin", async () => {
+    /* eslint-disable @typescript-eslint/no-var-requires */
+    const mockGet = jest.fn().mockResolvedValue({
+      empty: true,
+      docs: [],
+    });
+    const mockWhere: any = jest.fn(() => ({
+      where: mockWhere,
+      limit: jest.fn(() => ({
+        get: mockGet,
+      })),
+    }));
+    const mockDoc = jest.fn(() => ({}));
+    const mockCollection = jest.fn(() => ({
+      where: mockWhere,
+      doc: mockDoc,
+    }));
+
+    genericRateLimiter.mockResolvedValue(true);
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    firestoreRetryUtils.firestoreSet.mockResolvedValue(undefined);
+    writeAuditLog.mockResolvedValue(undefined);
+
+    // Mock the db collection
+    const { db } = require("@/services/firebase");
+    /* eslint-enable @typescript-eslint/no-var-requires */
+    db.collection = mockCollection;
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: {
+        requesterEmail: "requester@example.com",
+        requesterName: "Test Requester",
+        adminEmail: "admin2@example.com",
+        adminName: "Test Admin 2",
+        adminLocation: "Test City 2, CA",
+      },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    const response = res._getJSONData();
+    expect(response.message).toBe("Approval request submitted successfully");
+    expect(response.requestId).toMatch(/^req_\d+_[a-z0-9]+$/);
+
+    // Verify query checked for this specific admin
+    expect(mockWhere).toHaveBeenCalledWith("requesterEmail", "==", "requester@example.com");
+    expect(mockWhere).toHaveBeenCalledWith("adminEmail", "==", "admin2@example.com");
+
+    // Verify new Firestore document was created
+    expect(firestoreRetryUtils.firestoreSet).toHaveBeenCalled();
   });
 });

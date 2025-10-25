@@ -793,3 +793,32 @@ useEffect(() => {
 and conditionally render UI elements. This prevents regular admins from seeing links they can't access, improving UX.
 
 **Applied To**: AdminLayout navigation - hides downvotes and newsletters links for non-superuser admins.
+
+### 29. Jest Recursive Mock TypeScript Errors
+
+**Problem**: TypeScript errors occur when creating recursive mocks in Jest tests (e.g., Firestore query chains that
+return themselves).
+
+**Wrong**: Creating recursive mocks without type annotations causes circular reference errors.
+
+```typescript
+const mockWhere = jest.fn(() => ({
+  where: mockWhere, // TypeScript can't infer circular type
+  limit: jest.fn(() => ({ get: mockGet })),
+}));
+```
+
+**Correct**: Use explicit `any` type annotation for recursive mocks.
+
+```typescript
+const mockWhere: any = jest.fn(() => ({
+  where: mockWhere, // Now TypeScript accepts the circular reference
+  limit: jest.fn(() => ({ get: mockGet })),
+}));
+```
+
+**Pattern**: For any Jest mock that references itself in a chain (common with database query builders), add `: any` type
+annotation to break the circular type inference.
+
+**Applied To**: Fixed all `mockWhere` instances in `requestApproval.test.ts` that create recursive Firestore query
+chains.
