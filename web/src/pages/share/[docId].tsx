@@ -17,6 +17,7 @@ import { getGreeting, getSiteName } from "@/utils/client/siteConfig";
 import { ExtendedAIMessage } from "@/types/ExtendedAIMessage";
 import { DocMetadata } from "@/types/DocMetadata";
 import { Document } from "langchain/document";
+import { fetchWithAuth } from "@/utils/client/tokenManager";
 
 interface ShareConversationProps {
   siteConfig: SiteConfig | null;
@@ -32,6 +33,8 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
   const [conversationTitle, setConversationTitle] = useState<string | null>(null);
   const [firstQuestion, setFirstQuestion] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState<string | null>(null);
+  const [isCloning, setIsCloning] = useState(false);
+  const [cloneError, setCloneError] = useState<string | null>(null);
   const lastMessageRef = useRef<HTMLDivElement>(null);
 
   // Function to copy the share link to clipboard
@@ -52,6 +55,70 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
     },
     [docId]
   );
+
+  // Function to clone the conversation and continue
+  const handleCloneConversation = useCallback(async () => {
+    if (!docId || typeof docId !== "string") {
+      return;
+    }
+
+    setIsCloning(true);
+    setCloneError(null);
+
+    try {
+      const response = await fetchWithAuth("/api/clone-conversation", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({ docId }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        
+        // If authentication is required, redirect to login with return URL
+        if (response.status === 401) {
+          const currentPath = `/share/${docId}`;
+          router.push(`/login?redirect=${encodeURIComponent(currentPath)}&action=clone`);
+          return;
+        }
+
+        throw new Error(errorData.error || "Failed to clone conversation");
+      }
+
+      const data = await response.json();
+
+      // Log analytics event
+      logEvent("conversation_cloned", "Sharing", docId, data.messageCount);
+
+      // Redirect to the new conversation
+      router.push(`/chat/${data.convId}`);
+    } catch (error) {
+      console.error("Error cloning conversation:", error);
+      setCloneError(error instanceof Error ? error.message : "Failed to clone conversation");
+      setIsCloning(false);
+    }
+  }, [docId, router]);
+
+  // Auto-clone after login if action=clone is in URL
+  useEffect(() => {
+    if (!router.isReady) return;
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const action = urlParams.get("action");
+
+    if (action === "clone" && viewOnlyMode) {
+      // Remove action from URL to prevent re-triggering
+      urlParams.delete("action");
+      const newUrl = window.location.pathname + (urlParams.toString() ? `?${urlParams.toString()}` : "");
+      window.history.replaceState({}, document.title, newUrl);
+
+      // Trigger clone automatically
+      handleCloneConversation();
+    }
+  }, [router.isReady, viewOnlyMode, handleCloneConversation]);
 
   useEffect(() => {
     if (!router.isReady || !docId || typeof docId !== "string") {
@@ -262,10 +329,36 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
       <Layout siteConfig={siteConfig}>
         <div className="mx-auto w-full max-w-4xl px-4">
           {viewOnlyMode && (
-            <div className="bg-blue-100 text-blue-800 text-center py-2 mb-4 rounded-md">
-              <span className="material-icons text-sm mr-2">visibility</span>
-              You are viewing a shared conversation (read-only)
-            </div>
+            <>
+              <div className="bg-blue-100 text-blue-800 text-center py-2 mb-2 rounded-md">
+                <span className="material-icons text-sm mr-2">visibility</span>
+                You are viewing a shared conversation (read-only)
+              </div>
+              <div className="flex justify-center mb-4">
+                <button
+                  onClick={handleCloneConversation}
+                  disabled={isCloning}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-2 px-6 rounded-md transition-colors flex items-center gap-2"
+                >
+                  {isCloning ? (
+                    <>
+                      <span className="material-icons animate-spin text-sm">refresh</span>
+                      Cloning...
+                    </>
+                  ) : (
+                    <>
+                      <span className="material-icons text-sm">content_copy</span>
+                      Clone & Continue This Chat
+                    </>
+                  )}
+                </button>
+              </div>
+              {cloneError && (
+                <div className="bg-red-100 text-red-800 text-center py-2 mb-4 rounded-md">
+                  {cloneError}
+                </div>
+              )}
+            </>
           )}
 
           <div className="flex-grow overflow-hidden answers-container">

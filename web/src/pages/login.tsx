@@ -175,7 +175,14 @@ export default function Login({ siteConfig }: LoginProps) {
         // Redirect to chat or original destination
         const redirect =
           typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("redirect") : null;
-        router.push(redirect || "/");
+        const action = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("action") : null;
+        
+        // If action is 'clone', redirect back to the share page where the clone will be triggered
+        if (action === "clone" && redirect) {
+          router.push(redirect);
+        } else {
+          router.push(redirect || "/");
+        }
       } else if (res.status === 429) {
         setError("Too many attempts. Please try again later.");
         setIsSubmitting(false);
