@@ -8,6 +8,7 @@ import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { isAdminPageAllowed } from "@/utils/server/adminPageGate";
 import { AdminLayout } from "@/components/AdminLayout";
 import { Modal } from "@/components/ui/Modal";
+import { maskEmail, isDemoModeEnabled } from "@/utils/client/demoMode";
 
 interface ApprovalRequest {
   requestId: string;
@@ -278,7 +279,9 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900">{request.requesterName}</h3>
-                  <p className="text-sm text-gray-600">{request.requesterEmail}</p>
+                  <p className="text-sm text-gray-600">
+                    {isDemoModeEnabled() ? maskEmail(request.requesterEmail) : request.requesterEmail}
+                  </p>
                 </div>
                 <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
                   Pending
@@ -307,7 +310,7 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
                 <div className="mb-4 p-3 bg-blue-50 rounded-md text-sm">
                   <span className="text-blue-700 font-medium">Assigned to: </span>
                   <span className="text-blue-900">
-                    {request.adminName} ({request.adminEmail})
+                    {request.adminName} ({isDemoModeEnabled() ? maskEmail(request.adminEmail) : request.adminEmail})
                   </span>
                 </div>
               )}
@@ -342,7 +345,9 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
                   <div className="flex justify-between items-start">
                     <div>
                       <h3 className="font-semibold text-gray-900">{request.requesterName}</h3>
-                      <p className="text-sm text-gray-600">{request.requesterEmail}</p>
+                      <p className="text-sm text-gray-600">
+                        {isDemoModeEnabled() ? maskEmail(request.requesterEmail) : request.requesterEmail}
+                      </p>
                     </div>
                     <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
                       Approved
@@ -356,7 +361,7 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
                     <div>
                       <span className="text-gray-500">Approved by:</span>
                       <span className="ml-2 text-gray-900">
-                        {request.adminName} ({request.adminEmail})
+                        {request.adminName} ({isDemoModeEnabled() ? maskEmail(request.adminEmail) : request.adminEmail})
                       </span>
                     </div>
                   </div>
@@ -383,7 +388,9 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
             <div className="bg-gray-50 rounded-lg p-4">
               <p className="text-sm text-gray-600 mb-1">Requester</p>
               <p className="font-semibold">{selectedRequest.requesterName}</p>
-              <p className="text-sm text-gray-600">{selectedRequest.requesterEmail}</p>
+              <p className="text-sm text-gray-600">
+                {isDemoModeEnabled() ? maskEmail(selectedRequest.requesterEmail) : selectedRequest.requesterEmail}
+              </p>
               {selectedRequest.referenceNote && (
                 <>
                   <p className="text-sm text-gray-600 mt-3 mb-1">Reference</p>
