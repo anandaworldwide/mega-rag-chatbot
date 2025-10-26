@@ -5,6 +5,7 @@ import { getAnswersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreQueryGet } from "@/utils/server/firestoreRetryUtils";
 import { createIndexErrorResponse } from "@/utils/server/firestoreIndexErrorHandler";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
+import { createNetworkErrorResponse } from "@/utils/server/networkErrorUtils";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") {
@@ -91,6 +92,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     return res.status(200).json(chats);
   } catch (error: any) {
+    // Check for network errors first
+    if (error?.type === "network_error") {
+      const networkErrorResponse = createNetworkErrorResponse(error, "loading conversations");
+      return res.status(503).json(networkErrorResponse);
+    }
+
     // Handle Firestore index errors with proper user messaging and ops notifications
     const fields = [];
     let queryDesc = "";

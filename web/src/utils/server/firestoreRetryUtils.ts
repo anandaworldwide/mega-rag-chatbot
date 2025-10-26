@@ -5,6 +5,7 @@
  */
 
 import { sendOpsAlert } from "./emailOps";
+import { isNetworkError, analyzeNetworkError } from "./networkErrorUtils";
 
 // Firestore operation timeout (ms) - just under Vercel's 15s limit
 const FIRESTORE_OPERATION_TIMEOUT = 14000;
@@ -106,6 +107,22 @@ export async function retryOnCode14<T>(
         if (timeoutId) {
           clearTimeout(timeoutId);
         }
+
+        // Check for network errors - these shouldn't be retried with exponential backoff
+        if (isNetworkError(error)) {
+          const networkAnalysis = analyzeNetworkError(error);
+          const contextStr = context ? ` (${context})` : "";
+          console.error(
+            `Network connectivity issue during ${operationName}${contextStr}: ${networkAnalysis.userMessage}`
+          );
+
+          // Throw immediately with user-friendly message - don't retry network errors
+          const networkError = new Error(networkAnalysis.userMessage);
+          (networkError as any).code = (error as any).code;
+          (networkError as any).type = "network_error";
+          throw networkError;
+        }
+
         // Log the error with enhanced details
         logFirestoreError(error, operationName, context);
 
@@ -155,6 +172,21 @@ IMMEDIATE ACTION REQUIRED: Check Firestore service status and connection health.
         throw error;
       }
     } catch (error) {
+      // Check for network errors - these shouldn't be retried with exponential backoff
+      if (isNetworkError(error)) {
+        const networkAnalysis = analyzeNetworkError(error);
+        const contextStr = context ? ` (${context})` : "";
+        console.error(
+          `Network connectivity issue during ${operationName}${contextStr}: ${networkAnalysis.userMessage}`
+        );
+
+        // Throw immediately with user-friendly message - don't retry network errors
+        const networkError = new Error(networkAnalysis.userMessage);
+        (networkError as any).code = (error as any).code;
+        (networkError as any).type = "network_error";
+        throw networkError;
+      }
+
       // Log the error with enhanced details
       logFirestoreError(error, operationName, context);
 

@@ -69,6 +69,7 @@ import { determineActiveMediaTypes } from "@/utils/determineActiveMediaTypes";
 import { firestoreSet, firestoreAdd } from "@/utils/server/firestoreRetryUtils";
 import { sendOpsAlert } from "@/utils/server/emailOps";
 import { analyzeFirestoreError, notifyOpsOfIndexError } from "@/utils/server/firestoreIndexErrorHandler";
+import { isNetworkError, analyzeNetworkError } from "@/utils/server/networkErrorUtils";
 import { v4 as uuidv4 } from "uuid";
 import { generateTitle } from "@/utils/server/titleGeneration";
 import { firestoreUpdate } from "@/utils/server/firestoreRetryUtils";
@@ -551,6 +552,21 @@ Error details: ${error.message}`,
         }
       ).catch((emailError) => {
         console.error("Failed to send Pinecone ops alert:", emailError);
+      });
+    } else if (isNetworkError(error)) {
+      // Handle network connectivity errors
+      const networkAnalysis = analyzeNetworkError(error);
+      sendData({
+        error: networkAnalysis.userMessage,
+        type: "network_error",
+      });
+
+      // Log network error for debugging
+      console.error("Network error during chat request:", {
+        error: error.message,
+        code: (error as any).code,
+        operation: "chat streaming",
+        timestamp: new Date().toISOString(),
       });
     } else {
       // Check if this is a Firestore index error

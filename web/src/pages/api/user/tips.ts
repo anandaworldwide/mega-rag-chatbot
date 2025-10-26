@@ -13,6 +13,7 @@ import { firestoreGet, firestoreUpdate } from "@/utils/server/firestoreRetryUtil
 import { getTokenFromRequest } from "@/utils/server/jwtUtils";
 import { db } from "@/services/firebase";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
+import { createNetworkErrorResponse } from "@/utils/server/networkErrorUtils";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   // JWT token is already verified by withApiMiddleware
@@ -72,8 +73,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     } else {
       return res.status(405).json({ message: "Method not allowed" });
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error("User tips API error:", error);
+
+    // Check for network errors
+    if (error?.type === "network_error") {
+      const networkErrorResponse = createNetworkErrorResponse(error, "loading user tips");
+      return res.status(503).json(networkErrorResponse);
+    }
+
     return res.status(500).json({ message: "Internal server error" });
   }
 }

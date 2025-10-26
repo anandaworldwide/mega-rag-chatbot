@@ -64,7 +64,20 @@ export function useChatHistory(limit: number = 20, enabled: boolean = true) {
         });
 
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          // Try to parse error message from response
+          let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+          try {
+            const errorData = await response.json();
+            // Check for various error field names
+            if (errorData.error) {
+              errorMessage = errorData.error;
+            } else if (errorData.message) {
+              errorMessage = errorData.message;
+            }
+          } catch {
+            // If JSON parsing fails, use the default error message
+          }
+          throw new Error(errorMessage);
         }
 
         const chats: ChatHistoryItem[] = await response.json();
@@ -166,7 +179,9 @@ export function useChatHistory(limit: number = 20, enabled: boolean = true) {
         setLoading(false);
       }
     },
-    [enabled]
+    // Note: 'loading' intentionally excluded from deps to prevent infinite re-render loop
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [enabled, limit]
   );
 
   // Load conversations on mount (after main content loads)
@@ -276,7 +291,20 @@ export function useChatHistory(limit: number = 20, enabled: boolean = true) {
 
         const response = await fetchWithAuth(`/api/chats?${params.toString()}`);
         if (!response.ok) {
-          throw new Error(`Failed to fetch starred conversations: ${response.status}`);
+          // Try to parse error message from response
+          let errorMessage = `Failed to fetch starred conversations: ${response.status}`;
+          try {
+            const errorData = await response.json();
+            // Check for various error field names
+            if (errorData.error) {
+              errorMessage = errorData.error;
+            } else if (errorData.message) {
+              errorMessage = errorData.message;
+            }
+          } catch {
+            // If JSON parsing fails, use the default error message
+          }
+          throw new Error(errorMessage);
         }
 
         const chats: ChatHistoryItem[] = await response.json();
@@ -376,7 +404,7 @@ export function useChatHistory(limit: number = 20, enabled: boolean = true) {
         setStarredLoading(false);
       }
     },
-    [enabled]
+    [enabled, limit]
   );
 
   const refetch = useCallback(() => fetchConversations(false), [fetchConversations]);
@@ -429,7 +457,7 @@ export function useChatHistory(limit: number = 20, enabled: boolean = true) {
         throw error;
       }
     },
-    [conversations, starredConversations]
+    [conversations]
   );
 
   const unstarConversation = useCallback(async (convId: string) => {

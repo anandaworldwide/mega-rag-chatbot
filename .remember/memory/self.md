@@ -882,3 +882,61 @@ it("should handle missing database", async () => {
 
 **Applied To**: Fixed clone-conversation tests that needed to mock `db` as null or with different implementations per
 test.
+
+### 30. Network Connectivity Error Handling Pattern
+
+**Issue**: When users lose internet connection, Firestore operations fail with cryptic error messages like
+`getaddrinfo ENOTFOUND` or `ETIMEDOUT`, resulting in poor UX with generic "failure" messages in the UI.
+
+**Wrong**: Not distinguishing between network errors and other Firestore errors, resulting in confusing retry behavior
+and poor error messages.
+
+```typescript
+// Wrong: Network errors retried with exponential backoff like Code 14 errors
+catch (error) {
+  if (isCode14Error(error) && attempt < maxRetries) {
+    // Retry network errors too - wastes time
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    continue;
+  }
+  throw error;
+}
+```
+
+**Correct**: Detect network errors early and fail fast with user-friendly messages.
+
+```typescript
+// Detect network errors
+if (isNetworkError(error)) {
+  const networkAnalysis = analyzeNetworkError(error);
+  // Throw immediately with user-friendly message - don't retry network errors
+  const networkError = new Error(networkAnalysis.userMessage);
+  (networkError as any).type = "network_error";
+  throw networkError;
+}
+
+// Only retry Code 14 errors
+if (isCode14Error(error) && attempt < maxRetries) {
+  await new Promise((resolve) => setTimeout(resolve, delay));
+  continue;
+}
+```
+
+**Pattern**: Network errors (ENOTFOUND, ETIMEDOUT, ECONNRESET, ENETUNREACH) should:
+
+1. Be detected early using `isNetworkError()` utility
+2. Fail fast without retries (network issues won't resolve with retries)
+3. Return user-friendly messages via `createNetworkErrorResponse()`
+4. Use 503 status code to indicate service unavailable
+5. Frontend should extract and display the error message from the API response
+
+**Network Error Detection**:
+
+- DNS failures (`ENOTFOUND`)
+- Connection timeouts (`ETIMEDOUT`)
+- Connection refused (`ECONNREFUSED`)
+- Connection reset (`ECONNRESET`)
+- Network unreachable (`ENETUNREACH`)
+
+**Applied To**: All Firestore operations via `firestoreRetryUtils.ts`, API endpoints (`/api/chats`, `/api/libraryStats`,
+`/api/user/tips`), and frontend hooks (`useChatHistory.ts`).

@@ -86,12 +86,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Clone all messages in the conversation
     const batch = database.batch();
     const clonedMessages: any[] = [];
+    const baseTimestamp = new Date();
 
-    conversationSnapshot.docs.forEach((doc) => {
+    conversationSnapshot.docs.forEach((doc, index) => {
       const data = doc.data();
 
       // Create new document reference for cloned message
       const newDocRef = database.collection(collectionName).doc();
+
+      // Preserve ordering by incrementing timestamp for each message
+      const messageTimestamp = new Date(baseTimestamp.getTime() + index * 1000);
 
       // Clone the message data with new IDs and ownership
       const clonedData = {
@@ -99,9 +103,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         convId: newConvId,
         uuid: userUuid,
         email: userEmail,
-        timestamp: new Date(), // Use current timestamp for cloned messages
+        timestamp: messageTimestamp, // Increment timestamp to preserve order
         clonedFrom: doc.id, // Track the source document
-        clonedAt: new Date(),
+        clonedAt: baseTimestamp,
       };
 
       batch.set(newDocRef, clonedData);

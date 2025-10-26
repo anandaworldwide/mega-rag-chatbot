@@ -3,6 +3,7 @@ import { db } from "@/services/firebase";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { withJwtAuth } from "@/utils/server/jwtUtils";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
+import { createNetworkErrorResponse } from "@/utils/server/networkErrorUtils";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") {
@@ -52,8 +53,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     };
 
     return res.status(200).json(responseBody);
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error fetching library stats:", error);
+
+    // Check for network errors
+    if (error?.type === "network_error") {
+      const networkErrorResponse = createNetworkErrorResponse(error, "loading library stats");
+      return res.status(503).json(networkErrorResponse);
+    }
+
     return res.status(500).json({ error: "Failed to fetch stats" });
   }
 }

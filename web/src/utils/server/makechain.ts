@@ -1381,7 +1381,6 @@ export async function setupAndExecuteLanguageModelChain(
       }
 
       sendData({ done: true, timing: finalTiming });
-      sendData({ log: "[RAG] Sent done event to frontend" });
 
       // Generate follow-up suggestions in parallel (non-blocking)
       if (timingMetrics) {
