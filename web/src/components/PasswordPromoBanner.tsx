@@ -1,4 +1,5 @@
 // Password promotion banner: Subtle, dismissible banner to promote password authentication after magic link login
+// TODO (October 2026): Consider removing this banner entirely - by then all users will have seen the interstitial
 import React, { useState, useEffect } from "react";
 import Link from "next/link";
 
@@ -22,10 +23,17 @@ export function PasswordPromoBanner({ onDismiss }: PasswordPromoBannerProps) {
 
         const profile = await profileRes.json();
 
+        // Hide banner for accounts created after October 25, 2025
+        // (these users see the interstitial choose-auth-method page)
+        const cutoffDate = new Date("2025-10-25T00:00:00Z");
+        const verifiedAt = profile.verifiedAt ? new Date(profile.verifiedAt) : null;
+        const isNewAccount = verifiedAt && verifiedAt > cutoffDate;
+
         // Show banner if:
         // 1. User doesn't have a password set
         // 2. User hasn't dismissed the banner before
-        const shouldShow = !profile.hasPassword && !profile.dismissedPasswordPromo;
+        // 3. Account was created before October 25, 2025 (older accounts didn't see interstitial)
+        const shouldShow = !profile.hasPassword && !profile.dismissedPasswordPromo && !isNewAccount;
         setIsVisible(shouldShow);
       } catch (error) {
         console.error("Failed to check banner visibility:", error);

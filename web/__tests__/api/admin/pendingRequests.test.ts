@@ -9,6 +9,12 @@ jest.mock("firebase-admin", () => ({
       now: jest.fn(() => ({
         seconds: Math.floor(Date.now() / 1000),
         nanoseconds: 0,
+        toDate: jest.fn(() => new Date()),
+      })),
+      fromDate: jest.fn((date: Date) => ({
+        seconds: Math.floor(date.getTime() / 1000),
+        nanoseconds: 0,
+        toDate: jest.fn(() => date),
       })),
     },
   },
@@ -18,6 +24,7 @@ jest.mock("firebase-admin", () => ({
 jest.mock("@/services/firebase", () => ({
   db: {
     collection: jest.fn(),
+    runTransaction: jest.fn(),
   },
 }));
 
@@ -32,10 +39,6 @@ jest.mock("@/utils/server/apiMiddleware", () => ({
 jest.mock("@/utils/server/jwtUtils", () => ({
   withJwtAuth: jest.fn((handler) => handler),
   getTokenFromRequest: jest.fn(),
-}));
-
-jest.mock("@/utils/server/firestoreRetryUtils", () => ({
-  firestoreSet: jest.fn(),
 }));
 
 jest.mock("@/utils/server/auditLog", () => ({
@@ -71,12 +74,22 @@ jest.mock("@aws-sdk/client-ses", () => {
   };
 });
 
+jest.mock("@/utils/server/userInviteUtils", () => ({
+  generateInviteToken: jest.fn().mockReturnValue("mock-token-123"),
+  hashInviteToken: jest.fn().mockResolvedValue("hashed-token"),
+  getInviteExpiryDate: jest.fn().mockReturnValue(new Date("2025-12-31")),
+  sendActivationEmail: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock("@/utils/server/firestoreUtils", () => ({
+  getUsersCollectionName: jest.fn().mockReturnValue("dev_users"),
+}));
+
 describe("/api/admin/pendingRequests", () => {
   /* eslint-disable @typescript-eslint/no-var-requires */
   const { db } = require("@/services/firebase");
   const { genericRateLimiter } = require("@/utils/server/genericRateLimiter");
   const { getTokenFromRequest } = require("@/utils/server/jwtUtils");
-  const firestoreRetryUtils = require("@/utils/server/firestoreRetryUtils");
   const { writeAuditLog } = require("@/utils/server/auditLog");
   const loadSiteConfig = require("@/utils/server/loadSiteConfig");
   const { mockSend } = require("@aws-sdk/client-ses");
@@ -239,7 +252,24 @@ describe("/api/admin/pendingRequests", () => {
       getTokenFromRequest.mockReturnValue({ email: "admin@example.com", role: "admin" });
       loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
 
-      const mockRequestRef = {};
+      const mockUpdate = jest.fn();
+      const mockSet = jest.fn();
+      const mockTransactionGet = jest
+        .fn()
+        .mockResolvedValueOnce({
+          exists: true,
+          data: () => mockRequest,
+        })
+        .mockResolvedValueOnce({
+          exists: false,
+        });
+
+      const mockTransaction = {
+        get: mockTransactionGet,
+        update: mockUpdate,
+        set: mockSet,
+      };
+
       const mockGet = jest.fn().mockResolvedValue({
         exists: true,
         data: () => mockRequest,
@@ -248,11 +278,13 @@ describe("/api/admin/pendingRequests", () => {
       db.collection.mockReturnValue({
         doc: jest.fn().mockReturnValue({
           get: mockGet,
-          ...mockRequestRef,
         }),
       });
 
-      firestoreRetryUtils.firestoreSet.mockResolvedValue(undefined);
+      db.runTransaction.mockImplementation(async (callback: any) => {
+        return callback(mockTransaction);
+      });
+
       writeAuditLog.mockResolvedValue(undefined);
       mockSend.mockResolvedValue({});
 
@@ -272,18 +304,24 @@ describe("/api/admin/pendingRequests", () => {
       expect(response.message).toBe("Request approved successfully");
       expect(response.requestId).toBe("req_123");
 
-      expect(firestoreRetryUtils.firestoreSet).toHaveBeenCalledWith(
+      // Verify transaction operations were called
+      expect(mockUpdate).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({
           status: "approved",
           processedBy: "admin@example.com",
           adminMessage: "Welcome to the community!",
-        }),
-        { merge: true },
-        "approve admin approval request"
+        })
       );
 
-      expect(mockSend).toHaveBeenCalled();
+      expect(mockSet).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          role: "user",
+          inviteStatus: "pending",
+          invitedByEmail: "admin@example.com",
+        })
+      );
     });
 
     it("should deny a request successfully", async () => {
@@ -303,6 +341,17 @@ describe("/api/admin/pendingRequests", () => {
       getTokenFromRequest.mockReturnValue({ email: "admin@example.com", role: "admin" });
       loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
 
+      const mockUpdate = jest.fn();
+      const mockTransactionGet = jest.fn().mockResolvedValue({
+        exists: true,
+        data: () => mockRequest,
+      });
+
+      const mockTransaction = {
+        get: mockTransactionGet,
+        update: mockUpdate,
+      };
+
       const mockGet = jest.fn().mockResolvedValue({
         exists: true,
         data: () => mockRequest,
@@ -314,7 +363,10 @@ describe("/api/admin/pendingRequests", () => {
         }),
       });
 
-      firestoreRetryUtils.firestoreSet.mockResolvedValue(undefined);
+      db.runTransaction.mockImplementation(async (callback: any) => {
+        return callback(mockTransaction);
+      });
+
       writeAuditLog.mockResolvedValue(undefined);
       mockSend.mockResolvedValue({});
 
@@ -332,14 +384,12 @@ describe("/api/admin/pendingRequests", () => {
       const response = res._getJSONData();
       expect(response.message).toBe("Request denied successfully");
 
-      expect(firestoreRetryUtils.firestoreSet).toHaveBeenCalledWith(
+      expect(mockUpdate).toHaveBeenCalledWith(
         expect.anything(),
         expect.objectContaining({
           status: "denied",
           processedBy: "admin@example.com",
-        }),
-        { merge: true },
-        "deny admin approval request"
+        })
       );
     });
 

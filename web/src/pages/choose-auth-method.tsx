@@ -61,7 +61,7 @@ export default function ChooseAuthMethodPage({ siteConfig }: ChooseAuthMethodPro
             </div>
 
             <p className="mt-4 text-xs text-gray-500 text-center">
-              You can always set a password later from your profile settings.
+              You can also set a password later from your profile settings.
             </p>
           </div>
         </div>

@@ -2,7 +2,61 @@
 
 ## Critical Lessons Learned
 
-### 1. Always Add `--site` CLI Argument and Environment Loading
+### 1. Firestore Transaction Ordering - ALL Reads Before ALL Writes
+
+**Rule**: Firestore transactions REQUIRE all `transaction.get()` calls to complete BEFORE any `transaction.update()`,
+`transaction.set()`, or `transaction.delete()` calls.
+
+**Wrong**: Interleaving reads and writes.
+
+```typescript
+await db.runTransaction(async (transaction) => {
+  const doc1 = await transaction.get(ref1);
+  transaction.update(ref1, updates); // WRITE
+  const doc2 = await transaction.get(ref2); // ERROR: Read after write!
+});
+```
+
+**Correct**: All reads first, then all writes.
+
+```typescript
+await db.runTransaction(async (transaction) => {
+  // PHASE 1: ALL READS
+  const doc1 = await transaction.get(ref1);
+  const doc2 = await transaction.get(ref2);
+
+  // PHASE 2: ALL WRITES
+  transaction.update(ref1, updates);
+  transaction.set(ref2, newData);
+});
+```
+
+**Key Benefits**:
+
+- Built-in retry logic for conflicts
+- Atomic operations (all succeed or all fail)
+- Optimistic locking prevents race conditions
+- Better than manual retry wrappers
+
+**Related**: Firestore doesn't accept `undefined` as field values. Conditionally include optional fields:
+
+```typescript
+// Wrong: undefined values cause errors
+const userData = {
+  firstName: firstName || undefined, // ERROR if empty
+  lastName: lastName || undefined,
+};
+
+// Correct: conditionally add fields
+const userData: Record<string, any> = {
+  role: "user",
+  // required fields...
+};
+if (firstName) userData.firstName = firstName;
+if (lastName) userData.lastName = lastName;
+```
+
+### 2. Always Add `--site` CLI Argument and Environment Loading
 
 **Wrong**: Creating scripts without `--site` command-line option and not calling `load_env(site)`.
 

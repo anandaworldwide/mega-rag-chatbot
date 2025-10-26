@@ -56,6 +56,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         newsletterSubscribed: typeof data?.newsletterSubscribed === "boolean" ? data.newsletterSubscribed : true, // Default to true for existing users
         hasPassword: !!data?.passwordHash, // Boolean indicating if user has password set
         dismissedPasswordPromo: typeof data?.dismissedPasswordPromo === "boolean" ? data.dismissedPasswordPromo : false,
+        verifiedAt: data?.verifiedAt?.toDate?.() ?? null, // When account was activated
       });
     }
 

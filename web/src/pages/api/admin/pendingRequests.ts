@@ -4,7 +4,6 @@ import { db } from "@/services/firebase";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { withJwtAuth, getTokenFromRequest } from "@/utils/server/jwtUtils";
-import { firestoreSet, firestoreGet } from "@/utils/server/firestoreRetryUtils";
 import { writeAuditLog } from "@/utils/server/auditLog";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
@@ -39,56 +38,6 @@ interface ApprovalRequest {
   updatedAt: firebase.firestore.Timestamp;
   adminMessage?: string;
   processedBy?: string;
-}
-
-async function sendApprovalEmail(
-  requesterEmail: string,
-  requesterName: string,
-  adminName: string,
-  adminMessage?: string,
-  req?: NextApiRequest
-) {
-  let baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
-  if (!baseUrl) {
-    throw new Error("NEXT_PUBLIC_BASE_URL environment variable is required for email generation");
-  }
-
-  if (req && req.headers) {
-    const host = req.headers.host;
-    const protocol = req.headers["x-forwarded-proto"] || (host?.includes("localhost") ? "http" : "https");
-    if (host) {
-      baseUrl = `${protocol}://${host}`;
-    }
-  }
-
-  const siteConfig = await loadSiteConfig();
-  const brand = siteConfig?.name || siteConfig?.shortname || process.env.SITE_ID || "Ananda Library Chatbot";
-  const loginUrl = `${baseUrl}/login`;
-
-  const message = `Your access request for ${brand} has been approved by ${adminName}.
-
-${adminMessage ? `\nMessage from ${adminName}:\n"${adminMessage}"\n` : ""}
-You can now log in to access the chatbot:
-
-${loginUrl}
-
-Welcome to ${brand}!`;
-
-  const params = createEmailParams(
-    process.env.CONTACT_EMAIL || "noreply@ananda.org",
-    requesterEmail,
-    `Access Approved - ${brand}`,
-    {
-      greeting: `Hello ${requesterName},`,
-      message,
-      baseUrl,
-      siteId: process.env.SITE_ID,
-      actionUrl: loginUrl,
-      actionText: "Log In",
-    }
-  );
-
-  await ses.send(new SendEmailCommand(params));
 }
 
 async function sendDenialEmail(
@@ -253,6 +202,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     try {
       const requestRef = db.collection(collectionName).doc(requestId);
+
+      // Pre-transaction validation - read the request first
       const requestDoc = await requestRef.get();
 
       if (!requestDoc.exists) {
@@ -271,67 +222,107 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return res.status(400).json({ error: `Request already ${request.status}` });
       }
 
-      const now = firebase.firestore.Timestamp.now();
-      const updates: Partial<ApprovalRequest> = {
-        status: action === "approve" ? "approved" : "denied",
-        updatedAt: now,
-        processedBy: adminEmail,
-      };
+      // Variables to capture transaction results
+      let activationToken: string | null = null;
+      let shouldSendActivationEmail = false;
 
-      if (message) {
-        updates.adminMessage = message.trim();
-      }
+      // Execute approval in a transaction to ensure atomicity
+      await db.runTransaction(async (transaction) => {
+        // PHASE 1: ALL READS FIRST (Firestore transaction requirement)
 
-      await firestoreSet(requestRef, updates, { merge: true }, `${action} admin approval request`);
+        // Re-read request within transaction to ensure consistency
+        const txRequestDoc = await transaction.get(requestRef);
 
-      // If approved, create user account and send activation email
-      if (action === "approve") {
-        try {
+        if (!txRequestDoc.exists) {
+          throw new Error("Request not found in transaction");
+        }
+
+        const txRequest = txRequestDoc.data() as ApprovalRequest;
+
+        // Verify still pending (prevent race conditions)
+        if (txRequest.status !== "pending") {
+          throw new Error(`Request already ${txRequest.status}`);
+        }
+
+        // If approving, read user document now (before any writes)
+        let existingUser: firebase.firestore.DocumentSnapshot | null = null;
+        let userDocRef: firebase.firestore.DocumentReference | null = null;
+
+        if (action === "approve" && db) {
           const usersCol = getUsersCollectionName();
-          const userDocRef = db.collection(usersCol).doc(request.requesterEmail.toLowerCase());
-          const existing = await firestoreGet(userDocRef, "get user", request.requesterEmail);
+          userDocRef = db.collection(usersCol).doc(txRequest.requesterEmail.toLowerCase());
+          existingUser = await transaction.get(userDocRef);
+        }
 
+        // PHASE 2: ALL WRITES AFTER ALL READS
+
+        const now = firebase.firestore.Timestamp.now();
+        const updates: Partial<ApprovalRequest> = {
+          status: action === "approve" ? "approved" : "denied",
+          updatedAt: now,
+          processedBy: adminEmail,
+        };
+
+        if (message) {
+          updates.adminMessage = message.trim();
+        }
+
+        // Update approval request status
+        transaction.update(requestRef, updates);
+
+        // If approved, create/update user account within the same transaction
+        if (action === "approve" && userDocRef && existingUser) {
           // Only create/update if user doesn't already exist as accepted
-          if (!existing.exists || existing.data()?.inviteStatus !== "accepted") {
+          if (!existingUser.exists || existingUser.data()?.inviteStatus !== "accepted") {
             const token = generateInviteToken();
             const tokenHash = await hashInviteToken(token);
             const inviteExpiresAt = firebase.firestore.Timestamp.fromDate(getInviteExpiryDate(14));
 
             // Parse first and last name from requesterName
-            const nameParts = request.requesterName.trim().split(/\s+/);
+            const nameParts = txRequest.requesterName.trim().split(/\s+/);
             const firstName = nameParts[0] || "";
             const lastName = nameParts.slice(1).join(" ") || "";
 
-            await firestoreSet(
-              userDocRef,
-              {
-                role: "user",
-                entitlements: { basic: true },
-                inviteStatus: "pending",
-                inviteTokenHash: tokenHash,
-                inviteExpiresAt,
-                invitedByEmail: request.adminEmail?.toLowerCase(),
-                invitedByName: request.adminName,
-                newsletterSubscribed: true,
-                firstName: firstName || undefined,
-                lastName: lastName || undefined,
-                createdAt: existing.exists ? existing.data()?.createdAt : now,
-                updatedAt: now,
-              },
-              existing.exists ? { merge: true } : undefined,
-              existing.exists ? "update pending user" : "create user"
-            );
+            const userData = {
+              role: "user",
+              entitlements: { basic: true },
+              inviteStatus: "pending",
+              inviteTokenHash: tokenHash,
+              inviteExpiresAt,
+              invitedByEmail: txRequest.adminEmail?.toLowerCase(),
+              invitedByName: txRequest.adminName,
+              newsletterSubscribed: true,
+              firstName,
+              lastName,
+              createdAt: existingUser.exists ? existingUser.data()?.createdAt : now,
+              updatedAt: now,
+            };
 
-            // Send activation email instead of generic approval email
-            await sendActivationEmail(request.requesterEmail, token, req, message);
+            if (existingUser.exists) {
+              transaction.update(userDocRef, userData);
+            } else {
+              transaction.set(userDocRef, userData);
+            }
+
+            // Capture token for email sending after transaction
+            activationToken = token;
+            shouldSendActivationEmail = true;
           }
-        } catch (userCreationError) {
-          console.error("Error creating user account:", userCreationError);
-          // Fall back to sending approval email if user creation fails
+        }
+      });
+
+      // Transaction completed successfully - now handle external operations
+      // These operations are outside the transaction because:
+      // 1. They can fail without invalidating the database changes
+      // 2. They involve external services (email)
+
+      if (action === "approve") {
+        if (shouldSendActivationEmail && activationToken) {
           try {
-            await sendApprovalEmail(request.requesterEmail, request.requesterName, request.adminName, message, req);
+            await sendActivationEmail(request.requesterEmail, activationToken, req, message);
           } catch (emailError) {
-            console.error("Error sending approval email:", emailError);
+            console.error("Error sending activation email:", emailError);
+            // Email failure doesn't invalidate the approval - user can request resend
           }
         }
       } else {
@@ -350,7 +341,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         }
       }
 
-      // Log audit event
+      // Log audit event (outside transaction)
       await writeAuditLog(req, `admin_approval_${action}`, request.requesterEmail.toLowerCase(), {
         outcome: "success",
         requestId,
