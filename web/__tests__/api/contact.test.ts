@@ -195,6 +195,7 @@ describe("Contact API", () => {
       Source: "contact@example.com",
       Destination: {
         ToAddresses: ["contact@example.com"],
+        CcAddresses: ["feedback@example.com"],
       },
       Message: {
         Subject: {
@@ -231,6 +232,7 @@ describe("Contact API", () => {
       Source: "contact@example.com",
       Destination: {
         ToAddresses: ["contact@example.com"],
+        CcAddresses: ["contact@example.com"],
       },
       Message: {
         Subject: {
@@ -266,6 +268,7 @@ describe("Contact API", () => {
       Source: "contact@example.com",
       Destination: {
         ToAddresses: ["contact@example.com"],
+        CcAddresses: ["default@example.com"],
       },
       Message: {
         Subject: {

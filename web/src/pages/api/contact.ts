@@ -99,6 +99,7 @@ const handleRequest = async (req: NextApiRequest, res: NextApiResponse): Promise
       Source: sourceEmail,
       Destination: {
         ToAddresses: [sourceEmail],
+        CcAddresses: [sanitizedEmail],
       },
       Message: {
         Subject: {
