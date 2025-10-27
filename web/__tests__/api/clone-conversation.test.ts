@@ -32,6 +32,21 @@ jest.mock("@/utils/server/firestoreUtils", () => ({
   getAnswersCollectionName: jest.fn().mockReturnValue("test_answers"),
 }));
 
+// Mock site config loader
+jest.mock("@/utils/server/loadSiteConfig", () => ({
+  loadSiteConfigSync: jest.fn().mockReturnValue({ requireLogin: true }),
+}));
+
+// Mock UUID utils
+jest.mock("@/utils/server/uuidUtils", () => ({
+  getSecureUUID: jest.fn().mockReturnValue({ success: true, uuid: "test-uuid" }),
+}));
+
+// Mock index error handler
+jest.mock("@/utils/server/firestoreIndexErrorHandler", () => ({
+  createIndexErrorResponse: jest.fn().mockReturnValue({ type: "generic_error" }),
+}));
+
 import { getTokenFromRequest } from "@/utils/server/jwtUtils";
 
 const mockGetTokenFromRequest = getTokenFromRequest as jest.MockedFunction<typeof getTokenFromRequest>;
@@ -82,6 +97,15 @@ describe("/api/clone-conversation", () => {
 
     req.body = { docId: "test-doc-id" };
 
+    // Mock Firestore with minimal setup
+    const mockGet = jest.fn().mockResolvedValue({
+      exists: true,
+      data: () => ({ convId: "test-conv-id", timestamp: { toDate: () => new Date() } }),
+    });
+    const mockDoc = jest.fn().mockReturnValue({ get: mockGet });
+    const mockCollection = jest.fn().mockReturnValue({ doc: mockDoc });
+    mockFirebase.db = { collection: mockCollection };
+
     await handler(req as NextApiRequest, res as NextApiResponse);
 
     expect(statusMock).toHaveBeenCalledWith(401);
@@ -100,11 +124,27 @@ describe("/api/clone-conversation", () => {
 
     req.body = { docId: "test-doc-id" };
 
+    // Note: The API now only checks for UUID, not email
+    // So a token with UUID but no email will pass auth and fail on empty query result
+    // Mock Firestore with minimal setup
+    const mockQueryGet = jest.fn().mockResolvedValue({ empty: true, docs: [] });
+    const mockOrderBy = jest.fn().mockReturnValue({ get: mockQueryGet });
+    const mockWhereTimestamp = jest.fn().mockReturnValue({ orderBy: mockOrderBy });
+    const mockWhereConvId = jest.fn().mockReturnValue({ where: mockWhereTimestamp });
+    const mockGet = jest.fn().mockResolvedValue({
+      exists: true,
+      data: () => ({ convId: "test-conv-id", timestamp: { toDate: () => new Date() } }),
+    });
+    const mockDoc = jest.fn().mockReturnValue({ get: mockGet });
+    const mockCollection = jest.fn().mockReturnValue({ doc: mockDoc, where: mockWhereConvId });
+    mockFirebase.db = { collection: mockCollection };
+
     await handler(req as NextApiRequest, res as NextApiResponse);
 
-    expect(statusMock).toHaveBeenCalledWith(401);
+    // Returns 404 because the query returns empty results (conversation not found)
+    expect(statusMock).toHaveBeenCalledWith(404);
     expect(jsonMock).toHaveBeenCalledWith({
-      error: "Authentication required. Please log in to continue.",
+      error: "Conversation messages not found",
     });
   });
 
@@ -166,6 +206,7 @@ describe("/api/clone-conversation", () => {
 
     const mockCollection = jest.fn().mockReturnValue({
       doc: mockDoc,
+      where: jest.fn(),
     });
 
     mockFirebase.db = {
@@ -189,11 +230,14 @@ describe("/api/clone-conversation", () => {
 
     req.body = { docId: "test-doc-id" };
 
+    const mockTimestamp = { toDate: () => new Date("2024-01-01") };
+    
     const mockSourceData = {
       convId: "original-conv-id",
       question: "Test question",
       answer: "Test answer",
       uuid: "original-uuid",
+      timestamp: mockTimestamp,
     };
 
     const mockConversationDocs = [
@@ -225,8 +269,12 @@ describe("/api/clone-conversation", () => {
       get: mockQueryGet,
     });
 
-    const mockWhere = jest.fn().mockReturnValue({
+    const mockWhereTimestamp = jest.fn().mockReturnValue({
       orderBy: mockOrderBy,
+    });
+
+    const mockWhereConvId = jest.fn().mockReturnValue({
+      where: mockWhereTimestamp,
     });
 
     const mockGet = jest.fn().mockResolvedValue({
@@ -243,7 +291,7 @@ describe("/api/clone-conversation", () => {
 
     const mockCollection = jest.fn().mockReturnValue({
       doc: mockDoc,
-      where: mockWhere,
+      where: mockWhereConvId,
     });
 
     mockFirebase.db = {

@@ -208,6 +208,11 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     return siteName;
   }, [conversationTitle, siteConfig]);
 
+  // Update document title when conversation title changes
+  useEffect(() => {
+    document.title = generatePageTitle();
+  }, [generatePageTitle]);
+
   // Keep ref in sync with state
   useEffect(() => {
     currentConvIdRef.current = currentConvId;
@@ -296,12 +301,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   // Helper function to load conversation content without URL updates
   const loadConversationDirectly = useCallback(
     async (convId: string) => {
-      // Only load conversations for sites that support conversation history
-      if (!siteConfig?.requireLogin) {
-        console.warn("Conversation loading not supported for sites without login requirement");
-        return;
-      }
-
       try {
         setLoading(true);
         setError(null);
@@ -327,9 +326,18 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         if (loadedConversation.title) {
           setConversationTitle(loadedConversation.title);
         } else {
-          // Clear any previous title so the page <title> resets correctly when switching to a
-          // conversation that does not yet have an AI-generated title.
-          setConversationTitle(null);
+          // Generate fallback title from first user message if no title exists
+          const firstUserMessage = loadedConversation.messages.find((msg) => msg.type === "userMessage");
+          if (firstUserMessage) {
+            const questionWords = firstUserMessage.message.trim().split(/\s+/);
+            const fallbackTitle =
+              questionWords.length <= 9 ? firstUserMessage.message : questionWords.slice(0, 9).join(" ") + "...";
+            setConversationTitle(fallbackTitle);
+          } else {
+            // Clear any previous title so the page <title> resets correctly when switching to a
+            // conversation that does not yet have an AI-generated title.
+            setConversationTitle(null);
+          }
         }
 
         // Log analytics event

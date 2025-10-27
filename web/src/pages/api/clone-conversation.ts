@@ -2,9 +2,9 @@
  * API endpoint to clone a conversation from a shared link
  *
  * This endpoint:
- * 1. Verifies the user is authenticated (has valid JWT with email)
+ * 1. Gets UUID from JWT token (login-required sites) or cookies (non-login sites)
  * 2. Loads the source conversation by docId
- * 3. Creates new conversation entries for the authenticated user
+ * 3. Creates new conversation entries for the user
  * 4. Returns the new convId for redirection
  */
 
@@ -13,6 +13,9 @@ import { getAnswersCollectionName } from "@/utils/server/firestoreUtils";
 import { db } from "@/services/firebase";
 import { getTokenFromRequest } from "@/utils/server/jwtUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
+import { getSecureUUID } from "@/utils/server/uuidUtils";
+import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
+import { createIndexErrorResponse } from "@/utils/server/firestoreIndexErrorHandler";
 import { randomUUID } from "crypto";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -30,13 +33,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!allowed) return;
 
   try {
-    // Verify authentication - user must be logged in
-    const tokenPayload = getTokenFromRequest(req);
-
-    if (!tokenPayload.email || !tokenPayload.uuid) {
-      return res.status(401).json({ error: "Authentication required. Please log in to continue." });
-    }
-
     const { docId } = req.body;
 
     if (!docId || typeof docId !== "string") {
@@ -45,6 +41,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if (!db) {
       return res.status(500).json({ error: "Database connection not available" });
+    }
+
+    const siteConfig = loadSiteConfigSync();
+
+    // Get UUID and email based on site configuration
+    let userUuid: string;
+    let userEmail: string | null = null;
+
+    if (siteConfig?.requireLogin) {
+      // For login-required sites, get UUID and email from JWT token
+      try {
+        const tokenPayload = getTokenFromRequest(req);
+        if (!tokenPayload.uuid) {
+          return res.status(401).json({ error: "Authentication required. Please log in to continue." });
+        }
+        userUuid = tokenPayload.uuid;
+        userEmail = tokenPayload.email || null;
+      } catch (error) {
+        return res.status(401).json({ error: "Authentication required. Please log in to continue." });
+      }
+    } else {
+      // For non-login sites, get UUID from cookies
+      const uuidResult = getSecureUUID(req);
+      if (!uuidResult.success) {
+        return res.status(uuidResult.statusCode).json({ error: uuidResult.error });
+      }
+      userUuid = uuidResult.uuid;
     }
 
     // TypeScript guard: db is not null at this point
@@ -65,11 +88,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(404).json({ error: "Invalid conversation data" });
     }
 
-    // Fetch all messages in the source conversation
+    // Fetch messages in the source conversation up to and including the shared docId
     const sourceConvId = sourceData.convId;
+    const sourceTimestamp = sourceData.timestamp;
+
+    // Build query to get messages up to the shared timestamp
     const conversationQuery = database
       .collection(collectionName)
       .where("convId", "==", sourceConvId)
+      .where("timestamp", "<=", sourceTimestamp)
       .orderBy("timestamp", "asc");
 
     const conversationSnapshot = await conversationQuery.get();
@@ -80,8 +107,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Generate new IDs for the cloned conversation
     const newConvId = randomUUID();
-    const userUuid = tokenPayload.uuid;
-    const userEmail = tokenPayload.email;
 
     // Clone all messages in the conversation
     const batch = database.batch();
@@ -98,15 +123,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const messageTimestamp = new Date(baseTimestamp.getTime() + index * 1000);
 
       // Clone the message data with new IDs and ownership
-      const clonedData = {
+      const clonedData: any = {
         ...data,
         convId: newConvId,
         uuid: userUuid,
-        email: userEmail,
         timestamp: messageTimestamp, // Increment timestamp to preserve order
         clonedFrom: doc.id, // Track the source document
         clonedAt: baseTimestamp,
       };
+
+      // Only add email field for login-required sites
+      if (userEmail) {
+        clonedData.email = userEmail;
+      }
 
       batch.set(newDocRef, clonedData);
       clonedMessages.push({ id: newDocRef.id, ...clonedData });
@@ -123,9 +152,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   } catch (error: any) {
     console.error("Error cloning conversation:", error);
 
-    // Handle authentication errors specifically
-    if (error.message === "No token provided" || error.message === "Invalid or expired token") {
-      return res.status(401).json({ error: "Authentication required. Please log in to continue." });
+    // Check if this is a Firestore index error and send ops alert if needed
+    const indexErrorResponse = createIndexErrorResponse(error, {
+      endpoint: "/api/clone-conversation",
+      collection: getAnswersCollectionName(),
+      fields: ["convId", "timestamp"],
+      query: `where("convId", "==", ...).orderBy("timestamp", "asc")`,
+    });
+
+    if (indexErrorResponse.type === "firestore_index_error") {
+      return res.status(503).json(indexErrorResponse);
     }
 
     return res.status(500).json({ error: "Failed to clone conversation" });

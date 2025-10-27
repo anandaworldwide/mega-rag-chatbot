@@ -100,6 +100,9 @@
 - **Pinecone namespaces**: One per site
 - **Config location**: `site-config/config.json`
 - **System prompts**: Located in `web/site-config/prompts/[site]-base.txt`
+- **UUID identification**: All users have UUIDs (JWT token for login-required, cookies for non-login sites)
+- **UUID utility**: Use `getSecureUUID()` for API endpoints that work with both authenticated and non-authenticated
+  users
 
 ## Authentication and Onboarding (Decisions)
 

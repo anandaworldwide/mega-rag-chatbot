@@ -18,6 +18,7 @@ import { ExtendedAIMessage } from "@/types/ExtendedAIMessage";
 import { DocMetadata } from "@/types/DocMetadata";
 import { Document } from "langchain/document";
 import { fetchWithAuth, isAuthenticated, initializeTokenManager } from "@/utils/client/tokenManager";
+import { getOrCreateUUID } from "@/utils/client/uuid";
 
 interface ShareConversationProps {
   siteConfig: SiteConfig | null;
@@ -67,6 +68,9 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
     setCloneError(null);
 
     try {
+      // Ensure UUID exists in cookies for non-login-required sites
+      getOrCreateUUID();
+
       const response = await fetchWithAuth("/api/clone-conversation", {
         method: "POST",
         headers: {
@@ -101,16 +105,19 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
       return;
     }
 
-    // If not logged in, redirect to login immediately
-    if (!isLoggedIn) {
+    // Check if site requires login
+    const loginRequired = siteConfig?.requireLogin ?? true;
+
+    // If login is required and user is not logged in, redirect to login
+    if (loginRequired && !isLoggedIn) {
       const currentPath = `/share/${docId}`;
       router.push(`/login?redirect=${encodeURIComponent(currentPath)}&action=clone`);
       return;
     }
 
-    // If logged in, perform the clone
+    // For all other cases (logged in on login-required site, or non-login site), perform the clone via API
     handleCloneConversation();
-  }, [docId, isLoggedIn, router, handleCloneConversation]);
+  }, [docId, isLoggedIn, router, handleCloneConversation, siteConfig]);
 
   // Check authentication status after token manager initializes
   useEffect(() => {
@@ -231,6 +238,13 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
 
           // Set the messages for display
           setMessages(messages);
+          // Set view-only mode so clone button appears
+          setViewOnlyMode(true);
+          setLoading(false);
+
+          // Log analytics event
+          logEvent("shared_conversation_loaded", "Sharing", docId, messages.length);
+
           return;
         }
 
@@ -409,8 +423,12 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
                     </>
                   ) : (
                     <>
-                      <span className="material-icons text-sm">{isLoggedIn ? "content_copy" : "login"}</span>
-                      {isLoggedIn ? "Clone & Continue This Chat" : "Login to Clone This Chat"}
+                      <span className="material-icons text-sm">
+                        {(siteConfig?.requireLogin ?? true) && !isLoggedIn ? "login" : "content_copy"}
+                      </span>
+                      {(siteConfig?.requireLogin ?? true) && !isLoggedIn
+                        ? "Login to Clone This Chat"
+                        : "Clone & Continue This Chat"}
                     </>
                   )}
                 </button>

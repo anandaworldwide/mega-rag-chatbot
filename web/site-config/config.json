@@ -100,8 +100,8 @@
     "accessRequestNoteLabel": "Please let us know the name and location of an Ananda leader who knows you."
   },
   "ananda-public": {
-    "name": "The Ananda.org Chatbot",
-    "shortname": "Ananda.org Chatbot",
+    "name": "Vivek, The Ananda.org Chatbot",
+    "shortname": "Vivek",
     "tagline": "Explore, Discover, Learn – Uncover the treasures of our path.",
     "greeting": "Hi, I'm Vivek. How can I help you?",
     "emailGreeting": "Hi there!",
