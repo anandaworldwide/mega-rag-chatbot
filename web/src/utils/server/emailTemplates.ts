@@ -30,7 +30,6 @@ export function generateEmailContent(options: EmailTemplateOptions): {
   const emailGreeting = options.greeting || siteConfig?.emailGreeting || "Hi there,";
   const siteName = siteConfig?.name || siteConfig?.shortname || "your account";
   const shortName = siteConfig?.shortname || siteName;
-  const signature = options.signature || shortName;
 
   // Determine login image URL
   let loginImageUrl = "";
@@ -76,14 +75,7 @@ export function generateEmailContent(options: EmailTemplateOptions): {
   const messageContent = formatMessageContent(options.message, options.actionUrl, options.actionText);
 
   // Generate plain text version
-  const textContent = [
-    emailGreeting,
-    "",
-    messageContent.text,
-    "",
-    `-- ${signature}`,
-    loginImageUrl ? `\nView online: ${baseUrl}` : "",
-  ]
+  const textContent = [emailGreeting, "", messageContent.text, "", loginImageUrl ? `\nView online: ${baseUrl}` : ""]
     .filter((line) => line !== "")
     .join("\n");
 
@@ -121,13 +113,6 @@ export function generateEmailContent(options: EmailTemplateOptions): {
       margin-bottom: 30px;
       white-space: pre-line;
     }
-    .signature {
-      font-size: 16px;
-      color: #7f8c8d;
-      margin-bottom: 30px;
-      border-top: 1px solid #ecf0f1;
-      padding-top: 20px;
-    }
             ${
               loginImageUrl
                 ? `
@@ -157,8 +142,6 @@ export function generateEmailContent(options: EmailTemplateOptions): {
     <div class="greeting">${emailGreeting}</div>
     
     <div class="message">${messageContent.html}</div>
-    
-    <div class="signature">-- ${signature}</div>
     
     ${
       loginImageUrl

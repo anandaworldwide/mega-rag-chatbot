@@ -122,6 +122,7 @@ const Footer: React.FC<FooterProps> = ({ siteConfig }) => {
                   <>
                     <Link href="/answers" className="text-sm hover:text-slate-600 cursor-pointer flex items-center">
                       View all answers
+                      <span className="material-icons text-sm ml-1">question_answer</span>
                     </Link>
                     <span className="text-gray-400">|</span>
                   </>
