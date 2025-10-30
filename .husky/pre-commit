@@ -1,3 +1,38 @@
+#!/bin/sh
 # Run lint-staged for formatting and linting
 echo "🔍 Running lint-staged for code quality checks..."
-npx lint-staged
+
+# Ensure we're in the git root directory
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+# Build PATH with node_modules locations
+NODE_BIN_PATH=""
+
+# Check root node_modules
+if [ -d "node_modules/.bin" ]; then
+  NODE_BIN_PATH="$(pwd)/node_modules/.bin"
+fi
+
+# Check web/node_modules (primary location for dependencies)
+if [ -d "web/node_modules/.bin" ]; then
+  if [ -n "$NODE_BIN_PATH" ]; then
+    NODE_BIN_PATH="$(pwd)/web/node_modules/.bin:$NODE_BIN_PATH"
+  else
+    NODE_BIN_PATH="$(pwd)/web/node_modules/.bin"
+  fi
+fi
+
+# Update PATH if we found node_modules
+if [ -n "$NODE_BIN_PATH" ]; then
+  export PATH="$NODE_BIN_PATH:$PATH"
+fi
+
+# Try to run lint-staged - prefer npm exec as it works even if npx isn't in PATH
+if command -v npm >/dev/null 2>&1; then
+  npm exec lint-staged
+elif command -v npx >/dev/null 2>&1; then
+  npx lint-staged
+else
+  echo "❌ Error: Neither npm nor npx found in PATH. Please ensure Node.js and npm are installed."
+  exit 1
+fi

@@ -176,7 +176,7 @@ export default function Login({ siteConfig }: LoginProps) {
         const redirect =
           typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("redirect") : null;
         const action = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("action") : null;
-        
+
         // If action is 'clone', redirect back to the share page where the clone will be triggered
         if (action === "clone" && redirect) {
           router.push(redirect);
@@ -252,169 +252,199 @@ export default function Login({ siteConfig }: LoginProps) {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100">
-      {siteConfig?.loginImage && (
-        <div className="flex flex-col items-center mb-6 w-full max-w-md">
-          <Image
-            src={`/${siteConfig.loginImage}`}
-            alt="Login Image"
-            width={250}
-            height={250}
-            className="w-full h-auto object-contain"
-          />
-        </div>
-      )}
-      <div className="p-6 bg-white rounded shadow-md max-w-md w-full">
-        <h1 className="mb-4 text-2xl">Welcome to {getSiteName(siteConfig)}!</h1>
-        <p className="mb-4">{getTagline(siteConfig)}</p>
-
-        {step === "email" && (
-          <form onSubmit={submitEmail} aria-busy={isSubmitting}>
-            <div className="mb-4">
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                ref={emailInputRef}
-                className="p-2 border border-gray-300 rounded w-full"
-                placeholder="Enter your email"
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
+      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full border border-gray-100 transform transition-all duration-300 hover:shadow-2xl overflow-hidden">
+        {siteConfig?.loginImage && (
+          <div className="flex flex-col items-center pt-8 px-8 pb-4">
+            <div className="relative">
+              <Image
+                src={`/${siteConfig.loginImage}`}
+                alt="Login Image"
+                width={320}
+                height={320}
+                className="w-full h-auto object-contain drop-shadow-lg"
               />
             </div>
-
-            {error && <p className="text-red-500 mb-2">{error}</p>}
-            {info && (
-              <p className="text-green-600 mb-2" aria-live="polite">
-                {info}
-              </p>
-            )}
-
-            <div className="flex items-center justify-between mt-4">
-              <button
-                type="submit"
-                className="p-2 bg-blue-500 text-white rounded disabled:opacity-60"
-                disabled={isSubmitting || emailSent}
-              >
-                {isSubmitting ? "Processing…" : emailSent ? "Check your email" : "Continue"}
-              </button>
-              {emailSent && resendSeconds > 0 && (
-                <span className="ml-3 text-sm text-gray-600" aria-live="polite">
-                  You can resend the {lastSendType === "activation" ? "invitation email" : "login link"} in{" "}
-                  {resendSeconds}s
-                </span>
-              )}
-            </div>
-          </form>
-        )}
-
-        {step === "password" && (
-          <form onSubmit={submitPassword} aria-busy={isSubmitting}>
-            <p className="mb-4 text-sm text-gray-600">
-              Enter your password for <strong>{email}</strong>
-            </p>
-
-            <div className="mb-4">
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                Password
-              </label>
-              <div className="relative">
-                <input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  ref={passwordInputRef}
-                  className="p-2 border border-gray-300 rounded w-full pr-16"
-                  placeholder="Enter your password"
-                  autoComplete="current-password"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-gray-500 hover:text-gray-700"
-                >
-                  {showPassword ? "Hide" : "Show"}
-                </button>
-              </div>
-            </div>
-
-            {error && <p className="text-red-500 mb-4 text-sm">{error}</p>}
-            {info && (
-              <p className="text-green-600 mb-4 text-sm" aria-live="polite">
-                {info}
-              </p>
-            )}
-
-            <div className="flex flex-col gap-3">
-              <button
-                type="submit"
-                className="w-full p-2 bg-blue-500 text-white rounded disabled:opacity-60 hover:bg-blue-600"
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? "Logging in..." : "Log In"}
-              </button>
-              <div className="flex flex-col gap-2 text-sm text-center">
-                <button
-                  type="button"
-                  onClick={useMagicLinkInstead}
-                  className="text-blue-500 hover:underline"
-                  disabled={isSubmitting}
-                >
-                  Email me a Magic Login Link
-                </button>
-                <a
-                  href={`/forgot-password${email ? `?email=${encodeURIComponent(email)}` : ""}`}
-                  className="text-blue-500 hover:underline"
-                >
-                  Forgot password?
-                </a>
-              </div>
-            </div>
-          </form>
-        )}
-
-        {step === "request-approval" && (
-          <div>
-            <AdminApproverSelector
-              requesterEmail={email}
-              siteConfig={siteConfig}
-              onSuccess={handleApprovalSuccess}
-              onError={handleApprovalError}
-              onBack={handleBackToEmail}
-            />
-
-            <div className="mt-4 p-3 bg-gray-50 rounded text-sm text-gray-600">
-              <p>
-                Don&apos;t see an admin for your area? Please{" "}
-                <button
-                  type="button"
-                  onClick={() => setShowFeedbackModal(true)}
-                  className="text-blue-500 underline hover:text-blue-700"
-                >
-                  click here
-                </button>{" "}
-                to contact us directly and request an account.
-              </p>
-            </div>
-
-            {error && <p className="text-red-500 mt-4">{error}</p>}
-            {info && (
-              <p className="text-green-600 mt-4" aria-live="polite">
-                {info}
-              </p>
-            )}
           </div>
         )}
+        <div
+          className={`text-center ${siteConfig?.loginImage ? "px-8 pb-6" : "p-8"} ${siteConfig?.loginImage ? "" : "mb-6"}`}
+        >
+          <h1 className="mb-3 text-3xl font-bold text-gray-900">Welcome to {getSiteName(siteConfig)}!</h1>
+          <p className="text-lg text-gray-600 leading-relaxed">{getTagline(siteConfig)}</p>
+        </div>
+        <div className="px-8 pb-8">
+          {step === "email" && (
+            <form onSubmit={submitEmail} aria-busy={isSubmitting}>
+              <div className="mb-5">
+                <label htmlFor="email-input" className="block text-sm font-medium text-gray-700 mb-2">
+                  Email Address
+                </label>
+                <input
+                  id="email-input"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  ref={emailInputRef}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 outline-none"
+                  placeholder="Enter your email"
+                />
+              </div>
+
+              {error && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-red-600 text-sm">{error}</p>
+                </div>
+              )}
+              {info && (
+                <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg" aria-live="polite">
+                  <p className="text-green-700 text-sm">{info}</p>
+                </div>
+              )}
+
+              <div className="flex flex-col gap-3 mt-6">
+                <button
+                  type="submit"
+                  className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-lg shadow-md hover:shadow-lg hover:from-blue-700 hover:to-indigo-700 transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none"
+                  disabled={isSubmitting || emailSent}
+                >
+                  {isSubmitting ? "Processing…" : emailSent ? "Check your email" : "Continue"}
+                </button>
+                {emailSent && resendSeconds > 0 && (
+                  <p className="text-center text-sm text-gray-600" aria-live="polite">
+                    You can resend the {lastSendType === "activation" ? "invitation email" : "login link"} in{" "}
+                    <span className="font-semibold text-blue-600">{resendSeconds}s</span>
+                  </p>
+                )}
+              </div>
+            </form>
+          )}
+
+          {step === "password" && (
+            <form onSubmit={submitPassword} aria-busy={isSubmitting}>
+              <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-sm text-gray-700">
+                  Enter your password for <strong className="text-gray-900">{email}</strong>
+                </p>
+              </div>
+
+              <div className="mb-5">
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+                  Password
+                </label>
+                <div className="relative">
+                  <input
+                    id="password"
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    ref={passwordInputRef}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg pr-16 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 outline-none"
+                    placeholder="Enter your password"
+                    autoComplete="current-password"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors"
+                  >
+                    {showPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
+              </div>
+
+              {error && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-red-600 text-sm">{error}</p>
+                </div>
+              )}
+              {info && (
+                <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg" aria-live="polite">
+                  <p className="text-green-700 text-sm">{info}</p>
+                </div>
+              )}
+
+              <div className="flex flex-col gap-3">
+                <button
+                  type="submit"
+                  className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-lg shadow-md hover:shadow-lg hover:from-blue-700 hover:to-indigo-700 transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none"
+                  disabled={isSubmitting}
+                >
+                  {isSubmitting ? "Logging in..." : "Log In"}
+                </button>
+                <div className="flex flex-col gap-2 text-sm text-center pt-2">
+                  <button
+                    type="button"
+                    onClick={useMagicLinkInstead}
+                    className="text-blue-600 hover:text-blue-800 font-medium transition-colors"
+                    disabled={isSubmitting}
+                  >
+                    Email me a Magic Login Link
+                  </button>
+                  <a
+                    href={`/forgot-password${email ? `?email=${encodeURIComponent(email)}` : ""}`}
+                    className="text-blue-600 hover:text-blue-800 transition-colors"
+                  >
+                    Forgot password?
+                  </a>
+                </div>
+              </div>
+            </form>
+          )}
+
+          {step === "request-approval" && (
+            <div>
+              <AdminApproverSelector
+                requesterEmail={email}
+                siteConfig={siteConfig}
+                onSuccess={handleApprovalSuccess}
+                onError={handleApprovalError}
+                onBack={handleBackToEmail}
+              />
+
+              <div className="mt-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg text-sm text-gray-700">
+                <p>
+                  Don&apos;t see an admin for your area? Please{" "}
+                  <button
+                    type="button"
+                    onClick={() => setShowFeedbackModal(true)}
+                    className="text-blue-600 font-semibold hover:text-blue-800 underline transition-colors"
+                  >
+                    click here
+                  </button>{" "}
+                  to contact us directly and request an account.
+                </p>
+              </div>
+
+              {error && (
+                <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-red-600 text-sm">{error}</p>
+                </div>
+              )}
+              {info && (
+                <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg" aria-live="polite">
+                  <p className="text-green-700 text-sm">{info}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
       {step === "email" && siteConfig?.siteId === "ananda" && (
-        <p className="mt-4 text-center text-sm text-gray-700">
+        <p className="mt-6 text-center text-sm text-gray-600 max-w-md px-4">
           If your email isn&apos;t recognized, we&apos;ll help you request access from an admin.
         </p>
       )}
       {siteConfig?.siteId === "jairam" && (
-        <p className="mt-4 text-center">For access, please contact the Free Joe Hunt team.</p>
+        <p className="mt-6 text-center text-sm text-gray-600 max-w-md px-4">
+          For access, please contact the Free Joe Hunt team.
+        </p>
       )}
-      <p className="mt-4">
-        <a href="https://github.com/anandaworldwide/mega-rag-chatbot" className="text-blue-400 hover:underline mx-2">
+      <p className="mt-6">
+        <a
+          href="https://github.com/anandaworldwide/mega-rag-chatbot"
+          className="text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors"
+        >
           Open Source Project
         </a>
       </p>

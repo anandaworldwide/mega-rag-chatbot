@@ -53,10 +53,10 @@
     "requireLogin": true,
     "allowTemporarySessions": true,
     "allowAllAnswersPage": true,
-    "loginImage": "mascot.png",
+    "loginImage": "luca.png",
     "header": {
       "logo": "ananda-logo.png",
-      "navItems": [{ "label": "Home", "path": "/" }]
+      "navItems": []
     },
     "footer": {
       "links": [
