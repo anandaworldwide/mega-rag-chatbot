@@ -14,7 +14,7 @@ interface EmailTemplateOptions {
 
 /**
  * Generates both HTML and plain text versions of an email
- * Follows the format: <emailGreeting> <message> -- <name> <loginImage>
+ * Follows the format: <emailGreeting> <message> <loginImage>
  */
 export function generateEmailContent(options: EmailTemplateOptions): {
   html: string;
@@ -75,7 +75,7 @@ export function generateEmailContent(options: EmailTemplateOptions): {
   const messageContent = formatMessageContent(options.message, options.actionUrl, options.actionText);
 
   // Generate plain text version
-  const textContent = [emailGreeting, "", messageContent.text, "", loginImageUrl ? `\nView online: ${baseUrl}` : ""]
+  const textContent = [emailGreeting, "", messageContent.text, "", loginImageUrl ? `View online: ${baseUrl}` : ""]
     .filter((line) => line !== "")
     .join("\n");
 
@@ -142,7 +142,7 @@ export function generateEmailContent(options: EmailTemplateOptions): {
     <div class="greeting">${emailGreeting}</div>
     
     <div class="message">${messageContent.html}</div>
-    
+
     ${
       loginImageUrl
         ? `

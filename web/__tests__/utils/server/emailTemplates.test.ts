@@ -32,11 +32,9 @@ describe("emailTemplates", () => {
 
       expect(result.text).toContain("Hello there!");
       expect(result.text).toContain("This is a test message.");
-      expect(result.text).toContain("-- TestSite");
 
       expect(result.html).toContain("Hello there!");
       expect(result.html).toContain("This is a test message.");
-      expect(result.html).toContain("-- TestSite");
       expect(result.html).toContain("<!DOCTYPE html>");
       expect(result.html).toContain("test-logo.png");
     });
