@@ -1,4 +1,7 @@
+import { loadCategorizedQueries, CategorizedQueries } from "./categorizedQueries";
+
 let cachedQueries: Record<string, Record<string, string[]>> | null = null;
+let cachedCategorizedQueries: Record<string, Record<string, CategorizedQueries | null>> | null = null;
 
 export async function loadQueries(siteId: string, collection: string): Promise<string[]> {
   if (cachedQueries && cachedQueries[siteId] && cachedQueries[siteId][collection]) {
@@ -6,6 +9,34 @@ export async function loadQueries(siteId: string, collection: string): Promise<s
   }
 
   try {
+    // First try to load as categorized queries
+    const categorized = await loadCategorizedQueries(siteId, collection);
+
+    if (categorized) {
+      // Cache categorized queries
+      if (!cachedCategorizedQueries) {
+        cachedCategorizedQueries = {};
+      }
+      if (!cachedCategorizedQueries[siteId]) {
+        cachedCategorizedQueries[siteId] = {};
+      }
+      cachedCategorizedQueries[siteId][collection] = categorized;
+
+      // For backward compatibility, return flat list by combining all categories
+      const flatQueries = [...categorized.general, ...categorized.location, ...categorized.resources];
+
+      if (!cachedQueries) {
+        cachedQueries = {};
+      }
+      if (!cachedQueries[siteId]) {
+        cachedQueries[siteId] = {};
+      }
+      cachedQueries[siteId][collection] = flatQueries;
+
+      return flatQueries;
+    }
+
+    // Fall back to flat format
     const response = await fetch(`/data/${siteId}/${collection}_queries.txt`);
 
     if (!response.ok) {
@@ -50,6 +81,31 @@ export async function loadQueries(siteId: string, collection: string): Promise<s
 
     return fallbackQueries;
   }
+}
+
+/**
+ * Get categorized queries for a collection if available
+ */
+export async function getCategorizedQueries(siteId: string, collection: string): Promise<CategorizedQueries | null> {
+  // Check cache first
+  if (cachedCategorizedQueries && cachedCategorizedQueries[siteId] && cachedCategorizedQueries[siteId][collection]) {
+    return cachedCategorizedQueries[siteId][collection];
+  }
+
+  // Try to load
+  const categorized = await loadCategorizedQueries(siteId, collection);
+
+  if (categorized) {
+    if (!cachedCategorizedQueries) {
+      cachedCategorizedQueries = {};
+    }
+    if (!cachedCategorizedQueries[siteId]) {
+      cachedCategorizedQueries[siteId] = {};
+    }
+    cachedCategorizedQueries[siteId][collection] = categorized;
+  }
+
+  return categorized;
 }
 
 export async function getCollectionQueries(siteId: string, collectionConfig: Record<string, string>) {

@@ -265,6 +265,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [showScrollDownButton, setShowScrollDownButton] = useState(false);
   const [scrollClickState, setScrollClickState] = useState(0); // 0: initial, 1: scrolled to content
+  // Track which user message to highlight when clicked from suggested queries
+  const [highlightMessageIndex, setHighlightMessageIndex] = useState<number | null>(null);
+  const userMessageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
   // Function to handle media type selection
   const handleMediaTypeChange = (type: "text" | "audio" | "youtube") => {
@@ -626,8 +629,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const [editingText, setEditingText] = useState<string>("");
 
   const [sourceCount, setSourceCount] = useState<number>(siteConfig?.defaultNumSources || 4);
-  const [, setAiSuggestionsRefresh] = useState<(() => void) | null>(null);
-  const aiSuggestionsRefreshRef = useRef<(() => void) | null>(null);
 
   // Load saved search preferences from localStorage
   useEffect(() => {
@@ -691,11 +692,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       logEvent("search_preferences_error", "Settings", "localStorage_parse_error");
     }
   }, [siteConfig?.defaultNumSources, siteConfig?.includedLibraries]);
-
-  const handleAISuggestionsRefreshReady = useCallback((fn: () => void) => {
-    aiSuggestionsRefreshRef.current = fn;
-    setAiSuggestionsRefresh(() => fn);
-  }, []);
 
   // Add state for timing information
   const [timingMetrics, setTimingMetrics] = useState<{
@@ -1279,9 +1275,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       }
 
       setLoading(false);
-
-      // Refresh AI suggestions after successful completion
-      aiSuggestionsRefreshRef.current?.();
     } catch (error) {
       console.error("Error in handleSubmit:", error);
       setError(error instanceof Error ? error.message : "An error occurred while streaming the response.");
@@ -1319,6 +1312,13 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     handleSubmit(new Event("submit") as unknown as React.FormEvent, suggestion);
   };
 
+  // State for categorized queries
+  const [categorizedQueries, setCategorizedQueries] = useState<{
+    general: string[];
+    location: string[];
+    resources: string[];
+  } | null>(null);
+
   // Effect to fetch collection queries on component mount
   useEffect(() => {
     let isMounted = true;
@@ -1328,6 +1328,16 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         const queries = await getCollectionQueries(siteConfig.siteId, siteConfig.collectionConfig);
         if (isMounted) {
           setCollectionQueries(queries);
+
+          // Try to load categorized queries for current collection
+          const { getCategorizedQueries } = await import("@/utils/client/collectionQueries");
+          const categorized = await getCategorizedQueries(siteConfig.siteId, collection);
+          if (categorized && isMounted) {
+            setCategorizedQueries(categorized);
+          } else {
+            setCategorizedQueries(null);
+          }
+
           setIsLoadingQueries(false);
         }
       }
@@ -1336,9 +1346,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     return () => {
       isMounted = false;
     };
-  }, [siteConfig]);
+  }, [siteConfig, collection]);
 
-  // Memoized queries for the current collection
+  // Memoized queries for the current collection (flat list for backward compatibility)
   const queriesForCollection = useMemo(() => {
     if (!collectionQueries[collection as keyof typeof collectionQueries]) {
       // If the current collection is not found, use the first available collection
@@ -1353,7 +1363,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     return queries;
   }, [collection, collectionQueries]);
 
-  // Custom hook for managing suggested queries
+  // Custom hook for managing suggested queries (fallback for non-categorized)
   const { suggestedQueries, shuffleQueries } = useSuggestedQueries(queriesForCollection, 3);
 
   // Helper function to determine if user has completed any Q&A (show suggestions until first Q&A)
@@ -2092,6 +2102,12 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const handleClick = (clickedQuery: string) => {
     setQuery(clickedQuery);
     setIsNearBottom(true);
+
+    // Calculate the index of the new user message that will be added
+    // It will be at messages.length (current messages + new user message)
+    const newUserMessageIndex = messages.length;
+    setHighlightMessageIndex(newUserMessageIndex);
+
     handleSubmit(new Event("submit") as unknown as React.FormEvent, clickedQuery);
 
     // Focus on the input field if not on mobile
@@ -2099,6 +2115,63 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       textAreaRef.current.focus();
     }
   };
+
+  // Effect to scroll to and highlight newly added user message from suggested queries
+  useEffect(() => {
+    if (highlightMessageIndex !== null) {
+      // Wait for DOM to update with the new message
+      const timer = setTimeout(() => {
+        const messageElement = userMessageRefs.current.get(highlightMessageIndex);
+        if (messageElement) {
+          // Scroll to the message with smooth behavior
+          messageElement.scrollIntoView({
+            behavior: "smooth",
+            block: "center",
+          });
+
+          // Add highlight animation class
+          messageElement.classList.add("animate-pulse");
+          messageElement.style.backgroundColor = "rgba(59, 130, 246, 0.1)"; // Light blue highlight
+          messageElement.style.transition = "background-color 0.3s ease";
+
+          // Remove highlight after animation
+          setTimeout(() => {
+            messageElement.classList.remove("animate-pulse");
+            messageElement.style.backgroundColor = "";
+            setHighlightMessageIndex(null);
+          }, 2000);
+        } else {
+          // If element not found yet, try again after a short delay
+          setTimeout(() => {
+            const retryElement = userMessageRefs.current.get(highlightMessageIndex);
+            if (retryElement) {
+              retryElement.scrollIntoView({
+                behavior: "smooth",
+                block: "center",
+              });
+              retryElement.classList.add("animate-pulse");
+              retryElement.style.backgroundColor = "rgba(59, 130, 246, 0.1)";
+              retryElement.style.transition = "background-color 0.3s ease";
+              setTimeout(() => {
+                retryElement.classList.remove("animate-pulse");
+                retryElement.style.backgroundColor = "";
+                setHighlightMessageIndex(null);
+              }, 2000);
+            } else {
+              // Fallback: scroll to bottom if element not found
+              bottomOfListRef.current?.scrollIntoView({
+                behavior: "smooth",
+                block: "end",
+              });
+              setHighlightMessageIndex(null);
+            }
+          }, 100);
+        }
+      }, 50);
+
+      return () => clearTimeout(timer);
+    }
+  }, [highlightMessageIndex, messages.length]);
 
   // Function to format timing metrics for display
   const formatTimingMetrics = useCallback(() => {
@@ -2290,34 +2363,45 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                   {/* Render chat messages */}
                   {messages.map((message, index) => (
                     <React.Fragment key={`chatMessage-${index}`}>
-                      <MessageItem
-                        messageKey={`chatMessage-${index}`}
-                        message={message}
-                        previousMessage={index > 0 ? messages[index - 1] : undefined}
-                        index={index}
-                        isLastMessage={index === messages.length - 1}
-                        loading={loading}
-                        temporarySession={temporarySession}
-                        collectionChanged={collectionChanged}
-                        hasMultipleCollections={hasMultipleCollections}
-                        linkCopied={linkCopied}
-                        votes={votes}
-                        siteConfig={siteConfig}
-                        handleCopyLink={handleCopyLink}
-                        handleVote={handleVote}
-                        lastMessageRef={lastMessageRef}
-                        voteError={voteError}
-                        allowAllAnswersPage={siteConfig?.allowAllAnswersPage ?? false}
-                        onSuggestionClick={handleSuggestionClick}
-                        onTryGPT41={handleTryGPT41}
-                        isRegenerating={isRegenerating && regeneratingMessageIndex === index}
-                        onRegenerateAnswer={handleRegenerateAnswer}
-                        onEditQuestion={handleEditQuestion}
-                        isEditing={editingMessageIndex === index}
-                        editingText={editingText}
-                        onSaveEdit={handleSaveEdit}
-                        onCancelEdit={handleCancelEdit}
-                      />
+                      <div
+                        ref={(el) => {
+                          // Store ref for user messages to enable scrolling/highlighting
+                          if (el && message.type === "userMessage") {
+                            userMessageRefs.current.set(index, el);
+                          } else if (message.type !== "userMessage") {
+                            userMessageRefs.current.delete(index);
+                          }
+                        }}
+                      >
+                        <MessageItem
+                          messageKey={`chatMessage-${index}`}
+                          message={message}
+                          previousMessage={index > 0 ? messages[index - 1] : undefined}
+                          index={index}
+                          isLastMessage={index === messages.length - 1}
+                          loading={loading}
+                          temporarySession={temporarySession}
+                          collectionChanged={collectionChanged}
+                          hasMultipleCollections={hasMultipleCollections}
+                          linkCopied={linkCopied}
+                          votes={votes}
+                          siteConfig={siteConfig}
+                          handleCopyLink={handleCopyLink}
+                          handleVote={handleVote}
+                          lastMessageRef={lastMessageRef}
+                          voteError={voteError}
+                          allowAllAnswersPage={siteConfig?.allowAllAnswersPage ?? false}
+                          onSuggestionClick={handleSuggestionClick}
+                          onTryGPT41={handleTryGPT41}
+                          isRegenerating={isRegenerating && regeneratingMessageIndex === index}
+                          onRegenerateAnswer={handleRegenerateAnswer}
+                          onEditQuestion={handleEditQuestion}
+                          isEditing={editingMessageIndex === index}
+                          editingText={editingText}
+                          onSaveEdit={handleSaveEdit}
+                          onCancelEdit={handleCancelEdit}
+                        />
+                      </div>
 
                       {/* Show comparison UI if this message is being regenerated */}
                       {regeneratingMessageIndex === index && regeneratedAnswer && (
@@ -2402,8 +2486,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                     sourceCount={sourceCount}
                     setSourceCount={setSourceCount}
                     onTemporarySessionChange={handleTemporarySessionChange}
-                    onAISuggestionsRefreshReady={handleAISuggestionsRefreshReady}
-                    isChatEmpty={shouldShowSuggestions}
+                    categorizedQueries={categorizedQueries}
                   />
                 )}
               </div>

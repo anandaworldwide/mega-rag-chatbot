@@ -79,6 +79,7 @@ jest.mock("@/hooks/useSuggestedQueries", () => ({
 // Mock getCollectionQueries
 jest.mock("@/utils/client/collectionQueries", () => ({
   getCollectionQueries: jest.fn().mockResolvedValue([]),
+  getCategorizedQueries: jest.fn().mockResolvedValue(null),
 }));
 
 // Mock ChatInput component since we're testing it separately

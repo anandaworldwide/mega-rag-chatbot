@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { logEvent } from "@/utils/client/analytics";
-import { fetchWithAuth } from "@/utils/client/tokenManager";
-import { getOrCreateUUID } from "@/utils/client/uuid";
 import { SiteConfig } from "@/types/siteConfig";
+import { CategorizedQueries } from "@/utils/client/categorizedQueries";
 
 interface SuggestedQueriesProps {
   queries: string[];
@@ -14,7 +13,10 @@ interface SuggestedQueriesProps {
   onRefreshFunctionReady?: (refreshFn: () => void) => void;
   isExpanded?: boolean;
   onToggleExpanded?: () => void;
+  categorizedQueries?: CategorizedQueries | null;
 }
+
+type CategoryType = "general" | "location" | "resources";
 
 const SuggestedQueries: React.FC<SuggestedQueriesProps> = ({
   queries,
@@ -23,231 +25,152 @@ const SuggestedQueries: React.FC<SuggestedQueriesProps> = ({
   shuffleQueries,
   isMobile,
   siteConfig, // eslint-disable-line @typescript-eslint/no-unused-vars
-  onRefreshFunctionReady,
+  onRefreshFunctionReady, // eslint-disable-line @typescript-eslint/no-unused-vars
   isExpanded = true,
   onToggleExpanded,
+  categorizedQueries,
 }) => {
-  const [suggestedPrompts, setSuggestedPrompts] = useState<string[]>([]);
-  const [isEditing, setIsEditing] = useState<boolean>(false);
-  const [editingIndex, setEditingIndex] = useState<number>(-1);
-  const [editedPrompt, setEditedPrompt] = useState<string>("");
-  const [loading, setLoading] = useState<boolean>(false);
-  const [hasEnoughHistory, setHasEnoughHistory] = useState<boolean>(false);
-  const [initializing, setInitializing] = useState<boolean>(true);
+  const [currentQueryIndex, setCurrentQueryIndex] = useState(0);
+  const [shuffleKey, setShuffleKey] = useState(0); // Force re-shuffle when changed
 
-  // Check if user has enough chat history - only for sites that require login
+  // Track current category and available categories for rotation
+  const getAvailableCategories = (): CategoryType[] => {
+    if (!categorizedQueries) return [];
+    const available: CategoryType[] = [];
+    if (categorizedQueries.general.length > 0) available.push("general");
+    if (categorizedQueries.location.length > 0) available.push("location");
+    if (categorizedQueries.resources.length > 0) available.push("resources");
+    return available;
+  };
+
+  const availableCategories = getAvailableCategories();
+
+  // Initialize current category randomly
+  const [currentCategory, setCurrentCategory] = useState<CategoryType | null>(() => {
+    if (!categorizedQueries) return null;
+    const available: CategoryType[] = [];
+    if (categorizedQueries.general.length > 0) available.push("general");
+    if (categorizedQueries.location.length > 0) available.push("location");
+    if (categorizedQueries.resources.length > 0) available.push("resources");
+    if (available.length === 0) return null;
+    return available[Math.floor(Math.random() * available.length)];
+  });
+
+  // Update category when categorizedQueries changes
   useEffect(() => {
-    const checkChatHistory = async () => {
-      try {
-        // Only check chat history for AI suggestions on sites that require login
-        if (!siteConfig?.requireLogin) {
-          setHasEnoughHistory(false);
-          setInitializing(false);
-
-          // Analytics for showing random queries
-          logEvent(
-            "suggestions_component_loaded",
-            "Suggestions",
-            `random_queries_shown|login_${!!siteConfig?.requireLogin}|mobile_${isMobile}`
-          );
-          return;
-        }
-
-        // Try to get AI suggestions - this will tell us if we have enough history
-        const uuid = getOrCreateUUID();
-        const response = await fetchWithAuth("/api/suggestPrompt", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ uuid }),
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          setHasEnoughHistory(data.hasEnoughHistory);
-          if (data.hasEnoughHistory && data.suggestions.length > 0) {
-            setSuggestedPrompts(data.suggestions);
-
-            // Analytics for showing AI suggestions
-            logEvent(
-              "suggestions_component_loaded",
-              "Suggestions",
-              `ai_suggestions_shown|count_${data.suggestions.length}|login_${!!siteConfig?.requireLogin}|mobile_${isMobile}`,
-              data.suggestions.length
-            );
-          } else {
-            // Analytics for fallback to random queries (no suggestions returned)
-            logEvent(
-              "suggestions_component_loaded",
-              "Suggestions",
-              `random_queries_fallback|reason_no_ai_suggestions|history_${data.hasEnoughHistory}|login_${!!siteConfig?.requireLogin}|mobile_${isMobile}`
-            );
-          }
-        } else {
-          setHasEnoughHistory(false);
-
-          // Analytics for fallback to random queries (API error)
-          logEvent(
-            "suggestions_component_loaded",
-            "Suggestions",
-            `random_queries_fallback|reason_api_error|status_${response.status}|login_${!!siteConfig?.requireLogin}|mobile_${isMobile}`,
-            response.status
-          );
-        }
-      } catch (error) {
-        console.error("Error checking chat history:", error);
-        setHasEnoughHistory(false);
-
-        // Analytics for fallback to random queries (exception)
-        logEvent(
-          "suggestions_component_loaded",
-          "Suggestions",
-          `random_queries_fallback|reason_exception|error_${error instanceof Error ? error.message.replace(/[^a-zA-Z0-9]/g, "_") : "unknown"}|login_${!!siteConfig?.requireLogin}|mobile_${isMobile}`
-        );
-      } finally {
-        setInitializing(false);
+    if (categorizedQueries && availableCategories.length > 0) {
+      // If current category is no longer available, pick a new one
+      if (!currentCategory || !availableCategories.includes(currentCategory)) {
+        setCurrentCategory(availableCategories[Math.floor(Math.random() * availableCategories.length)]);
       }
+    } else if (!categorizedQueries) {
+      setCurrentCategory(null);
+    }
+  }, [categorizedQueries, availableCategories, currentCategory]);
+
+  // Rotate to a different category (not the one just shown)
+  const rotateToDifferentCategory = (currentCat: CategoryType | null): CategoryType | null => {
+    if (availableCategories.length <= 1) return currentCat;
+
+    // Get all categories except the current one
+    const otherCategories = availableCategories.filter((cat) => cat !== currentCat);
+
+    // Pick randomly from the other categories
+    if (otherCategories.length > 0) {
+      return otherCategories[Math.floor(Math.random() * otherCategories.length)];
+    }
+
+    // Fallback: if somehow all are the same, just rotate to next
+    const currentIndex = availableCategories.indexOf(currentCat || availableCategories[0]);
+    return availableCategories[(currentIndex + 1) % availableCategories.length];
+  };
+
+  // Simple deterministic shuffle using a seed
+  // Same seed + same array = same result every time
+  const seededShuffle = (array: string[], seed: number): string[] => {
+    const shuffled = [...array];
+    // Use a simple seeded random number generator
+    let value = seed;
+    const random = () => {
+      value = (value * 9301 + 49297) % 233280;
+      return value / 233280;
     };
 
-    checkChatHistory();
-  }, [siteConfig?.requireLogin]); // Re-run if requireLogin changes
-
-  // Refresh AI suggested prompts (used for auto-refresh after chat completion)
-  const generateSuggestedPrompt = async () => {
-    if (!hasEnoughHistory || loading) return;
-
-    setLoading(true);
-    try {
-      // Use AI to generate personalized questions (API handles chat history fetching)
-      const questions = await generatePersonalizedPrompts();
-      setSuggestedPrompts(questions);
-    } catch (error) {
-      console.error("Error generating AI suggested prompt:", error);
-      return;
-    } finally {
-      setLoading(false);
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
     }
+    return shuffled;
   };
 
-  // Generate personalized prompts using AI
-  const generatePersonalizedPrompts = async (): Promise<string[]> => {
-    try {
-      const uuid = getOrCreateUUID();
+  // Determine how many queries to show per category
+  const queriesPerCategory = isMobile ? 1 : 2;
 
-      // Use the lightweight suggest prompt API
-      const response = await fetchWithAuth("/api/suggestPrompt", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          uuid: uuid,
-        }),
-      });
+  // Memoize selected queries for the current category to prevent re-shuffling on every render
+  const selectedQueries = useMemo(() => {
+    if (!categorizedQueries || !currentCategory) return [];
 
-      if (!response.ok) {
-        throw new Error("Failed to generate AI suggestions");
-      }
-
-      const data = await response.json();
-      return data.suggestions;
-    } catch (error) {
-      console.error("Error generating personalized prompts:", error);
-      throw error; // Let the calling function handle the fallback
+    let categoryQueries: string[] = [];
+    if (currentCategory === "general") {
+      categoryQueries = categorizedQueries.general;
+    } else if (currentCategory === "location") {
+      categoryQueries = categorizedQueries.location;
+    } else if (currentCategory === "resources") {
+      categoryQueries = categorizedQueries.resources;
     }
-  };
 
-  // Expose refresh function to parent component
-  useEffect(() => {
-    if (onRefreshFunctionReady) {
-      onRefreshFunctionReady(() => {
-        if (hasEnoughHistory) {
-          generateSuggestedPrompt();
-        }
-      });
+    if (categoryQueries.length === 0) return [];
+
+    // Create a deterministic seed from shuffleKey and currentCategory
+    const seed = shuffleKey * 1000 + (currentCategory === "general" ? 1 : currentCategory === "location" ? 2 : 3);
+    const shuffled = seededShuffle(categoryQueries, seed);
+    return shuffled.slice(0, queriesPerCategory);
+  }, [categorizedQueries, currentCategory, shuffleKey, queriesPerCategory]);
+
+  // Handle regenerate/shuffle button click
+  const handleRegenerate = () => {
+    if (categorizedQueries) {
+      // Force re-shuffle by incrementing shuffleKey and rotating category
+      setShuffleKey((prev) => prev + 1);
+      setCurrentCategory((prev) => rotateToDifferentCategory(prev));
+    } else {
+      // Fall back to flat list shuffle
+      shuffleQueries();
     }
-  }, [hasEnoughHistory, onRefreshFunctionReady]);
 
-  const handlePromptClick = (prompt: string, index: number) => {
-    if (!isLoading && prompt) {
-      onQueryClick(prompt);
+    const categoryInfo = categorizedQueries && currentCategory ? `category_${currentCategory}` : `categorized_false`;
 
-      // Enhanced analytics for AI suggestion clicks
-      logEvent(
-        "select_ai_suggested_prompt",
-        "Suggestions",
-        `ai_prompt_clicked|index_${index}|total_${suggestedPrompts.length}|mobile_${isMobile}|expanded_${isExpanded}`,
-        index
-      );
-    }
-  };
-
-  const handleEditClick = (prompt: string, index: number) => {
-    setEditedPrompt(prompt);
-    setEditingIndex(index);
-    setIsEditing(true);
-    logEvent("edit_ai_suggested_prompt", "Engagement", `index: ${index}`);
-  };
-
-  const handleSaveEdit = () => {
-    if (editedPrompt.trim() && editingIndex >= 0) {
-      const originalPrompt = suggestedPrompts[editingIndex];
-
-      // Submit the edited question directly
-      onQueryClick(editedPrompt.trim());
-      setIsEditing(false);
-      setEditingIndex(-1);
-
-      // Enhanced analytics for edited AI prompts
-      const lengthChange = editedPrompt.trim().length - (originalPrompt?.length || 0);
-      logEvent(
-        "save_edited_ai_prompt",
-        "Suggestions",
-        `ai_prompt_edited|index_${editingIndex}|mobile_${isMobile}|length_change_${lengthChange}`,
-        Math.abs(lengthChange)
-      );
-    }
-  };
-
-  const handleCancelEdit = () => {
-    setIsEditing(false);
-    setEditingIndex(-1);
-    setEditedPrompt("");
-    logEvent("cancel_edit_ai_prompt", "Engagement", "");
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSaveEdit();
-    }
-  };
-
-  const handleRefresh = () => {
-    generateSuggestedPrompt();
-
-    // Enhanced analytics for AI suggestion refresh
     logEvent(
-      "refresh_ai_suggested_prompt",
+      "regenerate_suggested_queries",
       "Suggestions",
-      `ai_refresh_clicked|count_${suggestedPrompts.length}|mobile_${isMobile}|expanded_${isExpanded}|loading_${loading}`,
-      suggestedPrompts.length
+      `${categoryInfo}|mobile_${isMobile}|expanded_${isExpanded}`,
+      0
     );
   };
 
-  const [currentQueryIndex, setCurrentQueryIndex] = useState(0);
-
-  const handleQueryClick = (query: string) => {
-    if (!isLoading) {
+  const handleQueryClick = (query: string, categoryLabel?: string) => {
+    if (!isLoading && query) {
       onQueryClick(query);
       setCurrentQueryIndex((prevIndex) => (prevIndex + 1) % queries.length);
 
-      // Enhanced analytics for random query clicks
+      // Rotate to a different category after clicking
+      if (categorizedQueries && categoryLabel) {
+        const clickedCategory = categoryLabel as CategoryType;
+        setCurrentCategory(rotateToDifferentCategory(clickedCategory));
+        setShuffleKey((prev) => prev + 1); // Re-shuffle for next display
+      }
+
+      // Format category prominently at the start of the label for easier parsing in GA
+      const categoryInfo = categoryLabel
+        ? `category_${categoryLabel}`
+        : categorizedQueries
+          ? `category_unknown`
+          : `category_none`;
+
       logEvent(
         "select_suggested_query",
         "Suggestions",
-        `random_query_clicked|index_${currentQueryIndex}|total_${queries.length}|mobile_${isMobile}|expanded_${isExpanded}`,
+        `${categoryInfo}|mobile_${isMobile}|expanded_${isExpanded}|query_index_${currentQueryIndex}`,
         currentQueryIndex
       );
     }
@@ -257,246 +180,214 @@ const SuggestedQueries: React.FC<SuggestedQueriesProps> = ({
     e.preventDefault();
     shuffleQueries();
 
-    // Enhanced analytics for random query shuffle
     logEvent(
       "randomize_suggested_queries",
       "Suggestions",
-      `random_shuffle_clicked|index_${currentQueryIndex}|total_${queries.length}|mobile_${isMobile}|expanded_${isExpanded}`,
+      `shuffle_clicked|index_${currentQueryIndex}|total_${queries.length}|mobile_${isMobile}|expanded_${isExpanded}`,
       currentQueryIndex
     );
   };
 
-  // Don't render anything while we're determining which type to show
-  if (initializing) {
+  // Don't render if no queries available
+  const hasQueries = categorizedQueries
+    ? categorizedQueries.general.length > 0 ||
+      categorizedQueries.location.length > 0 ||
+      categorizedQueries.resources.length > 0
+    : queries.length > 0;
+
+  if (!hasQueries) {
     return null;
   }
 
   return (
     <div className="text-left w-full px-0">
-      {/* Show AI Suggested Prompt if user has enough history, otherwise show Random Queries */}
-      {hasEnoughHistory ? (
-        <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-4 rounded-xl w-full border border-blue-200 mt-8">
-          <div className="flex justify-between items-center mb-3">
-            <p className="font-semibold text-gray-800">
-              {isMobile ? "AI Suggested Question" : "AI Suggested Questions"}
+      <div className="bg-gray-50 p-3 rounded-xl w-full border border-gray-200 mt-4">
+        {/* Header */}
+        <div className="flex justify-between items-start mb-2">
+          <div className="flex-1">
+            <h3 className="font-semibold text-gray-600 text-base mb-1">Ask me anything about Ananda teachings</h3>
+            <p className="text-sm text-gray-500">
+              You can ask spiritual questions, explore resources, or find locations. Try these examples:
             </p>
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={handleRefresh}
-                className="inline-flex justify-center items-center transform transition-transform duration-500 hover:rotate-180 flex-shrink-0"
-                aria-label="Generate new prompt"
-                disabled={isLoading || loading}
-              >
-                <span className="material-icons text-blue-600 hover:text-blue-800">autorenew</span>
-              </button>
-              {onToggleExpanded && (
-                <button
-                  onClick={() => {
-                    const action = isExpanded ? "minimize" : "expand";
-                    const suggestionType = hasEnoughHistory ? "ai_suggestions" : "random_queries";
-
-                    onToggleExpanded();
-
-                    // Enhanced analytics tracking
-                    const promptCount = hasEnoughHistory ? suggestedPrompts.length : queries.length;
-                    logEvent(
-                      `${action}_suggestions`,
-                      "Suggestions",
-                      `${suggestionType}|from_${isExpanded ? "expanded" : "minimized"}|mobile_${isMobile}|count_${promptCount}`,
-                      promptCount
-                    );
-                  }}
-                  className="inline-flex justify-center items-center flex-shrink-0"
-                  aria-label={isExpanded ? "Minimize suggestions" : "Expand suggestions"}
-                >
-                  <span className="material-icons text-gray-600 hover:text-gray-800">
-                    {isExpanded ? "keyboard_arrow_up" : "expand_more"}
-                  </span>
-                </button>
-              )}
-            </div>
           </div>
+          <div className="flex items-center space-x-2 ml-2">
+            {/* Regenerate/Shuffle button - always visible */}
+            <button
+              onClick={handleRegenerate}
+              className="inline-flex justify-center items-center transform transition-transform duration-500 hover:rotate-180 flex-shrink-0"
+              aria-label="Generate new questions"
+              disabled={isLoading}
+              title="Get new example questions"
+            >
+              <span className="material-icons text-gray-500 hover:text-gray-700">autorenew</span>
+            </button>
+            {/* Expand/Collapse button */}
+            {onToggleExpanded && (
+              <button
+                onClick={() => {
+                  const action = isExpanded ? "minimize" : "expand";
+                  onToggleExpanded();
 
-          {isExpanded && (
-            <>
-              {isEditing ? (
-                <div className="space-y-3">
-                  <textarea
-                    value={editedPrompt}
-                    onChange={(e) => setEditedPrompt(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    className="w-full p-3 border border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                    rows={2}
-                    placeholder="Edit your question..."
-                    disabled={isLoading}
-                  />
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={handleSaveEdit}
-                      className="px-3 py-1 bg-blue-600 text-white text-sm rounded-xl hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      disabled={isLoading || !editedPrompt.trim()}
-                    >
-                      Submit
-                    </button>
-                    <button
-                      onClick={handleCancelEdit}
-                      className="px-3 py-1 bg-gray-300 text-gray-700 text-sm rounded-xl hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500"
-                      disabled={isLoading}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  {loading ? (
-                    <div className="mb-3">
-                      <p className="text-gray-700 italic text-sm leading-relaxed flex items-center">
-                        <span className="material-icons animate-spin mr-2 text-sm">refresh</span>
-                        Analyzing your recent queries...
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {/* Desktop: Show all 3 suggestions */}
-                      <div className="hidden md:block space-y-2">
-                        {suggestedPrompts.slice(0, 3).map((prompt, index) => (
-                          <div key={index} className="flex items-center space-x-2">
-                            <button
-                              onClick={() => handlePromptClick(prompt, index)}
-                              className="flex-1 text-left px-3 py-2 bg-white border border-gray-200 text-gray-700 text-sm rounded-xl hover:bg-gray-50 hover:border-blue-300 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-                              disabled={isLoading}
-                            >
-                              {prompt}
-                            </button>
-                            <button
-                              onClick={() => handleEditClick(prompt, index)}
-                              className="px-2 py-2 bg-white border border-gray-200 text-gray-500 text-xs rounded-xl hover:bg-gray-50 hover:border-blue-300 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-                              disabled={isLoading}
-                              title="Edit this question"
-                            >
-                              <span className="material-icons text-sm">edit</span>
-                            </button>
-                          </div>
-                        ))}
-                      </div>
+                  const queryCount = categorizedQueries
+                    ? categorizedQueries.general.length +
+                      categorizedQueries.location.length +
+                      categorizedQueries.resources.length
+                    : queries.length;
 
-                      {/* Mobile/Tablet: Show only first suggestion */}
-                      <div className="md:hidden">
-                        {suggestedPrompts.length > 0 && (
-                          <div className="mb-3">
-                            <p className="text-gray-700 text-sm leading-relaxed">{suggestedPrompts[0]}</p>
-                          </div>
-                        )}
-                        <div className="flex space-x-2">
-                          <button
-                            onClick={() => handlePromptClick(suggestedPrompts[0], 0)}
-                            className="flex-1 px-3 py-2 rounded-xl text-sm font-medium bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-blue-300 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-                            disabled={isLoading || suggestedPrompts.length === 0}
-                          >
-                            Submit Question
-                          </button>
-                          <button
-                            onClick={() => handleEditClick(suggestedPrompts[0], 0)}
-                            className="px-3 py-2 bg-white border border-gray-200 text-gray-500 text-sm rounded-xl hover:bg-gray-50 hover:border-blue-300 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-                            disabled={isLoading || suggestedPrompts.length === 0}
-                            title="Edit this question"
-                          >
-                            Edit
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-            </>
-          )}
+                  const categoryInfo =
+                    categorizedQueries && currentCategory
+                      ? `category_${currentCategory}|categorized_queries`
+                      : `categorized_false`;
+
+                  logEvent(
+                    `${action}_suggestions`,
+                    "Suggestions",
+                    `${categoryInfo}|from_${isExpanded ? "expanded" : "minimized"}|mobile_${isMobile}`,
+                    queryCount
+                  );
+                }}
+                className="inline-flex justify-center items-center flex-shrink-0"
+                aria-label={isExpanded ? "Minimize suggestions" : "Expand suggestions"}
+              >
+                <span className="material-icons text-gray-600 hover:text-gray-800">
+                  {isExpanded ? "keyboard_arrow_up" : "expand_more"}
+                </span>
+              </button>
+            )}
+          </div>
         </div>
-      ) : (
-        /* Original Random Queries when not enough history */
-        <div className="bg-gray-100 p-4 rounded-xl w-full max-w-[400px] mt-4">
-          <div className="flex justify-between items-center mb-3">
-            <p className="font-semibold">Suggested Query:</p>
-            <div className="flex items-center space-x-2">
-              <button
-                onClick={handleShuffleQueries}
-                className="inline-flex justify-center items-center transform transition-transform duration-500 hover:rotate-180 flex-shrink-0"
-                aria-label="Refresh queries"
-                disabled={isLoading}
-              >
-                <span className="material-icons text-blue-600 hover:text-blue-800">autorenew</span>
-              </button>
-              {onToggleExpanded && (
-                <button
-                  onClick={() => {
-                    const action = isExpanded ? "minimize" : "expand";
-                    const suggestionType = hasEnoughHistory ? "ai_suggestions" : "random_queries";
 
-                    onToggleExpanded();
+        {isExpanded && (
+          <>
+            {/* Category sections if using categorized queries */}
+            {categorizedQueries && currentCategory ? (
+              <div className="mt-4">
+                {/* Render only the current category */}
+                {currentCategory === "location" && categorizedQueries.location.length > 0 && (
+                  <div>
+                    <div className="flex items-center mb-2">
+                      <span className="material-icons text-gray-500 text-sm mr-1">location_on</span>
+                      <h4 className="font-medium text-sm text-gray-600">Find Centers Near You</h4>
+                    </div>
+                    <p className="text-xs text-gray-600 mb-2">
+                      I can help you find Ananda centers and meditation groups in your area.
+                    </p>
+                    <div className="space-y-2" key={`location-${shuffleKey}`}>
+                      {selectedQueries.map((query, index) => (
+                        <button
+                          key={index}
+                          onClick={() => handleQueryClick(query, "location")}
+                          className="w-full text-left px-3 py-2 bg-white border border-gray-200 text-gray-700 text-sm rounded-xl hover:bg-gray-50 hover:border-blue-300 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                          disabled={isLoading}
+                        >
+                          {query}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
-                    // Enhanced analytics tracking
-                    const promptCount = hasEnoughHistory ? suggestedPrompts.length : queries.length;
-                    logEvent(
-                      `${action}_suggestions`,
-                      "Suggestions",
-                      `${suggestionType}|from_${isExpanded ? "expanded" : "minimized"}|mobile_${isMobile}|count_${promptCount}`,
-                      promptCount
-                    );
-                  }}
-                  className="inline-flex justify-center items-center flex-shrink-0"
-                  aria-label={isExpanded ? "Minimize suggestions" : "Expand suggestions"}
-                >
-                  <span className="material-icons text-gray-600 hover:text-gray-800">
-                    {isExpanded ? "keyboard_arrow_up" : "expand_more"}
-                  </span>
-                </button>
-              )}
-            </div>
-          </div>
-          {isExpanded && (
-            <>
-              {isMobile ? (
-                <div className="flex items-center">
+                {currentCategory === "resources" && categorizedQueries.resources.length > 0 && (
+                  <div>
+                    <div className="flex items-center mb-2">
+                      <span className="material-icons text-gray-500 text-sm mr-1">folder</span>
+                      <h4 className="font-medium text-sm text-gray-600">Discover Ananda Resources</h4>
+                    </div>
+                    <p className="text-xs text-gray-600 mb-2">
+                      Learn about Ananda&apos;s digital resources and online communities.
+                    </p>
+                    <div className="space-y-2" key={`resources-${shuffleKey}`}>
+                      {selectedQueries.map((query, index) => (
+                        <button
+                          key={index}
+                          onClick={() => handleQueryClick(query, "resources")}
+                          className="w-full text-left px-3 py-2 bg-white border border-gray-200 text-gray-700 text-sm rounded-xl hover:bg-gray-50 hover:border-blue-300 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                          disabled={isLoading}
+                        >
+                          {query}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {currentCategory === "general" && categorizedQueries.general.length > 0 && (
+                  <div>
+                    <div className="flex items-center mb-2">
+                      <span className="material-icons text-gray-500 text-sm mr-1">chat</span>
+                      <h4 className="font-medium text-sm text-gray-600">Spiritual Questions</h4>
+                    </div>
+                    <p className="text-xs text-gray-600 mb-2">
+                      Ask about meditation, teachings, practices, or any spiritual topic.
+                    </p>
+                    <div className="space-y-2" key={`general-${shuffleKey}`}>
+                      {selectedQueries.map((query, index) => (
+                        <button
+                          key={index}
+                          onClick={() => handleQueryClick(query, "general")}
+                          className="w-full text-left px-3 py-2 bg-white border border-gray-200 text-gray-700 text-sm rounded-xl hover:bg-gray-50 hover:border-blue-300 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                          disabled={isLoading}
+                        >
+                          {query}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : categorizedQueries ? null : (
+              /* Fallback to flat list display */
+              <div className="mt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm text-gray-600">Example questions:</p>
                   <button
-                    className={`flex-grow text-left break-words ${
-                      isLoading
-                        ? "text-gray-400 cursor-not-allowed"
-                        : "text-blue-600 hover:text-blue-800 hover:underline"
-                    }`}
-                    onClick={() => handleQueryClick(queries[currentQueryIndex])}
+                    onClick={handleShuffleQueries}
+                    className="inline-flex justify-center items-center transform transition-transform duration-500 hover:rotate-180 flex-shrink-0"
+                    aria-label="Refresh queries"
                     disabled={isLoading}
                   >
-                    {queries[currentQueryIndex]}
+                    <span className="material-icons text-blue-600 hover:text-blue-800 text-sm">autorenew</span>
                   </button>
                 </div>
-              ) : (
-                <ul className="list-none w-full">
-                  {queries.slice(0, 3).map((query, index) => (
-                    <li
-                      key={index}
-                      className={`mb-2 ${
-                        isLoading ? "text-gray-400" : "text-blue-600 hover:text-blue-800 hover:underline"
+                {isMobile ? (
+                  <div className="flex items-center">
+                    <button
+                      className={`flex-grow text-left break-words px-3 py-2 bg-white border border-gray-200 rounded-xl ${
+                        isLoading
+                          ? "text-gray-400 cursor-not-allowed"
+                          : "text-blue-600 hover:text-blue-800 hover:border-blue-300"
                       }`}
+                      onClick={() => handleQueryClick(queries[currentQueryIndex])}
+                      disabled={isLoading}
                     >
-                      <button
-                        className={`focus:outline-none focus:underline w-full text-left break-words ${
-                          isLoading ? "cursor-not-allowed" : ""
-                        }`}
-                        onClick={() => handleQueryClick(query)}
-                        aria-label={`Sample query: ${query}`}
-                        disabled={isLoading}
-                      >
-                        {query}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </>
-          )}
-        </div>
-      )}
+                      {queries[currentQueryIndex]}
+                    </button>
+                  </div>
+                ) : (
+                  <ul className="list-none w-full space-y-2">
+                    {queries.slice(0, 3).map((query, index) => (
+                      <li key={index}>
+                        <button
+                          className={`w-full text-left px-3 py-2 bg-white border border-gray-200 rounded-xl text-sm ${
+                            isLoading
+                              ? "text-gray-400 cursor-not-allowed"
+                              : "text-blue-600 hover:text-blue-800 hover:border-blue-300"
+                          } focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors`}
+                          onClick={() => handleQueryClick(query)}
+                          aria-label={`Sample query: ${query}`}
+                          disabled={isLoading}
+                        >
+                          {query}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 };

@@ -220,13 +220,49 @@ const MessageItem: React.FC<MessageItemProps> = ({
           // AI messages: left-aligned with 85% width for detailed responses
           <div className="max-w-[85%]">
             {!showSourcesBelow && renderSources()}
-            <ReactMarkdown
-              remarkPlugins={[gfm]}
-              components={components}
-              className={`mt-1 ${markdownStyles.markdownanswer} text-[16px] text-black font-normal leading-normal font-sans`}
-            >
-              {message.message.replace(/\n/g, "  \n").replace(/\n\n/g, "\n\n")}
-            </ReactMarkdown>
+            {(message.message === "" ||
+              (message.message.trim() === "Searching locations..." && loading && isLastMessage)) &&
+            loading &&
+            isLastMessage ? (
+              // Show loading animation while waiting for first token or after "Searching locations..."
+              <div className="mt-1 flex items-center gap-2">
+                {message.message.trim() === "Searching locations..." && (
+                  <ReactMarkdown
+                    remarkPlugins={[gfm]}
+                    components={components}
+                    className={`${markdownStyles.markdownanswer} text-[16px] text-black leading-normal font-sans ${
+                      index === 0 ? "font-bold" : "font-normal"
+                    }`}
+                  >
+                    {message.message.replace(/\n/g, "  \n").replace(/\n\n/g, "\n\n")}
+                  </ReactMarkdown>
+                )}
+                <div className="flex space-x-1">
+                  <div
+                    className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                    style={{ animationDelay: "0ms" }}
+                  ></div>
+                  <div
+                    className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                    style={{ animationDelay: "150ms" }}
+                  ></div>
+                  <div
+                    className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                    style={{ animationDelay: "300ms" }}
+                  ></div>
+                </div>
+              </div>
+            ) : (
+              <ReactMarkdown
+                remarkPlugins={[gfm]}
+                components={components}
+                className={`mt-1 ${markdownStyles.markdownanswer} text-[16px] text-black leading-normal font-sans ${
+                  index === 0 ? "font-bold" : "font-normal"
+                }`}
+              >
+                {message.message.replace(/\n/g, "  \n").replace(/\n\n/g, "\n\n")}
+              </ReactMarkdown>
+            )}
             {showSourcesBelow && renderSources()}
 
             {/* Follow-up question suggestions - only for AI messages */}

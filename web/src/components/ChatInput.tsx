@@ -67,8 +67,7 @@ interface ChatInputProps {
   sourceCount: number;
   setSourceCount: (count: number) => void;
   onTemporarySessionChange?: (event: React.MouseEvent<HTMLButtonElement>) => void;
-  onAISuggestionsRefreshReady?: (refreshFn: () => void) => void;
-  isChatEmpty: boolean;
+  categorizedQueries?: { general: string[]; location: string[]; resources: string[] } | null;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
@@ -99,8 +98,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onTemporarySessionChange,
   sourceCount,
   setSourceCount,
-  onAISuggestionsRefreshReady,
-  isChatEmpty,
+  categorizedQueries,
 }) => {
   // State variables for managing component behavior
   const [, setLocalQuery] = useState<string>("");
@@ -500,8 +498,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             ))}
         </form>
 
-        {/* Suggested queries section - only show when chat is empty */}
-        {!isLoadingQueries && showSuggestedQueries && suggestedQueries.length > 0 && isChatEmpty && (
+        {/* Suggested queries section - always visible if queries available */}
+        {!isLoadingQueries && showSuggestedQueries && (suggestedQueries.length > 0 || categorizedQueries) && (
           <div className="w-full mb-4">
             <SuggestedQueries
               queries={suggestedQueries}
@@ -510,9 +508,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               shuffleQueries={shuffleQueries}
               isMobile={isMobile}
               siteConfig={siteConfig}
-              onRefreshFunctionReady={onAISuggestionsRefreshReady}
               isExpanded={suggestionsExpanded}
               onToggleExpanded={() => toggleSuggestions()}
+              categorizedQueries={categorizedQueries}
             />
           </div>
         )}

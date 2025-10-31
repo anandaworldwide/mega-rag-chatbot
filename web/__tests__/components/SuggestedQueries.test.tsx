@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import SuggestedQueries from "@/components/SuggestedQueries";
 import { SiteConfig } from "@/types/siteConfig";
 
@@ -74,151 +74,40 @@ describe("SuggestedQueries", () => {
     });
   });
 
-  it("renders AI suggested prompts when user has enough history", async () => {
+  it("renders suggested queries with header", async () => {
     render(<SuggestedQueries {...defaultProps} />);
 
     await waitFor(() => {
-      expect(screen.getByText("AI Suggested Questions")).toBeInTheDocument();
-    });
-  });
-
-  it("allows editing AI suggested prompts", async () => {
-    render(<SuggestedQueries {...defaultProps} />);
-
-    await waitFor(() => {
-      expect(screen.getByText("AI Suggested Questions")).toBeInTheDocument();
+      expect(screen.getByText("Ask me anything about Ananda teachings")).toBeInTheDocument();
     });
 
-    // Click edit button for first suggestion
-    const editButtons = screen.getAllByTitle("Edit this question");
-    fireEvent.click(editButtons[0]);
-
-    // Check that textarea appears
-    expect(screen.getByPlaceholderText("Edit your question...")).toBeInTheDocument();
-  });
-
-  it("submits edited query when Enter key is pressed", async () => {
-    render(<SuggestedQueries {...defaultProps} />);
-
-    await waitFor(() => {
-      expect(screen.getByText("AI Suggested Questions")).toBeInTheDocument();
-    });
-
-    // Click edit button for first suggestion
-    const editButtons = screen.getAllByTitle("Edit this question");
-    fireEvent.click(editButtons[0]);
-
-    // Get the textarea and modify the text
-    const textarea = screen.getByPlaceholderText("Edit your question...");
-    fireEvent.change(textarea, { target: { value: "Modified question about meditation" } });
-
-    // Press Enter key
-    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
-
-    // Verify that onQueryClick was called with the edited text
-    expect(defaultProps.onQueryClick).toHaveBeenCalledWith("Modified question about meditation");
-  });
-
-  it("does not submit edited query when Shift+Enter is pressed", async () => {
-    render(<SuggestedQueries {...defaultProps} />);
-
-    await waitFor(() => {
-      expect(screen.getByText("AI Suggested Questions")).toBeInTheDocument();
-    });
-
-    // Click edit button for first suggestion
-    const editButtons = screen.getAllByTitle("Edit this question");
-    fireEvent.click(editButtons[0]);
-
-    // Get the textarea and modify the text
-    const textarea = screen.getByPlaceholderText("Edit your question...");
-    fireEvent.change(textarea, { target: { value: "Modified question about meditation" } });
-
-    // Press Shift+Enter key
-    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter", shiftKey: true });
-
-    // Verify that onQueryClick was NOT called
-    expect(defaultProps.onQueryClick).not.toHaveBeenCalled();
-  });
-
-  it("submits edited query when Submit button is clicked", async () => {
-    render(<SuggestedQueries {...defaultProps} />);
-
-    await waitFor(() => {
-      expect(screen.getByText("AI Suggested Questions")).toBeInTheDocument();
-    });
-
-    // Click edit button for first suggestion
-    const editButtons = screen.getAllByTitle("Edit this question");
-    fireEvent.click(editButtons[0]);
-
-    // Get the textarea and modify the text
-    const textarea = screen.getByPlaceholderText("Edit your question...");
-    fireEvent.change(textarea, { target: { value: "Modified question about meditation" } });
-
-    // Click Submit button
-    const submitButton = screen.getByText("Submit");
-    fireEvent.click(submitButton);
-
-    // Verify that onQueryClick was called with the edited text
-    expect(defaultProps.onQueryClick).toHaveBeenCalledWith("Modified question about meditation");
-  });
-
-  it("cancels editing when Cancel button is clicked", async () => {
-    render(<SuggestedQueries {...defaultProps} />);
-
-    await waitFor(() => {
-      expect(screen.getByText("AI Suggested Questions")).toBeInTheDocument();
-    });
-
-    // Click edit button for first suggestion
-    const editButtons = screen.getAllByTitle("Edit this question");
-    fireEvent.click(editButtons[0]);
-
-    // Verify textarea is visible
-    expect(screen.getByPlaceholderText("Edit your question...")).toBeInTheDocument();
-
-    // Click Cancel button
-    const cancelButton = screen.getByText("Cancel");
-    fireEvent.click(cancelButton);
-
-    // Verify that textarea is no longer visible
-    expect(screen.queryByPlaceholderText("Edit your question...")).not.toBeInTheDocument();
-    expect(defaultProps.onQueryClick).not.toHaveBeenCalled();
-  });
-
-  it("shows random queries when user doesn't have enough history", async () => {
-    // Mock API response for insufficient history
-    (fetchWithAuth as jest.Mock).mockResolvedValue({
-      ok: true,
-      json: () =>
-        Promise.resolve({
-          hasEnoughHistory: false,
-          suggestions: [],
-        }),
-    });
-
-    render(<SuggestedQueries {...defaultProps} />);
-
-    await waitFor(() => {
-      expect(screen.getByText("Suggested Query:")).toBeInTheDocument();
-    });
-
-    // Verify random queries are displayed
+    // Verify queries are displayed
     expect(screen.getByText("How can I meditate?")).toBeInTheDocument();
   });
 
-  it("shows random queries for sites that don't require login", async () => {
+  it("shows queries when provided", async () => {
+    render(<SuggestedQueries {...defaultProps} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Ask me anything about Ananda teachings")).toBeInTheDocument();
+    });
+
+    // Verify queries are displayed
+    expect(screen.getByText("How can I meditate?")).toBeInTheDocument();
+    expect(screen.getByText("Example questions:")).toBeInTheDocument();
+  });
+
+  it("shows queries for sites that don't require login", async () => {
     const noLoginSiteConfig = { ...mockSiteConfig, requireLogin: false };
     const props = { ...defaultProps, siteConfig: noLoginSiteConfig };
 
     render(<SuggestedQueries {...props} />);
 
     await waitFor(() => {
-      expect(screen.getByText("Suggested Query:")).toBeInTheDocument();
+      expect(screen.getByText("Ask me anything about Ananda teachings")).toBeInTheDocument();
     });
 
-    // Verify random queries are displayed
+    // Verify queries are displayed
     expect(screen.getByText("How can I meditate?")).toBeInTheDocument();
   });
 });
