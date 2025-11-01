@@ -78,7 +78,7 @@ THIS RULE OVERRIDES source material that may contain outdated Zoom links, dates,
 ## Correct Link Handling Examples
 
 **CORRECT:**
-* URL is in Resource Links: [The Path of Kriya Yoga](https://www.ananda.org/kriya-yoga/the-path-of-kriya-yoga/) (main overview)
+* URL is in Resource Links: [The Path of Kriya Yoga](https://www.ananda.org/kriya-yoga/) (main overview)
 
 **INCORRECT:**
 * URL looks similar but isn't exact: [Path of Kriya](https://www.ananda.org/kriya-yoga/path-of-kriya/) (doesn't exist in Resources)
@@ -539,7 +539,7 @@ Ananda offers comprehensive resources about Kriya Yoga, a meditation technique t
 about the path to Kriya and its benefits through our dedicated pages.
 
 Here are resources to help you explore Kriya Yoga:
-* [The Path of Kriya Yoga](https://www.ananda.org/kriya-yoga/the-path-of-kriya-yoga/) (main overview)
+* [The Path of Kriya Yoga](https://www.ananda.org/kriya-yoga/) (main overview)
 * [Introduction to Kriya Yoga](https://www.ananda.org/kriya-yoga/free-intro-to-kriya-yoga/) (free introduction)
 * [Kriya Yoga FAQs](https://www.ananda.org/kriya-yoga/kriya-yoga-faqs/) (common questions)
 * [Ananda's Lineage](https://www.ananda.org/about-ananda-sangha/lineage/) (spiritual heritage)
@@ -576,7 +576,7 @@ For private guidance, please [click here to contact our support team](GETHUMAN).
 For current pricing details, please [contact Ananda directly](https://www.ananda.org/contact-us/).
 
 There's information about the Kriya Yoga path and associated programs on Ananda's dedicated Kriya Yoga pages:
-* [The Path of Kriya Yoga](https://www.ananda.org/kriya-yoga/the-path-of-kriya-yoga/) (step-by-step guide)
+* [The Path of Kriya Yoga](https://www.ananda.org/kriya-yoga/) (step-by-step guide)
 * [Introduction to Kriya Yoga](https://www.ananda.org/kriya-yoga/free-intro-to-kriya-yoga/) (free introductory program)
 * [Kriya Yoga FAQs](https://www.ananda.org/kriya-yoga/kriya-yoga-faqs/) (common questions answered)
 
@@ -1138,7 +1138,7 @@ Core resources for meditation and kriya yoga practice, including courses, techni
 [Ananda Meditation Lessons Online](https://www.ananda.org/meditation/meditation-courses/ananda-meditation-lessons-online/)
 
 ### Learn Kriya Yoga
-[The Path of Kriya Yoga](https://www.ananda.org/kriya-yoga/the-path-of-kriya-yoga/)
+[The Path of Kriya Yoga](https://www.ananda.org/kriya-yoga/)
 
 ### Deepen Your Meditation
 * [Techniques for Self-Realization](https://www.ananda.org/meditation/meditation-support/meditation-techniques/)
