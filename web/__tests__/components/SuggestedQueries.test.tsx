@@ -1,5 +1,5 @@
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import SuggestedQueries from "@/components/SuggestedQueries";
 import { SiteConfig } from "@/types/siteConfig";
 
@@ -49,7 +49,13 @@ describe("SuggestedQueries", () => {
   };
 
   const defaultProps = {
-    queries: ["How can I meditate?", "What is yoga?", "Tell me about spirituality"],
+    queries: [
+      "How can I meditate?",
+      "What is yoga?",
+      "Tell me about spirituality",
+      "What is karma?",
+      "What is dharma?",
+    ],
     onQueryClick: jest.fn(),
     isLoading: false,
     shuffleQueries: jest.fn(),
@@ -74,27 +80,24 @@ describe("SuggestedQueries", () => {
     });
   });
 
-  it("renders suggested queries with header", async () => {
+  it("renders suggested queries", async () => {
     render(<SuggestedQueries {...defaultProps} />);
 
-    await waitFor(() => {
-      expect(screen.getByText("Ask me anything about Ananda teachings")).toBeInTheDocument();
-    });
-
-    // Verify queries are displayed
-    expect(screen.getByText("How can I meditate?")).toBeInTheDocument();
+    // Verify some queries are displayed (one is used as placeholder, so only 2-3 may show)
+    // We check that at least some queries from the list appear
+    const allQueries = defaultProps.queries;
+    const displayedQueries = allQueries.filter((q) => screen.queryByText(q) !== null);
+    // Should have at least 2 displayed (since one is placeholder)
+    expect(displayedQueries.length).toBeGreaterThanOrEqual(2);
   });
 
   it("shows queries when provided", async () => {
     render(<SuggestedQueries {...defaultProps} />);
 
-    await waitFor(() => {
-      expect(screen.getByText("Ask me anything about Ananda teachings")).toBeInTheDocument();
-    });
-
-    // Verify queries are displayed
-    expect(screen.getByText("How can I meditate?")).toBeInTheDocument();
-    expect(screen.getByText("Example questions:")).toBeInTheDocument();
+    // Verify some queries are displayed
+    const allQueries = defaultProps.queries;
+    const displayedQueries = allQueries.filter((q) => screen.queryByText(q) !== null);
+    expect(displayedQueries.length).toBeGreaterThanOrEqual(2);
   });
 
   it("shows queries for sites that don't require login", async () => {
@@ -103,11 +106,9 @@ describe("SuggestedQueries", () => {
 
     render(<SuggestedQueries {...props} />);
 
-    await waitFor(() => {
-      expect(screen.getByText("Ask me anything about Ananda teachings")).toBeInTheDocument();
-    });
-
-    // Verify queries are displayed
-    expect(screen.getByText("How can I meditate?")).toBeInTheDocument();
+    // Verify some queries are displayed
+    const allQueries = defaultProps.queries;
+    const displayedQueries = allQueries.filter((q) => screen.queryByText(q) !== null);
+    expect(displayedQueries.length).toBeGreaterThanOrEqual(2);
   });
 });

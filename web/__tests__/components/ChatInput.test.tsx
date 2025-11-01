@@ -13,28 +13,16 @@ jest.mock("@/components/CollectionSelector", () =>
 );
 
 jest.mock("@/components/SuggestedQueries", () =>
-  jest.fn().mockImplementation(({ queries, onQueryClick, onShuffleClick, isExpanded, onToggleExpanded }) => (
+  jest.fn().mockImplementation(({ queries, onQueryClick, shuffleQueries }) => (
     <div data-testid="random-queries">
-      <div className="flex justify-between items-center mb-3">
-        <p>Suggested Queries</p>
-        {onToggleExpanded && (
-          <button onClick={onToggleExpanded} aria-label={isExpanded ? "Minimize suggestions" : "Expand suggestions"}>
-            {isExpanded ? "minimize" : "expand_more"}
-          </button>
-        )}
-      </div>
-      {isExpanded && (
-        <>
-          {queries.map((query: string, index: number) => (
-            <button key={index} onClick={() => onQueryClick(query)}>
-              {query}
-            </button>
-          ))}
-          <button data-testid="shuffle-button" onClick={onShuffleClick}>
-            Shuffle
-          </button>
-        </>
-      )}
+      {queries.map((query: string, index: number) => (
+        <button key={index} onClick={() => onQueryClick(query)}>
+          {query}
+        </button>
+      ))}
+      <button data-testid="regenerate-button" onClick={shuffleQueries}>
+        Regenerate
+      </button>
     </div>
   ))
 );
@@ -191,12 +179,12 @@ describe("ChatInput", () => {
   it("handles query shuffling", () => {
     render(<ChatInput {...defaultProps} />);
 
-    // Find and click the shuffle button directly
-    const shuffleButton = screen.getByTestId("shuffle-button");
-    fireEvent.click(shuffleButton);
+    // Find and click the regenerate button directly
+    const regenerateButton = screen.getByTestId("regenerate-button");
+    fireEvent.click(regenerateButton);
 
-    // Instead of checking the internals of the mock, use a simpler assertion
-    expect(screen.getByTestId("shuffle-button")).toBeInTheDocument();
+    // Verify that shuffleQueries was called
+    expect(defaultProps.shuffleQueries).toHaveBeenCalled();
   });
 
   it("displays temporary session indicator when active", () => {
@@ -254,28 +242,10 @@ describe("ChatInput", () => {
     expect(defaultProps.handleSubmit).toHaveBeenCalledWith(expect.any(Object), "");
   });
 
-  it("toggles suggestions visibility", () => {
-    Object.defineProperty(window, "localStorage", {
-      value: {
-        getItem: jest.fn().mockReturnValue("true"),
-        setItem: jest.fn(),
-      },
-      writable: true,
-    });
-
+  it("renders suggested queries when available", () => {
     render(<ChatInput {...defaultProps} />);
 
-    // The minimize button is now inside the SuggestedQueries component
-    // Look for the minimize icon in the suggestions header
-    const minimizeButton = screen.getByLabelText("Minimize suggestions");
-    fireEvent.click(minimizeButton);
-
-    expect(window.localStorage.setItem).toHaveBeenCalledWith("suggestionsExpanded", "false");
-  });
-
-  it("displays random queries", () => {
-    render(<ChatInput {...defaultProps} />);
-
+    // Verify that suggested queries are displayed
     expect(screen.getByText("How can I meditate?")).toBeInTheDocument();
     expect(screen.getByText("What is yoga?")).toBeInTheDocument();
   });

@@ -27,7 +27,7 @@ import SuggestedQueries from "@/components/SuggestedQueries";
 import { SearchOptionsDropdown } from "@/components/SearchOptionsDropdown";
 import { TipsModal } from "@/components/TipsModal";
 import { SiteConfig } from "@/types/siteConfig";
-import { getEnableSuggestedQueries, getChatPlaceholder } from "@/utils/client/siteConfig";
+import { getEnableSuggestedQueries } from "@/utils/client/siteConfig";
 import { logEvent } from "@/utils/client/analytics";
 import { getOrCreateUUID } from "@/utils/client/uuid";
 import { FirestoreIndexError, useFirestoreIndexError } from "@/components/FirestoreIndexError";
@@ -105,7 +105,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [hasInteracted, setHasInteracted] = useState<boolean>(false);
   const [isFirstQuery, setIsFirstQuery] = useState<boolean>(true);
   const [isMobile, setIsMobile] = useState<boolean>(false);
-  const [suggestionsExpanded, setSuggestionsExpanded] = useState(false);
   const [showTipsModal, setShowTipsModal] = useState(false);
   const [tipsAvailable, setTipsAvailable] = useState(false);
   const [hasNewTips, setHasNewTips] = useState(false);
@@ -115,16 +114,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   // Analyze error to determine if it's a Firestore index error
   const { isIndexError, isBuilding, errorMessage } = useFirestoreIndexError(error);
 
-  // Effect to set initial suggestions expanded state based on saved preference
+  // Effect to ensure a persistent UUID exists for this user (cookie-based)
   useEffect(() => {
-    // Ensure a persistent UUID exists for this user (cookie-based)
     try {
       getOrCreateUUID();
     } catch {}
-
-    const savedPreference = localStorage.getItem("suggestionsExpanded");
-    setSuggestionsExpanded(savedPreference === null ? true : savedPreference === "true");
-  }, [setSuggestionsExpanded]);
+  }, []);
 
   // Effect to check if tips are available for this site
   useEffect(() => {
@@ -314,16 +309,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   // Get configuration options from siteConfig
   const showSuggestedQueries = getEnableSuggestedQueries(siteConfig);
 
-  // Function to toggle suggestions visibility
-  const toggleSuggestions = (e?: React.MouseEvent) => {
-    if (e) {
-      e.preventDefault();
-    }
-    const newState = !suggestionsExpanded;
-    setSuggestionsExpanded(newState);
-    localStorage.setItem("suggestionsExpanded", newState.toString());
-  };
-
   // Function to handle clicking on a suggested query
   const onQueryClick = (q: string) => {
     setLocalQuery(q);
@@ -383,7 +368,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
-  const placeholderText = getChatPlaceholder(siteConfig) || "Ask a question...";
+  // Static placeholder text
+  const placeholderText = "Ask a question...";
 
   // Function to adjust textarea height
   const adjustTextAreaHeight = () => {
@@ -454,6 +440,21 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             </button>
           </div>
 
+          {/* Suggested queries section */}
+          {!isLoadingQueries && showSuggestedQueries && (suggestedQueries.length > 0 || categorizedQueries) && (
+            <div className="w-full mb-4">
+              <SuggestedQueries
+                queries={suggestedQueries}
+                onQueryClick={onQueryClick}
+                isLoading={loading}
+                shuffleQueries={shuffleQueries}
+                isMobile={isMobile}
+                siteConfig={siteConfig}
+                categorizedQueries={categorizedQueries}
+              />
+            </div>
+          )}
+
           {/* Chat Options and Tips */}
           <div className="mb-4 flex gap-2 items-start">
             <SearchOptionsDropdown
@@ -497,23 +498,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               </div>
             ))}
         </form>
-
-        {/* Suggested queries section - always visible if queries available */}
-        {!isLoadingQueries && showSuggestedQueries && (suggestedQueries.length > 0 || categorizedQueries) && (
-          <div className="w-full mb-4">
-            <SuggestedQueries
-              queries={suggestedQueries}
-              onQueryClick={onQueryClick}
-              isLoading={loading}
-              shuffleQueries={shuffleQueries}
-              isMobile={isMobile}
-              siteConfig={siteConfig}
-              isExpanded={suggestionsExpanded}
-              onToggleExpanded={() => toggleSuggestions()}
-              categorizedQueries={categorizedQueries}
-            />
-          </div>
-        )}
 
         {/* Tips Modal */}
         <TipsModal

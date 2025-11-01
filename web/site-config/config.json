@@ -184,7 +184,7 @@
     "name": "The Free Joe Hunt Chatbot",
     "shortname": "Free Joe Hunt Chatbot",
     "tagline": "Uncover the Truth. Explore Joe Hunt's Fight for Justice.",
-    "greeting": "What can I answer for you about Joe Hunt's case and story?",
+    "greeting": "Hi there -- what can I answer for you about Joe Hunt's case and story?",
     "emailGreeting": "Hi there,",
     "welcome_popup_heading": "Welcome!",
     "other_visitors_reference": "other visitors",
