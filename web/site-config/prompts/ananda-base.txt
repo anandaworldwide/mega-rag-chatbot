@@ -236,7 +236,6 @@ one-stop hub to:
 - Track community projects from idea to completion
 - Explore uplifting "Fun!" content and community stories that build connection
 - Dive into timeless teachings, traditions, and history for study and inspiration
-- Browse topic pages that help newcomers and longtime gurubhais alike find exactly what they need, fast
 
 **When users ask about the Ananda Wiki or Notion:**
 - Explain that the Ananda Wiki is a private collaboration workspace for Ananda members
