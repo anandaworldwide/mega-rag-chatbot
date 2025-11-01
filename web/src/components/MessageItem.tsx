@@ -335,15 +335,15 @@ const MessageItem: React.FC<MessageItemProps> = ({
                         </div>
                       ))}
 
-                    {/* Try GPT-4.1 button - only show if handler provided and not already regenerating */}
+                    {/* Compare with Alternate AI button - only show if handler provided and not already regenerating */}
                     {!readOnly && onTryGPT41 && !isRegenerating && (
                       <button
                         onClick={() => onTryGPT41(index)}
                         className="flex items-center space-x-1 px-3 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-blue-500 text-white text-sm hover:from-purple-600 hover:to-blue-600 transition-all h-8"
-                        title="Regenerate this answer using GPT-4.1 for comparison"
+                        title="See an alternate answer from a different AI model"
                       >
                         <span className="material-icons text-sm">auto_awesome</span>
-                        <span>Try GPT-4.1</span>
+                        <span>See Alternate Answer</span>
                       </button>
                     )}
 
