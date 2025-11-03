@@ -1,13 +1,11 @@
 /**
- * This component uses React Query for data fetching with JWT authentication while preserving
- * scroll position preservation and optimistic updates.
+ * This component uses React Query for data fetching with JWT authentication.
  *
  * Key features:
  * - Pagination with server-side rendering
  * - Answers sorted by most recent
  * - Copy link to individual answers
  * - Delete answers (for sudo users only)
- * - Scroll position preservation
  * - JWT authentication with React Query
  * - Admin-only access control
  */
@@ -48,11 +46,9 @@ const AllAnswers = ({ siteConfig, authorizationError, errorMessage }: AllAnswers
   const [isPageInitialized, setIsPageInitialized] = useState(false);
   const [isChangingPage, setIsChangingPage] = useState(false);
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
-  const [isRestoringScroll, setIsRestoringScroll] = useState(false);
   const [linkCopied, setLinkCopied] = useState<string | null>(null);
 
-  // Refs for scroll management
-  const scrollPositionRef = useRef<number>(0);
+  // Refs
   const hasInitiallyFetched = useRef(false);
 
   // State for delayed spinner
@@ -117,7 +113,6 @@ const AllAnswers = ({ siteConfig, authorizationError, errorMessage }: AllAnswers
     if (data && !hasInitiallyFetched.current) {
       hasInitiallyFetched.current = true;
       setInitialLoadComplete(true);
-      setIsRestoringScroll(true);
 
       // Reset changing page state if needed
       if (isChangingPage) {
@@ -151,19 +146,6 @@ const AllAnswers = ({ siteConfig, authorizationError, errorMessage }: AllAnswers
     },
   });
 
-  // Scroll position management functions
-  const saveScrollPosition = () => {
-    const scrollY = window.scrollY;
-    if (scrollY > 0) {
-      sessionStorage.setItem("answersScrollPosition", scrollY.toString());
-    }
-  };
-
-  const getSavedScrollPosition = () => {
-    const savedPosition = sessionStorage.getItem("answersScrollPosition");
-    return savedPosition ? parseInt(savedPosition, 10) : 0;
-  };
-
   const scrollToTop = () => {
     window.scrollTo({
       top: 0,
@@ -172,49 +154,6 @@ const AllAnswers = ({ siteConfig, authorizationError, errorMessage }: AllAnswers
     // Force a reflow to ensure the scroll is applied immediately
     void document.body.offsetHeight;
   };
-
-  // Save scroll position periodically
-  useEffect(() => {
-    const intervalId = setInterval(saveScrollPosition, 1000);
-    return () => clearInterval(intervalId);
-  }, []);
-
-  // Save scroll position before unload
-  useEffect(() => {
-    const handleBeforeUnload = () => {
-      saveScrollPosition();
-    };
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => {
-      window.removeEventListener("beforeunload", handleBeforeUnload);
-    };
-  }, []);
-
-  // Handle popstate event for browser back/forward navigation
-  useEffect(() => {
-    const handlePopState = () => {
-      setIsRestoringScroll(true);
-    };
-    window.addEventListener("popstate", handlePopState);
-    return () => {
-      window.removeEventListener("popstate", handlePopState);
-    };
-  }, []);
-
-  // Restore scroll position when navigating back
-  useEffect(() => {
-    if (isRestoringScroll && !isLoading && initialLoadComplete) {
-      const savedPosition = getSavedScrollPosition();
-      setTimeout(() => {
-        window.scrollTo({
-          top: savedPosition,
-          behavior: "auto",
-        });
-        setIsRestoringScroll(false);
-        sessionStorage.removeItem("answersScrollPosition");
-      }, 100);
-    }
-  }, [isRestoringScroll, isLoading, initialLoadComplete]);
 
   // Initialize based on URL parameters
   useEffect(() => {
@@ -279,7 +218,6 @@ const AllAnswers = ({ siteConfig, authorizationError, errorMessage }: AllAnswers
     scrollToTop();
     setIsChangingPage(true);
     setCurrentPage(newPage);
-    sessionStorage.removeItem("answersScrollPosition");
     updateUrl(newPage);
     logEvent("change_answers_page", "UI", `page:${newPage}`);
 
@@ -287,9 +225,6 @@ const AllAnswers = ({ siteConfig, authorizationError, errorMessage }: AllAnswers
     // We just need to reset some UI state
     setInitialLoadComplete(false);
     hasInitiallyFetched.current = false;
-
-    // Save current scroll position
-    scrollPositionRef.current = 0;
   };
 
   // Check sudo status on component mount
