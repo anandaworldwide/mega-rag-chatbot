@@ -4,6 +4,9 @@ import NPSSurvey from "@/components/NPSSurvey";
 import { SiteConfig } from "@/types/siteConfig";
 import * as analyticsModule from "@/utils/client/analytics";
 
+// Define mock UUID constant for use in tests
+const MOCK_UUID_V4 = "00000000-0000-4000-8000-000000000000";
+
 // Add a better mock for the Date object
 const realDate = global.Date;
 const mockDateValue = new Date("2023-01-01T12:00:00Z");
@@ -25,9 +28,12 @@ jest.mock("@/utils/client/analytics", () => ({
   logEvent: jest.fn(),
 }));
 
-jest.mock("@/utils/client/uuid", () => ({
-  getOrCreateUUID: jest.fn().mockReturnValue("test-uuid-123"),
-}));
+jest.mock("@/utils/client/uuid", () => {
+  const MOCK_UUID_V4 = "00000000-0000-4000-8000-000000000000";
+  return {
+    getOrCreateUUID: jest.fn().mockReturnValue(MOCK_UUID_V4),
+  };
+});
 
 // Mock framer-motion to prevent animation issues in tests
 jest.mock("framer-motion", () => {
@@ -147,7 +153,7 @@ const setupSurveyTest = () => {
   jest.clearAllMocks();
   localStorageMock.clear();
   localStorageMock.getItem.mockImplementation((key) => {
-    if (key === "uuid") return "test-uuid-123";
+    if (key === "uuid") return MOCK_UUID_V4;
     return null;
   });
 
@@ -204,7 +210,7 @@ describe("NPSSurvey", () => {
 
     // Set up localStorage with visit count
     localStorageMock.getItem.mockImplementation((key) => {
-      if (key === "uuid") return "test-uuid-123";
+      if (key === "uuid") return MOCK_UUID_V4;
       if (key === "visitCount") return "3";
       if (key === "lastSurveyShown") return "0";
       if (key === "npsSurveyCompleted") return null;

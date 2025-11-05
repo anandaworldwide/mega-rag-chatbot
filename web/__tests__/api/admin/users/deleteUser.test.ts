@@ -1,5 +1,6 @@
 import { createMocks } from "node-mocks-http";
 import type { NextApiRequest, NextApiResponse } from "next";
+import { MOCK_UUID_V4 } from "uuid";
 
 // Mock writeAuditLog to capture audit entries
 jest.mock("@/utils/server/auditLog", () => ({
@@ -124,7 +125,7 @@ describe("/api/admin/users/[userId] DELETE user", () => {
       role: "user",
       firstName: "Target",
       lastName: "User",
-      uuid: "test-uuid-123",
+      uuid: MOCK_UUID_V4,
       inviteStatus: "accepted",
     };
 
@@ -164,7 +165,7 @@ describe("/api/admin/users/[userId] DELETE user", () => {
         inviteStatus: "accepted",
         firstName: "Target",
         lastName: "User",
-        uuid: "test-uuid-123",
+        uuid: MOCK_UUID_V4,
         createdAt: null,
         lastLoginAt: null,
       },

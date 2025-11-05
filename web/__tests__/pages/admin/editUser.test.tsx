@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { useRouter } from "next/router";
 import EditUserPage from "@/pages/admin/users/[userId]";
 import type { SiteConfig } from "@/types/siteConfig";
+import { MOCK_UUID_V4 } from "uuid";
 
 // Mock next/router
 jest.mock("next/router", () => ({
@@ -51,7 +52,7 @@ describe("Admin UI · Edit User page", () => {
             id: "user@example.com",
             email: "user@example.com",
             role: "user",
-            uuid: "test-uuid-123",
+            uuid: MOCK_UUID_V4,
             verifiedAt: null,
             lastLoginAt: null,
             entitlements: {},
@@ -89,7 +90,7 @@ describe("Admin UI · Edit User page", () => {
             id: "user@example.com",
             email: "user@example.com",
             role: "user",
-            uuid: "test-uuid-123",
+            uuid: MOCK_UUID_V4,
             verifiedAt: null,
             lastLoginAt: null,
             entitlements: {},
@@ -106,7 +107,7 @@ describe("Admin UI · Edit User page", () => {
             id: "user@example.com",
             email: "user@example.com",
             role: "admin",
-            uuid: "test-uuid-123",
+            uuid: MOCK_UUID_V4,
             verifiedAt: null,
             lastLoginAt: null,
             entitlements: {},
@@ -150,7 +151,7 @@ describe("Admin UI · Edit User page", () => {
             id: "user@example.com",
             email: "user@example.com",
             role: "user",
-            uuid: "test-uuid-123",
+            uuid: MOCK_UUID_V4,
             verifiedAt: null,
             lastLoginAt: null,
             entitlements: {},
@@ -167,7 +168,7 @@ describe("Admin UI · Edit User page", () => {
             id: "new@example.com",
             email: "new@example.com",
             role: "user",
-            uuid: "test-uuid-123",
+            uuid: MOCK_UUID_V4,
             verifiedAt: null,
             lastLoginAt: null,
             entitlements: {},
@@ -185,7 +186,7 @@ describe("Admin UI · Edit User page", () => {
             id: "new@example.com",
             email: "new@example.com",
             role: "user",
-            uuid: "test-uuid-123",
+            uuid: MOCK_UUID_V4,
             verifiedAt: null,
             lastLoginAt: null,
             entitlements: {},
@@ -231,7 +232,7 @@ describe("Admin UI · Edit User page", () => {
             id: "user@example.com",
             email: "user@example.com",
             role: "user",
-            uuid: "test-uuid-123",
+            uuid: MOCK_UUID_V4,
             verifiedAt: null,
             lastLoginAt: null,
             entitlements: {},
