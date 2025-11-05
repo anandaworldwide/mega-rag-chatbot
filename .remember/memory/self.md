@@ -937,6 +937,43 @@ it("should handle missing database", async () => {
 **Applied To**: Fixed clone-conversation tests that needed to mock `db` as null or with different implementations per
 test.
 
+### 31. Jest Mock Constant Hoisting Issue
+
+**Problem**: Jest hoists `jest.mock()` calls to the top of the file before any imports or variable declarations. Attempting to import a constant from a mocked module and use it in the mock factory causes a temporal dead zone error.
+
+**Wrong**: Importing mock constant from mocked module and using it in jest.mock().
+
+```typescript
+import { MOCK_UUID_V4 } from "uuid"; // Mocked module
+
+jest.mock("@/utils/client/uuid", () => ({
+  getOrCreateUUID: jest.fn().mockReturnValue(MOCK_UUID_V4), // ReferenceError: Cannot access 'MOCK_UUID_V4' before initialization
+}));
+```
+
+**Correct**: Define the constant directly in the test file or inside the mock factory function.
+
+```typescript
+// Option 1: Define at module level
+const MOCK_UUID_V4 = "00000000-0000-4000-8000-000000000000";
+
+jest.mock("@/utils/client/uuid", () => ({
+  getOrCreateUUID: jest.fn().mockReturnValue(MOCK_UUID_V4),
+}));
+
+// Option 2: Define inside factory function
+jest.mock("@/utils/client/uuid", () => {
+  const MOCK_UUID_V4 = "00000000-0000-4000-8000-000000000000";
+  return {
+    getOrCreateUUID: jest.fn().mockReturnValue(MOCK_UUID_V4),
+  };
+});
+```
+
+**Pattern**: Never import constants from modules that are mocked in Jest tests. Define mock constants directly in the test file or within the mock factory function to avoid hoisting issues.
+
+**Applied To**: Fixed `NPSSurvey.test.tsx` by defining `MOCK_UUID_V4` directly in the test file instead of importing from `uuid` module.
+
 ### 30. Network Connectivity Error Handling Pattern
 
 **Issue**: When users lose internet connection, Firestore operations fail with cryptic error messages like
