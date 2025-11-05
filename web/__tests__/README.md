@@ -92,17 +92,28 @@ git commit -m "WIP commit" --no-verify
 
 These tests validate LLM responses using embedding similarity (skipped by default):
 
-- `npm run test:queries:ananda-public` - Run all Ananda semantic and location tests (60 tests total)
+**Ananda Public Site:**
+
+- `npm run test:queries:ananda-public` - Run all Ananda Public semantic and location tests (60 tests total)
 - `npm run test:location:ananda-public` - Run only location/geo-awareness tests (20 tests)
+
+**Ananda Site:**
+
+- `npm run test:queries:ananda` - Run all Ananda semantic tests (17 tests total)
 
 **Requirements:**
 
 - Valid `OPENAI_API_KEY` environment variable (for embeddings)
 - Valid `SECURE_TOKEN` environment variable (for JWT generation)
 - Running backend server (default: `http://localhost:3000`)
+- Site-specific environment variables (e.g., `.env.ananda` or `.env.ananda-public`)
 
-See `__tests__/site_specific/ananda-public/semanticSearch.test.ts` and `locationSemantic.test.ts` for implementation
-details.
+**Test Files:**
+
+- `__tests__/site_specific/ananda-public/semanticSearch.test.ts` - 40 semantic response tests
+- `__tests__/site_specific/ananda-public/locationSemantic.test.ts` - 20 location/geo-awareness tests
+- `__tests__/site_specific/ananda/semanticSearch.test.ts` - 17 semantic response tests (identity, naming conventions,
+  content references, unrelated question rejection)
 
 ## Test Organization
 

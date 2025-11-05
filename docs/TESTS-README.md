@@ -168,11 +168,14 @@ standard test suite:
 ```bash
 cd web
 
-# Run all Ananda semantic and location tests (60 tests total)
+# Run all Ananda Public semantic and location tests (60 tests total)
 npm run test:queries:ananda-public
 
-# Run only location/geo-awareness tests (20 tests)
+# Run only Ananda Public location/geo-awareness tests (20 tests)
 npm run test:location:ananda-public
+
+# Run only Ananda semantic tests (17 tests total)
+npm run test:queries:ananda
 ```
 
 **Requirements:**
@@ -180,11 +183,19 @@ npm run test:location:ananda-public
 - Valid `OPENAI_API_KEY` environment variable (for embedding similarity calculations)
 - Valid `SECURE_TOKEN` environment variable (for JWT token generation)
 - Running backend server at `http://localhost:3000` (or set `NEXT_PUBLIC_BASE_URL`)
+- Site-specific environment variables (e.g., `.env.ananda` or `.env.ananda-public`)
 
 **Test Files:**
 
+**Ananda Public Site:**
+
 - `web/__tests__/site_specific/ananda-public/semanticSearch.test.ts` - 40 semantic response tests
 - `web/__tests__/site_specific/ananda-public/locationSemantic.test.ts` - 20 location/geo-awareness tests
+
+**Ananda Site:**
+
+- `web/__tests__/site_specific/ananda/semanticSearch.test.ts` - 17 semantic response tests (identity, naming
+  conventions, content references, unrelated question rejection)
 
 These tests validate:
 
