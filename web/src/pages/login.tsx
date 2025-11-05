@@ -125,6 +125,14 @@ export default function Login({ siteConfig }: LoginProps) {
           setIsSubmitting(false);
           return;
         }
+        if (data.message === "activation-sent" && data.isWhitelisted) {
+          setInfo("Your email domain is pre-approved. We're sending you an activation email now.");
+          setEmailSent(true);
+          setResendSeconds(60);
+          setLastSendType("activation");
+          setIsSubmitting(false);
+          return;
+        }
         if (data.next === "request-approval") {
           setStep("request-approval");
           setIsSubmitting(false);

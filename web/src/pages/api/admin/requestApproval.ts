@@ -4,11 +4,19 @@ import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 import { db } from "@/services/firebase";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
-import { firestoreSet } from "@/utils/server/firestoreRetryUtils";
 import { writeAuditLog } from "@/utils/server/auditLog";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { createEmailParams } from "@/utils/server/emailTemplates";
 import { isDevelopment } from "@/utils/env";
+import { isEmailDomainWhitelisted } from "@/utils/server/domainWhitelistUtils";
+import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
+import { firestoreGet, firestoreSet } from "@/utils/server/firestoreRetryUtils";
+import {
+  generateInviteToken,
+  hashInviteToken,
+  getInviteExpiryDate,
+  sendActivationEmail,
+} from "@/utils/server/userInviteUtils";
 
 const ses = new SESClient({
   region: process.env.AWS_REGION || "us-west-2",
@@ -187,6 +195,89 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
+    // Check if requester email domain is whitelisted
+    const siteId = process.env.SITE_ID;
+    if (!siteId) {
+      return res.status(500).json({ error: "SITE_ID environment variable is not configured" });
+    }
+    const isWhitelisted = await isEmailDomainWhitelisted(requesterEmail, siteId);
+
+    if (isWhitelisted) {
+      // Create user with pending status and send activation email (skip admin approval)
+      const usersCol = getUsersCollectionName();
+      const userDocRef = db.collection(usersCol).doc(requesterEmail.toLowerCase());
+      const existing = await firestoreGet(userDocRef, "check existing user for whitelist", requesterEmail);
+      const now = firebase.firestore.Timestamp.now();
+
+      if (existing.exists) {
+        const data = existing.data() as any;
+        if (data?.inviteStatus === "accepted") {
+          return res.status(200).json({
+            message: "User already active",
+            isWhitelisted: true,
+          });
+        }
+        if (data?.inviteStatus === "pending") {
+          // Resend activation email
+          const token = generateInviteToken();
+          const tokenHash = await hashInviteToken(token);
+          const inviteExpiresAt = firebase.firestore.Timestamp.fromDate(getInviteExpiryDate(14));
+          await firestoreSet(
+            userDocRef,
+            { inviteTokenHash: tokenHash, inviteExpiresAt, updatedAt: now },
+            { merge: true },
+            "update pending user for whitelist resend"
+          );
+          await sendActivationEmail(requesterEmail, token, req);
+          await writeAuditLog(req, "admin_approval_request", requesterEmail.toLowerCase(), {
+            outcome: "activation_resent_whitelisted",
+          });
+          return res.status(200).json({
+            message: "activation-sent",
+            isWhitelisted: true,
+          });
+        }
+      }
+
+      // Create new user
+      const token = generateInviteToken();
+      const tokenHash = await hashInviteToken(token);
+      const inviteExpiresAt = firebase.firestore.Timestamp.fromDate(getInviteExpiryDate(14));
+
+      // Parse first and last name from requesterName
+      const nameParts = requesterName.trim().split(/\s+/);
+      const firstName = nameParts[0] || "";
+      const lastName = nameParts.slice(1).join(" ") || "";
+
+      await firestoreSet(
+        userDocRef,
+        {
+          email: requesterEmail.toLowerCase(),
+          role: "user",
+          entitlements: { basic: true },
+          inviteStatus: "pending",
+          inviteTokenHash: tokenHash,
+          inviteExpiresAt,
+          newsletterSubscribed: true,
+          firstName,
+          lastName,
+          createdAt: now,
+          updatedAt: now,
+        },
+        undefined,
+        "create user via whitelisted domain"
+      );
+      await sendActivationEmail(requesterEmail, token, req);
+      await writeAuditLog(req, "admin_approval_request", requesterEmail.toLowerCase(), {
+        outcome: "created_pending_user_whitelisted",
+      });
+      return res.status(200).json({
+        message: "activation-sent",
+        isWhitelisted: true,
+      });
+    }
+
+    // Not whitelisted - proceed with normal approval flow
     const envPrefix = isDevelopment() ? "dev" : "prod";
     const collectionName = `${envPrefix}_admin_approval_requests`;
 

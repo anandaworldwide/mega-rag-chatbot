@@ -42,6 +42,7 @@ export default function AdminApproverSelector({
   const [name, setName] = useState(initialName || "");
   const [referenceNote, setReferenceNote] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchApprovers() {
@@ -121,6 +122,16 @@ export default function AdminApproverSelector({
 
       if (!response.ok) {
         throw new Error(data.error || "Failed to submit approval request");
+      }
+
+      // Check if domain is whitelisted
+      if (data.isWhitelisted && data.message === "activation-sent") {
+        setInfo("Your email domain is approved. We're sending you an activation email immediately.");
+        // Still call onSuccess since activation email was sent successfully
+        setTimeout(() => {
+          onSuccess?.();
+        }, 2000); // Give user time to read the message
+        return;
       }
 
       onSuccess?.();
@@ -257,6 +268,11 @@ export default function AdminApproverSelector({
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-lg p-3">
             <p className="text-red-800 text-sm">{error}</p>
+          </div>
+        )}
+        {info && (
+          <div className="bg-green-50 border border-green-200 rounded-lg p-3" aria-live="polite">
+            <p className="text-green-700 text-sm">{info}</p>
           </div>
         )}
 

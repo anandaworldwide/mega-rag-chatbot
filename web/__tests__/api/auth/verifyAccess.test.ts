@@ -50,6 +50,7 @@ beforeAll(() => {
   process.env = {
     ...originalEnv,
     SITE_PASSWORD: "hashed-site-password",
+    SITE_ID: "test-site",
   };
 });
 
@@ -66,6 +67,11 @@ jest.mock("@/utils/server/firestoreRetryUtils", () => ({
 // Mock audit log
 jest.mock("@/utils/server/auditLog", () => ({
   writeAuditLog: jest.fn(),
+}));
+
+// Mock domain whitelist utils
+jest.mock("@/utils/server/domainWhitelistUtils", () => ({
+  isEmailDomainWhitelisted: jest.fn(() => Promise.resolve(false)),
 }));
 
 describe("Setup file", () => {
@@ -132,6 +138,7 @@ describe("/api/auth/verifyAccess", () => {
     expect(res.statusCode).toBe(200);
     expect(res._getJSONData()).toEqual({
       message: "created",
+      isWhitelisted: false,
     });
 
     expect(firestoreRetryUtils.firestoreSet).toHaveBeenCalledWith(
@@ -189,6 +196,7 @@ describe("/api/auth/verifyAccess", () => {
     expect(res.statusCode).toBe(200);
     expect(res._getJSONData()).toEqual({
       message: "activation-resent",
+      isWhitelisted: false,
     });
   });
 

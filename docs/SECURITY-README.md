@@ -107,7 +107,6 @@ The system uses JSON Web Tokens (JWT) to secure API communication between:
 The system supports two types of authentication which can be used independently or together:
 
 1. **JWT Token Authentication**
-
    - **REQUIRED for ALL frontend-to-backend API calls without exception**
    - This includes login, logout, and all other API endpoints
    - Ensures only our frontend can access our backend APIs
@@ -143,7 +142,6 @@ The system supports optional password-based authentication alongside magic link 
 Users can authenticate using either method:
 
 1. **Magic Link Authentication** (Default)
-
    - Email-based authentication with temporary tokens
    - No password required
    - Ideal for infrequent users
@@ -272,6 +270,74 @@ Password authentication is only available on sites with `requireLogin: true` in 
 
 All password-related endpoints check `siteConfig?.requireLogin` and return 403 if not enabled.
 
+### Domain Whitelist Configuration
+
+The system supports domain-based whitelisting to streamline user onboarding for trusted organizations. Users from
+whitelisted email domains can skip admin approval and password verification, while still requiring activation email
+verification.
+
+#### How It Works
+
+When a user attempts to sign up or log in:
+
+1. **Domain Check**: System extracts the email domain (e.g., `user@ananda.org` → `ananda.org`)
+2. **Whitelist Lookup**: Checks if domain exists in site-specific whitelist file
+3. **Automatic User Creation**: If whitelisted, creates user with `inviteStatus: "pending"` immediately
+4. **Activation Email**: Sends activation email (same as normal flow, 14-day expiry)
+5. **Skip Approval**: Bypasses admin approval request and password requirement
+
+#### File Configuration
+
+Whitelist files are stored in `web/site-config/` with environment-specific naming:
+
+- **Development**: `dev-{siteId}-whitelist.json` (e.g., `dev-ananda-whitelist.json`)
+- **Production**: `{siteId}-whitelist.json` (e.g., `ananda-whitelist.json`)
+
+**File Format**:
+
+```json
+["ananda.org", "expandinglight.org", "anandavillage.org"]
+```
+
+#### Implementation Details
+
+**Utilities**:
+
+- `web/src/utils/server/domainWhitelistUtils.ts` - Whitelist loading and checking functions
+  - `loadDomainWhitelist(siteId: string)` - Loads whitelist file based on environment
+  - `isEmailDomainWhitelisted(email: string, siteId: string)` - Checks if email domain is whitelisted
+
+**API Endpoints Using Whitelist**:
+
+- `/api/auth/requestLoginLink` - Checks whitelist when user not found
+- `/api/auth/verifyAccess` - Skips password requirement for whitelisted domains
+- `/api/admin/requestApproval` - Bypasses admin approval for whitelisted domains
+
+**User Experience**:
+
+- Whitelisted users see notification: "Your email domain is approved. We're sending you an activation email
+  immediately."
+- Users still complete activation email verification (security requirement)
+- No password required during initial signup flow
+- Normal activation flow applies after email verification
+
+#### Security Considerations
+
+- **Email Verification Still Required**: Whitelisted domains skip admin approval but still require activation email
+  verification
+- **Audit Logging**: All whitelist-based user creation is logged with `outcome: "created_pending_user_whitelisted"` or
+  `"resent_pending_activation_whitelisted"`
+- **Case-Insensitive Matching**: Domain comparison is case-insensitive for reliability
+- **Graceful Fallback**: If whitelist file is missing or invalid, system falls back to normal approval flow
+- **Environment Separation**: Development and production use separate whitelist files for isolation
+
+#### Maintenance
+
+- Add domains to whitelist files as needed for trusted organizations
+- Keep production whitelist minimal - only add domains for organizations with established trust
+- Use development whitelist for testing with test domains (e.g., `gmail.com` for development)
+- Whitelist files are JSON arrays - validate syntax before committing changes
+
 ### Best Practices for JWT Implementation
 
 #### Frontend Implementation
@@ -372,13 +438,11 @@ backend.
 The system includes site ID validation to prevent accidental connections to the wrong backend environment:
 
 1. **WordPress Plugin Configuration**:
-
    - Each WordPress installation specifies an expected site ID (defaults to "ananda-public")
    - This is configurable in the plugin settings page
    - The setting is stored in WordPress options as `aichatbot_expected_site_id`
 
 2. **Token Request Process**:
-
    - The WordPress plugin sends the expected site ID with each token request
    - The backend checks if this ID matches its actual SITE_ID environment variable
    - If there's a mismatch, the backend returns a clear error message
@@ -393,7 +457,6 @@ users quickly identify and fix configuration issues.
 #### Setup Instructions
 
 1. **Vercel Project**:
-
    - Ensure SECURE_TOKEN and SECURE_TOKEN_HASH are set in your environment variables
    - Set the SITE_ID environment variable to uniquely identify your site/environment
    - No additional environment variables needed
@@ -466,13 +529,11 @@ used.
 #### How It Works
 
 1. **Authentication Flow**:
-
    - JWTs are issued upon login/authentication or for public endpoint access
    - Tokens are stored securely in memory and included with each API request
    - Protected API routes validate tokens before processing requests
 
 2. **Data Fetching Pattern**:
-
    - React Query handles all data fetching, caching, and error handling
    - The custom `queryFetch` function automatically adds authentication headers
    - Hooks provide a clean API for components

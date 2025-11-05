@@ -19,6 +19,8 @@ import {
   getLoginExpiryDateHours,
   sendLoginEmail,
 } from "@/utils/server/userLoginMagicUtils";
+import { isEmailDomainWhitelisted } from "@/utils/server/domainWhitelistUtils";
+import { writeAuditLog } from "@/utils/server/auditLog";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -68,8 +70,43 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return res.status(200).json({ message: "activation-resent" });
       }
     }
-    // Not found → ask frontend to go to request-approval (admin approval)
-    return res.status(200).json({ next: "request-approval" });
+    // Not found → check if domain is whitelisted
+    const siteId = process.env.SITE_ID;
+    if (!siteId) {
+      return res.status(500).json({ error: "SITE_ID environment variable is not configured" });
+    }
+    const isWhitelisted = await isEmailDomainWhitelisted(email, siteId);
+
+    if (isWhitelisted) {
+      // Create user with pending status and send activation email
+      const token = generateInviteToken();
+      const tokenHash = await hashInviteToken(token);
+      const inviteExpiresAt = firebase.firestore.Timestamp.fromDate(getInviteExpiryDate(14));
+      await firestoreSet(
+        userDocRef,
+        {
+          email: email.toLowerCase(),
+          role: "user",
+          entitlements: { basic: true },
+          inviteStatus: "pending",
+          inviteTokenHash: tokenHash,
+          inviteExpiresAt,
+          newsletterSubscribed: true, // Default opt-in for newsletter
+          createdAt: now,
+          updatedAt: now,
+        },
+        undefined,
+        "create user via whitelisted domain"
+      );
+      await sendActivationEmail(email, token, req);
+      await writeAuditLog(req, "self_provision_attempt", email.toLowerCase(), {
+        outcome: "created_pending_user_whitelisted",
+      });
+      return res.status(200).json({ message: "activation-sent", isWhitelisted: true });
+    }
+
+    // Not whitelisted → ask frontend to go to request-approval (admin approval)
+    return res.status(200).json({ next: "request-approval", isWhitelisted: false });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return res.status(500).json({ error: message });

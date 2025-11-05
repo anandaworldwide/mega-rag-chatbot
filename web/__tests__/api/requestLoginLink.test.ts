@@ -50,6 +50,29 @@ jest.mock("@/utils/server/userInviteUtils", () => {
   return { sendActivationEmail, hashInviteToken, generateInviteToken, getInviteExpiryDate };
 });
 
+// Mock domain whitelist utils
+jest.mock("@/utils/server/domainWhitelistUtils", () => ({
+  isEmailDomainWhitelisted: jest.fn(() => Promise.resolve(false)),
+}));
+
+// Mock audit log
+jest.mock("@/utils/server/auditLog", () => ({
+  writeAuditLog: jest.fn(),
+}));
+
+// Mock environment variables
+const originalEnv = process.env;
+beforeAll(() => {
+  process.env = {
+    ...originalEnv,
+    SITE_ID: "test-site",
+  };
+});
+
+afterAll(() => {
+  process.env = originalEnv;
+});
+
 import { createMocks } from "node-mocks-http";
 import type { NextApiRequest, NextApiResponse } from "next";
 import handler from "@/pages/api/auth/requestLoginLink";
@@ -125,6 +148,6 @@ describe("requestLoginLink API", () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res._getJSONData()).toEqual({ next: "request-approval" });
+    expect(res._getJSONData()).toEqual({ next: "request-approval", isWhitelisted: false });
   });
 });
