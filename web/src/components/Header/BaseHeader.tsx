@@ -111,7 +111,11 @@ export default function BaseHeader({
       >
         <div className="flex justify-between items-center h-full px-[35px]">
           <div className="flex items-center gap-[35px] pt-[5px]">
-            {logoComponent ? <Link href="/">{logoComponent}</Link> : null}
+            {logoComponent ? (
+              <Link href="/" onClick={onNewChat}>
+                {logoComponent}
+              </Link>
+            ) : null}
             <nav>
               <div className="flex items-center gap-[35px]">
                 {parentSiteUrl && (
