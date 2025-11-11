@@ -159,6 +159,16 @@ const MessageItem: React.FC<MessageItemProps> = ({
     },
   };
 
+  const handleEditKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      onSaveEdit && onSaveEdit(index, localEditingText);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      onCancelEdit && onCancelEdit(index);
+    }
+  };
+
   return (
     <Fragment key={messageKey}>
       <div className="py-4" ref={isLastMessage ? lastMessageRef : null}>
@@ -171,6 +181,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
                 <textarea
                   value={localEditingText}
                   onChange={(e) => setLocalEditingText(e.target.value)}
+                  onKeyDown={handleEditKeyDown}
                   className="w-full bg-white border border-blue-300 rounded-lg px-3 py-2 text-[16px] text-black font-normal leading-normal font-sans resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
                   rows={Math.max(3, localEditingText.split("\n").length)}
                   autoFocus
