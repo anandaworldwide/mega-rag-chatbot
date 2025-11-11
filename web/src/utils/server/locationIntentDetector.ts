@@ -160,12 +160,172 @@ async function generateQueryEmbedding(query: string): Promise<number[]> {
 }
 
 /**
+ * Fast keyword-based location pattern detection
+ * Used as a fallback/supplement to semantic detection for obvious location queries
+ *
+ * @param query - User query to analyze
+ * @returns true if query matches obvious location patterns
+ */
+function hasLocationKeywordPatterns(query: string): boolean {
+  const lowerQuery = query.toLowerCase();
+
+  // Common country codes (ISO 3166-1 alpha-2)
+  const countryCodes = [
+    "nz", // New Zealand
+    "usa", // United States
+    "uk",
+    "gb", // United Kingdom
+    "ca", // Canada
+    "au", // Australia
+    "de", // Germany
+    "fr", // France
+    "es", // Spain
+    "pt", // Portugal
+    "mx", // Mexico
+    "br", // Brazil
+    "jp", // Japan
+    "cn", // China
+    "kr", // South Korea
+    "nl", // Netherlands
+    "ch", // Switzerland
+    "se", // Sweden
+    "dk", // Denmark
+    "fi", // Finland
+    "pl", // Poland
+    "ie", // Ireland
+    "gr", // Greece
+    "cz", // Czech Republic
+    "hu", // Hungary
+    "ro", // Romania
+    "bg", // Bulgaria
+    "hr", // Croatia
+    "si", // Slovenia
+    "sk", // Slovakia
+    "ee", // Estonia
+    "lv", // Latvia
+    "lt", // Lithuania
+    "ar", // Argentina
+    "cl", // Chile
+    "pe", // Peru
+    "co", // Colombia
+    "ve", // Venezuela
+    "ec", // Ecuador
+    "bo", // Bolivia
+    "py", // Paraguay
+    "uy", // Uruguay
+    "pa", // Panama
+    "cr", // Costa Rica
+    "gt", // Guatemala
+    "hn", // Honduras
+    "sv", // El Salvador
+    "ni", // Nicaragua
+    "sg", // Singapore
+    "my", // Malaysia
+    "th", // Thailand
+    "ph", // Philippines
+    "id", // Indonesia
+    "vn", // Vietnam
+    "tw", // Taiwan
+    "hk", // Hong Kong
+    "za", // South Africa
+    "eg", // Egypt
+    "ma", // Morocco
+    "ng", // Nigeria
+    "ke", // Kenya
+    "gh", // Ghana
+    "et", // Ethiopia
+    "il", // Israel
+    "jo", // Jordan
+    "lb", // Lebanon
+    "ae",
+    "uae", // United Arab Emirates
+    "sa", // Saudi Arabia
+    "qa", // Qatar
+    "kw", // Kuwait
+    "om", // Oman
+    "bh", // Bahrain
+    "ru", // Russia
+    "tr", // Turkey
+    "ir", // Iran
+    "pk", // Pakistan
+    "bd", // Bangladesh
+    "lk", // Sri Lanka
+    "np", // Nepal
+    "mm", // Myanmar
+    "la", // Laos
+    "kh", // Cambodia
+    "mz", // Mozambique
+    "zm", // Zambia
+    "zw", // Zimbabwe
+    "ug", // Uganda
+    "tz", // Tanzania
+  ];
+
+  // Check for country abbreviations as standalone words (with word boundaries)
+  for (const abbrev of countryCodes) {
+    const pattern = new RegExp(`\\b${abbrev}\\b`, "i");
+    if (pattern.test(query)) {
+      return true;
+    }
+  }
+
+  // Location-specific phrases
+  const locationPhrases = [
+    "near me",
+    "nearby",
+    "closest",
+    "nearest",
+    "in my area",
+    "my location",
+    "zip code",
+    "postal code",
+    "my address",
+    "my city",
+    "my state",
+    "my country",
+    "where is",
+    "where are",
+    "location of",
+    "address of",
+    "how do i get to",
+    "directions to",
+    "find a",
+    "find an",
+    "search for",
+    "look for",
+    "center in",
+    "center near",
+    "group in",
+    "group near",
+    "community in",
+    "community near",
+    "ananda in",
+    "ananda near",
+    "temple in",
+    "temple near",
+    "church in",
+    "church near",
+  ];
+
+  // Check if query contains any location phrases
+  return locationPhrases.some((phrase) => lowerQuery.includes(phrase));
+}
+
+/**
  * Async version of location intent detection
  *
  * @param query - User query to analyze
  * @returns Promise<boolean> - true if query has location intent
  */
 export async function hasLocationIntentAsync(query: string): Promise<boolean> {
+  // First, check for obvious keyword patterns (fast path)
+  if (hasLocationKeywordPatterns(query)) {
+    if (process.env.NODE_ENV === "development") {
+      console.log(`🔍 Location intent detected via KEYWORD pattern for "${query}"`);
+    }
+    return true;
+  }
+
   // If embeddings not loaded, fall back to disabled detection
   if (!cachedEmbeddings) {
     return false;
