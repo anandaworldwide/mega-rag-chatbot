@@ -1714,7 +1714,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         // Delete follow-up messages from UI (everything after the answer to this question)
         // This includes the answer itself and any follow-up Q&A pairs
         const newMessages = messages.slice(0, messageIndex + 1); // Keep user message and everything before it
-        const newHistory = messageState.history.slice(0, messageIndex); // Keep history up to the user message
+        const newHistory = messageState.history.slice(0, messageIndex - 1); // FIXED: Exclude the edited user message from prior history
 
         // Update the user message with edited text
         newMessages[messageIndex] = {
