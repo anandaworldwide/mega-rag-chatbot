@@ -12,6 +12,19 @@
  * 7. Handles various error conditions
  */
 
+// Mock @langchain/openai at the very top - before ALL imports
+// Provide default implementation so makechain.ts gets a working mock
+jest.mock("@langchain/openai", () => ({
+  ChatOpenAI: jest.fn().mockImplementation(() => ({
+    invoke: jest.fn().mockResolvedValue({ content: "Mock response" }),
+    stream: jest.fn().mockImplementation(async function* () {
+      yield { text: "Mock token" };
+    }),
+    bind: jest.fn().mockReturnThis(),
+  })),
+}));
+
+// Now import ChatOpenAI - it will be the mocked version
 import { VectorStoreRetriever } from "@langchain/core/vectorstores";
 import { Document } from "langchain/document";
 import { makeChain } from "../../../src/utils/server/makechain";
@@ -100,7 +113,6 @@ jest.mock("@langchain/core/runnables", () => {
 // Mock dependencies
 jest.mock("fs/promises");
 jest.mock("path");
-jest.mock("@langchain/openai");
 jest.mock("@aws-sdk/client-s3");
 
 // Mock the entire AWS SES module to avoid configuration issues
@@ -281,6 +293,28 @@ describe("makeChain", () => {
     process.env.AWS_SECRET_ACCESS_KEY = "test-secret-key";
     process.env.AWS_DEFAULT_REGION = "us-west-1";
 
+    // Add OpenAI API key for model initialization
+    process.env.OPENAI_API_KEY = "test-key";
+
+    // Reset and configure the mocked ChatOpenAI
+    (ChatOpenAI as unknown as jest.Mock).mockReset();
+    (ChatOpenAI as unknown as jest.Mock).mockImplementation(() => ({
+      invoke: jest.fn().mockResolvedValue("Test response"),
+      stream: jest.fn().mockImplementation(async function* () {
+        yield { text: "First token" };
+        yield { text: "Second token" };
+        yield { text: "Final token" };
+      }),
+      bind: jest.fn().mockReturnThis(), // Needed for geo-tools binding
+      callbacks: [
+        {
+          handleLLMNewToken: mockHandleLLMNewToken,
+          handleLLMEnd: mockHandleLLMEnd,
+          handleLLMError: mockHandleLLMError,
+        },
+      ],
+    }));
+
     // Mock S3 response
     mockS3Send.mockImplementation((command) => {
       if (command && command.input && command.input.Key) {
@@ -347,25 +381,6 @@ describe("makeChain", () => {
     // Mock path.join
     jest.spyOn(path, "join").mockImplementation((...args: string[]) => {
       return args.join("/");
-    });
-
-    // Mock ChatOpenAI constructor
-    (ChatOpenAI as unknown as jest.Mock).mockImplementation(() => {
-      return {
-        invoke: jest.fn().mockResolvedValue("Test response"),
-        stream: jest.fn().mockImplementation(async function* () {
-          yield { text: "First token" };
-          yield { text: "Second token" };
-          yield { text: "Final token" };
-        }),
-        callbacks: [
-          {
-            handleLLMNewToken: mockHandleLLMNewToken,
-            handleLLMEnd: mockHandleLLMEnd,
-            handleLLMError: mockHandleLLMError,
-          },
-        ],
-      };
     });
   });
 

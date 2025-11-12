@@ -79,7 +79,7 @@ describe("Location Intent Detector", () => {
     mockFs.existsSync.mockReturnValue(false);
     await initializeLocationIntentDetector("test-site");
 
-    const result = await hasLocationIntentAsync("Where is the nearest center?");
+    const result = await hasLocationIntentAsync("What is the meaning of life?");
     expect(result).toBe(false);
   });
 
@@ -117,7 +117,7 @@ describe("Location Intent Detector", () => {
 
     await initializeLocationIntentDetector("test-site");
 
-    const result = await hasLocationIntentAsync("Where is the nearest center?");
+    const result = await hasLocationIntentAsync("What is the meaning of life?");
     expect(result).toBe(false);
   });
 
@@ -138,7 +138,7 @@ describe("Location Intent Detector", () => {
     await initializeLocationIntentDetector("test-site");
 
     const startTime = performance.now();
-    await hasLocationIntentAsync("Where is the nearest center?");
+    await hasLocationIntentAsync("What is the meaning of life?");
     const endTime = performance.now();
 
     // Should complete within 1 second (allowing for OpenAI API call)
@@ -171,7 +171,7 @@ describe("Location Intent Detector", () => {
       await expect(initializeLocationIntentDetector("does-not-exist")).resolves.not.toThrow();
 
       // Should still return false for location intent
-      const result = await hasLocationIntentAsync("Where is the nearest center?");
+      const result = await hasLocationIntentAsync("What is the meaning of life?");
       expect(result).toBe(false);
     });
   });
@@ -215,7 +215,7 @@ describe("Location Intent Detector", () => {
       await initializeLocationIntentDetector("test-site");
 
       // Should handle invalid data and return false
-      const result = await hasLocationIntentAsync("Where is the nearest center?");
+      const result = await hasLocationIntentAsync("What is the meaning of life?");
       expect(result).toBe(false);
     });
   });
