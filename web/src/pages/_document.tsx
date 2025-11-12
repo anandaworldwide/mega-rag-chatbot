@@ -1,12 +1,11 @@
 // Custom Document component for Next.js
-import { Html, Head, Main, NextScript, DocumentContext } from "next/document";
-import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
+import { Html, Head, Main, NextScript } from "next/document";
 
-interface DocumentProps {
-  shortname: string;
-}
+export default function Document() {
+  // Use a generic app title - the manifest.json will have the site-specific name
+  // This avoids needing getInitialProps which can cause issues in production
+  const appTitle = "Chatbot";
 
-export default function Document({ shortname }: DocumentProps) {
   return (
     <Html lang="en">
       <Head>
@@ -17,7 +16,7 @@ export default function Document({ shortname }: DocumentProps) {
         {/* iOS Safari PWA Support */}
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-        <meta name="apple-mobile-web-app-title" content={shortname || "Chatbot"} />
+        <meta name="apple-mobile-web-app-title" content={appTitle} />
         {/* Apple Touch Icon */}
         <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
         {/* Favicon */}
@@ -39,16 +38,3 @@ export default function Document({ shortname }: DocumentProps) {
     </Html>
   );
 }
-
-Document.getInitialProps = async (ctx: DocumentContext) => {
-  // Load site config to get shortname for apple-mobile-web-app-title
-  const siteConfig = loadSiteConfigSync();
-  const shortname = siteConfig?.shortname || "Chatbot";
-
-  // Render the page to get default props
-  await ctx.renderPage();
-
-  return {
-    shortname,
-  };
-};

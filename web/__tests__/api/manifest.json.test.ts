@@ -246,7 +246,7 @@ describe("API Route: /api/manifest.json", () => {
   });
 
   describe("Error handling", () => {
-    it("returns 500 when site config fails to load", async () => {
+    it("returns 200 with fallback values when site config fails to load", async () => {
       mockLoadSiteConfigSync.mockReturnValue(null);
 
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
@@ -255,11 +255,30 @@ describe("API Route: /api/manifest.json", () => {
 
       await handler(req, res);
 
-      expect(res._getStatusCode()).toBe(500);
-      const responseData = JSON.parse(res._getData());
-      expect(responseData).toEqual({
-        error: "Failed to load site configuration",
+      // Should return 200 with fallback manifest to prevent PWA failures
+      expect(res._getStatusCode()).toBe(200);
+      const manifest = JSON.parse(res._getData());
+      expect(manifest.name).toBe("Mega Chatbot");
+      expect(manifest.short_name).toBe("Chatbot");
+      expect(manifest.description).toBe("Explore, Discover, Learn");
+    });
+
+    it("handles exceptions from loadSiteConfigSync gracefully", async () => {
+      mockLoadSiteConfigSync.mockImplementation(() => {
+        throw new Error("Config load failed");
       });
+
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "GET",
+      });
+
+      await handler(req, res);
+
+      // Should return 200 with fallback manifest even on exception
+      expect(res._getStatusCode()).toBe(200);
+      const manifest = JSON.parse(res._getData());
+      expect(manifest.name).toBe("Mega Chatbot");
+      expect(manifest.short_name).toBe("Chatbot");
     });
 
     it("calls loadSiteConfigSync", async () => {
