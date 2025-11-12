@@ -52,6 +52,10 @@ const nextConfig = {
         source: "/api/sudoCookie",
         destination: `${baseUrl}/api/sudoCookie`,
       },
+      {
+        source: "/manifest.json",
+        destination: "/api/manifest.json",
+      },
     ];
   },
   env: {
