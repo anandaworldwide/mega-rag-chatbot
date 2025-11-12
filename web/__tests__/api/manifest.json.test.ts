@@ -138,24 +138,64 @@ describe("API Route: /api/manifest.json", () => {
     it("includes correct icon configuration", async () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "GET",
+        headers: {
+          host: "localhost:3000",
+        },
       });
 
       await handler(req, res);
 
       const manifest = JSON.parse(res._getData());
 
-      expect(manifest.icons).toHaveLength(2);
+      // Should have 3 icons: 3 sizes of primary icon (no favicon)
+      expect(manifest.icons).toHaveLength(3);
+
+      // Primary icon should use optimized size-specific versions when available
+      // For luca.png, we use luca-512.png, luca-192.png, luca-180.png (ordered largest first)
+      // Icons now use absolute URLs for better PWA compatibility
       expect(manifest.icons[0]).toEqual({
-        src: "/apple-touch-icon.png",
-        sizes: "180x180",
+        src: "http://localhost:3000/luca-512.png",
+        sizes: "512x512",
         type: "image/png",
-        purpose: "any maskable",
+        purpose: "any",
       });
       expect(manifest.icons[1]).toEqual({
-        src: "/favicon.ico",
-        sizes: "48x48",
-        type: "image/x-icon",
+        src: "http://localhost:3000/luca-192.png",
+        sizes: "192x192",
+        type: "image/png",
+        purpose: "any",
       });
+      expect(manifest.icons[2]).toEqual({
+        src: "http://localhost:3000/luca-180.png",
+        sizes: "180x180",
+        type: "image/png",
+        purpose: "any",
+      });
+    });
+
+    it("uses default icon when loginImage is not set", async () => {
+      const configWithoutIcon: SiteConfig = {
+        ...mockSiteConfig,
+        loginImage: null,
+      };
+
+      mockLoadSiteConfigSync.mockReturnValue(configWithoutIcon);
+
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "GET",
+        headers: {
+          host: "localhost:3000",
+        },
+      });
+
+      await handler(req, res);
+
+      const manifest = JSON.parse(res._getData());
+
+      // Should use default apple-touch-icon.png with absolute URLs
+      expect(manifest.icons[0].src).toBe("http://localhost:3000/apple-touch-icon.png");
+      expect(manifest.icons[1].src).toBe("http://localhost:3000/apple-touch-icon.png");
+      expect(manifest.icons[2].src).toBe("http://localhost:3000/apple-touch-icon.png");
     });
 
     it("sets correct Content-Type header", async () => {

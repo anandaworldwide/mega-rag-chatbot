@@ -10,7 +10,7 @@ export default function Document() {
     <Html lang="en">
       <Head>
         {/* PWA Manifest - dynamically generated based on site config */}
-        <link rel="manifest" href="/manifest.json" />
+        <link rel="manifest" href="/api/manifest.json" />
         {/* Theme Color */}
         <meta name="theme-color" content="#ff6b35" />
         {/* iOS Safari PWA Support */}
@@ -18,7 +18,7 @@ export default function Document() {
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content={appTitle} />
         {/* Apple Touch Icon */}
-        <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+        <link rel="apple-touch-icon" sizes="180x180" href="/api/apple-touch-icon" />
         {/* Favicon */}
         <link rel="icon" href="/favicon.ico" />
         {/* Include Material Icons font */}

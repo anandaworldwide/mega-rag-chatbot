@@ -56,6 +56,22 @@ const nextConfig = {
         source: "/manifest.json",
         destination: "/api/manifest.json",
       },
+      {
+        source: "/apple-touch-icon.png",
+        destination: "/api/apple-touch-icon",
+      },
+      {
+        source: "/apple-touch-icon-precomposed.png",
+        destination: "/api/apple-touch-icon",
+      },
+      {
+        source: "/apple-touch-icon-120x120-precomposed.png",
+        destination: "/api/apple-touch-icon",
+      },
+      {
+        source: "/apple-touch-icon-120x120.png",
+        destination: "/api/apple-touch-icon",
+      },
     ];
   },
   env: {
