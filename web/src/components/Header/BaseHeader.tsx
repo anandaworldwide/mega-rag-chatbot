@@ -21,6 +21,7 @@ interface BaseHeaderProps {
   onTemporarySessionChange?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   isChatEmpty?: boolean;
   allowTemporarySessions?: boolean;
+  helpUrl?: string;
 }
 
 export default function BaseHeader({
@@ -34,6 +35,7 @@ export default function BaseHeader({
   onTemporarySessionChange,
   isChatEmpty = true,
   allowTemporarySessions = false,
+  helpUrl,
 }: BaseHeaderProps) {
   const router = useRouter();
   // Fast initial state from non-HttpOnly cookie to avoid flicker; will be reconciled after init
@@ -166,6 +168,17 @@ export default function BaseHeader({
               >
                 <span className="material-icons text-xl">edit_square</span>
               </button>
+            )}
+            {helpUrl && (
+              <a
+                href={helpUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-white hover:text-gray-200 p-1 rounded-xl hover:bg-white/10 transition-colors flex items-center"
+                title="Help"
+              >
+                <span className="material-icons text-xl">help_outline</span>
+              </a>
             )}
             {requireLogin && authReady && (
               <nav className="flex space-x-4">

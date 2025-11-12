@@ -15,7 +15,7 @@
       "localhost:3000",
       "127.0.0.1:3000"
     ],
-    "help_url": "",
+    "help_url": "https://anandafamily.notion.site/luca-help",
     "help_text": "Help",
     "collectionConfig": {
       "master_swami": "Master and Swami",
@@ -60,11 +60,6 @@
     },
     "footer": {
       "links": [
-        {
-          "label": "Help",
-          "url": "https://www.anandalibrary.org/content/ai-chatbot-intro/",
-          "icon": "help_outline"
-        },
         {
           "label": "Contact",
           "url": "/contact",

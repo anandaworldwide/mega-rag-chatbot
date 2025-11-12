@@ -46,6 +46,7 @@ export default function AnandaHeader({
         isChatEmpty={isChatEmpty}
         allowTemporarySessions={siteConfig.allowTemporarySessions}
         logoComponent={logoComponent}
+        helpUrl={siteConfig.help_url}
       />
     </>
   );
