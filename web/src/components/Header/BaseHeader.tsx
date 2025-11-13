@@ -172,8 +172,6 @@ export default function BaseHeader({
             {helpUrl && (
               <a
                 href={helpUrl}
-                target="_blank"
-                rel="noopener noreferrer"
                 className="text-white hover:text-gray-200 p-1 rounded-xl hover:bg-white/10 transition-colors flex items-center"
                 title="Help"
               >
