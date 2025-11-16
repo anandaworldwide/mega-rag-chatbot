@@ -6,6 +6,16 @@ import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { isDevelopment } from "@/utils/env";
+import { db } from "@/services/firebase";
+import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
+import { firestoreGet } from "@/utils/server/firestoreRetryUtils";
+import { sendOpsAlert } from "@/utils/server/emailOps";
+
+interface AdminApproverSource {
+  name: string;
+  uuid: string;
+  location: string;
+}
 
 interface AdminApprover {
   name: string;
@@ -18,9 +28,19 @@ interface Region {
   admins: AdminApprover[];
 }
 
+interface RegionSource {
+  name: string;
+  admins: AdminApproverSource[];
+}
+
 interface AdminApproversData {
   lastUpdated: string;
   regions: Region[];
+}
+
+interface AdminApproversSourceData {
+  lastUpdated: string;
+  regions: RegionSource[];
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -56,8 +76,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const bucketName = process.env.NEXT_PUBLIC_S3_BUCKET_NAME || "ananda-chatbot";
 
     // Use dev- prefix for development environments
-    const envPrefix = isDevelopment() ? "dev-" : "";
-    const key = `site-config/admin-approvers/${envPrefix}${siteId}-admin-approvers.json`;
+    const s3EnvPrefix = isDevelopment() ? "dev-" : "";
+    const key = `site-config/admin-approvers/${s3EnvPrefix}${siteId}-admin-approvers.json`;
 
     const command = new GetObjectCommand({
       Bucket: bucketName,
@@ -81,12 +101,120 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     };
 
     const bodyContents = await streamToString(response.Body);
-    const approversData: AdminApproversData = JSON.parse(bodyContents);
+    const sourceData: AdminApproversSourceData = JSON.parse(bodyContents);
 
     // Validate the data structure
-    if (!approversData.regions || !Array.isArray(approversData.regions)) {
+    if (!sourceData.regions || !Array.isArray(sourceData.regions)) {
       return res.status(500).json({ error: "Invalid admin approvers data structure" });
     }
+
+    // Validate UUID format
+    for (const region of sourceData.regions) {
+      for (const admin of region.admins || []) {
+        if (!admin.uuid || typeof admin.uuid !== "string" || admin.uuid.length !== 36) {
+          return res.status(500).json({
+            error: `Invalid UUID format for admin ${admin.name}. Expected 36-character UUID.`,
+          });
+        }
+      }
+    }
+
+    // Look up emails from user records by UUID
+    const usersCol = getUsersCollectionName();
+    const envPrefix = isDevelopment() ? "dev_" : "prod_";
+    const uuidIndexCol = `${envPrefix}uuid_index`;
+
+    // Convert UUID-based data to email-based for API response
+    const missingUuids: Array<{ name: string; uuid: string; location: string }> = [];
+    const regions: Region[] = await Promise.all(
+      sourceData.regions.map(async (region) => {
+        const admins: AdminApprover[] = await Promise.all(
+          region.admins.map(async (admin) => {
+            // Look up user by UUID to get email
+            let email = "";
+            let found = false;
+
+            if (db) {
+              try {
+                // Query users collection for UUID match
+                const usersSnapshot = await db.collection(usersCol).where("uuid", "==", admin.uuid).limit(1).get();
+
+                if (!usersSnapshot.empty) {
+                  const userDoc = usersSnapshot.docs[0];
+                  email = userDoc.id; // Email is the document ID
+                  found = true;
+                } else {
+                  // Try UUID index collection
+                  const uuidDoc = await firestoreGet(
+                    db.collection(uuidIndexCol).doc(admin.uuid),
+                    "lookup email by uuid",
+                    admin.uuid
+                  );
+                  if (uuidDoc.exists) {
+                    email = uuidDoc.data()?.email || "";
+                    found = !!email;
+                  }
+                }
+              } catch (error) {
+                console.error(`Error looking up email for UUID ${admin.uuid}:`, error);
+              }
+            }
+
+            if (!found || !email) {
+              console.warn(`Could not find email for UUID ${admin.uuid}, admin ${admin.name}`);
+              missingUuids.push({
+                name: admin.name,
+                uuid: admin.uuid,
+                location: admin.location,
+              });
+              // Return admin without email - will be filtered out
+              return {
+                name: admin.name,
+                email: "",
+                location: admin.location,
+              };
+            }
+
+            return {
+              name: admin.name,
+              email: email.toLowerCase(),
+              location: admin.location,
+            };
+          })
+        );
+
+        // Filter out admins without emails
+        return {
+          name: region.name,
+          admins: admins.filter((admin) => admin.email),
+        };
+      })
+    );
+
+    // Send ops alert if any UUIDs could not be converted to emails
+    if (missingUuids.length > 0) {
+      const siteId = siteConfig?.siteId || "unknown";
+      const missingList = missingUuids
+        .map((admin) => `  - ${admin.name} (UUID: ${admin.uuid}, Location: ${admin.location})`)
+        .join("\n");
+
+      await sendOpsAlert(
+        "Admin Approver UUID Lookup Failed",
+        `Failed to find email addresses for ${missingUuids.length} admin approver(s) in site "${siteId}". These admins will be excluded from the approver list.\n\nMissing UUIDs:\n${missingList}\n\nPlease verify these UUIDs exist in Firestore user records.`,
+        {
+          context: {
+            siteId,
+            missingCount: missingUuids.length,
+            missingUuids: missingUuids.map((a) => ({ name: a.name, uuid: a.uuid })),
+          },
+        }
+      );
+    }
+
+    const approversData: AdminApproversData = {
+      lastUpdated: sourceData.lastUpdated,
+      regions,
+    };
 
     // Cache the result for 5 minutes (300 seconds)
     await setInCache(cacheKey, approversData, 300);
@@ -116,7 +244,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             admins: [
               {
                 name: "Support",
-                email: contactEmail,
+                email: contactEmail.toLowerCase(),
                 location: "Global Support Team",
               },
             ],
