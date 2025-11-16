@@ -509,11 +509,13 @@ const SourcesList: React.FC<SourcesListProps> = ({
               <div className="space-y-4">
                 {sources.map((doc, index) => (
                   <div key={index} className="border-b border-gray-200 pb-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="material-icons text-sm">{getSourceIcon(doc)}</span>
-                      {renderSourceTitle(doc)}
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-2">
+                      <div className="flex items-center gap-2">
+                        <span className="material-icons text-sm">{getSourceIcon(doc)}</span>
+                        {renderSourceTitle(doc)}
+                      </div>
                       {doc.metadata.library && doc.metadata.library !== "Default Library" && (
-                        <span className="text-gray-400 text-sm ml-auto">{renderLibraryName(doc)}</span>
+                        <span className="text-gray-400 text-sm sm:ml-auto">{renderLibraryName(doc)}</span>
                       )}
                     </div>
                     {doc.metadata.type === "audio" && renderAudioPlayer(doc, index, true)}
@@ -602,14 +604,14 @@ const SourcesList: React.FC<SourcesListProps> = ({
                   }}
                   className="flex items-center cursor-pointer list-none py-1 px-2 hover:bg-gray-50"
                 >
-                  <div className="grid grid-cols-[auto_1fr_auto] items-center w-full gap-2">
-                    <div className="flex items-center">
-                      <span className="inline-block w-4 h-4 transition-transform duration-200 transform group-open:rotate-90 arrow-icon">
+                  <div className="flex flex-col sm:grid sm:grid-cols-[auto_1fr_auto] items-start sm:items-center w-full gap-2">
+                    <div className="flex items-start flex-1 min-w-0 w-full sm:w-auto sm:items-center">
+                      <span className="inline-flex items-center justify-center w-11 h-11 sm:w-4 sm:h-4 transition-transform duration-200 transform group-open:rotate-90 arrow-icon touch-manipulation flex-shrink-0">
                         <svg
                           xmlns="http://www.w3.org/2000/svg"
                           viewBox="0 0 20 20"
                           fill="currentColor"
-                          className="w-4 h-4"
+                          className="w-4 h-4 sm:w-4 sm:h-4"
                         >
                           <path
                             fillRule="evenodd"
@@ -618,10 +620,15 @@ const SourcesList: React.FC<SourcesListProps> = ({
                           />
                         </svg>
                       </span>
-                      <span className="material-icons text-sm ml-1">{getSourceIcon(doc)}</span>
+                      <span className="material-icons text-sm ml-1 flex-shrink-0">{getSourceIcon(doc)}</span>
+                      <div className="flex flex-col flex-1 min-w-0 ml-1">
+                        <div className="flex items-center">{renderSourceTitle(doc)}</div>
+                        {doc.metadata.library && doc.metadata.library !== "Default Library" && (
+                          <div className="sm:hidden">{renderLibraryName(doc)}</div>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center">{renderSourceTitle(doc)}</div>
-                    <div className="text-right">
+                    <div className="hidden sm:block text-right">
                       {doc.metadata.library && doc.metadata.library !== "Default Library" && renderLibraryName(doc)}
                     </div>
                   </div>

@@ -151,7 +151,8 @@ describe("SourcesList", () => {
 
     expect(screen.getByText("Sources")).toBeInTheDocument();
     expect(screen.getByText("Test Document")).toBeInTheDocument();
-    expect(screen.getByText("Test Library")).toBeInTheDocument();
+    // Library name appears twice (mobile and desktop views), so use getAllByText
+    expect(screen.getAllByText("Test Library").length).toBeGreaterThan(0);
 
     // Source icon should be displayed
     expect(screen.getByText("description")).toBeInTheDocument();
@@ -162,7 +163,8 @@ describe("SourcesList", () => {
 
     expect(screen.getByText("Sources")).toBeInTheDocument();
     expect(screen.getByText("Test Audio")).toBeInTheDocument();
-    expect(screen.getByText("Audio Library")).toBeInTheDocument();
+    // Library name appears twice (mobile and desktop views), so use getAllByText
+    expect(screen.getAllByText("Audio Library").length).toBeGreaterThan(0);
 
     // Audio icon should be displayed
     expect(screen.getByText("mic")).toBeInTheDocument();
@@ -176,7 +178,8 @@ describe("SourcesList", () => {
 
     expect(screen.getByText("Sources")).toBeInTheDocument();
     expect(screen.getByText("Test YouTube Video")).toBeInTheDocument();
-    expect(screen.getByText("YouTube Channel")).toBeInTheDocument();
+    // Library name appears twice (mobile and desktop views), so use getAllByText
+    expect(screen.getAllByText("YouTube Channel").length).toBeGreaterThan(0);
 
     // Video icon should be displayed
     expect(screen.getByText("videocam")).toBeInTheDocument();
