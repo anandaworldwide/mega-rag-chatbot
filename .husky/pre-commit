@@ -5,6 +5,18 @@ echo "🔍 Running lint-staged for code quality checks..."
 # Ensure we're in the git root directory
 cd "$(git rev-parse --show-toplevel)" || exit 1
 
+# Add common Node.js/npm installation paths to PATH
+# This ensures npm/npx are found even in minimal git hook environments
+export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
+
+# Source nvm if available (for nvm-managed Node.js installations)
+# This will add the correct Node.js version to PATH automatically
+if [ -f "$HOME/.nvm/nvm.sh" ]; then
+  . "$HOME/.nvm/nvm.sh"
+  # Use default node version if available
+  nvm use default >/dev/null 2>&1 || true
+fi
+
 # Build PATH with node_modules locations
 NODE_BIN_PATH=""
 
@@ -34,5 +46,6 @@ elif command -v npx >/dev/null 2>&1; then
   npx lint-staged
 else
   echo "❌ Error: Neither npm nor npx found in PATH. Please ensure Node.js and npm are installed."
+  echo "   Tried paths: /usr/local/bin, /opt/homebrew/bin, and node_modules/.bin"
   exit 1
 fi
