@@ -6,6 +6,7 @@ import { withJwtAuth } from "@/utils/server/jwtUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { writeAuditLog } from "@/utils/server/auditLog";
 import { createIndexErrorResponse } from "@/utils/server/firestoreIndexErrorHandler";
+import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import firebase from "firebase-admin";
 
 /**
@@ -45,6 +46,24 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!allowed) return;
 
   if (!db) return res.status(503).json({ error: "Database not available" });
+
+  // Load site config to check if login is required
+  const siteConfig = loadSiteConfigSync();
+
+  // If site doesn't require login, there are no invitations to clean up
+  if (siteConfig && !siteConfig.requireLogin) {
+    return res.status(200).json({
+      ok: true,
+      summary: {
+        totalExpired: 0,
+        deletedCount: 0,
+        errorCount: 0,
+        deletedEmails: [],
+        errors: [],
+      },
+      message: "Site does not require login - no invitations to clean up",
+    });
+  }
 
   try {
     const now = firebase.firestore.Timestamp.now();

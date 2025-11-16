@@ -4,6 +4,7 @@ import { db } from "@/services/firebase";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { writeAuditLog } from "@/utils/server/auditLog";
 import { createIndexErrorResponse } from "@/utils/server/firestoreIndexErrorHandler";
+import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import firebase from "firebase-admin";
 
 // Mock dependencies
@@ -25,6 +26,10 @@ jest.mock("@/utils/server/firestoreIndexErrorHandler", () => ({
   createIndexErrorResponse: jest.fn(),
 }));
 
+jest.mock("@/utils/server/loadSiteConfig", () => ({
+  loadSiteConfigSync: jest.fn(),
+}));
+
 jest.mock("firebase-admin", () => ({
   firestore: {
     Timestamp: {
@@ -37,6 +42,7 @@ const mockDb = db as jest.Mocked<typeof db>;
 const mockGenericRateLimiter = genericRateLimiter as jest.MockedFunction<typeof genericRateLimiter>;
 const mockWriteAuditLog = writeAuditLog as jest.MockedFunction<typeof writeAuditLog>;
 const mockCreateIndexErrorResponse = createIndexErrorResponse as jest.MockedFunction<typeof createIndexErrorResponse>;
+const mockLoadSiteConfigSync = loadSiteConfigSync as jest.MockedFunction<typeof loadSiteConfigSync>;
 const mockFirebaseTimestamp = firebase.firestore.Timestamp as jest.Mocked<typeof firebase.firestore.Timestamp>;
 
 describe("/api/admin/cleanupExpiredInvitations", () => {
@@ -57,6 +63,11 @@ describe("/api/admin/cleanupExpiredInvitations", () => {
 
     // Mock rate limiter to allow requests
     mockGenericRateLimiter.mockResolvedValue(true);
+
+    // Mock site config to require login by default
+    mockLoadSiteConfigSync.mockReturnValue({
+      requireLogin: true,
+    } as any);
 
     // Mock Firebase timestamp
     const mockNow = { seconds: 1640995200, nanoseconds: 0 } as any;
@@ -254,6 +265,69 @@ describe("/api/admin/cleanupExpiredInvitations", () => {
       const responseData = JSON.parse(res._getData());
       expect(responseData.type).toBe("firestore_index_error");
       expect(responseData.isBuilding).toBe(true);
+    });
+  });
+
+  describe("Site Configuration", () => {
+    it("should return early if site does not require login", async () => {
+      // Mock site config to not require login
+      mockLoadSiteConfigSync.mockReturnValue({
+        requireLogin: false,
+      } as any);
+
+      const { req, res } = createTestMocks({
+        method: "POST",
+        headers: {
+          "user-agent": "vercel-cron/1.0",
+          authorization: "Bearer test-cron-secret",
+        },
+      });
+
+      await handler(req, res);
+
+      expect(res._getStatusCode()).toBe(200);
+      const responseData = JSON.parse(res._getData());
+
+      expect(responseData.ok).toBe(true);
+      expect(responseData.message).toBe("Site does not require login - no invitations to clean up");
+      expect(responseData.summary).toEqual({
+        totalExpired: 0,
+        deletedCount: 0,
+        errorCount: 0,
+        deletedEmails: [],
+        errors: [],
+      });
+
+      // Verify that no database queries were made
+      expect(mockDb.collection).not.toHaveBeenCalled();
+      expect(mockWriteAuditLog).not.toHaveBeenCalled();
+    });
+
+    it("should proceed with cleanup if site requires login", async () => {
+      // Mock site config to require login
+      mockLoadSiteConfigSync.mockReturnValue({
+        requireLogin: true,
+      } as any);
+
+      const mockCollection = {
+        where: jest.fn().mockReturnThis(),
+        get: jest.fn().mockResolvedValue({ docs: [] }),
+      };
+      (mockDb as any).collection.mockReturnValue(mockCollection as any);
+
+      const { req, res } = createTestMocks({
+        method: "POST",
+        headers: {
+          "user-agent": "vercel-cron/1.0",
+          authorization: "Bearer test-cron-secret",
+        },
+      });
+
+      await handler(req, res);
+
+      expect(res._getStatusCode()).toBe(200);
+      // Verify that database queries were made
+      expect(mockDb.collection).toHaveBeenCalled();
     });
   });
 
