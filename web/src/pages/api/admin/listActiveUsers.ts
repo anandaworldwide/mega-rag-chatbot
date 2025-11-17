@@ -107,14 +107,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         });
       }
     } else {
-      // For login-desc sorting without search, use efficient Firestore query
-      const snapshot = await db
-        .collection(usersCol)
-        .where("inviteStatus", "==", "accepted")
-        .orderBy("lastLoginAt", "desc")
-        .get();
+      // Fetch all users and sort in memory to include users without lastLoginAt
+      // This ensures all users are shown, not just those with login timestamps
+      const allSnapshot = await db.collection(usersCol).where("inviteStatus", "==", "accepted").get();
 
-      filteredUsers = snapshot.docs.map((d: any) => {
+      filteredUsers = allSnapshot.docs.map((d: any) => {
         const data = d.data() || {};
         return {
           email: d.id, // Email is stored as document ID
@@ -126,6 +123,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           lastLoginAt: data.lastLoginAt?.toDate?.() ?? null,
           entitlements: data.entitlements || {},
         };
+      });
+
+      // Sort by login desc (users without lastLoginAt go to the end)
+      filteredUsers.sort((a, b) => {
+        if (!a.lastLoginAt && !b.lastLoginAt) return 0;
+        if (!a.lastLoginAt) return 1;
+        if (!b.lastLoginAt) return -1;
+        return new Date(b.lastLoginAt).getTime() - new Date(a.lastLoginAt).getTime();
       });
     }
 
