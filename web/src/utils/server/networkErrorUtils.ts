@@ -21,7 +21,9 @@ export function isNetworkError(error: unknown): boolean {
   }
 
   const errorMessage = error.message.toLowerCase();
-  const errorCode = (error as any).code?.toLowerCase();
+  const errorCodeRaw = (error as any).code;
+  const errorCode =
+    typeof errorCodeRaw === "string" ? errorCodeRaw.toLowerCase() : String(errorCodeRaw || "").toLowerCase();
 
   // Check for DNS resolution failures
   if (errorCode === "enotfound" || errorMessage.includes("getaddrinfo enotfound")) {
@@ -70,7 +72,9 @@ export function analyzeNetworkError(error: unknown): NetworkErrorDetails {
     };
   }
 
-  const errorCode = (error as any).code?.toLowerCase();
+  const errorCodeRaw = (error as any).code;
+  const errorCode =
+    typeof errorCodeRaw === "string" ? errorCodeRaw.toLowerCase() : String(errorCodeRaw || "").toLowerCase();
   const errorMessage = error instanceof Error ? error.message.toLowerCase() : "";
 
   // No internet connection

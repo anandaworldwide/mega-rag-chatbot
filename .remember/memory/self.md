@@ -1059,3 +1059,29 @@ if (isCode14Error(error) && attempt < maxRetries) {
 - Any JSX text content containing quotes
 
 **Applied To**: Fixed unescaped quotes in `[userId].tsx` approver settings help text.
+
+### 33. Error Code Type Handling in Network Error Detection
+
+**Issue**: `isNetworkError()` and `analyzeNetworkError()` functions call `.toLowerCase()` on `error.code` without
+checking if it's a string, causing "e.code?.toLowerCase is not a function" errors when error codes are numeric (e.g.,
+Firestore code `14`).
+
+**Wrong**: Calling `.toLowerCase()` directly on error code without type checking.
+
+```typescript
+const errorCode = (error as any).code?.toLowerCase(); // Fails if code is number
+```
+
+**Correct**: Check type and convert to string before calling `.toLowerCase()`.
+
+```typescript
+const errorCodeRaw = (error as any).code;
+const errorCode =
+  typeof errorCodeRaw === "string" ? errorCodeRaw.toLowerCase() : String(errorCodeRaw || "").toLowerCase();
+```
+
+**Pattern**: Error codes can be strings (network errors like "ENOTFOUND") or numbers (Firestore errors like `14`).
+Always convert to string before calling string methods like `.toLowerCase()`.
+
+**Applied To**: Fixed `networkErrorUtils.ts` in both `isNetworkError()` and `analyzeNetworkError()` functions. Also
+improved error logging in `[userId].ts` audit log catch block to include full error details.

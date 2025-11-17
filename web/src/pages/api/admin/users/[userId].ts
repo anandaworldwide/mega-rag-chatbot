@@ -105,7 +105,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           addedAt = auditDoc?.createdAt?.toDate?.() ?? null;
         }
       } catch (auditError: any) {
-        console.warn("Failed to fetch audit log for user:", auditError?.message);
+        console.warn("Failed to fetch audit log for user:", {
+          error: auditError?.message || String(auditError),
+          code: auditError?.code,
+          stack: auditError?.stack,
+          target: currentId,
+        });
       }
 
       return res.status(200).json({
@@ -189,11 +194,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
 
       // Approver fields - only superuser can update, only on admin/superuser roles
-      if (
-        body.isApprover !== undefined ||
-        body.approverLocation !== undefined ||
-        body.approverRegion !== undefined
-      ) {
+      if (body.isApprover !== undefined || body.approverLocation !== undefined || body.approverRegion !== undefined) {
         if (requesterRole !== "superuser") {
           return res.status(403).json({ error: "Only superuser may update approver settings" });
         }
@@ -232,7 +233,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         }
 
         // Clear approvers cache when approver settings are updated
-        if (updates.isApprover !== undefined || updates.approverLocation !== undefined || updates.approverRegion !== undefined) {
+        if (
+          updates.isApprover !== undefined ||
+          updates.approverLocation !== undefined ||
+          updates.approverRegion !== undefined
+        ) {
           try {
             const siteConfig = await loadSiteConfig();
             if (siteConfig?.siteId) {
@@ -298,7 +303,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
               typeof (data as any)?.newsletterSubscribed === "boolean" ? (data as any).newsletterSubscribed : false,
             conversationCount,
             isApprover: typeof (data as any)?.isApprover === "boolean" ? (data as any).isApprover : false,
-            approverLocation: typeof (data as any)?.approverLocation === "string" ? (data as any).approverLocation : null,
+            approverLocation:
+              typeof (data as any)?.approverLocation === "string" ? (data as any).approverLocation : null,
             approverRegion: typeof (data as any)?.approverRegion === "string" ? (data as any).approverRegion : null,
           },
         });
