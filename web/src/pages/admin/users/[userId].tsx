@@ -24,6 +24,9 @@ interface UserDetail {
   addedAt?: string | null;
   passwordSet?: boolean;
   passwordSetAt?: string | null;
+  isApprover?: boolean;
+  approverLocation?: string | null;
+  approverRegion?: string | null;
 }
 
 interface PageProps {
@@ -64,6 +67,14 @@ export default function EditUserPage({ siteConfig }: PageProps) {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [currentUserRole, setCurrentUserRole] = useState<string>("user");
+  const [isApprover, setIsApprover] = useState<boolean>(false);
+  const [approverLocation, setApproverLocation] = useState<string>("");
+  const [approverRegion, setApproverRegion] = useState<string>("");
+  const [approversPreview, setApproversPreview] = useState<{
+    lastUpdated: string;
+    regions: Array<{ name: string; admins: Array<{ name: string; email: string; location: string }> }>;
+  } | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState<boolean>(false);
 
   useEffect(() => {
     async function getTokenAndRole() {
@@ -101,6 +112,9 @@ export default function EditUserPage({ siteConfig }: PageProps) {
         setFirstName(typeof u.firstName === "string" ? u.firstName : "");
         setLastName(typeof u.lastName === "string" ? u.lastName : "");
         setNewsletterSubscribed(typeof u.newsletterSubscribed === "boolean" ? u.newsletterSubscribed : true);
+        setIsApprover(typeof u.isApprover === "boolean" ? u.isApprover : false);
+        setApproverLocation(typeof u.approverLocation === "string" && u.approverLocation ? u.approverLocation : "");
+        setApproverRegion(typeof u.approverRegion === "string" && u.approverRegion ? u.approverRegion : "");
       } catch (e: any) {
         setError(e?.message || "Failed to load user");
       } finally {
@@ -109,6 +123,82 @@ export default function EditUserPage({ siteConfig }: PageProps) {
     }
     load();
   }, [jwt, userId]);
+
+  // Fetch approver list preview when approver is enabled
+  useEffect(() => {
+    if (!isApprover || !jwt) {
+      setApproversPreview(null);
+      setLoadingPreview(false);
+      return;
+    }
+
+    async function fetchPreview() {
+      setLoadingPreview(true);
+      try {
+        const res = await fetch("/api/admin/approvers", {
+          headers: { Authorization: `Bearer ${jwt}` },
+        });
+        const data = await res.json();
+        if (res.ok && data.regions) {
+          // Add current user to preview if they have approver settings but aren't saved yet
+          const previewData = { ...data };
+          const currentUserEmail = email.toLowerCase();
+          const isUserInPreview = previewData.regions.some((region: any) =>
+            region.admins.some((admin: any) => admin.email.toLowerCase() === currentUserEmail)
+          );
+
+          if (!isUserInPreview && (approverRegion || approverLocation)) {
+            // Construct name from firstName/lastName
+            const displayName = firstName && lastName ? `${firstName} ${lastName}` : firstName || lastName || email;
+
+            const currentUserRegion = approverRegion || "Global";
+            const currentUserLocation = approverLocation || "";
+
+            // Find or create the region
+            let regionIndex = previewData.regions.findIndex((r: any) => r.name === currentUserRegion);
+            if (regionIndex === -1) {
+              previewData.regions.push({
+                name: currentUserRegion,
+                admins: [],
+              });
+              regionIndex = previewData.regions.length - 1;
+            }
+
+            // Add current user to the region
+            previewData.regions[regionIndex].admins.push({
+              name: displayName,
+              email: currentUserEmail,
+              location: currentUserLocation,
+            });
+          }
+
+          // Sort regions: alphabetically, but "Global" always last
+          previewData.regions.sort((a: any, b: any) => {
+            const aName = a.name.toLowerCase();
+            const bName = b.name.toLowerCase();
+            const aIsGlobal = aName === "global";
+            const bIsGlobal = bName === "global";
+
+            if (aIsGlobal && !bIsGlobal) return 1;
+            if (!aIsGlobal && bIsGlobal) return -1;
+            return aName.localeCompare(bName);
+          });
+
+          setApproversPreview(previewData);
+        } else {
+          console.warn("Failed to fetch approvers preview:", data);
+          setApproversPreview(null);
+        }
+      } catch (e) {
+        console.error("Error fetching approvers preview:", e);
+        setApproversPreview(null);
+      } finally {
+        setLoadingPreview(false);
+      }
+    }
+
+    fetchPreview();
+  }, [isApprover, jwt, email, firstName, lastName, approverRegion, approverLocation]);
 
   async function onSave(e: React.FormEvent) {
     e.preventDefault();
@@ -127,6 +217,13 @@ export default function EditUserPage({ siteConfig }: PageProps) {
       // Only include role if it has changed from the original
       if (role !== user.role) {
         updates.role = role;
+      }
+
+      // Include approver fields if current user is superuser
+      if (currentUserRole === "superuser") {
+        updates.isApprover = isApprover;
+        updates.approverLocation = approverLocation.trim() || null;
+        updates.approverRegion = approverRegion.trim() || null;
       }
 
       const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}`, {
@@ -156,6 +253,35 @@ export default function EditUserPage({ siteConfig }: PageProps) {
       setNewsletterSubscribed(
         typeof updatedUser.newsletterSubscribed === "boolean" ? updatedUser.newsletterSubscribed : true
       );
+      setIsApprover(typeof updatedUser.isApprover === "boolean" ? updatedUser.isApprover : false);
+      setApproverLocation(
+        typeof updatedUser.approverLocation === "string" && updatedUser.approverLocation
+          ? updatedUser.approverLocation
+          : ""
+      );
+      setApproverRegion(
+        typeof updatedUser.approverRegion === "string" && updatedUser.approverRegion ? updatedUser.approverRegion : ""
+      );
+
+      // Refresh approver preview if approver is enabled or if we just updated approver settings
+      if ((updatedUser.isApprover || isApprover) && jwt) {
+        try {
+          // Small delay to ensure cache is cleared
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          const previewRes = await fetch("/api/admin/approvers", {
+            headers: { Authorization: `Bearer ${jwt}` },
+          });
+          const previewData = await previewRes.json();
+          if (previewRes.ok) {
+            setApproversPreview(previewData);
+          }
+        } catch (e) {
+          // Silently fail - preview is optional
+        }
+      } else if (!updatedUser.isApprover) {
+        // Clear preview if approver was disabled
+        setApproversPreview(null);
+      }
 
       if (updatedUser.id !== user.id) {
         // Email changed → navigate to new route
@@ -345,6 +471,97 @@ export default function EditUserPage({ siteConfig }: PageProps) {
                 </>
               )}
             </div>
+
+            {/* Approver Settings Section - Only visible for admin/superuser roles */}
+            {(role === "admin" || role === "superuser") && (
+              <div className="rounded border bg-gray-50 p-4">
+                <h3 className="text-base font-semibold mb-3">Approver Settings</h3>
+                {currentUserRole === "superuser" ? (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={isApprover}
+                          onChange={(e) => setIsApprover(e.target.checked)}
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="text-sm font-medium">Enable as Approver</span>
+                      </label>
+                      <p className="mt-1 text-xs text-gray-600">
+                        When enabled, this admin will appear in the approver list for approval requests.
+                      </p>
+                    </div>
+                    {isApprover && (
+                      <>
+                        <div>
+                          <label htmlFor="approverRegion" className="block text-sm font-medium mb-1">
+                            Region
+                          </label>
+                          <input
+                            id="approverRegion"
+                            className="w-full rounded border px-3 py-2"
+                            value={approverRegion}
+                            onChange={(e) => setApproverRegion(e.target.value)}
+                            placeholder="e.g., United States"
+                            maxLength={200}
+                          />
+                          <p className="mt-1 text-xs text-gray-600">
+                            Region name used to group approvers in the approver list (e.g., &quot;United States&quot;,
+                            &quot;Europe&quot;).
+                          </p>
+                        </div>
+                        <div>
+                          <label htmlFor="approverLocation" className="block text-sm font-medium mb-1">
+                            Location
+                          </label>
+                          <input
+                            id="approverLocation"
+                            className="w-full rounded border px-3 py-2"
+                            value={approverLocation}
+                            onChange={(e) => setApproverLocation(e.target.value)}
+                            placeholder="e.g., Nevada City, CA"
+                            maxLength={200}
+                          />
+                          <p className="mt-1 text-xs text-gray-600">
+                            Specific location shown next to your name in the approver list (e.g., &quot;Nevada City,
+                            CA&quot;).
+                          </p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-sm text-gray-600">
+                    {isApprover ? (
+                      <>
+                        <div className="mb-2">
+                          <span className="font-medium text-gray-700">Status:</span>{" "}
+                          <span className="text-green-600">Enabled as Approver</span>
+                        </div>
+                        {approverRegion && (
+                          <div className="mb-2">
+                            <span className="font-medium text-gray-700">Region:</span> {approverRegion}
+                          </div>
+                        )}
+                        {approverLocation && (
+                          <div>
+                            <span className="font-medium text-gray-700">Location:</span> {approverLocation}
+                          </div>
+                        )}
+                        <p className="mt-2 text-xs text-gray-500">Only superusers can modify approver settings.</p>
+                      </>
+                    ) : (
+                      <div>
+                        <span className="text-gray-500">Not configured as approver</span>
+                        <p className="mt-1 text-xs text-gray-500">Only superusers can enable approver settings.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div>
               <label className="flex items-center gap-2">
                 <input
@@ -378,6 +595,67 @@ export default function EditUserPage({ siteConfig }: PageProps) {
               </button>
             </div>
           </form>
+
+          {/* Approver List Preview - Only show when approver is enabled */}
+          {isApprover && (
+            <div className="mt-8 rounded border bg-gray-50 p-4">
+              <h2 className="text-lg font-semibold mb-3">Approver List Preview</h2>
+              <p className="text-sm text-gray-600 mb-4">
+                This is how the approver list appears to users on the login page:
+              </p>
+              {loadingPreview ? (
+                <div className="flex justify-center items-center py-4">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+                </div>
+              ) : approversPreview && approversPreview.regions.length > 0 ? (
+                <div className="bg-white rounded border border-gray-300 p-4">
+                  <label htmlFor="approver-preview-select" className="block text-sm font-medium text-gray-700 mb-2">
+                    Select an admin to contact
+                  </label>
+                  <select
+                    id="approver-preview-select"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-white text-gray-700 cursor-pointer"
+                    defaultValue=""
+                  >
+                    <option value="">-- Select an admin --</option>
+                    {approversPreview.regions.map((region) => {
+                      if (region.admins.length === 0) return null;
+
+                      return (
+                        <optgroup key={region.name} label={region.name}>
+                          {region.admins.map((admin) => {
+                            const isCurrentUser = admin.email.toLowerCase() === email.toLowerCase();
+                            return (
+                              <option
+                                key={admin.email}
+                                value={`${admin.email}|${admin.name}|${admin.location}`}
+                                style={isCurrentUser ? { fontWeight: "bold", backgroundColor: "#dbeafe" } : {}}
+                              >
+                                {admin.name} ({admin.location}){isCurrentUser ? " ← this user" : ""}
+                              </option>
+                            );
+                          })}
+                        </optgroup>
+                      );
+                    })}
+                  </select>
+                  {approversPreview.regions.some((region) =>
+                    region.admins.some((admin) => admin.email.toLowerCase() === email.toLowerCase())
+                  ) && (
+                    <p className="mt-3 text-sm text-blue-600 font-medium">
+                      ✓ Your entry is highlighted in the list above
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                  <p className="text-yellow-800 text-sm">
+                    No approvers found. Make sure approver settings are saved and the user has admin/superuser role.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </>
       )}
 

@@ -939,7 +939,8 @@ test.
 
 ### 31. Jest Mock Constant Hoisting Issue
 
-**Problem**: Jest hoists `jest.mock()` calls to the top of the file before any imports or variable declarations. Attempting to import a constant from a mocked module and use it in the mock factory causes a temporal dead zone error.
+**Problem**: Jest hoists `jest.mock()` calls to the top of the file before any imports or variable declarations.
+Attempting to import a constant from a mocked module and use it in the mock factory causes a temporal dead zone error.
 
 **Wrong**: Importing mock constant from mocked module and using it in jest.mock().
 
@@ -970,9 +971,11 @@ jest.mock("@/utils/client/uuid", () => {
 });
 ```
 
-**Pattern**: Never import constants from modules that are mocked in Jest tests. Define mock constants directly in the test file or within the mock factory function to avoid hoisting issues.
+**Pattern**: Never import constants from modules that are mocked in Jest tests. Define mock constants directly in the
+test file or within the mock factory function to avoid hoisting issues.
 
-**Applied To**: Fixed `NPSSurvey.test.tsx` by defining `MOCK_UUID_V4` directly in the test file instead of importing from `uuid` module.
+**Applied To**: Fixed `NPSSurvey.test.tsx` by defining `MOCK_UUID_V4` directly in the test file instead of importing
+from `uuid` module.
 
 ### 30. Network Connectivity Error Handling Pattern
 
@@ -1031,3 +1034,28 @@ if (isCode14Error(error) && attempt < maxRetries) {
 
 **Applied To**: All Firestore operations via `firestoreRetryUtils.ts`, API endpoints (`/api/chats`, `/api/libraryStats`,
 `/api/user/tips`), and frontend hooks (`useChatHistory.ts`).
+
+### 32. JSX Unescaped Quotes Error Pattern
+
+**Issue**: ESLint `react/no-unescaped-entities` rule flags straight quotes (`"`) in JSX text content as errors.
+
+**Wrong**: Using straight quotes in JSX text content.
+
+```tsx
+<p>Example text with "quotes" in JSX.</p>
+```
+
+**Correct**: Escape quotes using HTML entities (`&quot;`) in JSX text content.
+
+```tsx
+<p>Example text with &quot;quotes&quot; in JSX.</p>
+```
+
+**Pattern**: When writing example text, placeholder text, or any text content in JSX that contains quotes, always use
+`&quot;` instead of `"` to avoid ESLint errors. This applies to:
+
+- Example text in help text (`<p>` tags)
+- Placeholder text descriptions
+- Any JSX text content containing quotes
+
+**Applied To**: Fixed unescaped quotes in `[userId].tsx` approver settings help text.

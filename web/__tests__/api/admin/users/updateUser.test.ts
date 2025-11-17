@@ -26,7 +26,8 @@ jest.mock("@/utils/server/firestoreUtils", () => ({
 
 // Mock site config for email brand
 jest.mock("@/utils/server/loadSiteConfig", () => ({
-  loadSiteConfigSync: jest.fn(() => ({ name: "Test Site", shortname: "test" })),
+  loadSiteConfigSync: jest.fn(() => ({ name: "Test Site", shortname: "test", siteId: "test" })),
+  loadSiteConfig: jest.fn().mockResolvedValue({ name: "Test Site", shortname: "test", siteId: "test" }),
 }));
 
 // Mock AWS SES client so we don't actually send mail
@@ -46,6 +47,11 @@ jest.mock("@/utils/server/firestoreRetryUtils", () => ({
   firestoreQueryGet: jest.fn().mockResolvedValue({
     docs: [], // Empty array for conversation count tests
   }),
+}));
+
+// Mock Redis cache deletion
+jest.mock("@/utils/server/redisUtils", () => ({
+  deleteFromCache: jest.fn().mockResolvedValue(undefined),
 }));
 
 // Minimal in-memory Firestore mock with transaction support

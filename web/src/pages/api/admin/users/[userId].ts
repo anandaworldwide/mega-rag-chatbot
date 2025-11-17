@@ -7,9 +7,10 @@ import { withJwtAuth, getTokenFromRequest, verifyToken } from "@/utils/server/jw
 import { getUsersCollectionName, getAnswersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreQueryGet } from "@/utils/server/firestoreRetryUtils";
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
-import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
+import { loadSiteConfigSync, loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { writeAuditLog } from "@/utils/server/auditLog";
 import { isDevelopment } from "@/utils/env";
+import { deleteFromCache } from "@/utils/server/redisUtils";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!db) return res.status(503).json({ error: "Database not available" });
@@ -126,6 +127,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           addedAt,
           passwordSet: !!data.passwordHash, // Boolean - whether user has password set
           passwordSetAt: data.passwordSetAt?.toDate?.() ?? null, // When password was set
+          isApprover: typeof (data as any)?.isApprover === "boolean" ? (data as any).isApprover : false,
+          approverLocation: typeof (data as any)?.approverLocation === "string" ? (data as any).approverLocation : null,
+          approverRegion: typeof (data as any)?.approverRegion === "string" ? (data as any).approverRegion : null,
         },
       });
     } catch (err: any) {
@@ -141,6 +145,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         firstName?: string;
         lastName?: string;
         newsletterSubscribed?: boolean;
+        isApprover?: boolean;
+        approverLocation?: string;
+        approverRegion?: string;
       };
       const updates: Record<string, any> = {};
       const now = firebase.firestore.Timestamp.now();
@@ -179,6 +186,64 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           return res.status(400).json({ error: "Invalid newsletter subscription value" });
         }
         updates.newsletterSubscribed = body.newsletterSubscribed;
+      }
+
+      // Approver fields - only superuser can update, only on admin/superuser roles
+      if (
+        body.isApprover !== undefined ||
+        body.approverLocation !== undefined ||
+        body.approverRegion !== undefined
+      ) {
+        if (requesterRole !== "superuser") {
+          return res.status(403).json({ error: "Only superuser may update approver settings" });
+        }
+
+        // Get current user data to check role
+        const currentUserDoc = await db.collection(usersCol).doc(currentId).get();
+        if (!currentUserDoc.exists) {
+          return res.status(404).json({ error: "User not found" });
+        }
+        const currentUserData = currentUserDoc.data() || {};
+        const currentUserRole = currentUserData.role || "user";
+
+        if (currentUserRole !== "admin" && currentUserRole !== "superuser") {
+          return res.status(400).json({ error: "Approver settings can only be set on admin or superuser roles" });
+        }
+
+        if (body.isApprover !== undefined) {
+          if (typeof body.isApprover !== "boolean") {
+            return res.status(400).json({ error: "Invalid isApprover value" });
+          }
+          updates.isApprover = body.isApprover;
+        }
+
+        if (body.approverLocation !== undefined) {
+          if (typeof body.approverLocation !== "string" || body.approverLocation.length > 200) {
+            return res.status(400).json({ error: "Invalid approver location (max 200 characters)" });
+          }
+          updates.approverLocation = body.approverLocation.trim() || null;
+        }
+
+        if (body.approverRegion !== undefined) {
+          if (typeof body.approverRegion !== "string" || body.approverRegion.length > 200) {
+            return res.status(400).json({ error: "Invalid approver region (max 200 characters)" });
+          }
+          updates.approverRegion = body.approverRegion.trim() || null;
+        }
+
+        // Clear approvers cache when approver settings are updated
+        if (updates.isApprover !== undefined || updates.approverLocation !== undefined || updates.approverRegion !== undefined) {
+          try {
+            const siteConfig = await loadSiteConfig();
+            if (siteConfig?.siteId) {
+              const cacheKey = `admin_approvers_${siteConfig.siteId}`;
+              await deleteFromCache(cacheKey);
+            }
+          } catch (cacheError) {
+            // Non-fatal - log but don't fail the update
+            console.warn("Failed to clear approvers cache:", cacheError);
+          }
+        }
       }
 
       // If only role/name update (no email change)
@@ -232,6 +297,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             newsletterSubscribed:
               typeof (data as any)?.newsletterSubscribed === "boolean" ? (data as any).newsletterSubscribed : false,
             conversationCount,
+            isApprover: typeof (data as any)?.isApprover === "boolean" ? (data as any).isApprover : false,
+            approverLocation: typeof (data as any)?.approverLocation === "string" ? (data as any).approverLocation : null,
+            approverRegion: typeof (data as any)?.approverRegion === "string" ? (data as any).approverRegion : null,
           },
         });
       }
@@ -367,6 +435,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           newsletterSubscribed:
             typeof (out as any)?.newsletterSubscribed === "boolean" ? (out as any).newsletterSubscribed : false,
           conversationCount,
+          isApprover: typeof (out as any)?.isApprover === "boolean" ? (out as any).isApprover : false,
+          approverLocation: typeof (out as any)?.approverLocation === "string" ? (out as any).approverLocation : null,
+          approverRegion: typeof (out as any)?.approverRegion === "string" ? (out as any).approverRegion : null,
         },
       });
     } catch (err: any) {

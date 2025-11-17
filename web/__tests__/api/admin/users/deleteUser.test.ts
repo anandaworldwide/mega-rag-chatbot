@@ -26,6 +26,25 @@ jest.mock("@/services/firebase", () => ({
 // Mock firestoreUtils
 jest.mock("@/utils/server/firestoreUtils", () => ({
   getUsersCollectionName: jest.fn(() => "test_users"),
+  getAnswersCollectionName: jest.fn(() => "test_answers"),
+}));
+
+// Mock Redis cache deletion
+jest.mock("@/utils/server/redisUtils", () => ({
+  deleteFromCache: jest.fn().mockResolvedValue(undefined),
+}));
+
+// Mock Firestore retry utils
+jest.mock("@/utils/server/firestoreRetryUtils", () => ({
+  firestoreQueryGet: jest.fn().mockResolvedValue({
+    docs: [], // Empty array for conversation count tests
+  }),
+}));
+
+// Mock site config
+jest.mock("@/utils/server/loadSiteConfig", () => ({
+  loadSiteConfigSync: jest.fn(() => ({ name: "Test Site", shortname: "test", siteId: "test" })),
+  loadSiteConfig: jest.fn().mockResolvedValue({ name: "Test Site", shortname: "test", siteId: "test" }),
 }));
 
 // Mock JWT verification

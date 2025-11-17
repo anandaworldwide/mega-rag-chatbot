@@ -5,6 +5,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 jest.mock("@/utils/server/jwtUtils", () => ({
   withJwtAuth: (handler: any) => handler,
   verifyToken: jest.fn(),
+  getTokenFromRequest: jest.fn(() => ({ email: "admin@example.com", role: "admin" })),
 }));
 
 // Mock firebase-admin timestamps used by handler
@@ -20,25 +21,58 @@ jest.mock("firebase-admin", () => ({
 // Users collection name
 jest.mock("@/utils/server/firestoreUtils", () => ({
   getUsersCollectionName: jest.fn(() => "test_users"),
+  getAnswersCollectionName: jest.fn(() => "test_answers"),
+}));
+
+// Mock Redis cache deletion
+jest.mock("@/utils/server/redisUtils", () => ({
+  deleteFromCache: jest.fn().mockResolvedValue(undefined),
+}));
+
+// Mock Firestore retry utils
+jest.mock("@/utils/server/firestoreRetryUtils", () => ({
+  firestoreQueryGet: jest.fn().mockResolvedValue({
+    docs: [], // Empty array for conversation count tests
+  }),
+}));
+
+// Mock site config
+jest.mock("@/utils/server/loadSiteConfig", () => ({
+  loadSiteConfigSync: jest.fn(() => ({ name: "Test Site", shortname: "test", siteId: "test" })),
+  loadSiteConfig: jest.fn().mockResolvedValue({ name: "Test Site", shortname: "test", siteId: "test" }),
+}));
+
+// Mock audit log
+jest.mock("@/utils/server/auditLog", () => ({
+  writeAuditLog: jest.fn(),
 }));
 
 // Minimal DB mock with internal state
 jest.mock("@/services/firebase", () => {
   const __docMap: Record<string, any> = {};
-  const collection = jest.fn(() => ({
-    doc: jest.fn((id: string) => ({
-      get: jest.fn(async () => {
-        const entry = __docMap[id];
-        if (entry === undefined) return { exists: false, data: () => ({}) };
-        return { exists: true, data: () => entry };
+  const db = {
+    __docMap,
+    collection: (name: string) => ({
+      __name: name,
+      doc: (id: string) => ({
+        _colName: name,
+        _id: id,
+        get: async () => {
+          const entry = __docMap[id];
+          if (entry === undefined) return { exists: false, data: () => ({}) };
+          return { exists: true, data: () => entry };
+        },
+        set: async (data: any, options?: any) => {
+          if (options?.merge) {
+            __docMap[id] = { ...(__docMap[id] || {}), ...data };
+          } else {
+            __docMap[id] = data;
+          }
+        },
       }),
-      set: jest.fn(async (_data: any) => {
-        __docMap[id] = { ...(__docMap[id] || {}), ..._data };
-        return undefined;
-      }),
-    })),
-  }));
-  return { db: { collection } };
+    }),
+  };
+  return { db };
 });
 
 import handler from "@/pages/api/admin/users/[userId]";
