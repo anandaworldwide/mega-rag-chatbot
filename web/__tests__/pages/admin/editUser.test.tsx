@@ -2,7 +2,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { useRouter } from "next/router";
 import EditUserPage from "@/pages/admin/users/[userId]";
 import type { SiteConfig } from "@/types/siteConfig";
-import { MOCK_UUID_V4 } from "uuid";
+import { getToken, fetchWithAuth } from "@/utils/client/tokenManager";
 
 // Mock next/router
 jest.mock("next/router", () => ({
@@ -25,6 +25,16 @@ jest.mock("@/utils/server/loadSiteConfig", () => ({
   loadSiteConfig: jest.fn(async () => ({ name: "Test Site", siteId: "test" }) as Partial<SiteConfig>),
 }));
 
+// At top after other mocks
+jest.mock("@/utils/client/tokenManager", () => {
+  const actual = jest.requireActual("@/utils/client/tokenManager");
+  return {
+    ...actual,
+    getToken: jest.fn(),
+    fetchWithAuth: jest.fn(),
+  };
+});
+
 describe("Admin UI · Edit User page", () => {
   const mockRouter = {
     query: { userId: "user@example.com" },
@@ -32,43 +42,73 @@ describe("Admin UI · Edit User page", () => {
     replace: jest.fn(),
   } as any;
 
-  const originalFetch = global.fetch;
+  const mockGetToken = getToken as jest.MockedFunction<typeof getToken>;
+  const mockFetchWithAuth = fetchWithAuth as jest.MockedFunction<typeof fetchWithAuth>;
+
+  const MOCK_UUID_V4 = "00000000-0000-4000-8000-000000000000";
+
+  const defaultUser = {
+    id: "user@example.com",
+    email: "user@example.com",
+    role: "user",
+    uuid: MOCK_UUID_V4,
+    verifiedAt: null,
+    lastLoginAt: null,
+    entitlements: {},
+    firstName: null,
+    lastName: null,
+    conversationCount: 0,
+  };
+
+  const createJsonResponse = (body: unknown, init: ResponseInit = {}): Response => {
+    const status = init.status ?? 200;
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      statusText: "",
+      headers: {} as Headers,
+      redirected: false,
+      type: "basic",
+      url: "",
+      clone: () => createJsonResponse(body, init),
+      body: null,
+      bodyUsed: false,
+      arrayBuffer: async () => new ArrayBuffer(0),
+      blob: async () => ({}) as Blob,
+      formData: async () => ({}) as FormData,
+      json: async () => body,
+      text: async () => JSON.stringify(body),
+    } as Response;
+  };
+
+  const mockProfileResponse = () => createJsonResponse({ role: "superuser" });
+
+  const buildUserResponse = (overrides: Partial<typeof defaultUser> = {}, init?: ResponseInit) =>
+    createJsonResponse(
+      {
+        user: {
+          ...defaultUser,
+          ...overrides,
+        },
+      },
+      init
+    );
 
   beforeEach(() => {
     jest.clearAllMocks();
     (useRouter as jest.Mock).mockReturnValue(mockRouter);
-    // Default fetch mocks: web-token, profile (for current user role), and GET user
-    global.fetch = jest
-      .fn()
-      // /api/web-token
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ token: "test-jwt" }) } as any)
-      // /api/profile (current user's role)
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ role: "superuser" }) } as any)
-      // GET /api/admin/users/:id (now includes conversationCount for admin users)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          user: {
-            id: "user@example.com",
-            email: "user@example.com",
-            role: "user",
-            uuid: MOCK_UUID_V4,
-            verifiedAt: null,
-            lastLoginAt: null,
-            entitlements: {},
-            firstName: null,
-            lastName: null,
-            conversationCount: 0,
-          },
-        }),
-      } as any) as any;
+    mockGetToken.mockReset();
+    mockFetchWithAuth.mockReset();
+    mockGetToken.mockResolvedValue("test-jwt");
   });
 
   afterEach(() => {
-    global.fetch = originalFetch as any;
+    // global.fetch = originalFetch as any; // Removed global.fetch mock
   });
 
   it("shows role selector regardless of requester role (visibility by role)", async () => {
+    mockFetchWithAuth.mockResolvedValueOnce(mockProfileResponse()).mockResolvedValueOnce(buildUserResponse());
+
     render(<EditUserPage siteConfig={{ siteId: "test" } as any} />);
     // Wait for form to render after async fetches
     expect(await screen.findByDisplayValue("user@example.com")).toBeInTheDocument();
@@ -78,45 +118,10 @@ describe("Admin UI · Edit User page", () => {
   });
 
   it("submits form successfully without email change", async () => {
-    // Setup PATCH success with same user id
-    global.fetch = jest
-      .fn()
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ token: "test-jwt" }) }) // web-token
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ role: "superuser" }) }) // profile
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          user: {
-            id: "user@example.com",
-            email: "user@example.com",
-            role: "user",
-            uuid: MOCK_UUID_V4,
-            verifiedAt: null,
-            lastLoginAt: null,
-            entitlements: {},
-            firstName: null,
-            lastName: null,
-            conversationCount: 0,
-          },
-        }),
-      }) // GET
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          user: {
-            id: "user@example.com",
-            email: "user@example.com",
-            role: "admin",
-            uuid: MOCK_UUID_V4,
-            verifiedAt: null,
-            lastLoginAt: null,
-            entitlements: {},
-            firstName: null,
-            lastName: null,
-            conversationCount: 0,
-          },
-        }),
-      }); // PATCH
+    mockFetchWithAuth
+      .mockResolvedValueOnce(mockProfileResponse()) // profile
+      .mockResolvedValueOnce(buildUserResponse()) // GET
+      .mockResolvedValueOnce(buildUserResponse({ role: "admin" })); // PATCH
 
     render(<EditUserPage siteConfig={{ siteId: "test" } as any} />);
     // Wait for load
@@ -128,7 +133,7 @@ describe("Admin UI · Edit User page", () => {
     fireEvent.click(screen.getByRole("button", { name: /Save Changes/ }));
 
     await waitFor(() => {
-      expect(global.fetch).toHaveBeenCalledWith(
+      expect(fetchWithAuth as jest.Mock).toHaveBeenCalledWith(
         "/api/admin/users/user%40example.com",
         expect.objectContaining({ method: "PATCH" })
       );
@@ -139,63 +144,10 @@ describe("Admin UI · Edit User page", () => {
   });
 
   it("navigates to new route after email change", async () => {
-    global.fetch = jest
-      .fn()
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ token: "test-jwt" }) }) // web-token
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ role: "superuser" }) }) // profile
-
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          user: {
-            id: "user@example.com",
-            email: "user@example.com",
-            role: "user",
-            uuid: MOCK_UUID_V4,
-            verifiedAt: null,
-            lastLoginAt: null,
-            entitlements: {},
-            firstName: null,
-            lastName: null,
-            conversationCount: 0,
-          },
-        }),
-      }) // GET initial
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          user: {
-            id: "new@example.com",
-            email: "new@example.com",
-            role: "user",
-            uuid: MOCK_UUID_V4,
-            verifiedAt: null,
-            lastLoginAt: null,
-            entitlements: {},
-            firstName: null,
-            lastName: null,
-            conversationCount: 0,
-          },
-        }),
-      }) // PATCH response
-      // Simulate subsequent GET after navigation (optional defensive)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          user: {
-            id: "new@example.com",
-            email: "new@example.com",
-            role: "user",
-            uuid: MOCK_UUID_V4,
-            verifiedAt: null,
-            lastLoginAt: null,
-            entitlements: {},
-            firstName: null,
-            lastName: null,
-            conversationCount: 0,
-          },
-        }),
-      });
+    mockFetchWithAuth
+      .mockResolvedValueOnce(mockProfileResponse()) // profile
+      .mockResolvedValueOnce(buildUserResponse()) // initial GET
+      .mockResolvedValueOnce(buildUserResponse({ id: "new@example.com", email: "new@example.com" })); // PATCH response
 
     render(<EditUserPage siteConfig={{ siteId: "test" } as any} />);
     expect(await screen.findByDisplayValue("user@example.com")).toBeInTheDocument();
@@ -209,11 +161,9 @@ describe("Admin UI · Edit User page", () => {
   });
 
   it("renders load error state", async () => {
-    global.fetch = jest
-      .fn()
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ token: "test-jwt" }) }) // web-token
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ role: "superuser" }) }) // profile
-      .mockResolvedValueOnce({ ok: false, json: async () => ({ error: "Forbidden" }) }); // GET user fails
+    mockFetchWithAuth
+      .mockResolvedValueOnce(mockProfileResponse()) // profile
+      .mockResolvedValueOnce(createJsonResponse({ error: "Forbidden" }, { status: 403 })); // GET user fails
 
     render(<EditUserPage siteConfig={{ siteId: "test" } as any} />);
     // Error banner shows the API error message
@@ -221,28 +171,10 @@ describe("Admin UI · Edit User page", () => {
   });
 
   it("shows error on save failure", async () => {
-    global.fetch = jest
-      .fn()
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ token: "test-jwt" }) }) // web-token
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ role: "superuser" }) }) // profile
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({
-          user: {
-            id: "user@example.com",
-            email: "user@example.com",
-            role: "user",
-            uuid: MOCK_UUID_V4,
-            verifiedAt: null,
-            lastLoginAt: null,
-            entitlements: {},
-            firstName: null,
-            lastName: null,
-            conversationCount: 0,
-          },
-        }),
-      }) // GET user
-      .mockResolvedValueOnce({ ok: false, json: async () => ({ error: "Only superuser may change role" }) }); // PATCH fails
+    mockFetchWithAuth
+      .mockResolvedValueOnce(mockProfileResponse()) // profile
+      .mockResolvedValueOnce(buildUserResponse()) // GET user
+      .mockResolvedValueOnce(createJsonResponse({ error: "Only superuser may change role" }, { status: 403 })); // PATCH fails
 
     render(<EditUserPage siteConfig={{ siteId: "test" } as any} />);
     expect(await screen.findByDisplayValue("user@example.com")).toBeInTheDocument();
@@ -255,6 +187,8 @@ describe("Admin UI · Edit User page", () => {
   });
 
   it("Back button navigates to users list", async () => {
+    mockFetchWithAuth.mockResolvedValueOnce(mockProfileResponse()).mockResolvedValueOnce(buildUserResponse());
+
     render(<EditUserPage siteConfig={{ siteId: "test" } as any} />);
     expect(await screen.findByDisplayValue("user@example.com")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back" }));

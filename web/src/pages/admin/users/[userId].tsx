@@ -7,6 +7,7 @@ import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { isAdminPageAllowed } from "@/utils/server/adminPageGate";
 import { AdminLayout } from "@/components/AdminLayout";
 import { maskUserPII, isDemoModeEnabled } from "@/utils/client/demoMode";
+import { getToken, fetchWithAuth } from "@/utils/client/tokenManager";
 
 interface UserDetail {
   id: string;
@@ -54,7 +55,6 @@ function getDisplayName(user: UserDetail): string {
 export default function EditUserPage({ siteConfig }: PageProps) {
   const router = useRouter();
   const { userId } = router.query as { userId?: string };
-  const [jwt, setJwt] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,12 +79,12 @@ export default function EditUserPage({ siteConfig }: PageProps) {
   useEffect(() => {
     async function getTokenAndRole() {
       try {
-        const res = await fetch("/api/web-token");
-        const data = await res.json();
-        if (res.ok && data?.token) setJwt(data.token);
+        const token = await getToken();
 
         // Fetch current user's role from profile
-        const profileRes = await fetch("/api/profile");
+        const profileRes = await fetchWithAuth("/api/profile", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         if (profileRes.ok) {
           const profileData = await profileRes.json();
           setCurrentUserRole(profileData?.role || "user");
@@ -95,13 +95,18 @@ export default function EditUserPage({ siteConfig }: PageProps) {
   }, []);
 
   useEffect(() => {
-    if (!jwt || !userId) return;
+    if (!userId) return;
     async function load() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`/api/admin/users/${encodeURIComponent(userId as string)}`, {
-          headers: { Authorization: `Bearer ${jwt}` },
+        const token = await getToken();
+        if (!token) {
+          throw new Error("Authentication required");
+        }
+
+        const res = await fetchWithAuth(`/api/admin/users/${encodeURIComponent(userId as string)}`, {
+          headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data?.error || "Failed to load user");
@@ -122,11 +127,11 @@ export default function EditUserPage({ siteConfig }: PageProps) {
       }
     }
     load();
-  }, [jwt, userId]);
+  }, [userId]);
 
   // Fetch approver list preview when approver is enabled
   useEffect(() => {
-    if (!isApprover || !jwt) {
+    if (!isApprover) {
       setApproversPreview(null);
       setLoadingPreview(false);
       return;
@@ -135,10 +140,17 @@ export default function EditUserPage({ siteConfig }: PageProps) {
     async function fetchPreview() {
       setLoadingPreview(true);
       try {
-        const res = await fetch("/api/admin/approvers", {
-          headers: { Authorization: `Bearer ${jwt}` },
+        const token = await getToken();
+        if (!token) {
+          setApproversPreview(null);
+          return;
+        }
+
+        const res = await fetchWithAuth("/api/admin/approvers", {
+          headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
+
         if (res.ok && data.regions) {
           // Add current user to preview if they have approver settings but aren't saved yet
           const previewData = { ...data };
@@ -198,7 +210,7 @@ export default function EditUserPage({ siteConfig }: PageProps) {
     }
 
     fetchPreview();
-  }, [isApprover, jwt, email, firstName, lastName, approverRegion, approverLocation]);
+  }, [isApprover, email, firstName, lastName, approverRegion, approverLocation]);
 
   async function onSave(e: React.FormEvent) {
     e.preventDefault();
@@ -206,6 +218,11 @@ export default function EditUserPage({ siteConfig }: PageProps) {
     setSaving(true);
     setError(null);
     try {
+      const token = await getToken();
+      if (!token) {
+        throw new Error("Authentication required");
+      }
+
       // Build update payload - only include role if it has changed
       const updates: any = {
         email,
@@ -226,18 +243,18 @@ export default function EditUserPage({ siteConfig }: PageProps) {
         updates.approverRegion = approverRegion.trim() || null;
       }
 
-      const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}`, {
+      const res = await fetchWithAuth(`/api/admin/users/${encodeURIComponent(user.id)}`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          ...(jwt ? { Authorization: `Bearer ${jwt}` } : {}),
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(updates),
       });
       const data = await res.json();
+
       if (!res.ok) {
         const errorMessage = data?.error || "Failed to save";
-        // If role change was rejected, reset role to original value
         if (errorMessage.toLowerCase().includes("role")) {
           setRole(user.role);
         }
@@ -264,16 +281,19 @@ export default function EditUserPage({ siteConfig }: PageProps) {
       );
 
       // Refresh approver preview if approver is enabled or if we just updated approver settings
-      if ((updatedUser.isApprover || isApprover) && jwt) {
+      if (updatedUser.isApprover || isApprover) {
         try {
           // Small delay to ensure cache is cleared
           await new Promise((resolve) => setTimeout(resolve, 100));
-          const previewRes = await fetch("/api/admin/approvers", {
-            headers: { Authorization: `Bearer ${jwt}` },
-          });
-          const previewData = await previewRes.json();
-          if (previewRes.ok) {
-            setApproversPreview(previewData);
+          const previewToken = await getToken();
+          if (previewToken) {
+            const previewRes = await fetchWithAuth("/api/admin/approvers", {
+              headers: { Authorization: `Bearer ${previewToken}` },
+            });
+            const previewData = await previewRes.json();
+            if (previewRes.ok && previewData.regions) {
+              setApproversPreview(previewData);
+            }
           }
         } catch (e) {
           // Silently fail - preview is optional
@@ -297,21 +317,29 @@ export default function EditUserPage({ siteConfig }: PageProps) {
   }
 
   async function onDelete() {
-    if (!user || !jwt) return;
+    if (!user) return;
     setDeleting(true);
     setError(null);
 
     try {
-      const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}`, {
+      const token = await getToken();
+      if (!token) {
+        throw new Error("Authentication required");
+      }
+
+      const res = await fetchWithAuth(`/api/admin/users/${encodeURIComponent(user.id)}`, {
         method: "DELETE",
         headers: {
-          Authorization: `Bearer ${jwt}`,
+          Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
         },
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Failed to delete user");
+
+      if (!res.ok) {
+        throw new Error(data?.message || "Failed to delete user");
+      }
 
       // Redirect to admin dashboard after successful deletion
       router.push("/admin");
