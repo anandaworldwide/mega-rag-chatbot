@@ -40,12 +40,16 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       } else if (fs.existsSync(baseIcon)) {
         iconPath = baseIcon;
       } else {
-        // Fall back to default
-        iconPath = path.join(process.cwd(), "public", "apple-touch-icon.png");
+        // Fall back to default apple-touch-icon.png or favicon.ico
+        const defaultIcon = path.join(process.cwd(), "public", "apple-touch-icon.png");
+        const fallbackIcon = path.join(process.cwd(), "public", "favicon.ico");
+        iconPath = fs.existsSync(defaultIcon) ? defaultIcon : fallbackIcon;
       }
     } else {
-      // No site icon, use default
-      iconPath = path.join(process.cwd(), "public", "apple-touch-icon.png");
+      // No site icon, use default apple-touch-icon.png or favicon.ico
+      const defaultIcon = path.join(process.cwd(), "public", "apple-touch-icon.png");
+      const fallbackIcon = path.join(process.cwd(), "public", "favicon.ico");
+      iconPath = fs.existsSync(defaultIcon) ? defaultIcon : fallbackIcon;
     }
 
     // Read the icon file
@@ -53,8 +57,10 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       iconBuffer = fs.readFileSync(iconPath);
     } catch (error) {
       console.error("Error reading icon file:", error);
-      // Final fallback to default
-      iconPath = path.join(process.cwd(), "public", "apple-touch-icon.png");
+      // Final fallback to favicon.ico if apple-touch-icon.png doesn't exist
+      const defaultIcon = path.join(process.cwd(), "public", "apple-touch-icon.png");
+      const fallbackIcon = path.join(process.cwd(), "public", "favicon.ico");
+      iconPath = fs.existsSync(defaultIcon) ? defaultIcon : fallbackIcon;
       iconBuffer = fs.readFileSync(iconPath);
     }
 
@@ -63,7 +69,9 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
       ? "image/png"
       : iconPath.endsWith(".jpg") || iconPath.endsWith(".jpeg")
         ? "image/jpeg"
-        : "image/png";
+        : iconPath.endsWith(".ico")
+          ? "image/x-icon"
+          : "image/png";
 
     // Set headers and send the icon
     res.setHeader("Content-Type", contentType);
@@ -76,8 +84,11 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
     // Try to serve default icon as last resort
     try {
       const defaultIconPath = path.join(process.cwd(), "public", "apple-touch-icon.png");
-      const defaultIconBuffer = fs.readFileSync(defaultIconPath);
-      res.setHeader("Content-Type", "image/png");
+      const fallbackIconPath = path.join(process.cwd(), "public", "favicon.ico");
+      const finalIconPath = fs.existsSync(defaultIconPath) ? defaultIconPath : fallbackIconPath;
+      const defaultIconBuffer = fs.readFileSync(finalIconPath);
+      const contentType = finalIconPath.endsWith(".ico") ? "image/x-icon" : "image/png";
+      res.setHeader("Content-Type", contentType);
       res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
       return res.status(200).send(defaultIconBuffer);
     } catch (fallbackError) {
