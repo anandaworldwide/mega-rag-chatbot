@@ -60,9 +60,7 @@ const ModelComparisonChat: React.FC<ModelComparisonChatProps> = ({ siteConfig, s
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
   const [mediaTypes, setMediaTypes] = useState(savedState.mediaTypes);
   const [collection, setCollection] = useState(savedState.collection);
-  const [selectedLibraries, setSelectedLibraries] = useState<string[]>(
-    savedState.selectedLibraries || []
-  );
+  const [selectedLibraries, setSelectedLibraries] = useState<string[]>(savedState.selectedLibraries || []);
   const accumulatedResponseA = useRef("");
   const accumulatedResponseB = useRef("");
   const [copiedMessageA, setCopiedMessageA] = useState<string | null>(null);
@@ -584,9 +582,7 @@ const ModelComparisonChat: React.FC<ModelComparisonChatProps> = ({ siteConfig, s
         return currentLibraries;
       }
 
-      return isCurrentlySelected
-        ? currentLibraries.filter((lib) => lib !== library)
-        : [...currentLibraries, library];
+      return isCurrentlySelected ? currentLibraries.filter((lib) => lib !== library) : [...currentLibraries, library];
     });
   };
 

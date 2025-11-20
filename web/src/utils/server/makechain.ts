@@ -501,11 +501,6 @@ export const makeChain = async (
       }
     } else {
       answerModel = baseAnswerModel as BaseLanguageModel;
-
-      // 📊 NO TOOLS BOUND LOGGING
-      if (originalQuestion && siteConfig?.enableGeoAwareness) {
-        console.log(`🔍 GEO-TOOLS not bound: No location intent detected`);
-      }
     }
 
     // Capture shouldUseGeoTools for use in retrieval sequence
@@ -741,10 +736,6 @@ Error details: ${errorString}`,
       if (sendData) {
         // DEBUG: Add extensive logging for sources debugging
         try {
-          const debugMsg1 = `🔍 SOURCES DEBUG: Retrieved ${allDocuments.length} documents`;
-          console.log(debugMsg1);
-          sendData({ log: debugMsg1 });
-
           // DEBUG: Check for problematic content that could break JSON serialization
           const problematicSources = allDocuments.filter((doc, index) => {
             try {
@@ -777,9 +768,6 @@ Error details: ${errorString}`,
           // Test JSON serialization before sending
           const serializedTest = JSON.stringify(allDocuments);
           const serializedSize = new Blob([serializedTest]).size;
-          const debugMsg2 = `🔍 SOURCES DEBUG: Serialized sources size: ${serializedSize} bytes`;
-          console.log(debugMsg2);
-          sendData({ log: debugMsg2 });
 
           if (serializedSize > 1000000) {
             // 1MB threshold
@@ -798,16 +786,9 @@ Error details: ${errorString}`,
             const errorMsg = `❌ SOURCES ERROR: Serialization round-trip failed!`;
             console.error(errorMsg);
             sendData({ log: errorMsg });
-          } else {
-            const successMsg = `✅ SOURCES DEBUG: Serialization test passed`;
-            console.log(successMsg);
-            sendData({ log: successMsg });
           }
 
           sendData({ sourceDocs: allDocuments });
-          const successMsg2 = `✅ SOURCES DEBUG: Successfully sent ${allDocuments.length} sources to client`;
-          console.log(successMsg2);
-          sendData({ log: successMsg2 });
         } catch (serializationError) {
           const errorMsg1 = `❌ SOURCES ERROR: Failed to serialize/send sources: ${serializationError}`;
           console.error(errorMsg1);
@@ -852,13 +833,147 @@ Error details: ${errorString}`,
     documents: Document[]; // also include documents for passthrough
   };
 
+  // Helper function to estimate token count (rough approximation: ~4 chars per token)
+  const estimateTokens = (text: string): number => {
+    if (!text) return 0;
+    // Rough approximation: OpenAI models use ~4 characters per token on average
+    // This is conservative - actual tokenization can vary
+    return Math.ceil(text.length / 4);
+  };
+
+  // Helper function to truncate text to fit within token budget
+  const truncateToTokenLimit = (text: string, maxTokens: number): string => {
+    if (!text) return text;
+    const estimatedTokens = estimateTokens(text);
+    if (estimatedTokens <= maxTokens) return text;
+
+    // Truncate to fit within limit (conservative: use 3.5 chars per token for truncation)
+    const maxChars = Math.floor(maxTokens * 3.5);
+    return text.substring(0, maxChars) + "...";
+  };
+
+  // Get model context limit (default to 8192 for safety, but newer models have higher limits)
+  const getModelContextLimit = (modelName: string): number => {
+    // GPT-4.1 has 128k context (up to 1M in some deployments, but 128k is standard)
+    if (modelName.includes("gpt-4.1") || modelName === "gpt-4.1") {
+      return 128000;
+    }
+    // GPT-4o and GPT-4 Turbo have 128k context
+    if (modelName.includes("gpt-4o") || modelName.includes("gpt-4-turbo")) {
+      return 128000;
+    }
+    // GPT-4 has 8k context (older versions)
+    if (modelName.includes("gpt-4") && !modelName.includes("turbo") && !modelName.includes("4.1")) {
+      return 8192;
+    }
+    // GPT-3.5-turbo has 16k context (newer versions)
+    if (modelName.includes("gpt-3.5-turbo")) {
+      return 16384;
+    }
+    // Default to 8192 for safety - log warning if model not recognized
+    console.warn(
+      `⚠️ Model "${modelName}" not recognized by token limit detection. Using default limit of 8192 tokens. Please update getModelContextLimit() if this model has a different context limit.`
+    );
+    return 8192;
+  };
+
+  const modelContextLimit = getModelContextLimit(model);
+
   // This chain takes PromptDataType, selects necessary fields for the prompt, and generates a string answer
   const generationChainThatTakesPromptData = RunnableSequence.from([
-    (input: PromptDataType) => ({
-      context: input.context,
-      chat_history: input.chat_history,
-      question: input.question,
-    }),
+    (input: PromptDataType) => {
+      // Estimate token usage
+      const systemPromptTokens = estimateTokens(fullTemplate);
+      const questionTokens = estimateTokens(input.question);
+      const chatHistoryTokens = estimateTokens(input.chat_history);
+      const contextTokens = estimateTokens(input.context);
+
+      const totalTokens = systemPromptTokens + questionTokens + chatHistoryTokens + contextTokens;
+
+      // If we're over the model's context limit, truncate chat history and context
+      // We can't truncate system prompt or question, so we need to ensure they fit
+      if (totalTokens > modelContextLimit) {
+        let truncatedChatHistory = input.chat_history;
+        let truncatedContext = input.context;
+
+        // First, truncate chat history (oldest messages first - remove from beginning)
+        if (chatHistoryTokens > 0) {
+          const chatHistoryLines = input.chat_history.split("\n");
+          let currentChatTokens = chatHistoryTokens;
+          let truncatedLines = [...chatHistoryLines];
+          const originalChatHistoryLength = input.chat_history.length;
+          let removedTokens = 0;
+
+          // Remove oldest messages until we're under the limit
+          // Keep removing pairs of lines (Human/Assistant pairs) from the beginning
+          while (
+            currentChatTokens > 0 &&
+            systemPromptTokens + questionTokens + currentChatTokens + contextTokens > modelContextLimit
+          ) {
+            if (truncatedLines.length >= 2) {
+              // Remove one Q&A pair (2 lines: Human and Assistant)
+              const removedText = truncatedLines[0] + "\n" + truncatedLines[1];
+              const removedTokenCount = estimateTokens(removedText);
+              truncatedLines = truncatedLines.slice(2);
+              currentChatTokens -= removedTokenCount;
+              removedTokens += removedTokenCount;
+            } else if (truncatedLines.length === 1) {
+              // If only one line left, remove it too
+              const removedTokenCount = estimateTokens(truncatedLines[0]);
+              truncatedLines = [];
+              currentChatTokens -= removedTokenCount;
+              removedTokens += removedTokenCount;
+            } else {
+              break;
+            }
+          }
+          truncatedChatHistory = truncatedLines.join("\n");
+
+          if (removedTokens > 0 && sendData) {
+            const removedChars = originalChatHistoryLength - truncatedChatHistory.length;
+            console.warn(
+              `⚠️ Chat history truncated: ${removedTokens} tokens (${removedChars} characters) removed from oldest messages to fit within model limit.`
+            );
+          }
+        }
+
+        // Then truncate context if still needed
+        const remainingOverage =
+          systemPromptTokens +
+          questionTokens +
+          estimateTokens(truncatedChatHistory) +
+          contextTokens -
+          modelContextLimit;
+        if (remainingOverage > 0 && contextTokens > 0) {
+          const contextTokenBudget = contextTokens - remainingOverage;
+          const originalContextLength = input.context.length;
+          truncatedContext = truncateToTokenLimit(input.context, Math.max(0, contextTokenBudget));
+          const truncatedContextLength = truncatedContext.length;
+          const truncatedChars = originalContextLength - truncatedContextLength;
+          const truncatedTokens = contextTokens - estimateTokens(truncatedContext);
+
+          console.warn(
+            `⚠️ Context truncated: ${truncatedTokens} tokens (${truncatedChars} characters) removed to fit within model limit.`
+          );
+        }
+
+        console.warn(
+          `⚠️ Token limit exceeded (${totalTokens} > ${modelContextLimit}). Truncated chat history and context to fit within model limit.`
+        );
+
+        return {
+          context: truncatedContext,
+          chat_history: truncatedChatHistory,
+          question: input.question,
+        };
+      }
+
+      return {
+        context: input.context,
+        chat_history: input.chat_history,
+        question: input.question,
+      };
+    },
     answerPrompt,
     answerModel,
   ]);

@@ -1,4 +1,4 @@
-import { Pinecone } from '@pinecone-database/pinecone';
+import { Pinecone } from "@pinecone-database/pinecone";
 
 // Types for better type safety and testing
 export interface PineconeConfig {
@@ -38,58 +38,58 @@ const defaultEnvironmentConfig: EnvironmentConfig = {
 
 // Validation functions for security
 export function validateIndexName(indexName: string): void {
-  if (typeof indexName !== 'string') {
-    throw new Error('Index name must be a string');
+  if (typeof indexName !== "string") {
+    throw new Error("Index name must be a string");
   }
-  
+
   if (indexName.length === 0) {
-    throw new Error('Index name cannot be empty');
+    throw new Error("Index name cannot be empty");
   }
-  
+
   if (indexName.length > 100) {
-    throw new Error('Index name too long (max 100 characters)');
+    throw new Error("Index name too long (max 100 characters)");
   }
-  
+
   // Pinecone index names must be lowercase alphanumeric with hyphens
   if (!/^[a-z0-9-]+$/.test(indexName)) {
-    throw new Error('Index name must contain only lowercase letters, numbers, and hyphens');
+    throw new Error("Index name must contain only lowercase letters, numbers, and hyphens");
   }
-  
+
   // Cannot start or end with hyphen
-  if (indexName.startsWith('-') || indexName.endsWith('-')) {
-    throw new Error('Index name cannot start or end with hyphen');
+  if (indexName.startsWith("-") || indexName.endsWith("-")) {
+    throw new Error("Index name cannot start or end with hyphen");
   }
 }
 
 export function validateApiKey(apiKey: string): void {
-  if (typeof apiKey !== 'string') {
-    throw new Error('API key must be a string');
+  if (typeof apiKey !== "string") {
+    throw new Error("API key must be a string");
   }
-  
+
   if (apiKey.length === 0) {
-    throw new Error('API key cannot be empty');
+    throw new Error("API key cannot be empty");
   }
-  
+
   // Check for common test/placeholder values first (before length check)
-  const invalidKeys = ['test', 'fake', 'dummy', 'placeholder', 'your-api-key'];
-  if (invalidKeys.some(invalid => apiKey.toLowerCase().includes(invalid))) {
-    throw new Error('API key appears to be a placeholder value');
+  const invalidKeys = ["test", "fake", "dummy", "placeholder", "your-api-key"];
+  if (invalidKeys.some((invalid) => apiKey.toLowerCase().includes(invalid))) {
+    throw new Error("API key appears to be a placeholder value");
   }
-  
+
   // Basic format validation (Pinecone API keys are typically UUIDs)
   if (apiKey.length < 10) {
-    throw new Error('API key appears to be invalid (too short)');
+    throw new Error("API key appears to be invalid (too short)");
   }
 }
 
 // Pinecone client factory
 export function createPineconeClient(config: PineconeConfig): PineconeClientInterface {
   if (!config.apiKey) {
-    throw new Error('Pinecone API key is required');
+    throw new Error("Pinecone API key is required");
   }
-  
+
   validateApiKey(config.apiKey);
-  
+
   return new Pinecone({
     apiKey: config.apiKey,
   });
@@ -109,9 +109,9 @@ export class PineconeClientService implements PineconeService {
     if (this.client === null) {
       try {
         const apiKey = this.envConfig.getPineconeApiKey();
-        
+
         if (!apiKey) {
-          throw new Error('Pinecone API key missing from environment');
+          throw new Error("Pinecone API key missing from environment");
         }
 
         const config: PineconeConfig = { apiKey };
@@ -121,8 +121,8 @@ export class PineconeClientService implements PineconeService {
 
         this.client = createPineconeClient(config);
       } catch (error) {
-        console.error('Error initializing Pinecone client:', error);
-        throw new Error('Failed to initialize Pinecone client');
+        console.error("Error initializing Pinecone client:", error);
+        throw new Error("Failed to initialize Pinecone client");
       }
     }
     return this.client;
@@ -138,7 +138,7 @@ export class PineconeClientService implements PineconeService {
       }
       return client;
     } catch (error) {
-      console.error('Pinecone client error:', error);
+      console.error("Pinecone client error:", error);
       // Re-throw the original error to preserve specific error messages
       throw error;
     }
@@ -147,10 +147,9 @@ export class PineconeClientService implements PineconeService {
   async getIndex(indexName: string): Promise<PineconeIndexInterface> {
     try {
       validateIndexName(indexName);
-      
+
       // Return from cache if available
       if (this.indexCache[indexName]) {
-        console.log(`Returning cached Pinecone index: ${indexName}`);
         return this.indexCache[indexName];
       }
 
@@ -160,7 +159,7 @@ export class PineconeClientService implements PineconeService {
 
       // Cache for future use
       this.indexCache[indexName] = index;
-      
+
       return index;
     } catch (error) {
       console.error(`Error getting Pinecone index '${indexName}':`, error);
@@ -213,8 +212,8 @@ export function createPineconeService(envConfig?: EnvironmentConfig): PineconeSe
 
 // Test utility function to inject mock client into global service
 export function __setGlobalPineconeClientForTesting(client: PineconeClientInterface | null): void {
-  if (process.env.NODE_ENV !== 'test') {
-    throw new Error('This function should only be used in test environment');
+  if (process.env.NODE_ENV !== "test") {
+    throw new Error("This function should only be used in test environment");
   }
   const service = getGlobalPineconeService();
   service.setClient(client);

@@ -889,14 +889,10 @@ async function handleChatRequest(req: NextRequest) {
           try {
             // DEBUG: Add logging for sources debugging
             if (data.sourceDocs) {
-              console.log(`🔍 SSE SOURCES DEBUG: Attempting to send ${data.sourceDocs.length} sources via SSE`);
-
               // Test JSON stringification before sending
               try {
                 const testSerialization = JSON.stringify(data);
                 const serializedSize = new Blob([testSerialization]).size;
-                console.log(`🔍 SSE SOURCES DEBUG: SSE payload size: ${serializedSize} bytes`);
-
                 if (serializedSize > 2000000) {
                   // 2MB threshold for SSE
                   console.warn(`⚠️ SSE SOURCES WARNING: Very large SSE payload: ${serializedSize} bytes`);
@@ -911,19 +907,7 @@ async function handleChatRequest(req: NextRequest) {
                 });
                 // Don't send sourceDocs if serialization fails
                 data = { ...data, sourceDocs: [] };
-                console.log(
-                  `🔍 SSE SOURCES DEBUG: Fallback - sending empty sources array, answer will still stream normally`
-                );
               }
-            }
-
-            // DEBUG: Log the sequence of sources vs answer streaming
-            if (data.sourceDocs && !data.token) {
-              console.log(`🔍 SSE TIMING DEBUG: Sending sources BEFORE answer streaming begins`);
-            } else if (data.token && !data.sourceDocs) {
-              // This is normal answer streaming - no need to log every token
-            } else if (data.token && data.sourceDocs) {
-              console.log(`🔍 SSE TIMING DEBUG: Unusual - sending both token and sources simultaneously`);
             }
 
             if (data.timing?.firstTokenGenerated && !timingMetrics.firstTokenGenerated) {
@@ -956,11 +940,6 @@ async function handleChatRequest(req: NextRequest) {
               };
             }
             controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
-
-            // DEBUG: Log successful transmission
-            if (data.sourceDocs) {
-              console.log(`✅ SSE SOURCES DEBUG: Successfully sent ${data.sourceDocs.length} sources via SSE`);
-            }
           } catch (error) {
             // DEBUG: Enhanced error logging
             if (data.sourceDocs) {

@@ -832,13 +832,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           );
 
           setTimeout(() => {
-            const processTimestamp = Date.now();
-            const timeDiff = processTimestamp - receiveTimestamp;
-            console.log(`🔍 FRONTEND SOURCES DEBUG: Processing sourceDocs after ${timeDiff}ms delay`);
-
             const immutableSourceDocs = Array.isArray(data.sourceDocs) ? [...data.sourceDocs] : [];
-
-            console.log(`🔍 FRONTEND SOURCES DEBUG: Processed ${immutableSourceDocs.length} sources`);
 
             if (immutableSourceDocs.length < sourceCount) {
               console.error(
@@ -846,22 +840,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
               );
             }
 
-            // DEBUG: Check if sources are properly structured
-            if (immutableSourceDocs.length > 0) {
-              const firstSource = immutableSourceDocs[0];
-              console.log(`🔍 FRONTEND SOURCES DEBUG: First source structure:`, {
-                hasPageContent: !!firstSource.pageContent,
-                hasMetadata: !!firstSource.metadata,
-                metadataKeys: firstSource.metadata ? Object.keys(firstSource.metadata) : "none",
-              });
-            }
-
             setSourceDocs(immutableSourceDocs);
             updateMessageState(accumulatedResponseRef.current, immutableSourceDocs);
-
-            console.log(
-              `✅ FRONTEND SOURCES DEBUG: Successfully updated state with ${immutableSourceDocs.length} sources`
-            );
           }, 0);
         } catch (error) {
           console.error("❌ FRONTEND SOURCES ERROR: Error handling sourceDocs:", error);

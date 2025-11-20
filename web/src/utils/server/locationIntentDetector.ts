@@ -359,11 +359,7 @@ export async function hasLocationIntentAsync(query: string): Promise<boolean> {
 
     // Optional debug logging (can be removed in production)
     if (process.env.NODE_ENV === "development") {
-      console.log(`🔍 Location intent detection for "${query}":`);
-      console.log(`  Positive similarity: ${maxPositiveSimilarity.toFixed(3)}`);
-      console.log(`  Negative similarity: ${maxNegativeSimilarity.toFixed(3)}`);
-      console.log(`  Contrastive score: ${contrastiveScore.toFixed(3)}`);
-      console.log(`  Result: ${isLocation ? "LOCATION" : "NON-LOCATION"}`);
+      console.log(`🔍 Location intent detection for "${query}": ${isLocation ? "LOCATION" : "NON-LOCATION"}`);
     }
 
     return isLocation;
