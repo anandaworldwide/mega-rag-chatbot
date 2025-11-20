@@ -6,6 +6,7 @@ import { getAnswersCollectionName, getUsersCollectionName } from "@/utils/server
 import { firestoreQueryGet } from "@/utils/server/firestoreRetryUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import type { QueryDocumentSnapshot } from "firebase-admin/firestore";
+import * as fbadmin from "firebase-admin";
 
 interface LeaderboardUser {
   email: string;
@@ -34,6 +35,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
+    // Parse time period from query parameter
+    const timePeriod = req.query.timePeriod as string | undefined;
+    let startDate: fbadmin.firestore.Timestamp | null = null;
+
+    if (timePeriod === "7days") {
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      startDate = fbadmin.firestore.Timestamp.fromDate(sevenDaysAgo);
+    } else if (timePeriod === "30days") {
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      startDate = fbadmin.firestore.Timestamp.fromDate(thirtyDaysAgo);
+    }
+    // If timePeriod is "all" or undefined, startDate remains null (no filter)
+
     // Get all users with UUIDs (only users with UUIDs can have questions)
     const usersCollection = getUsersCollectionName();
     const usersQuery = db.collection(usersCollection).where("uuid", "!=", null);
@@ -55,12 +71,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
 
       try {
-        // Count questions for this user
-        const questionsQuery = db!.collection(getAnswersCollectionName()).where("uuid", "==", uuid);
+        // Build query for questions with optional time filter
+        let questionsQuery = db!.collection(getAnswersCollectionName()).where("uuid", "==", uuid);
+
+        if (startDate) {
+          questionsQuery = questionsQuery.where("timestamp", ">=", startDate);
+        }
+
         const questionsSnapshot = await firestoreQueryGet(
           questionsQuery,
           "admin leaderboard question count",
-          `uuid: ${uuid}`
+          `uuid: ${uuid}${startDate ? `, since: ${startDate.toDate().toISOString()}` : ""}`
         );
 
         const questionCount = questionsSnapshot.docs.length;

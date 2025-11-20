@@ -137,8 +137,8 @@ describe("AdminLeaderboardPage", () => {
       expect(screen.getByRole("heading", { name: "User Leaderboard" })).toBeInTheDocument();
     });
 
-    // Verify that the fetch was called with correct parameters
-    expect(mockFetch).toHaveBeenCalledWith("/api/admin/leaderboard", {
+    // Verify that the fetch was called with correct parameters (defaults to 30days)
+    expect(mockFetch).toHaveBeenCalledWith("/api/admin/leaderboard?timePeriod=30days", {
       headers: {
         Authorization: "Bearer valid-jwt-token",
       },
@@ -158,8 +158,8 @@ describe("AdminLeaderboardPage", () => {
       expect(screen.getByRole("heading", { name: "User Leaderboard" })).toBeInTheDocument();
     });
 
-    // Verify API call was made
-    expect(mockFetch).toHaveBeenCalledWith("/api/admin/leaderboard", expect.any(Object));
+    // Verify API call was made (defaults to 30days)
+    expect(mockFetch).toHaveBeenCalledWith("/api/admin/leaderboard?timePeriod=30days", expect.any(Object));
   });
 
   it("should render clickable user links", async () => {
@@ -175,8 +175,8 @@ describe("AdminLeaderboardPage", () => {
       expect(screen.getByRole("heading", { name: "User Leaderboard" })).toBeInTheDocument();
     });
 
-    // Verify API call was made
-    expect(mockFetch).toHaveBeenCalledWith("/api/admin/leaderboard", expect.any(Object));
+    // Verify API call was made (defaults to 30days)
+    expect(mockFetch).toHaveBeenCalledWith("/api/admin/leaderboard?timePeriod=30days", expect.any(Object));
   });
 
   it("should handle empty leaderboard", async () => {
@@ -246,7 +246,7 @@ describe("AdminLeaderboardPage", () => {
     renderWithProviders(<AdminLeaderboardPage siteConfig={mockSiteConfig} isSudoAdmin={true} />);
 
     await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith("/api/admin/leaderboard", {
+      expect(mockFetch).toHaveBeenCalledWith("/api/admin/leaderboard?timePeriod=30days", {
         headers: {
           Authorization: "Bearer valid-jwt-token",
         },

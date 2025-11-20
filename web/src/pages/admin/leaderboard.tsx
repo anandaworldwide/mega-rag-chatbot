@@ -23,10 +23,13 @@ interface AdminLeaderboardPageProps {
   isSudoAdmin: boolean;
 }
 
+type TimePeriod = "7days" | "30days" | "all";
+
 export default function AdminLeaderboardPage({ siteConfig }: AdminLeaderboardPageProps) {
   const [users, setUsers] = useState<LeaderboardUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [timePeriod, setTimePeriod] = useState<TimePeriod>("30days");
 
   /*
    * Fetch JWT and leaderboard in a single effect to avoid chained effect
@@ -42,8 +45,14 @@ export default function AdminLeaderboardPage({ siteConfig }: AdminLeaderboardPag
         const token = await getToken();
         if (!token) throw new Error("Missing authentication token");
 
-        // 2. Fetch leaderboard
-        const response = await fetch("/api/admin/leaderboard", {
+        // 2. Build query parameters
+        const params = new URLSearchParams();
+        if (timePeriod !== "all") {
+          params.append("timePeriod", timePeriod);
+        }
+
+        // 3. Fetch leaderboard
+        const response = await fetch(`/api/admin/leaderboard?${params.toString()}`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -67,13 +76,32 @@ export default function AdminLeaderboardPage({ siteConfig }: AdminLeaderboardPag
     };
 
     fetchData();
-  }, []);
+  }, [timePeriod]);
 
   const mainContent = (
     <>
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-gray-900">User Leaderboard</h1>
-        <p className="text-sm text-gray-600 mt-1">Top 20 users by number of questions asked</p>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h1 className="text-2xl font-semibold text-gray-900">User Leaderboard</h1>
+            <p className="text-sm text-gray-600 mt-1">Top 20 users by number of questions asked</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <label htmlFor="timePeriod" className="text-sm font-medium text-gray-700">
+              Time Period:
+            </label>
+            <select
+              id="timePeriod"
+              value={timePeriod}
+              onChange={(e) => setTimePeriod(e.target.value as TimePeriod)}
+              className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+            >
+              <option value="all">All time</option>
+              <option value="30days">Last 30 days</option>
+              <option value="7days">Last 7 days</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       <div className="bg-white rounded-lg shadow-sm border">

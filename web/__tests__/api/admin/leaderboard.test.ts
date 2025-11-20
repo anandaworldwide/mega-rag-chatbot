@@ -5,6 +5,19 @@ import { db } from "@/services/firebase";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { firestoreQueryGet } from "@/utils/server/firestoreRetryUtils";
 
+// Mock firebase-admin Timestamp
+jest.mock("firebase-admin", () => ({
+  firestore: {
+    Timestamp: {
+      fromDate: jest.fn((date: Date) => ({
+        seconds: Math.floor(date.getTime() / 1000),
+        nanoseconds: 0,
+        toDate: jest.fn(() => date),
+      })),
+    },
+  },
+}));
+
 // Mock dependencies
 jest.mock("@/services/firebase", () => ({
   db: {
@@ -37,6 +50,8 @@ describe("/api/admin/leaderboard", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGenericRateLimiter.mockResolvedValue(true);
+    // Reset collection mock to return fresh mocks each time
+    mockDb.collection.mockReset();
   });
 
   it("should return 405 for non-GET requests", async () => {
@@ -69,6 +84,7 @@ describe("/api/admin/leaderboard", () => {
       method: "GET",
       env: {},
       headers: { authorization: "Bearer valid-jwt-token" },
+      query: {},
     });
 
     await handler(req, res);
@@ -89,6 +105,9 @@ describe("/api/admin/leaderboard", () => {
     mockDb.collection
       .mockReturnValueOnce(mockUsersCollection) // First call for users
       .mockReturnValue(mockAnswersCollection); // Subsequent calls for questions
+
+    // Mock query chain for questions (uuid filter, no timestamp filter for "all")
+    mockAnswersCollection.where.mockReturnThis();
 
     // Mock users data
     const mockUsersSnapshot = {
@@ -174,6 +193,7 @@ describe("/api/admin/leaderboard", () => {
     };
 
     mockDb.collection.mockReturnValueOnce(mockUsersCollection).mockReturnValue(mockAnswersCollection);
+    mockAnswersCollection.where.mockReturnThis();
 
     const mockUsersSnapshot = {
       empty: false,
@@ -199,6 +219,7 @@ describe("/api/admin/leaderboard", () => {
       method: "GET",
       env: {},
       headers: { authorization: "Bearer valid-jwt-token" },
+      query: {},
     });
 
     await handler(req, res);
@@ -219,6 +240,7 @@ describe("/api/admin/leaderboard", () => {
     };
 
     mockDb.collection.mockReturnValueOnce(mockUsersCollection).mockReturnValue(mockAnswersCollection);
+    mockAnswersCollection.where.mockReturnThis();
 
     const mockUsersSnapshot = {
       empty: false,
@@ -244,6 +266,7 @@ describe("/api/admin/leaderboard", () => {
       method: "GET",
       env: {},
       headers: { authorization: "Bearer valid-jwt-token" },
+      query: {},
     });
 
     await handler(req, res);
@@ -264,6 +287,7 @@ describe("/api/admin/leaderboard", () => {
     };
 
     mockDb.collection.mockReturnValueOnce(mockUsersCollection).mockReturnValue(mockAnswersCollection);
+    mockAnswersCollection.where.mockReturnThis();
 
     const mockUsersSnapshot = {
       empty: false,
@@ -289,6 +313,7 @@ describe("/api/admin/leaderboard", () => {
       method: "GET",
       env: {},
       headers: { authorization: "Bearer valid-jwt-token" },
+      query: {},
     });
 
     await handler(req, res);
@@ -309,6 +334,7 @@ describe("/api/admin/leaderboard", () => {
     };
 
     mockDb.collection.mockReturnValueOnce(mockUsersCollection).mockReturnValue(mockAnswersCollection);
+    mockAnswersCollection.where.mockReturnThis();
 
     // Create 25 users
     const mockUsers = Array.from({ length: 25 }, (_, i) => ({
@@ -345,6 +371,7 @@ describe("/api/admin/leaderboard", () => {
       method: "GET",
       env: {},
       headers: { authorization: "Bearer valid-jwt-token" },
+      query: {},
     });
 
     await handler(req, res);
@@ -364,6 +391,7 @@ describe("/api/admin/leaderboard", () => {
       method: "GET",
       env: {},
       headers: { authorization: "Bearer valid-jwt-token" },
+      query: {},
     });
 
     await handler(req, res);
@@ -388,6 +416,7 @@ describe("/api/admin/leaderboard", () => {
       method: "GET",
       env: {},
       headers: { authorization: "Bearer valid-jwt-token" },
+      query: {},
     });
 
     await handler(req, res);
@@ -408,6 +437,7 @@ describe("/api/admin/leaderboard", () => {
     };
 
     mockDb.collection.mockReturnValueOnce(mockUsersCollection).mockReturnValue(mockAnswersCollection);
+    mockAnswersCollection.where.mockReturnThis();
 
     const mockUsersSnapshot = {
       empty: false,
@@ -440,6 +470,7 @@ describe("/api/admin/leaderboard", () => {
       method: "GET",
       env: {},
       headers: { authorization: "Bearer valid-jwt-token" },
+      query: {},
     });
 
     await handler(req, res);
@@ -450,5 +481,175 @@ describe("/api/admin/leaderboard", () => {
     // Only user2 should be included (user1 excluded due to error)
     expect(responseData.users).toHaveLength(1);
     expect(responseData.users[0].email).toBe("user2@example.com");
+  });
+
+  it("should filter questions by timestamp when timePeriod is 7days", async () => {
+    const mockUsersCollection = {
+      where: jest.fn().mockReturnThis(),
+    };
+
+    // Create a mock that properly chains where() calls
+    const createMockAnswersCollection = () => {
+      const mockCollection: any = {
+        where: jest.fn(),
+      };
+      mockCollection.where.mockReturnValue(mockCollection);
+      return mockCollection;
+    };
+
+    const mockAnswersCollection = createMockAnswersCollection();
+
+    // Set up collection mocks - first call for users, subsequent for answers
+    mockDb.collection
+      .mockReturnValueOnce(mockUsersCollection) // First call: users collection
+      .mockReturnValue(mockAnswersCollection); // Subsequent calls: answers collection
+
+    const mockUsersSnapshot = {
+      empty: false,
+      docs: [
+        {
+          id: "user@example.com",
+          data: () => ({
+            uuid: "uuid-1",
+            firstName: "John",
+            lastName: "Doe",
+          }),
+        },
+      ],
+    };
+
+    const mockQuestionsSnapshot = {
+      docs: [{ id: "q1" }],
+    };
+
+    mockFirestoreQueryGet.mockResolvedValueOnce(mockUsersSnapshot).mockResolvedValueOnce(mockQuestionsSnapshot);
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "GET",
+      env: {},
+      headers: { authorization: "Bearer valid-jwt-token" },
+      query: { timePeriod: "7days" },
+    });
+
+    await handler(req, res);
+
+    expect(res._getStatusCode()).toBe(200);
+    // Verify that where was called twice (uuid filter + timestamp filter)
+    expect(mockAnswersCollection.where).toHaveBeenCalledTimes(2);
+    expect(mockAnswersCollection.where).toHaveBeenNthCalledWith(1, "uuid", "==", "uuid-1");
+    expect(mockAnswersCollection.where).toHaveBeenNthCalledWith(2, "timestamp", ">=", expect.any(Object));
+  });
+
+  it("should filter questions by timestamp when timePeriod is 30days", async () => {
+    const mockUsersCollection = {
+      where: jest.fn().mockReturnThis(),
+    };
+
+    // Create a mock that properly chains where() calls
+    const createMockAnswersCollection = () => {
+      const mockCollection: any = {
+        where: jest.fn(),
+      };
+      mockCollection.where.mockReturnValue(mockCollection);
+      return mockCollection;
+    };
+
+    const mockAnswersCollection = createMockAnswersCollection();
+
+    // Set up collection mocks - first call for users, subsequent for answers
+    mockDb.collection
+      .mockReturnValueOnce(mockUsersCollection) // First call: users collection
+      .mockReturnValue(mockAnswersCollection); // Subsequent calls: answers collection
+
+    const mockUsersSnapshot = {
+      empty: false,
+      docs: [
+        {
+          id: "user@example.com",
+          data: () => ({
+            uuid: "uuid-1",
+            firstName: "John",
+            lastName: "Doe",
+          }),
+        },
+      ],
+    };
+
+    const mockQuestionsSnapshot = {
+      docs: [{ id: "q1" }],
+    };
+
+    mockFirestoreQueryGet.mockResolvedValueOnce(mockUsersSnapshot).mockResolvedValueOnce(mockQuestionsSnapshot);
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "GET",
+      env: {},
+      headers: { authorization: "Bearer valid-jwt-token" },
+      query: { timePeriod: "30days" },
+    });
+
+    await handler(req, res);
+
+    expect(res._getStatusCode()).toBe(200);
+    // Verify that where was called twice (uuid filter + timestamp filter)
+    expect(mockAnswersCollection.where).toHaveBeenCalledTimes(2);
+    expect(mockAnswersCollection.where).toHaveBeenNthCalledWith(1, "uuid", "==", "uuid-1");
+    expect(mockAnswersCollection.where).toHaveBeenNthCalledWith(2, "timestamp", ">=", expect.any(Object));
+  });
+
+  it("should not filter by timestamp when timePeriod is all", async () => {
+    const mockUsersCollection = {
+      where: jest.fn().mockReturnThis(),
+    };
+
+    // Create a mock that properly chains where() calls
+    const createMockAnswersCollection = () => {
+      const mockCollection: any = {
+        where: jest.fn(),
+      };
+      mockCollection.where.mockReturnValue(mockCollection);
+      return mockCollection;
+    };
+
+    const mockAnswersCollection = createMockAnswersCollection();
+
+    // Set up collection mocks - first call for users, subsequent for answers
+    mockDb.collection
+      .mockReturnValueOnce(mockUsersCollection) // First call: users collection
+      .mockReturnValue(mockAnswersCollection); // Subsequent calls: answers collection
+
+    const mockUsersSnapshot = {
+      empty: false,
+      docs: [
+        {
+          id: "user@example.com",
+          data: () => ({
+            uuid: "uuid-1",
+            firstName: "John",
+            lastName: "Doe",
+          }),
+        },
+      ],
+    };
+
+    const mockQuestionsSnapshot = {
+      docs: [{ id: "q1" }],
+    };
+
+    mockFirestoreQueryGet.mockResolvedValueOnce(mockUsersSnapshot).mockResolvedValueOnce(mockQuestionsSnapshot);
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "GET",
+      env: {},
+      headers: { authorization: "Bearer valid-jwt-token" },
+      query: { timePeriod: "all" },
+    });
+
+    await handler(req, res);
+
+    expect(res._getStatusCode()).toBe(200);
+    // Verify that where was called only once (uuid filter, no timestamp filter)
+    expect(mockAnswersCollection.where).toHaveBeenCalledTimes(1);
+    expect(mockAnswersCollection.where).toHaveBeenCalledWith("uuid", "==", "uuid-1");
   });
 });
