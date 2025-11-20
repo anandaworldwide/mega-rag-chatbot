@@ -60,7 +60,9 @@ const ModelComparisonChat: React.FC<ModelComparisonChatProps> = ({ siteConfig, s
   const textAreaRef = useRef<HTMLTextAreaElement>(null);
   const [mediaTypes, setMediaTypes] = useState(savedState.mediaTypes);
   const [collection, setCollection] = useState(savedState.collection);
-  const [selectedLibraries, setSelectedLibraries] = useState<string[]>(savedState.selectedLibraries);
+  const [selectedLibraries, setSelectedLibraries] = useState<string[]>(
+    savedState.selectedLibraries || []
+  );
   const accumulatedResponseA = useRef("");
   const accumulatedResponseB = useRef("");
   const [copiedMessageA, setCopiedMessageA] = useState<string | null>(null);
@@ -574,14 +576,17 @@ const ModelComparisonChat: React.FC<ModelComparisonChatProps> = ({ siteConfig, s
 
   const handleLibraryChange = (library: string) => {
     setSelectedLibraries((prev) => {
-      const isCurrentlySelected = prev.includes(library);
+      const currentLibraries = prev || [];
+      const isCurrentlySelected = currentLibraries.includes(library);
 
       // Prevent deselecting the last library
-      if (isCurrentlySelected && prev.length === 1) {
-        return prev;
+      if (isCurrentlySelected && currentLibraries.length === 1) {
+        return currentLibraries;
       }
 
-      return isCurrentlySelected ? prev.filter((lib) => lib !== library) : [...prev, library];
+      return isCurrentlySelected
+        ? currentLibraries.filter((lib) => lib !== library)
+        : [...currentLibraries, library];
     });
   };
 

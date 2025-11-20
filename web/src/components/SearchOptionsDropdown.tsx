@@ -40,7 +40,7 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
   handleMediaTypeChange,
   collection,
   handleCollectionChange,
-  selectedLibraries,
+  selectedLibraries = [],
   handleLibraryChange,
   sourceCount,
   setSourceCount,
