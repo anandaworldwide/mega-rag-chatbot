@@ -61,6 +61,8 @@ click==8.2.1
     #   typer
 cloudpathlib==0.21.1
     # via weasel
+cohere==5.20.0
+    # via -r requirements.in
 colorama==0.4.6
     # via -r requirements.in
 coloredlogs==15.0.1
@@ -95,6 +97,8 @@ distro==1.9.0
     # via openai
 et-xmlfile==2.0.0
     # via openpyxl
+fastavro==1.12.1
+    # via cohere
 filelock==3.18.0
     # via
     #   -r requirements.in
@@ -184,9 +188,12 @@ httpcore==1.0.9
 httpx[http2]==0.28.1
     # via
     #   -r requirements.in
+    #   cohere
     #   firebase-admin
     #   langsmith
     #   openai
+httpx-sse==0.4.0
+    # via cohere
 huggingface-hub==0.33.0
     # via
     #   -r requirements.in
@@ -402,6 +409,7 @@ pycryptodomex==3.23.0
     # via -r requirements.in
 pydantic==2.11.5
     # via
+    #   cohere
     #   confection
     #   langchain-core
     #   langsmith
@@ -410,7 +418,9 @@ pydantic==2.11.5
     #   thinc
     #   weasel
 pydantic-core==2.33.2
-    # via pydantic
+    # via
+    #   cohere
+    #   pydantic
 pydub==0.25.1
     # via -r requirements.in
 pyee==13.0.0
@@ -466,6 +476,7 @@ requests==2.32.5
     # via
     #   -r requirements.in
     #   cachecontrol
+    #   cohere
     #   google-api-core
     #   google-cloud-storage
     #   huggingface-hub
@@ -539,6 +550,7 @@ tiktoken==0.9.0
 tokenizers==0.21.1
     # via
     #   -r requirements.in
+    #   cohere
     #   transformers
 torch==2.2.2
     # via
@@ -564,11 +576,14 @@ typer==0.16.0
     #   -r requirements.in
     #   spacy
     #   weasel
+types-requests==2.32.4.20250913
+    # via cohere
 typing-extensions==4.14.0
     # via
     #   -r requirements.in
     #   aiosignal
     #   anyio
+    #   cohere
     #   huggingface-hub
     #   langchain-core
     #   onnx
@@ -590,6 +605,7 @@ urllib3==2.5.0
     #   botocore
     #   pinecone-client
     #   requests
+    #   types-requests
 wasabi==1.1.3
     # via
     #   spacy

@@ -1,0 +1,278 @@
+{
+  "analysis_timestamp": "2025-11-19T11:20:44.717204",
+  "systems": {
+    "Reranked": {
+      "name": "Reranked",
+      "precision_at_1": 0.5714285714285714,
+      "precision_at_3": 0.5714285714285714,
+      "precision_at_5": 0.5714285714285714,
+      "precision_at_1_lenient": 0.7142857142857143,
+      "precision_at_3_lenient": 0.6428571428571429,
+      "precision_at_5_lenient": 0.6428571428571429,
+      "ndcg_at_1": 0.9183673469387755,
+      "ndcg_at_3": 0.9762844617711641,
+      "ndcg_at_5": 0.9762844617711641,
+      "avg_relevance_score": 2.111111111111111,
+      "total_documents": 9,
+      "evaluated_documents": 9,
+      "skip_rate": 0.0
+    },
+    "Baseline": {
+      "name": "Baseline",
+      "precision_at_1": 0.5,
+      "precision_at_3": 0.5138888888888888,
+      "precision_at_5": 0.5138888888888888,
+      "precision_at_1_lenient": 0.6666666666666666,
+      "precision_at_3_lenient": 0.6527777777777778,
+      "precision_at_5_lenient": 0.6527777777777778,
+      "ndcg_at_1": 0.6309523809523809,
+      "ndcg_at_3": 0.7674457164354346,
+      "ndcg_at_5": 0.7674457164354346,
+      "avg_relevance_score": 1.6818181818181819,
+      "total_documents": 22,
+      "evaluated_documents": 22,
+      "skip_rate": 0.0
+    }
+  },
+  "comparisons": [
+    {
+      "metric_name": "Precision@1 (strict)",
+      "system1_value": 0.5714285714285714,
+      "system2_value": 0.5714285714285714,
+      "difference": 0.0,
+      "percent_improvement": 0.0,
+      "p_value": 1.0,
+      "is_significant": "False",
+      "effect_size": 0.0,
+      "confidence_interval": [
+        -0.7551333913872247,
+        0.7551333913872247
+      ]
+    },
+    {
+      "metric_name": "Precision@3 (strict)",
+      "system1_value": 0.5714285714285714,
+      "system2_value": 0.5476190476190477,
+      "difference": -0.023809523809523725,
+      "percent_improvement": -4.166666666666652,
+      "p_value": 0.9135435352649017,
+      "is_significant": "False",
+      "effect_size": -0.04279604925109131,
+      "confidence_interval": [
+        -0.5383461983403802,
+        0.49072715072133255
+      ]
+    },
+    {
+      "metric_name": "Precision@5 (strict)",
+      "system1_value": 0.5714285714285714,
+      "system2_value": 0.5476190476190477,
+      "difference": -0.023809523809523725,
+      "percent_improvement": -4.166666666666652,
+      "p_value": 0.9135435352649017,
+      "is_significant": "False",
+      "effect_size": -0.04279604925109131,
+      "confidence_interval": [
+        -0.5383461983403802,
+        0.49072715072133255
+      ]
+    },
+    {
+      "metric_name": "Precision@1 (lenient)",
+      "system1_value": 0.7142857142857143,
+      "system2_value": 0.5714285714285714,
+      "difference": -0.1428571428571429,
+      "percent_improvement": -20.000000000000007,
+      "p_value": 0.6890522264439654,
+      "is_significant": "False",
+      "effect_size": -0.15877683720748895,
+      "confidence_interval": [
+        -0.9749736121859567,
+        0.6892593264716711
+      ]
+    },
+    {
+      "metric_name": "Precision@3 (lenient)",
+      "system1_value": 0.6428571428571429,
+      "system2_value": 0.5952380952380951,
+      "difference": -0.04761904761904778,
+      "percent_improvement": -7.407407407407432,
+      "p_value": 0.8628271284348183,
+      "is_significant": "False",
+      "effect_size": -0.06815981765909973,
+      "confidence_interval": [
+        -0.6937515526925983,
+        0.5985134574545029
+      ]
+    },
+    {
+      "metric_name": "Precision@5 (lenient)",
+      "system1_value": 0.6428571428571429,
+      "system2_value": 0.5952380952380951,
+      "difference": -0.04761904761904778,
+      "percent_improvement": -7.407407407407432,
+      "p_value": 0.8628271284348183,
+      "is_significant": "False",
+      "effect_size": -0.06815981765909973,
+      "confidence_interval": [
+        -0.6937515526925983,
+        0.5985134574545029
+      ]
+    },
+    {
+      "metric_name": "NDCG@1",
+      "system1_value": 0.9183673469387755,
+      "system2_value": 0.5918367346938774,
+      "difference": -0.3265306122448981,
+      "percent_improvement": -35.55555555555557,
+      "p_value": 0.0984140904296871,
+      "is_significant": "False",
+      "effect_size": -0.738811354463376,
+      "confidence_interval": [
+        -0.7352823816999392,
+        0.08222115721014339
+      ]
+    },
+    {
+      "metric_name": "NDCG@3",
+      "system1_value": 0.9762844617711641,
+      "system2_value": 0.6688472801728282,
+      "difference": -0.3074371815983359,
+      "percent_improvement": -31.490533101447387,
+      "p_value": 0.10861443747615306,
+      "is_significant": "False",
+      "effect_size": -0.7119267034553225,
+      "confidence_interval": [
+        -0.7068209508769749,
+        0.0919465876803029
+      ]
+    },
+    {
+      "metric_name": "NDCG@5",
+      "system1_value": 0.9762844617711641,
+      "system2_value": 0.6688472801728282,
+      "difference": -0.3074371815983359,
+      "percent_improvement": -31.490533101447387,
+      "p_value": 0.10861443747615306,
+      "is_significant": "False",
+      "effect_size": -0.7119267034553225,
+      "confidence_interval": [
+        -0.7068209508769749,
+        0.0919465876803029
+      ]
+    },
+    {
+      "metric_name": "Average Relevance",
+      "system1_value": 2.142857142857143,
+      "system2_value": 1.8571428571428572,
+      "difference": -0.2857142857142856,
+      "percent_improvement": -13.333333333333327,
+      "p_value": 0.6374447803874423,
+      "is_significant": "False",
+      "effect_size": -0.18752289237539818,
+      "confidence_interval": [
+        -1.6948310022355049,
+        1.1234024308069337
+      ]
+    }
+  ],
+  "query_analysis": {
+    "GAsQmuMh3czMdqTsbY6M": {
+      "precision_at_5": {
+        "Reranked": 0.5,
+        "Baseline": 0.0,
+        "difference": -0.5
+      },
+      "avg_relevance": {
+        "Reranked": 1.5,
+        "Baseline": 0.0,
+        "difference": -1.5
+      },
+      "winner": "Reranked"
+    },
+    "fMCgfVG2mJFA48kDrHgo": {
+      "precision_at_5": {
+        "Reranked": 1.0,
+        "Baseline": 0.5,
+        "difference": -0.5
+      },
+      "avg_relevance": {
+        "Reranked": 3.0,
+        "Baseline": 2.0,
+        "difference": -1.0
+      },
+      "winner": "Reranked"
+    },
+    "sQzUsmG3BUPYH0hnEzX9": {
+      "precision_at_5": {
+        "Reranked": 0.5,
+        "Baseline": 0.0,
+        "difference": -0.5
+      },
+      "avg_relevance": {
+        "Reranked": 2.5,
+        "Baseline": 0.0,
+        "difference": -2.5
+      },
+      "winner": "Reranked"
+    },
+    "Y5jBhOAvjHzr3Isl7B4t": {
+      "precision_at_5": {
+        "Reranked": 1.0,
+        "Baseline": 1.0,
+        "difference": 0.0
+      },
+      "avg_relevance": {
+        "Reranked": 3.0,
+        "Baseline": 3.0,
+        "difference": 0.0
+      },
+      "winner": "tie"
+    },
+    "qGF8pzUgIJe4cH834nOs": {
+      "precision_at_5": {
+        "Reranked": 1.0,
+        "Baseline": 1.0,
+        "difference": 0.0
+      },
+      "avg_relevance": {
+        "Reranked": 3.0,
+        "Baseline": 3.0,
+        "difference": 0.0
+      },
+      "winner": "tie"
+    },
+    "JMLdExbr7z78rJmQd7UW": {
+      "precision_at_5": {
+        "Reranked": 0.0,
+        "Baseline": 0.3333333333333333,
+        "difference": 0.3333333333333333
+      },
+      "avg_relevance": {
+        "Reranked": 1.0,
+        "Baseline": 2.0,
+        "difference": 1.0
+      },
+      "winner": "Baseline"
+    },
+    "CQiD9rSSvxRYUINYk5FT": {
+      "precision_at_5": {
+        "Reranked": 0.0,
+        "Baseline": 1.0,
+        "difference": 1.0
+      },
+      "avg_relevance": {
+        "Reranked": 1.0,
+        "Baseline": 3.0,
+        "difference": 2.0
+      },
+      "winner": "Baseline"
+    }
+  },
+  "summary_stats": {
+    "total_queries": 7,
+    "system1_wins": 3,
+    "system2_wins": 2,
+    "ties": 2
+  }
+}
