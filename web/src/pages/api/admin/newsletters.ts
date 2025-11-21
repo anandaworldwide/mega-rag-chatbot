@@ -3,7 +3,7 @@ import { db } from "@/services/firebase";
 import { getNewslettersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreQueryGet } from "@/utils/server/firestoreRetryUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
-import { requireSuperuserRole } from "@/utils/server/authz";
+import { requireSuperuserRoleFromFirestore } from "@/utils/server/authz";
 import { withJwtAuth } from "@/utils/server/jwtUtils";
 import firebase from "firebase-admin";
 
@@ -25,8 +25,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    // Validate superuser role
-    requireSuperuserRole(req);
+    // Validate superuser role from Firestore (source of truth)
+    await requireSuperuserRoleFromFirestore(req);
 
     const { status } = req.query;
 
@@ -71,6 +71,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     });
   } catch (error: any) {
     console.error("Newsletter list error:", error);
+    // Handle authorization errors separately
+    if (error.message?.includes("Unauthorized") || error.message?.includes("Superuser")) {
+      return res.status(403).json({
+        error: "Forbidden: Superuser privileges required",
+      });
+    }
     return res.status(500).json({
       error: "Failed to fetch newsletters",
       details: error.message,

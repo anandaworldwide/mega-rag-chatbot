@@ -984,10 +984,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
               const expectedSourceCount = sourceCount;
 
               if (!hasSourceDocs) {
-                console.error(`🚨 FRONTEND SOURCES BUG DETECTED: No sources found after streaming completed!`);
-                console.error(`🚨 Expected ${expectedSourceCount} sources but found 0`);
-                console.error(`🚨 Message docId: ${lastMessage.docId || "none"}`);
-
                 // Send signal to backend about missing sources
                 if (lastMessage.docId) {
                   reportMissingSourcesToBacked(lastMessage.docId, expectedSourceCount);

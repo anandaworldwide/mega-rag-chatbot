@@ -38,7 +38,9 @@ const mockFirestoreQueryGet = firestoreRetryUtils.firestoreQueryGet as jest.Mock
 const mockGetNewslettersCollectionName = firestoreUtils.getNewslettersCollectionName as jest.MockedFunction<
   typeof firestoreUtils.getNewslettersCollectionName
 >;
-const mockRequireSuperuserRole = authz.requireSuperuserRole as jest.MockedFunction<typeof authz.requireSuperuserRole>;
+const mockRequireSuperuserRoleFromFirestore = authz.requireSuperuserRoleFromFirestore as jest.MockedFunction<
+  typeof authz.requireSuperuserRoleFromFirestore
+>;
 const mockGenericRateLimiter = genericRateLimiter.genericRateLimiter as jest.MockedFunction<
   typeof genericRateLimiter.genericRateLimiter
 >;
@@ -49,7 +51,7 @@ describe("/api/admin/newsletters", () => {
 
     // Default mocks
     (mockGenericRateLimiter as jest.Mock).mockResolvedValue(true);
-    (mockRequireSuperuserRole as jest.Mock).mockResolvedValue(undefined);
+    mockRequireSuperuserRoleFromFirestore.mockResolvedValue(undefined);
     mockGetNewslettersCollectionName.mockReturnValue("test_newsletters");
   });
 
@@ -82,9 +84,7 @@ describe("/api/admin/newsletters", () => {
   });
 
   it("should validate superuser role", async () => {
-    mockRequireSuperuserRole.mockImplementation(() => {
-      throw new Error("Unauthorized");
-    });
+    mockRequireSuperuserRoleFromFirestore.mockRejectedValue(new Error("Unauthorized: Superuser privileges required"));
 
     const { req, res } = createMocks({
       method: "GET",
@@ -92,10 +92,9 @@ describe("/api/admin/newsletters", () => {
 
     await handler(req as any, res as any);
 
-    expect(res._getStatusCode()).toBe(500);
+    expect(res._getStatusCode()).toBe(403);
     expect(JSON.parse(res._getData())).toEqual({
-      error: "Failed to fetch newsletters",
-      details: "Unauthorized",
+      error: "Forbidden: Superuser privileges required",
     });
   });
 

@@ -127,6 +127,10 @@ jest.mock("@/utils/server/genericRateLimiter", () => ({
   genericRateLimiter: jest.fn(() => Promise.resolve(true)),
 }));
 
+jest.mock("@/utils/server/authz", () => ({
+  requireSuperuserRoleFromFirestore: jest.fn(() => Promise.resolve(undefined)),
+}));
+
 // Mock JWT authentication
 jest.mock("@/utils/server/jwtUtils", () => ({
   withJwtAuth: jest.fn((handler) => handler),
@@ -140,10 +144,14 @@ jest.mock("@/utils/server/jwtUtils", () => ({
 
 // Import the handler after mocking dependencies
 import handler from "@/pages/api/downvotedAnswers";
+import * as authz from "@/utils/server/authz";
 
 // Get the mocked modules
 const mockGetSudoCookie = jest.requireMock("@/utils/server/sudoCookieUtils").getSudoCookie;
 const mockGetTokenFromRequest = jest.requireMock("@/utils/server/jwtUtils").getTokenFromRequest as jest.Mock;
+const mockRequireSuperuserRoleFromFirestore = authz.requireSuperuserRoleFromFirestore as jest.MockedFunction<
+  typeof authz.requireSuperuserRoleFromFirestore
+>;
 
 describe("Downvoted Answers API", () => {
   beforeEach(() => {
@@ -162,6 +170,8 @@ describe("Downvoted Answers API", () => {
       exp: Math.floor(Date.now() / 1000) + 900,
       role: "superuser",
     }));
+    // Default to allowing superuser access
+    mockRequireSuperuserRoleFromFirestore.mockResolvedValue(undefined);
   });
 
   describe("GET method", () => {
@@ -213,13 +223,8 @@ describe("Downvoted Answers API", () => {
     });
 
     it("should return 403 when not authenticated", async () => {
-      // Simulate a non-superuser role
-      mockGetTokenFromRequest.mockImplementation(() => ({
-        client: "web",
-        iat: Math.floor(Date.now() / 1000),
-        exp: Math.floor(Date.now() / 1000) + 900,
-        role: "user",
-      }));
+      // Simulate authorization failure
+      mockRequireSuperuserRoleFromFirestore.mockRejectedValue(new Error("Unauthorized: Superuser privileges required"));
 
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "GET",
@@ -232,7 +237,7 @@ describe("Downvoted Answers API", () => {
       await handler(req, res);
 
       expect(res.statusCode).toBe(403);
-      expect(res._getJSONData()).toEqual({ message: "Forbidden" });
+      expect(res._getJSONData()).toEqual({ error: "Forbidden: Superuser privileges required" });
     });
 
     it("should return 405 for non-GET methods", async () => {

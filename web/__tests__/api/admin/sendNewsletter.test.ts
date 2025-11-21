@@ -59,7 +59,9 @@ const mockGetUsersCollectionName = firestoreUtils.getUsersCollectionName as jest
 const mockGetNewslettersCollectionName = firestoreUtils.getNewslettersCollectionName as jest.MockedFunction<
   typeof firestoreUtils.getNewslettersCollectionName
 >;
-const mockRequireSuperuserRole = authz.requireSuperuserRole as jest.MockedFunction<typeof authz.requireSuperuserRole>;
+const mockRequireSuperuserRoleFromFirestore = authz.requireSuperuserRoleFromFirestore as jest.MockedFunction<
+  typeof authz.requireSuperuserRoleFromFirestore
+>;
 const mockGenericRateLimiter = genericRateLimiter.genericRateLimiter as jest.MockedFunction<
   typeof genericRateLimiter.genericRateLimiter
 >;
@@ -80,7 +82,7 @@ describe("/api/admin/sendNewsletter", () => {
 
     // Default mocks
     (mockGenericRateLimiter as jest.Mock).mockResolvedValue(true);
-    (mockRequireSuperuserRole as jest.Mock).mockResolvedValue(undefined);
+    mockRequireSuperuserRoleFromFirestore.mockResolvedValue(undefined);
     mockGetUsersCollectionName.mockReturnValue("test_users");
     mockGetNewslettersCollectionName.mockReturnValue("test_newsletters");
     mockGetTokenFromRequest.mockReturnValue({ email: "admin@example.com", role: "superuser" } as any);
@@ -121,9 +123,7 @@ describe("/api/admin/sendNewsletter", () => {
   });
 
   it("should validate superuser role", async () => {
-    mockRequireSuperuserRole.mockImplementation(() => {
-      throw new Error("Unauthorized");
-    });
+    mockRequireSuperuserRoleFromFirestore.mockRejectedValue(new Error("Unauthorized: Superuser privileges required"));
 
     const { req, res } = createMocks({
       method: "POST",
@@ -132,10 +132,9 @@ describe("/api/admin/sendNewsletter", () => {
 
     await handler(req as any, res as any);
 
-    expect(res._getStatusCode()).toBe(500);
+    expect(res._getStatusCode()).toBe(403);
     expect(JSON.parse(res._getData())).toEqual({
-      error: "Failed to send newsletter",
-      details: "Unauthorized",
+      error: "Forbidden: Superuser privileges required",
     });
   });
 

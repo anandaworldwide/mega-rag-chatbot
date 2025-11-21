@@ -3,7 +3,7 @@
 
 import type { NextApiRequest, NextApiResponse } from "next";
 import { db } from "@/services/firebase";
-import { requireSuperuserRole } from "@/utils/server/authz";
+import { requireSuperuserRoleFromFirestore } from "@/utils/server/authz";
 import { getAnswersCollectionName } from "@/utils/server/firestoreUtils";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { withJwtAuth } from "@/utils/server/jwtUtils";
@@ -25,16 +25,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
-  if (!requireSuperuserRole(req)) {
-    return res.status(403).json({ message: "Forbidden" });
-  }
-
   // Check if db is available
   if (!db) {
     return res.status(503).json({ error: "Database not available" });
   }
 
   try {
+    // Verify superuser role from Firestore (source of truth)
+    await requireSuperuserRoleFromFirestore(req);
     const page = parseInt(req.query.page as string) || 1;
     const limit = 20; // Fixed limit of 20 items per page
     const offset = (page - 1) * limit;
@@ -76,8 +74,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       totalPages,
       currentPage: page,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error fetching downvoted answers:", error);
+    // Handle authorization errors separately
+    if (error.message?.includes("Unauthorized") || error.message?.includes("Superuser")) {
+      return res.status(403).json({ error: "Forbidden: Superuser privileges required" });
+    }
     return res.status(500).json({
       error: error instanceof Error ? error.message : "Something went wrong",
     });

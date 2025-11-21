@@ -10,7 +10,7 @@ import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { withJwtAuth } from "@/utils/server/jwtUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
-import { requireSuperuserRole } from "@/utils/server/authz";
+import { requireSuperuserRoleFromFirestore } from "@/utils/server/authz";
 import { firestoreUpdate } from "@/utils/server/firestoreRetryUtils";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -32,8 +32,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const siteConfig = loadSiteConfigSync();
   const loginRequired = !!siteConfig?.requireLogin;
   if (loginRequired) {
-    if (!requireSuperuserRole(req)) {
-      return res.status(403).json({ message: "Forbidden" });
+    try {
+      // Verify superuser role from Firestore (source of truth)
+      await requireSuperuserRoleFromFirestore(req);
+    } catch (error: any) {
+      if (error.message?.includes("Unauthorized") || error.message?.includes("Superuser")) {
+        return res.status(403).json({ error: "Forbidden: Superuser privileges required" });
+      }
+      throw error;
     }
   } else {
     const sudo = getSudoCookie(req, res);

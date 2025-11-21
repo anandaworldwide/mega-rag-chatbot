@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { withJwtAuth } from "@/utils/server/jwtUtils";
-import { requireSuperuserRole } from "@/utils/server/authz";
+import { requireSuperuserRoleFromFirestore } from "@/utils/server/authz";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { firestoreQueryGet } from "@/utils/server/firestoreRetryUtils";
 import { getNewslettersCollectionName } from "@/utils/server/firestoreUtils";
@@ -46,8 +46,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    // Require superuser role
-    await requireSuperuserRole(req);
+    // Require superuser role from Firestore (source of truth, throws if insufficient privileges)
+    await requireSuperuserRoleFromFirestore(req);
 
     const { id } = req.query;
 
@@ -131,8 +131,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     console.error("Failed to fetch newsletter details:", error);
 
     // Handle specific error types
-    if (error.message?.includes("Unauthorized")) {
-      return res.status(401).json({ error: "Unauthorized" });
+    if (error.message?.includes("Unauthorized") || error.message?.includes("Superuser")) {
+      return res.status(403).json({ error: "Forbidden: Superuser privileges required" });
     }
 
     if (error.message?.includes("not found")) {

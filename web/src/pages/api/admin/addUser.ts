@@ -7,7 +7,7 @@ import { withJwtAuth, getTokenFromRequest } from "@/utils/server/jwtUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreGet, firestoreSet } from "@/utils/server/firestoreRetryUtils";
-import { requireAdminRole } from "@/utils/server/authz";
+import { requireAdminRoleFromFirestore } from "@/utils/server/authz";
 import {
   generateInviteToken,
   hashInviteToken,
@@ -30,9 +30,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (!db) return res.status(503).json({ error: "Database not available" });
 
-  // Authorization: admin or superuser only
-  if (!requireAdminRole(req)) {
-    return res.status(403).json({ error: "Forbidden" });
+  // Authorization: admin or superuser only (verified from Firestore source of truth)
+  try {
+    await requireAdminRoleFromFirestore(req);
+  } catch (error: any) {
+    if (error.message?.includes("Unauthorized") || error.message?.includes("Admin")) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    throw error;
   }
 
   const { email, customMessage } = req.body as { email?: string; customMessage?: string };

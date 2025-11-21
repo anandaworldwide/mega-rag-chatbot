@@ -11,6 +11,7 @@ import { createEmailParams } from "@/utils/server/emailTemplates";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { isDevelopment } from "@/utils/env";
 import { createIndexErrorResponse } from "@/utils/server/firestoreIndexErrorHandler";
+import { requireAdminRoleFromFirestore } from "@/utils/server/authz";
 import {
   generateInviteToken,
   hashInviteToken,
@@ -105,9 +106,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(401).json({ error: "Admin email not found" });
   }
 
-  // Verify admin or superuser role
-  if (token.role !== "admin" && token.role !== "superuser") {
-    return res.status(403).json({ error: "Admin privileges required" });
+  // Verify admin or superuser role from Firestore (source of truth)
+  try {
+    await requireAdminRoleFromFirestore(req);
+  } catch (error: any) {
+    if (error.message?.includes("Unauthorized") || error.message?.includes("Admin")) {
+      return res.status(403).json({ error: "Admin privileges required" });
+    }
+    throw error;
   }
 
   const envPrefix = isDevelopment() ? "dev_" : "prod_";

@@ -6,7 +6,7 @@ import { marked } from "marked";
 import { db } from "@/services/firebase";
 import { getNewslettersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreQueryGet, firestoreUpdate } from "@/utils/server/firestoreRetryUtils";
-import { requireSuperuserRole } from "@/utils/server/authz";
+import { requireSuperuserRoleFromFirestore } from "@/utils/server/authz";
 import { withJwtAuth } from "@/utils/server/jwtUtils";
 import { sendEmail } from "@/utils/server/emailUtils";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
@@ -41,7 +41,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    requireSuperuserRole(req);
+    // Verify superuser role from Firestore (source of truth)
+    await requireSuperuserRoleFromFirestore(req);
 
     const { newsletterId, batchSize = 50 }: BatchRequest = req.body;
     if (!newsletterId) {
@@ -156,6 +157,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(200).json({ sent, failed, remaining, errors });
   } catch (error: any) {
     console.error("Batch processing error:", error);
+    // Handle authorization errors separately
+    if (error.message?.includes("Unauthorized") || error.message?.includes("Superuser")) {
+      return res.status(403).json({
+        error: "Forbidden: Superuser privileges required",
+      });
+    }
     return res.status(500).json({ error: "Batch processing failed", details: error.message });
   }
 }

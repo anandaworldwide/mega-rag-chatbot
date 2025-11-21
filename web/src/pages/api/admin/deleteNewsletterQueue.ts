@@ -2,7 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { db } from "@/services/firebase";
 import { getNewslettersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreQueryGet, firestoreUpdate } from "@/utils/server/firestoreRetryUtils";
-import { requireSuperuserRole } from "@/utils/server/authz";
+import { requireSuperuserRoleFromFirestore } from "@/utils/server/authz";
 import { withJwtAuth } from "@/utils/server/jwtUtils";
 import firebase from "firebase-admin";
 
@@ -21,8 +21,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse<DeleteResponse 
   }
 
   try {
-    // Verify superuser role
-    await requireSuperuserRole(req);
+    // Verify superuser role from Firestore (source of truth, throws if insufficient privileges)
+    await requireSuperuserRoleFromFirestore(req);
 
     const { newsletterId }: DeleteRequest = req.body;
     if (!newsletterId) {
@@ -77,6 +77,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse<DeleteResponse 
     });
   } catch (error: any) {
     console.error("Error deleting newsletter queue:", error);
+    // Handle authorization errors separately
+    if (error.message?.includes("Unauthorized") || error.message?.includes("Superuser")) {
+      return res.status(403).json({
+        error: "Forbidden: Superuser privileges required",
+      });
+    }
     return res.status(500).json({ error: error.message || "Failed to delete queue items" });
   }
 }

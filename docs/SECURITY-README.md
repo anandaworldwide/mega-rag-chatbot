@@ -63,7 +63,10 @@ The system uses JSON Web Tokens (JWT) to secure API communication between:
 │ │ • Admin Roles   │    │ • Method        │    │ • PII Encryption            │ │
 │ │ • User Roles    │    │   Validation    │    │ • Data Anonymization        │ │
 │ │ • Sudo Mode     │    │ • Input         │    │                             │ │
-│ │                 │    │   Sanitization  │    │                             │ │
+│ │ • Firestore     │    │   Sanitization  │    │                             │ │
+│ │   Role Verify   │    │                 │    │                             │ │
+│ │   (Source of    │    │                 │    │                             │ │
+│ │    Truth)       │    │                 │    │                             │ │
 │ └─────────────────┘    └─────────────────┘    └─────────────────────────────┘ │
 └───────────────────────────────────────────────────────────────────────────────┘
                                        │
@@ -598,6 +601,94 @@ function MyComponent() {
 - API endpoints verify token validity before processing requests
 - The system implements rate limiting to prevent abuse
 - Public JWT-only endpoints still require valid JWT tokens
+
+#### Role Verification from Firestore (Source of Truth)
+
+For sensitive operations, the system verifies user roles directly from Firestore rather than relying solely on JWT
+tokens. This ensures that role changes (e.g., admin demoted to user) take effect immediately rather than waiting for JWT
+expiration.
+
+**Why Firestore Verification?**
+
+JWT tokens contain role information at the time of issuance. If a user's role is changed in Firestore (the source of
+truth), the JWT token still contains the old role until it expires (up to 24 hours). This creates a security window
+where:
+
+1. User logs in as admin → receives JWT with `role: "admin"`
+2. Superuser demotes them to `user` in Firestore
+3. Client still has old JWT with `role: "admin"` until expiration
+4. Client could potentially access admin endpoints until token expires
+
+**Implementation**
+
+The system provides two verification functions in `utils/server/authz.ts`:
+
+- `requireAdminRoleFromFirestore(req)`: Verifies admin or superuser role from Firestore
+- `requireSuperuserRoleFromFirestore(req)`: Verifies superuser role from Firestore
+
+These functions:
+
+1. Extract email from JWT token (cookie or Authorization header)
+2. Fetch user document from Firestore
+3. Read role from Firestore (source of truth)
+4. Throw error if role is insufficient
+5. Fall back to JWT role if Firestore lookup fails (defensive programming)
+
+**Endpoints Using Firestore Verification**
+
+Sensitive operations that require Firestore role verification:
+
+**Newsletter Management** (superuser only):
+
+- `/api/admin/sendNewsletter` - Send newsletters to subscribers
+- `/api/admin/deleteNewsletterQueue` - Delete newsletter queue items
+- `/api/admin/processNewsletterBatch` - Process newsletter batches
+- `/api/admin/newsletters` - List newsletters
+- `/api/admin/newsletters/[id]` - Get newsletter details
+- `/api/admin/newsletters/history` - Get newsletter history
+
+**User Management** (admin or superuser):
+
+- `/api/admin/addUser` - Add new users
+- `/api/admin/resendActivation` - Resend activation emails
+- `/api/admin/listPendingUsers` - List pending users
+- `/api/admin/pendingUsersCount` - Get pending user count
+- `/api/admin/pendingRequests` - Manage approval requests
+
+**Usage Pattern**
+
+```typescript
+import { requireSuperuserRoleFromFirestore } from "@/utils/server/authz";
+
+async function handler(req: NextApiRequest, res: NextApiResponse) {
+  try {
+    // Verify superuser role from Firestore (source of truth)
+    await requireSuperuserRoleFromFirestore(req);
+
+    // Proceed with sensitive operation
+    // ...
+  } catch (error: any) {
+    if (error.message?.includes("Unauthorized") || error.message?.includes("Superuser")) {
+      return res.status(403).json({ error: "Forbidden: Superuser privileges required" });
+    }
+    throw error;
+  }
+}
+```
+
+**Security Benefits**
+
+- **Immediate Effect**: Role changes take effect immediately, not after JWT expiration
+- **Source of Truth**: Firestore is the authoritative source for user roles
+- **Defense in Depth**: Falls back to JWT verification if Firestore lookup fails
+- **Audit Trail**: All role checks are logged for security monitoring
+- **Prevents Privilege Escalation**: Compromised admin accounts cannot access superuser endpoints
+
+**Performance Considerations**
+
+- Firestore lookups add ~50-100ms latency per request
+- Acceptable trade-off for sensitive operations
+- Non-sensitive endpoints continue using JWT-only verification for performance
 
 ## Cron Job Security
 
