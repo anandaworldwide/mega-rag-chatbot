@@ -39,6 +39,11 @@ jest.mock("@/utils/server/firestoreRetryUtils", () => ({
   firestoreQueryGet: jest.fn().mockResolvedValue({
     docs: [], // Empty array for conversation count tests
   }),
+  isCode14Error: jest.fn((error: unknown) => {
+    // Check if error has code 14 (unavailable)
+    return (error as any)?.code === 14;
+  }),
+  retryOnCode14: jest.fn((fn: () => Promise<any>) => fn()),
 }));
 
 // Mock site config
@@ -57,6 +62,11 @@ jest.mock("@/utils/server/jwtUtils", () => ({
 // Mock API middleware
 jest.mock("@/utils/server/apiMiddleware", () => ({
   withApiMiddleware: (handler: any) => handler,
+}));
+
+// Mock rate limiter
+jest.mock("@/utils/server/genericRateLimiter", () => ({
+  genericRateLimiter: jest.fn(() => Promise.resolve(true)),
 }));
 
 import handler from "@/pages/api/admin/users/[userId]";
@@ -137,6 +147,7 @@ describe("/api/admin/users/[userId] DELETE user", () => {
 
   it("successfully deletes user as admin", async () => {
     const jwtUtils = await import("@/utils/server/jwtUtils");
+    (jwtUtils.getTokenFromRequest as jest.Mock).mockReturnValue({ email: "admin@example.com", role: "admin" });
     (jwtUtils.verifyToken as jest.Mock).mockReturnValue({ email: "admin@example.com", role: "admin" });
 
     const targetUserData = {
@@ -151,9 +162,12 @@ describe("/api/admin/users/[userId] DELETE user", () => {
     let call = 0;
     mockGet.mockImplementation(() => {
       call += 1;
-      // First get() is for resolveRequesterRole → return no document (snap.exists = false)
+      // First get() is for resolveRequesterRole → return admin document with admin role
       if (call === 1) {
-        return Promise.resolve({ exists: false });
+        return Promise.resolve({
+          exists: true,
+          data: () => ({ email: "admin@example.com", role: "admin" }),
+        });
       }
       // Second get() is for the target user document
       return Promise.resolve({ exists: true, data: () => targetUserData });
@@ -195,6 +209,7 @@ describe("/api/admin/users/[userId] DELETE user", () => {
 
   it("successfully deletes user as superuser", async () => {
     const jwtUtils = await import("@/utils/server/jwtUtils");
+    (jwtUtils.getTokenFromRequest as jest.Mock).mockReturnValue({ email: "super@example.com", role: "superuser" });
     (jwtUtils.verifyToken as jest.Mock).mockReturnValue({ email: "super@example.com", role: "superuser" });
 
     const targetUserData = {
@@ -208,8 +223,11 @@ describe("/api/admin/users/[userId] DELETE user", () => {
     mockGet.mockImplementation(() => {
       call += 1;
       if (call === 1) {
-        // resolveRequesterRole fetch for super@example.com
-        return Promise.resolve({ exists: false });
+        // resolveRequesterRole fetch for super@example.com - return superuser role from Firestore
+        return Promise.resolve({
+          exists: true,
+          data: () => ({ email: "super@example.com", role: "superuser" }),
+        });
       }
       // user document fetch
       return Promise.resolve({ exists: true, data: () => targetUserData });
@@ -243,12 +261,19 @@ describe("/api/admin/users/[userId] DELETE user", () => {
 
   it("handles Firestore deletion errors gracefully", async () => {
     const jwtUtils = await import("@/utils/server/jwtUtils");
+    (jwtUtils.getTokenFromRequest as jest.Mock).mockReturnValue({ email: "admin@example.com", role: "admin" });
     (jwtUtils.verifyToken as jest.Mock).mockReturnValue({ email: "admin@example.com", role: "admin" });
 
     let call = 0;
     mockGet.mockImplementation(() => {
       call += 1;
-      if (call === 1) return Promise.resolve({ exists: false }); // resolveRequesterRole
+      if (call === 1) {
+        // resolveRequesterRole fetch - return admin role from Firestore
+        return Promise.resolve({
+          exists: true,
+          data: () => ({ email: "admin@example.com", role: "admin" }),
+        });
+      }
       return Promise.resolve({ exists: true, data: () => ({ email: "target@example.com", role: "user" }) });
     });
     mockDelete.mockRejectedValue(new Error("Firestore error"));
@@ -261,7 +286,9 @@ describe("/api/admin/users/[userId] DELETE user", () => {
 
     await handler(req, res);
     expect(res.statusCode).toBe(500);
-    expect(res._getJSONData()).toEqual({ error: "Firestore error" });
+    // Error message is sanitized, so we just check it exists
+    expect(res._getJSONData()).toHaveProperty("error");
+    expect(typeof res._getJSONData().error).toBe("string");
   });
 
   it("returns 405 for unsupported methods", async () => {

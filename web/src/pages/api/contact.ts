@@ -7,6 +7,7 @@ import { runMiddleware } from "@/utils/server/corsMiddleware";
 import Cors from "cors";
 import validator from "validator";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
+import { sanitizeEmail, sanitizeTextInput } from "@/utils/server/inputSanitization";
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 
@@ -65,21 +66,34 @@ const handleRequest = async (req: NextApiRequest, res: NextApiResponse): Promise
   try {
     const { name, email, message } = req.body;
 
-    // Input validation
-    if (!validator.isLength(name, { min: 1, max: 100 })) {
+    // Input validation with comprehensive security checks
+    if (typeof name !== "string" || !validator.isLength(name, { min: 1, max: 100 })) {
       return res.status(400).json({ message: "Invalid name" });
     }
-    if (!validator.isEmail(email)) {
+    if (typeof email !== "string") {
       return res.status(400).json({ message: "Invalid email" });
     }
-    if (!validator.isLength(message, { min: 1, max: 1000 })) {
+    if (typeof message !== "string" || !validator.isLength(message, { min: 1, max: 1000 })) {
       return res.status(400).json({ message: "Invalid message length" });
     }
 
-    // Sanitize inputs (only remove potentially harmful characters)
-    const sanitizedName = name.trim().replace(/[<>]/g, "");
-    const sanitizedEmail = email.trim();
-    const sanitizedMessage = message.trim().replace(/[<>]/g, "");
+    // Sanitize email with comprehensive validation (UTF-8, length, header injection prevention)
+    let sanitizedEmail: string;
+    try {
+      sanitizedEmail = sanitizeEmail(email, 254);
+    } catch (error: any) {
+      return res.status(400).json({ message: `Invalid email: ${error.message || "Email validation failed"}` });
+    }
+
+    // Sanitize name and message with XSS/injection prevention
+    let sanitizedName: string;
+    let sanitizedMessage: string;
+    try {
+      sanitizedName = sanitizeTextInput(name, { maxLength: 100, allowNewlines: false, allowSpecialChars: false });
+      sanitizedMessage = sanitizeTextInput(message, { maxLength: 1000, allowNewlines: true, allowSpecialChars: false });
+    } catch (error: any) {
+      return res.status(400).json({ message: `Invalid input: ${error.message || "Input validation failed"}` });
+    }
 
     const sourceEmail = process.env.CONTACT_EMAIL;
     if (!sourceEmail) {

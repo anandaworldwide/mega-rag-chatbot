@@ -8,6 +8,7 @@ import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreGet, firestoreSet } from "@/utils/server/firestoreRetryUtils";
 import { requireAdminRoleFromFirestore } from "@/utils/server/authz";
+import { sanitizeEmail } from "@/utils/server/inputSanitization";
 import {
   generateInviteToken,
   hashInviteToken,
@@ -35,7 +36,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     await requireAdminRoleFromFirestore(req);
   } catch (error: any) {
     if (error.message?.includes("Unauthorized") || error.message?.includes("Admin")) {
-      return res.status(403).json({ error: "Forbidden" });
+    return res.status(403).json({ error: "Forbidden" });
     }
     throw error;
   }
@@ -43,6 +44,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { email, customMessage } = req.body as { email?: string; customMessage?: string };
   if (!email || typeof email !== "string") {
     return res.status(400).json({ error: "Invalid email" });
+  }
+
+  // Sanitize and validate email with comprehensive security checks
+  let sanitizedEmail: string;
+  try {
+    sanitizedEmail = sanitizeEmail(email, 254);
+  } catch (error: any) {
+    return res.status(400).json({ error: `Invalid email: ${error.message || "Email validation failed"}` });
   }
 
   // Validate customMessage if provided
@@ -71,7 +80,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   } catch {
     // best-effort only
   }
-  const userDocRef = db.collection(usersCol).doc(email.toLowerCase());
+  const userDocRef = db.collection(usersCol).doc(sanitizedEmail.toLowerCase());
 
   try {
     const existing = await firestoreGet(userDocRef, "get user", email);
@@ -96,7 +105,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           { merge: true },
           "update pending user"
         );
-        await sendActivationEmail(email, token, req, validCustomMessage);
+        await sendActivationEmail(sanitizedEmail, token, req, validCustomMessage);
         return res.status(200).json({ message: "resent" });
       }
       if (data?.inviteStatus === "accepted") {
@@ -127,8 +136,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       "create user"
     );
 
-    await sendActivationEmail(email, token, req, validCustomMessage);
-    await writeAuditLog(req, "admin_add_user", email.toLowerCase(), {
+    await sendActivationEmail(sanitizedEmail, token, req, validCustomMessage);
+    await writeAuditLog(req, "admin_add_user", sanitizedEmail.toLowerCase(), {
       status: "created",
       outcome: "success",
     });

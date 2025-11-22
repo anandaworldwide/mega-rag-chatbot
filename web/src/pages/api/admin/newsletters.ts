@@ -6,6 +6,7 @@ import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { requireSuperuserRoleFromFirestore } from "@/utils/server/authz";
 import { withJwtAuth } from "@/utils/server/jwtUtils";
 import firebase from "firebase-admin";
+import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") {
@@ -70,16 +71,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       total: newsletters.length,
     });
   } catch (error: any) {
-    console.error("Newsletter list error:", error);
+    // Log sanitized error (prevents API key leakage)
+    console.error("Newsletter list error:", error instanceof Error ? error.name : "Unknown error");
+    
     // Handle authorization errors separately
     if (error.message?.includes("Unauthorized") || error.message?.includes("Superuser")) {
       return res.status(403).json({
         error: "Forbidden: Superuser privileges required",
       });
     }
+    
+    // Return safe error message (no sensitive details)
+    const safeMessage = getSafeErrorMessage(error, "Failed to fetch newsletters");
     return res.status(500).json({
-      error: "Failed to fetch newsletters",
-      details: error.message,
+      error: safeMessage,
     });
   }
 }

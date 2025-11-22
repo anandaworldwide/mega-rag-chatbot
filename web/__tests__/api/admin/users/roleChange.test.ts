@@ -34,6 +34,11 @@ jest.mock("@/utils/server/firestoreRetryUtils", () => ({
   firestoreQueryGet: jest.fn().mockResolvedValue({
     docs: [], // Empty array for conversation count tests
   }),
+  isCode14Error: jest.fn((error: unknown) => {
+    // Check if error has code 14 (unavailable)
+    return (error as any)?.code === 14;
+  }),
+  retryOnCode14: jest.fn((fn: () => Promise<any>) => fn()),
 }));
 
 // Mock site config

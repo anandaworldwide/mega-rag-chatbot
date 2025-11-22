@@ -17,6 +17,8 @@ import {
   getInviteExpiryDate,
   sendActivationEmail,
 } from "@/utils/server/userInviteUtils";
+import { sanitizeEmail, sanitizeTextInput } from "@/utils/server/inputSanitization";
+import { getSafeErrorMessage, sanitizeErrorForLogging } from "@/utils/server/errorSanitization";
 
 const ses = new SESClient({
   region: process.env.AWS_REGION || "us-west-2",
@@ -171,7 +173,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     referenceNote?: string;
   };
 
-  // Validate required fields
+  // Validate and sanitize required fields
   if (!requesterEmail || typeof requesterEmail !== "string") {
     return res.status(400).json({ error: "Requester email is required" });
   }
@@ -188,10 +190,30 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(400).json({ error: "Admin location is required" });
   }
 
-  // Validate email format
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(requesterEmail) || !emailRegex.test(adminEmail)) {
-    return res.status(400).json({ error: "Invalid email format" });
+  // Sanitize email addresses with comprehensive validation
+  let sanitizedRequesterEmail: string;
+  let sanitizedAdminEmail: string;
+  try {
+    sanitizedRequesterEmail = sanitizeEmail(requesterEmail, 254);
+    sanitizedAdminEmail = sanitizeEmail(adminEmail, 254);
+  } catch (error: any) {
+    return res.status(400).json({ error: `Invalid email: ${error.message || "Email validation failed"}` });
+  }
+
+  // Sanitize text inputs
+  let sanitizedRequesterName: string;
+  let sanitizedAdminName: string;
+  let sanitizedAdminLocation: string;
+  let sanitizedReferenceNote: string | undefined;
+  try {
+    sanitizedRequesterName = sanitizeTextInput(requesterName, { maxLength: 100, allowNewlines: false, allowSpecialChars: false });
+    sanitizedAdminName = sanitizeTextInput(adminName, { maxLength: 100, allowNewlines: false, allowSpecialChars: false });
+    sanitizedAdminLocation = sanitizeTextInput(adminLocation, { maxLength: 200, allowNewlines: false, allowSpecialChars: false });
+    if (referenceNote) {
+      sanitizedReferenceNote = sanitizeTextInput(referenceNote, { maxLength: 1000, allowNewlines: true, allowSpecialChars: false });
+    }
+  } catch (error: any) {
+    return res.status(400).json({ error: `Invalid input: ${error.message || "Input validation failed"}` });
   }
 
   try {
@@ -200,13 +222,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!siteId) {
       return res.status(500).json({ error: "SITE_ID environment variable is not configured" });
     }
-    const isWhitelisted = await isEmailDomainWhitelisted(requesterEmail, siteId);
+    const isWhitelisted = await isEmailDomainWhitelisted(sanitizedRequesterEmail, siteId);
 
     if (isWhitelisted) {
       // Create user with pending status and send activation email (skip admin approval)
       const usersCol = getUsersCollectionName();
-      const userDocRef = db.collection(usersCol).doc(requesterEmail.toLowerCase());
-      const existing = await firestoreGet(userDocRef, "check existing user for whitelist", requesterEmail);
+      const userDocRef = db.collection(usersCol).doc(sanitizedRequesterEmail.toLowerCase());
+      const existing = await firestoreGet(userDocRef, "check existing user for whitelist", sanitizedRequesterEmail);
       const now = firebase.firestore.Timestamp.now();
 
       if (existing.exists) {
@@ -228,8 +250,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             { merge: true },
             "update pending user for whitelist resend"
           );
-          await sendActivationEmail(requesterEmail, token, req);
-          await writeAuditLog(req, "admin_approval_request", requesterEmail.toLowerCase(), {
+          await sendActivationEmail(sanitizedRequesterEmail, token, req);
+          await writeAuditLog(req, "admin_approval_request", sanitizedRequesterEmail.toLowerCase(), {
             outcome: "activation_resent_whitelisted",
           });
           return res.status(200).json({
@@ -244,15 +266,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const tokenHash = await hashInviteToken(token);
       const inviteExpiresAt = firebase.firestore.Timestamp.fromDate(getInviteExpiryDate(14));
 
-      // Parse first and last name from requesterName
-      const nameParts = requesterName.trim().split(/\s+/);
+      // Parse first and last name from sanitized requester name
+      const nameParts = sanitizedRequesterName.trim().split(/\s+/);
       const firstName = nameParts[0] || "";
       const lastName = nameParts.slice(1).join(" ") || "";
 
       await firestoreSet(
         userDocRef,
         {
-          email: requesterEmail.toLowerCase(),
+          email: sanitizedRequesterEmail.toLowerCase(),
           role: "user",
           entitlements: { basic: true },
           inviteStatus: "pending",
@@ -267,8 +289,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         undefined,
         "create user via whitelisted domain"
       );
-      await sendActivationEmail(requesterEmail, token, req);
-      await writeAuditLog(req, "admin_approval_request", requesterEmail.toLowerCase(), {
+      await sendActivationEmail(sanitizedRequesterEmail, token, req);
+      await writeAuditLog(req, "admin_approval_request", sanitizedRequesterEmail.toLowerCase(), {
         outcome: "created_pending_user_whitelisted",
       });
       return res.status(200).json({
@@ -284,8 +306,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Check if there's already a pending request for this requesterEmail + adminEmail combination
     const existingRequestsQuery = await db
       .collection(collectionName)
-      .where("requesterEmail", "==", requesterEmail.toLowerCase())
-      .where("adminEmail", "==", adminEmail.toLowerCase())
+      .where("requesterEmail", "==", sanitizedRequesterEmail.toLowerCase())
+      .where("adminEmail", "==", sanitizedAdminEmail.toLowerCase())
       .where("status", "==", "pending")
       .limit(1)
       .get();
@@ -298,12 +320,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Resend the admin approval email (reminder)
       try {
         await sendApprovalRequestEmail(
-          requesterEmail,
-          requesterName,
-          adminEmail,
-          adminName,
+          sanitizedRequesterEmail,
+          sanitizedRequesterName,
+          sanitizedAdminEmail,
+          sanitizedAdminName,
           existingData.requestId,
-          referenceNote,
+          sanitizedReferenceNote,
           req
         );
       } catch (emailError) {
@@ -314,9 +336,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
 
       // Log audit event for reminder
-      await writeAuditLog(req, "admin_approval_reminder", requesterEmail.toLowerCase(), {
+      await writeAuditLog(req, "admin_approval_reminder", sanitizedRequesterEmail.toLowerCase(), {
         outcome: "reminder_sent",
-        adminEmail: adminEmail.toLowerCase(),
+        adminEmail: sanitizedAdminEmail.toLowerCase(),
         requestId: existingData.requestId,
       });
 
@@ -332,12 +354,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const now = firebase.firestore.Timestamp.now();
 
     const approvalRequest: ApprovalRequestData = {
-      requesterEmail: requesterEmail.toLowerCase(),
-      requesterName: requesterName.trim(),
-      adminEmail: adminEmail.toLowerCase(),
-      adminName: adminName.trim(),
-      adminLocation: adminLocation.trim(),
-      ...(referenceNote && { referenceNote: referenceNote.trim() }),
+      requesterEmail: sanitizedRequesterEmail.toLowerCase(),
+      requesterName: sanitizedRequesterName,
+      adminEmail: sanitizedAdminEmail.toLowerCase(),
+      adminName: sanitizedAdminName,
+      adminLocation: sanitizedAdminLocation,
+      ...(sanitizedReferenceNote && { referenceNote: sanitizedReferenceNote }),
       requestId,
       status: "pending",
       createdAt: now,
@@ -354,8 +376,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Send emails (in parallel for better performance)
     const emailPromises = [
-      sendApprovalRequestEmail(requesterEmail, requesterName, adminEmail, adminName, requestId, referenceNote, req),
-      sendRequesterConfirmationEmail(requesterEmail, requesterName, adminName, adminLocation, req),
+      sendApprovalRequestEmail(sanitizedRequesterEmail, sanitizedRequesterName, sanitizedAdminEmail, sanitizedAdminName, requestId, sanitizedReferenceNote, req),
+      sendRequesterConfirmationEmail(sanitizedRequesterEmail, sanitizedRequesterName, sanitizedAdminName, sanitizedAdminLocation, req),
     ];
 
     try {
@@ -392,9 +414,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     // Log audit event
-    await writeAuditLog(req, "admin_approval_request", requesterEmail.toLowerCase(), {
+    await writeAuditLog(req, "admin_approval_request", sanitizedRequesterEmail.toLowerCase(), {
       outcome: "request_created",
-      adminEmail: adminEmail.toLowerCase(),
+      adminEmail: sanitizedAdminEmail.toLowerCase(),
       requestId,
     });
 
@@ -403,18 +425,26 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       requestId,
     });
   } catch (error: any) {
-    console.error("Error creating approval request:", error);
+    // Log sanitized error (prevents API key leakage)
+    const sanitizedError = sanitizeErrorForLogging(error);
+    console.error("Error creating approval request:", sanitizedError);
 
-    // Log error audit event
+    // Log error audit event with sanitized error
+    // Use original email variables if sanitized versions aren't available
+    const requesterEmailForLog = sanitizedRequesterEmail || requesterEmail;
+    const adminEmailForLog = sanitizedAdminEmail || adminEmail;
+    
     try {
-      await writeAuditLog(req, "admin_approval_request", requesterEmail?.toLowerCase(), {
+      await writeAuditLog(req, "admin_approval_request", requesterEmailForLog?.toLowerCase(), {
         outcome: "error",
-        error: error.message,
-        adminEmail: adminEmail?.toLowerCase(),
+        error: sanitizedError.message,
+        adminEmail: adminEmailForLog?.toLowerCase(),
       });
     } catch {}
 
-    return res.status(500).json({ error: "Internal server error" });
+    // Return safe error message to client
+    const safeMessage = getSafeErrorMessage(error, "Internal server error");
+    return res.status(500).json({ error: safeMessage });
   }
 }
 

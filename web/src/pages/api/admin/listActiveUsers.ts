@@ -16,8 +16,18 @@ import { db } from "@/services/firebase";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { withJwtAuth } from "@/utils/server/jwtUtils";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
+import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
+import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // Apply rate limiting
+  const allowed = await genericRateLimiter(req, res, {
+    windowMs: 60 * 1000, // 1 minute
+    max: 30, // 30 requests per minute
+    name: "admin_list_active_users",
+  });
+  if (!allowed) return;
+
   if (req.method !== "GET") {
     return res.status(405).json({ error: "Method not allowed" });
   }
@@ -152,7 +162,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       },
     });
   } catch (err: any) {
-    return res.status(500).json({ error: err?.message || "Failed to list active users" });
+    const safeMessage = getSafeErrorMessage(err, "Failed to list active users");
+    return res.status(500).json({ error: safeMessage });
   }
 }
 

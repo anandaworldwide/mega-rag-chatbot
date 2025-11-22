@@ -37,7 +37,9 @@ export async function genericRateLimiter(
   };
 
   const clientIP = ip || getClientIp(req) || "unknown";
-  const sanitizedIP = clientIP.replace(/[/.]/g, "_");
+  // Sanitize IP for use in Firestore document ID
+  // Replace colons (IPv6), dots (IPv4), and slashes with underscores
+  const sanitizedIP = clientIP.replace(/[:./]/g, "_");
   const docId = `${sanitizedIP}_${name}`;
 
   const now = Date.now();
@@ -117,7 +119,9 @@ export async function deleteRateLimitCounter(req: NextApiRequest, name: string):
   }
 
   const ip = getClientIp(req);
-  const sanitizedIP = ip.replace(/[/.]/g, "_");
+  // Sanitize IP for use in Firestore document ID
+  // Replace colons (IPv6), dots (IPv4), and slashes with underscores
+  const sanitizedIP = ip.replace(/[:./]/g, "_");
   const docId = `${sanitizedIP}_${name}`;
   const collectionName = `${defaultRateLimitConfig.collectionPrefix}_rateLimits`;
 

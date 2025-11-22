@@ -12,6 +12,7 @@ import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import { requireSuperuserRoleFromFirestore } from "@/utils/server/authz";
 import { firestoreUpdate } from "@/utils/server/firestoreRetryUtils";
+import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Apply rate limiting
@@ -86,11 +87,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
     res.status(200).json({ message: "Admin action updated" });
   } catch (error) {
-    if (error instanceof Error) {
-      res.status(500).json({ error: error.message });
-    } else {
-      res.status(500).json({ error: "An unknown error occurred" });
-    }
+    // Use safe error message to prevent information leakage
+    const safeMessage = getSafeErrorMessage(error, "Failed to update admin action");
+    res.status(500).json({ error: safeMessage });
   }
 }
 

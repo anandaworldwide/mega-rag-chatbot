@@ -179,29 +179,39 @@ export function setCorsHeaders(req: NextApiRequest, res: NextApiResponse, siteCo
 
   // In development, be more permissive with CORS
   if (isDevelopment()) {
-    res.setHeader("Access-Control-Allow-Origin", origin || "*");
+    const effectiveOrigin = origin || "*";
+    res.setHeader("Access-Control-Allow-Origin", effectiveOrigin);
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    res.setHeader("Access-Control-Allow-Credentials", "true");
+    // Only set credentials if origin is present (not wildcard)
+    if (origin) {
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+    }
     return;
   }
 
   if (isAllowedDevOrigin(origin, referer)) {
-    res.setHeader("Access-Control-Allow-Origin", origin || "*");
+    const effectiveOrigin = origin || "*";
+    res.setHeader("Access-Control-Allow-Origin", effectiveOrigin);
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    res.setHeader("Access-Control-Allow-Credentials", "true");
+    // Only set credentials if origin is present and verified (not wildcard)
+    if (origin) {
+      res.setHeader("Access-Control-Allow-Credentials", "true");
+    }
     return;
   }
 
   if (origin) {
     const allowedDomains = siteConfig.allowedFrontEndDomains || [];
     if (isAllowedOrigin(origin, allowedDomains)) {
+      // Origin is verified - safe to set credentials
       res.setHeader("Access-Control-Allow-Origin", origin);
       res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
       res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
       res.setHeader("Access-Control-Allow-Credentials", "true");
     }
+    // If origin is not allowed, don't set any CORS headers (browser will block)
   }
 }
 
@@ -361,7 +371,11 @@ export function handleCorsOptions(req: NextRequest | NextApiRequest, res?: NextA
 }
 
 // Helper to create CORS headers for error responses
-export function createErrorCorsHeaders(req: NextRequest | NextApiRequest, isDev = isDevelopment()) {
+export function createErrorCorsHeaders(
+  req: NextRequest | NextApiRequest,
+  siteConfig?: SiteConfig,
+  isDev = isDevelopment()
+) {
   let origin: string | null | undefined;
 
   if ("headers" in req && req.headers instanceof Headers) {
@@ -370,13 +384,35 @@ export function createErrorCorsHeaders(req: NextRequest | NextApiRequest, isDev 
     origin = req.headers.origin as string;
   }
 
-  return {
+  const headers: Record<string, string> = {
     "content-type": "application/json",
-    "Access-Control-Allow-Origin": isDev ? origin || "*" : origin || process.env.NEXT_PUBLIC_BASE_URL || "",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Access-Control-Allow-Credentials": "true",
   };
+
+  // Set origin and credentials based on verification
+  if (isDev) {
+    headers["Access-Control-Allow-Origin"] = origin || "*";
+    if (origin) {
+      headers["Access-Control-Allow-Credentials"] = "true";
+    }
+  } else if (origin && siteConfig) {
+    // In production, verify origin before setting credentials
+    const allowedDomains = siteConfig.allowedFrontEndDomains || [];
+    if (isAllowedOrigin(origin, allowedDomains) || isAllowedDevOrigin(origin, null)) {
+      headers["Access-Control-Allow-Origin"] = origin;
+      headers["Access-Control-Allow-Credentials"] = "true";
+    } else {
+      // Origin not verified - use base URL without credentials
+      headers["Access-Control-Allow-Origin"] = process.env.NEXT_PUBLIC_BASE_URL || "";
+      // Do not set credentials for unverified origins
+    }
+  } else {
+    // No origin or no site config - use base URL without credentials
+    headers["Access-Control-Allow-Origin"] = process.env.NEXT_PUBLIC_BASE_URL || "";
+  }
+
+  return headers;
 }
 
 // Log allowed domains on deploy or server restart (helps with debugging)

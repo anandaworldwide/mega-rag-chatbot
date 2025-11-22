@@ -117,7 +117,7 @@ describe("Contact API", () => {
 
     expect(res.statusCode).toBe(400);
     expect(res._getJSONData()).toEqual({
-      message: "Invalid email",
+      message: "Invalid email: Invalid email format",
     });
   });
 

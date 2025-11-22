@@ -11,8 +11,18 @@ import { loadSiteConfigSync, loadSiteConfig } from "@/utils/server/loadSiteConfi
 import { writeAuditLog } from "@/utils/server/auditLog";
 import { isDevelopment } from "@/utils/env";
 import { deleteFromCache } from "@/utils/server/redisUtils";
+import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
+import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // Apply rate limiting
+  const allowed = await genericRateLimiter(req, res, {
+    windowMs: 60 * 1000, // 1 minute
+    max: 30, // 30 requests per minute
+    name: "admin_user_management",
+  });
+  if (!allowed) return;
+
   if (!db) return res.status(503).json({ error: "Database not available" });
 
   const { userId } = req.query as { userId: string };
@@ -138,7 +148,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         },
       });
     } catch (err: any) {
-      return res.status(500).json({ error: err?.message || "Failed to fetch user" });
+      const safeMessage = getSafeErrorMessage(err, "Failed to fetch user");
+      return res.status(500).json({ error: safeMessage });
     }
   }
 
@@ -447,9 +458,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         },
       });
     } catch (err: any) {
-      const msg = err?.message || "Failed to update user";
-      const status = msg.includes("not found") ? 404 : msg.includes("already in use") ? 409 : 500;
-      return res.status(status).json({ error: msg });
+      // Check for specific error types that are safe to expose
+      const errorMessage = err?.message || "";
+      let status = 500;
+      let safeMessage = "Failed to update user";
+      
+      if (errorMessage.includes("not found")) {
+        status = 404;
+        safeMessage = "User not found";
+      } else if (errorMessage.includes("already in use")) {
+        status = 409;
+        safeMessage = "Email already in use";
+      } else {
+        // For other errors, use sanitized message
+        safeMessage = getSafeErrorMessage(err, "Failed to update user");
+      }
+      
+      return res.status(status).json({ error: safeMessage });
     }
   }
 
@@ -513,9 +538,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         message: "User deleted successfully",
       });
     } catch (err: any) {
-      const msg = err?.message || "Failed to delete user";
-      const status = msg.includes("not found") ? 404 : 500;
-      return res.status(status).json({ error: msg });
+      // Check for specific error types that are safe to expose
+      const errorMessage = err?.message || "";
+      let status = 500;
+      let safeMessage = "Failed to delete user";
+      
+      if (errorMessage.includes("not found")) {
+        status = 404;
+        safeMessage = "User not found";
+      } else {
+        // For other errors, use sanitized message
+        safeMessage = getSafeErrorMessage(err, "Failed to delete user");
+      }
+      
+      return res.status(status).json({ error: safeMessage });
     }
   }
 

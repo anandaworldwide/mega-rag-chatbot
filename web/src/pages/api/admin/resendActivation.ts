@@ -8,6 +8,7 @@ import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreGet, firestoreSet } from "@/utils/server/firestoreRetryUtils";
 import { requireAdminRoleFromFirestore } from "@/utils/server/authz";
+import { sanitizeEmail } from "@/utils/server/inputSanitization";
 import {
   generateInviteToken,
   hashInviteToken,
@@ -35,7 +36,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     await requireAdminRoleFromFirestore(req);
   } catch (error: any) {
     if (error.message?.includes("Unauthorized") || error.message?.includes("Admin")) {
-      return res.status(403).json({ error: "Forbidden" });
+    return res.status(403).json({ error: "Forbidden" });
     }
     throw error;
   }
@@ -45,12 +46,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(400).json({ error: "Invalid email" });
   }
 
+  // Sanitize and validate email with comprehensive security checks
+  let sanitizedEmail: string;
+  try {
+    sanitizedEmail = sanitizeEmail(email, 254);
+  } catch (error: any) {
+    return res.status(400).json({ error: `Invalid email: ${error.message || "Email validation failed"}` });
+  }
+
   // Validate customMessage if provided
   const validCustomMessage =
     typeof customMessage === "string" && customMessage.trim() ? customMessage.trim() : undefined;
 
   const usersCol = getUsersCollectionName();
-  const userDocRef = db.collection(usersCol).doc(email.toLowerCase());
+  const userDocRef = db.collection(usersCol).doc(sanitizedEmail.toLowerCase());
 
   try {
     // Identify inviter admin from JWT and fetch name from users collection (if available)
@@ -73,7 +82,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
     } catch {}
 
-    const existing = await firestoreGet(userDocRef, "get user", email);
+    const existing = await firestoreGet(userDocRef, "get user", sanitizedEmail);
     if (!existing.exists) return res.status(404).json({ error: "User not found" });
     const data = existing.data() as any;
     if (data?.inviteStatus !== "pending") return res.status(400).json({ error: "Not pending" });
@@ -93,8 +102,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       { merge: true },
       "resend activation"
     );
-    await sendActivationEmail(email, token, req, validCustomMessage);
-    await writeAuditLog(req, "admin_resend_activation", email.toLowerCase(), { outcome: "success" });
+    await sendActivationEmail(sanitizedEmail, token, req, validCustomMessage);
+    await writeAuditLog(req, "admin_resend_activation", sanitizedEmail.toLowerCase(), { outcome: "success" });
     return res.status(200).json({ message: "resent" });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

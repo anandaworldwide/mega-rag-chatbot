@@ -777,3 +777,335 @@ User-Agent: vercel-cron/1.0
 
 This hybrid approach provides the best of both worlds: automated cron execution with CRON_SECRET validation, and manual
 admin access with full JWT authentication.
+
+---
+
+## Security Best Practices
+
+This section outlines security best practices implemented across the codebase and recommendations for maintaining
+security.
+
+### CORS Configuration Best Practices
+
+#### Credentials and Origin Verification
+
+**Critical Rule**: Never set `Access-Control-Allow-Credentials: true` without verifying the origin.
+
+**Why**: Setting credentials with a wildcard origin (`*`) allows any website to make authenticated requests, leading to
+credential leakage.
+
+**Implementation**:
+
+```typescript
+// ✅ CORRECT: Verify origin before setting credentials
+if (origin && isAllowedOrigin(origin, allowedDomains)) {
+  res.setHeader("Access-Control-Allow-Origin", origin);
+  res.setHeader("Access-Control-Allow-Credentials", "true");
+}
+
+// ❌ WRONG: Setting credentials with wildcard
+res.setHeader("Access-Control-Allow-Origin", "*");
+res.setHeader("Access-Control-Allow-Credentials", "true"); // DANGEROUS!
+```
+
+**Best Practices**:
+
+- Always verify origin against an allowlist before setting credentials
+- Use specific origins, never wildcards (`*`) when credentials are enabled
+- In development, only set credentials when origin is present (not null)
+- Log rejected origins for security monitoring
+
+### Error Handling Best Practices
+
+#### Preventing Information Leakage
+
+**Critical Rule**: Never expose sensitive information in error messages sent to clients.
+
+**Sensitive Information Includes**:
+
+- API keys and tokens (Pinecone, OpenAI, AWS, etc.)
+- Database connection strings
+- Internal file paths
+- Stack traces
+- System architecture details
+
+**Implementation Pattern**:
+
+```typescript
+import { getSafeErrorMessage, sanitizeErrorForLogging } from "@/utils/server/errorSanitization";
+
+try {
+  // ... operation ...
+} catch (error: any) {
+  // ✅ CORRECT: Sanitize error for logging (prevents API key leakage in logs)
+  const sanitizedError = sanitizeErrorForLogging(error);
+  console.error("Operation failed:", sanitizedError);
+
+  // ✅ CORRECT: Return safe error message to client
+  const safeMessage = getSafeErrorMessage(error, "Operation failed. Please try again later.");
+  return res.status(500).json({ error: safeMessage });
+
+  // ❌ WRONG: Exposing raw error messages
+  // return res.status(500).json({ error: error.message }); // May contain API keys!
+}
+```
+
+**Best Practices**:
+
+- Use `getSafeErrorMessage()` for all user-facing error messages
+- Use `sanitizeErrorForLogging()` for server-side logging
+- Never include `error.stack` in production responses
+- Never include `error.details` with raw error messages
+- Log full error details server-side for debugging, but sanitize sensitive patterns
+
+#### Error Response Structure
+
+**Consistent Pattern**:
+
+```typescript
+// ✅ CORRECT: Simple error response
+return res.status(500).json({ error: safeMessage });
+
+// ❌ WRONG: Including details field
+return res.status(500).json({
+  error: "Operation failed",
+  details: error.message, // May contain sensitive info!
+});
+```
+
+### Input Validation and Sanitization Best Practices
+
+#### Comprehensive Input Validation
+
+**Critical Rule**: Validate and sanitize all user inputs before processing.
+
+**Implementation Pattern**:
+
+```typescript
+import { sanitizeEmail, sanitizeTextInput, validateAndSanitizeQuestion } from "@/utils/server/inputSanitization";
+
+// ✅ CORRECT: Comprehensive email validation
+let sanitizedEmail: string;
+try {
+  sanitizedEmail = sanitizeEmail(email, 254);
+} catch (error: any) {
+  return res.status(400).json({
+    error: `Invalid email: ${error.message || "Email validation failed"}`,
+  });
+}
+
+// ✅ CORRECT: Text input sanitization with options
+let sanitizedName: string;
+try {
+  sanitizedName = sanitizeTextInput(name, {
+    maxLength: 100,
+    allowNewlines: false,
+    allowSpecialChars: false,
+  });
+} catch (error: any) {
+  return res.status(400).json({
+    error: `Invalid input: ${error.message || "Input validation failed"}`,
+  });
+}
+```
+
+**Best Practices**:
+
+- Always validate input type before processing (`typeof input === "string"`)
+- Use centralized sanitization utilities (`inputSanitization.ts`)
+- Set appropriate length limits based on use case
+- Prevent XSS by stripping HTML/script tags
+- Prevent injection attacks by sanitizing special characters
+- Validate UTF-8 encoding for international characters
+- Prevent email header injection by sanitizing newlines
+
+### Rate Limiting Best Practices
+
+#### Consistent Rate Limiting
+
+**Critical Rule**: Apply rate limiting to all public-facing endpoints.
+
+**Implementation Pattern**:
+
+```typescript
+import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
+
+async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // ✅ CORRECT: Apply rate limiting early in handler
+  const allowed = await genericRateLimiter(req, res, {
+    windowMs: 60 * 1000, // 1 minute
+    max: 30, // 30 requests per minute
+    name: "endpoint_name",
+  });
+  if (!allowed) return; // Rate limiter sends response automatically
+
+  // ... rest of handler ...
+}
+```
+
+**Best Practices**:
+
+- Apply rate limiting before any expensive operations
+- Use descriptive `name` parameter for monitoring
+- Set appropriate limits based on endpoint sensitivity:
+  - Public endpoints: 30-100 requests/minute
+  - Authentication endpoints: 5-10 requests/15 minutes
+  - Admin endpoints: 30-100 requests/minute
+- Monitor rate limit violations for abuse patterns
+- Use IP-based limiting for DDoS protection
+
+### Authorization Best Practices
+
+#### Firestore as Source of Truth
+
+**Critical Rule**: For sensitive operations, verify roles from Firestore, not just JWT.
+
+**Why**: JWT tokens can become stale if a user's role is changed server-side. The token still contains the old role
+until it expires.
+
+**Implementation Pattern**:
+
+```typescript
+import { requireSuperuserRoleFromFirestore, requireAdminRoleFromFirestore } from "@/utils/server/authz";
+
+// ✅ CORRECT: Verify role from Firestore for sensitive operations
+try {
+  await requireSuperuserRoleFromFirestore(req);
+} catch (error: any) {
+  if (error.message?.includes("Unauthorized") || error.message?.includes("Superuser")) {
+    return res.status(403).json({ error: "Forbidden: Superuser privileges required" });
+  }
+  throw error;
+}
+
+// ❌ WRONG: Only checking JWT role (can be stale)
+if (token.role !== "superuser") {
+  return res.status(403).json({ error: "Forbidden" });
+}
+```
+
+**Best Practices**:
+
+- Use `requireSuperuserRoleFromFirestore()` for high-privilege operations (newsletter sending, user deletion)
+- Use `requireAdminRoleFromFirestore()` for admin operations (user management, approval requests)
+- Always handle authorization errors explicitly
+- Return consistent 403 status codes for authorization failures
+- Log authorization failures for security monitoring
+
+### IP Address Handling Best Practices
+
+#### Proper IP Extraction and Sanitization
+
+**Critical Rule**: Properly extract and sanitize IP addresses, especially for IPv6 and proxy environments.
+
+**Implementation Pattern**:
+
+```typescript
+import { getClientIp } from "@/utils/server/ipUtils";
+
+// ✅ CORRECT: Use centralized IP extraction utility
+const clientIP = getClientIp(req) || "unknown";
+
+// ✅ CORRECT: Sanitize IP for Firestore document IDs (IPv6 support)
+const sanitizedIP = clientIP.replace(/[:./]/g, "_");
+const docId = `${sanitizedIP}_${name}`;
+```
+
+**Best Practices**:
+
+- Use `getClientIp()` utility for consistent IP extraction
+- Handle proxy headers (`x-forwarded-for`, `cf-connecting-ip`, `x-real-ip`)
+- Support both IPv4 and IPv6 addresses
+- Sanitize IPs before using in Firestore document IDs (replace `:`, `.`, `/` with `_`)
+- Validate IP format before using in security contexts
+
+### Security Monitoring Best Practices
+
+#### Logging Security Events
+
+**Best Practices**:
+
+- Log all authentication failures with IP addresses
+- Log rate limit violations for abuse detection
+- Log authorization failures (403 responses)
+- Use sanitized error logging to prevent credential leakage
+- Include request context (endpoint, method, timestamp) in security logs
+- Monitor for unusual access patterns
+
+**Implementation Pattern**:
+
+```typescript
+// ✅ CORRECT: Log security events with context
+console.error("Authorization failure:", {
+  endpoint: "/api/admin/users",
+  ip: getClientIp(req),
+  userEmail: token?.email,
+  timestamp: new Date().toISOString(),
+});
+
+// ❌ WRONG: Logging raw errors (may contain sensitive data)
+console.error("Error:", error); // May contain API keys!
+```
+
+### Development vs Production Security
+
+#### Environment-Specific Security
+
+**Best Practices**:
+
+- Development: More permissive CORS, detailed error messages for debugging
+- Production: Strict CORS, sanitized error messages, comprehensive logging
+- Use `isDevelopment()` utility to conditionally apply security measures
+- Never disable security features in production for convenience
+- Test security measures in staging environment before production
+
+**Implementation Pattern**:
+
+```typescript
+import { isDevelopment } from "@/utils/env";
+
+if (isDevelopment()) {
+  // Development: More permissive
+  res.setHeader("Access-Control-Allow-Origin", origin || "*");
+} else {
+  // Production: Strict verification
+  if (origin && isAllowedOrigin(origin, allowedDomains)) {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+  }
+}
+```
+
+### Security Checklist for New Endpoints
+
+When creating a new API endpoint, ensure:
+
+- [ ] **Rate Limiting**: Applied with appropriate limits
+- [ ] **Input Validation**: All inputs validated and sanitized
+- [ ] **Authorization**: Proper role checks (Firestore verification for sensitive ops)
+- [ ] **Error Handling**: Safe error messages (no sensitive info leakage)
+- [ ] **CORS**: Credentials only set when origin is verified
+- [ ] **Logging**: Security events logged with context
+- [ ] **IP Handling**: Proper IP extraction and sanitization
+- [ ] **Testing**: Security tests included in test suite
+
+### Security Review Process
+
+**Before Deployment**:
+
+1. Review all error messages for sensitive information
+2. Verify CORS configuration (no wildcard with credentials)
+3. Check rate limiting is applied to all public endpoints
+4. Verify authorization checks use Firestore for sensitive operations
+5. Review input validation and sanitization
+6. Check security logs for any anomalies
+7. Run security test suite
+
+**Regular Maintenance**:
+
+- Review security logs weekly
+- Update rate limits based on usage patterns
+- Review and update CORS allowlists quarterly
+- Audit authorization checks annually
+- Update dependencies for security patches
+- Review error handling patterns for new vulnerabilities

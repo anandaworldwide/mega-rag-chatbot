@@ -56,8 +56,9 @@ import { getAnswersCollectionName } from "@/utils/server/firestoreUtils";
 import { Index, RecordMetadata } from "@pinecone-database/pinecone";
 import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
-import validator from "validator";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
+import { validateAndSanitizeQuestion, sanitizeForLogging } from "@/utils/server/inputSanitization";
+import { getSafeErrorMessage, sanitizeErrorForLogging } from "@/utils/server/errorSanitization";
 import { SiteConfig } from "@/types/siteConfig";
 import { StreamingResponseData } from "@/types/StreamingResponseData";
 import { getClientIp } from "@/utils/server/ipUtils";
@@ -203,20 +204,18 @@ async function validateAndPreprocessInput(
     return corsMiddleware.addCorsHeaders(response, req, siteConfig);
   }
 
-  // Validate question length last - tests expect collection errors to take precedence
-  if (typeof question !== "string" || !validator.isLength(question, { min: 1, max: 4000 })) {
-    const response = NextResponse.json(
-      { error: "Invalid question. Must be between 1 and 4000 characters." },
-      { status: 400 }
-    );
+  // Validate and sanitize question with comprehensive security checks
+  let sanitizedQuestion: string;
+  let originalQuestion: string;
+  try {
+    // Deep sanitization: removes XSS patterns, injection attempts, validates UTF-8, checks length
+    sanitizedQuestion = validateAndSanitizeQuestion(question, 4000);
+    originalQuestion = question; // Keep original for display, sanitized for processing/storage
+  } catch (error: any) {
+    const errorMessage = error.message || "Invalid question format";
+    const response = NextResponse.json({ error: `Invalid question: ${errorMessage}` }, { status: 400 });
     return corsMiddleware.addCorsHeaders(response, req, siteConfig);
   }
-
-  const originalQuestion = question;
-  // Basic sanitization: trim whitespace and normalize newlines
-  // Note: No HTML escaping needed since question text is used for AI processing,
-  // not direct HTML rendering. Frontend uses React/ReactMarkdown for safe rendering.
-  const sanitizedQuestion = question.trim().replaceAll("\n", " ");
 
   // Strictly require a valid v4 UUID on all chat requests
   const rawUuid = typeof requestBody.uuid === "string" ? requestBody.uuid.trim() : "";
@@ -380,8 +379,11 @@ async function saveOrUpdateDocument(
   const finalConvId = convId || uuidv4();
 
   // Create data object to save
+  // Sanitize originalQuestion before saving to prevent XSS/injection in stored data
+  // Note: We keep originalQuestion for display, but sanitize before storage
+  const sanitizedOriginalQuestion = sanitizeForLogging(originalQuestion, 4000);
   const dataToSave = {
-    question: originalQuestion,
+    question: sanitizedOriginalQuestion,
     answer: fullResponse,
     collection: collection,
     sources: JSON.stringify(finalDocuments), // Save the correct final documents
@@ -406,7 +408,7 @@ async function saveOrUpdateDocument(
           dataToSave,
           { merge: true },
           "chat document update",
-          `docId: ${docId}, question: ${originalQuestion.substring(0, 50)}...`
+          `docId: ${docId}, question: ${sanitizeForLogging(originalQuestion, 50)}`
         );
         return docId;
       } catch (updateError) {
@@ -422,7 +424,7 @@ async function saveOrUpdateDocument(
           answerRef,
           dataToSave,
           "chat document creation",
-          `question: ${originalQuestion.substring(0, 50)}...`
+          `question: ${sanitizeForLogging(originalQuestion, 50)}`
         );
         return newDocRef.id;
       } catch (createError) {
@@ -521,8 +523,10 @@ Error context: ${error.message}`,
         console.error("Failed to send OpenAI quota ops alert:", emailError);
       });
     } else if (error.message.includes("Pinecone")) {
+      // Sanitize error message to prevent API key leakage
+      const safeMessage = getSafeErrorMessage(error, "Error connecting to the search service. Please try again later.");
       sendData({
-        error: `Error connecting to Pinecone: ${error.message}`,
+        error: safeMessage,
       });
 
       // Send ops alert for Pinecone connection failures
@@ -587,7 +591,9 @@ Error details: ${error.message}`,
           }).catch(console.error);
         }
       } else {
-        sendData({ error: error.message || "Something went wrong" });
+        // Use safe error message to prevent information leakage
+        const safeMessage = getSafeErrorMessage(error, "Something went wrong");
+        sendData({ error: safeMessage });
       }
     }
   } else {
@@ -759,14 +765,17 @@ async function handleComparisonRequest(req: NextRequest, requestBody: Comparison
           // Now we can close the controller
           controller.close();
         } catch (error) {
-          console.error("Error running model chains:", error);
+          // Log sanitized error for debugging (prevents API key leakage)
+          const sanitizedError = sanitizeErrorForLogging(error);
+          console.error("Error running model chains:", sanitizedError);
 
           // Clear the timeout as we're handling the error
           clearTimeout(doneTimeout);
 
-          // Send error to client
+          // Send safe error message to client (no sensitive info)
+          const safeMessage = getSafeErrorMessage(error, "Error running model comparison. Please try again later.");
           sendToClient({
-            error: "Error running model comparison: " + (error instanceof Error ? error.message : String(error)),
+            error: safeMessage,
           });
 
           // Send done signal if we haven't already
@@ -783,11 +792,12 @@ async function handleComparisonRequest(req: NextRequest, requestBody: Comparison
         }
       } catch (error) {
         try {
-          // Try to send error to client
+          // Send safe error message to client (no sensitive info)
+          const safeMessage = getSafeErrorMessage(error, "Error in comparison handler. Please try again later.");
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({
-                error: "Error in comparison handler: " + (error instanceof Error ? error.message : String(error)),
+                error: safeMessage,
               })}\n\n`
             )
           );

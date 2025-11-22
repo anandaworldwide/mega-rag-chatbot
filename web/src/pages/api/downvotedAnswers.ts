@@ -8,6 +8,7 @@ import { getAnswersCollectionName } from "@/utils/server/firestoreUtils";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { withJwtAuth } from "@/utils/server/jwtUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
+import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Apply rate limiting
@@ -75,13 +76,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       currentPage: page,
     });
   } catch (error: any) {
-    console.error("Error fetching downvoted answers:", error);
+    // Log sanitized error (prevents API key leakage)
+    console.error("Error fetching downvoted answers:", error instanceof Error ? error.name : "Unknown error");
+    
     // Handle authorization errors separately
     if (error.message?.includes("Unauthorized") || error.message?.includes("Superuser")) {
       return res.status(403).json({ error: "Forbidden: Superuser privileges required" });
     }
+    
+    // Return safe error message (no sensitive details)
+    const safeMessage = getSafeErrorMessage(error, "Something went wrong");
     return res.status(500).json({
-      error: error instanceof Error ? error.message : "Something went wrong",
+      error: safeMessage,
     });
   }
 }

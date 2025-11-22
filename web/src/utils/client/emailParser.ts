@@ -15,7 +15,24 @@ interface ParsedEmail {
  * @returns Array of parsed email objects with email and optional name
  */
 export function parseEmailAddresses(input: string): ParsedEmail[] {
-  if (!input.trim()) {
+  if (!input || typeof input !== "string" || !input.trim()) {
+    return [];
+  }
+
+  // Validate UTF-8 encoding
+  try {
+    const encoded = new TextEncoder().encode(input);
+    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(encoded);
+    if (decoded !== input) {
+      return []; // Invalid UTF-8
+    }
+  } catch {
+    return []; // UTF-8 validation failed
+  }
+
+  // Prevent buffer overflow from extremely long inputs
+  // Allow up to 10KB of input (reasonable for bulk email entry)
+  if (input.length > 10000) {
     return [];
   }
 
@@ -45,6 +62,22 @@ export function parseEmailAddresses(input: string): ParsedEmail[] {
  * @returns Parsed email object or null if invalid
  */
 function parseEmailEntry(entry: string): ParsedEmail | null {
+  // Validate UTF-8 and length to prevent buffer overflows
+  try {
+    const encoded = new TextEncoder().encode(entry);
+    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(encoded);
+    if (decoded !== entry) {
+      return null; // Invalid UTF-8
+    }
+  } catch {
+    return null; // UTF-8 validation failed
+  }
+
+  // Prevent buffer overflow from overly long inputs (RFC 5321: 254 chars for email, allow extra for name)
+  if (entry.length > 500) {
+    return null;
+  }
+
   const trimmed = entry.trim();
 
   if (!trimmed) {
@@ -74,12 +107,40 @@ function parseEmailEntry(entry: string): ParsedEmail | null {
 
 /**
  * Validates if a string is a valid email address
+ * Includes UTF-8 validation and length checks to prevent buffer overflows
  * @param email - The email string to validate
  * @returns True if valid email format
  */
 export function isValidEmail(email: string): boolean {
+  if (typeof email !== "string") {
+    return false;
+  }
+
+  // Check UTF-8 validity
+  try {
+    const encoded = new TextEncoder().encode(email);
+    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(encoded);
+    if (decoded !== email) {
+      return false;
+    }
+  } catch {
+    return false;
+  }
+
+  // Check length (RFC 5321 specifies 254 character limit for email addresses)
+  if (email.length > 254) {
+    return false;
+  }
+
+  // Check for email header injection patterns
+  const dangerousChars = /[\r\n\t]/;
+  if (dangerousChars.test(email)) {
+    return false;
+  }
+
+  // Basic email format validation
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  return emailRegex.test(email);
+  return emailRegex.test(email.trim());
 }
 
 /**
@@ -102,11 +163,42 @@ export function validateEmailInput(input: string): {
   totalEntries: number;
   validCount: number;
 } {
-  if (!input.trim()) {
+  if (!input || typeof input !== "string" || !input.trim()) {
     return {
       validEmails: [],
       invalidEntries: [],
       totalEntries: 0,
+      validCount: 0,
+    };
+  }
+
+  // Validate UTF-8 encoding
+  try {
+    const encoded = new TextEncoder().encode(input);
+    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(encoded);
+    if (decoded !== input) {
+      return {
+        validEmails: [],
+        invalidEntries: [input.substring(0, 100)], // Include truncated input in invalid entries
+        totalEntries: 1,
+        validCount: 0,
+      };
+    }
+  } catch {
+    return {
+      validEmails: [],
+      invalidEntries: [input.substring(0, 100)],
+      totalEntries: 1,
+      validCount: 0,
+    };
+  }
+
+  // Prevent buffer overflow from extremely long inputs
+  if (input.length > 10000) {
+    return {
+      validEmails: [],
+      invalidEntries: ["Input exceeds maximum length"],
+      totalEntries: 1,
       validCount: 0,
     };
   }

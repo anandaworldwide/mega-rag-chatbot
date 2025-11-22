@@ -5,6 +5,7 @@ import { firestoreQueryGet, firestoreUpdate } from "@/utils/server/firestoreRetr
 import { requireSuperuserRoleFromFirestore } from "@/utils/server/authz";
 import { withJwtAuth } from "@/utils/server/jwtUtils";
 import firebase from "firebase-admin";
+import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
 
 interface DeleteRequest {
   newsletterId: string;
@@ -76,14 +77,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse<DeleteResponse 
       message: `Successfully deleted ${totalDeleted} pending queue items`,
     });
   } catch (error: any) {
-    console.error("Error deleting newsletter queue:", error);
+    // Log sanitized error (prevents API key leakage)
+    console.error("Error deleting newsletter queue:", error instanceof Error ? error.name : "Unknown error");
+    
     // Handle authorization errors separately
     if (error.message?.includes("Unauthorized") || error.message?.includes("Superuser")) {
       return res.status(403).json({
         error: "Forbidden: Superuser privileges required",
       });
     }
-    return res.status(500).json({ error: error.message || "Failed to delete queue items" });
+    
+    // Return safe error message (no sensitive details)
+    const safeMessage = getSafeErrorMessage(error, "Failed to delete queue items");
+    return res.status(500).json({ error: safeMessage });
   }
 }
 
