@@ -8,6 +8,7 @@ import { getAnswersCollectionName } from "@/utils/server/firestoreUtils";
 import { db } from "@/services/firebase";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { withJwtAuth } from "@/utils/server/jwtUtils";
+import firebase from "firebase-admin";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "PATCH") {
@@ -47,7 +48,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       tx.update(docRef, {
         answer: response,
         modelUsed: modelUsed || "gpt-4.1",
-        updatedAt: new Date(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
         updatedVia: "inline_comparison",
       });
     });

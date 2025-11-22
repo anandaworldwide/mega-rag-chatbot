@@ -82,7 +82,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // Otherwise, set the new action and timestamp
         tx.update(docRef, {
           adminAction: action,
-          adminActionTimestamp: new Date(),
+          adminActionTimestamp: firebase.firestore.FieldValue.serverTimestamp(),
         });
       }
     });

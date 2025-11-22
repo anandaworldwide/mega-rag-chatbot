@@ -10,7 +10,7 @@ import { getAnswersCollectionName } from "@/utils/server/firestoreUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { withJwtAuth } from "@/utils/server/jwtUtils";
-import { FieldValue } from "firebase-admin/firestore";
+import firebase from "firebase-admin";
 import { setCorsHeaders, handleCorsOptions } from "@/utils/server/corsMiddleware";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 
@@ -118,15 +118,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           ...updateData,
           feedbackReason: reason,
           feedbackComment: comment || "",
-          feedbackTimestamp: new Date(),
+          feedbackTimestamp: firebase.firestore.FieldValue.serverTimestamp(),
         };
       } else if (vote === 1 || vote === 0) {
         // Clear feedback fields if vote is changed to upvote/neutral
         updateData = {
           ...updateData,
-          feedbackReason: FieldValue.delete(),
-          feedbackComment: FieldValue.delete(),
-          feedbackTimestamp: FieldValue.delete(),
+          feedbackReason: firebase.firestore.FieldValue.delete(),
+          feedbackComment: firebase.firestore.FieldValue.delete(),
+          feedbackTimestamp: firebase.firestore.FieldValue.delete(),
         };
       }
 

@@ -265,14 +265,14 @@ describe("AuthGuard", () => {
       });
     });
 
-    it("handles browser session restoration with isLoggedIn cookie", async () => {
+    it("handles browser session restoration with authToken cookie", async () => {
       // Mock successful token refresh after retries
       (initializeTokenManager as jest.Mock).mockResolvedValue(undefined);
       (isAuthenticated as jest.Mock).mockReturnValue(false); // Initial check
       (isAuthenticated as jest.Mock).mockReturnValueOnce(true); // After refresh
 
       // Set up auth cookies by directly setting document.cookie
-      document.cookie = "isLoggedIn=true";
+      document.cookie = "authToken=mock-jwt-token";
 
       render(
         <AuthGuard siteConfig={mockSiteConfig}>
@@ -288,12 +288,12 @@ describe("AuthGuard", () => {
       expect(initializeTokenManager).toHaveBeenCalled();
     });
 
-    it("handles browser session restoration with siteAuth cookie", async () => {
+    it("handles browser session restoration with authToken cookie", async () => {
       (initializeTokenManager as jest.Mock).mockResolvedValue(undefined);
       (isAuthenticated as jest.Mock).mockReturnValue(false);
       (isAuthenticated as jest.Mock).mockReturnValueOnce(true);
 
-      document.cookie = "siteAuth=valid-token";
+      document.cookie = "authToken=valid-jwt-token";
 
       render(
         <AuthGuard siteConfig={mockSiteConfig}>
@@ -333,7 +333,7 @@ describe("AuthGuard", () => {
       (initializeTokenManager as jest.Mock).mockResolvedValue(undefined);
       (isAuthenticated as jest.Mock).mockReturnValue(true);
 
-      document.cookie = "isLoggedIn=true";
+      document.cookie = "authToken=mock-jwt-token";
 
       render(
         <AuthGuard siteConfig={mockSiteConfig}>
@@ -352,7 +352,7 @@ describe("AuthGuard", () => {
     it("does not attempt restoration for sites without login requirement", async () => {
       const noLoginSiteConfig = { ...mockSiteConfig, requireLogin: false };
 
-      document.cookie = "isLoggedIn=true";
+      document.cookie = "authToken=mock-jwt-token";
 
       render(
         <AuthGuard siteConfig={noLoginSiteConfig}>

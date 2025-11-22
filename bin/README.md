@@ -108,11 +108,6 @@ Uploads environment variables from a site-specific `.env.<site>` file to GitHub 
 environments (Preview and Production for a given site) or repository-level secrets. Handles multiline values and creates
 environments if they don't exist.
 
-### `generateHashedPassword.js`
-
-A Node.js script to generate a bcrypt-hashed password and the current timestamp. It takes a plain-text password as a
-command-line argument and outputs environment variable strings for `SITE_PASSWORD` and `LAST_PASSWORD_CHANGE_TIMESTAMP`.
-
 ### `generateRandomQA.js`
 
 Generates random Question/Answer pairs and saves them to a JSON file. This is likely used for testing or seeding data.

@@ -90,7 +90,7 @@ async function fetchNewToken(): Promise<string> {
       if (
         response.status === 401 &&
         (window.location.pathname === "/login" ||
-          (window.location.pathname === "/magic-login" && !document.cookie.includes("isLoggedIn=true")))
+          (window.location.pathname === "/magic-login" && !document.cookie.includes("authToken=")))
       ) {
         console.log("No authentication on login page - this is expected");
         // Return an empty placeholder token for the login page
@@ -143,7 +143,7 @@ async function fetchNewToken(): Promise<string> {
     // BUT: After magic login succeeds, we should have valid cookies, so don't use placeholder
     if (
       window.location.pathname === "/login" ||
-      (window.location.pathname === "/magic-login" && !document.cookie.includes("isLoggedIn=true"))
+      (window.location.pathname === "/magic-login" && !document.cookie.includes("authToken="))
     ) {
       console.log("Token fetch failed on login page, using placeholder token");
       const placeholderToken = "login-page-placeholder";
@@ -176,11 +176,13 @@ export async function initializeTokenManager(): Promise<string> {
 
   // For browser session restoration scenarios (mobile or desktop reboot), always force a fresh token fetch
   // if we detect that we might be in a restored session (no in-memory token but auth cookies exist)
+  // TODO: Remove migration bridge after June 2026 - only check authToken
+  // Check for both new authToken and legacy auth/isLoggedIn cookies during migration
   const hasAuthCookies =
     typeof document !== "undefined" &&
-    (document.cookie.includes("isLoggedIn=true") ||
-      document.cookie.includes("siteAuth=") ||
-      document.cookie.includes("auth="));
+    (document.cookie.includes("authToken=") ||
+      document.cookie.includes("auth=") ||
+      document.cookie.includes("isLoggedIn=true"));
 
   if (!tokenData && hasAuthCookies) {
     console.log("Browser session restoration detected - forcing fresh token fetch");

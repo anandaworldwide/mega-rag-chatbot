@@ -20,6 +20,7 @@
 import { NextApiRequest, NextApiResponse } from "next";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import jwt from "jsonwebtoken";
+import Cookies from "cookies";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { verifyToken } from "@/utils/server/jwtUtils";
@@ -27,6 +28,7 @@ import { db } from "@/services/firebase";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreGet } from "@/utils/server/firestoreRetryUtils";
 import { PUBLIC_PATHS } from "@/config/publicPaths";
+import { isDevelopment } from "@/utils/env";
 
 /**
  * API handler for the web token endpoint
@@ -67,10 +69,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Either check authentication if login is required, or skip if it's a public JWT path
     if (loginRequired && !isPublicJwtPath) {
-      // Only accept JWT auth cookies when requireLogin is true - no legacy siteAuth fallback
+      // TODO: Remove migration bridge after June 2026
+      // Check for both new authToken and legacy auth cookies for migration compatibility
+      const authToken = req.cookies["authToken"];
       const authJwt = req.cookies["auth"];
 
-      if (authJwt) {
+      // Prefer authToken, fall back to auth cookie
+      const tokenToVerify = authToken || authJwt;
+
+      if (tokenToVerify) {
         // Verify the JWT token
         try {
           const jwtSecret = process.env.SECURE_TOKEN;
@@ -80,7 +87,28 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           }
 
           // Verify the JWT token
-          jwt.verify(authJwt, jwtSecret);
+          jwt.verify(tokenToVerify, jwtSecret);
+
+          // TODO: Remove migration bridge after June 2026
+          // Migration: If we have auth cookie but no authToken, migrate it
+          // This is a silent migration - if it fails, continue anyway
+          try {
+            if (authJwt && !authToken && res) {
+              const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
+              const cookies = new Cookies(req, res, { secure: isSecure });
+              cookies.set("authToken", authJwt, {
+                httpOnly: true,
+                secure: isSecure,
+                sameSite: "lax",
+                maxAge: 180 * 24 * 60 * 60 * 1000, // 180 days
+                path: "/",
+              });
+            }
+          } catch (migrationError) {
+            // Silently fail migration - user can still use auth cookie
+            console.warn("Failed to migrate auth cookie to authToken:", migrationError);
+          }
+
           // JWT is valid, proceed to token generation
         } catch (jwtError) {
           return res.status(401).json({ error: "Invalid authentication" });
@@ -102,8 +130,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       iat: Math.floor(Date.now() / 1000),
     };
 
-    // Check for auth cookie and add user info if present and valid
-    const authCookie = req.cookies?.["auth"];
+    // TODO: Remove migration bridge after June 2026 - only check authToken
+    // Check for authToken or legacy auth cookie and add user info if present and valid
+    const authCookie = req.cookies?.["authToken"] || req.cookies?.["auth"];
     if (authCookie) {
       try {
         const userPayload = verifyToken(authCookie) as any;

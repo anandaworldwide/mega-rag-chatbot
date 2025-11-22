@@ -59,7 +59,13 @@ export default function AuthGuard({ children, siteConfig }: AuthGuardProps) {
           setAuthChecked(true);
         } else {
           // Check if we have authentication cookies (for mobile browser restoration scenarios)
-          const hasAuthCookie = document.cookie.includes("isLoggedIn=true") || document.cookie.includes("siteAuth=");
+          // TODO: Remove migration bridge after June 2026 - only check authToken
+          // Check for both new authToken and legacy auth/isLoggedIn cookies during migration
+          // TODO: Remove migration bridge after June 2026 - only check authToken
+          const hasAuthCookie =
+            document.cookie.includes("authToken=") ||
+            document.cookie.includes("auth=") ||
+            document.cookie.includes("isLoggedIn=true");
 
           if (hasAuthCookie) {
             // User has auth cookies but no in-memory token (browser session restoration)
@@ -128,10 +134,7 @@ export default function AuthGuard({ children, siteConfig }: AuthGuardProps) {
     const handleWindowFocus = async () => {
       // Only attempt refresh if we're not authenticated but should be
       if (!userAuthenticated && authChecked && siteConfig?.requireLogin) {
-        const hasAuthCookie =
-          document.cookie.includes("isLoggedIn=true") ||
-          document.cookie.includes("siteAuth=") ||
-          document.cookie.includes("auth=");
+        const hasAuthCookie = document.cookie.includes("authToken=") || document.cookie.includes("auth=");
 
         if (hasAuthCookie) {
           console.log("Window focus detected with auth cookies - refreshing token");

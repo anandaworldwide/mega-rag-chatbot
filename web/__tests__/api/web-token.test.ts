@@ -196,7 +196,7 @@ describe("/api/web-token", () => {
     // Site requires login
     (loadSiteConfigSync as jest.Mock).mockReturnValue({ requireLogin: true });
 
-    // Provide JWT cookie
+    // Provide JWT cookie (legacy auth cookie)
     (req as any).cookies = { auth: "valid-jwt-cookie" };
 
     // jwt.verify should succeed

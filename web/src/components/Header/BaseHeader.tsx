@@ -1,7 +1,6 @@
 import React from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import Cookies from "js-cookie";
 import { useState, useEffect } from "react";
 import { logEvent } from "@/utils/client/analytics";
 import { HeaderConfig } from "@/types/siteConfig";
@@ -38,17 +37,32 @@ export default function BaseHeader({
   helpUrl,
 }: BaseHeaderProps) {
   const router = useRouter();
-  // Fast initial state from non-HttpOnly cookie to avoid flicker; will be reconciled after init
-  const [isLoggedIn, setIsLoggedIn] = useState(() => Cookies.get("isLoggedIn") === "true");
+  // Fast initial state from cookie presence to avoid flicker; will be reconciled after init
+  // TODO: Remove migration bridge after June 2026 - only check authToken
+  // Check for both new authToken and legacy auth/isLoggedIn cookies during migration
+  const [isLoggedIn, setIsLoggedIn] = useState(() => {
+    if (typeof document === "undefined") return false;
+    return (
+      document.cookie.includes("authToken=") ||
+      document.cookie.includes("auth=") ||
+      document.cookie.includes("isLoggedIn=true")
+    );
+  });
   const [authReady, setAuthReady] = useState(false);
   const isActive = (pathname: string) => router.pathname === pathname;
 
   // Keep auth state in sync without extra network calls
   useEffect(() => {
     const updateAuthState = () => {
-      const cookieLoggedIn = Cookies.get("isLoggedIn") === "true";
+      // TODO: Remove migration bridge after June 2026 - only check authToken
+      // Check for both new authToken and legacy auth/isLoggedIn cookies during migration
+      const hasAuthCookie =
+        typeof document !== "undefined" &&
+        (document.cookie.includes("authToken=") ||
+          document.cookie.includes("auth=") ||
+          document.cookie.includes("isLoggedIn=true"));
       const tokenAuthenticated = isAuthenticated();
-      setIsLoggedIn(tokenAuthenticated || cookieLoggedIn);
+      setIsLoggedIn(tokenAuthenticated || hasAuthCookie);
     };
 
     // Trigger (deduped) auth initialization so we can reflect JWT state
@@ -68,11 +82,17 @@ export default function BaseHeader({
 
     // Enhanced focus handler for mobile browser restoration
     const handleFocus = async () => {
-      const cookieLoggedIn = Cookies.get("isLoggedIn") === "true";
+      // TODO: Remove migration bridge after June 2026 - only check authToken
+      // Check for both new authToken and legacy auth/isLoggedIn cookies during migration
+      const hasAuthCookie =
+        typeof document !== "undefined" &&
+        (document.cookie.includes("authToken=") ||
+          document.cookie.includes("auth=") ||
+          document.cookie.includes("isLoggedIn=true"));
       const tokenAuthenticated = isAuthenticated();
 
       // If we have cookies but no token (mobile browser restoration scenario)
-      if (cookieLoggedIn && !tokenAuthenticated) {
+      if (hasAuthCookie && !tokenAuthenticated) {
         console.log("BaseHeader: Mobile browser restoration detected - refreshing token");
         try {
           await initializeTokenManager();

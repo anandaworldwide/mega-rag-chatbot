@@ -2,7 +2,6 @@
 // Creates a pending user with basic entitlements and sends activation email (14 days) on success.
 import type { NextApiRequest, NextApiResponse } from "next";
 import firebase from "firebase-admin";
-import bcrypt from "bcryptjs";
 import { db } from "@/services/firebase";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
@@ -26,10 +25,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (!db) return res.status(503).json({ error: "Database not available" });
 
-  const { email, sharedPassword } = req.body as { email?: string; sharedPassword?: string };
+  const { email } = req.body as { email?: string };
   if (!email || typeof email !== "string") return res.status(400).json({ error: "Invalid email" });
 
-  // Check if domain is whitelisted (skip password requirement)
   const siteId = process.env.SITE_ID;
   if (!siteId) {
     return res.status(500).json({ error: "SITE_ID environment variable is not configured" });
@@ -37,19 +35,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const isWhitelisted = await isEmailDomainWhitelisted(email, siteId);
 
   if (!isWhitelisted) {
-    // Not whitelisted - require password
-    if (!sharedPassword || typeof sharedPassword !== "string") return res.status(400).json({ error: "Invalid password" });
-
-    const sharedHash = process.env.SITE_PASSWORD;
-    if (!sharedHash) return res.status(500).json({ error: "Server misconfiguration" });
-
-    const ok = await bcrypt.compare(sharedPassword, sharedHash);
-    if (!ok) {
-      await writeAuditLog(req, "self_provision_attempt", email?.toLowerCase?.(), {
-        outcome: "invalid_password",
-      });
-      return res.status(403).json({ error: "Incorrect password" });
-    }
+    await writeAuditLog(req, "self_provision_attempt", email?.toLowerCase?.(), {
+      outcome: "non_whitelisted_request",
+    });
+    return res.status(200).json({ message: "requires_admin_approval" });
   }
 
   const usersCol = getUsersCollectionName();
@@ -74,9 +63,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       );
       await sendActivationEmail(email, token, req);
       await writeAuditLog(req, "self_provision_attempt", email.toLowerCase(), {
-        outcome: isWhitelisted ? "resent_pending_activation_whitelisted" : "resent_pending_activation",
+        outcome: "resent_pending_activation_whitelisted",
       });
-      return res.status(200).json({ message: "activation-resent", isWhitelisted });
+      return res.status(200).json({ message: "activation-resent" });
     }
 
     // Create pending user with basic entitlements
@@ -101,9 +90,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     );
     await sendActivationEmail(email, token, req);
     await writeAuditLog(req, "self_provision_attempt", email.toLowerCase(), {
-      outcome: isWhitelisted ? "created_pending_user_whitelisted" : "created_pending_user",
+      outcome: "created_pending_user_whitelisted",
     });
-    return res.status(200).json({ message: "created", isWhitelisted });
+    return res.status(200).json({ message: "created" });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
     try {

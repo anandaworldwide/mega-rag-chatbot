@@ -132,9 +132,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         path: "/",
       });
 
-      // Set isLoggedIn cookie for header component compatibility
-      cookies.set("isLoggedIn", "true", {
-        httpOnly: false,
+      // TODO: Remove migration bridge after June 2026 - only set authToken
+      // Set both auth and authToken cookies during migration period
+      // auth: legacy cookie for backward compatibility
+      cookies.set("auth", authToken, {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: isSecure,
+        maxAge: 180 * 24 * 60 * 60 * 1000,
+        path: "/",
+      });
+      // authToken: new cookie name
+      cookies.set("authToken", authToken, {
+        httpOnly: true,
         sameSite: "lax",
         secure: isSecure,
         maxAge: 180 * 24 * 60 * 60 * 1000,

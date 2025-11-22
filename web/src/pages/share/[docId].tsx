@@ -131,10 +131,7 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
 
       const authStatus = isAuthenticated();
 
-      // Double-check with cookie presence
-      const hasAuthCookie = typeof document !== "undefined" && document.cookie.includes("isLoggedIn=true");
-
-      setIsLoggedIn(authStatus && hasAuthCookie);
+      setIsLoggedIn(authStatus);
     };
     checkAuth();
   }, []);
