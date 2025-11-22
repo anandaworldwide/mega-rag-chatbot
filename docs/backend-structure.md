@@ -284,6 +284,11 @@ API endpoints are defined in `pages/api/` and `app/api/`. Most endpoints are pro
 - **`GET /api/stats`**, **`GET /api/downvotedAnswers`**, **`POST /api/adminAction`**
   - **Purpose:** Various endpoints for administrative tasks like viewing statistics, managing content.
   - **Auth:** Requires admin-level privileges (JWT validation).
+- **`POST /api/cron/download-locations`** (`pages/api/cron/download-locations.ts`)
+  - **Purpose:** Daily download and update of location data CSV from external source to S3.
+  - **Auth:** Requires Cron Secret or JWT authentication (hybrid auth).
+  - **Schedule:** Daily at 3:00 AM UTC (configured in `vercel.json`).
+  - **Logic:** Downloads CSV from `LOCATION_DATA_DOWNLOAD_URL` if defined, compares to existing S3 file (`site-config/location/${siteId}-locations.csv`), uploads if different. Sends ops alerts on updates or failures.
 
 **Middleware:**
 

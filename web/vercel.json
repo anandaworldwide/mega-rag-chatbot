@@ -7,6 +7,10 @@
     {
       "path": "/api/admin/cleanupExpiredInvitations",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/cron/download-locations",
+      "schedule": "0 3 * * *"
     }
   ],
   "buildCommand": "npm install dotenv && npm install --include=dev && npm run build-with-api-tests",

@@ -38,8 +38,8 @@ export default function BaseHeader({
 }: BaseHeaderProps) {
   const router = useRouter();
   // Fast initial state from cookie presence to avoid flicker; will be reconciled after init
-  // TODO: Remove migration bridge after June 2026 - only check authToken
-  // Check for both new authToken and legacy auth/isLoggedIn cookies during migration
+  // TODO: Remove migration bridge after June 2026 - during bridge, check legacy isLoggedIn for pre-migration sessions
+  // Check for authToken (new), auth (legacy HttpOnly), or isLoggedIn (old non-HttpOnly) during migration
   const [isLoggedIn, setIsLoggedIn] = useState(() => {
     if (typeof document === "undefined") return false;
     return (
@@ -54,8 +54,8 @@ export default function BaseHeader({
   // Keep auth state in sync without extra network calls
   useEffect(() => {
     const updateAuthState = () => {
-      // TODO: Remove migration bridge after June 2026 - only check authToken
-      // Check for both new authToken and legacy auth/isLoggedIn cookies during migration
+      // TODO: Remove migration bridge after June 2026 - during bridge, check legacy isLoggedIn for pre-migration sessions
+      // Check for authToken (new), auth (legacy HttpOnly), or isLoggedIn (old non-HttpOnly) during migration
       const hasAuthCookie =
         typeof document !== "undefined" &&
         (document.cookie.includes("authToken=") ||
@@ -82,8 +82,8 @@ export default function BaseHeader({
 
     // Enhanced focus handler for mobile browser restoration
     const handleFocus = async () => {
-      // TODO: Remove migration bridge after June 2026 - only check authToken
-      // Check for both new authToken and legacy auth/isLoggedIn cookies during migration
+      // TODO: Remove migration bridge after June 2026 - during bridge, check legacy isLoggedIn for pre-migration sessions
+      // Check for authToken (new), auth (legacy HttpOnly), or isLoggedIn (old non-HttpOnly) during migration
       const hasAuthCookie =
         typeof document !== "undefined" &&
         (document.cookie.includes("authToken=") ||

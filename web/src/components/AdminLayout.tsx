@@ -289,6 +289,19 @@ export function AdminLayout({ siteConfig, children, pageTitle }: AdminLayoutProp
               <span className="material-icons text-sm mr-2">trending_up</span>
               Statistics
             </Link>
+            {isSuperuser && (
+              <Link
+                href="/admin/cron-jobs"
+                className={`flex items-center px-3 py-2 text-sm rounded-md ${
+                  router.pathname === "/admin/cron-jobs"
+                    ? "bg-blue-100 text-blue-700 font-semibold"
+                    : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                }`}
+              >
+                <span className="material-icons text-sm mr-2">schedule</span>
+                Trigger Cron Jobs
+              </Link>
+            )}
           </nav>
         </div>
       </div>

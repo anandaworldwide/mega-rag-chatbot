@@ -59,9 +59,8 @@ export default function AuthGuard({ children, siteConfig }: AuthGuardProps) {
           setAuthChecked(true);
         } else {
           // Check if we have authentication cookies (for mobile browser restoration scenarios)
-          // TODO: Remove migration bridge after June 2026 - only check authToken
-          // Check for both new authToken and legacy auth/isLoggedIn cookies during migration
-          // TODO: Remove migration bridge after June 2026 - only check authToken
+          // TODO: Remove migration bridge after June 2026 - during bridge, check legacy isLoggedIn for pre-migration sessions
+          // Check for authToken (new), auth (legacy HttpOnly), or isLoggedIn (old non-HttpOnly) during migration
           const hasAuthCookie =
             document.cookie.includes("authToken=") ||
             document.cookie.includes("auth=") ||

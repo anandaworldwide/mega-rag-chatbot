@@ -27,6 +27,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       expires: new Date(0),
       path: "/",
     });
+    // Clear legacy isLoggedIn cookie during migration bridge
     cookies.set("isLoggedIn", "", {
       expires: new Date(0),
       path: "/",

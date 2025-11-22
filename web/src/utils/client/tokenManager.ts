@@ -74,6 +74,15 @@ function isTokenValid(): boolean {
  * Fetch a new token from the server
  */
 async function fetchNewToken(): Promise<string> {
+  // Helper function to detect any auth cookie presence for migration bridge
+  function hasAnyAuthCookie(): boolean {
+    return (
+      document.cookie.includes("authToken=") ||
+      document.cookie.includes("auth=") ||
+      document.cookie.includes("isLoggedIn=true")
+    );
+  }
+
   try {
     // Include the full URL as Referer so web-token endpoint can identify special cases
     // such as audio files and contact form that need JWT but not siteAuth
@@ -90,7 +99,8 @@ async function fetchNewToken(): Promise<string> {
       if (
         response.status === 401 &&
         (window.location.pathname === "/login" ||
-          (window.location.pathname === "/magic-login" && !document.cookie.includes("authToken=")))
+          (window.location.pathname === "/magic-login" && !hasAnyAuthCookie())
+        )
       ) {
         console.log("No authentication on login page - this is expected");
         // Return an empty placeholder token for the login page
@@ -143,7 +153,7 @@ async function fetchNewToken(): Promise<string> {
     // BUT: After magic login succeeds, we should have valid cookies, so don't use placeholder
     if (
       window.location.pathname === "/login" ||
-      (window.location.pathname === "/magic-login" && !document.cookie.includes("authToken="))
+      (window.location.pathname === "/magic-login" && !hasAnyAuthCookie())
     ) {
       console.log("Token fetch failed on login page, using placeholder token");
       const placeholderToken = "login-page-placeholder";
@@ -158,6 +168,8 @@ async function fetchNewToken(): Promise<string> {
     throw error;
   }
 }
+
+// TODO: Post-bridge (June 2026), simplify hasAnyAuthCookie() to check only authToken presence (drop legacy ORs for auth and isLoggedIn)
 
 /**
  * Initialize the token manager and fetch the first token
@@ -176,8 +188,8 @@ export async function initializeTokenManager(): Promise<string> {
 
   // For browser session restoration scenarios (mobile or desktop reboot), always force a fresh token fetch
   // if we detect that we might be in a restored session (no in-memory token but auth cookies exist)
-  // TODO: Remove migration bridge after June 2026 - only check authToken
-  // Check for both new authToken and legacy auth/isLoggedIn cookies during migration
+  // TODO: Remove migration bridge after June 2026 - during bridge, check legacy isLoggedIn for pre-migration sessions
+  // Check for authToken (new), auth (legacy HttpOnly), or isLoggedIn (old non-HttpOnly) during migration
   const hasAuthCookies =
     typeof document !== "undefined" &&
     (document.cookie.includes("authToken=") ||
