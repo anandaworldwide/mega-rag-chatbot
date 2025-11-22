@@ -82,18 +82,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Determine the new star state
     const newStarState = action === "star";
 
-    // Batch update all documents in the conversation
-    const batch = db.batch();
+    // Use transaction to prevent race conditions when multiple star/unstar operations happen simultaneously
+    // Note: Batch writes are atomic but not transactional - transactions provide better consistency
     const batchSize = conversationDocs.docs.length;
 
-    conversationDocs.docs.forEach((doc: firebase.firestore.QueryDocumentSnapshot) => {
-      batch.update(doc.ref, {
-        isStarred: newStarState,
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    await (db as NonNullable<typeof db>).runTransaction(async (tx) => {
+      // PHASE 1: ALL READS FIRST (Firestore transaction requirement)
+      // Re-read all documents in transaction to ensure consistency
+      const docRefs = conversationDocs.docs.map((doc: firebase.firestore.QueryDocumentSnapshot) => doc.ref);
+      const docSnaps = await Promise.all(docRefs.map((ref: firebase.firestore.DocumentReference) => tx.get(ref)));
+
+      // Verify all documents still exist
+      for (const snap of docSnaps) {
+        if (!snap.exists) {
+          throw new Error("Conversation document not found");
+        }
+      }
+
+      // PHASE 2: ALL WRITES AFTER ALL READS
+      docRefs.forEach((ref: firebase.firestore.DocumentReference) => {
+        tx.update(ref, {
+          isStarred: newStarState,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        });
       });
     });
-
-    await batch.commit();
 
     // Log the operation
     console.log(`Conversation ${action}red: ${convId} (${batchSize} documents) by ${userPayload.email}`);

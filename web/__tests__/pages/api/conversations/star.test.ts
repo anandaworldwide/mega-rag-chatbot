@@ -294,9 +294,17 @@ describe("/api/conversations/star", () => {
     });
 
     it("should successfully star a conversation", async () => {
-      // Mock conversation documents
-      const mockDoc1 = { ref: { id: "doc1" } };
-      const mockDoc2 = { ref: { id: "doc2" } };
+      // Mock conversation documents with refs
+      const mockDoc1 = {
+        ref: { id: "doc1", path: "test_answers/doc1" },
+        exists: true,
+        data: () => ({ isStarred: false }),
+      };
+      const mockDoc2 = {
+        ref: { id: "doc2", path: "test_answers/doc2" },
+        exists: true,
+        data: () => ({ isStarred: false }),
+      };
       const mockDocs = [mockDoc1, mockDoc2];
 
       mockFirestoreQueryGet.mockResolvedValue({
@@ -304,17 +312,18 @@ describe("/api/conversations/star", () => {
         docs: mockDocs,
       });
 
-      // Mock batch operations
-      const mockBatch = {
+      // Mock transaction operations
+      const mockTransaction = {
+        get: jest
+          .fn()
+          .mockResolvedValueOnce(mockDoc1) // First doc read
+          .mockResolvedValueOnce(mockDoc2), // Second doc read
         update: jest.fn(),
-        commit: jest.fn().mockResolvedValue(undefined),
       };
-      const mockCollection = jest.fn().mockReturnThis();
-      const mockWhere = jest.fn().mockReturnThis();
-      mockDb.collection = mockCollection;
-      mockDb.batch = jest.fn().mockReturnValue(mockBatch);
-      mockCollection.mockReturnValue({ where: mockWhere });
-      mockWhere.mockReturnValue({ where: mockWhere });
+
+      mockDb.runTransaction = jest.fn().mockImplementation(async (fn) => {
+        return await fn(mockTransaction);
+      });
 
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "POST",
@@ -335,9 +344,9 @@ describe("/api/conversations/star", () => {
         documentsUpdated: 2,
       });
 
-      // Verify batch operations were called correctly
-      expect(mockBatch.update).toHaveBeenCalledTimes(2);
-      expect(mockBatch.commit).toHaveBeenCalledTimes(1);
+      // Verify transaction operations were called correctly
+      expect(mockTransaction.get).toHaveBeenCalledTimes(2);
+      expect(mockTransaction.update).toHaveBeenCalledTimes(2);
     });
   });
 });

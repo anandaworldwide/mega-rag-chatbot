@@ -52,11 +52,45 @@ jest.mock("@/utils/server/auditLog", () => ({
   writeAuditLog: jest.fn(),
 }));
 
-// Minimal DB mock with internal state
+// Minimal DB mock with internal state and transaction support
 jest.mock("@/services/firebase", () => {
   const __docMap: Record<string, any> = {};
+  const runTransaction = async (fn: any) => {
+    const db = {
+      collection: (name: string) => ({
+        __name: name,
+        doc: (id: string) => ({
+          __id: id,
+          get: async () => {
+            const entry = __docMap[id];
+            if (entry === undefined) return { exists: false, data: () => ({}) };
+            return { exists: true, data: () => entry };
+          },
+          set: async (data: any, options?: any) => {
+            if (options?.merge) {
+              __docMap[id] = { ...(__docMap[id] || {}), ...data };
+            } else {
+              __docMap[id] = data;
+            }
+          },
+        }),
+      }),
+    } as any;
+    return fn({
+      get: async (docRef: any) =>
+        db
+          .collection(docRef._colName || "test_users")
+          .doc(docRef._id || docRef.id)
+          .get(),
+      set: (docRef: any, data: any, options?: any) => {
+        const doc = db.collection(docRef._colName || "test_users").doc(docRef._id || docRef.id);
+        return doc.set(data, options);
+      },
+    });
+  };
   const db = {
     __docMap,
+    runTransaction,
     collection: (name: string) => ({
       __name: name,
       doc: (id: string) => ({
@@ -93,6 +127,13 @@ describe("/api/admin/users/[userId] role change authorization", () => {
 
     // Target user id
     const targetEmail = "target@example.com";
+
+    // Pre-populate the user in the mock database
+    const mockDb = jest.requireMock("@/services/firebase").db;
+    mockDb.__docMap[targetEmail] = {
+      email: targetEmail,
+      role: "user",
+    };
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "PATCH",
