@@ -1,321 +1,638 @@
 {
   "metadata": {
-    "created_at": "2025-11-19T11:20:43",
+    "created_at": "2025-11-21T19:09:41",
     "evaluation_type": "reranking_comparison",
-    "total_evaluations": 31,
-    "source_judgments": "unknown",
-    "reranked_results": "2025-11-19 11:20:42"
+    "total_evaluations": 57,
+    "source_judgments": "2025-06-30T16:42:39.594447",
+    "reranked_results": "2025-11-21 19:09:40"
   },
   "evaluations": {
-    "3MJP0knZgSkIHCyn8aIn_doc0_Baseline": {
-      "score": 2,
-      "doc_score": 0.622449875,
-      "timestamp": 1750470044.8907468,
-      "query_id": "3MJP0knZgSkIHCyn8aIn",
-      "query_text": "is energy intelligent",
-      "doc_id": "audio||Treasures||audio||building-spiritual-power-against-troubled-times-1-||Swami Kriyananda||774628c1||5",
-      "system": "Baseline",
-      "document_text": "intelligence, but it's more than intelligence, it's energy. People who are able to put tremendous energy into what they're doing are those who accomplish things. There are some people with very high IQs who never accomplish anything. Some people with mediocre IQs who really rate as geniuses in terms of their accomplishment because of energy. But indeed, energy also enlivens the brain and creates intelligence. You will find that basically the difference between a very intelligent person and a stupid person is the amount of energy that they manifest. You see a stupid person and he always sort of looks dull, and a genius may be able to fake stupidity, but a stupid person couldn't fake genius. So, whereas there are some people who have very high intelligence, but somehow their energy is limited to the brain, those who are able to bring that energy out are the ones who are able to accomplish things. Energy is that which enlightens the mind"
-    },
     "3MJP0knZgSkIHCyn8aIn_doc1_Baseline": {
       "score": 3,
       "doc_score": 0.609886169,
-      "timestamp": 1750470071.524269,
+      "timestamp": "2025-06-30T16:42:39.659550",
       "query_id": "3MJP0knZgSkIHCyn8aIn",
       "query_text": "is energy intelligent",
       "doc_id": "audio||The Bhaktan Files||audio||Week 01 - 05||Swami Kriyananda (J.||b0b625d2||2",
       "system": "Baseline",
-      "document_text": "what if that, what if the other? They don't realize that energy has its own intelligence and if they're always brooding on worry, what if this, what if that, they're likely to attract something they don't want as opposed to something they do want. The important thing is that God created this physical world, this material universe, out of energy, and that energy has intelligence. It takes intelligence for the energy in your body to take the food from your intestines and direct it towards specific functions so that the molecules take on particular forms, nails on the hand, hair on the head, soft tissue in the muscles, blood vessels, etc., etc. The same food goes out and performs all these different functions, takes on all these different forms because there is intelligence guiding them. And it isn't you who are guiding them, it isn't you who say, your own energy can certainly influence how that energy works so "
+      "document_text": "what if that, what if the other? They don't realize that energy has its own intelligence and if they're always brooding on worry, what if this, what if that, they're likely to attract something they don't want as opposed to something they do want. The important thing is that God created this physical world, this material universe, out of energy, and that energy has intelligence. It takes intelligence for the energy in your body to take the food from your intestines and direct it towards specific functions so that the molecules take on particular forms, nails on the hand, hair on the head, soft tissue in the muscles, blood vessels, etc., etc. The same food goes out and performs all these different functions, takes on all these different forms because there is intelligence guiding them. And it isn't you who are guiding them, it isn't you who say, your own energy can certainly influence how that energy works so ",
+      "judge": "Hriman"
+    },
+    "3MJP0knZgSkIHCyn8aIn_doc2_Baseline": {
+      "score": 2,
+      "doc_score": 0.609375,
+      "timestamp": "2025-06-30T16:42:39.659553",
+      "query_id": "3MJP0knZgSkIHCyn8aIn",
+      "query_text": "is energy intelligent",
+      "doc_id": "audio||Treasures||audio||Building Spiritual Power||Swami Kriyananda||a6ae23a2||5",
+      "system": "Baseline",
+      "document_text": "to put tremendous energy into what they're doing are those who accomplish things. There are some people with very high IQs who never accomplish anything. Some people with mediocre IQs who really rate as geniuses in terms of their accomplishment because of energy. But indeed, energy also enlivens the brain and creates intelligence. You will find that basically the difference between a very intelligent person and a stupid person is the amount of energy that they manifest. You see a stupid person and he always sort of looks dull, and a genius may be able to fake stupidity, but a stupid person couldn't fake genius. So, whereas there are some people who have very high intelligence, but somehow their energy is limited to the brain, those who are able to bring that energy out are the ones who are able to accomplish things. Energy is that which enlightens the mind. And as we approach the center of the galaxy, there's more energy pouring ",
+      "judge": "Hriman"
     },
     "3MJP0knZgSkIHCyn8aIn_doc3_Baseline": {
-      "score": 0,
+      "score": 3,
       "doc_score": 0.593658447,
-      "timestamp": 1750470117.696685,
+      "timestamp": "2025-06-30T16:42:39.659550",
       "query_id": "3MJP0knZgSkIHCyn8aIn",
       "query_text": "is energy intelligent",
       "doc_id": "audio||Treasures||audio||3B1 Patanjali's Ashtanga Yoga_The Eightfold Path||Swami Kriyananda||aacb09e8||10",
       "system": "Baseline",
-      "document_text": "aware. The degree of a person's intelligence always rests on the degree of energy that he has available for thinking. You will notice that highly intelligent people always have a great deal of mental energy. Almost you could say categorically that the difference between a dull person and a bright person is the degree of energy that he has in his body and in his mind. Always the difference between a great work of art and a mediocre work of art is the level of energy involved. You can pick up the average book and it's just lifeless. Pick up a play of Shakespeare's and read it and you find every character, even the characters that are supposedly dull, like Caliban in The Tempest, are magnificently dull. They're inspired in their dullness. There is just something that comes across when a great person does anything that is full of energy. And it may be of a lower type of energy if their greatness isn't "
+      "document_text": "aware. The degree of a person's intelligence always rests on the degree of energy that he has available for thinking. You will notice that highly intelligent people always have a great deal of mental energy. Almost you could say categorically that the difference between a dull person and a bright person is the degree of energy that he has in his body and in his mind. Always the difference between a great work of art and a mediocre work of art is the level of energy involved. You can pick up the average book and it's just lifeless. Pick up a play of Shakespeare's and read it and you find every character, even the characters that are supposedly dull, like Caliban in The Tempest, are magnificently dull. They're inspired in their dullness. There is just something that comes across when a great person does anything that is full of energy. And it may be of a lower type of energy if their greatness isn't ",
+      "judge": "Hriman"
     },
     "GAsQmuMh3czMdqTsbY6M_doc0_Baseline": {
-      "score": 0,
-      "doc_score": 0.492149353,
-      "timestamp": 1750519509.5999238,
+      "score": 2,
+      "doc_score": 0.492332458,
+      "timestamp": "2025-06-30T16:42:39.648183",
       "query_id": "GAsQmuMh3czMdqTsbY6M",
       "query_text": "No, not a prayer. I want you to write a prompt that I can give to an AI on the topic of meditating more deeply when I am feeling upset.",
       "doc_id": "audio||Treasures||audio||Creativity & Initiative||Swami Kriyananda||dcde4738||127",
       "system": "Baseline",
-      "document_text": "of attunement, yes. But by and large, if you sit there and say, God, give me a poem, he won't do it. Whereas if you have this feeling already started in yourself to write a poem about, let's say, the moonrise, in your meditation, God will help you, or your soul, your higher, your superconsciousness, will help you to write something about the moonrise that will be meaningful to this particular moment and to you, and to what you have to say. In other words, you've got to call in a specific way, and the more specifically you can call, the more you'll find that he will be able to give you an answer. So ask him in your meditation to solve particular problems. This is what I found in my writing, that as I, the more specific I am in my prayer, or in my search for guidance, the more specific "
+      "document_text": "of attunement, yes. But by and large, if you sit there and say, God, give me a poem, he won't do it. Whereas if you have this feeling already started in yourself to write a poem about, let's say, the moonrise, in your meditation, God will help you, or your soul, your higher, your superconsciousness, will help you to write something about the moonrise that will be meaningful to this particular moment and to you, and to what you have to say. In other words, you've got to call in a specific way, and the more specifically you can call, the more you'll find that he will be able to give you an answer. So ask him in your meditation to solve particular problems. This is what I found in my writing, that as I, the more specific I am in my prayer, or in my search for guidance, the more specific ",
+      "judge": "Hriman"
     },
     "GAsQmuMh3czMdqTsbY6M_doc1_Baseline": {
-      "score": 0,
-      "doc_score": 0.491165161,
-      "timestamp": 1750519533.379851,
+      "score": 1,
+      "doc_score": 0.491428375,
+      "timestamp": "2025-06-30T16:42:39.648169",
       "query_id": "GAsQmuMh3czMdqTsbY6M",
       "query_text": "No, not a prayer. I want you to write a prompt that I can give to an AI on the topic of meditating more deeply when I am feeling upset.",
       "doc_id": "audio||Treasures||audio||Principles of Healing Part Two||Swami Kriyananda||6c86d29c||57",
       "system": "Baseline",
-      "document_text": "a level deep enough to make the healing process work better if you're to generate it. But how to attune yourself with that? How to pray so that you can draw that power? How to pray so that you can know whether to draw that power? All of these are vitally important to the healing process. I remember writing a letter once, and I said something in the letter that I thought might be helpful, but I wasn't sure if it would be helpful. And so I asked for guidance, should I or should I not put this in the letter? And as soon as I asked for guidance, I felt this nervousness, sort of from the inside of my system, out through the nervous system. No, it's not right. And so I tore the letter up and rewrote it and didn't say that. I found that there is a certain kind of inner response coming from the superconscious level. And "
+      "document_text": "a level deep enough to make the healing process work better if you're to generate it. But how to attune yourself with that? How to pray so that you can draw that power? How to pray so that you can know whether to draw that power? All of these are vitally important to the healing process. I remember writing a letter once, and I said something in the letter that I thought might be helpful, but I wasn't sure if it would be helpful. And so I asked for guidance, should I or should I not put this in the letter? And as soon as I asked for guidance, I felt this nervousness, sort of from the inside of my system, out through the nervous system. No, it's not right. And so I tore the letter up and rewrote it and didn't say that. I found that there is a certain kind of inner response coming from the superconscious level. And ",
+      "judge": "Hriman"
     },
     "GAsQmuMh3czMdqTsbY6M_doc2_Baseline": {
-      "score": 0,
-      "doc_score": 0.482234955,
-      "timestamp": 1750519584.436813,
+      "score": 2,
+      "doc_score": 0.481994629,
+      "timestamp": "2025-06-30T16:42:39.648172",
       "query_id": "GAsQmuMh3czMdqTsbY6M",
       "query_text": "No, not a prayer. I want you to write a prompt that I can give to an AI on the topic of meditating more deeply when I am feeling upset.",
       "doc_id": "audio||Treasures||audio||14-sk-1st-kriya-class-kriya-central-reality-sat-19||Swami Kriyananda||f832ba50||44",
       "system": "Baseline",
-      "document_text": "on a seclusion day, yes, that's fine. But do Kriya whenever you have an opportunity to just sit there and be calm a little bit, just sort of as a reminder. Think of yourself as a divine alcoholic , who when no one is looking slips to the cupboard and opens up that secret little passage and. Can you speak more about the process of meditating on a given topic? I'm not sure I can touch all aspects of that question. You may have other aspects in mind, but essentially what I have experienced is what I was saying yesterday, trying to get to the center of whatever topic interests you. For example, well, if I'm writing a piece of music, first I get calm. My meditation is not thinking of a topic. My meditation is getting calm. But then if I have this piece of music I want to write, then I try to get to the center of what it is that I"
+      "document_text": "on a seclusion day, yes, that's fine. But do Kriya whenever you have an opportunity to just sit there and be calm a little bit, just sort of as a reminder. Think of yourself as a divine alcoholic , who when no one is looking slips to the cupboard and opens up that secret little passage and. Can you speak more about the process of meditating on a given topic? I'm not sure I can touch all aspects of that question. You may have other aspects in mind, but essentially what I have experienced is what I was saying yesterday, trying to get to the center of whatever topic interests you. For example, well, if I'm writing a piece of music, first I get calm. My meditation is not thinking of a topic. My meditation is getting calm. But then if I have this piece of music I want to write, then I try to get to the center of what it is that I",
+      "judge": "Hriman"
     },
     "GAsQmuMh3czMdqTsbY6M_doc3_Reranked": {
-      "score": 3,
+      "score": 2,
       "doc_score": 0.0024822766,
-      "timestamp": 1750519683.1981928,
+      "timestamp": "2025-06-30T16:42:39.648181",
       "query_id": "GAsQmuMh3czMdqTsbY6M",
       "query_text": "No, not a prayer. I want you to write a prompt that I can give to an AI on the topic of meditating more deeply when I am feeling upset.",
       "doc_id": "text||Ananda Library||db||Clarity Magazine Archives 2009-2015:: 2009 Summer ||Atman Goering||b9f6c5da||6",
       "system": "Reranked",
-      "document_text": "spiritual eye and pray for calmness. Look at a photo of the Guru, especially the Guru's eyes. If possible, change your environment so that you're disengaged from the outer stimulus that pushed you over the edge in the first place. Separate yourself from the person or persons who upset you. Unplug from the media so you're not reminded of the economic stresses that worry you, or the undefined fears of disaster that haunt your subconscious. Remove yourself from the surroundings that remind you of the loss of a pet or loved one. I have found that the calming techniques are usually more effective if I can get a little space from what upset me in the first place. Redirect the energy One of the problems I experienced in trying to draw on God's presence was that my efforts were plagued by low energy. My mind would get distracted, my prayers would be half-hearted, or I would slip into a subconscious state."
+      "document_text": "spiritual eye and pray for calmness. Look at a photo of the Guru, especially the Guru's eyes. If possible, change your environment so that you're disengaged from the outer stimulus that pushed you over the edge in the first place. Separate yourself from the person or persons who upset you. Unplug from the media so you're not reminded of the economic stresses that worry you, or the undefined fears of disaster that haunt your subconscious. Remove yourself from the surroundings that remind you of the loss of a pet or loved one. I have found that the calming techniques are usually more effective if I can get a little space from what upset me in the first place. Redirect the energy One of the problems I experienced in trying to draw on God's presence was that my efforts were plagued by low energy. My mind would get distracted, my prayers would be half-hearted, or I would slip into a subconscious state.",
+      "judge": "Hriman"
     },
     "GAsQmuMh3czMdqTsbY6M_doc4_Reranked": {
-      "score": 0,
+      "score": 2,
       "doc_score": 0.0013670255,
-      "timestamp": 1750519584.436813,
+      "timestamp": "2025-06-30T16:42:39.648172",
       "query_id": "GAsQmuMh3czMdqTsbY6M",
       "query_text": "No, not a prayer. I want you to write a prompt that I can give to an AI on the topic of meditating more deeply when I am feeling upset.",
       "doc_id": "audio||Treasures||audio||14-sk-1st-kriya-class-kriya-central-reality-sat-19||Swami Kriyananda||f832ba50||44",
       "system": "Reranked",
-      "document_text": "on a seclusion day, yes, that's fine. But do Kriya whenever you have an opportunity to just sit there and be calm a little bit, just sort of as a reminder. Think of yourself as a divine alcoholic , who when no one is looking slips to the cupboard and opens up that secret little passage and. Can you speak more about the process of meditating on a given topic? I'm not sure I can touch all aspects of that question. You may have other aspects in mind, but essentially what I have experienced is what I was saying yesterday, trying to get to the center of whatever topic interests you. For example, well, if I'm writing a piece of music, first I get calm. My meditation is not thinking of a topic. My meditation is getting calm. But then if I have this piece of music I want to write, then I try to get to the center of what it is that I"
+      "document_text": "on a seclusion day, yes, that's fine. But do Kriya whenever you have an opportunity to just sit there and be calm a little bit, just sort of as a reminder. Think of yourself as a divine alcoholic , who when no one is looking slips to the cupboard and opens up that secret little passage and. Can you speak more about the process of meditating on a given topic? I'm not sure I can touch all aspects of that question. You may have other aspects in mind, but essentially what I have experienced is what I was saying yesterday, trying to get to the center of whatever topic interests you. For example, well, if I'm writing a piece of music, first I get calm. My meditation is not thinking of a topic. My meditation is getting calm. But then if I have this piece of music I want to write, then I try to get to the center of what it is that I",
+      "judge": "Hriman"
     },
     "gjZZP3DLHkMKZAwDxFfl_doc2_Baseline": {
-      "score": 3,
+      "score": 2,
       "doc_score": 0.652887344,
-      "timestamp": 1750521724.456613,
+      "timestamp": "2025-09-20T12:35:01.797342",
       "query_id": "gjZZP3DLHkMKZAwDxFfl",
       "query_text": "Be Even-Minded and Cheerful",
       "doc_id": "text||Ananda Library||db||30 Day Essentials for Career:: Days 16-30||Jyotish Novak||d277d48c||19",
       "system": "Baseline",
-      "document_text": "If you become too elated over success or cast down by setbacks, you are certain to become moody; and since negative emotions are contagious, you can spoil your work environment. When you over-react, you take away the emotional space others need. The key to even-mindedness is to calm the reactive process. Catch yourself as soon as you start to react to a situation, while you still have time to control your mood swings. Control your mind with the immediate, decisive resolution to be even-minded and cheerful. It will help if you take time regularly to be quiet and to be in nature. Too much stimulation, like wind on a lake, creates ripples of turmoil in your mind. Remain even-minded in all circumstances, and you will be able to sail the ship of your life cheerfully over all seas, rough and calm alike. TRY THIS: Act, don't react. Be even-minded and cheerful no matter what happens. Day 27 - Gratitude"
+      "document_text": "If you become too elated over success or cast down by setbacks, you are certain to become moody; and since negative emotions are contagious, you can spoil your work environment. When you over-react, you take away the emotional space others need. The key to even-mindedness is to calm the reactive process. Catch yourself as soon as you start to react to a situation, while you still have time to control your mood swings. Control your mind with the immediate, decisive resolution to be even-minded and cheerful. It will help if you take time regularly to be quiet and to be in nature. Too much stimulation, like wind on a lake, creates ripples of turmoil in your mind. Remain even-minded in all circumstances, and you will be able to sail the ship of your life cheerfully over all seas, rough and calm alike. TRY THIS: Act, don't react. Be even-minded and cheerful no matter what happens. Day 27 - Gratitude",
+      "judge": "Badri"
+    },
+    "FDNqJL6kGszttSS4kVFy_doc0_Baseline": {
+      "score": 2,
+      "doc_score": 0.659357071,
+      "timestamp": "2025-07-10T09:44:05.724152",
+      "query_id": "FDNqJL6kGszttSS4kVFy",
+      "query_text": "What are some suggestions for people (esp. beginners) who may not see the spiritual eye perfectly?",
+      "doc_id": "text||Ananda Library||db||Rarely Offered Teachings of PY-Class 6 of 6-Spirit||Dambara Begley||fc5a86e4||14",
+      "system": "Baseline",
+      "document_text": "be able to see it. Deep relaxation, not straining to see it, is a key. 5) Keep your attention there all the time, not just when meditating. 6) Place your finger there and rub or stimulate the area; knit your eyebrows together and then relax your forehead. 7) With eyes closed and very relaxed, look at a point about 18 inches out in front of you and a little upward. The more your eyes relax, the more they will automatically go to this point 8) Do the 3-level eye exercises and affirmations recommend by Yogananda (see over) 9) Do the \"Going to sleep\" exercises recommended by Yogananda (see over) 10) Broadcast prayers and healing energy through the spiritual eye II) Relate to others through it; give love and energy through it; from your spiritual eye to theirs 12) Keeping eyes half open and half closed (in meditation or at other times-see over) 13) Work with guided visualization tapes like Metaphysical Meditations, Meditations on the Light, and Meditation, What It Is and How To Do It",
+      "judge": "Hriman"
     },
     "fMCgfVG2mJFA48kDrHgo_doc1_Baseline": {
-      "score": 1,
+      "score": 2,
       "doc_score": 0.561988771,
-      "timestamp": 1750550039.8298821,
+      "timestamp": "2025-07-10T09:44:05.711406",
       "query_id": "fMCgfVG2mJFA48kDrHgo",
       "query_text": "what does it mean \"to spiriitualize\" something",
       "doc_id": "video||Ananda Youtube||video||Relationships  A Spiritual Approach  Talk by Swami||Swami Kriyananda||90f30e2d||2",
       "system": "Baseline",
-      "document_text": "do to help to make it more spiritual. Now, what do we mean by spiritual? We tend to create a sort of a nebulous and altogether artificial image when we think of spirituality. We think of God way up there in the heavens. We think of spirituality as being something where we chant with a very devotional and sort of pious attitude. We tend to think of it as something that you do in church. We don't understand that spirituality is a living and breathing part of daily life. And this is the message that I would like to share with you this evening. Spirituality versus perhaps religion. I remember a discussion that I had with a man a few years ago who claimed to be an atheist. In a sense, there is no such thing as an atheist, because what we believe isn't only what our minds form as ideas in our heads. It's also what we believe with our lives. It's what we "
+      "document_text": "do to help to make it more spiritual. Now, what do we mean by spiritual? We tend to create a sort of a nebulous and altogether artificial image when we think of spirituality. We think of God way up there in the heavens. We think of spirituality as being something where we chant with a very devotional and sort of pious attitude. We tend to think of it as something that you do in church. We don't understand that spirituality is a living and breathing part of daily life. And this is the message that I would like to share with you this evening. Spirituality versus perhaps religion. I remember a discussion that I had with a man a few years ago who claimed to be an atheist. In a sense, there is no such thing as an atheist, because what we believe isn't only what our minds form as ideas in our heads. It's also what we believe with our lives. It's what we ",
+      "judge": "Hriman"
     },
     "fMCgfVG2mJFA48kDrHgo_doc2_Baseline": {
-      "score": 3,
+      "score": 2,
       "doc_score": 0.55387491,
-      "timestamp": 1750550095.894876,
+      "timestamp": "2025-07-10T09:44:05.711479",
       "query_id": "fMCgfVG2mJFA48kDrHgo",
       "query_text": "what does it mean \"to spiriitualize\" something",
       "doc_id": "text||Ananda Library||db||Questions and Answers: Spiritualizing Astrology||Paramhansa Yogananda||6f77fcdb||0",
       "system": "Baseline",
-      "document_text": "Question: \"What is meant by 'spiritualizing' astrology?\" Answer: Astrology is a very deep study, but most people consider it as a sort of superstitious guide to material progress. If you use astrology only for guidance in material matters, you will be doing its teachings an injustice. Astrology is the mathematics of your life, the mathematics of your actions. The relation of the stars to the human body and mind is very subtle. There is a relation of the spinal plexuses to the signs of the zodiac. No matter what environment you may live in, all the surrounding rays of the earth and universe react upon your body. You respond to those rays. There is a reaction between the stars and the rays around your body. Your body itself must be judged from the standpoint of your actions of the past and present."
+      "document_text": "Question: \"What is meant by 'spiritualizing' astrology?\" Answer: Astrology is a very deep study, but most people consider it as a sort of superstitious guide to material progress. If you use astrology only for guidance in material matters, you will be doing its teachings an injustice. Astrology is the mathematics of your life, the mathematics of your actions. The relation of the stars to the human body and mind is very subtle. There is a relation of the spinal plexuses to the signs of the zodiac. No matter what environment you may live in, all the surrounding rays of the earth and universe react upon your body. You respond to those rays. There is a reaction between the stars and the rays around your body. Your body itself must be judged from the standpoint of your actions of the past and present.",
+      "judge": "Hriman"
+    },
+    "fMCgfVG2mJFA48kDrHgo_doc4_Baseline": {
+      "score": 3,
+      "doc_score": 0.543731689,
+      "timestamp": "2025-07-10T09:44:05.711483",
+      "query_id": "fMCgfVG2mJFA48kDrHgo",
+      "query_text": "what does it mean \"to spiriitualize\" something",
+      "doc_id": "audio||Treasures||audio||Relationships_A Spiritual Approach||Swami Kriyananda||bc01dd2d||2",
+      "system": "Baseline",
+      "document_text": "more spiritual. Now what do we mean by spiritual? We tend to create a sort of a nebulous and altogether artificial image when we think of spirituality. We think of God way up there in the heavens. We think of spirituality as being something where we chant with a very devotional and sort of pious attitude. We don't understand that spirituality is a living and breathing part of daily life. And this is the message that I would like to share with you this evening. Spirituality versus, perhaps, religion. I remember a discussion that I had with a man a few years ago who claimed to be an atheist. In a sense there is no such thing as an atheist because what we believe isn't only what our minds form as ideas in our heads. It's also what we believe with our lives. It's what we believe with our experience. And I'll tell you what I mean by this little illustration. This man was ",
+      "judge": "Hriman"
     },
     "fMCgfVG2mJFA48kDrHgo_doc4_Reranked": {
-      "score": 3,
+      "score": 2,
       "doc_score": 0.6657367,
-      "timestamp": 1750550095.894876,
+      "timestamp": "2025-07-10T09:44:05.711479",
       "query_id": "fMCgfVG2mJFA48kDrHgo",
       "query_text": "what does it mean \"to spiriitualize\" something",
       "doc_id": "text||Ananda Library||db||Questions and Answers: Spiritualizing Astrology||Paramhansa Yogananda||6f77fcdb||0",
       "system": "Reranked",
-      "document_text": "Question: \"What is meant by 'spiritualizing' astrology?\" Answer: Astrology is a very deep study, but most people consider it as a sort of superstitious guide to material progress. If you use astrology only for guidance in material matters, you will be doing its teachings an injustice. Astrology is the mathematics of your life, the mathematics of your actions. The relation of the stars to the human body and mind is very subtle. There is a relation of the spinal plexuses to the signs of the zodiac. No matter what environment you may live in, all the surrounding rays of the earth and universe react upon your body. You respond to those rays. There is a reaction between the stars and the rays around your body. Your body itself must be judged from the standpoint of your actions of the past and present."
+      "document_text": "Question: \"What is meant by 'spiritualizing' astrology?\" Answer: Astrology is a very deep study, but most people consider it as a sort of superstitious guide to material progress. If you use astrology only for guidance in material matters, you will be doing its teachings an injustice. Astrology is the mathematics of your life, the mathematics of your actions. The relation of the stars to the human body and mind is very subtle. There is a relation of the spinal plexuses to the signs of the zodiac. No matter what environment you may live in, all the surrounding rays of the earth and universe react upon your body. You respond to those rays. There is a reaction between the stars and the rays around your body. Your body itself must be judged from the standpoint of your actions of the past and present.",
+      "judge": "Hriman"
     },
     "5qBnoncWrJoWlcDIUKq2_doc4_Baseline": {
-      "score": 2,
-      "doc_score": 0.582412779,
-      "timestamp": 1750550424.6805298,
+      "score": 0,
+      "doc_score": 0.582382262,
+      "timestamp": "2025-07-02T10:11:25.545177",
       "query_id": "5qBnoncWrJoWlcDIUKq2",
       "query_text": "Have we all been brothers and sisters in a previous incarnation",
       "doc_id": "audio||Treasures||audio||The Need for Self Realization||Swami Kriyananda||b81476df||36",
       "system": "Baseline",
-      "document_text": "and wife. It might be father and son. It might be daughter and mother. It might be brother and sister. It might be neighborly friends. It might be many things. We are so, we have so many different relations to go through with each other. And this very form that we have changes over a period of time. In fact, I was just thinking recently, to what extent can we even identify this outward form as our reality? Back incarnations ago, before we were human, it took on the form of a spider, a cockroach, a whale, a tree, a mosquito. It says that in the scriptures of India, it takes five to eight million lives to reach the human level. And those five to eight million lives cover a lot of forms on this planet. But we are none of those forms, nor are we this form. We are that spark of individuality deep within that is reaching out "
+      "document_text": "and wife. It might be father and son. It might be daughter and mother. It might be brother and sister. It might be neighborly friends. It might be many things. We are so, we have so many different relations to go through with each other. And this very form that we have changes over a period of time. In fact, I was just thinking recently, to what extent can we even identify this outward form as our reality? Back incarnations ago, before we were human, it took on the form of a spider, a cockroach, a whale, a tree, a mosquito. It says that in the scriptures of India, it takes five to eight million lives to reach the human level. And those five to eight million lives cover a lot of forms on this planet. But we are none of those forms, nor are we this form. We are that spark of individuality deep within that is reaching out ",
+      "judge": "Gyandev"
     },
-    "P6fkhXC9rV9JfJJ3knTa_doc1_Baseline": {
+    "Adcj2i2jRENPoGAfjs5p_doc2_Baseline": {
       "score": 0,
-      "doc_score": 0.597231,
-      "timestamp": 1750553694.6950579,
-      "query_id": "P6fkhXC9rV9JfJJ3knTa",
-      "query_text": "I'm trying to find an audio recording of a talk by Swamiji. Perhaps the entire class was about teaching, but I'm not sure. At one point, he talked about the \"levels\" of teaching: talking at your students fro ma level of information, then talking to them rather than just from what you're thinking, then feeling their needs and addressing those. He said to try to feel your students' thoughts, their vibrations, and then respond accordingly. Can you help me find that talk?",
-      "doc_id": "text||Ananda Library||db||Italy June 24 2009||Asha Nayaswami||f1e098f7||41",
+      "doc_score": 0.532718658,
+      "timestamp": "2025-08-15T16:50:21.077999",
+      "query_id": "Adcj2i2jRENPoGAfjs5p",
+      "query_text": "who liberated Judas Iscariot in the 20th century?",
+      "doc_id": "text||Ananda Library||db||Clarity Magazine Archives 2009-2015:: 2014 Summer ||Swami Kriyananda||9579c426||0",
       "system": "Baseline",
-      "document_text": ". They were sound vibrations that came in to me on that level. This really helped me to understand how secondary the intellectual, verbal part of communicating can be, especially when what Swamiji conveys, above all, is a state of consciousness. He was very energetic and actually stood for the entire talk! There was a chair right behind him, and most of the time in the last months or even years, after a few minutes on his feet he will gratefully accept the chair. This time he never did. He stood the whole near-hour while he talked, an mazing resurrection from the physical challenges he has faced since his birthday. AUM GURU."
+      "document_text": "Excerpts from The Path by Swami Kriyananda Yogananda's Comments About Judas Iscariot Discussions on reincarnation sometimes became intensely interesting. One day I asked Master, \"Did Judas have any spiritual realization?\" \"He had some bad karma, of course,\" Master replied, \"but all the same, he was a prophet.\" \"He was?\" This variation on the common theme of Judas's villainy astonished me. \"Oh, yes,\" Master asserted emphatically. \"He had to be, to be one of the twelve. But he had to go through two thousand years of suffering for his treachery. He was liberated finally in this century, in India. Jesus appeared to a certain master there and asked him to free him. I knew Judas in this life,\" Master added. \"You did!\" Eagerly I pursued the matter. \"What was he like?\"",
+      "judge": "Gyandev"
     },
-    "P6fkhXC9rV9JfJJ3knTa_doc3_Baseline": {
-      "score": 1,
-      "doc_score": 0.583397,
-      "timestamp": 1750553716.07292,
-      "query_id": "P6fkhXC9rV9JfJJ3knTa",
-      "query_text": "I'm trying to find an audio recording of a talk by Swamiji. Perhaps the entire class was about teaching, but I'm not sure. At one point, he talked about the \"levels\" of teaching: talking at your students fro ma level of information, then talking to them rather than just from what you're thinking, then feeling their needs and addressing those. He said to try to feel your students' thoughts, their vibrations, and then respond accordingly. Can you help me find that talk?",
-      "doc_id": "video||Ananda Youtube||video||\"How to Lecture\" (Ask Me About Truth #28 With Swam||Swami Kriyananda||9d93e299||13",
-      "system": "Baseline",
-      "document_text": "suddenly the answer is there. So by being completely relaxed in myself, by not being nervous, it amazes me when people read their lectures. I think of lecturing as talking to people. And in that way, you don't come to a tea party with a list of things that you're going to say. It comes spontaneously. So I think when you're relaxed, it comes more easily. Swami, can you feel people's thoughts when you're speaking to them? For a long time, when I was giving classes and so on, I would meditate in a room near where people were coming, and I would try to tune into their consciousness as they were entering the hall. And I'd ask myself, I'd try to understand what they needed. So I didn't get up and tell them what I wanted to say, but what they wanted to hear. And I always try to lecture in that way, that "
+    "Adcj2i2jRENPoGAfjs5p_doc2_Reranked": {
+      "score": 2,
+      "doc_score": 0.9765354,
+      "timestamp": "2025-08-15T16:50:21.078016",
+      "query_id": "Adcj2i2jRENPoGAfjs5p",
+      "query_text": "who liberated Judas Iscariot in the 20th century?",
+      "doc_id": "text||Ananda Library||db||Revelations of Christ:: 20. New Wine||Swami Kriyananda||e862338e||26",
+      "system": "Reranked",
+      "document_text": "shaking his head. 'God is no tyrant. When you have eaten good cheese, then resume eating stale cheese again, you soon realize your mistake. If, then, you once again want only the good cheese, God won't deny you.' Judas, he told me, 'was liberated in this lifetime.' Yogananda said, 'I myself knew him.' Other disciples of Jesus must have achieved their freedom sooner, but I remember him saying that Mary Magdalene was born in the twentieth century as the Catholic stigmatist Therese Neumann of Konnersreuth, in Germany, and had not even yet achieved final liberation. He met this great saint in 1936.",
+      "judge": "Gyandev"
     },
-    "P6fkhXC9rV9JfJJ3knTa_doc4_Baseline": {
-      "score": 1,
-      "doc_score": 0.581985474,
-      "timestamp": 1750553740.88959,
-      "query_id": "P6fkhXC9rV9JfJJ3knTa",
-      "query_text": "I'm trying to find an audio recording of a talk by Swamiji. Perhaps the entire class was about teaching, but I'm not sure. At one point, he talked about the \"levels\" of teaching: talking at your students fro ma level of information, then talking to them rather than just from what you're thinking, then feeling their needs and addressing those. He said to try to feel your students' thoughts, their vibrations, and then respond accordingly. Can you help me find that talk?",
-      "doc_id": "video||Ananda Youtube||video||\"How to Lecture\" (Ask Me About Truth #28 With Swam||Swami Kriyananda||a073876f||14",
+    "Adcj2i2jRENPoGAfjs5p_doc4_Reranked": {
+      "score": 0,
+      "doc_score": 0.94197524,
+      "timestamp": "2025-08-15T16:50:21.077999",
+      "query_id": "Adcj2i2jRENPoGAfjs5p",
+      "query_text": "who liberated Judas Iscariot in the 20th century?",
+      "doc_id": "text||Ananda Library||db||Clarity Magazine Archives 2009-2015:: 2014 Summer ||Swami Kriyananda||9579c426||0",
+      "system": "Reranked",
+      "document_text": "Excerpts from The Path by Swami Kriyananda Yogananda's Comments About Judas Iscariot Discussions on reincarnation sometimes became intensely interesting. One day I asked Master, \"Did Judas have any spiritual realization?\" \"He had some bad karma, of course,\" Master replied, \"but all the same, he was a prophet.\" \"He was?\" This variation on the common theme of Judas's villainy astonished me. \"Oh, yes,\" Master asserted emphatically. \"He had to be, to be one of the twelve. But he had to go through two thousand years of suffering for his treachery. He was liberated finally in this century, in India. Jesus appeared to a certain master there and asked him to free him. I knew Judas in this life,\" Master added. \"You did!\" Eagerly I pursued the matter. \"What was he like?\"",
+      "judge": "Gyandev"
+    },
+    "EWfsqte3eP25jcdEga7p_doc1_Baseline": {
+      "score": 2,
+      "doc_score": 0.664192259,
+      "timestamp": "2025-07-16T08:52:33.622207",
+      "query_id": "EWfsqte3eP25jcdEga7p",
+      "query_text": "Why is the Autobiography of a Yogi written with such English?",
+      "doc_id": "video||Ananda Youtube||video||Never Say Youve Failed. Say Instead You Havent Yet||Swami Kriyananda||bb221e72||3",
       "system": "Baseline",
-      "document_text": "ask myself, I'd try to understand what they needed. So I didn't get up and tell them what I wanted to say, but what they wanted to hear. And I always try to lecture in that way, that not, I mean, if they say, if they want to hear something is wrong, I don't tell them that, but that which will help this person. I pray to be guided to understand what will help him. Do you have to adjust your talk then to the level of your audience? Yes, yes, I do. There was one talk, the most difficult I ever had to give. It was to a school, and there were very skeptical students, and there were also devotees. And to talk to both groups at once was very difficult, but I try to reach them where they are. And that's another reason why I enjoy questions and answer sessions like this, because I can tune into "
+      "document_text": "to promulgate his teachings to the whole world. And he wrote this outline in Bengali. He didn't know English, really. But he wrote it in Bengali and asked a disciple of his who knew English to write it for him. And so Dhirananda wrote the book, but as a ghostwriter. It was Yogananda's book. I mean, you are the person inside your clothes, you're not the clothes you wear. And the book is really the person who has the ideas of it, not necessarily the clothes for which it's tailored. The writing was very pedantic and very too scholarly and not at all like Yogananda. But he took Yogananda's ideas and put them into at least a form of English, which Yogananda at that time didn't know. Over the years, he became fluent in English. But then, before his coming to America, he felt quite ",
+      "judge": "Hriman"
+    },
+    "EWfsqte3eP25jcdEga7p_doc2_Baseline": {
+      "score": 2,
+      "doc_score": 0.659566939,
+      "timestamp": "2025-07-16T08:52:33.622213",
+      "query_id": "EWfsqte3eP25jcdEga7p",
+      "query_text": "Why is the Autobiography of a Yogi written with such English?",
+      "doc_id": "text||Ananda Library||db||Clarity Magazine Archives 2009-2015:: 2009 Spring ||Swami Kriyananda||8002b7d0||0",
+      "system": "Baseline",
+      "document_text": "An Illustrious Beginning Autobiography of a Yogi was the first book ever written in English that is \"about yogis, by a yogi.\" First published by The Philosophical Library, one of America's oldest publishers of scholarly material for the general public, Yogananda's Autobiography was listed in 1946 alongside works by Charles Darwin, Franklin D. Roosevelt, and George Bernard Shaw. The book created an immediate sensation. In 1947, Newsweek described it as \"... a fascinating and clearly annotated study of a religious way of life, ingeniously described in the lush style of the Orient.\" The San Francisco Chronicle reported that, \"Yogananda presents a convincing case for yoga, and those who 'came to scoff' may remain to pray.\"",
+      "judge": "Hriman"
+    },
+    "EWfsqte3eP25jcdEga7p_doc4_Baseline": {
+      "score": 2,
+      "doc_score": 0.639974713,
+      "timestamp": "2025-07-16T08:52:33.622186",
+      "query_id": "EWfsqte3eP25jcdEga7p",
+      "query_text": "Why is the Autobiography of a Yogi written with such English?",
+      "doc_id": "text||Ananda Library||db||Paramhansa Yogananda: A Biography:: 19. Encinitas||Swami Kriyananda||a1f48c38||9",
+      "system": "Baseline",
+      "document_text": "\"I am from Persia, and I'm familiar with the quatrain to which this gentleman has referred. I grant that it isn't true to Fitzgerald's translation, but it is completely true to the original Persian of Omar Khayyam.\" This uncanny ability to communicate with, or in, languages that he didn't know appeared once more in my association with him. In 1954, I was speaking with Seora Cuaron, the wife of our center leader in Mexico City. She told me in Spanish, \"I once had a one-hour interview with Master. He didn't know any Spanish, and as you can see, I don't know any English. And yet, somehow, we understood each other perfectly! I still don't know how it happened.\" It was in Encinitas that Paramhansa Yogananda wrote Autobiography of a Yogi . It was probably here also that he wrote most, if not all, of his commentaries on the New Testament and the early part of his commentaries on the Bhagavad Gita.",
+      "judge": "Hriman"
+    },
+    "EWfsqte3eP25jcdEga7p_doc1_Reranked": {
+      "score": 2,
+      "doc_score": 0.9951703,
+      "timestamp": "2025-07-16T08:52:33.622213",
+      "query_id": "EWfsqte3eP25jcdEga7p",
+      "query_text": "Why is the Autobiography of a Yogi written with such English?",
+      "doc_id": "text||Ananda Library||db||Clarity Magazine Archives 2009-2015:: 2009 Spring ||Swami Kriyananda||8002b7d0||0",
+      "system": "Reranked",
+      "document_text": "An Illustrious Beginning Autobiography of a Yogi was the first book ever written in English that is \"about yogis, by a yogi.\" First published by The Philosophical Library, one of America's oldest publishers of scholarly material for the general public, Yogananda's Autobiography was listed in 1946 alongside works by Charles Darwin, Franklin D. Roosevelt, and George Bernard Shaw. The book created an immediate sensation. In 1947, Newsweek described it as \"... a fascinating and clearly annotated study of a religious way of life, ingeniously described in the lush style of the Orient.\" The San Francisco Chronicle reported that, \"Yogananda presents a convincing case for yoga, and those who 'came to scoff' may remain to pray.\"",
+      "judge": "Hriman"
+    },
+    "EWfsqte3eP25jcdEga7p_doc2_Reranked": {
+      "score": 1,
+      "doc_score": 0.98609793,
+      "timestamp": "2025-07-16T08:52:33.622100",
+      "query_id": "EWfsqte3eP25jcdEga7p",
+      "query_text": "Why is the Autobiography of a Yogi written with such English?",
+      "doc_id": "text||Ananda Library||db||Paramhansa Yogananda: A Biography:: Introduction||Swami Kriyananda||24acb42e||0",
+      "system": "Reranked",
+      "document_text": "Why a biography of Paramhansa Yogananda, when he himself wrote a world-famous account of his own life in the book, Autobiography of a Yogi ? The answer is, quite simply, that he wrote his book in a spirit of such humility that the reader could only intuit the author's spiritual greatness from his perfect attitude toward every life situation. I myself read A utobiography of a Yogi in 1948, and was so overwhelmed by that perfection that I took the next bus across the country: New York to Los Angeles. I had already been seeking God almost desperately. The first words I addressed to Yogananda when we met were, \"I want to be your disciple.\" He accepted me at that very meeting, and I was blessed to live with him as a close disciple for the last three and a half years of his life.",
+      "judge": "Hriman"
+    },
+    "EWfsqte3eP25jcdEga7p_doc4_Reranked": {
+      "score": 3,
+      "doc_score": 0.92262185,
+      "timestamp": "2025-07-16T08:52:33.622202",
+      "query_id": "EWfsqte3eP25jcdEga7p",
+      "query_text": "Why is the Autobiography of a Yogi written with such English?",
+      "doc_id": "text||Ananda Library||db||Swami Kriyananda: Lightbearer:: 2002||Asha Nayaswami||4f7cfd26||6",
+      "system": "Reranked",
+      "document_text": "being is motivated by two desires: to escape pain and to find happiness. Both desires could be fulfilled through the practice of Self-realization. The book was a particular favorite of Swamiji's, and Crystal Clarity was about to publish it. The writing style, though, was cumbersome. Swamiji assumed it was because Master had just been learning English. Later he found out that Master didn't write the book himself, but gave an outline of his ideas to a disciple who was fluent in English and could write it for him. Swamiji decided to polish the writing, but soon realized that a complete rewrite was needed-ghostwriting for Master as the other disciple had done. In Autobiography of a Yogi , it says that Lahiri Mahasaya, when interpreting scriptures, would sometimes tell a disciple, \"Please expound the holy stanzas as the meaning occurs to you. I will guide your thoughts, that the right interpretation be uttered.\" In this way, even though Lahiri himself did not write any books, many of his teachings were written down and published.",
+      "judge": "Hriman"
     },
     "sQzUsmG3BUPYH0hnEzX9_doc1_Baseline": {
-      "score": 0,
-      "doc_score": 0.645126343,
-      "timestamp": 1750553917.070882,
+      "score": 3,
+      "doc_score": 0.645309448,
+      "timestamp": "2025-07-02T10:11:25.532929",
       "query_id": "sQzUsmG3BUPYH0hnEzX9",
       "query_text": "Does the Astral body need to breathe?",
       "doc_id": "video||Ananda Youtube||video||\"Emotion and Feeling\" (Ask Me About Truth #13 With||Swami Kriyananda||fc50cfd1||9",
       "system": "Baseline",
-      "document_text": "in these currents in the spine, the Ira and the Pingala, as they're called in the Sanskrit. And the physical breath is allied to that Ira and Pingala, so that when you inhale, the energy takes at least a spurt upward. And when you exhale, the energy takes a spurt downward. Swamiji, this is a very odd question, but in this world, our breathing has a certain rhythm, so many breaths per minute or whatever. Does that movement continue in the astral world, in the astral body? It continues to the extent that you have retained your emotions when you go beyond that, because you don't become a saint just by dying. So when you go to the higher regions, people have risen above emotion. But ordinarily in the astral world, people, your emotions are actually much stronger. So people feel more emotional highs, but also more emotional "
+      "document_text": "in these currents in the spine, the Ira and the Pingala, as they're called in the Sanskrit. And the physical breath is allied to that Ira and Pingala, so that when you inhale, the energy takes at least a spurt upward. And when you exhale, the energy takes a spurt downward. Swamiji, this is a very odd question, but in this world, our breathing has a certain rhythm, so many breaths per minute or whatever. Does that movement continue in the astral world, in the astral body? It continues to the extent that you have retained your emotions when you go beyond that, because you don't become a saint just by dying. So when you go to the higher regions, people have risen above emotion. But ordinarily in the astral world, people, your emotions are actually much stronger. So people feel more emotional highs, but also more emotional ",
+      "judge": "Gyandev"
+    },
+    "sQzUsmG3BUPYH0hnEzX9_doc3_Baseline": {
+      "score": 2,
+      "doc_score": 0.635982513,
+      "timestamp": "2025-07-02T10:11:25.532930",
+      "query_id": "sQzUsmG3BUPYH0hnEzX9",
+      "query_text": "Does the Astral body need to breathe?",
+      "doc_id": "text||Ananda Library||db||Autobiography of a Yogi, 1946 Edition:: 43. The Re||Paramhansa Yogananda||60ef784e||23",
+      "system": "Baseline",
+      "document_text": "astral beings walk and work as intelligently guided and coordinated images of light, without the necessity of drawing power from oxygen. Man depends upon solids, liquids, gases, and energy for sustenance; astral beings sustain themselves principally by cosmic light.\" \"Master mine, do astral beings eat anything?\" I was drinking in his marvelous elucidations with the receptivity of all my faculties - mind, heart, soul. Superconscious perceptions of truth are permanently real and changeless, while fleeting sense experiences and impressions are never more than temporarily or relatively true, and soon lose in memory all their vividness. My guru's words were so penetratingly imprinted on the parchment of my being that at any time, by transferring my mind to the superconscious state, I can clearly relive the divine experience.",
+      "judge": "Gyandev"
+    },
+    "sQzUsmG3BUPYH0hnEzX9_doc4_Baseline": {
+      "score": 2,
+      "doc_score": 0.629699767,
+      "timestamp": "2025-07-02T10:11:25.532916",
+      "query_id": "sQzUsmG3BUPYH0hnEzX9",
+      "query_text": "Does the Astral body need to breathe?",
+      "doc_id": "text||Ananda Library||db||Bhagavad Gita Interpretations:: Chapter 2:: 2:26-2||Paramhansa Yogananda||d0c0cb49||6",
+      "system": "Baseline",
+      "document_text": "breath (inhalation and exhalation) in the body. Earthly death is marked by the absence of bodily breath. The breath-marked births and deaths are true to the earthly plane of existence. ASTRAL BIRTH AND DEATH The astral way of birth and death has a deeper meaning. In the physical world, the soul is encased in the fleshly body made of sixteen gross elements. But in the astral world after death the soul sheds its heavy overcoat of flesh and remains in two other subtle garments - the astral body and the causal body. (Body signifies encasement, whether gross or subtle, which surrounds the soul.) The astral body is composed of nineteen subtle elements (the five instruments of knowledge - sight, hearing, smell, taste, touch; the five instruments of action - the five life forces which perform the crystallizing, assimilating, eliminating, metabolizing and circulating functions of the body; ego, feeling, mind, and intelligence). This subtle astral-encasement of nineteen elements survives the death of the physical body made of sixteen gross elements.",
+      "judge": "Gyandev"
     },
     "sQzUsmG3BUPYH0hnEzX9_doc0_Reranked": {
-      "score": 2,
+      "score": 3,
       "doc_score": 0.9827572,
-      "timestamp": 1750554011.523167,
+      "timestamp": "2025-07-02T10:11:25.532927",
       "query_id": "sQzUsmG3BUPYH0hnEzX9",
       "query_text": "Does the Astral body need to breathe?",
       "doc_id": "audio||Treasures||audio||Kundalini 1.29.83||Swami Kriyananda||cc401613||51",
       "system": "Reranked",
-      "document_text": "the pingala, the energy going up in these nerve channels or nardis. That is, in fact, the essence of the astral breathing, that when you breathe in the astral body, the energy comes up. And when you breathe in, when you breathe out, the energy goes down. We find that it's connected with the physical breath, that the astral breathing process influences the lungs such that when the energy is coming up, we inhale. And when the energy is going down, we exhale. That is why yogis say that the breath is the very source of our delusion. That if we could learn to control the breath, we'd get out of delusion. But it's not. I remember this one yogi demonstrating that he could control his heart and his breath and he got himself into some sort of catatonic state by extreme tension and his heart stopped for about one beat and "
+      "document_text": "the pingala, the energy going up in these nerve channels or nardis. That is, in fact, the essence of the astral breathing, that when you breathe in the astral body, the energy comes up. And when you breathe in, when you breathe out, the energy goes down. We find that it's connected with the physical breath, that the astral breathing process influences the lungs such that when the energy is coming up, we inhale. And when the energy is going down, we exhale. That is why yogis say that the breath is the very source of our delusion. That if we could learn to control the breath, we'd get out of delusion. But it's not. I remember this one yogi demonstrating that he could control his heart and his breath and he got himself into some sort of catatonic state by extreme tension and his heart stopped for about one beat and ",
+      "judge": "Gyandev"
     },
     "sQzUsmG3BUPYH0hnEzX9_doc3_Reranked": {
       "score": 3,
       "doc_score": 0.92523,
-      "timestamp": 1750553987.348309,
+      "timestamp": "2025-07-02T10:11:25.532914",
       "query_id": "sQzUsmG3BUPYH0hnEzX9",
       "query_text": "Does the Astral body need to breathe?",
       "doc_id": "audio||Treasures||audio||SK 1st Kriya, 7-84||Swami Kriyananda||0037b834||6",
       "system": "Reranked",
-      "document_text": "which is actually the breath that takes place in your astral body, the astral breath. This movement corresponds to your breathing, such that any time, every time the energy moves up in the spine, you inhale. Every time the energy moves out, you exhale. Moves down, I mean, you exhale. This is a bit confusing to people because you think, well, I'm breathing in and that means the air is going down, whereas in fact the energy is coming upward. You could think of it, if you like, therefore, as the breath coming in but therefore filling the lungs from the bottom up, as if you were filling a glass from a pitcher. It would start at the bottom and move upward. You can think of it that way, if you like, just as a means of helping to break that little thought that has caused confusion in some minds. But in fact it's the inhalation "
+      "document_text": "which is actually the breath that takes place in your astral body, the astral breath. This movement corresponds to your breathing, such that any time, every time the energy moves up in the spine, you inhale. Every time the energy moves out, you exhale. Moves down, I mean, you exhale. This is a bit confusing to people because you think, well, I'm breathing in and that means the air is going down, whereas in fact the energy is coming upward. You could think of it, if you like, therefore, as the breath coming in but therefore filling the lungs from the bottom up, as if you were filling a glass from a pitcher. It would start at the bottom and move upward. You can think of it that way, if you like, just as a means of helping to break that little thought that has caused confusion in some minds. But in fact it's the inhalation ",
+      "judge": "Gyandev"
+    },
+    "Y5jBhOAvjHzr3Isl7B4t_doc1_Baseline": {
+      "score": 3,
+      "doc_score": 0.681013107,
+      "timestamp": "2025-07-02T10:11:25.520579",
+      "query_id": "Y5jBhOAvjHzr3Isl7B4t",
+      "query_text": "Find the story of Ram Gopal in Autobiography of a Yogi, where he was meditating 10 to 22 hours a day",
+      "doc_id": "text||Ananda Library||db||Conversations with Yogananda:: Entries 226-250||Swami Kriyananda||b0df8e90||3",
+      "system": "Baseline",
+      "document_text": "Autobiography of a Yogi - meditated eighteen hours a day for twenty years, then twenty hours a day for another twenty-two years. And even he said, 'I don't know if I have yet found favor in God's eyes.' \"It is very hard to find God. Those who make the effort, however, will find Him. And out of the small minority who seek Him that way, we are blessed with quite a few here. Just look at Saint Lynn.\" * The Master went on to praise him, speaking of how this disciple would spend hours at a time in samadhi on the lawn of the Encinitas hermitage.",
+      "judge": "Gyandev"
     },
     "Y5jBhOAvjHzr3Isl7B4t_doc2_Baseline": {
       "score": 3,
       "doc_score": 0.661066055,
-      "timestamp": 1750554150.793848,
+      "timestamp": "2025-07-02T10:11:25.520550",
       "query_id": "Y5jBhOAvjHzr3Isl7B4t",
       "query_text": "Find the story of Ram Gopal in Autobiography of a Yogi, where he was meditating 10 to 22 hours a day",
       "doc_id": "video||Ananda Youtube||video||Attaining the State of Jivan Mukta (With Swami Kri||Swami Kriyananda||b31963b0||5",
       "system": "Baseline",
-      "document_text": "isn't the way to find God. You can't expect to find Him by only half trying. Ram Gopal, the sleepless saint in Autobiography of a Yogi, meditated 18 hours a day for 20 years, then 20 hours a day for another 22 years, and even he said, I don't know if I have yet found favor in God's eyes. It is very hard to find God. Those who make the effort, however, will find Him. And out of the small minority who seek Him that way, we are blessed with quite a few here. Just look at Saint Lin. The Master went on to praise him, speaking of how the disciple would spend hours at a time in Samadhi on the lawn at the Encinitas Hermitage. I remember at my first Kriya initiation at Mount Washington. This was in 1949. He said, of those present"
+      "document_text": "isn't the way to find God. You can't expect to find Him by only half trying. Ram Gopal, the sleepless saint in Autobiography of a Yogi, meditated 18 hours a day for 20 years, then 20 hours a day for another 22 years, and even he said, I don't know if I have yet found favor in God's eyes. It is very hard to find God. Those who make the effort, however, will find Him. And out of the small minority who seek Him that way, we are blessed with quite a few here. Just look at Saint Lin. The Master went on to praise him, speaking of how the disciple would spend hours at a time in Samadhi on the lawn at the Encinitas Hermitage. I remember at my first Kriya initiation at Mount Washington. This was in 1949. He said, of those present",
+      "judge": "Gyandev"
     },
     "Y5jBhOAvjHzr3Isl7B4t_doc0_Reranked": {
       "score": 3,
       "doc_score": 0.99936634,
-      "timestamp": 1750554150.793848,
+      "timestamp": "2025-07-02T10:11:25.520550",
       "query_id": "Y5jBhOAvjHzr3Isl7B4t",
       "query_text": "Find the story of Ram Gopal in Autobiography of a Yogi, where he was meditating 10 to 22 hours a day",
       "doc_id": "video||Ananda Youtube||video||Attaining the State of Jivan Mukta (With Swami Kri||Swami Kriyananda||b31963b0||5",
       "system": "Reranked",
-      "document_text": "isn't the way to find God. You can't expect to find Him by only half trying. Ram Gopal, the sleepless saint in Autobiography of a Yogi, meditated 18 hours a day for 20 years, then 20 hours a day for another 22 years, and even he said, I don't know if I have yet found favor in God's eyes. It is very hard to find God. Those who make the effort, however, will find Him. And out of the small minority who seek Him that way, we are blessed with quite a few here. Just look at Saint Lin. The Master went on to praise him, speaking of how the disciple would spend hours at a time in Samadhi on the lawn at the Encinitas Hermitage. I remember at my first Kriya initiation at Mount Washington. This was in 1949. He said, of those present"
+      "document_text": "isn't the way to find God. You can't expect to find Him by only half trying. Ram Gopal, the sleepless saint in Autobiography of a Yogi, meditated 18 hours a day for 20 years, then 20 hours a day for another 22 years, and even he said, I don't know if I have yet found favor in God's eyes. It is very hard to find God. Those who make the effort, however, will find Him. And out of the small minority who seek Him that way, we are blessed with quite a few here. Just look at Saint Lin. The Master went on to praise him, speaking of how the disciple would spend hours at a time in Samadhi on the lawn at the Encinitas Hermitage. I remember at my first Kriya initiation at Mount Washington. This was in 1949. He said, of those present",
+      "judge": "Gyandev"
     },
-    "qGF8pzUgIJe4cH834nOs_doc0_Baseline": {
+    "Y5jBhOAvjHzr3Isl7B4t_doc3_Reranked": {
       "score": 3,
-      "doc_score": 0.715465546,
-      "timestamp": 1750606032.411057,
-      "query_id": "qGF8pzUgIJe4cH834nOs",
-      "query_text": "Provide a specifi example and quote for each one of the following 5 points:                              \n     Inner Truth Over Institutional: Both true Christianity and Kriya Yoga emphasize that divine truth is inward, not institutional. This means that the focus is on personal spiritual experience rather than adherence to external religious structures.\n\nLove and Devotion: In Christianity, Jesus taught to love God with all one's heart, mind, strength, and soul. Similarly, Kriya Yoga requires love, devotion, and upliftment of consciousness as essential qualities for spiritual progress.\n\nThe Spine as a Battleground: Kriya Yoga teaches that the spine is the battleground where the seeds of karma are buried. By practicing Kriya Yoga, individuals can work on uplifting their consciousness and overcoming these karmic seeds.\n\nParallels in Symbolism: Swamiji highlights parallels between Christian symbols and those in Kriya Yoga. For example, the star of Bethlehem is likened to the star of the spiritual eye, and the sound of cosmic vibration (Aum) is seen as the Holy Ghost or Holy Spirit.\n\nTechniques as Keys to the Kingdom: The techniques of meditation in Kriya Yoga, such as those that open the chakras of the spine, are likened to the keys of the Kingdom of Heaven. These techniques help raise the body's energy towards the highest centers in the brain, where the Kingdom of God is said to reside.",
-      "doc_id": "audio||The Bhaktan Files||audio||Swami intro 5.1.2008||Swami Kriyananda||390f3452||33",
-      "system": "Baseline",
-      "document_text": "the serpent to the Kundalini, the Christ center to the Ajna Chakra and the sound of cosmic vibration of Aum as the Holy Ghost or Holy Spirit. For example, the keys of the Kingdom of Heaven refer to the techniques of meditation like those of Kriya Yoga, which open the door or chakra of the spine and allow the body's energy to rise towards the highest centers in the brain, where truly the Kingdom of God resides. The only real merit is for it to be an inner personal experience of which actual religion makes no difference. He draws many parallels between Christ's teachings and Sanatana Dharma as they are both talking about consciousness. The truth that lies within and hence are pertinent to man regardless of form and name. He further reiterates that what has kept Christ's true teachings alive are the living presence of saints amongst the followers. True wisdom is determined by a person's inner experience of God "
-    },
-    "qGF8pzUgIJe4cH834nOs_doc0_Reranked": {
-      "score": 3,
-      "doc_score": 0.9995745,
-      "timestamp": 1750606032.411057,
-      "query_id": "qGF8pzUgIJe4cH834nOs",
-      "query_text": "Provide a specifi example and quote for each one of the following 5 points:                              \n     Inner Truth Over Institutional: Both true Christianity and Kriya Yoga emphasize that divine truth is inward, not institutional. This means that the focus is on personal spiritual experience rather than adherence to external religious structures.\n\nLove and Devotion: In Christianity, Jesus taught to love God with all one's heart, mind, strength, and soul. Similarly, Kriya Yoga requires love, devotion, and upliftment of consciousness as essential qualities for spiritual progress.\n\nThe Spine as a Battleground: Kriya Yoga teaches that the spine is the battleground where the seeds of karma are buried. By practicing Kriya Yoga, individuals can work on uplifting their consciousness and overcoming these karmic seeds.\n\nParallels in Symbolism: Swamiji highlights parallels between Christian symbols and those in Kriya Yoga. For example, the star of Bethlehem is likened to the star of the spiritual eye, and the sound of cosmic vibration (Aum) is seen as the Holy Ghost or Holy Spirit.\n\nTechniques as Keys to the Kingdom: The techniques of meditation in Kriya Yoga, such as those that open the chakras of the spine, are likened to the keys of the Kingdom of Heaven. These techniques help raise the body's energy towards the highest centers in the brain, where the Kingdom of God is said to reside.",
-      "doc_id": "audio||The Bhaktan Files||audio||Swami intro 5.1.2008||Swami Kriyananda||390f3452||33",
+      "doc_score": 0.89805347,
+      "timestamp": "2025-07-02T10:11:25.520579",
+      "query_id": "Y5jBhOAvjHzr3Isl7B4t",
+      "query_text": "Find the story of Ram Gopal in Autobiography of a Yogi, where he was meditating 10 to 22 hours a day",
+      "doc_id": "text||Ananda Library||db||Conversations with Yogananda:: Entries 226-250||Swami Kriyananda||b0df8e90||3",
       "system": "Reranked",
-      "document_text": "the serpent to the Kundalini, the Christ center to the Ajna Chakra and the sound of cosmic vibration of Aum as the Holy Ghost or Holy Spirit. For example, the keys of the Kingdom of Heaven refer to the techniques of meditation like those of Kriya Yoga, which open the door or chakra of the spine and allow the body's energy to rise towards the highest centers in the brain, where truly the Kingdom of God resides. The only real merit is for it to be an inner personal experience of which actual religion makes no difference. He draws many parallels between Christ's teachings and Sanatana Dharma as they are both talking about consciousness. The truth that lies within and hence are pertinent to man regardless of form and name. He further reiterates that what has kept Christ's true teachings alive are the living presence of saints amongst the followers. True wisdom is determined by a person's inner experience of God "
+      "document_text": "Autobiography of a Yogi - meditated eighteen hours a day for twenty years, then twenty hours a day for another twenty-two years. And even he said, 'I don't know if I have yet found favor in God's eyes.' \"It is very hard to find God. Those who make the effort, however, will find Him. And out of the small minority who seek Him that way, we are blessed with quite a few here. Just look at Saint Lynn.\" * The Master went on to praise him, speaking of how this disciple would spend hours at a time in samadhi on the lawn of the Encinitas hermitage.",
+      "judge": "Gyandev"
+    },
+    "YvevVd2HuPCxmbZWwwBq_doc4_Reranked": {
+      "score": 2,
+      "doc_score": 0.99740905,
+      "timestamp": "2025-09-20T12:35:01.761202",
+      "query_id": "YvevVd2HuPCxmbZWwwBq",
+      "query_text": "did Babaji say he was Krishna",
+      "doc_id": "text||Ananda Library||db||Religion in the New Age:: Part Three: Thoughts of ||Swami Kriyananda||0c33bb79||36",
+      "system": "Reranked",
+      "document_text": "for actively sending them. The fact that Babaji is an incarnation of Krishna, as Babaji has himself said, must be balanced against the fact that Master, who understood every aspect of this issue, never placed him as Krishna on our altars. For this reason, I have kept Master's original design, with only the five gurus there, and with Jesus at the center. In India, as a concession to Hindus, I've had an artist paint a picture with Krishna positioned behind Jesus Christ as if blessing him. This painting emphasizes Christ's central role, without in any way denigrating Krishna. Krishna lived centuries before Jesus Christ, moreover, and is certainly a fundamental inspiration behind our teachings. It was, as I implied, Krishna's later incarnation as Babaji that, in concert with Christ, launched this message for the New Age. This may seem to some people a trivial point. In any case, it underscores something that I consider important: I have always tried to be completely orthodox to my Guru's stated wishes.",
+      "judge": "Badri"
+    },
+    "JGNqNXdGGu5SiA0b5DDj_doc0_Baseline": {
+      "score": 2,
+      "doc_score": 0.613498688,
+      "timestamp": "2025-07-10T09:44:05.736422",
+      "query_id": "JGNqNXdGGu5SiA0b5DDj",
+      "query_text": "tell me the episode where Master tells a disciple, \"you have God's blessing and my blessing, you have to give yourself blessing\"",
+      "doc_id": "video||Ananda Youtube||video||Balancing Self-Effort With Receptivity to Divine G||Swami Kriyananda||4d78fe1c||0",
+      "system": "Baseline",
+      "document_text": "One time, the Master was scolding a disciple, saying to him, Why are you always so light? You should be more serious, because if you were always light, God won't be able to come to you. And he said, Sir, I would love to change, but how can I do so without your grace? Yogananda's answer was classic. He said, without your blessings. He said, my blessings are there already. God's blessings are there already. It's your blessings that are lacking. Many people in religion, both East and West, think that it's a sign of humility and therefore a virtue and a good thing and a blessing to believe that God does everything. I remember I ",
+      "judge": "Hriman"
+    },
+    "JGNqNXdGGu5SiA0b5DDj_doc2_Baseline": {
+      "score": 0,
+      "doc_score": 0.601009369,
+      "timestamp": "2025-07-10T09:44:05.736408",
+      "query_id": "JGNqNXdGGu5SiA0b5DDj",
+      "query_text": "tell me the episode where Master tells a disciple, \"you have God's blessing and my blessing, you have to give yourself blessing\"",
+      "doc_id": "audio||Treasures||audio||The Importance of Individual Effort||Swami Kriyananda||58700abc||19",
+      "system": "Baseline",
+      "document_text": "You keep people light. Be more serious. And the disciple said, well, I would like to be more serious, sir, but how can I do it? How can I change without your blessings? When I've told that story to Indian audiences, they say, oh, what a beautiful answer. They didn't like his answer. When guru, she answered him, he said, my blessings are with you already. God's blessings are there. It's your blessings that are lacking. You have to bless yourself. Don't say, well, wait till God wants you. He wants you now. Don't say, well, when I find a guru, if you want God deeply enough, he will send you a guru. Don't think you have to go running around looking for a guru. God will send him. I can give my experience that way. All the way from New York to Los Angeles, my first words were",
+      "judge": "Hriman"
+    },
+    "JGNqNXdGGu5SiA0b5DDj_doc3_Baseline": {
+      "score": 3,
+      "doc_score": 0.597686768,
+      "timestamp": "2025-07-10T09:44:05.736420",
+      "query_id": "JGNqNXdGGu5SiA0b5DDj",
+      "query_text": "tell me the episode where Master tells a disciple, \"you have God's blessing and my blessing, you have to give yourself blessing\"",
+      "doc_id": "audio||Treasures||audio||inner-experience-of-truth.mp3||Swami Kriyananda||8190041a||99",
+      "system": "Baseline",
+      "document_text": ". It's yours. Nobody needs to give it to you. You need to give it to yourself. I'll never forget one disciple used to joke a lot, and Yogananda said, why don't you act more serious? Don't just joke all the time. And the disciple said, well, Master, I would love to, but it's such a strong habit with me. How can I change without your grace, without your blessings? Yogananda said, well, my blessings are there already. God's blessings are there. It's your blessings that are lacking, and God's blessings are on you. God's blessings are always there, ready to be poured out. But if you keep your cup turned upside down, so what kind of tea is it going to be able to hold? You have to turn your cup upright. You have to open your consciousness to that, and then you will find that that is you",
+      "judge": "Hriman"
+    },
+    "JGNqNXdGGu5SiA0b5DDj_doc0_Reranked": {
+      "score": 0,
+      "doc_score": 0.99424744,
+      "timestamp": "2025-07-10T09:44:05.736408",
+      "query_id": "JGNqNXdGGu5SiA0b5DDj",
+      "query_text": "tell me the episode where Master tells a disciple, \"you have God's blessing and my blessing, you have to give yourself blessing\"",
+      "doc_id": "audio||Treasures||audio||The Importance of Individual Effort||Swami Kriyananda||58700abc||19",
+      "system": "Reranked",
+      "document_text": "You keep people light. Be more serious. And the disciple said, well, I would like to be more serious, sir, but how can I do it? How can I change without your blessings? When I've told that story to Indian audiences, they say, oh, what a beautiful answer. They didn't like his answer. When guru, she answered him, he said, my blessings are with you already. God's blessings are there. It's your blessings that are lacking. You have to bless yourself. Don't say, well, wait till God wants you. He wants you now. Don't say, well, when I find a guru, if you want God deeply enough, he will send you a guru. Don't think you have to go running around looking for a guru. God will send him. I can give my experience that way. All the way from New York to Los Angeles, my first words were",
+      "judge": "Hriman"
+    },
+    "JGNqNXdGGu5SiA0b5DDj_doc1_Reranked": {
+      "score": 3,
+      "doc_score": 0.99298817,
+      "timestamp": "2025-07-10T09:44:05.736420",
+      "query_id": "JGNqNXdGGu5SiA0b5DDj",
+      "query_text": "tell me the episode where Master tells a disciple, \"you have God's blessing and my blessing, you have to give yourself blessing\"",
+      "doc_id": "audio||Treasures||audio||inner-experience-of-truth.mp3||Swami Kriyananda||8190041a||99",
+      "system": "Reranked",
+      "document_text": ". It's yours. Nobody needs to give it to you. You need to give it to yourself. I'll never forget one disciple used to joke a lot, and Yogananda said, why don't you act more serious? Don't just joke all the time. And the disciple said, well, Master, I would love to, but it's such a strong habit with me. How can I change without your grace, without your blessings? Yogananda said, well, my blessings are there already. God's blessings are there. It's your blessings that are lacking, and God's blessings are on you. God's blessings are always there, ready to be poured out. But if you keep your cup turned upside down, so what kind of tea is it going to be able to hold? You have to turn your cup upright. You have to open your consciousness to that, and then you will find that that is you",
+      "judge": "Hriman"
     },
     "JMLdExbr7z78rJmQd7UW_doc0_Baseline": {
       "score": 3,
-      "doc_score": 0.566721,
-      "timestamp": 1750986478.576135,
+      "doc_score": 0.566656172,
+      "timestamp": "2025-08-15T16:50:21.065288",
       "query_id": "JMLdExbr7z78rJmQd7UW",
       "query_text": "What is master\u2019s famous quote from the garden party about creating communities",
       "doc_id": "text||Ananda Library||db||Paramhansa Yogananda: A Biography:: 32. His Legacy||Swami Kriyananda||672c1dc5||4",
       "system": "Baseline",
-      "document_text": "know. 1. He encouraged people to come together in communities. This he did, repeatedly and sometimes fervently, almost from the very beginning. I myself have built eight such communities so far, in which all together about a thousand people live. The Master spoke sometimes fervently, as I said, of the need for such communities. In 1949, at a garden party put on by a Mrs. Myers in Beverly Hills, he was invited to speak toward the end as the guest of honor. Far from offering the few, gracious acknowledgements that are customary on such occasions, he gave the most powerful speech I have ever heard in my life. \"This day,\" he thundered, \"marks the birth of a new era! I am sowing my thoughts in the ether, and my words shall not die !\" He went on to say, \"Thousands of youths must go north, south, east, and west to spread this concept of world brotherhood colonies.\" He then stated, still very forcefully, that this idea would solve countless social and personal problems that would arise in the future, particularly with worldwide economic depression."
+      "document_text": "know. 1. He encouraged people to come together in communities. This he did, repeatedly and sometimes fervently, almost from the very beginning. I myself have built eight such communities so far, in which all together about a thousand people live. The Master spoke sometimes fervently, as I said, of the need for such communities. In 1949, at a garden party put on by a Mrs. Myers in Beverly Hills, he was invited to speak toward the end as the guest of honor. Far from offering the few, gracious acknowledgements that are customary on such occasions, he gave the most powerful speech I have ever heard in my life. \"This day,\" he thundered, \"marks the birth of a new era! I am sowing my thoughts in the ether, and my words shall not die !\" He went on to say, \"Thousands of youths must go north, south, east, and west to spread this concept of world brotherhood colonies.\" He then stated, still very forcefully, that this idea would solve countless social and personal problems that would arise in the future, particularly with worldwide economic depression.",
+      "judge": "Gyandev"
+    },
+    "JMLdExbr7z78rJmQd7UW_doc1_Baseline": {
+      "score": 3,
+      "doc_score": 0.558542252,
+      "timestamp": "2025-08-15T16:50:21.065280",
+      "query_id": "JMLdExbr7z78rJmQd7UW",
+      "query_text": "What is master\u2019s famous quote from the garden party about creating communities",
+      "doc_id": "video||Ananda Youtube||video||Swami Kriyananda Birthday Satsang (2011)||Swami Kriyananda||b87cd688||47",
+      "system": "Baseline",
+      "document_text": "of 15, I had, well, I first wanted to start a community when I was 15. This had always been a desire of mine. I felt that it was a very needed thing in the world. And so I realized that I remembered, Master talked very strongly about communities from almost the beginning of his mission in America and during the Depression years. And I remember the Myers Garden Party. When he talked about communities, it was quite a scene. It was in Beverly Hills, and all sorts of famous rock movie stars and people like that were there, about 800 people at this garden party. And then the hostess, Mrs. Myers, asked Master to speak. Well, you know how people normally in such a position would comport themselves. They'd thank the hostess and thank the audience and thank everybody and thank God I'm out of here and that'd be about it. That was not the way he talked ",
+      "judge": "Gyandev"
     },
     "JMLdExbr7z78rJmQd7UW_doc2_Baseline": {
-      "score": 1,
-      "doc_score": 0.554830551,
-      "timestamp": 1750986496.136091,
+      "score": 3,
+      "doc_score": 0.554798126,
+      "timestamp": "2025-08-15T16:50:21.065284",
       "query_id": "JMLdExbr7z78rJmQd7UW",
       "query_text": "What is master\u2019s famous quote from the garden party about creating communities",
       "doc_id": "text||Ananda Library||db||Rescuing Yogananda:: 11. Master's Zeal for Foundin||Swami Kriyananda||ee69e08c||0",
       "system": "Baseline",
-      "document_text": "Throughout his public life, Master spoke fervently about today's need for spiritually minded people to join together and live cooperatively in small communities. a) In article after article and lecture after lecture, he emphasized his deep belief in the need for such communities. I, who came to him only in the last four years of his life, can remember numerous occasions when he expressed himself fervently on this issue. b) In 1949, a Mrs. Myers gave a garden party in Master's honor in wealthy Beverly Hills. Eight hundred or more guests attended. Many of the guests were famous Hollywood figures. At the end of the party, Mrs. Myers invited Master to address the gathering."
+      "document_text": "Throughout his public life, Master spoke fervently about today's need for spiritually minded people to join together and live cooperatively in small communities. a) In article after article and lecture after lecture, he emphasized his deep belief in the need for such communities. I, who came to him only in the last four years of his life, can remember numerous occasions when he expressed himself fervently on this issue. b) In 1949, a Mrs. Myers gave a garden party in Master's honor in wealthy Beverly Hills. Eight hundred or more guests attended. Many of the guests were famous Hollywood figures. At the end of the party, Mrs. Myers invited Master to address the gathering.",
+      "judge": "Gyandev"
     },
     "JMLdExbr7z78rJmQd7UW_doc3_Baseline": {
-      "score": 2,
-      "doc_score": 0.548124313,
-      "timestamp": 1750986512.5424619,
+      "score": 3,
+      "doc_score": 0.548118591,
+      "timestamp": "2025-08-15T16:50:21.065280",
       "query_id": "JMLdExbr7z78rJmQd7UW",
       "query_text": "What is master\u2019s famous quote from the garden party about creating communities",
       "doc_id": "audio||The Bhaktan Files||audio||10 Swami 24_12_Last Bible chapter||Swami Kriyananda||59e36662||1",
       "system": "Baseline",
-      "document_text": "? And Master in the dream said, don't forget the possibility of a skylight. And this is what happened, because when I began writing it, thinking I would just give a little short sort of prase of what the whole thing was about. Instead, I remember, and I did the whole book, it's 600 pages long. And it was a wonderful experience. But when I worked with Master on editing, he told me my life was writing, editing, and lecturing. He didn't talk about communities, but here you are, and I'm grateful for it. I had always wanted to start communities from the age of 15. So when he, so powerfully at Beverly Hills at that garden party, said that you must go north, south, east, west, everywhere, to spread this ideal of communities, world brotherhood colonies. And I'm the, there were at least 800 people there"
+      "document_text": "? And Master in the dream said, don't forget the possibility of a skylight. And this is what happened, because when I began writing it, thinking I would just give a little short sort of prase of what the whole thing was about. Instead, I remember, and I did the whole book, it's 600 pages long. And it was a wonderful experience. But when I worked with Master on editing, he told me my life was writing, editing, and lecturing. He didn't talk about communities, but here you are, and I'm grateful for it. I had always wanted to start communities from the age of 15. So when he, so powerfully at Beverly Hills at that garden party, said that you must go north, south, east, west, everywhere, to spread this ideal of communities, world brotherhood colonies. And I'm the, there were at least 800 people there",
+      "judge": "Gyandev"
+    },
+    "JMLdExbr7z78rJmQd7UW_doc4_Baseline": {
+      "score": 3,
+      "doc_score": 0.545221329,
+      "timestamp": "2025-08-15T16:50:21.065297",
+      "query_id": "JMLdExbr7z78rJmQd7UW",
+      "query_text": "What is master\u2019s famous quote from the garden party about creating communities",
+      "doc_id": "video||Ananda Youtube||video||Building a Spiritual Community with Swami Kriyanan||Swami Kriyananda||92e3cbdb||5",
+      "system": "Baseline",
+      "document_text": "to do what they want, but you can't force them to want. And Master's ideal was just made to order. I remember when he gave that talk in Beverly Hills, and you all remember it from The Path, where he was saying it was a garden party. I don't know what the hostess thought. I mean, what do you expect somebody to say at a garden party? Well, it's so nice to be here, everybody, and welcome, and welcome, and welcome, and it's a beautiful day, and you all have a wonderful time. Well, it wasn't like that. I never heard a more powerful lecture in my life. He said you must go north, south, east, west, everywhere to spread this ideal of community living. Thousands of youths must do it, and I was so moved, I vowed that I would. There were hundreds of people there. I think I'm the ",
+      "judge": "Gyandev"
+    },
+    "JMLdExbr7z78rJmQd7UW_doc0_Reranked": {
+      "score": 3,
+      "doc_score": 0.9938788,
+      "timestamp": "2025-08-15T16:50:21.065280",
+      "query_id": "JMLdExbr7z78rJmQd7UW",
+      "query_text": "What is master\u2019s famous quote from the garden party about creating communities",
+      "doc_id": "video||Ananda Youtube||video||Swami Kriyananda Birthday Satsang (2011)||Swami Kriyananda||b87cd688||47",
+      "system": "Reranked",
+      "document_text": "of 15, I had, well, I first wanted to start a community when I was 15. This had always been a desire of mine. I felt that it was a very needed thing in the world. And so I realized that I remembered, Master talked very strongly about communities from almost the beginning of his mission in America and during the Depression years. And I remember the Myers Garden Party. When he talked about communities, it was quite a scene. It was in Beverly Hills, and all sorts of famous rock movie stars and people like that were there, about 800 people at this garden party. And then the hostess, Mrs. Myers, asked Master to speak. Well, you know how people normally in such a position would comport themselves. They'd thank the hostess and thank the audience and thank everybody and thank God I'm out of here and that'd be about it. That was not the way he talked ",
+      "judge": "Gyandev"
+    },
+    "JMLdExbr7z78rJmQd7UW_doc3_Reranked": {
+      "score": 3,
+      "doc_score": 0.97719735,
+      "timestamp": "2025-08-15T16:50:21.065213",
+      "query_id": "JMLdExbr7z78rJmQd7UW",
+      "query_text": "What is master\u2019s famous quote from the garden party about creating communities",
+      "doc_id": "audio||The Bhaktan Files||audio||Swami Kriyananda Sunday Service 13.9.2009||Swami Kriyananda||8c6e49e1||20",
+      "system": "Reranked",
+      "document_text": "hell. But if you do go our way, you'll find a lot of peace. You'll find a lot of happiness. And Master, when he talked about communities, he was offering a way of life that is wonderful for those who live it. I remember, I was present then. You know, I've told you this before, that when I was 15 is when I first got the idea of starting communities. And I had the idea of communities everywhere, and all of them sort of bringing a new wave of energy into the world. It was very much like what Master said. And all my friends were enthusiastic until they found out that I was serious. And then they all backed off. And I realized that I wasn't ready to do it. But when I met Master, and he talked about it, I was, my enthusiasm was reawakened. And I remember that garden party, when he was talking ",
+      "judge": "Gyandev"
     },
     "JMLdExbr7z78rJmQd7UW_doc4_Reranked": {
-      "score": 1,
+      "score": 3,
       "doc_score": 0.97354424,
-      "timestamp": 1750986496.136091,
+      "timestamp": "2025-08-15T16:50:21.065284",
       "query_id": "JMLdExbr7z78rJmQd7UW",
       "query_text": "What is master\u2019s famous quote from the garden party about creating communities",
       "doc_id": "text||Ananda Library||db||Rescuing Yogananda:: 11. Master's Zeal for Foundin||Swami Kriyananda||ee69e08c||0",
       "system": "Reranked",
-      "document_text": "Throughout his public life, Master spoke fervently about today's need for spiritually minded people to join together and live cooperatively in small communities. a) In article after article and lecture after lecture, he emphasized his deep belief in the need for such communities. I, who came to him only in the last four years of his life, can remember numerous occasions when he expressed himself fervently on this issue. b) In 1949, a Mrs. Myers gave a garden party in Master's honor in wealthy Beverly Hills. Eight hundred or more guests attended. Many of the guests were famous Hollywood figures. At the end of the party, Mrs. Myers invited Master to address the gathering."
+      "document_text": "Throughout his public life, Master spoke fervently about today's need for spiritually minded people to join together and live cooperatively in small communities. a) In article after article and lecture after lecture, he emphasized his deep belief in the need for such communities. I, who came to him only in the last four years of his life, can remember numerous occasions when he expressed himself fervently on this issue. b) In 1949, a Mrs. Myers gave a garden party in Master's honor in wealthy Beverly Hills. Eight hundred or more guests attended. Many of the guests were famous Hollywood figures. At the end of the party, Mrs. Myers invited Master to address the gathering.",
+      "judge": "Gyandev"
+    },
+    "LCHOMsPDVdawzLzOIBZj_doc0_Baseline": {
+      "score": 2,
+      "doc_score": 0.628023148,
+      "timestamp": "2025-08-15T16:50:21.090663",
+      "query_id": "LCHOMsPDVdawzLzOIBZj",
+      "query_text": "Who said Matt is a vibration of energy and energy is a vibration of light and light as a vibration of consciousness",
+      "doc_id": "text||Ananda Library||db||The Promise Of Immortality:: 2. What is the Source||Swami Kriyananda||b7be4b45||0",
+      "system": "Baseline",
+      "document_text": "Matter is energy. Energy, when perceived by the inner or spiritual eye, is seen as light; by the inner ear, is heard as sound. Cosmic light and sound are vibrations of Divine Consciousness. Both are the \"Word\" of God. From that vibration came the thoughts and energy-forms which manifested the universe. Life itself may be defined as conscious energy. As the Gospel of St. John states: \"In him was life; and the life was the light of men.\" (1:4)",
+      "judge": "Gyandev"
+    },
+    "LCHOMsPDVdawzLzOIBZj_doc1_Baseline": {
+      "score": 3,
+      "doc_score": 0.614088058,
+      "timestamp": "2025-08-15T16:50:21.090639",
+      "query_id": "LCHOMsPDVdawzLzOIBZj",
+      "query_text": "Who said Matt is a vibration of energy and energy is a vibration of light and light as a vibration of consciousness",
+      "doc_id": "video||Ananda Youtube||video||\"Art as Idealized Reality\" (Ask Me About Truth #53||Swami Kriyananda||620a1909||10",
+      "system": "Baseline",
+      "document_text": "the universe out of his consciousness. It's all a dream. But he vibrated first in thought. Then he vibrated those thoughts more grossly in the form of energy. Then he vibrated that energy more grossly in the form of solid matter. But now we can say these things. And without having people say, well, you know, it's deep, it's known. Science has proved that matter is only a vibration of energy. And that energy, there are higher kinds and lower kinds, but the energy is vibration too. We are vibration. Our thoughts are vibrations. This very thought that I am a human being separate from you and you is vibration. It's a little wave, but a wave is vibration. So, everything is vibratory. And since vibration is sound and light, everything is sound and light. But sound is a more music is so impactful on this. I would like to think that they ",
+      "judge": "Gyandev"
+    },
+    "LCHOMsPDVdawzLzOIBZj_doc2_Baseline": {
+      "score": 3,
+      "doc_score": 0.594993591,
+      "timestamp": "2025-08-15T16:50:21.090650",
+      "query_id": "LCHOMsPDVdawzLzOIBZj",
+      "query_text": "Who said Matt is a vibration of energy and energy is a vibration of light and light as a vibration of consciousness",
+      "doc_id": "audio||Treasures||audio||Humility||Swami Kriyananda||f59a6099||10",
+      "system": "Baseline",
+      "document_text": "that they discovered that matter is, in fact, energy. And scientists now know, it's a truism, that matter is really a vibration of energy. But if you take that little farther back , energy is a vibration of thoughts. And thoughts are a vibration of the infinite consciousness. So, as it says in the Bible in the beginning, in the first word of Genesis, the Spirit of God moved upon the waters. The breath of delusion, of maya, swept over the consciousness, and on the surface of a little portion of the infinite consciousness, a little portion manifested this universe. And I emphasize that little portion because I remember when I was in school in England, it was in 1938, 1937, around then, that a teacher came to me. And he said, you know that the stars you see out there are only part of one star system. They didn't have the word yet, ",
+      "judge": "Gyandev"
     },
     "LCHOMsPDVdawzLzOIBZj_doc4_Baseline": {
       "score": 3,
       "doc_score": 0.585737228,
-      "timestamp": 1750986710.330975,
+      "timestamp": "2025-08-15T16:50:21.090647",
       "query_id": "LCHOMsPDVdawzLzOIBZj",
       "query_text": "Who said Matt is a vibration of energy and energy is a vibration of light and light as a vibration of consciousness",
       "doc_id": "audio||The Bhaktan Files||audio||Swami in Pune 27.9.2007||Swami Kriyananda||5040a3aa||35",
       "system": "Baseline",
-      "document_text": "very interesting thing. And now we can talk about things that even 150 years ago, they could not talk about. Matter is energy. Science declares this. Matter is energy in a rate of vibration. But you and I, if we're not scientists, may say, well, how is this possible? All right, think of two things. One, the propeller on an airplane. When it moves fast enough, it looks solid, doesn't it? When a tuning fork moves back and forth, it looks as if the space between those two movements is solid. In other words, vibration gives the illusion of solidity. And in this universe, there are billions and trillions of different vibrations which make it seem as if we're living in a solid world, but it is not. And this is something that all the great masters have said. Everything is vibration. But it's more than vibration. Where did that energy come from "
+      "document_text": "very interesting thing. And now we can talk about things that even 150 years ago, they could not talk about. Matter is energy. Science declares this. Matter is energy in a rate of vibration. But you and I, if we're not scientists, may say, well, how is this possible? All right, think of two things. One, the propeller on an airplane. When it moves fast enough, it looks solid, doesn't it? When a tuning fork moves back and forth, it looks as if the space between those two movements is solid. In other words, vibration gives the illusion of solidity. And in this universe, there are billions and trillions of different vibrations which make it seem as if we're living in a solid world, but it is not. And this is something that all the great masters have said. Everything is vibration. But it's more than vibration. Where did that energy come from ",
+      "judge": "Gyandev"
+    },
+    "LCHOMsPDVdawzLzOIBZj_doc2_Reranked": {
+      "score": 2,
+      "doc_score": 0.70720255,
+      "timestamp": "2025-08-15T16:50:21.090663",
+      "query_id": "LCHOMsPDVdawzLzOIBZj",
+      "query_text": "Who said Matt is a vibration of energy and energy is a vibration of light and light as a vibration of consciousness",
+      "doc_id": "text||Ananda Library||db||The Promise Of Immortality:: 2. What is the Source||Swami Kriyananda||b7be4b45||0",
+      "system": "Reranked",
+      "document_text": "Matter is energy. Energy, when perceived by the inner or spiritual eye, is seen as light; by the inner ear, is heard as sound. Cosmic light and sound are vibrations of Divine Consciousness. Both are the \"Word\" of God. From that vibration came the thoughts and energy-forms which manifested the universe. Life itself may be defined as conscious energy. As the Gospel of St. John states: \"In him was life; and the life was the light of men.\" (1:4)",
+      "judge": "Gyandev"
+    },
+    "LCHOMsPDVdawzLzOIBZj_doc3_Reranked": {
+      "score": 3,
+      "doc_score": 0.6638869,
+      "timestamp": "2025-08-15T16:50:21.090639",
+      "query_id": "LCHOMsPDVdawzLzOIBZj",
+      "query_text": "Who said Matt is a vibration of energy and energy is a vibration of light and light as a vibration of consciousness",
+      "doc_id": "video||Ananda Youtube||video||\"Art as Idealized Reality\" (Ask Me About Truth #53||Swami Kriyananda||620a1909||10",
+      "system": "Reranked",
+      "document_text": "the universe out of his consciousness. It's all a dream. But he vibrated first in thought. Then he vibrated those thoughts more grossly in the form of energy. Then he vibrated that energy more grossly in the form of solid matter. But now we can say these things. And without having people say, well, you know, it's deep, it's known. Science has proved that matter is only a vibration of energy. And that energy, there are higher kinds and lower kinds, but the energy is vibration too. We are vibration. Our thoughts are vibrations. This very thought that I am a human being separate from you and you is vibration. It's a little wave, but a wave is vibration. So, everything is vibratory. And since vibration is sound and light, everything is sound and light. But sound is a more music is so impactful on this. I would like to think that they ",
+      "judge": "Gyandev"
     },
     "CQiD9rSSvxRYUINYk5FT_doc0_Baseline": {
       "score": 3,
-      "doc_score": 0.595054686,
-      "timestamp": 1750987038.399105,
+      "doc_score": 0.595329344,
+      "timestamp": "2025-07-16T08:52:33.635518",
       "query_id": "CQiD9rSSvxRYUINYk5FT",
       "query_text": "Write a prompt for me that would help me learn to meditate more deeply when I am feeling upset",
       "doc_id": "text||Ananda Library||db||Clarity Magazine Archives 2009-2015:: 2009 Summer ||Atman Goering||c5e1b699||5",
       "system": "Baseline",
-      "document_text": ". It might be thoughts that keep coming when we're trying to accomplish a task or sit to meditate: \"Why did he do that to me?\" \"Why did they say that to me?\" \"I don't want to feel this way.\" Some people live so embroiled in negative emotions-anger, worry, fear, hatred, jealousy, grief, pride, resentment- that an agitated consciousness seems normal. Fortunately, devotees have a meditation practice. The more we meditate, the more we begin to live in that calm inner center. When emotional agitation pulls us out of it, we recognize the need to do something to regain our inner calm. Step back/disengage After recognizing the agitation, do whatever you need to do to get out of the emotional whirlpool. Choose a technique: Do deep breathing. Silently chant \"Aum Guru\" or some other mantra. Focus at the spiritual eye and pray for calmness. Look at a photo of the Guru, especially the Guru's eyes. If possible, change your environment so that you're disengaged from the outer stimulus that pushed you over the edge in the first place."
+      "document_text": ". It might be thoughts that keep coming when we're trying to accomplish a task or sit to meditate: \"Why did he do that to me?\" \"Why did they say that to me?\" \"I don't want to feel this way.\" Some people live so embroiled in negative emotions-anger, worry, fear, hatred, jealousy, grief, pride, resentment- that an agitated consciousness seems normal. Fortunately, devotees have a meditation practice. The more we meditate, the more we begin to live in that calm inner center. When emotional agitation pulls us out of it, we recognize the need to do something to regain our inner calm. Step back/disengage After recognizing the agitation, do whatever you need to do to get out of the emotional whirlpool. Choose a technique: Do deep breathing. Silently chant \"Aum Guru\" or some other mantra. Focus at the spiritual eye and pray for calmness. Look at a photo of the Guru, especially the Guru's eyes. If possible, change your environment so that you're disengaged from the outer stimulus that pushed you over the edge in the first place.",
+      "judge": "Hriman"
     },
     "CQiD9rSSvxRYUINYk5FT_doc3_Baseline": {
-      "score": 3,
-      "doc_score": 0.58441925,
-      "timestamp": 1750987063.7837288,
+      "score": 2,
+      "doc_score": 0.584762573,
+      "timestamp": "2025-07-16T08:52:33.635506",
       "query_id": "CQiD9rSSvxRYUINYk5FT",
       "query_text": "Write a prompt for me that would help me learn to meditate more deeply when I am feeling upset",
       "doc_id": "text||Ananda Library||db||Clarity Magazine Archives 2009-2015:: 2009 Summer ||Atman Goering||b9f6c5da||6",
       "system": "Baseline",
-      "document_text": "spiritual eye and pray for calmness. Look at a photo of the Guru, especially the Guru's eyes. If possible, change your environment so that you're disengaged from the outer stimulus that pushed you over the edge in the first place. Separate yourself from the person or persons who upset you. Unplug from the media so you're not reminded of the economic stresses that worry you, or the undefined fears of disaster that haunt your subconscious. Remove yourself from the surroundings that remind you of the loss of a pet or loved one. I have found that the calming techniques are usually more effective if I can get a little space from what upset me in the first place. Redirect the energy One of the problems I experienced in trying to draw on God's presence was that my efforts were plagued by low energy. My mind would get distracted, my prayers would be half-hearted, or I would slip into a subconscious state."
+      "document_text": "spiritual eye and pray for calmness. Look at a photo of the Guru, especially the Guru's eyes. If possible, change your environment so that you're disengaged from the outer stimulus that pushed you over the edge in the first place. Separate yourself from the person or persons who upset you. Unplug from the media so you're not reminded of the economic stresses that worry you, or the undefined fears of disaster that haunt your subconscious. Remove yourself from the surroundings that remind you of the loss of a pet or loved one. I have found that the calming techniques are usually more effective if I can get a little space from what upset me in the first place. Redirect the energy One of the problems I experienced in trying to draw on God's presence was that my efforts were plagued by low energy. My mind would get distracted, my prayers would be half-hearted, or I would slip into a subconscious state.",
+      "judge": "Hriman"
+    },
+    "CQiD9rSSvxRYUINYk5FT_doc0_Reranked": {
+      "score": 2,
+      "doc_score": 0.40245083,
+      "timestamp": "2025-07-16T08:52:33.635506",
+      "query_id": "CQiD9rSSvxRYUINYk5FT",
+      "query_text": "Write a prompt for me that would help me learn to meditate more deeply when I am feeling upset",
+      "doc_id": "text||Ananda Library||db||Touch of Divine Wisdom:: 41. Start with the Heart||Jyotish Novak||3a486572||4",
+      "system": "Reranked",
+      "document_text": "the feelings in your heart. Know that this is where restlessness starts, whether in meditation or in daily life. 2. Catch your emotional reactions quickly! As with other skills, the more you practice this, the more adept you will become. 3. First, shift your feelings into neutral, neither positive nor negative. The heart is the pivotal point from which the energy can flow in either an upward and expansive direction or a downward and contractive one. As in a car, you need to shift into neutral before you can move into forward or reverse. During my meditation, the relaxation and regular breathing shifted me into neutral, and from there I could redirect my energy upward. 4. If you want deeper meditations, change from thinking to observing: Watch the breath, listen to AUM, feel the Kriya currents, or look into the light of the spiritual eye. The spiritual states we yearn for lie behind the fringe of the mind. 5. Being able to control the reactive process imparts two huge benefits: the power to remain even-minded and cheerful, and the ability to choose to be happy in all situations.",
+      "judge": "Hriman"
     },
     "CQiD9rSSvxRYUINYk5FT_doc3_Reranked": {
-      "score": 1,
+      "score": 3,
       "doc_score": 0.1482937,
-      "timestamp": 1750987086.1454458,
+      "timestamp": "2025-07-16T08:52:33.635508",
       "query_id": "CQiD9rSSvxRYUINYk5FT",
       "query_text": "Write a prompt for me that would help me learn to meditate more deeply when I am feeling upset",
       "doc_id": "audio||The Bhaktan Files||audio||Week 04 - 02||Swami Kriyananda (J.||30b19f8d||2",
       "system": "Reranked",
-      "document_text": "to develop that feeling, that ability to relax when you meditate deeply and become very peaceful inside. Then later in your daily actions, some people think that meditation is a means of sort of divorcing you from reality, putting you out of touch with life and so on. The opposite is true. I don't know how people can cope. Who don't meditate, I just don't know how they can even live. Meditation is that which will help you to be able under any circumstance to act and react appropriately. And in this case, very often, in fact, it will happen. You will feel, if you notice yourself becoming agitated because of anything that anyone said or anything that happened to you or whatever, you will notice that, first of all, there is an agitation in the feelings of your heart. I don't mean the physical heart, although that may be affected too if the emotion is very strong. But it"
+      "document_text": "to develop that feeling, that ability to relax when you meditate deeply and become very peaceful inside. Then later in your daily actions, some people think that meditation is a means of sort of divorcing you from reality, putting you out of touch with life and so on. The opposite is true. I don't know how people can cope. Who don't meditate, I just don't know how they can even live. Meditation is that which will help you to be able under any circumstance to act and react appropriately. And in this case, very often, in fact, it will happen. You will feel, if you notice yourself becoming agitated because of anything that anyone said or anything that happened to you or whatever, you will notice that, first of all, there is an agitation in the feelings of your heart. I don't mean the physical heart, although that may be affected too if the emotion is very strong. But it",
+      "judge": "Hriman"
     }
   }
 }

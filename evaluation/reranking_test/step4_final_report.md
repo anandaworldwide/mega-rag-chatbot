@@ -1,66 +1,69 @@
 # Dual System Evaluation Results
 
-**Analysis Date**: 2025-11-19 11:20:44  
+**Analysis Date**: 2025-11-21 19:09:44  
 **Data Generation**: Unknown  
-**Total Queries Analyzed**: 7
+**Total Queries Analyzed**: 10
 
 ## Executive Summary
 
 **Winner**: Reranked  
-**Performance Improvement**: 4.2% (not statistically significant)  
+**Performance Improvement**: 13.7% (not statistically significant)  
 **Recommendation**: Further evaluation recommended
 
 ## System Performance Comparison
 
-### Reranked
-- **Precision@1**: 0.571 (strict), 0.714 (lenient)
-- **Precision@3**: 0.571 (strict), 0.643 (lenient)  
-- **Precision@5**: 0.571 (strict), 0.643 (lenient)
-- **NDCG@5**: 0.976
-- **Average Relevance**: 2.11 / 3.0
-- **Documents Evaluated**: 9 / 9
-
 ### Baseline
-- **Precision@1**: 0.500 (strict), 0.667 (lenient)
-- **Precision@3**: 0.514 (strict), 0.653 (lenient)
-- **Precision@5**: 0.514 (strict), 0.653 (lenient)
-- **NDCG@5**: 0.767
-- **Average Relevance**: 1.68 / 3.0
+- **Precision@1**: 0.357 (strict), 0.857 (lenient)
+- **Precision@3**: 0.345 (strict), 0.810 (lenient)  
+- **Precision@5**: 0.351 (strict), 0.810 (lenient)
+- **NDCG@5**: 0.808
+- **Average Relevance**: 2.26 / 3.0
+- **Documents Evaluated**: 35 / 35
+
+### Reranked
+- **Precision@1**: 0.273 (strict), 0.909 (lenient)
+- **Precision@3**: 0.439 (strict), 0.879 (lenient)
+- **Precision@5**: 0.439 (strict), 0.879 (lenient)
+- **NDCG@5**: 0.914
+- **Average Relevance**: 2.27 / 3.0
 - **Documents Evaluated**: 22 / 22
 
 ## Statistical Analysis
 
-| Metric | Reranked | Baseline | Difference | % Change | p-value | Significant | Effect Size |
+| Metric | Baseline | Reranked | Difference | % Change | p-value | Significant | Effect Size |
 |--------|--------|--------|------------|----------|---------|-------------|-------------|
-| Precision@1 (strict) | 0.571 | 0.571 | +0.000 | +0.0% | 1.000 | ✗ | 0.00 (negligible) |
-| Precision@3 (strict) | 0.571 | 0.548 | -0.024 | -4.2% | 0.914 | ✗ | -0.04 (negligible) |
-| Precision@5 (strict) | 0.571 | 0.548 | -0.024 | -4.2% | 0.914 | ✗ | -0.04 (negligible) |
-| Precision@1 (lenient) | 0.714 | 0.571 | -0.143 | -20.0% | 0.689 | ✗ | -0.16 (negligible) |
-| Precision@3 (lenient) | 0.643 | 0.595 | -0.048 | -7.4% | 0.863 | ✗ | -0.07 (negligible) |
-| Precision@5 (lenient) | 0.643 | 0.595 | -0.048 | -7.4% | 0.863 | ✗ | -0.07 (negligible) |
-| NDCG@1 | 0.918 | 0.592 | -0.327 | -35.6% | 0.098 | ✗ | -0.74 (medium) |
-| NDCG@3 | 0.976 | 0.669 | -0.307 | -31.5% | 0.109 | ✗ | -0.71 (medium) |
-| NDCG@5 | 0.976 | 0.669 | -0.307 | -31.5% | 0.109 | ✗ | -0.71 (medium) |
-| Average Relevance | 2.143 | 1.857 | -0.286 | -13.3% | 0.637 | ✗ | -0.19 (negligible) |
+| Precision@1 (strict) | 0.400 | 0.300 | -0.100 | -25.0% | 0.343 | ✗ | -0.32 (small) |
+| Precision@3 (strict) | 0.417 | 0.483 | +0.067 | +16.0% | 0.462 | ✗ | 0.24 (small) |
+| Precision@5 (strict) | 0.425 | 0.483 | +0.058 | +13.7% | 0.531 | ✗ | 0.21 (small) |
+| Precision@1 (lenient) | 0.900 | 0.900 | +0.000 | +0.0% | 1.000 | ✗ | 0.00 (negligible) |
+| Precision@3 (lenient) | 0.833 | 0.867 | +0.033 | +4.0% | 0.662 | ✗ | 0.14 (negligible) |
+| Precision@5 (lenient) | 0.833 | 0.867 | +0.033 | +4.0% | 0.662 | ✗ | 0.14 (negligible) |
+| NDCG@1 | 0.729 | 0.729 | +0.000 | +0.0% | 1.000 | ✗ | 0.00 (negligible) |
+| NDCG@3 | 0.822 | 0.906 | +0.084 | +10.2% | 0.464 | ✗ | 0.24 (small) |
+| NDCG@5 | 0.835 | 0.906 | +0.071 | +8.5% | 0.535 | ✗ | 0.20 (small) |
+| Average Relevance | 2.125 | 2.250 | +0.125 | +5.9% | 0.373 | ✗ | 0.30 (small) |
 
 ## Query-Level Analysis
 
 **Win Rate (Precision@5)**:
-- Reranked: 3 wins (42.9%)
-- Baseline: 2 wins (28.6%)
-- Ties: 2 (28.6%)
+- Baseline: 2 wins (20.0%)
+- Reranked: 3 wins (30.0%)
+- Ties: 5 (50.0%)
 
 ### Queries with Largest Performance Differences
 
-| Query ID | Query Text | Reranked P@5 | Baseline P@5 | Difference | Winner |
+| Query ID | Query Text | Baseline P@5 | Reranked P@5 | Difference | Winner |
 |----------|------------|--------------|--------------|------------|--------|
-| CQiD9rSS... | Write a prompt for me that would help me learn to ... | 0.00 | 1.00 | +1.00 | Baseline |
-| GAsQmuMh... | No, not a prayer. I want you to write a prompt tha... | 0.50 | 0.00 | -0.50 | Reranked |
-| fMCgfVG2... | what does it mean "to spiriitualize" something... | 1.00 | 0.50 | -0.50 | Reranked |
-| sQzUsmG3... | Does the Astral body need to breathe?... | 0.50 | 0.00 | -0.50 | Reranked |
-| JMLdExbr... | What is master’s famous quote from the garden part... | 0.00 | 0.33 | +0.33 | Baseline |
+| sQzUsmG3... | Does the Astral body need to breathe?... | 0.33 | 1.00 | +0.67 | Reranked |
+| fMCgfVG2... | what does it mean "to spiriitualize" something... | 0.33 | 0.00 | -0.33 | Baseline |
+| EWfsqte3... | Why is the Autobiography of a Yogi written with su... | 0.00 | 0.33 | +0.33 | Reranked |
+| LCHOMsPD... | Who said Matt is a vibration of energy and energy ... | 0.75 | 0.50 | -0.25 | Baseline |
+| JGNqNXdG... | tell me the episode where Master tells a disciple,... | 0.33 | 0.50 | +0.17 | Reranked |
+| GAsQmuMh... | No, not a prayer. I want you to write a prompt tha... | 0.00 | 0.00 | +0.00 | tie |
+| Adcj2i2j... | who liberated Judas Iscariot in the 20th century?... | 0.00 | 0.00 | +0.00 | tie |
 | Y5jBhOAv... | Find the story of Ram Gopal in Autobiography of a ... | 1.00 | 1.00 | +0.00 | tie |
-| qGF8pzUg... | Provide a specifi example and quote for each one o... | 1.00 | 1.00 | +0.00 | tie |
+| JMLdExbr... | What is master’s famous quote from the garden part... | 1.00 | 1.00 | +0.00 | tie |
+| CQiD9rSS... | Write a prompt for me that would help me learn to ... | 0.50 | 0.50 | +0.00 | tie |
 
 ## Methodology
 
@@ -80,7 +83,7 @@
 
 ## Limitations
 
-- Sample size: 7 queries may limit statistical power
+- Sample size: 10 queries may limit statistical power
 - Human evaluator bias and fatigue effects
 - Skip rate: 0.0% (System 1), 0.0% (System 2)
 

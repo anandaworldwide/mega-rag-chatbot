@@ -25,6 +25,7 @@ Usage:
 """
 
 import argparse
+import copy
 import json
 import os
 import sys
@@ -133,7 +134,9 @@ def retrieve_candidates(
             documents.append(doc)
 
         retrieval_time = time.time() - start_time
-        print(f"  Retrieved {len(documents)} candidate documents in {retrieval_time:.3f}s")
+        print(
+            f"  Retrieved {len(documents)} candidate documents in {retrieval_time:.3f}s"
+        )
 
         return documents, retrieval_time
 
@@ -151,7 +154,7 @@ def rerank_with_cohere(
 ) -> tuple[list[dict], float]:
     """Rerank documents using Cohere reranker."""
     global _last_cohere_call_time
-    
+
     if not documents:
         return [], 0.0
 
@@ -179,7 +182,7 @@ def rerank_with_cohere(
             documents=document_texts,
             top_n=top_n,
         )
-        
+
         # Update last call time after successful API call
         _last_cohere_call_time = time.time()
 
@@ -196,26 +199,36 @@ def rerank_with_cohere(
             reranked_docs.append(original_doc)
 
         rerank_time = time.time() - start_time
-        print(f"  Reranked {len(documents)} -> {len(reranked_docs)} documents in {rerank_time:.3f}s")
+        print(
+            f"  Reranked {len(documents)} -> {len(reranked_docs)} documents in {rerank_time:.3f}s"
+        )
 
         # Log before/after ordering for debugging
         print("  Before reranking (top 3):")
         for i, doc in enumerate(documents[:3]):
             title = doc.get("metadata", {}).get("title", "Unknown")[:50]
-            print(f"    {i+1}. Score={doc['score']:.4f} - {title}")
+            print(f"    {i + 1}. Score={doc['score']:.4f} - {title}")
         print("  After reranking (top 3):")
         for i, doc in enumerate(reranked_docs[:3]):
             title = doc.get("metadata", {}).get("title", "Unknown")[:50]
-            print(f"    {i+1}. Rerank={doc['rerank_score']:.4f}, Original={doc['original_pinecone_score']:.4f} - {title}")
+            print(
+                f"    {i + 1}. Rerank={doc['rerank_score']:.4f}, Original={doc['original_pinecone_score']:.4f} - {title}"
+            )
 
         return reranked_docs, rerank_time
 
     except Exception as e:
         error_str = str(e)
         # Check if it's a rate limit error (429)
-        if "429" in error_str or "rate limit" in error_str.lower() or "trial key" in error_str.lower():
+        if (
+            "429" in error_str
+            or "rate limit" in error_str.lower()
+            or "trial key" in error_str.lower()
+        ):
             # Wait longer for rate limit errors (60 seconds = 1 minute)
-            print(f"  Rate limit error detected. Waiting 60 seconds before continuing...")
+            print(
+                "  Rate limit error detected. Waiting 60 seconds before continuing..."
+            )
             time.sleep(60)
             _last_cohere_call_time = time.time()  # Reset timer after waiting
         print(f"  Error reranking with Cohere: {e}")
@@ -257,7 +270,8 @@ def process_query_with_reranking(
         return None
 
     # Baseline system: top final_top_k from Pinecone directly
-    baseline_docs = candidates[:final_top_k].copy()
+    # Use deep copy to avoid modifying the original candidates list
+    baseline_docs = [copy.deepcopy(doc) for doc in candidates[:final_top_k]]
     for doc in baseline_docs:
         doc["system"] = "Baseline"
         doc["index"] = index_name
@@ -300,12 +314,16 @@ def process_query_with_reranking(
         },
     }
 
-    print(f"Summary: Baseline={len(baseline_docs)}, Reranked={len(reranked_docs)} documents")
+    print(
+        f"Summary: Baseline={len(baseline_docs)}, Reranked={len(reranked_docs)} documents"
+    )
 
     return query_result
 
 
-def save_results(results: list[dict], output_file: str, index_name: str, embedding_model: str) -> None:
+def save_results(
+    results: list[dict], output_file: str, index_name: str, embedding_model: str
+) -> None:
     """Save retrieval results for manual evaluation."""
     output_data = {
         "metadata": {
@@ -330,7 +348,10 @@ def save_results(results: list[dict], output_file: str, index_name: str, embeddi
     }
 
     # Create output directory if needed
-    os.makedirs(os.path.dirname(output_file) if os.path.dirname(output_file) else ".", exist_ok=True)
+    os.makedirs(
+        os.path.dirname(output_file) if os.path.dirname(output_file) else ".",
+        exist_ok=True,
+    )
 
     with open(output_file, "w") as f:
         json.dump(output_data, f, indent=2)
@@ -387,7 +408,9 @@ def main():
     openai_api_key = os.getenv("OPENAI_API_KEY")
     cohere_api_key = os.getenv("COHERE_API_KEY")
 
-    if not all([index_name, embedding_model, pinecone_api_key, openai_api_key, cohere_api_key]):
+    if not all(
+        [index_name, embedding_model, pinecone_api_key, openai_api_key, cohere_api_key]
+    ):
         print("Error: Missing required environment variables")
         print(f"  PINECONE_INDEX_NAME: {index_name}")
         print(f"  OPENAI_EMBEDDINGS_MODEL: {embedding_model}")
@@ -450,13 +473,12 @@ def main():
 
     print("\n✅ Reranking evaluation completed")
     print("Next steps:")
-    print(f"1. Map reranked results to existing judgments:")
-    print(f"   python map_reranked_to_judgments.py \\")
+    print("1. Map reranked results to existing judgments:")
+    print("   python map_reranked_to_judgments.py \\")
     print(f"     --reranked-results {args.output} \\")
-    print(f"     --existing-judgments <path_to_step3_evaluation_session.json> \\")
-    print(f"     --output <output_session_file>")
+    print("     --existing-judgments <path_to_step3_evaluation_session.json> \\")
+    print("     --output <output_session_file>")
 
 
 if __name__ == "__main__":
     main()
-
