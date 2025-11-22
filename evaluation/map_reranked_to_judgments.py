@@ -132,7 +132,7 @@ def match_document_to_judgment(
     query_id: str,
     doc: dict,
     judgment_lookup: dict,
-    original_results_file: str = None,
+    original_results_file: str | None = None,
 ) -> dict | None:
     """
     Match a document to an existing judgment.
@@ -164,7 +164,7 @@ def match_document_to_judgment(
 def create_evaluation_session(
     reranked_results: dict,
     existing_judgments: dict,
-    original_results_file: str = None,
+    original_results_file: str | None = None,
 ) -> dict:
     """
     Create new evaluation session by mapping reranked documents to existing judgments.

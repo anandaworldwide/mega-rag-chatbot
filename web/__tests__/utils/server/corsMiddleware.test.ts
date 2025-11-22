@@ -299,7 +299,7 @@ describe("CORS Middleware", () => {
         headers: { origin: "https://example.com" },
       });
 
-      const result = handleCors(mockReq, null);
+      const result = handleCors(mockReq, null as any);
 
       expect(result).toBeInstanceOf(NextResponse);
       expect((result as NextResponse).status).toBe(500);
@@ -691,7 +691,7 @@ describe("CORS Middleware", () => {
     it("should handle missing allowedFrontEndDomains property", () => {
       const mockConfig = {
         siteId: "test",
-      };
+      } as any;
 
       const req = createMockNextApiRequest({
         method: "GET",
