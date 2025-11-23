@@ -124,7 +124,7 @@ const CronJobsPage = ({ siteConfig }: CronJobsPageProps) => {
   );
 
   return (
-    <SudoProvider>
+    <SudoProvider disableChecks={!!siteConfig?.requireLogin}>
       <>
         <Head>
           <title>Trigger Cron Jobs - Admin</title>

@@ -309,7 +309,7 @@ export function AdminLayout({ siteConfig, children, pageTitle }: AdminLayoutProp
   );
 
   return (
-    <SudoProvider>
+    <SudoProvider disableChecks={loginRequired}>
       <div className="min-h-screen bg-white flex flex-col">
         {/* Site Header */}
         {renderHeader()}

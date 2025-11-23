@@ -4,8 +4,8 @@
 
 ### 1. Document Migration Must Include All Validated Updates
 
-**Rule**: When migrating a Firestore document (e.g., changing email address as document ID), ALL validated
-updates must be carried over to the new document, not just a subset.
+**Rule**: When migrating a Firestore document (e.g., changing email address as document ID), ALL validated updates must
+be carried over to the new document, not just a subset.
 
 **Wrong**: Selectively including only some fields from updates object.
 
@@ -1157,3 +1157,44 @@ Always convert to string before calling string methods like `.toLowerCase()`.
 
 **Applied To**: Fixed `networkErrorUtils.ts` in both `isNetworkError()` and `analyzeNetworkError()` functions. Also
 improved error logging in `[userId].ts` audit log catch block to include full error details.
+
+### 34. Link onClick Handlers Must Check for Modifier Keys
+
+**Problem**: When users Command+click (or Ctrl+click) on links with onClick handlers, the handler executes even though
+the browser opens the link in a new tab, causing the current tab to navigate as well.
+
+**Wrong**: onClick handler executes regardless of modifier keys.
+
+```typescript
+<Link href="/" onClick={onNewChat}>
+  {logoComponent}
+</Link>
+// Command+click opens new tab AND navigates current tab
+```
+
+**Correct**: Check for modifier keys and skip handler execution when they're pressed.
+
+```typescript
+const handleLogoClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+  // Don't call handler if modifier keys are pressed (Command/Ctrl/Shift/Meta)
+  // This allows the browser's default behavior (open in new tab) to work
+  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+    return;
+  }
+  if (onNewChat) {
+    e.preventDefault();
+    onNewChat();
+  }
+};
+
+<Link href="/" onClick={handleLogoClick}>
+  {logoComponent}
+</Link>
+// Command+click only opens new tab, current tab stays put
+```
+
+**Pattern**: For any Link component with onClick handlers that perform navigation or state changes, always check for
+modifier keys (`metaKey`, `ctrlKey`, `shiftKey`, `altKey`) and return early to allow the browser's default new-tab
+behavior without executing the handler.
+
+**Applied To**: Fixed logo link and nav item links in `BaseHeader.tsx` to respect modifier key clicks.

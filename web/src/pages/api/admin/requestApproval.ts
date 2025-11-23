@@ -73,16 +73,12 @@ export async function sendApprovalRequestEmail(
   let message = `${requesterName} (${requesterEmail}) has requested access to ${brand}.`;
 
   if (referenceNote) {
-    message += `\n\nReference: ${referenceNote}`;
+    message += `\n\nMessage from requester:\n${referenceNote}\n\nPlease review this request and approve or deny access based on your knowledge of the requester.`;
+  } else {
+    message += `\n\nPlease review this request and approve or deny access.`;
   }
 
-  message += `\n\nPlease review this request and approve or deny access.
-
-Review Request
-
-(Or visit ${reviewUrl})
-
-This request requires your approval to proceed.`;
+  message += `\n\n(Or visit ${reviewUrl})`;
 
   const params = createEmailParams(
     process.env.CONTACT_EMAIL || "noreply@ananda.org",
@@ -206,11 +202,27 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   let sanitizedAdminLocation: string;
   let sanitizedReferenceNote: string | undefined;
   try {
-    sanitizedRequesterName = sanitizeTextInput(requesterName, { maxLength: 100, allowNewlines: false, allowSpecialChars: false });
-    sanitizedAdminName = sanitizeTextInput(adminName, { maxLength: 100, allowNewlines: false, allowSpecialChars: false });
-    sanitizedAdminLocation = sanitizeTextInput(adminLocation, { maxLength: 200, allowNewlines: false, allowSpecialChars: false });
+    sanitizedRequesterName = sanitizeTextInput(requesterName, {
+      maxLength: 100,
+      allowNewlines: false,
+      allowSpecialChars: false,
+    });
+    sanitizedAdminName = sanitizeTextInput(adminName, {
+      maxLength: 100,
+      allowNewlines: false,
+      allowSpecialChars: false,
+    });
+    sanitizedAdminLocation = sanitizeTextInput(adminLocation, {
+      maxLength: 200,
+      allowNewlines: false,
+      allowSpecialChars: false,
+    });
     if (referenceNote) {
-      sanitizedReferenceNote = sanitizeTextInput(referenceNote, { maxLength: 1000, allowNewlines: true, allowSpecialChars: false });
+      sanitizedReferenceNote = sanitizeTextInput(referenceNote, {
+        maxLength: 1000,
+        allowNewlines: true,
+        allowSpecialChars: false,
+      });
     }
   } catch (error: any) {
     return res.status(400).json({ error: `Invalid input: ${error.message || "Input validation failed"}` });
@@ -376,8 +388,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Send emails (in parallel for better performance)
     const emailPromises = [
-      sendApprovalRequestEmail(sanitizedRequesterEmail, sanitizedRequesterName, sanitizedAdminEmail, sanitizedAdminName, requestId, sanitizedReferenceNote, req),
-      sendRequesterConfirmationEmail(sanitizedRequesterEmail, sanitizedRequesterName, sanitizedAdminName, sanitizedAdminLocation, req),
+      sendApprovalRequestEmail(
+        sanitizedRequesterEmail,
+        sanitizedRequesterName,
+        sanitizedAdminEmail,
+        sanitizedAdminName,
+        requestId,
+        sanitizedReferenceNote,
+        req
+      ),
+      sendRequesterConfirmationEmail(
+        sanitizedRequesterEmail,
+        sanitizedRequesterName,
+        sanitizedAdminName,
+        sanitizedAdminLocation,
+        req
+      ),
     ];
 
     try {
@@ -433,7 +459,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Use original email variables if sanitized versions aren't available
     const requesterEmailForLog = sanitizedRequesterEmail || requesterEmail;
     const adminEmailForLog = sanitizedAdminEmail || adminEmail;
-    
+
     try {
       await writeAuditLog(req, "admin_approval_request", requesterEmailForLog?.toLowerCase(), {
         outcome: "error",

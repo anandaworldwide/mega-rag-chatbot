@@ -119,6 +119,29 @@ export default function BaseHeader({
     logEvent("click_back_to_library", "Navigation", "");
   };
 
+  const handleLogoClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    // Don't call onNewChat if modifier keys are pressed (Command/Ctrl/Shift/Meta)
+    // This allows the browser's default behavior (open in new tab) to work
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+      return;
+    }
+    if (onNewChat) {
+      e.preventDefault();
+      onNewChat();
+    }
+  };
+
+  const handleNavItemClick = (path: string) => (e: React.MouseEvent<HTMLAnchorElement>) => {
+    // Don't call onNewChat if modifier keys are pressed (Command/Ctrl/Shift/Meta)
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+      return;
+    }
+    if (path === "/" && onNewChat) {
+      e.preventDefault();
+      onNewChat();
+    }
+  };
+
   return (
     <header className="sticky top-0 z-50 w-full">
       {isDevelopment() && (
@@ -134,7 +157,7 @@ export default function BaseHeader({
         <div className="flex justify-between items-center h-full px-[35px]">
           <div className="flex items-center gap-[35px] pt-[5px]">
             {logoComponent ? (
-              <Link href="/" onClick={onNewChat}>
+              <Link href="/" onClick={handleLogoClick}>
                 {logoComponent}
               </Link>
             ) : null}
@@ -154,7 +177,7 @@ export default function BaseHeader({
                   <Link
                     key={item.path}
                     href={item.path}
-                    onClick={item.path === "/" && onNewChat ? () => onNewChat() : undefined}
+                    onClick={handleNavItemClick(item.path)}
                     className={`font-['Open_Sans'] font-bold text-[18px] text-white hover:text-gray-200 cursor-pointer ${
                       isActive(item.path) ? "text-white" : ""
                     }`}

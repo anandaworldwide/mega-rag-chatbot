@@ -44,31 +44,34 @@ export function generateEmailContent(options: EmailTemplateOptions): {
     message: string,
     actionUrl?: string,
     actionText?: string
-  ): { html: string; text: string } {
+  ): { html: string; text: string; hasButton: boolean } {
     if (actionUrl && actionText) {
-      // Replace the action text with a proper link in HTML
-      let htmlMessage = message.replace(
-        actionText,
-        `<a href="${actionUrl}" style="color: #3498db; text-decoration: none; font-weight: bold;">${actionText}</a>`
-      );
+      // Remove the action text from message if it exists (we'll add it as a button)
+      let htmlMessage = message.replace(new RegExp(actionText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), "");
 
-      // Make the parenthetical URL smaller in HTML version
-      const urlPattern = new RegExp(`\\(Or click ${actionUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`, "g");
+      // Style the parenthetical URL and insert button before it
+      const urlPattern = new RegExp(`\\(Or visit ${actionUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`, "gi");
+      const buttonHtml = `<div style="text-align: left; margin: 20px 0 10px 0;"><a href="${actionUrl}" style="display: inline-block; padding: 12px 24px; background-color: #3498db; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">${actionText}</a></div>`;
+      const styledParentheticalUrl = `<span style="font-size: 12px; color: #666;">(Or visit ${actionUrl})</span>`;
+
+      // Replace parenthetical URL with button + styled URL
       htmlMessage = htmlMessage.replace(
         urlPattern,
-        `<span style="font-size: 12px; color: #666;">(Or click ${actionUrl})</span>`
+        `${buttonHtml}\n<div style="margin-top: 10px; margin-bottom: 30px;">${styledParentheticalUrl}</div>`
       );
 
       // For text version, keep it as is (already formatted with raw URL)
       return {
         html: htmlMessage,
         text: message,
+        hasButton: true,
       };
     }
 
     return {
       html: message,
       text: message,
+      hasButton: false,
     };
   }
 
@@ -112,6 +115,21 @@ export function generateEmailContent(options: EmailTemplateOptions): {
       font-size: 16px;
       margin-bottom: 30px;
       white-space: pre-line;
+    }
+    .action-button {
+      display: inline-block;
+      padding: 12px 24px;
+      margin: 20px 0;
+      background-color: #3498db;
+      color: white;
+      text-decoration: none;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 16px;
+      text-align: center;
+    }
+    .action-button:hover {
+      background-color: #2980b9;
     }
             ${
               loginImageUrl

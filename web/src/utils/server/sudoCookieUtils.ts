@@ -73,10 +73,14 @@ async function setSudoCookie(req: NextApiRequest, res: NextApiResponse, password
 
 function getSudoCookie(req: NextApiRequest, res?: NextApiResponse) {
   // Log telemetry when sudo checks are used on login-required sites
+  // Note: This function is still called from server-side code that may not have checked requireLogin
+  // So we log but don't fail - the calling code should handle the check
   try {
     const siteConfig = loadSiteConfigSync();
     if (siteConfig?.requireLogin) {
       console.warn(`[TELEMETRY] Sudo check on login-required site: ${req.url} - should use role-based auth instead`);
+      // Return false for login-required sites - sudo cookie should not be used
+      return { sudoCookieValue: false, message: "Sudo cookie not available on login-required sites" };
     }
   } catch (error) {
     // Don't fail the function if site config loading fails
