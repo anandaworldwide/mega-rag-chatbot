@@ -17,8 +17,9 @@ import {
   getInviteExpiryDate,
   sendActivationEmail,
 } from "@/utils/server/userInviteUtils";
-import { sanitizeEmail, sanitizeTextInput } from "@/utils/server/inputSanitization";
+import { sanitizeEmail, sanitizeTextInput, sanitizeName } from "@/utils/server/inputSanitization";
 import { getSafeErrorMessage, sanitizeErrorForLogging } from "@/utils/server/errorSanitization";
+import { unescapeName } from "@/utils/shared/nameUtils";
 
 const ses = new SESClient({
   region: process.env.AWS_REGION || "us-west-2",
@@ -50,6 +51,9 @@ export async function sendApprovalRequestEmail(
   referenceNote: string | undefined,
   req?: any
 ) {
+  // Unescape names to handle existing data with backslashes
+  requesterName = unescapeName(requesterName);
+  adminName = unescapeName(adminName);
   // Use request domain if available, otherwise fall back to configured domain
   let baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
   if (!baseUrl) {
@@ -104,6 +108,9 @@ export async function sendRequesterConfirmationEmail(
   adminLocation: string,
   req?: any
 ) {
+  // Unescape names to handle existing data with backslashes
+  requesterName = unescapeName(requesterName);
+  adminName = unescapeName(adminName);
   // Use request domain if available, otherwise fall back to configured domain
   let baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
   if (!baseUrl) {
@@ -139,6 +146,8 @@ The ${brand} Team`;
       message,
       baseUrl,
       siteId: process.env.SITE_ID,
+      actionUrl: baseUrl,
+      actionText: `Visit ${brand}`,
     }
   );
 
@@ -202,16 +211,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   let sanitizedAdminLocation: string;
   let sanitizedReferenceNote: string | undefined;
   try {
-    sanitizedRequesterName = sanitizeTextInput(requesterName, {
-      maxLength: 100,
-      allowNewlines: false,
-      allowSpecialChars: false,
-    });
-    sanitizedAdminName = sanitizeTextInput(adminName, {
-      maxLength: 100,
-      allowNewlines: false,
-      allowSpecialChars: false,
-    });
+    sanitizedRequesterName = sanitizeName(requesterName, 100);
+    sanitizedAdminName = sanitizeName(adminName, 100);
     sanitizedAdminLocation = sanitizeTextInput(adminLocation, {
       maxLength: 200,
       allowNewlines: false,

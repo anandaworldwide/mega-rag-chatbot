@@ -18,6 +18,7 @@ import {
   getInviteExpiryDate,
   sendActivationEmail,
 } from "@/utils/server/userInviteUtils";
+import { unescapeName } from "@/utils/shared/nameUtils";
 
 const ses = new SESClient({
   region: process.env.AWS_REGION || "us-west-2",
@@ -49,6 +50,9 @@ async function sendDenialEmail(
   adminMessage?: string,
   req?: NextApiRequest
 ) {
+  // Unescape names to handle existing data with backslashes
+  requesterName = unescapeName(requesterName);
+  adminName = unescapeName(adminName);
   let baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
   if (!baseUrl) {
     throw new Error("NEXT_PUBLIC_BASE_URL environment variable is required for email generation");

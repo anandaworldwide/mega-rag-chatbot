@@ -18,6 +18,7 @@ import { withJwtAuth } from "@/utils/server/jwtUtils";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
+import { formatFullName } from "@/utils/shared/nameUtils";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Apply rate limiting
@@ -47,11 +48,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     // Helper function to get display name
     const getDisplayName = (user: any) => {
-      const firstName = user.firstName?.trim() || "";
-      const lastName = user.lastName?.trim() || "";
-      if (firstName && lastName) return `${firstName} ${lastName}`;
-      if (firstName) return firstName;
-      if (lastName) return lastName;
+      const fullName = formatFullName(user.firstName, user.lastName);
+      if (fullName) return fullName;
       return user.email || ""; // Use email field (which contains document ID)
     };
 

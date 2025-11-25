@@ -7,6 +7,7 @@ import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { isAdminPageAllowed } from "@/utils/server/adminPageGate";
 import { AdminLayout } from "@/components/AdminLayout";
 import { maskUserPII, isDemoModeEnabled } from "@/utils/client/demoMode";
+import { formatFullName } from "@/utils/shared/nameUtils";
 import { getToken, fetchWithAuth } from "@/utils/client/tokenManager";
 
 interface UserDetail {
@@ -38,18 +39,15 @@ interface PageProps {
 function getDisplayName(user: UserDetail): string {
   // Apply demo mode masking if enabled
   const maskedUser = maskUserPII(user);
-  const firstName = maskedUser.firstName?.trim() || "";
-  const lastName = maskedUser.lastName?.trim() || "";
+  const firstName = maskedUser.firstName;
+  const lastName = maskedUser.lastName;
 
-  if (firstName && lastName) {
-    return `${firstName} ${lastName}`;
-  } else if (firstName) {
-    return firstName;
-  } else if (lastName) {
-    return lastName;
-  } else {
-    return maskedUser.email; // Email comes from API response mapping (doc.id)
+  // Use formatFullName to handle escaped quotes
+  const fullName = formatFullName(firstName, lastName);
+  if (fullName) {
+    return fullName;
   }
+  return maskedUser.email; // Email comes from API response mapping (doc.id)
 }
 
 export default function EditUserPage({ siteConfig }: PageProps) {

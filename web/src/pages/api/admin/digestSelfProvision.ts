@@ -6,6 +6,7 @@ import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { sendOpsAlert } from "@/utils/server/emailOps";
 import { createIndexErrorResponse } from "@/utils/server/firestoreIndexErrorHandler";
 import { withJwtOrCronAuth } from "@/utils/server/cronAuthUtils";
+import { unescapeName } from "@/utils/shared/nameUtils";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST" && req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
@@ -97,13 +98,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         );
 
         const userResults = await Promise.all(userQueries);
+        // Unescape names to handle existing data with backslashes
         userResults.forEach((userSnap, index) => {
           if (userSnap.exists) {
             const userData = userSnap.data();
             if (userData) {
               userDataMap.set(emailsToLookup[index], {
-                firstName: userData.firstName,
-                lastName: userData.lastName,
+                firstName: unescapeName(userData.firstName),
+                lastName: unescapeName(userData.lastName),
                 // Don't include inviteStatus - use audit entry outcome instead
               });
             }

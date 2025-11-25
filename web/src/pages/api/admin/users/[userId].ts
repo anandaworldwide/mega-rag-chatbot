@@ -13,6 +13,7 @@ import { isDevelopment } from "@/utils/env";
 import { deleteFromCache } from "@/utils/server/redisUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
+import { sanitizeName } from "@/utils/server/inputSanitization";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Apply rate limiting
@@ -187,13 +188,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         if (typeof body.firstName !== "string" || body.firstName.length > 100) {
           return res.status(400).json({ error: "Invalid first name" });
         }
-        updates.firstName = body.firstName.trim();
+        try {
+          updates.firstName = sanitizeName(body.firstName, 100);
+        } catch (error: any) {
+          return res.status(400).json({ error: `Invalid first name: ${error.message || "Name validation failed"}` });
+        }
       }
       if (body.lastName !== undefined) {
         if (typeof body.lastName !== "string" || body.lastName.length > 100) {
           return res.status(400).json({ error: "Invalid last name" });
         }
-        updates.lastName = body.lastName.trim();
+        try {
+          updates.lastName = sanitizeName(body.lastName, 100);
+        } catch (error: any) {
+          return res.status(400).json({ error: `Invalid last name: ${error.message || "Name validation failed"}` });
+        }
       }
 
       // Newsletter subscription update

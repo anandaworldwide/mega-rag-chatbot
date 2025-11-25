@@ -35,7 +35,6 @@ export const PUBLIC_PATHS: PublicPathsConfig = {
     "/forgot-password",
     "/reset-password",
     "/verify",
-    "/choose-auth-method",
     "/contact",
     "/survey",
     "/answers/", // Public answer pages (trailing slash means startsWith)

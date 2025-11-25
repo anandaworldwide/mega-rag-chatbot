@@ -11,6 +11,7 @@ import { withJwtAuth } from "@/utils/server/jwtUtils";
 import { sendEmail } from "@/utils/server/emailUtils";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
+import { formatFullName } from "@/utils/shared/nameUtils";
 import firebase from "firebase-admin";
 
 interface BatchRequest {
@@ -93,12 +94,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // Personalization
         const firstName = data.firstName;
         const lastName = data.lastName;
-        let userName = "Friend";
-        if (firstName && lastName) {
-          userName = `${firstName} ${lastName}`;
-        } else if (firstName) {
-          userName = firstName;
-        }
+        // Unescape any escaped quotes in names
+        const userName = formatFullName(firstName, lastName) || "Friend";
 
         // Convert content
         const htmlContent = await convertMarkdownToHtml(data.content);
@@ -159,14 +156,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   } catch (error: any) {
     // Log sanitized error (prevents API key leakage)
     console.error("Batch processing error:", error instanceof Error ? error.name : "Unknown error");
-    
+
     // Handle authorization errors separately
     if (error.message?.includes("Unauthorized") || error.message?.includes("Superuser")) {
       return res.status(403).json({
         error: "Forbidden: Superuser privileges required",
       });
     }
-    
+
     // Return safe error message (no sensitive details)
     const safeMessage = getSafeErrorMessage(error, "Batch processing failed");
     return res.status(500).json({ error: safeMessage });
