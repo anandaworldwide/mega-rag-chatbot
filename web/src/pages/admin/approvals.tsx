@@ -45,18 +45,20 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
   const [adminMessage, setAdminMessage] = useState("");
   const [showLoading, setShowLoading] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
 
-  // Initialize JWT and get user role
+  // Initialize JWT and get user role and email
   useEffect(() => {
     const initJwt = async () => {
       const tokenRes = await fetch("/api/web-token");
       if (tokenRes.ok) {
         const data = await tokenRes.json();
         setJwt(data.token);
-        // Decode token to get role
+        // Decode token to get role and email
         try {
           const payload = JSON.parse(atob(data.token.split(".")[1]));
           setUserRole(payload.role);
+          setCurrentUserEmail(payload.email);
         } catch (error) {
           console.error("Error decoding token:", error);
         }
@@ -269,68 +271,93 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
 
       {dataLoaded && pendingRequests.length > 0 && (
         <div className="space-y-4">
-          {pendingRequests.map((request) => (
-            <div
-              key={request.requestId}
-              className={`bg-white border rounded-lg p-6 shadow-sm ${
-                requestId === request.requestId ? "border-blue-500 border-2" : "border-gray-200"
-              }`}
-            >
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900">{request.requesterName}</h3>
-                  <p className="text-sm text-gray-600">
-                    {isDemoModeEnabled() ? maskEmail(request.requesterEmail) : request.requesterEmail}
-                  </p>
-                </div>
-                <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
-                  Pending
-                </span>
-              </div>
+          {pendingRequests.map((request) => {
+            const isAssignedToCurrentUser = currentUserEmail && request.adminEmail === currentUserEmail;
+            const isNotMine = userRole === "superuser" && currentUserEmail && !isAssignedToCurrentUser;
 
-              <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
-                <div>
-                  <span className="text-gray-500">Requested:</span>
-                  <span className="ml-2 text-gray-900">{new Date(request.createdAt).toLocaleString()}</span>
-                </div>
-                <div>
-                  <span className="text-gray-500">Location:</span>
-                  <span className="ml-2 text-gray-900">{request.adminLocation}</span>
-                </div>
-              </div>
-
-              {request.referenceNote && (
-                <div className="mb-4 p-3 bg-gray-50 rounded-md text-sm">
-                  <span className="text-gray-700 font-medium">Reference: </span>
-                  <span className="text-gray-900">{request.referenceNote}</span>
-                </div>
-              )}
-
-              {userRole === "superuser" && (
-                <div className="mb-4 p-3 bg-blue-50 rounded-md text-sm">
-                  <span className="text-blue-700 font-medium">Assigned to: </span>
-                  <span className="text-blue-900">
-                    {request.adminName} ({isDemoModeEnabled() ? maskEmail(request.adminEmail) : request.adminEmail})
+            return (
+              <div
+                key={request.requestId}
+                className={`rounded-lg p-6 shadow-sm border ${
+                  requestId === request.requestId
+                    ? "border-blue-500 border-2 bg-white"
+                    : isNotMine
+                      ? "border-gray-200 bg-amber-50"
+                      : "border-gray-200 bg-white"
+                }`}
+              >
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">{request.requesterName}</h3>
+                    <p className="text-sm text-gray-600">
+                      {isDemoModeEnabled() ? maskEmail(request.requesterEmail) : request.requesterEmail}
+                    </p>
+                  </div>
+                  <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
+                    Pending
                   </span>
                 </div>
-              )}
 
-              <div className="flex gap-3 mt-4">
-                <button
-                  onClick={() => handleOpenActionModal(request, "approve")}
-                  className="flex-1 bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 transition-colors font-medium"
-                >
-                  Approve
-                </button>
-                <button
-                  onClick={() => handleOpenActionModal(request, "deny")}
-                  className="flex-1 bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600 transition-colors font-medium"
-                >
-                  Deny
-                </button>
+                <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
+                  <div>
+                    <span className="text-gray-500">Requested:</span>
+                    <span className="ml-2 text-gray-900">{new Date(request.createdAt).toLocaleString()}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">Location:</span>
+                    <span className="ml-2 text-gray-900">{request.adminLocation}</span>
+                  </div>
+                </div>
+
+                {request.referenceNote && (
+                  <div className="mb-4 p-3 bg-gray-50 rounded-md text-sm">
+                    <span className="text-gray-700 font-medium">Reference: </span>
+                    <span className="text-gray-900">{request.referenceNote}</span>
+                  </div>
+                )}
+
+                {userRole === "superuser" && (
+                  <div
+                    className={`mb-4 p-3 rounded-md text-sm ${
+                      isNotMine ? "bg-amber-100 border border-amber-300" : "bg-blue-50"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <span className={`font-medium ${isNotMine ? "text-amber-800" : "text-blue-700"}`}>
+                          Assigned to:{" "}
+                        </span>
+                        <span className={isNotMine ? "text-amber-900" : "text-blue-900"}>
+                          {request.adminName} (
+                          {isDemoModeEnabled() ? maskEmail(request.adminEmail) : request.adminEmail})
+                        </span>
+                      </div>
+                      {isNotMine && (
+                        <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-amber-200 text-amber-900">
+                          Not yours
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-3 mt-4">
+                  <button
+                    onClick={() => handleOpenActionModal(request, "approve")}
+                    className="flex-1 bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 transition-colors font-medium"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    onClick={() => handleOpenActionModal(request, "deny")}
+                    className="flex-1 bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600 transition-colors font-medium"
+                  >
+                    Deny
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
