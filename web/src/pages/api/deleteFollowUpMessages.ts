@@ -35,7 +35,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Get UUID securely based on site configuration
-    const uuidResult = getSecureUUID(req, userPayload);
+    const uuidResult = getSecureUUID(req, res, userPayload);
     if (!uuidResult.success) {
       return res.status(uuidResult.statusCode).json({ error: uuidResult.error });
     }

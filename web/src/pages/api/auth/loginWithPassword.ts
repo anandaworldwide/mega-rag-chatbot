@@ -13,6 +13,7 @@ import { comparePassword } from "@/utils/server/passwordUtils";
 import { isDevelopment } from "@/utils/env";
 import { writeAuditLog } from "@/utils/server/auditLog";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
+import { createSignedUUIDCookie } from "@/utils/server/uuidUtils";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -172,7 +173,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         path: "/",
       });
 
-      cookies.set("uuid", finalUuid as string, {
+      // Set signed UUID cookie to prevent spoofing
+      // TODO: Remove migration bridge after June 2026 - only signed cookies supported
+      cookies.set("uuid", createSignedUUIDCookie(finalUuid as string), {
         httpOnly: false,
         sameSite: "lax",
         secure: isSecure,
