@@ -10,7 +10,7 @@ interface AdminAccessGuidelinesProps {
  * Uses localStorage to persist dismissal state across page refreshes.
  */
 export function AdminAccessGuidelines({ siteConfig }: AdminAccessGuidelinesProps) {
-  const [isDismissed, setIsDismissed] = useState(true); // Start as dismissed, will check localStorage
+  const [isDismissed, setIsDismissed] = useState(false); // Start as visible, useEffect will check localStorage
 
   const storageKey = `admin-guidelines-dismissed-${siteConfig?.siteId || "default"}`;
 
@@ -20,7 +20,7 @@ export function AdminAccessGuidelines({ siteConfig }: AdminAccessGuidelinesProps
       const dismissed = localStorage.getItem(storageKey);
       setIsDismissed(dismissed === "true");
     } catch {
-      // localStorage not available, show banner
+      // localStorage not available, show banner (keep false)
       setIsDismissed(false);
     }
   }, [storageKey]);

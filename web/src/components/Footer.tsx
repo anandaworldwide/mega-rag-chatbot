@@ -48,7 +48,11 @@ const Footer: React.FC<FooterProps> = ({ siteConfig }) => {
           const isExpired = Date.now() - parsed.timestamp > 60 * 1000; // 1 minute (reduced from 5 minutes)
           if (!isExpired && parsed.role) {
             const isAdmin = parsed.role === "admin" || parsed.role === "superuser";
-            if (mounted) setIsAdminRole(isAdmin);
+            const isSuper = parsed.role === "superuser";
+            if (mounted) {
+              setIsAdminRole(isAdmin);
+              setIsSuperuser(isSuper);
+            }
             return; // Use cached result
           }
         }
@@ -118,7 +122,7 @@ const Footer: React.FC<FooterProps> = ({ siteConfig }) => {
           <div className="mx-auto max-w-[800px] px-4">
             <div className="flex flex-col items-center w-full">
               <div className="flex flex-row justify-center items-center w-full gap-3">
-                {isSuperuser && siteConfig?.requireLogin && (
+                {((siteConfig?.requireLogin && isSuperuser) || (!siteConfig?.requireLogin && isSudoUser)) && (
                   <>
                     <Link
                       href="/answers"
