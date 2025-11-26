@@ -7,6 +7,7 @@ import { isAdminPageAllowed } from "@/utils/server/adminPageGate";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { SiteConfig } from "@/types/siteConfig";
 import { validateEmailInput } from "@/utils/client/emailParser";
+import { AdminAccessGuidelinesModal } from "@/components/AdminAccessGuidelinesModal";
 
 interface AddUsersPageProps {
   siteConfig: SiteConfig | null;
@@ -22,6 +23,7 @@ export default function AddUsersPage({ siteConfig }: AddUsersPageProps) {
   const [message, setMessage] = useState<string | null>(null);
   const [messageType, setMessageType] = useState<"info" | "error">("info");
   const [jwt, setJwt] = useState<string | null>(null);
+  const [showGuidelinesModal, setShowGuidelinesModal] = useState(false);
 
   // Local storage key for persisting custom message
   const CUSTOM_MESSAGE_STORAGE_KEY = "admin-invitation-custom-message";
@@ -287,9 +289,21 @@ export default function AddUsersPage({ siteConfig }: AddUsersPageProps) {
       <form onSubmit={handleSubmit} className="bg-white shadow rounded-lg p-6">
         <div className="space-y-6">
           <div>
-            <label htmlFor="emails" className="block text-sm font-medium text-gray-700 mb-2">
-              Email Addresses <span className="text-red-500">*</span>
-            </label>
+            <div className="flex items-center justify-between mb-2">
+              <label htmlFor="emails" className="block text-sm font-medium text-gray-700">
+                Email Addresses <span className="text-red-500">*</span>
+              </label>
+              {siteConfig?.adminAccessGuidelines && (
+                <button
+                  type="button"
+                  onClick={() => setShowGuidelinesModal(true)}
+                  className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-1 transition-colors"
+                >
+                  <span className="material-icons text-sm">info</span>
+                  Who can be added?
+                </button>
+              )}
+            </div>
             <textarea
               id="emails"
               value={emailInput}
@@ -350,7 +364,14 @@ export default function AddUsersPage({ siteConfig }: AddUsersPageProps) {
         <title>Add Users - Admin</title>
       </Head>
       <AdminLayout siteConfig={siteConfig} pageTitle="Add Users">
-        <div className="max-w-4xl">{mainContent}</div>
+        <div className="max-w-4xl">
+          {mainContent}
+          <AdminAccessGuidelinesModal
+            isOpen={showGuidelinesModal}
+            onClose={() => setShowGuidelinesModal(false)}
+            siteConfig={siteConfig}
+          />
+        </div>
       </AdminLayout>
     </>
   );

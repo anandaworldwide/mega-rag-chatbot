@@ -9,6 +9,7 @@ import CrystalHeader from "./Header/CrystalHeader";
 import PhotoHeader from "./Header/PhotoHeader";
 import Footer from "./Footer";
 import { SudoProvider } from "@/contexts/SudoContext";
+import { AdminAccessGuidelines } from "./AdminAccessGuidelines";
 
 interface AdminLayoutProps {
   siteConfig: SiteConfig | null;
@@ -362,7 +363,11 @@ export function AdminLayout({ siteConfig, children, pageTitle }: AdminLayoutProp
 
             {/* Main Content */}
             <div className="flex-1 min-w-0">
-              <div className="max-w-screen-2xl mx-auto p-6">{children}</div>
+              <div className="max-w-screen-2xl mx-auto p-6">
+                {/* Access Guidelines Banner - Dismissible with localStorage persistence */}
+                <AdminAccessGuidelines siteConfig={siteConfig} />
+                {children}
+              </div>
             </div>
           </div>
         </div>
