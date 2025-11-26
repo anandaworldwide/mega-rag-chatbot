@@ -15,26 +15,67 @@ if (!process.env.SECRET_KEY) {
 
 const secretKey = crypto.createHash("sha256").update(process.env.SECRET_KEY).digest();
 
-function encrypt(text: string) {
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv("aes-256-cbc", secretKey, iv);
-  let encrypted = cipher.update(text);
+/**
+ * Encrypts text using AES-256-GCM (authenticated encryption)
+ * Format: iv:encrypted:tag (all hex encoded)
+ * @param text - Plaintext to encrypt
+ * @returns Encrypted string in format "iv:encrypted:tag"
+ */
+function encrypt(text: string): string {
+  // GCM requires 12-byte IV (nonce) instead of 16-byte for CBC
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", secretKey, iv);
+
+  let encrypted = cipher.update(text, "utf8");
   encrypted = Buffer.concat([encrypted, cipher.final()]);
-  return iv.toString("hex") + ":" + encrypted.toString("hex");
+
+  // Get authentication tag (16 bytes by default)
+  const tag = cipher.getAuthTag();
+
+  // Format: iv:encrypted:tag (all hex encoded)
+  return `${iv.toString("hex")}:${encrypted.toString("hex")}:${tag.toString("hex")}`;
 }
 
-function decrypt(text: string) {
+/**
+ * Decrypts text using AES-256-GCM (authenticated encryption)
+ * Format: iv:encrypted:tag (all hex encoded)
+ * @param text - Encrypted string in format "iv:encrypted:tag"
+ * @returns Decrypted plaintext
+ * @throws Error if decryption fails or authentication tag is invalid
+ */
+function decrypt(text: string): string {
   try {
     const textParts = text.split(":");
-    const iv = Buffer.from(textParts.shift()!, "hex");
-    const encryptedText = Buffer.from(textParts.join(":"), "hex");
-    const decipher = crypto.createDecipheriv("aes-256-cbc", secretKey, iv);
+
+    // Reject old CBC format (2 parts) - only accept new GCM format (3 parts)
+    if (textParts.length !== 3) {
+      throw new Error("Invalid token format: Expected GCM format (iv:encrypted:tag)");
+    }
+
+    const iv = Buffer.from(textParts[0]!, "hex");
+    const encryptedText = Buffer.from(textParts[1]!, "hex");
+    const tag = Buffer.from(textParts[2]!, "hex");
+
+    // Validate IV length (GCM requires 12 bytes)
+    if (iv.length !== 12) {
+      throw new Error("Invalid IV length: Expected 12 bytes for GCM");
+    }
+
+    // Validate tag length (GCM default is 16 bytes)
+    if (tag.length !== 16) {
+      throw new Error("Invalid authentication tag length: Expected 16 bytes");
+    }
+
+    const decipher = crypto.createDecipheriv("aes-256-gcm", secretKey, iv);
+    decipher.setAuthTag(tag);
+
     let decrypted = decipher.update(encryptedText);
     decrypted = Buffer.concat([decrypted, decipher.final()]);
-    return decrypted.toString();
+
+    return decrypted.toString("utf8");
   } catch (error) {
     console.error("Decryption error:", error);
-    throw new Error("Decryption failed");
+    throw new Error("Decryption failed: Invalid or tampered cookie");
   }
 }
 
@@ -116,12 +157,14 @@ function validateSudoCookie(encryptedToken: string | undefined, userIp: string):
   }
 
   try {
+    // Reject old CBC format (2 parts) - only accept new GCM format (3 parts)
     const textParts = encryptedToken.split(":");
-    if (textParts.length !== 2) {
-      console.error("Invalid token format");
-      return { sudoCookieValue: false, message: "Invalid token format" };
+    if (textParts.length !== 3) {
+      console.error("Invalid token format: Old CBC format detected, cookie invalidated");
+      return { sudoCookieValue: false, message: "Invalid token format: Please re-authenticate" };
     }
 
+    // Decrypt with GCM (includes authentication tag verification)
     const decryptedToken = decrypt(encryptedToken);
     const tokenIndex = decryptedToken.indexOf(":");
     const ip = decryptedToken.slice(tokenIndex + 1);
@@ -137,8 +180,10 @@ function validateSudoCookie(encryptedToken: string | undefined, userIp: string):
       ipMismatch: true,
     };
   } catch (error) {
+    // GCM decryption will throw if authentication tag is invalid (tampering detected)
     console.error("Token validation error:", error);
-    return { sudoCookieValue: false, message: "Token validation error" };
+    const errorMessage = error instanceof Error ? error.message : "Token validation error";
+    return { sudoCookieValue: false, message: errorMessage };
   }
 }
 

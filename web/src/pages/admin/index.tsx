@@ -71,6 +71,7 @@ function truncateEmail(email: string, maxLength: number = 35): string {
 }
 
 export default function AdminDashboardPage({ isSudoAdmin, siteConfig }: AdminDashboardProps) {
+  const loginRequired = !!siteConfig?.requireLogin;
   const [message, setMessage] = useState<string | null>(null);
   const [messageType, setMessageType] = useState<"info" | "error">("info");
   const [active, setActive] = useState<ActiveUser[]>([]);
@@ -249,13 +250,13 @@ export default function AdminDashboardPage({ isSudoAdmin, siteConfig }: AdminDas
   }, [jwt, currentPage]);
   // Note: fetchActive is not included to avoid infinite loops - it's defined inline and changes on every render
 
-  // Fetch active users once JWT is available
+  // Fetch active users once JWT is available (only for login-required sites)
   useEffect(() => {
-    if (!jwt) return;
+    if (!loginRequired || !jwt) return;
     fetchActive(currentPage);
     // Intentionally only depends on jwt to refetch if token is refreshed
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jwt, currentPage]);
+  }, [jwt, currentPage, loginRequired]);
   // Note: fetchActive is not included to avoid infinite loops
 
   // Debounce search query to prevent excessive API calls
@@ -267,12 +268,12 @@ export default function AdminDashboardPage({ isSudoAdmin, siteConfig }: AdminDas
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Fetch active users when page, sort, debounced search, or admin filter changes
+  // Fetch active users when page, sort, debounced search, or admin filter changes (only for login-required sites)
   useEffect(() => {
-    if (!jwt) return;
+    if (!loginRequired || !jwt) return;
     fetchActive(currentPage);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, jwt, sortBy, debouncedSearchQuery, showAdminsOnly]);
+  }, [currentPage, jwt, sortBy, debouncedSearchQuery, showAdminsOnly, loginRequired]);
   // Note: fetchActive is not included to avoid infinite loops
 
   // Handle sort change
@@ -316,292 +317,305 @@ export default function AdminDashboardPage({ isSudoAdmin, siteConfig }: AdminDas
         </div>
       )}
 
-      <div className="bg-white shadow rounded-lg">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <div className="flex justify-between items-center">
-            <h1 className="text-2xl font-semibold text-gray-900">Active Users</h1>
-            <div className="text-sm text-gray-600 min-w-0 flex-shrink-0">
-              {pagination && pagination.totalCount > 0 ? (
-                <>
-                  Showing {(pagination.page - 1) * pagination.limit + 1} to{" "}
-                  {Math.min(pagination.page * pagination.limit, pagination.totalCount)} of {pagination.totalCount} users
-                  {(debouncedSearchQuery || showAdminsOnly) && <span className="ml-2 text-gray-500">(filtered)</span>}
-                </>
-              ) : (
-                <span className="opacity-0">Showing 1 to 20 of 100 users</span>
-              )}
+      {!loginRequired ? (
+        <div className="bg-white shadow rounded-lg p-6">
+          <h1 className="text-2xl font-semibold text-gray-900 mb-4">Admin Dashboard</h1>
+          <p className="text-gray-600">
+            User management is not available for sites that do not require login. Use other admin features from the
+            navigation menu.
+          </p>
+        </div>
+      ) : (
+        <div className="bg-white shadow rounded-lg">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <div className="flex justify-between items-center">
+              <h1 className="text-2xl font-semibold text-gray-900">Active Users</h1>
+              <div className="text-sm text-gray-600 min-w-0 flex-shrink-0">
+                {pagination && pagination.totalCount > 0 ? (
+                  <>
+                    Showing {(pagination.page - 1) * pagination.limit + 1} to{" "}
+                    {Math.min(pagination.page * pagination.limit, pagination.totalCount)} of {pagination.totalCount}{" "}
+                    users
+                    {(debouncedSearchQuery || showAdminsOnly) && <span className="ml-2 text-gray-500">(filtered)</span>}
+                  </>
+                ) : (
+                  <span className="opacity-0">Showing 1 to 20 of 100 users</span>
+                )}
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Search Box and Filters */}
-        <div className="px-6 py-4 border-b border-gray-200">
-          <div className="flex flex-col gap-3">
-            <div className="relative max-w-md">
-              <input
-                type="text"
-                placeholder="Search by name or email..."
-                value={searchQuery}
-                onChange={(e) => handleSearchChange(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => handleSearchChange("")}
-                  className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                >
-                  <span className="material-icons text-sm">close</span>
-                </button>
-              )}
-            </div>
-            <div className="flex items-center">
-              <label className="flex items-center gap-2 cursor-pointer">
+          {/* Search Box and Filters */}
+          <div className="px-6 py-4 border-b border-gray-200">
+            <div className="flex flex-col gap-3">
+              <div className="relative max-w-md">
                 <input
-                  type="checkbox"
-                  checked={showAdminsOnly}
-                  onChange={(e) => handleAdminFilterChange(e.target.checked)}
-                  className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  type="text"
+                  placeholder="Search by name or email..."
+                  value={searchQuery}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                 />
-                <span className="text-sm text-gray-700">Show admins and superusers only</span>
-              </label>
+                {searchQuery && (
+                  <button
+                    onClick={() => handleSearchChange("")}
+                    className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  >
+                    <span className="material-icons text-sm">close</span>
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={showAdminsOnly}
+                    onChange={(e) => handleAdminFilterChange(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-700">Show admins and superusers only</span>
+                </label>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Mobile Card View */}
-        <div className="lg:hidden">
-          {activeLoading ? (
-            <div className="px-6 py-8 text-center text-sm text-gray-600">
-              {showLoading ? (
-                <div className="flex items-center justify-center gap-2">
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
-                  <span>Loading users...</span>
-                </div>
-              ) : (
-                <div className="py-4"></div>
-              )}
-            </div>
-          ) : dataLoaded && active.length === 0 ? (
-            <div className="px-6 py-8 text-center text-sm text-gray-600">
-              {debouncedSearchQuery && showAdminsOnly
-                ? `No admins/superusers found matching "${debouncedSearchQuery}"`
-                : debouncedSearchQuery
-                  ? `No users found matching "${debouncedSearchQuery}"`
-                  : showAdminsOnly
-                    ? "No admins or superusers found"
-                    : "No active users"}
-            </div>
-          ) : dataLoaded && active.length > 0 ? (
-            <div className="space-y-3 px-4 py-4">
-              {active.map((u) => (
-                <div
-                  key={u.email}
-                  className="bg-white border border-gray-200 rounded-lg p-4 hover:border-blue-300 hover:shadow-sm transition-all cursor-pointer"
-                  onClick={() => {
-                    window.location.href = `/admin/users/${encodeURIComponent(u.email)}`;
-                  }}
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <a
-                      className="text-blue-600 hover:text-blue-800 font-semibold text-base"
-                      href={`/admin/users/${encodeURIComponent(u.email)}`}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {getDisplayName(u)}
-                    </a>
-                    <span
-                      className={`px-2 py-0.5 text-xs font-medium rounded-full ${
-                        u.role === "superuser"
-                          ? "bg-purple-100 text-purple-700"
-                          : u.role === "admin"
-                            ? "bg-blue-100 text-blue-700"
-                            : "bg-gray-100 text-gray-700"
-                      }`}
-                    >
-                      {u.role || "user"}
-                    </span>
+          {/* Mobile Card View */}
+          <div className="lg:hidden">
+            {activeLoading ? (
+              <div className="px-6 py-8 text-center text-sm text-gray-600">
+                {showLoading ? (
+                  <div className="flex items-center justify-center gap-2">
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                    <span>Loading users...</span>
                   </div>
-                  <div className="space-y-1 text-sm">
-                    <div className="flex items-start gap-2">
-                      <span className="material-icons text-gray-400 text-sm mt-0.5">email</span>
-                      <span className="text-gray-700 break-all">{maskUserPII(u).email}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="material-icons text-gray-400 text-sm">schedule</span>
-                      <span className="text-gray-600">
-                        <DateDisplay dateString={u.lastLoginAt} />
-                      </span>
-                    </div>
-                    {Object.keys(u.entitlements).length > 0 && (
-                      <div className="flex items-start gap-2 mt-2 pt-2 border-t border-gray-100">
-                        <span className="material-icons text-gray-400 text-sm mt-0.5">verified_user</span>
-                        <span className="text-gray-600 text-xs">
-                          {Object.keys(u.entitlements)
-                            .filter((key) => u.entitlements[key])
-                            .join(", ")}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : null}
-        </div>
-
-        {/* Desktop Table View */}
-        <div className="hidden lg:block overflow-x-auto">
-          <table className="w-full text-left text-sm table-fixed">
-            <colgroup>
-              <col className="w-1/5" />
-              <col className="w-2/5" />
-              <col className="w-28" />
-              <col className="w-24" />
-              <col className="w-auto" />
-            </colgroup>
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  <button
-                    onClick={() => handleSortChange("name-asc")}
-                    className={`flex items-center gap-1 hover:text-blue-600 ${
-                      sortBy === "name-asc" ? "text-blue-600 font-semibold" : ""
-                    }`}
-                  >
-                    Name
-                    {sortBy === "name-asc" && <span className="text-xs">↑</span>}
-                  </button>
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Email
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  <button
-                    onClick={() => handleSortChange("login-desc")}
-                    className={`flex items-center gap-1 hover:text-blue-600 ${
-                      sortBy === "login-desc" ? "text-blue-600 font-semibold" : ""
-                    }`}
-                  >
-                    Last Login
-                    {sortBy === "login-desc" && <span className="text-xs">↓</span>}
-                  </button>
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Entitlements
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {activeLoading ? (
-                <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-sm text-gray-600">
-                    {showLoading ? (
-                      <div className="flex items-center justify-center gap-2">
-                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
-                        <span>Loading users...</span>
-                      </div>
-                    ) : (
-                      <div className="py-4"></div>
-                    )}
-                  </td>
-                </tr>
-              ) : dataLoaded && active.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="px-6 py-8 text-center text-sm text-gray-600">
-                    {debouncedSearchQuery && showAdminsOnly
-                      ? `No admins/superusers found matching "${debouncedSearchQuery}"`
-                      : debouncedSearchQuery
-                        ? `No users found matching "${debouncedSearchQuery}"`
-                        : showAdminsOnly
-                          ? "No admins or superusers found"
-                          : "No active users"}
-                  </td>
-                </tr>
-              ) : dataLoaded && active.length > 0 ? (
-                active.map((u) => (
-                  <tr
+                ) : (
+                  <div className="py-4"></div>
+                )}
+              </div>
+            ) : dataLoaded && active.length === 0 ? (
+              <div className="px-6 py-8 text-center text-sm text-gray-600">
+                {debouncedSearchQuery && showAdminsOnly
+                  ? `No admins/superusers found matching "${debouncedSearchQuery}"`
+                  : debouncedSearchQuery
+                    ? `No users found matching "${debouncedSearchQuery}"`
+                    : showAdminsOnly
+                      ? "No admins or superusers found"
+                      : "No active users"}
+              </div>
+            ) : dataLoaded && active.length > 0 ? (
+              <div className="space-y-3 px-4 py-4">
+                {active.map((u) => (
+                  <div
                     key={u.email}
-                    className="hover:bg-gray-50 cursor-pointer"
+                    className="bg-white border border-gray-200 rounded-lg p-4 hover:border-blue-300 hover:shadow-sm transition-all cursor-pointer"
                     onClick={() => {
                       window.location.href = `/admin/users/${encodeURIComponent(u.email)}`;
                     }}
                   >
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <div className="flex items-start justify-between mb-2">
                       <a
-                        className="text-blue-600 hover:text-blue-800 font-medium"
+                        className="text-blue-600 hover:text-blue-800 font-semibold text-base"
                         href={`/admin/users/${encodeURIComponent(u.email)}`}
                         onClick={(e) => e.stopPropagation()}
                       >
                         {getDisplayName(u)}
                       </a>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span title={maskUserPII(u).email} className="text-gray-900">
-                        {truncateEmail(maskUserPII(u).email)}
+                      <span
+                        className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+                          u.role === "superuser"
+                            ? "bg-purple-100 text-purple-700"
+                            : u.role === "admin"
+                              ? "bg-blue-100 text-blue-700"
+                              : "bg-gray-100 text-gray-700"
+                        }`}
+                      >
+                        {u.role || "user"}
                       </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-900">{u.role || "–"}</td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-900">
-                      <DateDisplay dateString={u.lastLoginAt} />
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-900">
-                      {Object.keys(u.entitlements).length > 0
-                        ? Object.keys(u.entitlements)
-                            .filter((key) => u.entitlements[key])
-                            .join(", ")
-                        : "–"}
+                    </div>
+                    <div className="space-y-1 text-sm">
+                      <div className="flex items-start gap-2">
+                        <span className="material-icons text-gray-400 text-sm mt-0.5">email</span>
+                        <span className="text-gray-700 break-all">{maskUserPII(u).email}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="material-icons text-gray-400 text-sm">schedule</span>
+                        <span className="text-gray-600">
+                          <DateDisplay dateString={u.lastLoginAt} />
+                        </span>
+                      </div>
+                      {Object.keys(u.entitlements).length > 0 && (
+                        <div className="flex items-start gap-2 mt-2 pt-2 border-t border-gray-100">
+                          <span className="material-icons text-gray-400 text-sm mt-0.5">verified_user</span>
+                          <span className="text-gray-600 text-xs">
+                            {Object.keys(u.entitlements)
+                              .filter((key) => u.entitlements[key])
+                              .join(", ")}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+
+          {/* Desktop Table View */}
+          <div className="hidden lg:block overflow-x-auto">
+            <table className="w-full text-left text-sm table-fixed">
+              <colgroup>
+                <col className="w-1/5" />
+                <col className="w-2/5" />
+                <col className="w-28" />
+                <col className="w-24" />
+                <col className="w-auto" />
+              </colgroup>
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button
+                      onClick={() => handleSortChange("name-asc")}
+                      className={`flex items-center gap-1 hover:text-blue-600 ${
+                        sortBy === "name-asc" ? "text-blue-600 font-semibold" : ""
+                      }`}
+                    >
+                      Name
+                      {sortBy === "name-asc" && <span className="text-xs">↑</span>}
+                    </button>
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Email
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Role
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <button
+                      onClick={() => handleSortChange("login-desc")}
+                      className={`flex items-center gap-1 hover:text-blue-600 ${
+                        sortBy === "login-desc" ? "text-blue-600 font-semibold" : ""
+                      }`}
+                    >
+                      Last Login
+                      {sortBy === "login-desc" && <span className="text-xs">↓</span>}
+                    </button>
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Entitlements
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {activeLoading ? (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-8 text-center text-sm text-gray-600">
+                      {showLoading ? (
+                        <div className="flex items-center justify-center gap-2">
+                          <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                          <span>Loading users...</span>
+                        </div>
+                      ) : (
+                        <div className="py-4"></div>
+                      )}
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={5} className="px-6 py-4"></td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination Controls */}
-        {!activeLoading && pagination && pagination.totalPages > 1 && (
-          <div className="px-6 py-4 border-t border-gray-200 flex justify-center items-center gap-2">
-            <button
-              onClick={() => setCurrentPage(1)}
-              disabled={!pagination.hasPrev}
-              className="px-3 py-1 text-sm border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-            >
-              First
-            </button>
-            <button
-              onClick={() => setCurrentPage(currentPage - 1)}
-              disabled={!pagination.hasPrev}
-              className="px-3 py-1 text-sm border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-            >
-              Previous
-            </button>
-
-            <span className="px-3 py-1 text-sm text-gray-700">
-              Page {pagination.page} of {pagination.totalPages}
-            </span>
-
-            <button
-              onClick={() => setCurrentPage(currentPage + 1)}
-              disabled={!pagination.hasNext}
-              className="px-3 py-1 text-sm border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-            >
-              Next
-            </button>
-            <button
-              onClick={() => setCurrentPage(pagination.totalPages)}
-              disabled={!pagination.hasNext}
-              className="px-3 py-1 text-sm border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
-            >
-              Last
-            </button>
+                ) : dataLoaded && active.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-8 text-center text-sm text-gray-600">
+                      {debouncedSearchQuery && showAdminsOnly
+                        ? `No admins/superusers found matching "${debouncedSearchQuery}"`
+                        : debouncedSearchQuery
+                          ? `No users found matching "${debouncedSearchQuery}"`
+                          : showAdminsOnly
+                            ? "No admins or superusers found"
+                            : "No active users"}
+                    </td>
+                  </tr>
+                ) : dataLoaded && active.length > 0 ? (
+                  active.map((u) => (
+                    <tr
+                      key={u.email}
+                      className="hover:bg-gray-50 cursor-pointer"
+                      onClick={() => {
+                        window.location.href = `/admin/users/${encodeURIComponent(u.email)}`;
+                      }}
+                    >
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <a
+                          className="text-blue-600 hover:text-blue-800 font-medium"
+                          href={`/admin/users/${encodeURIComponent(u.email)}`}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {getDisplayName(u)}
+                        </a>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span title={maskUserPII(u).email} className="text-gray-900">
+                          {truncateEmail(maskUserPII(u).email)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-gray-900">{u.role || "–"}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-gray-900">
+                        <DateDisplay dateString={u.lastLoginAt} />
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-gray-900">
+                        {Object.keys(u.entitlements).length > 0
+                          ? Object.keys(u.entitlements)
+                              .filter((key) => u.entitlements[key])
+                              .join(", ")
+                          : "–"}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-4"></td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
-        )}
-      </div>
+
+          {/* Pagination Controls */}
+          {!activeLoading && pagination && pagination.totalPages > 1 && (
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-center items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(1)}
+                disabled={!pagination.hasPrev}
+                className="px-3 py-1 text-sm border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+              >
+                First
+              </button>
+              <button
+                onClick={() => setCurrentPage(currentPage - 1)}
+                disabled={!pagination.hasPrev}
+                className="px-3 py-1 text-sm border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+              >
+                Previous
+              </button>
+
+              <span className="px-3 py-1 text-sm text-gray-700">
+                Page {pagination.page} of {pagination.totalPages}
+              </span>
+
+              <button
+                onClick={() => setCurrentPage(currentPage + 1)}
+                disabled={!pagination.hasNext}
+                className="px-3 py-1 text-sm border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+              >
+                Next
+              </button>
+              <button
+                onClick={() => setCurrentPage(pagination.totalPages)}
+                disabled={!pagination.hasNext}
+                className="px-3 py-1 text-sm border border-gray-300 rounded disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+              >
+                Last
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </>
   );
 
