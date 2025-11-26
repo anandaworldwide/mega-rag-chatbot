@@ -24,6 +24,7 @@ def print_usage():
     print("Usage: process_anandalib_dump.py [-u username] <sql_dump_file>")
     sys.exit(1)
 
+
 def get_new_db_name() -> str:
     """Generates a unique database name based on the current date.
 
@@ -33,6 +34,7 @@ def get_new_db_name() -> str:
     # Generate database name with format anandalib-YYYY-DD-MM
     today = datetime.now()
     return f"anandalib_{today.year}_{today.month:02d}_{today.day:02d}"
+
 
 def process_sql_file(input_file: str, new_db_name: str) -> str:
     """Processes the input SQL dump file for import.
@@ -50,7 +52,9 @@ def process_sql_file(input_file: str, new_db_name: str) -> str:
         str: The path to the temporary file containing the processed SQL.
     """
     # Create temp file for processed SQL
-    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.sql') as temp_file:
+    with tempfile.NamedTemporaryFile(
+        mode="w", delete=False, suffix=".sql"
+    ) as temp_file:
         temp_filename = temp_file.name
 
         # Add header configurations to ensure UTF8 compatibility and set SQL mode
@@ -64,11 +68,15 @@ use {new_db_name};
         temp_file.write(header)
 
         # Process the input file line by line
-        with open(input_file, encoding='utf-8') as infile:
+        with open(input_file, encoding="utf-8") as infile:
             for line in infile:
                 # Replace old database name references (USE and CREATE DATABASE)
-                line = re.sub(r'USE `anandalib[^`]*`', f'USE `{new_db_name}`', line)
-                line = re.sub(r'CREATE DATABASE .*anandalib[^`]*`', f'CREATE DATABASE `{new_db_name}`', line)
+                line = re.sub(r"USE `anandalib[^`]*`", f"USE `{new_db_name}`", line)
+                line = re.sub(
+                    r"CREATE DATABASE .*anandalib[^`]*`",
+                    f"CREATE DATABASE `{new_db_name}`",
+                    line,
+                )
                 temp_file.write(line)
 
         # Add footer modifications for the wp_posts table
@@ -96,6 +104,7 @@ ALTER TABLE wp_posts
 
     return temp_filename
 
+
 def import_database(sql_file: str, db_name: str, username: str):
     """Imports the processed SQL file into a new MySQL database.
 
@@ -112,22 +121,33 @@ def import_database(sql_file: str, db_name: str, username: str):
         SystemExit: If database creation or import fails.
     """
     # Create database using mysql command line
-    create_db_cmd = f"mysql -u {username} -p -e 'CREATE DATABASE IF NOT EXISTS `{db_name}`'"
+    # Critical security fix - never use shell=True with variable interpolation
+    create_db_cmd = [
+        "mysql",
+        "-u",
+        username,
+        "-p",
+        "-e",
+        f"CREATE DATABASE IF NOT EXISTS `{db_name}`",
+    ]
     try:
         # Run the command, checking for errors
-        subprocess.run(create_db_cmd, shell=True, check=True)
+        subprocess.run(create_db_cmd, check=True)
     except subprocess.CalledProcessError as e:
         print(f"Error creating database: {e}")
         sys.exit(1)
 
     # Import processed SQL file using mysql command line
-    import_cmd = f"mysql -u {username} -p {db_name} < {sql_file}"
+    # Critical security fix - use stdin instead of shell redirection
+    import_cmd = ["mysql", "-u", username, "-p", db_name]
     try:
-        # Run the command, checking for errors
-        subprocess.run(import_cmd, shell=True, check=True)
+        # Run the command with SQL file as stdin, checking for errors
+        with open(sql_file, encoding="utf-8") as f:
+            subprocess.run(import_cmd, stdin=f, check=True, text=True)
     except subprocess.CalledProcessError as e:
         print(f"Error importing database: {e}")
         sys.exit(1)
+
 
 def main():
     """Main execution function.
@@ -137,9 +157,13 @@ def main():
     and cleans up the temporary file.
     """
     # Set up argument parser for command-line options
-    parser = argparse.ArgumentParser(description='Process and import Ananda library SQL dump')
-    parser.add_argument('-u', '--user', default='root', help='MySQL username (default: root)')
-    parser.add_argument('sql_file', help='SQL dump file to process')
+    parser = argparse.ArgumentParser(
+        description="Process and import Ananda library SQL dump"
+    )
+    parser.add_argument(
+        "-u", "--user", default="root", help="MySQL username (default: root)"
+    )
+    parser.add_argument("sql_file", help="SQL dump file to process")
 
     # Parse arguments provided by the user
     args = parser.parse_args()
@@ -176,6 +200,7 @@ def main():
         # Catch any other unexpected errors during processing or import
         print(f"Error processing database: {e}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

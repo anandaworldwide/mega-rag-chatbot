@@ -1624,13 +1624,19 @@ function generateTestToken(client = "web") {
   const expInSeconds = nowInSeconds + 3600; // 1 hour from now
 
   // Create token with a defined payload using current timestamps
+  // Include issuer and audience for JWT verification
   const token = jwt.sign(
     {
       client,
       iat: nowInSeconds,
       exp: expInSeconds,
     },
-    secretKey
+    secretKey,
+    {
+      algorithm: "HS256",
+      issuer: "mega-rag-chatbot",
+      audience: "mega-rag-chatbot-users",
+    }
   );
 
   return token;

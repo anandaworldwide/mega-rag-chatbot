@@ -64,7 +64,7 @@ describe("answersPageAuth", () => {
       expect(result).toBe(false);
     });
 
-    it("should deny admins on login-required sites", async () => {
+    it("should allow admins on login-required sites", async () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>();
       const siteConfig: SiteConfig = {
         requireLogin: true,
@@ -74,7 +74,8 @@ describe("answersPageAuth", () => {
 
       const result = await isAnswersPageAllowed(req, res, siteConfig);
 
-      expect(result).toBe(false);
+      expect(result).toBe(true);
+      expect(mockGetRequesterRole).toHaveBeenCalledWith(req);
     });
 
     it("should allow anyone on no-login sites", async () => {
@@ -166,14 +167,14 @@ describe("answersPageAuth", () => {
       expect(result).toBe("Access Restricted");
     });
 
-    it("should return superuser error for login-required sites", () => {
+    it("should return admin error for login-required sites", () => {
       const siteConfig: SiteConfig = {
         requireLogin: true,
       } as SiteConfig;
 
       const result = getAnswersPageErrorMessage(siteConfig);
 
-      expect(result).toBe("Access Restricted - Superuser Only");
+      expect(result).toBe("Access Restricted - Admin Only");
     });
 
     it("should return admin error for no-login sites", () => {

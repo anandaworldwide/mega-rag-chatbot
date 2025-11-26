@@ -12,8 +12,34 @@
  */
 
 import { NextApiRequest, NextApiResponse } from "next";
-import jwt from "jsonwebtoken";
+import jwt, { Algorithm } from "jsonwebtoken";
 import { createErrorCorsHeaders } from "./corsMiddleware";
+
+/**
+ * JWT verification options for security
+ * - algorithms: Only allow HS256 to prevent algorithm confusion attacks
+ * - issuer: Verify the token was issued by this application
+ * - audience: Verify the token is intended for this application's users
+ */
+const JWT_VERIFY_OPTIONS = {
+  algorithms: ["HS256" as Algorithm],
+  issuer: "mega-rag-chatbot",
+  audience: "mega-rag-chatbot-users",
+};
+
+/**
+ * JWT signing options for security
+ * - algorithm: Use HS256 for signing
+ * - issuer: Identify this application as the token issuer
+ * - audience: Specify the intended token audience
+ *
+ * Export this to ensure consistent signing across all endpoints
+ */
+export const JWT_SIGN_OPTIONS = {
+  algorithm: "HS256",
+  issuer: "mega-rag-chatbot",
+  audience: "mega-rag-chatbot-users",
+};
 
 /**
  * Interface defining the structure of the JWT payload
@@ -53,8 +79,10 @@ export function verifyToken(token: string): JwtPayload {
       throw new Error("JWT signing key is not configured");
     }
 
-    const decoded = jwt.verify(token, jwtSecret) as JwtPayload;
-    return decoded;
+    // Critical security fix – verify algorithm, issuer, and audience
+    // Prevents algorithm confusion attacks and token misuse
+    const decoded = jwt.verify(token, jwtSecret, JWT_VERIFY_OPTIONS);
+    return decoded as unknown as JwtPayload;
   } catch (error) {
     // Preserve the error message for 'JWT signing key is not configured'
     if (error instanceof Error && error.message === "JWT signing key is not configured") {

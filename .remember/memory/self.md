@@ -1198,3 +1198,40 @@ modifier keys (`metaKey`, `ctrlKey`, `shiftKey`, `altKey`) and return early to a
 behavior without executing the handler.
 
 **Applied To**: Fixed logo link and nav item links in `BaseHeader.tsx` to respect modifier key clicks.
+
+### 35. Jest Fetch Mock Expectations Must Include credentials Option
+
+**Problem**: Tests fail when implementation adds `credentials: "include"` to fetch calls but tests don't expect it.
+
+**Wrong**: Test expectations missing `credentials: "include"` option.
+
+```typescript
+// Implementation correctly includes credentials for cookie-based auth
+const response = await fetch("/api/web-token", {
+  credentials: "include",
+});
+
+// Test expectation missing credentials option
+expect(fetchMock).toHaveBeenCalledWith("/api/web-token"); // Fails
+```
+
+**Correct**: Include `credentials: "include"` in test expectations when implementation uses it.
+
+```typescript
+expect(fetchMock).toHaveBeenCalledWith("/api/web-token", {
+  credentials: "include",
+});
+
+// For authenticated requests
+expect(fetchMock).toHaveBeenCalledWith("/api/test", {
+  headers: { Authorization: `Bearer ${token}` },
+  credentials: "include",
+});
+```
+
+**Pattern**: When testing fetch calls that include `credentials: "include"` (required for cookie-based authentication),
+always include this option in Jest mock expectations. The implementation is correct - tests need to match the actual
+behavior.
+
+**Applied To**: Fixed `tokenManager.test.ts` - updated three failing test expectations to include
+`credentials: "include"`.

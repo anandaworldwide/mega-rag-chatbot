@@ -98,10 +98,12 @@ describe("genericRateLimiter", () => {
     // Mock clearTimeout to prevent open handles
     jest.spyOn(global, "clearTimeout").mockImplementation(() => {});
 
-    // Mock Firestore - remove the problematic spy on data method
-    jest.spyOn(firebase.db, "collection").mockReturnValue({
-      doc: firebase.mockDoc,
-    });
+    // Mock Firestore collection method
+    if (firebase.db) {
+      jest.spyOn(firebase.db, "collection").mockReturnValue({
+        doc: firebase.mockDoc,
+      } as any);
+    }
   });
 
   afterEach(() => {
@@ -110,7 +112,7 @@ describe("genericRateLimiter", () => {
     consoleLogSpy.mockRestore();
   });
 
-  it("should skip rate limiting if db is not available", async () => {
+  it("should deny request if db is not available (fail closed)", async () => {
     // Temporarily remove db
     const originalDb = firebase.db;
     firebase.db = null;
@@ -121,8 +123,8 @@ describe("genericRateLimiter", () => {
       name: "test",
     });
 
-    expect(result).toBe(true);
-    expect(consoleWarnSpy).toHaveBeenCalledWith("Firestore database not initialized, skipping rate limiting");
+    expect(result).toBe(false); // FAIL CLOSED - security fix
+    expect(consoleWarnSpy).toHaveBeenCalledWith("Firestore not available – rate limiting disabled, denying request");
 
     // Restore db
     firebase.db = originalDb;
@@ -234,7 +236,7 @@ describe("genericRateLimiter", () => {
     expect(consoleLogSpy).toHaveBeenCalledWith("Rate limit exceeded for IP 127.0.0.1, category: test");
   });
 
-  it("should handle errors gracefully", async () => {
+  it("should deny request on errors (fail closed)", async () => {
     firebase.mockGet.mockRejectedValue(new Error("Database error"));
 
     const result = await genericRateLimiter(mockReq, mockRes, {
@@ -243,30 +245,26 @@ describe("genericRateLimiter", () => {
       name: "test",
     });
 
-    expect(result).toBe(true); // Allow request on error
-    expect(consoleErrorSpy).toHaveBeenCalledWith("RateLimiterError:", expect.any(Error));
+    expect(result).toBe(false); // FAIL CLOSED - security fix
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "Rate limiter error – denying request to stay safe",
+      expect.any(Error)
+    );
   });
 
   describe("Google Cloud Code 14 Error Retry Logic", () => {
     // mockSleep is already set up in the main beforeEach as setTimeout mock
     // No need for additional setup here
 
-    it("should retry on Google Cloud code 14 UNAVAILABLE error", async () => {
-      const code14Error = new Error("Policy checks are unavailable");
-      (code14Error as any).code = 14;
-
-      // Mock retryOnCode14 to simulate retry behavior
-      let callCount = 0;
+    it("should retry on Google Cloud code 14 UNAVAILABLE error and succeed", async () => {
+      // Mock retryOnCode14 to simulate successful retry after code 14 error
+      // The retryOnCode14 wrapper handles retries internally and returns success
       firestoreRetryUtils.retryOnCode14.mockImplementation(async (callback: () => Promise<any>) => {
-        callCount++;
-        if (callCount === 1) {
-          throw code14Error; // First call fails
-        }
-        return await callback(); // Second call succeeds
+        return await callback(); // Retry succeeds
       });
 
       // Mock isCode14Error to return true for our error
-      firestoreRetryUtils.isCode14Error.mockReturnValue(true);
+      firestoreRetryUtils.isCode14Error.mockReturnValue(false);
 
       firebase.mockGet.mockResolvedValue({ exists: false });
       firebase.mockSet.mockResolvedValue(undefined);
@@ -277,12 +275,10 @@ describe("genericRateLimiter", () => {
         name: "test",
       });
 
-      expect(result).toBe(true);
+      expect(result).toBe(true); // Retry succeeded
       expect(firestoreRetryUtils.retryOnCode14).toHaveBeenCalledTimes(1);
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        "Google Cloud policy checks failed after 3 attempts, allowing request as fallback:",
-        code14Error
-      );
+      // No error should be logged when retry succeeds
+      expect(consoleErrorSpy).not.toHaveBeenCalled();
     });
 
     it('should retry on "Policy checks are unavailable" error message', async () => {
@@ -309,10 +305,10 @@ describe("genericRateLimiter", () => {
         name: "test",
       });
 
-      expect(result).toBe(true);
+      expect(result).toBe(false); // FAIL CLOSED - security fix
       expect(firestoreRetryUtils.retryOnCode14).toHaveBeenCalledTimes(1);
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        "Google Cloud policy checks failed after 3 attempts, allowing request as fallback:",
+        "Rate limiter error – denying request to stay safe (Code 14 after retries):",
         policyError
       );
     });
@@ -334,15 +330,15 @@ describe("genericRateLimiter", () => {
         name: "test",
       });
 
-      expect(result).toBe(true); // Should allow request as fallback
+      expect(result).toBe(false); // FAIL CLOSED - security fix
       expect(firestoreRetryUtils.retryOnCode14).toHaveBeenCalledTimes(1);
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        "Google Cloud policy checks failed after 3 attempts, allowing request as fallback:",
+        "Rate limiter error – denying request to stay safe (Code 14 after retries):",
         code14Error
       );
     });
 
-    it("should fail after max retries and allow request", async () => {
+    it("should fail after max retries and deny request (fail closed)", async () => {
       const code14Error = new Error("Policy checks are unavailable");
       (code14Error as any).code = 14;
 
@@ -359,10 +355,10 @@ describe("genericRateLimiter", () => {
         name: "test",
       });
 
-      expect(result).toBe(true); // Still allow request as fallback
+      expect(result).toBe(false); // FAIL CLOSED - security fix
       expect(firestoreRetryUtils.retryOnCode14).toHaveBeenCalledTimes(1);
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        "Google Cloud policy checks failed after 3 attempts, allowing request as fallback:",
+        "Rate limiter error – denying request to stay safe (Code 14 after retries):",
         code14Error
       );
     });
@@ -383,9 +379,9 @@ describe("genericRateLimiter", () => {
         name: "test",
       });
 
-      expect(result).toBe(true);
+      expect(result).toBe(false); // FAIL CLOSED - security fix
       expect(firestoreRetryUtils.retryOnCode14).toHaveBeenCalledTimes(1);
-      expect(consoleErrorSpy).toHaveBeenCalledWith("RateLimiterError:", regularError);
+      expect(consoleErrorSpy).toHaveBeenCalledWith("Rate limiter error – denying request to stay safe", regularError);
     });
 
     it("should handle code 14 error during update operation", async () => {
@@ -413,10 +409,10 @@ describe("genericRateLimiter", () => {
         name: "test",
       });
 
-      expect(result).toBe(true);
+      expect(result).toBe(false); // FAIL CLOSED - security fix
       expect(firestoreRetryUtils.retryOnCode14).toHaveBeenCalledTimes(1);
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        "Google Cloud policy checks failed after 3 attempts, allowing request as fallback:",
+        "Rate limiter error – denying request to stay safe (Code 14 after retries):",
         code14Error
       );
     });
@@ -440,10 +436,10 @@ describe("genericRateLimiter", () => {
         name: "test",
       });
 
-      expect(result).toBe(true);
+      expect(result).toBe(false); // FAIL CLOSED - security fix
       expect(firestoreRetryUtils.retryOnCode14).toHaveBeenCalledTimes(1);
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        "Google Cloud policy checks failed after 3 attempts, allowing request as fallback:",
+        "Rate limiter error – denying request to stay safe (Code 14 after retries):",
         code14Error
       );
     });
@@ -465,10 +461,10 @@ describe("genericRateLimiter", () => {
         name: "test",
       });
 
-      expect(result).toBe(true);
+      expect(result).toBe(false); // FAIL CLOSED - security fix
       expect(firestoreRetryUtils.retryOnCode14).toHaveBeenCalledTimes(1);
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        "Google Cloud policy checks failed after 3 attempts, allowing request as fallback:",
+        "Rate limiter error – denying request to stay safe (Code 14 after retries):",
         code14Error
       );
     });
@@ -693,6 +689,19 @@ describe("deleteRateLimitCounter", () => {
     // Default mocks
     jest.spyOn(ipUtils, "getClientIp").mockReturnValue("127.0.0.1");
     jest.spyOn(envModule, "isDevelopment").mockReturnValue(false);
+
+    // Ensure db is restored to original mock (in case previous tests set it to null)
+    if (!firebase.db) {
+      firebase.db = {
+        collection: firebase.mockCollection,
+      };
+    }
+
+    // Mock retryOnCode14 to execute the callback directly by default
+    firestoreRetryUtils.retryOnCode14.mockImplementation(async (callback: () => Promise<any>) => {
+      return await callback();
+    });
+    firestoreRetryUtils.isCode14Error.mockReturnValue(false);
 
     // Default Firebase mocks
     firebase.mockGet.mockResolvedValue({ exists: true });

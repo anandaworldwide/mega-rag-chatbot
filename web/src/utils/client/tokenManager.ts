@@ -84,13 +84,12 @@ async function fetchNewToken(): Promise<string> {
   }
 
   try {
-    // Include the full URL as Referer so web-token endpoint can identify special cases
-    // such as audio files and contact form that need JWT but not siteAuth
+    // Fetch a JWT token from the server
+    // The token will contain user info if the user is logged in (has valid auth cookie)
+    // or will be anonymous (no user info) if not logged in
+    // Include credentials to send cookies (authToken/auth) with the request
     const response = await fetch("/api/web-token", {
-      headers: {
-        // Use the current URL as the referer - this tells the server which page is requesting the token
-        Referer: window.location.href,
-      },
+      credentials: "include",
     });
 
     if (!response.ok) {
@@ -98,9 +97,7 @@ async function fetchNewToken(): Promise<string> {
       // BUT: After magic login succeeds, we should have valid cookies, so don't use placeholder
       if (
         response.status === 401 &&
-        (window.location.pathname === "/login" ||
-          (window.location.pathname === "/magic-login" && !hasAnyAuthCookie())
-        )
+        (window.location.pathname === "/login" || (window.location.pathname === "/magic-login" && !hasAnyAuthCookie()))
       ) {
         console.log("No authentication on login page - this is expected");
         // Return an empty placeholder token for the login page
@@ -151,10 +148,7 @@ async function fetchNewToken(): Promise<string> {
   } catch (error) {
     // Special handling for the login or magic-login pages - don't throw errors
     // BUT: After magic login succeeds, we should have valid cookies, so don't use placeholder
-    if (
-      window.location.pathname === "/login" ||
-      (window.location.pathname === "/magic-login" && !hasAnyAuthCookie())
-    ) {
+    if (window.location.pathname === "/login" || (window.location.pathname === "/magic-login" && !hasAnyAuthCookie())) {
       console.log("Token fetch failed on login page, using placeholder token");
       const placeholderToken = "login-page-placeholder";
       tokenData = {
@@ -235,7 +229,17 @@ export function isAuthenticated(): boolean {
   }
 
   if (isTokenValid() && tokenData) {
-    return true;
+    // Check if the token contains user information (authenticated token)
+    // Anonymous tokens won't have email/role fields
+    try {
+      const payload = tokenData.token.split(".")[1];
+      const decoded = JSON.parse(atob(payload));
+      // Token is authenticated if it has user email
+      return !!decoded.email;
+    } catch (error) {
+      console.error("Error parsing JWT token for authentication check:", error);
+      return false;
+    }
   }
 
   return false;
@@ -304,7 +308,12 @@ export async function fetchWithAuth(url: string, options?: RequestInit): Promise
 async function fetchWithRetry(url: string, options?: RequestInit, retryCount = 0): Promise<Response> {
   try {
     const authOptions = await withAuth(options);
-    const response = await fetch(url, authOptions);
+    // Ensure credentials are included to send/receive cookies
+    const fetchOptions: RequestInit = {
+      ...authOptions,
+      credentials: "include",
+    };
+    const response = await fetch(url, fetchOptions);
 
     // If we get a 401 Unauthorized, try to refresh the token and retry
     if (response.status === 401 && retryCount < MAX_RETRY_ATTEMPTS) {

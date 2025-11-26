@@ -7,86 +7,79 @@
  * - JWT authentication middleware
  */
 
-import { NextApiRequest, NextApiResponse } from 'next';
-import jwt from 'jsonwebtoken';
-import {
-  verifyToken,
-  getTokenFromRequest,
-  withJwtAuth,
-  JwtPayload,
-} from '@/utils/server/jwtUtils';
+import { NextApiRequest, NextApiResponse } from "next";
+import jwt from "jsonwebtoken";
+import { verifyToken, getTokenFromRequest, withJwtAuth, JwtPayload } from "@/utils/server/jwtUtils";
 
 // Mock jsonwebtoken module
-jest.mock('jsonwebtoken', () => ({
+jest.mock("jsonwebtoken", () => ({
   verify: jest.fn(),
 }));
 
-describe('JWT Utilities', () => {
+describe("JWT Utilities", () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
     jest.clearAllMocks();
     process.env = { ...originalEnv };
-    process.env.SECURE_TOKEN = 'test-secure-token';
+    process.env.SECURE_TOKEN = "test-secure-token";
   });
 
   afterEach(() => {
     process.env = originalEnv;
   });
 
-  describe('verifyToken', () => {
-    it('should verify a valid token', () => {
+  describe("verifyToken", () => {
+    it("should verify a valid token", () => {
       const mockPayload: JwtPayload = {
-        client: 'web',
+        client: "web",
         iat: Math.floor(Date.now() / 1000),
         exp: Math.floor(Date.now() / 1000) + 900, // 15 minutes
       };
 
       (jwt.verify as jest.Mock).mockReturnValueOnce(mockPayload);
 
-      const result = verifyToken('valid-token');
+      const result = verifyToken("valid-token");
 
-      expect(jwt.verify).toHaveBeenCalledWith(
-        'valid-token',
-        'test-secure-token',
-      );
+      expect(jwt.verify).toHaveBeenCalledWith("valid-token", "test-secure-token", {
+        algorithms: ["HS256"],
+        issuer: "mega-rag-chatbot",
+        audience: "mega-rag-chatbot-users",
+      });
       expect(result).toEqual(mockPayload);
     });
 
-    it('should throw an error when SECURE_TOKEN is not configured', () => {
+    it("should throw an error when SECURE_TOKEN is not configured", () => {
       delete process.env.SECURE_TOKEN;
 
-      expect(() => verifyToken('any-token')).toThrow(
-        'JWT signing key is not configured',
-      );
+      expect(() => verifyToken("any-token")).toThrow("JWT signing key is not configured");
       expect(jwt.verify).not.toHaveBeenCalled();
     });
 
-    it('should throw a standardized error for invalid tokens', () => {
+    it("should throw a standardized error for invalid tokens", () => {
       (jwt.verify as jest.Mock).mockImplementationOnce(() => {
-        throw new Error('Token expired');
+        throw new Error("Token expired");
       });
 
-      expect(() => verifyToken('expired-token')).toThrow(
-        'Invalid or expired token',
-      );
-      expect(jwt.verify).toHaveBeenCalledWith(
-        'expired-token',
-        'test-secure-token',
-      );
+      expect(() => verifyToken("expired-token")).toThrow("Invalid or expired token");
+      expect(jwt.verify).toHaveBeenCalledWith("expired-token", "test-secure-token", {
+        algorithms: ["HS256"],
+        issuer: "mega-rag-chatbot",
+        audience: "mega-rag-chatbot-users",
+      });
     });
   });
 
-  describe('getTokenFromRequest', () => {
-    it('should extract and verify a valid token from request headers', () => {
+  describe("getTokenFromRequest", () => {
+    it("should extract and verify a valid token from request headers", () => {
       const mockReq = {
         headers: {
-          authorization: 'Bearer valid-token',
+          authorization: "Bearer valid-token",
         },
       } as NextApiRequest;
 
       const mockPayload: JwtPayload = {
-        client: 'web',
+        client: "web",
         iat: Math.floor(Date.now() / 1000),
         exp: Math.floor(Date.now() / 1000) + 900,
       };
@@ -95,46 +88,47 @@ describe('JWT Utilities', () => {
 
       const result = getTokenFromRequest(mockReq);
 
-      expect(jwt.verify).toHaveBeenCalledWith(
-        'valid-token',
-        'test-secure-token',
-      );
+      expect(jwt.verify).toHaveBeenCalledWith("valid-token", "test-secure-token", {
+        algorithms: ["HS256"],
+        issuer: "mega-rag-chatbot",
+        audience: "mega-rag-chatbot-users",
+      });
       expect(result).toEqual(mockPayload);
     });
 
-    it('should throw an error when authorization header is missing', () => {
+    it("should throw an error when authorization header is missing", () => {
       const mockReq = {
         headers: {},
       } as NextApiRequest;
 
-      expect(() => getTokenFromRequest(mockReq)).toThrow('No token provided');
+      expect(() => getTokenFromRequest(mockReq)).toThrow("No token provided");
       expect(jwt.verify).not.toHaveBeenCalled();
     });
 
-    it('should throw an error when authorization header does not have Bearer prefix', () => {
+    it("should throw an error when authorization header does not have Bearer prefix", () => {
       const mockReq = {
         headers: {
-          authorization: 'invalid-format',
+          authorization: "invalid-format",
         },
       } as NextApiRequest;
 
-      expect(() => getTokenFromRequest(mockReq)).toThrow('No token provided');
+      expect(() => getTokenFromRequest(mockReq)).toThrow("No token provided");
       expect(jwt.verify).not.toHaveBeenCalled();
     });
   });
 
-  describe('withJwtAuth', () => {
-    it('should call the handler when token is valid', async () => {
+  describe("withJwtAuth", () => {
+    it("should call the handler when token is valid", async () => {
       const mockHandler = jest.fn();
       const mockReq = {
         headers: {
-          authorization: 'Bearer valid-token',
+          authorization: "Bearer valid-token",
         },
       } as NextApiRequest;
       const mockRes = {} as NextApiResponse;
 
       const mockPayload: JwtPayload = {
-        client: 'web',
+        client: "web",
         iat: Math.floor(Date.now() / 1000),
         exp: Math.floor(Date.now() / 1000) + 900,
       };
@@ -144,14 +138,15 @@ describe('JWT Utilities', () => {
       const wrappedHandler = withJwtAuth(mockHandler);
       await wrappedHandler(mockReq, mockRes);
 
-      expect(jwt.verify).toHaveBeenCalledWith(
-        'valid-token',
-        'test-secure-token',
-      );
+      expect(jwt.verify).toHaveBeenCalledWith("valid-token", "test-secure-token", {
+        algorithms: ["HS256"],
+        issuer: "mega-rag-chatbot",
+        audience: "mega-rag-chatbot-users",
+      });
       expect(mockHandler).toHaveBeenCalledWith(mockReq, mockRes);
     });
 
-    it('should return 401 when token verification fails', async () => {
+    it("should return 401 when token verification fails", async () => {
       const mockHandler = jest.fn();
       const mockReq = {
         headers: {},
@@ -166,22 +161,22 @@ describe('JWT Utilities', () => {
       await wrappedHandler(mockReq, mockRes);
 
       expect(mockRes.status).toHaveBeenCalledWith(401);
-      expect(mockRes.json).toHaveBeenCalledWith({ error: 'No token provided' });
+      expect(mockRes.json).toHaveBeenCalledWith({ error: "No token provided" });
       expect(mockHandler).not.toHaveBeenCalled();
     });
 
-    it('should pass additional arguments to the handler', async () => {
+    it("should pass additional arguments to the handler", async () => {
       const mockHandler = jest.fn();
       const mockReq = {
         headers: {
-          authorization: 'Bearer valid-token',
+          authorization: "Bearer valid-token",
         },
       } as NextApiRequest;
       const mockRes = {} as NextApiResponse;
-      const extraArg = { custom: 'value' };
+      const extraArg = { custom: "value" };
 
       const mockPayload: JwtPayload = {
-        client: 'web',
+        client: "web",
         iat: Math.floor(Date.now() / 1000),
         exp: Math.floor(Date.now() / 1000) + 900,
       };

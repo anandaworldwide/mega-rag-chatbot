@@ -152,7 +152,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         site: process.env.SITE_ID || "default",
       },
       jwtSecret,
-      { expiresIn: "180d" }
+      {
+        expiresIn: "180d",
+        algorithm: "HS256",
+        issuer: "mega-rag-chatbot",
+        audience: "mega-rag-chatbot-users",
+      }
     );
 
     try {

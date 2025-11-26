@@ -123,7 +123,12 @@ describe("/api/web-token", () => {
         iat: expect.any(Number),
       },
       "test-secure-token",
-      { expiresIn: "15m" }
+      {
+        expiresIn: "15m",
+        algorithm: "HS256",
+        issuer: "mega-rag-chatbot",
+        audience: "mega-rag-chatbot-users",
+      }
     );
   });
 
@@ -155,7 +160,7 @@ describe("/api/web-token", () => {
     expect(CryptoJS.SHA256).not.toHaveBeenCalled();
   });
 
-  it("should require JWT auth cookie when login is required", async () => {
+  it("should issue anonymous token when no auth cookie on login-required site", async () => {
     // Set site config to require login
     (loadSiteConfigSync as jest.Mock).mockReturnValue({
       requireLogin: true,
@@ -164,29 +169,26 @@ describe("/api/web-token", () => {
     // Make request with no cookies
     await handler(req as NextApiRequest, res as NextApiResponse);
 
-    // Should fail with authentication required
-    expect(statusMock).toHaveBeenCalledWith(401);
-    expect(jsonMock).toHaveBeenCalledWith({
-      error: "Authentication required",
-    });
+    // Should issue anonymous token (authorization happens at downstream endpoints)
+    expect(statusMock).toHaveBeenCalledWith(200);
+    expect(jsonMock).toHaveBeenCalledWith({ token: "test-jwt-token" });
+    expect(jwt.sign).toHaveBeenCalled();
   });
 
-  it("should reject legacy siteAuth cookie when login is required", async () => {
+  it("should ignore legacy siteAuth cookie and issue anonymous token", async () => {
     // Set site config to require login
     (loadSiteConfigSync as jest.Mock).mockReturnValue({
       requireLogin: true,
     });
 
-    // Set legacy siteAuth cookie (should be rejected)
+    // Set legacy siteAuth cookie (should be ignored)
     req.cookies = { siteAuth: "token-value:12345678" };
 
     await handler(req as NextApiRequest, res as NextApiResponse);
 
-    // Should fail with authentication required (legacy cookies not accepted)
-    expect(statusMock).toHaveBeenCalledWith(401);
-    expect(jsonMock).toHaveBeenCalledWith({
-      error: "Authentication required",
-    });
+    // Should issue anonymous token (legacy cookies are ignored)
+    expect(statusMock).toHaveBeenCalledWith(200);
+    expect(jsonMock).toHaveBeenCalledWith({ token: "test-jwt-token" });
     // Should not use legacy validation methods
     expect(CryptoJS.SHA256).not.toHaveBeenCalled();
     expect(passwordUtils.isTokenValid).not.toHaveBeenCalled();
@@ -212,15 +214,15 @@ describe("/api/web-token", () => {
     expect(passwordUtils.isTokenValid).not.toHaveBeenCalled();
   });
 
-  // Tests for public JWT-only endpoints
+  // Tests for anonymous token issuance (no Referer bypass vulnerability)
 
-  it("should issue token for contact form requests without auth cookie", async () => {
+  it("should issue anonymous token when no auth cookie present (even on login-required sites)", async () => {
     // Set site config to require login
     (loadSiteConfigSync as jest.Mock).mockReturnValue({
       requireLogin: true,
     });
 
-    // Setup request from contact form
+    // Setup request without auth cookie
     req.cookies = {}; // No auth cookie
     req.headers = {
       referer: "https://example.com/contact",
@@ -228,51 +230,53 @@ describe("/api/web-token", () => {
 
     await handler(req as NextApiRequest, res as NextApiResponse);
 
-    // Should succeed despite missing auth cookie because it's from contact page
+    // Should succeed and issue anonymous token
+    // Authorization decisions are made by downstream endpoints
     expect(statusMock).toHaveBeenCalledWith(200);
     expect(jsonMock).toHaveBeenCalledWith({ token: "test-jwt-token" });
     expect(jwt.sign).toHaveBeenCalled();
+
+    // Verify token payload is anonymous (no user info)
+    const signCall = (jwt.sign as jest.Mock).mock.calls[0];
+    const payload = signCall[0];
+    expect(payload.email).toBeUndefined();
+    expect(payload.role).toBeUndefined();
+    expect(payload.client).toBe("web");
   });
 
-  it("should issue token for public answers page without auth cookie", async () => {
-    // Set site config to require login
+  it("should not trust Referer header for authorization decisions", async () => {
+    // This test verifies the security fix: Referer header is ignored
     (loadSiteConfigSync as jest.Mock).mockReturnValue({
       requireLogin: true,
     });
 
-    // Setup request from public answers page
+    // Setup request with spoofed Referer but no auth cookie
     req.cookies = {}; // No auth cookie
     req.headers = {
-      referer: "https://example.com/share/abc123",
+      referer: "https://example.com/contact", // Spoofed header
     };
 
     await handler(req as NextApiRequest, res as NextApiResponse);
 
-    // Should succeed despite missing auth cookie because it's from public answers page
+    // Should issue anonymous token (200), ignoring the Referer header
+    // The contact form endpoint itself will decide if it accepts anonymous tokens
     expect(statusMock).toHaveBeenCalledWith(200);
     expect(jsonMock).toHaveBeenCalledWith({ token: "test-jwt-token" });
-    expect(jwt.sign).toHaveBeenCalled();
   });
 
-  it("should still require JWT auth cookie for regular protected pages", async () => {
-    // Set site config to require login
-    (loadSiteConfigSync as jest.Mock).mockReturnValue({
-      requireLogin: true,
+  it("should issue anonymous token when invalid auth cookie present", async () => {
+    // Mock jwt.verify to throw error (invalid cookie)
+    (jwt.verify as jest.Mock).mockImplementationOnce(() => {
+      throw new Error("Invalid token");
     });
 
-    // Setup request from a protected page
-    req.cookies = {}; // No auth cookie
-    req.headers = {
-      referer: "https://example.com/protected-page",
-    };
+    req.cookies = { authToken: "invalid-token" };
+    req.headers = {};
 
     await handler(req as NextApiRequest, res as NextApiResponse);
 
-    // Should fail because it's missing auth cookie and not from a public JWT-only endpoint
-    expect(statusMock).toHaveBeenCalledWith(401);
-    expect(jsonMock).toHaveBeenCalledWith({
-      error: "Authentication required",
-    });
-    expect(jwt.sign).not.toHaveBeenCalled();
+    // Should still issue anonymous token, not block the request
+    expect(statusMock).toHaveBeenCalledWith(200);
+    expect(jsonMock).toHaveBeenCalledWith({ token: "test-jwt-token" });
   });
 });

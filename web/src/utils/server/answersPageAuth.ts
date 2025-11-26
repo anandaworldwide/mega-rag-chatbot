@@ -8,7 +8,7 @@ import { getSudoCookie } from "@/utils/server/sudoCookieUtils";
  * based on site configuration and user authentication status.
  *
  * Access Rules:
- * 1. Login-required sites: Only superusers can access
+ * 1. Login-required sites: Only admins and superusers can access
  * 2. No-login sites:
  *    - If allowPublicAnswersPage is true: Anyone can access
  *    - If allowPublicAnswersPage is false/undefined: Only sudo users can access
@@ -28,9 +28,9 @@ export async function isAnswersPageAllowed(
   }
 
   if (siteConfig.requireLogin) {
-    // Login-required sites: only superusers can access
+    // Login-required sites: admins and superusers can access
     const role = getRequesterRole(req);
-    return role === "superuser";
+    return role === "admin" || role === "superuser";
   } else {
     // No-login sites: anyone can access (not advertised, but accessible)
     return true;
@@ -79,7 +79,7 @@ export function getAnswersPageErrorMessage(siteConfig: SiteConfig | null): strin
   }
 
   if (siteConfig.requireLogin) {
-    return "Access Restricted - Superuser Only";
+    return "Access Restricted - Admin Only";
   } else {
     return "Access Restricted - Admin Only";
   }

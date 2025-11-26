@@ -210,7 +210,12 @@ describe("Login API", () => {
         site: "test-site",
       },
       "test-secret",
-      { expiresIn: "24h" }
+      {
+        expiresIn: "24h",
+        algorithm: "HS256",
+        issuer: "mega-rag-chatbot",
+        audience: "mega-rag-chatbot-users",
+      }
     );
     expect(res.statusCode).toBe(200);
     expect(res._getJSONData()).toEqual({ message: "Authenticated", redirect: "/" });

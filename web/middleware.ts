@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isTokenValid } from "./src/utils/server/passwordUtils"; // Adjusted path
-import CryptoJS from "crypto-js";
 import { loadSiteConfigSync } from "./src/utils/server/loadSiteConfig"; // Adjusted path
 import { getClientIp } from "./src/utils/server/ipUtils"; // Adjusted path
 import { createErrorCorsHeaders, handleCors, addCorsHeaders } from "./src/utils/server/corsMiddleware";
 import { getAllPublicPaths } from "./src/config/publicPaths";
+import jwt from "jsonwebtoken";
 
 // Log suspicious activity with details
 const logSuspiciousActivity = (req: NextRequest, reason: string) => {
@@ -133,19 +132,31 @@ export function middleware(req: NextRequest) {
     !url.pathname.match(/\\.(png|jpg|jpeg|gif|ico|svg|css|js)$/); // Allow common static file types
 
   if (pathname_is_private && requireLogin) {
-    const cookie = req.cookies.get("siteAuth");
-    const storedHashedToken = process.env.SECURE_TOKEN_HASH; // Ensure this env var is available to the /web build
+    // TODO: Remove migration bridge after June 2026
+    // Check for both new authToken and legacy auth cookies for migration compatibility
+    const authToken = req.cookies.get("authToken");
+    const authJwt = req.cookies.get("auth");
+
+    // Prefer authToken, fall back to auth cookie
+    const jwtCookie = authToken || authJwt;
+    const jwtSecret = process.env.SECURE_TOKEN;
 
     let authFailed = false;
-    if (!cookie) {
+
+    if (!jwtCookie || !jwtSecret) {
       authFailed = true;
     } else {
-      const tokenValue = cookie.value.split(":")[0];
-      const hashedTokenValue = CryptoJS.SHA256(tokenValue).toString();
-
-      if (hashedTokenValue !== storedHashedToken) {
-        authFailed = true;
-      } else if (!isTokenValid(cookie.value)) {
+      try {
+        // Verify the JWT token with security options
+        jwt.verify(jwtCookie.value, jwtSecret, {
+          algorithms: ["HS256"],
+          issuer: "mega-rag-chatbot",
+          audience: "mega-rag-chatbot-users",
+        });
+        // JWT is valid, authentication succeeds
+        authFailed = false;
+      } catch (jwtError) {
+        // JWT verification failed
         authFailed = true;
       }
     }

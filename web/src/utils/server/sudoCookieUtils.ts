@@ -7,10 +7,13 @@ import validator from "validator";
 import { getClientIp } from "./ipUtils";
 import { loadSiteConfigSync } from "./loadSiteConfig";
 
-const secretKey = crypto
-  .createHash("sha256")
-  .update(process.env.SECRET_KEY || "fIp0%%wgKqmJ0aqtQo")
-  .digest();
+if (!process.env.SECRET_KEY) {
+  throw new Error(
+    "SECRET_KEY environment variable is required. Application cannot start without proper encryption key."
+  );
+}
+
+const secretKey = crypto.createHash("sha256").update(process.env.SECRET_KEY).digest();
 
 function encrypt(text: string) {
   const iv = crypto.randomBytes(16);

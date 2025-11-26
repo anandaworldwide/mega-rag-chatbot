@@ -130,45 +130,101 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   // Effect to check if there are new tips the user hasn't seen
   useEffect(() => {
-    if (tipsAvailable && currentTipsVersion !== null && siteConfig?.requireLogin) {
-      const authStatus = isAuthenticated();
+    // Only check if tips are available and we know the current version
+    if (!tipsAvailable || currentTipsVersion === null) {
+      setHasNewTips(false);
+      return;
+    }
 
-      if (siteConfig?.requireLogin && authStatus) {
-        // Get JWT token and make authenticated API call
-        getToken()
-          .then((token) => {
-            return fetch("/api/user/tips", {
+    let timeoutId: NodeJS.Timeout | null = null;
+
+    const checkTipsStatus = async () => {
+      // For login-required sites, check authentication status
+      if (siteConfig?.requireLogin) {
+        const authStatus = isAuthenticated();
+
+        if (authStatus) {
+          try {
+            // Get JWT token and make authenticated API call
+            const token = await getToken();
+            const response = await fetch("/api/user/tips", {
               method: "GET",
               headers: {
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${token}`,
               },
             });
-          })
-          .then((response) => {
+
             if (response.ok) {
-              return response.json();
+              const data = await response.json();
+              const lastSeenVersion = data.lastSeenTipVersion || 0;
+              setHasNewTips(lastSeenVersion < currentTipsVersion);
             } else {
               throw new Error(`API returned ${response.status}`);
             }
-          })
-          .then((data) => {
-            const lastSeenVersion = data.lastSeenTipVersion || 0;
-            setHasNewTips(lastSeenVersion < currentTipsVersion);
-          })
-          .catch(() => {
+          } catch {
             // Fallback to localStorage if API fails
             const localLastSeenVersion = parseInt(localStorage.getItem("lastSeenTipVersion") || "0", 10);
             setHasNewTips(localLastSeenVersion < currentTipsVersion);
-          });
+          }
+        } else {
+          // User not authenticated yet - try to wait a bit for auth to load, then check again
+          // This handles the case where token hasn't loaded yet on initial render
+          timeoutId = setTimeout(() => {
+            if (isAuthenticated()) {
+              // Retry the API call now that we're authenticated
+              getToken()
+                .then((token) => {
+                  return fetch("/api/user/tips", {
+                    method: "GET",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${token}`,
+                    },
+                  });
+                })
+                .then((response) => {
+                  if (response.ok) {
+                    return response.json();
+                  } else {
+                    throw new Error(`API returned ${response.status}`);
+                  }
+                })
+                .then((data) => {
+                  const lastSeenVersion = data.lastSeenTipVersion || 0;
+                  setHasNewTips(lastSeenVersion < currentTipsVersion);
+                })
+                .catch(() => {
+                  // Fallback to localStorage if API fails
+                  const localLastSeenVersion = parseInt(localStorage.getItem("lastSeenTipVersion") || "0", 10);
+                  setHasNewTips(localLastSeenVersion < currentTipsVersion);
+                });
+            } else {
+              // Still not authenticated - use localStorage as fallback
+              // For new accounts, localStorage will be empty (0), so if currentTipsVersion > 0, show dot
+              const localLastSeenVersion = parseInt(localStorage.getItem("lastSeenTipVersion") || "0", 10);
+              setHasNewTips(localLastSeenVersion < currentTipsVersion);
+            }
+          }, 500); // Wait 500ms for auth to potentially load
+
+          // Also set initial state based on localStorage
+          const localLastSeenVersion = parseInt(localStorage.getItem("lastSeenTipVersion") || "0", 10);
+          setHasNewTips(localLastSeenVersion < currentTipsVersion);
+        }
       } else {
-        // Use localStorage for non-authenticated or non-login sites
+        // Use localStorage for non-login sites
         const localLastSeenVersion = parseInt(localStorage.getItem("lastSeenTipVersion") || "0", 10);
         setHasNewTips(localLastSeenVersion < currentTipsVersion);
       }
-    } else {
-      setHasNewTips(false);
-    }
+    };
+
+    checkTipsStatus();
+
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+    };
   }, [tipsAvailable, currentTipsVersion, siteConfig]);
 
   // Effect to fetch current site tips version once we know tips exist

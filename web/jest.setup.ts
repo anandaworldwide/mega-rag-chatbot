@@ -15,6 +15,9 @@ if (typeof global.TextDecoder === "undefined") {
 // Make sure jest-dom matchers are properly set up
 expect.extend({});
 
+// Set required environment variables for tests
+process.env.SECRET_KEY = process.env.SECRET_KEY || "test-secret-key-for-jest";
+
 // Configure React for testing
 global.React = require("react");
 

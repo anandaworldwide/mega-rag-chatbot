@@ -104,7 +104,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         entitlements: userData.entitlements || {},
         site: process.env.SITE_ID || "default",
       };
-      const jwtToken = jwt.sign(tokenPayload, jwtSecret, { expiresIn: "24h" });
+      const jwtToken = jwt.sign(tokenPayload, jwtSecret, {
+        expiresIn: "24h",
+        algorithm: "HS256",
+        issuer: "mega-rag-chatbot",
+        audience: "mega-rag-chatbot-users",
+      });
 
       const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
       const cookies = new Cookies(req, res, { secure: isSecure });

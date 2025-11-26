@@ -8,6 +8,12 @@ jest.mock("@/utils/server/jwtUtils", () => ({
   getTokenFromRequest: jest.fn(() => ({ email: "admin@example.com", role: "admin" })),
 }));
 
+// Mock authz functions - behavior configured in individual tests via verifyToken mock
+jest.mock("@/utils/server/authz", () => ({
+  requireAdminRoleFromFirestore: jest.fn(),
+  getRequesterRoleFromFirestore: jest.fn(),
+}));
+
 // Mock firebase-admin timestamps used by handler
 jest.mock("firebase-admin", () => ({
   firestore: {
@@ -115,10 +121,33 @@ jest.mock("@/services/firebase", () => {
 });
 
 import handler from "@/pages/api/admin/users/[userId]";
+import { requireAdminRoleFromFirestore, getRequesterRoleFromFirestore } from "@/utils/server/authz";
+
+const mockRequireAdmin = requireAdminRoleFromFirestore as jest.Mock;
+const mockGetRole = getRequesterRoleFromFirestore as jest.Mock;
 
 describe("/api/admin/users/[userId] role change authorization", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    // Clear mock database between tests to prevent test pollution
+    const mockDb = jest.requireMock("@/services/firebase").db;
+    Object.keys(mockDb.__docMap).forEach((key) => delete mockDb.__docMap[key]);
+
+    // Set up authz mocks to check JWT role by default
+    mockRequireAdmin.mockImplementation(async (req: any) => {
+      const jwtUtils = await import("@/utils/server/jwtUtils");
+      const payload = (jwtUtils.verifyToken as jest.Mock)(req.cookies?.auth || "");
+      const role = payload?.role || "user";
+      if (role !== "admin" && role !== "superuser") {
+        throw new Error("Unauthorized: Admin privileges required");
+      }
+    });
+
+    mockGetRole.mockImplementation(async (req: any) => {
+      const jwtUtils = await import("@/utils/server/jwtUtils");
+      const payload = (jwtUtils.verifyToken as jest.Mock)(req.cookies?.auth || "");
+      return payload?.role || "user";
+    });
   });
 
   it("allows superuser to change role", async () => {
@@ -154,6 +183,13 @@ describe("/api/admin/users/[userId] role change authorization", () => {
     const jwtUtils = await import("@/utils/server/jwtUtils");
     (jwtUtils.verifyToken as jest.Mock).mockReturnValue({ email: "admin@example.com", role: "admin" });
 
+    // Pre-populate the target user in the mock database
+    const mockDb = jest.requireMock("@/services/firebase").db;
+    mockDb.__docMap["target@example.com"] = {
+      email: "target@example.com",
+      role: "user",
+    };
+
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "PATCH",
       query: { userId: "target@example.com" },
@@ -169,6 +205,13 @@ describe("/api/admin/users/[userId] role change authorization", () => {
   it("rejects invalid role with 400", async () => {
     const jwtUtils = await import("@/utils/server/jwtUtils");
     (jwtUtils.verifyToken as jest.Mock).mockReturnValue({ email: "super@example.com", role: "superuser" });
+
+    // Pre-populate the target user in the mock database
+    const mockDb = jest.requireMock("@/services/firebase").db;
+    mockDb.__docMap["target@example.com"] = {
+      email: "target@example.com",
+      role: "user",
+    };
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "PATCH",

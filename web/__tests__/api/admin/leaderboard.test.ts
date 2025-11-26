@@ -37,6 +37,10 @@ jest.mock("@/utils/server/jwtUtils", () => ({
   withJwtAuth: (handler: any) => handler, // Pass through without auth for tests
 }));
 
+jest.mock("@/utils/server/authz", () => ({
+  requireAdminRoleFromFirestore: jest.fn(), // Allow admin access for tests
+}));
+
 jest.mock("@/utils/server/firestoreUtils", () => ({
   getAnswersCollectionName: jest.fn(() => "test_chatLogs"),
   getUsersCollectionName: jest.fn(() => "test_users"),

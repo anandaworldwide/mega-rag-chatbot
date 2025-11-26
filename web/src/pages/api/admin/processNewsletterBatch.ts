@@ -88,6 +88,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // Generate unsubscribe token
         const unsubscribeToken = jwt.sign({ email: data.email, purpose: "newsletter_unsubscribe" }, jwtSecret, {
           expiresIn: "1y",
+          algorithm: "HS256",
         });
         const unsubscribeUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/api/unsubscribe?token=${unsubscribeToken}`;
 

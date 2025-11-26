@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import { db } from "@/services/firebase";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { withJwtAuth, getTokenFromRequest, verifyToken } from "@/utils/server/jwtUtils";
+import { requireAdminRoleFromFirestore, getRequesterRoleFromFirestore } from "@/utils/server/authz";
 import { getUsersCollectionName, getAnswersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreQueryGet } from "@/utils/server/firestoreRetryUtils";
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
@@ -35,41 +36,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const dbNonNull = db as NonNullable<typeof db>;
   const currentId = userId.toLowerCase();
 
-  // Resolve the requester role, preferring live Firestore role for the cookie's email
-  async function resolveRequesterRole(): Promise<string> {
-    try {
-      const cookieJwt = req.cookies?.["auth"];
-      if (cookieJwt) {
-        const payload: any = verifyToken(cookieJwt);
-        const jwtRole = typeof payload?.role === "string" ? payload.role : "user";
-        const email = typeof payload?.email === "string" ? payload.email.toLowerCase() : undefined;
-        if (email) {
-          try {
-            const snap = await dbNonNull.collection(usersCol).doc(email).get();
-            const liveRole =
-              snap.exists && typeof (snap.data() as any)?.role === "string" ? (snap.data() as any).role : undefined;
-            return typeof liveRole === "string" ? liveRole : jwtRole;
-          } catch {
-            return jwtRole;
-          }
-        }
-        return jwtRole;
-      }
-      // Fallback to Authorization header payload
-      const headerPayload: any = getTokenFromRequest(req);
-      return typeof headerPayload?.role === "string" ? headerPayload.role : "user";
-    } catch {
-      return "user";
-    }
-  }
-
   if (req.method === "GET") {
     try {
-      // Authorization: only admin/superuser may view
-      const requesterRole = await resolveRequesterRole();
-      if (requesterRole !== "admin" && requesterRole !== "superuser") {
-        return res.status(403).json({ error: "Forbidden" });
+      // Critical security fix – verify admin role from Firestore (source of truth)
+      // Prevents stale JWT admin roles from granting access after revocation
+      try {
+        await requireAdminRoleFromFirestore(req);
+      } catch (error) {
+        return res.status(403).json({ error: "Unauthorized: Admin privileges required" });
       }
+
+      const requesterRole = await getRequesterRoleFromFirestore(req);
       const doc = await db.collection(usersCol).doc(currentId).get();
       if (!doc.exists) return res.status(404).json({ error: "User not found" });
       const data = doc.data() || {};
@@ -166,10 +143,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         approverLocation?: string;
         approverRegion?: string;
       };
+      // Critical security fix – verify admin role from Firestore (source of truth)
+      // Prevents stale JWT admin roles from granting access after revocation
+      try {
+        await requireAdminRoleFromFirestore(req);
+      } catch (error) {
+        return res.status(403).json({ error: "Unauthorized: Admin privileges required" });
+      }
+
+      const requesterRole = await getRequesterRoleFromFirestore(req);
       const updates: Record<string, any> = {};
       const now = firebase.firestore.Timestamp.now();
       const siteConfig = loadSiteConfigSync();
-      const requesterRole = await resolveRequesterRole();
 
       // Validate role if provided (only superuser can change role)
       if (body.role !== undefined) {
@@ -415,7 +400,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
                 role: payload.role || "user",
                 site: process.env.SITE_ID || "default",
               };
-              const newAuthToken = jwt.sign(newAuthPayload, jwtSecret, { expiresIn: "180d" });
+              const newAuthToken = jwt.sign(newAuthPayload, jwtSecret, {
+                expiresIn: "180d",
+                algorithm: "HS256",
+                issuer: "mega-rag-chatbot",
+                audience: "mega-rag-chatbot-users",
+              });
 
               // Set the updated auth cookie
               const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
@@ -522,10 +512,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === "DELETE") {
     try {
-      const requesterRole = await resolveRequesterRole();
-      if (requesterRole !== "admin" && requesterRole !== "superuser") {
-        return res.status(403).json({ error: "Forbidden" });
+      // Critical security fix – verify admin role from Firestore (source of truth)
+      // Prevents stale JWT admin roles from granting access after revocation
+      try {
+        await requireAdminRoleFromFirestore(req);
+      } catch (error) {
+        return res.status(403).json({ error: "Unauthorized: Admin privileges required" });
       }
+
+      const requesterRole = await getRequesterRoleFromFirestore(req);
 
       // Get user data before deletion for audit log
       const userDoc = await dbNonNull.collection(usersCol).doc(currentId).get();

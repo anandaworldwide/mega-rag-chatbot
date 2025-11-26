@@ -919,6 +919,60 @@ try {
 - Validate UTF-8 encoding for international characters
 - Prevent email header injection by sanitizing newlines
 
+### Subprocess Execution Best Practices
+
+#### Preventing Command Injection in Python Scripts
+
+**Critical Rule**: Never use `shell=True` with variable interpolation in subprocess calls. This creates critical command
+injection vulnerabilities (RCE - Remote Code Execution).
+
+**Why**: When `shell=True` is used with string interpolation, user-controlled or external data can be injected into
+shell commands, allowing attackers to execute arbitrary commands.
+
+**Implementation Pattern**:
+
+```python
+import subprocess
+import shlex
+
+# ❌ WRONG: Command injection vulnerability
+username = user_input  # Could be "admin; rm -rf /"
+subprocess.run(f"mysql -u {username} -p", shell=True)  # DANGEROUS!
+
+# ✅ CORRECT: List-based subprocess call (no shell)
+subprocess.run(["mysql", "-u", username, "-p", db_name], shell=False)
+
+# ✅ CORRECT: For command strings, use shlex.split() to safely parse
+cmd_string = f"vercel ls {project}"
+cmd_list = shlex.split(cmd_string) if isinstance(cmd_string, str) else cmd_string
+subprocess.run(cmd_list, shell=False)
+
+# ✅ CORRECT: For file redirection, use stdin parameter
+with open(sql_file, encoding="utf-8") as f:
+    subprocess.run(["mysql", "-u", username, "-p", db_name], stdin=f, text=True, check=True)
+```
+
+**Best Practices**:
+
+- **Always use `shell=False`**: Prevents shell interpretation of special characters
+- **Use list form for subprocess calls**: `subprocess.run(["command", "arg1", "arg2"], shell=False)`
+- **For command strings**: Use `shlex.split()` to safely parse command strings into lists
+- **For file redirection**: Use `stdin` parameter instead of shell redirection (`<`, `>`)
+- **For pipes**: Use `subprocess.Popen` with proper argument lists, not shell pipes
+- **Never interpolate variables into shell strings**: Always use list form with separate arguments
+- **Validate inputs**: Even with `shell=False`, validate inputs before passing to subprocess
+
+**Verification**:
+
+- Run `grep -r "shell=True" --include="*.py"` - should return zero results
+- Review all subprocess calls to ensure they use list form
+- Test with malicious inputs (e.g., `"; rm -rf /"`) to verify injection prevention
+
+**Files Fixed**:
+
+- `data_ingestion/sql_to_vector_db/process_anandalib_dump.py` - Converted MySQL commands to list form
+- `bin/cancel-other-deployments.py` - Added `shlex.split()` for safe command parsing
+
 ### Rate Limiting Best Practices
 
 #### Consistent Rate Limiting

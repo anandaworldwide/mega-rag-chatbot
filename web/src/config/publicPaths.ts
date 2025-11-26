@@ -2,9 +2,11 @@
  * Centralized configuration for public paths (pages that don't require authentication)
  *
  * This single source of truth is used by:
- * - middleware.ts (server-side request interception)
+ * - middleware.ts (server-side request interception and page access control)
  * - authConfig.ts (client-side routing logic)
- * - web-token.ts (JWT token issuance for public pages)
+ *
+ * NOTE: web-token.ts no longer uses this - it always issues tokens (authenticated or anonymous)
+ * and delegates authorization decisions to downstream endpoints.
  */
 
 export interface PublicPathsConfig {
@@ -14,7 +16,14 @@ export interface PublicPathsConfig {
   alwaysPublicPages: string[];
 
   /**
-   * API endpoints that are always public
+   * API endpoints that bypass middleware authentication.
+   *
+   * These endpoints are accessible without authentication at the middleware level,
+   * but may enforce their own role-based authorization internally.
+   *
+   * For example, /api/answers:
+   * - On no-login sites: Endpoint allows public access
+   * - On login-required sites: Endpoint restricts to superuser role
    */
   alwaysPublicApis: string[];
 

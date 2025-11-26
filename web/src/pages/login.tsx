@@ -180,17 +180,20 @@ export default function Login({ siteConfig }: LoginProps) {
       });
 
       if (res.ok) {
-        // Redirect to chat or original destination
-        const redirect =
-          typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("redirect") : null;
-        const action = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("action") : null;
+        console.log("LOGIN DEBUG: Login successful - redirecting");
 
-        // If action is 'clone', redirect back to the share page where the clone will be triggered
-        if (action === "clone" && redirect) {
-          router.push(redirect);
-        } else {
-          router.push(redirect || "/");
-        }
+        // Use hard redirect to ensure cookies are available for full page load
+        // This ensures AuthGuard sees authenticated state immediately
+        const redirect = new URLSearchParams(window.location.search).get("redirect") || "/";
+        const action = new URLSearchParams(window.location.search).get("action");
+
+        console.log("LOGIN DEBUG: Redirect params - redirect:", redirect, "action:", action);
+
+        // Hard redirect works reliably because it triggers full page load
+        // where cookies are guaranteed to be available
+        const finalRedirect = action === "clone" && redirect !== "/" ? redirect : redirect;
+        console.log("LOGIN DEBUG: Hard redirect to:", finalRedirect);
+        window.location.href = finalRedirect;
       } else if (res.status === 429) {
         setError("Too many attempts. Please try again later.");
         setIsSubmitting(false);
