@@ -274,8 +274,14 @@ describe("/api/cron/download-locations", () => {
         message: "Updated successfully",
       });
 
-      // Verify fetch was called with correct URL
-      expect(mockFetch).toHaveBeenCalledWith("https://example.com/locations.csv");
+      // Verify fetch was called with correct URL and options
+      expect(mockFetch).toHaveBeenCalledWith("https://example.com/locations.csv", {
+        redirect: "follow",
+        headers: {
+          Accept: "text/csv, application/csv, text/plain, */*",
+          "User-Agent": "Mozilla/5.0 (compatible; AnandaBot/1.0)",
+        },
+      });
 
       // Verify S3 operations
       expect(mockS3Client.send).toHaveBeenCalledTimes(2);

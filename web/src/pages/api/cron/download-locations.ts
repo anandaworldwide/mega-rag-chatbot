@@ -48,7 +48,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       timestamp: new Date().toISOString(),
     });
 
-    const response = await fetch(url);
+    // Explicitly follow redirects - some servers return 307 without Location header
+    // but expect the client to follow redirects automatically
+    const response = await fetch(url, {
+      redirect: "follow",
+      // Some servers may require specific headers to return CSV instead of HTML redirect
+      headers: {
+        Accept: "text/csv, application/csv, text/plain, */*",
+        "User-Agent": "Mozilla/5.0 (compatible; AnandaBot/1.0)",
+      },
+    });
 
     // Safely extract headers for logging (handle test mocks that don't have full Response interface)
     let headersObj: Record<string, string> = {};
