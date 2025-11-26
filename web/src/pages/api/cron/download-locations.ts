@@ -42,11 +42,73 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   try {
     // Download from URL
+    console.log(`[download-locations] Starting fetch request`, {
+      url,
+      siteId,
+      timestamp: new Date().toISOString(),
+    });
+
     const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: Failed to download CSV`);
+
+    // Safely extract headers for logging (handle test mocks that don't have full Response interface)
+    let headersObj: Record<string, string> = {};
+    try {
+      if (response.headers && typeof response.headers.entries === "function") {
+        headersObj = Object.fromEntries(response.headers.entries());
+      }
+    } catch {
+      // Headers might not be iterable in test environment
     }
+
+    const responseStatus = (response as any).status;
+    const responseStatusText = (response as any).statusText;
+    const responseUrl = (response as any).url;
+
+    console.log(`[download-locations] Fetch response received`, {
+      status: responseStatus,
+      statusText: responseStatusText,
+      ok: response.ok,
+      redirected: (response as any).redirected,
+      url: responseUrl,
+      headers: headersObj,
+      contentType: response.headers?.get?.("content-type"),
+      contentLength: response.headers?.get?.("content-length"),
+    });
+
+    // Check for redirects (only if status is available)
+    if (responseStatus !== undefined && responseStatus >= 300 && responseStatus < 400) {
+      const location = response.headers?.get?.("location");
+      let redirectHeaders: Record<string, string> = {};
+      try {
+        if (response.headers && typeof response.headers.entries === "function") {
+          redirectHeaders = Object.fromEntries(response.headers.entries());
+        }
+      } catch {
+        // Headers might not be iterable in test environment
+      }
+      console.error(`[download-locations] Redirect response detected: ${responseStatus}`, {
+        originalUrl: url,
+        redirectLocation: location,
+        statusText: responseStatusText,
+        responseUrl: responseUrl,
+        headers: redirectHeaders,
+      });
+    }
+
+    if (!response.ok) {
+      console.error(`[download-locations] Response not OK`, {
+        status: responseStatus,
+        statusText: responseStatusText,
+        url: responseUrl,
+      });
+      throw new Error(`HTTP ${responseStatus || "unknown"}: Failed to download CSV`);
+    }
+
     const newCsv = await response.text();
+    console.log(`[download-locations] CSV downloaded successfully`, {
+      csvLength: newCsv.length,
+      csvPreview: newCsv.substring(0, 100),
+    });
 
     // Download from S3
     let currentCsv = "";
