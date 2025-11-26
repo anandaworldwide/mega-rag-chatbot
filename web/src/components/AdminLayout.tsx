@@ -76,6 +76,7 @@ export function AdminLayout({ siteConfig, children, pageTitle }: AdminLayoutProp
   useEffect(() => {
     const fetchRole = async () => {
       // Early return: Skip API call if site doesn't require login
+      // For non-login sites, superuser status is determined server-side via getServerSideProps
       if (!loginRequired) {
         return;
       }

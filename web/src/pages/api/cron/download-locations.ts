@@ -15,7 +15,14 @@ async function streamToString(stream: Readable): Promise<string> {
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== "POST") {
+  // Vercel cron jobs send GET requests, manual triggers use POST
+  const userAgent = req.headers["user-agent"] || "";
+  const isVercelCron = userAgent.startsWith("vercel-cron/");
+
+  if (isVercelCron && req.method !== "GET") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+  if (!isVercelCron && req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
 
@@ -90,13 +97,35 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   } catch (error) {
     console.error("Error in download-locations cron:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    const errorName = error instanceof Error ? error.name : "UnknownError";
+
+    // Log detailed error information
+    console.error("Error details:", {
+      errorName,
+      errorMessage,
+      errorStack,
+      siteId,
+      url: process.env.LOCATION_DATA_DOWNLOAD_URL ? "defined" : "undefined",
+      bucketName: process.env.S3_BUCKET_NAME ? "defined" : "undefined",
+    });
+
     // Send ops alert on failure
-    await sendOpsAlert(
-      "Location CSV Download Failed",
-      `Failed to update location CSV for site ${siteId}: ${errorMessage}`,
-      { error: error instanceof Error ? error : undefined }
-    );
-    return res.status(500).json({ error: "Download or upload failed" });
+    try {
+      await sendOpsAlert(
+        "Location CSV Download Failed",
+        `Failed to update location CSV for site ${siteId}: ${errorMessage}`,
+        { error: error instanceof Error ? error : undefined }
+      );
+    } catch (alertError) {
+      console.error("Failed to send ops alert:", alertError);
+    }
+
+    return res.status(500).json({
+      error: "Download or upload failed",
+      details: errorMessage,
+      errorName,
+    });
   }
 }
 

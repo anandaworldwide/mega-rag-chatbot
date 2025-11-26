@@ -31,8 +31,12 @@ jest.mock("@/utils/server/cronAuthUtils", () => ({
       const authHeader = req.headers.authorization || "";
 
       if (isVercelCron) {
-        // Verify cron secret
-        if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+        // Verify cron secret - CRON_SECRET must be set
+        if (!process.env.CRON_SECRET) {
+          return res.status(500).json({ error: "Cron authentication not configured" });
+        }
+        // Check if auth header matches CRON_SECRET
+        if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
           return res.status(401).json({ error: "Unauthorized" });
         }
         return handler(req, res);
@@ -96,7 +100,7 @@ describe("/api/cron/download-locations", () => {
       mockS3Client.send.mockRejectedValueOnce({ name: "NoSuchKey" });
 
       const { req, res } = createTestMocks({
-        method: "POST",
+        method: "GET",
         headers: {
           "user-agent": "vercel-cron/1.0",
           authorization: "Bearer test-cron-secret",
@@ -112,7 +116,7 @@ describe("/api/cron/download-locations", () => {
 
     it("should reject Vercel cron requests with incorrect secret", async () => {
       const { req, res } = createTestMocks({
-        method: "POST",
+        method: "GET",
         headers: {
           "user-agent": "vercel-cron/1.0",
           authorization: "Bearer wrong-secret",
@@ -157,12 +161,32 @@ describe("/api/cron/download-locations", () => {
   });
 
   describe("Method Validation", () => {
-    it("should only allow POST method", async () => {
+    it("should allow GET for Vercel cron requests", async () => {
+      process.env.LOCATION_DATA_DOWNLOAD_URL = "https://example.com/locations.csv";
+      mockFetch.mockResolvedValue({
+        ok: true,
+        text: jest.fn().mockResolvedValue("location1,location2"),
+      });
+      mockS3Client.send.mockRejectedValueOnce({ name: "NoSuchKey" });
+
       const { req, res } = createTestMocks({
         method: "GET",
         headers: {
           "user-agent": "vercel-cron/1.0",
           authorization: "Bearer test-cron-secret",
+        },
+      });
+
+      await handler(req, res);
+
+      expect(res._getStatusCode()).toBe(200);
+    });
+
+    it("should require POST for non-Vercel cron requests", async () => {
+      const { req, res } = createTestMocks({
+        method: "GET",
+        headers: {
+          authorization: "Bearer valid-token",
         },
       });
 
@@ -180,7 +204,7 @@ describe("/api/cron/download-locations", () => {
       delete process.env.LOCATION_DATA_DOWNLOAD_URL;
 
       const { req, res } = createTestMocks({
-        method: "POST",
+        method: "GET",
         headers: {
           "user-agent": "vercel-cron/1.0",
           authorization: "Bearer test-cron-secret",
@@ -203,7 +227,7 @@ describe("/api/cron/download-locations", () => {
       process.env.LOCATION_DATA_DOWNLOAD_URL = "https://example.com/locations.csv";
 
       const { req, res } = createTestMocks({
-        method: "POST",
+        method: "GET",
         headers: {
           "user-agent": "vercel-cron/1.0",
           authorization: "Bearer test-cron-secret",
@@ -236,7 +260,7 @@ describe("/api/cron/download-locations", () => {
       mockS3Client.send.mockResolvedValueOnce({});
 
       const { req, res } = createTestMocks({
-        method: "POST",
+        method: "GET",
         headers: {
           "user-agent": "vercel-cron/1.0",
           authorization: "Bearer test-cron-secret",
@@ -295,7 +319,7 @@ describe("/api/cron/download-locations", () => {
       mockS3Client.send.mockResolvedValueOnce({});
 
       const { req, res } = createTestMocks({
-        method: "POST",
+        method: "GET",
         headers: {
           "user-agent": "vercel-cron/1.0",
           authorization: "Bearer test-cron-secret",
@@ -336,7 +360,7 @@ describe("/api/cron/download-locations", () => {
       });
 
       const { req, res } = createTestMocks({
-        method: "POST",
+        method: "GET",
         headers: {
           "user-agent": "vercel-cron/1.0",
           authorization: "Bearer test-cron-secret",
@@ -377,7 +401,7 @@ describe("/api/cron/download-locations", () => {
       mockS3Client.send.mockResolvedValueOnce({});
 
       const { req, res } = createTestMocks({
-        method: "POST",
+        method: "GET",
         headers: {
           "user-agent": "vercel-cron/1.0",
           authorization: "Bearer test-cron-secret",
@@ -404,7 +428,7 @@ describe("/api/cron/download-locations", () => {
       });
 
       const { req, res } = createTestMocks({
-        method: "POST",
+        method: "GET",
         headers: {
           "user-agent": "vercel-cron/1.0",
           authorization: "Bearer test-cron-secret",
@@ -414,9 +438,10 @@ describe("/api/cron/download-locations", () => {
       await handler(req, res);
 
       expect(res._getStatusCode()).toBe(500);
-      expect(JSON.parse(res._getData())).toEqual({
-        error: "Download or upload failed",
-      });
+      const responseData = JSON.parse(res._getData());
+      expect(responseData.error).toBe("Download or upload failed");
+      expect(responseData.details).toBeDefined();
+      expect(responseData.errorName).toBeDefined();
 
       // Verify ops alert was sent for failure
       expect(mockSendOpsAlert).toHaveBeenCalledWith(
@@ -438,7 +463,7 @@ describe("/api/cron/download-locations", () => {
       mockS3Client.send.mockRejectedValueOnce(new Error("S3 access denied"));
 
       const { req, res } = createTestMocks({
-        method: "POST",
+        method: "GET",
         headers: {
           "user-agent": "vercel-cron/1.0",
           authorization: "Bearer test-cron-secret",
@@ -448,9 +473,10 @@ describe("/api/cron/download-locations", () => {
       await handler(req, res);
 
       expect(res._getStatusCode()).toBe(500);
-      expect(JSON.parse(res._getData())).toEqual({
-        error: "Download or upload failed",
-      });
+      const responseData = JSON.parse(res._getData());
+      expect(responseData.error).toBe("Download or upload failed");
+      expect(responseData.details).toBeDefined();
+      expect(responseData.errorName).toBeDefined();
 
       expect(mockSendOpsAlert).toHaveBeenCalledWith(
         "Location CSV Download Failed",
@@ -475,7 +501,7 @@ describe("/api/cron/download-locations", () => {
       mockS3Client.send.mockRejectedValueOnce(new Error("S3 upload failed"));
 
       const { req, res } = createTestMocks({
-        method: "POST",
+        method: "GET",
         headers: {
           "user-agent": "vercel-cron/1.0",
           authorization: "Bearer test-cron-secret",
@@ -485,9 +511,10 @@ describe("/api/cron/download-locations", () => {
       await handler(req, res);
 
       expect(res._getStatusCode()).toBe(500);
-      expect(JSON.parse(res._getData())).toEqual({
-        error: "Download or upload failed",
-      });
+      const responseData = JSON.parse(res._getData());
+      expect(responseData.error).toBe("Download or upload failed");
+      expect(responseData.details).toBeDefined();
+      expect(responseData.errorName).toBeDefined();
 
       expect(mockSendOpsAlert).toHaveBeenCalledWith(
         "Location CSV Download Failed",
@@ -502,7 +529,7 @@ describe("/api/cron/download-locations", () => {
       mockFetch.mockRejectedValue(new Error("Network error"));
 
       const { req, res } = createTestMocks({
-        method: "POST",
+        method: "GET",
         headers: {
           "user-agent": "vercel-cron/1.0",
           authorization: "Bearer test-cron-secret",
@@ -512,9 +539,10 @@ describe("/api/cron/download-locations", () => {
       await handler(req, res);
 
       expect(res._getStatusCode()).toBe(500);
-      expect(JSON.parse(res._getData())).toEqual({
-        error: "Download or upload failed",
-      });
+      const responseData = JSON.parse(res._getData());
+      expect(responseData.error).toBe("Download or upload failed");
+      expect(responseData.details).toBeDefined();
+      expect(responseData.errorName).toBeDefined();
 
       expect(mockSendOpsAlert).toHaveBeenCalledWith(
         "Location CSV Download Failed",
@@ -539,7 +567,7 @@ describe("/api/cron/download-locations", () => {
       mockS3Client.send.mockResolvedValueOnce({});
 
       const { req, res } = createTestMocks({
-        method: "POST",
+        method: "GET",
         headers: {
           "user-agent": "vercel-cron/1.0",
           authorization: "Bearer test-cron-secret",
