@@ -170,6 +170,22 @@ function hasLocationKeywordPatterns(query: string): boolean {
   const lowerQuery = query.toLowerCase();
 
   // Common country codes (ISO 3166-1 alpha-2)
+  // Exclude common English words that are also country codes to prevent false positives
+  // Only exclude words that are actually country codes in the list below
+  const commonEnglishWords = new Set([
+    "my", // Malaysia
+    "in", // India
+    "is", // Iceland
+    "it", // Italy
+    "at", // Austria
+    "be", // Belgium
+    "by", // Belarus
+    "do", // Dominican Republic
+    "no", // Norway
+    "so", // Somalia
+    "us", // United States
+  ]);
+
   const countryCodes = [
     "nz", // New Zealand
     "usa", // United States
@@ -220,7 +236,7 @@ function hasLocationKeywordPatterns(query: string): boolean {
     "sv", // El Salvador
     "ni", // Nicaragua
     "sg", // Singapore
-    "my", // Malaysia
+    "my", // Malaysia (excluded - common English word)
     "th", // Thailand
     "ph", // Philippines
     "id", // Indonesia
@@ -259,10 +275,26 @@ function hasLocationKeywordPatterns(query: string): boolean {
     "zw", // Zimbabwe
     "ug", // Uganda
     "tz", // Tanzania
+    // Country codes that are common English words (excluded from matching but kept in list for completeness)
+    "in", // India
+    "is", // Iceland
+    "it", // Italy
+    "at", // Austria
+    "be", // Belgium
+    "by", // Belarus
+    "do", // Dominican Republic
+    "no", // Norway
+    "so", // Somalia
+    "us", // United States
   ];
 
   // Check for country abbreviations as standalone words (with word boundaries)
+  // Skip common English words to prevent false positives
   for (const abbrev of countryCodes) {
+    // Skip if this country code is a common English word
+    if (commonEnglishWords.has(abbrev.toLowerCase())) {
+      continue;
+    }
     const pattern = new RegExp(`\\b${abbrev}\\b`, "i");
     if (pattern.test(query)) {
       return true;
@@ -351,15 +383,22 @@ export async function hasLocationIntentAsync(query: string): Promise<boolean> {
 
     // Use contrastive scoring thresholds from research
     // Lowered from 0.44 to 0.37 to better catch multilingual location queries like Hindi
+    // Contrastive threshold ensures query is MORE similar to location examples than non-location examples
     const positiveThreshold = 0.37;
-    const contrastiveThreshold = 0.0;
+    const contrastiveThreshold = 0.05; // Require positive similarity to exceed negative by at least 0.05
     const contrastiveScore = maxPositiveSimilarity - maxNegativeSimilarity;
 
     const isLocation = maxPositiveSimilarity >= positiveThreshold && contrastiveScore >= contrastiveThreshold;
 
     // Optional debug logging (can be removed in production)
     if (process.env.NODE_ENV === "development") {
-      console.log(`🔍 Location intent detection for "${query}": ${isLocation ? "LOCATION" : "NON-LOCATION"}`);
+      console.log(`🔍 Location intent detection for "${query}": ${isLocation ? "LOCATION" : "NON-LOCATION"}`, {
+        maxPositiveSimilarity: maxPositiveSimilarity.toFixed(3),
+        maxNegativeSimilarity: maxNegativeSimilarity.toFixed(3),
+        contrastiveScore: contrastiveScore.toFixed(3),
+        positiveThreshold,
+        contrastiveThreshold,
+      });
     }
 
     return isLocation;
