@@ -235,7 +235,7 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
                       <span className="text-green-600">✓ Password is set</span>
                     </div>
                   ) : (
-                    <div className="text-gray-600">No password set - using magic link authentication</div>
+                    <div className="text-gray-600">No password set - using login link authentication</div>
                   )}
                 </div>
                 <button

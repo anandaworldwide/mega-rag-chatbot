@@ -390,7 +390,7 @@ export default function Login({ siteConfig }: LoginProps) {
                     className="text-blue-600 hover:text-blue-800 font-medium transition-colors"
                     disabled={isSubmitting}
                   >
-                    Email me a Magic Login Link
+                    Email me a Login Link
                   </button>
                   <a
                     href={`/forgot-password${email ? `?email=${encodeURIComponent(email)}` : ""}`}

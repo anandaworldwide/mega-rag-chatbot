@@ -55,10 +55,10 @@ export default function MagicLoginPage() {
   return (
     <>
       <Head>
-        <title>Magic Login</title>
+        <title>Login Link</title>
       </Head>
       <main className="mx-auto max-w-xl p-6">
-        <h1 className="text-2xl font-semibold mb-4">Magic Login</h1>
+        <h1 className="text-2xl font-semibold mb-4">Login Link</h1>
         {status === "idle" || status === "working" ? (
           <div className="text-sm text-gray-700">Signing you in…</div>
         ) : null}

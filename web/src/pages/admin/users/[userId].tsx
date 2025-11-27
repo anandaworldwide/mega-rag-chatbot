@@ -421,7 +421,7 @@ export default function EditUserPage({ siteConfig }: PageProps) {
                       )}
                     </>
                   ) : (
-                    <span className="text-gray-500">Not set - using magic link</span>
+                    <span className="text-gray-500">Not set - using login link</span>
                   )}
                 </div>
               </div>
