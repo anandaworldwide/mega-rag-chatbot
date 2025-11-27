@@ -704,11 +704,15 @@ export class CenterSearchService implements ICenterSearchService {
         distance: this.distanceCalculator.calculateDistance(latitude, longitude, center.latitude, center.longitude),
       }));
 
-      // Filter to reasonable distance (150 miles) and sort by distance
-      const nearbyCenter = centersWithDistance
-        .filter((center) => center.distance <= 150)
-        .sort((a, b) => a.distance - b.distance)
-        .slice(0, 10);
+      // Sort all by distance, take top 5, and apply adaptive trim if needed
+      const sortedCenters = centersWithDistance.sort((a, b) => a.distance - b.distance).slice(0, 5);
+
+      // Always include first 3 centers regardless of distance
+      // For 4th and 5th, only include if <= 1000 miles
+      const maxReasonableDistance = 1000;
+      const firstThree = sortedCenters.slice(0, 3);
+      const remainingTwo = sortedCenters.slice(3, 5).filter((center) => center.distance <= maxReasonableDistance);
+      const nearbyCenter = [...firstThree, ...remainingTwo];
 
       if (nearbyCenter.length > 0) {
         return {
@@ -729,7 +733,7 @@ export class CenterSearchService implements ICenterSearchService {
             found: false,
             centers: [],
             fallbackMessage:
-              "No Ananda centers found within 150 miles of your location. You might want to check out Ananda's virtual events and online community!",
+              "No nearby Ananda centers found. You might want to check out Ananda's virtual events and online community!",
           };
         }
       }
