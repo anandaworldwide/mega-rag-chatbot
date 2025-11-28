@@ -267,13 +267,14 @@ export default function Login({ siteConfig }: LoginProps) {
       <div className="bg-white rounded-2xl shadow-xl max-w-md w-full border border-gray-100 transform transition-all duration-300 hover:shadow-2xl overflow-hidden">
         {siteConfig?.loginImage && (
           <div className="flex flex-col items-center pt-8 px-8 pb-4">
-            <div className="relative">
+            <div className="relative" style={{ width: "100%", height: "auto" }}>
               <Image
                 src={`/${siteConfig.loginImage}`}
                 alt="Login Image"
                 width={320}
                 height={320}
                 className="w-full h-auto object-contain drop-shadow-lg"
+                priority
               />
             </div>
           </div>
