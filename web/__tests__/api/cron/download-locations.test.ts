@@ -81,6 +81,8 @@ describe("/api/cron/download-locations", () => {
     process.env.SITE_ID = "test-site";
     process.env.S3_BUCKET_NAME = "test-bucket";
     process.env.CRON_SECRET = "test-cron-secret";
+    // Allow example.com for SSRF protection in tests
+    process.env.SSRF_ALLOWED_DOMAINS = "example.com";
     mockSendOpsAlert.mockResolvedValue(true);
   });
 

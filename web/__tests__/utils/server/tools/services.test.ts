@@ -327,6 +327,8 @@ describe("Services - Dependency Injection Architecture", () => {
       service = new GoogleGeocodingService();
       // Mock the API key
       process.env.GOOGLE_MAPS_API_KEY = "test-api-key";
+      // Ensure maps.googleapis.com is allowed for SSRF protection in tests
+      process.env.SSRF_ALLOWED_DOMAINS = "maps.googleapis.com,www.googleapis.com";
     });
 
     afterEach(() => {
@@ -366,7 +368,10 @@ describe("Services - Dependency Injection Architecture", () => {
         source: "google-geolocation",
       });
 
-      expect(fetch).toHaveBeenCalledWith(expect.stringContaining("https://maps.googleapis.com/maps/api/geocode/json"));
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("https://maps.googleapis.com/maps/api/geocode/json"),
+        undefined
+      );
     });
 
     it("should handle ZERO_RESULTS status", async () => {

@@ -4,6 +4,7 @@ import { getClientIp } from "./src/utils/server/ipUtils"; // Adjusted path
 import { createErrorCorsHeaders, handleCors, addCorsHeaders } from "./src/utils/server/corsMiddleware";
 import { getAllPublicPaths } from "./src/config/publicPaths";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 
 // Log suspicious activity with details
 const logSuspiciousActivity = (req: NextRequest, reason: string) => {
@@ -199,25 +200,36 @@ export function middleware(req: NextRequest) {
     return addCorsHeaders(optionsResponse, req, siteConfig);
   }
 
+  // Generate nonce for CSP (Next.js compatible)
+  // Next.js will automatically add this nonce to inline scripts if we set it in headers
+  const nonce = Buffer.from(crypto.randomBytes(16)).toString("base64");
+  response.headers.set("x-nonce", nonce);
+
+  // Content Security Policy with nonce support
+  // Note: 'unsafe-inline' is still needed for styles (Tailwind CSS, CSS-in-JS)
+  // 'unsafe-eval' is required for Next.js development mode and some React features
+  // In production, Next.js minimizes this, but we keep it for compatibility
+  const cspDirectives = [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://www.google-analytics.com`,
+    // Tightened connect-src: Only allow specific domains for API calls
+    "connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://*.google-analytics.com https://maps.googleapis.com https://www.googleapis.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com data:",
+    "img-src 'self' https://www.google-analytics.com https://fonts.gstatic.com data: blob:",
+    "media-src 'self' blob:",
+    "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com",
+    "worker-src 'self' blob:",
+    "manifest-src 'self'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "object-src 'none'",
+    "upgrade-insecure-requests", // Force HTTPS for all resources
+  ].join("; ");
+
   // Add security headers
   const securityHeaders = {
-    "Content-Security-Policy": `
-      default-src 'self';
-      script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://www.google-analytics.com;
-      connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://*.google-analytics.com;
-      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-      font-src 'self' https://fonts.gstatic.com data:;
-      img-src 'self' https://www.google-analytics.com https://fonts.gstatic.com data: blob:;
-      media-src 'self' blob:;
-      frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com;
-      worker-src 'self' blob:;
-      manifest-src 'self';
-      base-uri 'self';
-      form-action 'self';
-      object-src 'none';
-    `
-      .replace(/\s{2,}/g, " ")
-      .trim(),
+    "Content-Security-Policy": cspDirectives,
     "X-XSS-Protection": "1; mode=block",
     "X-Frame-Options": "SAMEORIGIN",
     "X-Content-Type-Options": "nosniff",

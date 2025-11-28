@@ -16,6 +16,7 @@ import {
   ILocationService,
 } from "./interfaces";
 import { LocationResult, CenterResult, NearestCenterResult } from "../tools";
+import { safeFetch } from "../ssrfProtection";
 
 /**
  * Google Maps geocoding service implementation
@@ -32,7 +33,8 @@ export class GoogleGeocodingService implements IGeocodingService {
       const encodedLocation = encodeURIComponent(location);
       const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodedLocation}&key=${apiKey}`;
 
-      const response = await fetch(url);
+      // SSRF Protection: Use safeFetch to validate URL before fetching
+      const response = await safeFetch(url);
       const data = await response.json();
 
       if (data.status === "OK" && data.results.length > 0) {
@@ -162,7 +164,8 @@ export class VercelIPGeolocationService implements IIPGeolocationService {
           console.log(`🌍 IP GEOLOCATION DEBUG: Using development fallback IP: ${fallbackIp}`);
 
           // Use Google Geolocation API with fallback IP
-          const response = await fetch(`https://www.googleapis.com/geolocation/v1/geolocate?key=${apiKey}`, {
+          // SSRF Protection: Use safeFetch to validate URL before fetching
+          const response = await safeFetch(`https://www.googleapis.com/geolocation/v1/geolocate?key=${apiKey}`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -179,7 +182,8 @@ export class VercelIPGeolocationService implements IIPGeolocationService {
 
             if (data.location) {
               // Reverse geocode to get city/country
-              const reverseResponse = await fetch(
+              // SSRF Protection: Use safeFetch to validate URL before fetching
+              const reverseResponse = await safeFetch(
                 `https://maps.googleapis.com/maps/api/geocode/json?latlng=${data.location.lat},${data.location.lng}&key=${apiKey}`
               );
 
@@ -224,7 +228,8 @@ export class VercelIPGeolocationService implements IIPGeolocationService {
       console.log(`🌍 IP GEOLOCATION DEBUG: Attempting Google Geolocation API for IP: ${ip}`);
 
       // Use Google Geolocation API for real IPs
-      const response = await fetch(`https://www.googleapis.com/geolocation/v1/geolocate?key=${apiKey}`, {
+      // SSRF Protection: Use safeFetch to validate URL before fetching
+      const response = await safeFetch(`https://www.googleapis.com/geolocation/v1/geolocate?key=${apiKey}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -240,7 +245,8 @@ export class VercelIPGeolocationService implements IIPGeolocationService {
 
         if (data.location) {
           // Reverse geocode to get city/country
-          const reverseResponse = await fetch(
+          // SSRF Protection: Use safeFetch to validate URL before fetching
+          const reverseResponse = await safeFetch(
             `https://maps.googleapis.com/maps/api/geocode/json?latlng=${data.location.lat},${data.location.lng}&key=${apiKey}`
           );
 

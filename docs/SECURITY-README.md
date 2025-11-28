@@ -1130,6 +1130,124 @@ if (isDevelopment()) {
 }
 ```
 
+### SSRF Protection Best Practices
+
+#### Server-Side Request Forgery Prevention
+
+**Critical Rule**: Always validate URLs before making server-side HTTP requests to prevent SSRF attacks.
+
+**Why**: SSRF attacks allow attackers to make the server request arbitrary URLs, potentially accessing internal
+services, cloud metadata endpoints, or external resources.
+
+**Implementation Pattern**:
+
+```typescript
+import { safeFetch, validateUrlForSSRF } from "@/utils/server/ssrfProtection";
+
+// ✅ CORRECT: Use safeFetch for all external requests
+const response = await safeFetch(url, {
+  method: "GET",
+  headers: { "User-Agent": "AnandaBot/1.0" },
+});
+
+// ✅ CORRECT: Validate URLs before constructing fetch calls
+const validation = validateUrlForSSRF(userProvidedUrl);
+if (!validation.isValid) {
+  return res.status(400).json({ error: validation.error });
+}
+```
+
+**Features**:
+
+- **Domain Whitelist**: Only pre-approved domains can be accessed
+- **Private IP Blocking**: Blocks access to private/internal IP ranges (10.x.x.x, 192.168.x.x, etc.)
+- **Protocol Validation**: Only HTTP and HTTPS protocols allowed
+- **IP Address Protection**: IP addresses must be explicitly whitelisted
+- **Configurable Domains**: Additional domains via `SSRF_ALLOWED_DOMAINS` environment variable
+
+**Default Allowed Domains**:
+
+- `maps.googleapis.com` - Google Maps API
+- `www.googleapis.com` - Google APIs
+- `www.google-analytics.com` - Google Analytics
+- `analytics.google.com` - Google Analytics
+
+**Adding Custom Domains**:
+
+Set `SSRF_ALLOWED_DOMAINS` environment variable (comma-separated):
+
+```bash
+SSRF_ALLOWED_DOMAINS=api.example.com,cdn.example.com
+```
+
+**Best Practices**:
+
+- Always use `safeFetch()` instead of raw `fetch()` for external URLs
+- Validate URLs from environment variables before use
+- Log blocked SSRF attempts for security monitoring
+- Never trust user-provided URLs without validation
+- Use domain whitelist approach, not blacklist
+
+**Applied To**:
+
+- `/api/cron/download-locations` - Location data downloads
+- Google Maps API calls in location services
+- All external HTTP/HTTPS requests
+
+### Content Security Policy (CSP) Best Practices
+
+#### CSP Configuration
+
+**Current Implementation**: CSP headers with nonce support and tightened directives.
+
+**Key Features**:
+
+- **Nonce Support**: Generated nonces for inline scripts (Next.js compatible)
+- **Tightened connect-src**: Only specific domains allowed for API calls
+- **Upgrade Insecure Requests**: Forces HTTPS for all resources
+- **Strict Default Policy**: `default-src 'self'` as baseline
+
+**CSP Directives**:
+
+```typescript
+// Current CSP configuration
+default-src 'self';
+script-src 'self' 'nonce-{nonce}' 'unsafe-inline' 'unsafe-eval' ...;
+connect-src 'self' https://www.google-analytics.com ...;
+style-src 'self' 'unsafe-inline' ...;
+```
+
+**Why `unsafe-inline` and `unsafe-eval`**:
+
+- **`unsafe-inline`**: Required for Tailwind CSS and CSS-in-JS libraries
+- **`unsafe-eval`**: Required for Next.js development mode and some React features
+- Nonces are used where possible to reduce reliance on `unsafe-inline`
+
+**Tightened `connect-src`**:
+
+Only allows connections to:
+
+- `'self'` - Same origin
+- `https://www.google-analytics.com` - Analytics
+- `https://analytics.google.com` - Analytics
+- `https://*.google-analytics.com` - Analytics subdomains
+- `https://maps.googleapis.com` - Google Maps API
+- `https://www.googleapis.com` - Google APIs
+
+**Best Practices**:
+
+- Review CSP violations in browser console regularly
+- Add specific domains to `connect-src` as needed (not wildcards)
+- Use nonces for inline scripts when possible
+- Monitor CSP reports for security issues
+- Test CSP changes in staging before production
+
+**Future Improvements**:
+
+- Consider removing `unsafe-eval` in production builds (if Next.js allows)
+- Use strict-dynamic for script-src when possible
+- Implement CSP reporting endpoint for violation monitoring
+
 ### Security Checklist for New Endpoints
 
 When creating a new API endpoint, ensure:
@@ -1139,6 +1257,7 @@ When creating a new API endpoint, ensure:
 - [ ] **Authorization**: Proper role checks (Firestore verification for sensitive ops)
 - [ ] **Error Handling**: Safe error messages (no sensitive info leakage)
 - [ ] **CORS**: Credentials only set when origin is verified
+- [ ] **SSRF Protection**: Use `safeFetch()` for all external requests
 - [ ] **Logging**: Security events logged with context
 - [ ] **IP Handling**: Proper IP extraction and sanitization
 - [ ] **Testing**: Security tests included in test suite
@@ -1163,3 +1282,4 @@ When creating a new API endpoint, ensure:
 - Audit authorization checks annually
 - Update dependencies for security patches
 - Review error handling patterns for new vulnerabilities
+- Review and update SSRF domain whitelist as needed

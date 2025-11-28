@@ -5,6 +5,7 @@ import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { sendOpsAlert } from "@/utils/server/emailOps";
 import { Readable } from "stream";
 import { withJwtOrCronAuth } from "@/utils/server/cronAuthUtils";
+import { validateUrlForSSRF, safeFetch, sanitizeUrlForLogging } from "@/utils/server/ssrfProtection";
 
 async function streamToString(stream: Readable): Promise<string> {
   const chunks: Buffer[] = [];
@@ -31,6 +32,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(200).json({ message: "Skipped - URL not defined" });
   }
 
+  // SSRF Protection: Validate URL before fetching
+  const urlValidation = validateUrlForSSRF(url);
+  if (!urlValidation.isValid) {
+    console.error(`[download-locations] SSRF protection blocked URL: ${sanitizeUrlForLogging(url)}`, {
+      error: urlValidation.error,
+      siteId: process.env.SITE_ID || "ananda",
+    });
+    return res.status(400).json({
+      error: "Invalid URL configuration",
+      details: "The download URL is not in the allowed whitelist",
+    });
+  }
+
   const siteId = process.env.SITE_ID || "ananda";
   // Location data is shared across environments (reference data, not user data)
   const s3Key = `site-config/location/${siteId}-locations.csv`;
@@ -41,16 +55,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    // Download from URL
+    // Download from URL with SSRF protection
     console.log(`[download-locations] Starting fetch request`, {
-      url,
+      url: sanitizeUrlForLogging(url),
       siteId,
       timestamp: new Date().toISOString(),
     });
 
+    // Use safeFetch to prevent SSRF attacks
     // Explicitly follow redirects - some servers return 307 without Location header
     // but expect the client to follow redirects automatically
-    const response = await fetch(url, {
+    const response = await safeFetch(url, {
       redirect: "follow",
       // Some servers may require specific headers to return CSV instead of HTML redirect
       headers: {
