@@ -19,6 +19,7 @@ import { DocMetadata } from "@/types/DocMetadata";
 import { Document } from "langchain/document";
 import { fetchWithAuth, isAuthenticated, initializeTokenManager } from "@/utils/client/tokenManager";
 import { getOrCreateUUID } from "@/utils/client/uuid";
+import { generateSourceId } from "@/utils/client/sourceUtils";
 
 interface ShareConversationProps {
   siteConfig: SiteConfig | null;
@@ -34,10 +35,13 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
   const [conversationTitle, setConversationTitle] = useState<string | null>(null);
   const [firstQuestion, setFirstQuestion] = useState<string | null>(null);
   const [linkCopied, setLinkCopied] = useState<string | null>(null);
+  const [sourceLinkCopied, setSourceLinkCopied] = useState<string | null>(null);
   const [isCloning, setIsCloning] = useState(false);
   const [cloneError, setCloneError] = useState<string | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const lastMessageRef = useRef<HTMLDivElement>(null);
+  const sourceExpandedRef = useRef<Set<number>>(new Set());
+  const handledHashRef = useRef<string | null>(null);
 
   // Function to copy the share link to clipboard
   const handleCopyLink = useCallback(
@@ -134,6 +138,19 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
       setIsLoggedIn(authStatus);
     };
     checkAuth();
+  }, []);
+
+  // Handle source expansion callback
+  const handleSourceExpanded = useCallback((index: number) => {
+    sourceExpandedRef.current.add(index);
+  }, []);
+
+  // Handle source link copy callback
+  const handleSourceLinkCopied = useCallback((sourceId: string) => {
+    setSourceLinkCopied(sourceId);
+    setTimeout(() => {
+      setSourceLinkCopied(null);
+    }, 2000);
   }, []);
 
   // Auto-clone after login if action=clone is in URL
@@ -256,10 +273,15 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
           setFirstQuestion(firstUserMessage.message);
         }
 
-        // If owner, redirect to the full conversation URL
+        // If owner, redirect to the full conversation URL (preserve hash fragment)
         if (loadedConversation.isOwner && loadedConversation.convId) {
-          // Redirect owner to the full conversation URL
-          router.replace(`/chat/${loadedConversation.convId}`);
+          // Preserve hash fragment if present (for source deep linking)
+          const hash = window.location.hash;
+          const targetPath = hash ? `/chat/${loadedConversation.convId}${hash}` : `/chat/${loadedConversation.convId}`;
+
+          // Navigate to home page, preserving the /chat/[convId] path and hash in the URL
+          // The home page will detect this path and load the conversation
+          router.replace("/", targetPath, { shallow: false });
           return;
         }
 
@@ -286,12 +308,18 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
         // Log analytics event
         logEvent("shared_conversation_loaded", "Sharing", docId, loadedConversation.messages.length);
 
-        // Scroll to last message
-        setTimeout(() => {
+        // Scroll to last message or to source if hash fragment is present
+        // Note: Hash fragment handling is done in the separate useEffect below
+        // to avoid conflicts with browser's native scrolling
+          const hash = window.location.hash;
+        if (!hash || !hash.startsWith("#source-")) {
+          // Default: scroll to last message if no source hash
+                setTimeout(() => {
           if (lastMessageRef.current) {
             lastMessageRef.current.scrollIntoView({ behavior: "smooth" });
           }
         }, 100);
+        }
       } catch (error) {
         console.error("Error loading shared conversation:", error);
         setError(error instanceof Error ? error.message : "Failed to load shared conversation");
@@ -301,7 +329,110 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
     };
 
     loadSharedConversation();
-  }, [router.isReady, docId, router, siteConfig]);
+  }, [router.isReady, docId, router, siteConfig, handleSourceExpanded]);
+
+  // Handle hash changes (e.g., browser back/forward navigation)
+  // This handles both initial page load with hash and subsequent hash changes
+  useEffect(() => {
+    if (!router.isReady || loading || !messages.length) {
+      return;
+    }
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const performScroll = (sourceElement: HTMLElement, sourceId: string, isInitialLoad: boolean) => {
+      // Prevent browser's automatic scroll by temporarily removing hash
+      const hash = window.location.hash;
+      if (isInitialLoad && hash) {
+        // Temporarily remove hash to prevent browser's automatic scroll
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      }
+
+      // Scroll to element (block: "start" respects scroll-margin-top on the element)
+      sourceElement.scrollIntoView({ behavior: "smooth", block: "start" });
+
+      // Restore hash after a brief delay
+      if (isInitialLoad && hash) {
+        setTimeout(() => {
+          window.history.replaceState(null, "", hash);
+        }, 100);
+      }
+
+      logEvent(isInitialLoad ? "source_deep_link_activated" : "source_deep_link_navigated", "Sharing", sourceId);
+    };
+
+    const scrollToSource = (sourceId: string, isInitialLoad: boolean) => {
+        // Find source in messages and expand it
+        for (let msgIndex = 0; msgIndex < messages.length; msgIndex++) {
+          const message = messages[msgIndex];
+          if (message.sourceDocs) {
+            const sourceIndex = message.sourceDocs.findIndex((doc) => generateSourceId(doc) === sourceId);
+            if (sourceIndex !== -1) {
+              handleSourceExpanded(sourceIndex);
+              break;
+            }
+          }
+        }
+
+      // Use multiple requestAnimationFrame calls to ensure DOM is fully ready
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+        setTimeout(() => {
+          const sourceElement = document.getElementById(sourceId);
+          if (sourceElement) {
+            // Expand the details element if it's collapsed
+            const detailsElement = sourceElement.closest("details");
+            if (detailsElement && !detailsElement.hasAttribute("open")) {
+              detailsElement.setAttribute("open", "true");
+                // Wait for details to expand and React to re-render before scrolling
+                setTimeout(() => {
+                  // Double-check element still exists after React re-render
+                  const updatedElement = document.getElementById(sourceId);
+                  if (updatedElement) {
+                    performScroll(updatedElement, sourceId, isInitialLoad);
+                  }
+                }, 150);
+              } else {
+                performScroll(sourceElement, sourceId, isInitialLoad);
+              }
+            }
+          }, 150);
+        });
+      });
+    };
+
+    const handleHashChange = (isInitialLoad = false) => {
+      const hash = window.location.hash;
+
+      if (!hash || !hash.startsWith("#source-")) {
+        if (!hash) {
+          handledHashRef.current = null;
+        }
+        return;
+      }
+
+      if (isInitialLoad && handledHashRef.current === hash) {
+        return;
+      }
+
+      handledHashRef.current = hash;
+      const sourceId = hash.substring(1);
+      scrollToSource(sourceId, isInitialLoad);
+    };
+
+    // Handle initial hash on mount
+    handleHashChange(true);
+
+    // Listen for hash changes (browser back/forward)
+    const onHashChange = () => handleHashChange(false);
+    window.addEventListener("hashchange", onHashChange);
+
+    return () => {
+      window.removeEventListener("hashchange", onHashChange);
+    };
+  }, [router.isReady, loading, messages, handleSourceExpanded]);
 
   // Generate HTML title
   const generateTitle = () => {
@@ -399,6 +530,9 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
                   voteError={null}
                   allowAllAnswersPage={siteConfig?.allowAllAnswersPage ?? false}
                   readOnly={true}
+                  sourceLinkCopied={sourceLinkCopied}
+                  onSourceExpanded={handleSourceExpanded}
+                  onSourceLinkCopied={handleSourceLinkCopied}
                 />
               ))}
               <div ref={lastMessageRef} />

@@ -54,6 +54,7 @@ import { getOrCreateUUID } from "@/utils/client/uuid";
 import { loadConversationByConvId } from "@/utils/client/conversationLoader";
 import { getGreeting } from "@/utils/client/siteConfig";
 import { SidebarFunctions, SidebarRefetch } from "@/components/ChatHistorySidebar";
+import { generateSourceId } from "@/utils/client/sourceUtils";
 
 // Custom hook for scroll depth tracking
 function useScrollDepthTracking() {
@@ -253,7 +254,10 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   // UI state variables
 
   const [linkCopied, setLinkCopied] = useState<string | null>(null);
+  const [sourceLinkCopied, setSourceLinkCopied] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
+  const sourceExpandedRef = useRef<Set<number>>(new Set());
+  const handledHashRef = useRef<string | null>(null);
 
   // Refs for DOM elements and scroll management
   const lastMessageRef = useRef<HTMLDivElement>(null);
@@ -344,6 +348,11 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
         // Log analytics event
         logEvent("chat_history_conversation_loaded", "Chat History", convId, loadedConversation.messages.length);
+
+        /**
+         * Deep linking: Hash fragment handling is done in the separate useEffect below
+         * to avoid conflicts with browser's native scrolling and ensure proper timing
+         */
       } catch (error) {
         console.error("Error loading conversation:", error);
 
@@ -418,7 +427,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
     // Handle /chat/[convId] URLs
     if (path.startsWith("/chat/")) {
-      const convId = path.split("/chat/")[1];
+      // Extract convId, removing hash fragment if present
+      const pathWithoutHash = path.split("#")[0];
+      const convId = pathWithoutHash.split("/chat/")[1];
       // Prevent infinite loop by checking if we've already loaded this conversation OR if there's an existing error
       // If there's already an error for this conversation, don't retry to prevent infinite reload loops
       if (convId && convId !== currentConvIdRef.current && !chatError) {
@@ -438,6 +449,48 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     setViewOnlyMode,
     messageState.messages.length,
   ]);
+
+  /**
+   * Sync pathRef with router.asPath to handle URL masking scenarios
+   *
+   * This effect ensures pathRef stays in sync with the displayed URL (router.asPath) rather than
+   * the actual route pathname. This is critical for handling redirects from dynamic routes like
+   * /chat/[convId] that use Next.js router.replace() with the 'as' parameter to mask the URL.
+   *
+   * Example scenario:
+   * - User visits /share/docId#source-xyz (share page)
+   * - Share page detects owner and redirects using router.replace("/", "/chat/convId#source-xyz")
+   * - This renders the home page (/) but displays /chat/convId#source-xyz in the browser URL
+   * - router.asPath will be "/chat/convId#source-xyz" while router.pathname is "/"
+   * - We need pathRef to reflect "/chat/convId#source-xyz" so handleUrlBasedLoading() can detect
+   *   and load the conversation correctly
+   *
+   * The effect also handles edge cases where asPath might contain a full URL (extracts pathname)
+   * and validates that we only update pathRef with valid paths (starting with /).
+   */
+  useEffect(() => {
+    if (router.isReady && router.asPath) {
+      // Update pathRef to match the displayed URL (asPath) rather than actual pathname
+      // This handles cases where /chat/[convId] route redirects to / but shows /chat/[convId] in URL
+      // Extract only the pathname portion (in case asPath contains full URL)
+      let displayedPath = router.asPath.split("?")[0]; // Remove query string, keep hash
+
+      // If asPath somehow contains a full URL, extract just the pathname
+      try {
+        if (displayedPath.startsWith("http://") || displayedPath.startsWith("https://")) {
+          const url = new URL(displayedPath);
+          displayedPath = url.pathname + url.hash;
+        }
+      } catch {
+        // If URL parsing fails, asPath is already a path, use it as-is
+      }
+
+      // Only update if it's a valid path (starts with /)
+      if (displayedPath.startsWith("/") && displayedPath !== pathRef.current) {
+        pathRef.current = displayedPath;
+      }
+    }
+  }, [router.isReady, router.asPath]);
 
   // URL detection effect
   useEffect(() => {
@@ -2057,6 +2110,169 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     });
   };
 
+  /**
+   * SOURCE DEEP LINKING FEATURE
+   *
+   * This feature allows users to create shareable links that point directly to specific audio/video sources
+   * within a conversation. When someone clicks a deep link (e.g., /chat/abc123#source-audio-xyz), the page
+   * will automatically:
+   * 1. Scroll to the target source
+   * 2. Expand the collapsed source element
+   * 3. Highlight the source with a yellow fade animation
+   *
+   * How it works:
+   * - Users can click a "link" icon button next to audio players or YouTube videos to copy a deep link
+   * - The link includes a hash fragment like #source-audio-{file_hash} or #source-youtube-{videoId}
+   * - Source IDs are generated from stable metadata (file_hash for audio, video ID for YouTube)
+   * - When the page loads with a hash fragment, we find the matching source and expand/highlight it
+   * - Browser back/forward navigation is supported via hashchange event listener
+   *
+   * This feature works on both:
+   * - Share pages (/share/[docId]#source-xxx) - for non-owners viewing shared conversations
+   * - Chat pages (/chat/[convId]#source-xxx) - for owners viewing their own conversations
+   *
+   * Related components:
+   * - AudioPlayer: Has link button that copies deep link URL
+   * - SourcesList: Renders sources with stable IDs and handles expansion state
+   * - sourceUtils.ts: Contains generateSourceId() and generateSourceDeepLink() utilities
+   */
+
+  // Handle source expansion callback - tracks which sources should be expanded for deep linking
+  const handleSourceExpanded = useCallback((index: number) => {
+    sourceExpandedRef.current.add(index);
+  }, []);
+
+  // Handle source link copy callback - provides visual feedback when user copies a source deep link
+  const handleSourceLinkCopied = useCallback((sourceId: string) => {
+    setSourceLinkCopied(sourceId);
+    setTimeout(() => {
+      setSourceLinkCopied(null);
+    }, 2000);
+  }, []);
+
+  /**
+   * Deep linking: Handle hash fragment changes for source deep links
+   * This effect listens for hash changes (e.g., browser back/forward, direct navigation)
+   * and automatically expands, scrolls to, and highlights the target source.
+   * Handles both initial page load with hash and subsequent hash changes.
+   */
+  useEffect(() => {
+    // Wait for loading to complete and messages to be available
+    if (loading || !messages.length) {
+      return;
+    }
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    // Additional check: ensure we have sourceDocs in at least one message
+    const hasSources = messages.some((msg) => msg.sourceDocs && msg.sourceDocs.length > 0);
+    if (!hasSources) {
+      return;
+    }
+
+    const performScroll = (sourceElement: HTMLElement, sourceId: string, isInitialLoad: boolean) => {
+      // Prevent browser's automatic scroll by temporarily removing hash
+      const hash = window.location.hash;
+      if (isInitialLoad && hash) {
+        // Temporarily remove hash to prevent browser's automatic scroll
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
+      }
+
+      // Scroll to element (block: "start" respects scroll-margin-top on the element)
+      sourceElement.scrollIntoView({ behavior: "smooth", block: "start" });
+
+      // Restore hash after a brief delay
+      if (isInitialLoad && hash) {
+        setTimeout(() => {
+          window.history.replaceState(null, "", hash);
+        }, 100);
+      }
+
+      logEvent(isInitialLoad ? "source_deep_link_activated" : "source_deep_link_navigated", "Chat", sourceId);
+    };
+
+    const scrollToSource = (sourceId: string, isInitialLoad: boolean) => {
+      // Find source in messages and expand it
+      for (let msgIndex = 0; msgIndex < messages.length; msgIndex++) {
+        const message = messages[msgIndex];
+        if (message.sourceDocs) {
+          const sourceIndex = message.sourceDocs.findIndex((doc) => generateSourceId(doc) === sourceId);
+          if (sourceIndex !== -1) {
+            handleSourceExpanded(sourceIndex);
+            break;
+          }
+        }
+      }
+
+      // Use multiple requestAnimationFrame calls to ensure DOM is fully ready
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setTimeout(() => {
+            const sourceElement = document.getElementById(sourceId);
+            if (sourceElement) {
+              // Expand the details element if it's collapsed
+              const detailsElement = sourceElement.closest("details");
+              if (detailsElement && !detailsElement.hasAttribute("open")) {
+                detailsElement.setAttribute("open", "true");
+                // Wait for details to expand and React to re-render before scrolling
+                setTimeout(() => {
+                  // Double-check element still exists after React re-render
+                  const updatedElement = document.getElementById(sourceId);
+                  if (updatedElement) {
+                    performScroll(updatedElement, sourceId, isInitialLoad);
+                  }
+                }, 150);
+              } else {
+                performScroll(sourceElement, sourceId, isInitialLoad);
+              }
+            }
+          }, 150);
+        });
+      });
+    };
+
+    const handleHashChange = (isInitialLoad = false) => {
+      const hash = window.location.hash;
+
+      if (!hash || !hash.startsWith("#source-")) {
+        if (!hash) {
+          handledHashRef.current = null;
+        }
+        return;
+      }
+
+      if (isInitialLoad && handledHashRef.current === hash) {
+        return;
+      }
+
+      handledHashRef.current = hash;
+      const sourceId = hash.substring(1);
+      scrollToSource(sourceId, isInitialLoad);
+    };
+
+    // Handle initial hash on mount (guard prevents duplicate handling)
+    handleHashChange(true);
+
+    // Listen for hash changes (browser back/forward)
+    const onHashChange = () => handleHashChange(false);
+    window.addEventListener("hashchange", onHashChange);
+
+    return () => {
+      window.removeEventListener("hashchange", onHashChange);
+    };
+  }, [loading, messages, handleSourceExpanded]);
+
+  // Reset handledHashRef when conversation changes to allow hash processing after redirect
+  useEffect(() => {
+    if (currentConvId) {
+      // Clear the handled hash ref when switching conversations
+      // This ensures deep links work after redirect from share page
+      handledHashRef.current = null;
+    }
+  }, [currentConvId]);
+
   // Effect to set initial collection and focus input on component mount
   useEffect(() => {
     // Retrieve and set the collection from the cookie
@@ -2373,6 +2589,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                           editingText={editingText}
                           onSaveEdit={handleSaveEdit}
                           onCancelEdit={handleCancelEdit}
+                          sourceLinkCopied={sourceLinkCopied}
+                          onSourceExpanded={handleSourceExpanded}
+                          onSourceLinkCopied={handleSourceLinkCopied}
                         />
                       </div>
 
