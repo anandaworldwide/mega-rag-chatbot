@@ -21,12 +21,18 @@ const consoleSpy = {
 };
 
 // Helper to create a valid JWT token with custom expiration
-function createJwtToken(expirationSeconds?: number): string {
+function createJwtToken(expirationSeconds?: number, email?: string): string {
   const now = Math.floor(Date.now() / 1000);
   const exp = expirationSeconds ? now + expirationSeconds : now + 900; // Default 15 minutes
 
   const header = { alg: "HS256", typ: "JWT" };
-  const payload = { exp, iat: now };
+  const payload: any = { exp, iat: now };
+
+  // Add email for authenticated tokens
+  if (email) {
+    payload.email = email;
+    payload.role = "user";
+  }
 
   const encodedHeader = btoa(JSON.stringify(header));
   const encodedPayload = btoa(JSON.stringify(payload));
@@ -94,7 +100,7 @@ describe("Token Manager", () => {
 
       expect(token).toBe(validToken);
       expect(fetchMock).toHaveBeenCalledWith("/api/web-token", {
-        headers: { Referer: "http://localhost:3000/" },
+        credentials: "include",
       });
     });
 
@@ -282,13 +288,22 @@ describe("Token Manager", () => {
   });
 
   describe("isAuthenticated", () => {
-    it("should return true for valid non-placeholder token", async () => {
-      const validToken = createJwtToken(900);
+    it("should return true for valid authenticated token with user email", async () => {
+      const validToken = createJwtToken(900, "user@example.com");
       fetchMock.mockResponseOnce(JSON.stringify({ token: validToken }));
 
       await tokenManager.initializeTokenManager();
 
       expect(tokenManager.isAuthenticated()).toBe(true);
+    });
+
+    it("should return false for valid anonymous token without user email", async () => {
+      const anonymousToken = createJwtToken(900); // No email = anonymous
+      fetchMock.mockResponseOnce(JSON.stringify({ token: anonymousToken }));
+
+      await tokenManager.initializeTokenManager();
+
+      expect(tokenManager.isAuthenticated()).toBe(false);
     });
 
     it("should return false for placeholder token", async () => {
@@ -381,6 +396,7 @@ describe("Token Manager", () => {
       expect(data).toEqual({ data: "success" });
       expect(fetchMock).toHaveBeenCalledWith("/api/test", {
         headers: { Authorization: `Bearer ${validToken}` },
+        credentials: "include",
       });
     });
 
@@ -495,6 +511,7 @@ describe("Token Manager", () => {
           Authorization: `Bearer ${newToken}`,
         },
         body: JSON.stringify({ test: "data" }),
+        credentials: "include",
       });
     });
   });

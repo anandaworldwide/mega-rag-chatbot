@@ -68,4 +68,5 @@ export interface SiteConfig {
     };
   };
   accessRequestNoteLabel?: string; // Label text for reference note field in access request form
+  adminAccessGuidelines?: string; // Site-specific guidelines for who can access the chatbot (shown in admin panel)
 }

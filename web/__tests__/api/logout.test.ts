@@ -70,11 +70,11 @@ describe("Logout API", () => {
 
     await handler(req, res);
 
-    // Verify cookies are cleared (siteAuth, auth, isLoggedIn, uuid)
+    // Verify cookies are cleared (authToken, auth, isLoggedIn, uuid)
     expect(setCookieMock).toHaveBeenCalledTimes(4);
 
-    // First call should clear siteAuth cookie
-    expect(setCookieMock.mock.calls[0][0]).toBe("siteAuth");
+    // First call should clear authToken cookie
+    expect(setCookieMock.mock.calls[0][0]).toBe("authToken");
     expect(setCookieMock.mock.calls[0][1]).toBe("");
     expect(setCookieMock.mock.calls[0][2]).toEqual(
       expect.objectContaining({
@@ -129,7 +129,7 @@ describe("Logout API", () => {
     // For the default implementation, secure is not explicitly set
     // so we just verify the cookies were set
     expect(setCookieMock).toHaveBeenCalledTimes(4);
-    expect(setCookieMock.mock.calls[0][0]).toBe("siteAuth");
+    expect(setCookieMock.mock.calls[0][0]).toBe("authToken");
     expect(setCookieMock.mock.calls[1][0]).toBe("auth");
     expect(setCookieMock.mock.calls[2][0]).toBe("isLoggedIn");
     expect(setCookieMock.mock.calls[3][0]).toBe("uuid");

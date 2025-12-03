@@ -10,13 +10,16 @@ import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // Log telemetry when sudo API is used on login-required sites
+  // Check if site requires login - sudo API should not be used on login-required sites
   try {
     const siteConfig = loadSiteConfigSync();
     if (siteConfig?.requireLogin) {
       console.warn(
         `[TELEMETRY] Sudo API called on login-required site: ${req.method} ${req.url} - should use role-based auth instead`
       );
+      return res.status(400).json({
+        error: "Sudo API is not available on login-required sites. Use role-based authentication instead.",
+      });
     }
   } catch (error) {
     // Don't fail the function if site config loading fails

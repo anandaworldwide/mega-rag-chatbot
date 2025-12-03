@@ -1,4 +1,4 @@
-VERSION: 5
+VERSION: 6
 
 
 Explore the Full Range of Ananda Resources
@@ -42,3 +42,13 @@ The written materials in our library have been carefully edited and structured, 
 Multilingual Support
 
 You can ask questions in different languages — Luca understands and can respond in multiple languages.
+
+---
+
+Choose Your Login Method
+
+You have two convenient ways to log in to your account:
+
+Login Links: Get a secure login link sent to your email each time. No password to remember—just click the link in your email to access your account instantly.
+
+Password Login: Set a password for quick login with your email and password. You can always use login links as a backup. To set a password, visit your profile settings.

@@ -16,6 +16,7 @@ import {
   ILocationService,
 } from "./interfaces";
 import { LocationResult, CenterResult, NearestCenterResult } from "../tools";
+import { safeFetch } from "../ssrfProtection";
 
 /**
  * Google Maps geocoding service implementation
@@ -32,7 +33,8 @@ export class GoogleGeocodingService implements IGeocodingService {
       const encodedLocation = encodeURIComponent(location);
       const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodedLocation}&key=${apiKey}`;
 
-      const response = await fetch(url);
+      // SSRF Protection: Use safeFetch to validate URL before fetching
+      const response = await safeFetch(url);
       const data = await response.json();
 
       if (data.status === "OK" && data.results.length > 0) {
@@ -162,7 +164,8 @@ export class VercelIPGeolocationService implements IIPGeolocationService {
           console.log(`🌍 IP GEOLOCATION DEBUG: Using development fallback IP: ${fallbackIp}`);
 
           // Use Google Geolocation API with fallback IP
-          const response = await fetch(`https://www.googleapis.com/geolocation/v1/geolocate?key=${apiKey}`, {
+          // SSRF Protection: Use safeFetch to validate URL before fetching
+          const response = await safeFetch(`https://www.googleapis.com/geolocation/v1/geolocate?key=${apiKey}`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -179,7 +182,8 @@ export class VercelIPGeolocationService implements IIPGeolocationService {
 
             if (data.location) {
               // Reverse geocode to get city/country
-              const reverseResponse = await fetch(
+              // SSRF Protection: Use safeFetch to validate URL before fetching
+              const reverseResponse = await safeFetch(
                 `https://maps.googleapis.com/maps/api/geocode/json?latlng=${data.location.lat},${data.location.lng}&key=${apiKey}`
               );
 
@@ -224,7 +228,8 @@ export class VercelIPGeolocationService implements IIPGeolocationService {
       console.log(`🌍 IP GEOLOCATION DEBUG: Attempting Google Geolocation API for IP: ${ip}`);
 
       // Use Google Geolocation API for real IPs
-      const response = await fetch(`https://www.googleapis.com/geolocation/v1/geolocate?key=${apiKey}`, {
+      // SSRF Protection: Use safeFetch to validate URL before fetching
+      const response = await safeFetch(`https://www.googleapis.com/geolocation/v1/geolocate?key=${apiKey}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -240,7 +245,8 @@ export class VercelIPGeolocationService implements IIPGeolocationService {
 
         if (data.location) {
           // Reverse geocode to get city/country
-          const reverseResponse = await fetch(
+          // SSRF Protection: Use safeFetch to validate URL before fetching
+          const reverseResponse = await safeFetch(
             `https://maps.googleapis.com/maps/api/geocode/json?latlng=${data.location.lat},${data.location.lng}&key=${apiKey}`
           );
 
@@ -704,11 +710,15 @@ export class CenterSearchService implements ICenterSearchService {
         distance: this.distanceCalculator.calculateDistance(latitude, longitude, center.latitude, center.longitude),
       }));
 
-      // Filter to reasonable distance (150 miles) and sort by distance
-      const nearbyCenter = centersWithDistance
-        .filter((center) => center.distance <= 150)
-        .sort((a, b) => a.distance - b.distance)
-        .slice(0, 10);
+      // Sort all by distance, take top 5, and apply adaptive trim if needed
+      const sortedCenters = centersWithDistance.sort((a, b) => a.distance - b.distance).slice(0, 5);
+
+      // Always include first 3 centers regardless of distance
+      // For 4th and 5th, only include if <= 1000 miles
+      const maxReasonableDistance = 1000;
+      const firstThree = sortedCenters.slice(0, 3);
+      const remainingTwo = sortedCenters.slice(3, 5).filter((center) => center.distance <= maxReasonableDistance);
+      const nearbyCenter = [...firstThree, ...remainingTwo];
 
       if (nearbyCenter.length > 0) {
         return {
@@ -729,7 +739,7 @@ export class CenterSearchService implements ICenterSearchService {
             found: false,
             centers: [],
             fallbackMessage:
-              "No Ananda centers found within 150 miles of your location. You might want to check out Ananda's virtual events and online community!",
+              "No nearby Ananda centers found. You might want to check out Ananda's virtual events and online community!",
           };
         }
       }

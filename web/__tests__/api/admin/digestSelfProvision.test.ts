@@ -69,7 +69,7 @@ describe("/api/admin/digestSelfProvision", () => {
   });
 
   describe("Authentication", () => {
-    it("returns 401 when CRON_SECRET is not set", async () => {
+    it("returns 500 when CRON_SECRET is not set", async () => {
       delete process.env.CRON_SECRET;
 
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
@@ -82,8 +82,8 @@ describe("/api/admin/digestSelfProvision", () => {
 
       await handler(req, res);
 
-      expect(res.statusCode).toBe(401);
-      expect(res._getJSONData()).toEqual({ error: "Unauthorized" });
+      expect(res.statusCode).toBe(500);
+      expect(res._getJSONData()).toEqual({ error: "Cron authentication not configured" });
     });
 
     it("returns 401 when Authorization header is missing", async () => {

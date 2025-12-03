@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isTokenValid } from "./src/utils/server/passwordUtils"; // Adjusted path
-import CryptoJS from "crypto-js";
 import { loadSiteConfigSync } from "./src/utils/server/loadSiteConfig"; // Adjusted path
 import { getClientIp } from "./src/utils/server/ipUtils"; // Adjusted path
 import { createErrorCorsHeaders, handleCors, addCorsHeaders } from "./src/utils/server/corsMiddleware";
 import { getAllPublicPaths } from "./src/config/publicPaths";
+import jwt from "jsonwebtoken";
+import crypto from "crypto";
 
 // Log suspicious activity with details
 const logSuspiciousActivity = (req: NextRequest, reason: string) => {
@@ -133,19 +133,31 @@ export function middleware(req: NextRequest) {
     !url.pathname.match(/\\.(png|jpg|jpeg|gif|ico|svg|css|js)$/); // Allow common static file types
 
   if (pathname_is_private && requireLogin) {
-    const cookie = req.cookies.get("siteAuth");
-    const storedHashedToken = process.env.SECURE_TOKEN_HASH; // Ensure this env var is available to the /web build
+    // TODO: Remove migration bridge after June 2026
+    // Check for both new authToken and legacy auth cookies for migration compatibility
+    const authToken = req.cookies.get("authToken");
+    const authJwt = req.cookies.get("auth");
+
+    // Prefer authToken, fall back to auth cookie
+    const jwtCookie = authToken || authJwt;
+    const jwtSecret = process.env.SECURE_TOKEN;
 
     let authFailed = false;
-    if (!cookie) {
+
+    if (!jwtCookie || !jwtSecret) {
       authFailed = true;
     } else {
-      const tokenValue = cookie.value.split(":")[0];
-      const hashedTokenValue = CryptoJS.SHA256(tokenValue).toString();
-
-      if (hashedTokenValue !== storedHashedToken) {
-        authFailed = true;
-      } else if (!isTokenValid(cookie.value)) {
+      try {
+        // Verify the JWT token with security options
+        jwt.verify(jwtCookie.value, jwtSecret, {
+          algorithms: ["HS256"],
+          issuer: "mega-rag-chatbot",
+          audience: "mega-rag-chatbot-users",
+        });
+        // JWT is valid, authentication succeeds
+        authFailed = false;
+      } catch (jwtError) {
+        // JWT verification failed
         authFailed = true;
       }
     }
@@ -188,25 +200,36 @@ export function middleware(req: NextRequest) {
     return addCorsHeaders(optionsResponse, req, siteConfig);
   }
 
+  // Generate nonce for CSP (Next.js compatible)
+  // Next.js will automatically add this nonce to inline scripts if we set it in headers
+  const nonce = Buffer.from(crypto.randomBytes(16)).toString("base64");
+  response.headers.set("x-nonce", nonce);
+
+  // Content Security Policy with nonce support
+  // Note: 'unsafe-inline' is still needed for styles (Tailwind CSS, CSS-in-JS)
+  // 'unsafe-eval' is required for Next.js development mode and some React features
+  // In production, Next.js minimizes this, but we keep it for compatibility
+  const cspDirectives = [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://www.google-analytics.com`,
+    // Tightened connect-src: Only allow specific domains for API calls
+    "connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://*.google-analytics.com https://maps.googleapis.com https://www.googleapis.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com data:",
+    "img-src 'self' https://www.google-analytics.com https://fonts.gstatic.com data: blob:",
+    "media-src 'self' blob:",
+    "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com",
+    "worker-src 'self' blob:",
+    "manifest-src 'self'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "object-src 'none'",
+    "upgrade-insecure-requests", // Force HTTPS for all resources
+  ].join("; ");
+
   // Add security headers
   const securityHeaders = {
-    "Content-Security-Policy": `
-      default-src 'self';
-      script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://www.google-analytics.com;
-      connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://*.google-analytics.com;
-      style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-      font-src 'self' https://fonts.gstatic.com data:;
-      img-src 'self' https://www.google-analytics.com https://fonts.gstatic.com data: blob:;
-      media-src 'self' blob:;
-      frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com;
-      worker-src 'self' blob:;
-      manifest-src 'self';
-      base-uri 'self';
-      form-action 'self';
-      object-src 'none';
-    `
-      .replace(/\s{2,}/g, " ")
-      .trim(),
+    "Content-Security-Policy": cspDirectives,
     "X-XSS-Protection": "1; mode=block",
     "X-Frame-Options": "SAMEORIGIN",
     "X-Content-Type-Options": "nosniff",

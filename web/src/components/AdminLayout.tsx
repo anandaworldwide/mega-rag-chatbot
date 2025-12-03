@@ -9,6 +9,7 @@ import CrystalHeader from "./Header/CrystalHeader";
 import PhotoHeader from "./Header/PhotoHeader";
 import Footer from "./Footer";
 import { SudoProvider } from "@/contexts/SudoContext";
+import { AdminAccessGuidelines } from "./AdminAccessGuidelines";
 
 interface AdminLayoutProps {
   siteConfig: SiteConfig | null;
@@ -29,8 +30,13 @@ export function AdminLayout({ siteConfig, children, pageTitle }: AdminLayoutProp
 
   const loginRequired = !!siteConfig?.requireLogin;
 
-  // Fetch pending counts for badges
+  // Fetch pending counts for badges (only for login-required sites)
   useEffect(() => {
+    // Skip fetching counts for sites that don't require login
+    if (!loginRequired) {
+      return;
+    }
+
     const fetchCounts = async () => {
       try {
         // Try to get JWT for API calls
@@ -64,12 +70,13 @@ export function AdminLayout({ siteConfig, children, pageTitle }: AdminLayoutProp
     };
 
     fetchCounts();
-  }, []);
+  }, [loginRequired]);
 
   // Fetch user role to determine if superuser
   useEffect(() => {
     const fetchRole = async () => {
       // Early return: Skip API call if site doesn't require login
+      // For non-login sites, superuser status is determined server-side via getServerSideProps
       if (!loginRequired) {
         return;
       }
@@ -160,81 +167,83 @@ export function AdminLayout({ siteConfig, children, pageTitle }: AdminLayoutProp
       </div>
 
       <div className="space-y-8">
-        {/* USERS Section */}
-        <div>
-          <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-3">Users</h3>
-          <nav className="space-y-1">
-            <Link
-              href="/admin"
-              className={`flex items-center px-3 py-2 text-sm rounded-md ${
-                router.pathname === "/admin"
-                  ? "bg-blue-100 text-blue-700 font-semibold"
-                  : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
-              }`}
-            >
-              <span className="material-icons text-sm mr-2">group</span>
-              Users List
-            </Link>
+        {/* USERS Section - Only show for sites that require login */}
+        {loginRequired && (
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 uppercase tracking-wide mb-3">Users</h3>
+            <nav className="space-y-1">
+              <Link
+                href="/admin"
+                className={`flex items-center px-3 py-2 text-sm rounded-md ${
+                  router.pathname === "/admin"
+                    ? "bg-blue-100 text-blue-700 font-semibold"
+                    : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                }`}
+              >
+                <span className="material-icons text-sm mr-2">group</span>
+                Users List
+              </Link>
 
-            <Link
-              href="/admin/users/add"
-              className={`flex items-center px-3 py-2 text-sm rounded-md ${
-                router.pathname === "/admin/users/add"
-                  ? "bg-blue-100 text-blue-700 font-semibold"
-                  : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
-              }`}
-            >
-              <span className="material-icons text-sm mr-2">person_add</span>
-              Add Users
-            </Link>
+              <Link
+                href="/admin/users/add"
+                className={`flex items-center px-3 py-2 text-sm rounded-md ${
+                  router.pathname === "/admin/users/add"
+                    ? "bg-blue-100 text-blue-700 font-semibold"
+                    : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                }`}
+              >
+                <span className="material-icons text-sm mr-2">person_add</span>
+                Add Users
+              </Link>
 
-            <Link
-              href="/admin/approvals"
-              className={`flex items-center px-3 py-2 text-sm rounded-md relative ${
-                router.pathname === "/admin/approvals"
-                  ? "bg-blue-100 text-blue-700 font-semibold"
-                  : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
-              }`}
-            >
-              <span className="material-icons text-sm mr-2">pending_actions</span>
-              Pending Approvals
-              {pendingCounts.approvals > 0 && (
-                <span className="ml-auto inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-500 text-white">
-                  {pendingCounts.approvals}
-                </span>
-              )}
-            </Link>
+              <Link
+                href="/admin/approvals"
+                className={`flex items-center px-3 py-2 text-sm rounded-md relative ${
+                  router.pathname === "/admin/approvals"
+                    ? "bg-blue-100 text-blue-700 font-semibold"
+                    : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                }`}
+              >
+                <span className="material-icons text-sm mr-2">pending_actions</span>
+                Pending Approvals
+                {pendingCounts.approvals > 0 && (
+                  <span className="ml-auto inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-500 text-white">
+                    {pendingCounts.approvals}
+                  </span>
+                )}
+              </Link>
 
-            <Link
-              href="/admin/users/pending"
-              className={`flex items-center px-3 py-2 text-sm rounded-md ${
-                router.pathname === "/admin/users/pending"
-                  ? "bg-blue-100 text-blue-700 font-semibold"
-                  : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
-              }`}
-            >
-              <span className="material-icons text-sm mr-2">schedule</span>
-              Pending Invitations
-              {pendingCounts.invitations > 0 && (
-                <span className="ml-auto inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-500 text-white">
-                  {pendingCounts.invitations}
-                </span>
-              )}
-            </Link>
+              <Link
+                href="/admin/users/pending"
+                className={`flex items-center px-3 py-2 text-sm rounded-md ${
+                  router.pathname === "/admin/users/pending"
+                    ? "bg-blue-100 text-blue-700 font-semibold"
+                    : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                }`}
+              >
+                <span className="material-icons text-sm mr-2">schedule</span>
+                Pending Invitations
+                {pendingCounts.invitations > 0 && (
+                  <span className="ml-auto inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-500 text-white">
+                    {pendingCounts.invitations}
+                  </span>
+                )}
+              </Link>
 
-            <Link
-              href="/admin/leaderboard"
-              className={`flex items-center px-3 py-2 text-sm rounded-md ${
-                router.pathname === "/admin/leaderboard"
-                  ? "bg-blue-100 text-blue-700 font-semibold"
-                  : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
-              }`}
-            >
-              <span className="material-icons text-sm mr-2">leaderboard</span>
-              Leaderboard
-            </Link>
-          </nav>
-        </div>
+              <Link
+                href="/admin/leaderboard"
+                className={`flex items-center px-3 py-2 text-sm rounded-md ${
+                  router.pathname === "/admin/leaderboard"
+                    ? "bg-blue-100 text-blue-700 font-semibold"
+                    : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                }`}
+              >
+                <span className="material-icons text-sm mr-2">leaderboard</span>
+                Leaderboard
+              </Link>
+            </nav>
+          </div>
+        )}
 
         {/* OTHER Section */}
         <div>
@@ -289,6 +298,19 @@ export function AdminLayout({ siteConfig, children, pageTitle }: AdminLayoutProp
               <span className="material-icons text-sm mr-2">trending_up</span>
               Statistics
             </Link>
+            {isSuperuser && (
+              <Link
+                href="/admin/cron-jobs"
+                className={`flex items-center px-3 py-2 text-sm rounded-md ${
+                  router.pathname === "/admin/cron-jobs"
+                    ? "bg-blue-100 text-blue-700 font-semibold"
+                    : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                }`}
+              >
+                <span className="material-icons text-sm mr-2">schedule</span>
+                Trigger Cron Jobs
+              </Link>
+            )}
           </nav>
         </div>
       </div>
@@ -296,7 +318,7 @@ export function AdminLayout({ siteConfig, children, pageTitle }: AdminLayoutProp
   );
 
   return (
-    <SudoProvider>
+    <SudoProvider disableChecks={loginRequired}>
       <div className="min-h-screen bg-white flex flex-col">
         {/* Site Header */}
         {renderHeader()}
@@ -342,7 +364,11 @@ export function AdminLayout({ siteConfig, children, pageTitle }: AdminLayoutProp
 
             {/* Main Content */}
             <div className="flex-1 min-w-0">
-              <div className="max-w-screen-2xl mx-auto p-6">{children}</div>
+              <div className="max-w-screen-2xl mx-auto p-6">
+                {/* Access Guidelines Banner - Dismissible with localStorage persistence */}
+                <AdminAccessGuidelines siteConfig={siteConfig} />
+                {children}
+              </div>
             </div>
           </div>
         </div>

@@ -25,10 +25,11 @@ export async function genericRateLimiter(
   config: RateLimitConfig,
   ip?: string
 ): Promise<boolean> {
-  // If db is not available, skip rate limiting
+  // Critical security fix – never fail-open on rate limiting
+  // If db is not available, deny request to prevent DoS bypass
   if (!db) {
-    console.warn("Firestore database not initialized, skipping rate limiting");
-    return true;
+    console.warn("Firestore not available – rate limiting disabled, denying request");
+    return false;
   }
 
   const { windowMs, max, name, collectionPrefix, message } = {
@@ -102,12 +103,14 @@ export async function genericRateLimiter(
 
     return result;
   } catch (error) {
+    // Critical security fix – never fail-open on rate limiting
+    // Deny request on any error to prevent DoS bypass
     if (isCode14Error(error)) {
-      console.error("Google Cloud policy checks failed after 3 attempts, allowing request as fallback:", error);
+      console.error("Rate limiter error – denying request to stay safe (Code 14 after retries):", error);
     } else {
-      console.error("RateLimiterError:", error);
+      console.error("Rate limiter error – denying request to stay safe", error);
     }
-    return true; // Allow the request in case of an error
+    return false; // FAIL CLOSED
   }
 }
 

@@ -7,7 +7,7 @@ import { runMiddleware } from "@/utils/server/corsMiddleware";
 import Cors from "cors";
 import validator from "validator";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
-import { sanitizeEmail, sanitizeTextInput } from "@/utils/server/inputSanitization";
+import { sanitizeEmail, sanitizeTextInput, sanitizeName } from "@/utils/server/inputSanitization";
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 
@@ -89,7 +89,7 @@ const handleRequest = async (req: NextApiRequest, res: NextApiResponse): Promise
     let sanitizedName: string;
     let sanitizedMessage: string;
     try {
-      sanitizedName = sanitizeTextInput(name, { maxLength: 100, allowNewlines: false, allowSpecialChars: false });
+      sanitizedName = sanitizeName(name, 100);
       sanitizedMessage = sanitizeTextInput(message, { maxLength: 1000, allowNewlines: true, allowSpecialChars: false });
     } catch (error: any) {
       return res.status(400).json({ message: `Invalid input: ${error.message || "Input validation failed"}` });

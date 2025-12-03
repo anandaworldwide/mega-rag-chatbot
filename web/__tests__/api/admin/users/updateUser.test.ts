@@ -8,6 +8,19 @@ jest.mock("@/utils/server/jwtUtils", () => ({
   getTokenFromRequest: jest.fn(() => ({ email: "admin@example.com", role: "admin" })),
 }));
 
+// Mock authz functions - behavior configured in individual tests via verifyToken mock
+jest.mock("@/utils/server/authz", () => {
+  const mockRequireAdminRoleFromFirestore = jest.fn();
+  const mockGetRequesterRoleFromFirestore = jest.fn();
+
+  return {
+    requireAdminRoleFromFirestore: mockRequireAdminRoleFromFirestore,
+    getRequesterRoleFromFirestore: mockGetRequesterRoleFromFirestore,
+    __mockRequireAdmin: mockRequireAdminRoleFromFirestore,
+    __mockGetRole: mockGetRequesterRoleFromFirestore,
+  };
+});
+
 // Mock firebase-admin timestamps used by handler
 jest.mock("firebase-admin", () => ({
   firestore: {
@@ -74,8 +87,13 @@ jest.mock("@/services/firebase", () => {
             if (entry === undefined) return { exists: false, data: () => ({}) };
             return { exists: true, data: () => entry };
           },
-          set: async (data: any) => {
-            __docMap[id] = { ...(__docMap[id] || {}), ...data };
+          set: async (data: any, options?: any) => {
+            // Handle merge option properly
+            if (options?.merge) {
+              __docMap[id] = { ...(__docMap[id] || {}), ...data };
+            } else {
+              __docMap[id] = data;
+            }
           },
           delete: async () => {
             delete __docMap[id];
@@ -89,11 +107,10 @@ jest.mock("@/services/firebase", () => {
           .collection(docRef._colName || "test_users")
           .doc(docRef._id || docRef.id)
           .get(),
-      set: (docRef: any, data: any) =>
-        db
-          .collection(docRef._colName || "test_users")
-          .doc(docRef._id || docRef.id)
-          .set(data),
+      set: (docRef: any, data: any, options?: any) => {
+        const doc = db.collection(docRef._colName || "test_users").doc(docRef._id || docRef.id);
+        return doc.set(data, options);
+      },
       delete: (docRef: any) =>
         db
           .collection(docRef._colName || "test_users")
@@ -127,11 +144,34 @@ jest.mock("@/services/firebase", () => {
 });
 
 import handler from "@/pages/api/admin/users/[userId]";
+import { requireAdminRoleFromFirestore, getRequesterRoleFromFirestore } from "@/utils/server/authz";
+
+const mockRequireAdmin = requireAdminRoleFromFirestore as jest.Mock;
+const mockGetRole = getRequesterRoleFromFirestore as jest.Mock;
 
 describe("/api/admin/users/[userId] update user", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     writeAuditLogSpy.mockClear();
+    // Clear mock database between tests to prevent test pollution
+    const mockDb = jest.requireMock("@/services/firebase").db;
+    Object.keys(mockDb.__docMap).forEach((key) => delete mockDb.__docMap[key]);
+
+    // Set up authz mocks to check JWT role by default
+    mockRequireAdmin.mockImplementation(async (req: any) => {
+      const jwtUtils = await import("@/utils/server/jwtUtils");
+      const payload = (jwtUtils.verifyToken as jest.Mock)(req.cookies?.auth || "");
+      const role = payload?.role || "user";
+      if (role !== "admin" && role !== "superuser") {
+        throw new Error("Unauthorized: Admin privileges required");
+      }
+    });
+
+    mockGetRole.mockImplementation(async (req: any) => {
+      const jwtUtils = await import("@/utils/server/jwtUtils");
+      const payload = (jwtUtils.verifyToken as jest.Mock)(req.cookies?.auth || "");
+      return payload?.role || "user";
+    });
   });
 
   it("GET returns 403 for non-admin/superuser", async () => {
@@ -146,14 +186,25 @@ describe("/api/admin/users/[userId] update user", () => {
 
     await handler(req, res);
     expect(res.statusCode).toBe(403);
-    expect(res._getJSONData()).toEqual({ error: "Forbidden" });
+    expect(res._getJSONData()).toEqual({ error: "Unauthorized: Admin privileges required" });
   });
 
   it("rejects invalid email format with 400", async () => {
+    const jwtUtils = await import("@/utils/server/jwtUtils");
+    (jwtUtils.verifyToken as jest.Mock).mockReturnValue({ email: "admin@example.com", role: "superuser" });
+
+    // Pre-populate the user in the mock database
+    const mockDb = jest.requireMock("@/services/firebase").db;
+    mockDb.__docMap["old@example.com"] = {
+      email: "old@example.com",
+      role: "user",
+    };
+
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "PATCH",
       query: { userId: "old@example.com" },
       body: { email: "not-an-email" },
+      cookies: { auth: "token" },
     });
 
     await handler(req, res);
@@ -162,33 +213,26 @@ describe("/api/admin/users/[userId] update user", () => {
   });
 
   it("enforces per-site uniqueness: 409 when new email already exists", async () => {
-    // Seed an existing record that will conflict (requires superuser to set role)
+    // Pre-populate the users in the mock database
+    const mockDb = jest.requireMock("@/services/firebase").db;
+    mockDb.__docMap["seed@example.com"] = {
+      email: "seed@example.com",
+      role: "user",
+    };
+    mockDb.__docMap["old@example.com"] = {
+      email: "old@example.com",
+      role: "user",
+    };
+
     const jwtUtils = await import("@/utils/server/jwtUtils");
     (jwtUtils.verifyToken as jest.Mock).mockReturnValue({ email: "root@example.com", role: "superuser" });
-    const seedReq = createMocks<NextApiRequest, NextApiResponse>({
-      method: "PATCH",
-      query: { userId: "seed@example.com" },
-      cookies: { auth: "token" },
-      body: { role: "user" },
-    });
-    await handler(seedReq.req, seedReq.res);
-    expect(seedReq.res.statusCode).toBe(200);
-
-    // Also create the current user that will attempt the change
-    const seedCurrent = createMocks<NextApiRequest, NextApiResponse>({
-      method: "PATCH",
-      query: { userId: "old@example.com" },
-      cookies: { auth: "token" },
-      body: { role: "user" },
-    });
-    await handler(seedCurrent.req, seedCurrent.res);
-    expect(seedCurrent.res.statusCode).toBe(200);
 
     // Now attempt to change current user's email to the seeded one → conflict
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "PATCH",
       query: { userId: "old@example.com" },
       body: { email: "seed@example.com" },
+      cookies: { auth: "token" },
     });
     await handler(req, res);
     expect(res.statusCode).toBe(409);
@@ -196,23 +240,22 @@ describe("/api/admin/users/[userId] update user", () => {
   });
 
   it("successfully changes email and writes audit log", async () => {
-    // Create an initial record implicitly via role update (requires superuser)
     const jwtUtils = await import("@/utils/server/jwtUtils");
     (jwtUtils.verifyToken as jest.Mock).mockReturnValue({ email: "root@example.com", role: "superuser" });
-    const seed = createMocks<NextApiRequest, NextApiResponse>({
-      method: "PATCH",
-      query: { userId: "from@example.com" },
-      cookies: { auth: "token" },
-      body: { role: "user" },
-    });
-    await handler(seed.req, seed.res);
-    expect(seed.res.statusCode).toBe(200);
+
+    // Pre-populate the user in the mock database
+    const mockDb = jest.requireMock("@/services/firebase").db;
+    mockDb.__docMap["from@example.com"] = {
+      email: "from@example.com",
+      role: "user",
+    };
 
     // Now change the email
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "PATCH",
       query: { userId: "from@example.com" },
       body: { email: "to@example.com" },
+      cookies: { auth: "token" },
     });
     await handler(req, res);
     expect(res.statusCode).toBe(200);
@@ -224,10 +267,81 @@ describe("/api/admin/users/[userId] update user", () => {
     });
   });
 
-  it("writes audit log on role change", async () => {
-    // Make the requester a superuser for role change
+  it("carries over all validated updates during email migration", async () => {
     const jwtUtils = await import("@/utils/server/jwtUtils");
     (jwtUtils.verifyToken as jest.Mock).mockReturnValue({ email: "root@example.com", role: "superuser" });
+
+    // Pre-populate the mock database
+    const mockDb = jest.requireMock("@/services/firebase").db;
+
+    // Add requester as superuser (needed for resolveRequesterRole)
+    mockDb.__docMap["root@example.com"] = {
+      email: "root@example.com",
+      role: "superuser",
+    };
+
+    // Add the target user with existing data
+    mockDb.__docMap["old@example.com"] = {
+      email: "old@example.com",
+      role: "admin",
+      firstName: "Old",
+      lastName: "Name",
+      newsletterSubscribed: false,
+      isApprover: true,
+      approverLocation: "Old Location",
+      approverRegion: "Old Region",
+    };
+
+    // Change email AND update multiple other fields simultaneously
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "PATCH",
+      query: { userId: "old@example.com" },
+      cookies: { auth: "token" },
+      body: {
+        email: "new@example.com",
+        firstName: "New",
+        lastName: "User",
+        newsletterSubscribed: true,
+        role: "superuser",
+        approverLocation: "New Location",
+        approverRegion: "New Region",
+      },
+    });
+
+    await handler(req, res);
+    expect(res.statusCode).toBe(200);
+
+    // Verify the new document has ALL updated fields
+    const newDoc = mockDb.__docMap["new@example.com"];
+    expect(newDoc).toBeDefined();
+    expect(newDoc.firstName).toBe("New");
+    expect(newDoc.lastName).toBe("User");
+    expect(newDoc.newsletterSubscribed).toBe(true);
+    expect(newDoc.role).toBe("superuser");
+    expect(newDoc.approverLocation).toBe("New Location");
+    expect(newDoc.approverRegion).toBe("New Region");
+    expect(newDoc.isApprover).toBe(true); // Carried over from old doc
+
+    // Verify old document was deleted
+    expect(mockDb.__docMap["old@example.com"]).toBeUndefined();
+
+    // Verify audit log was written
+    expect(writeAuditLogSpy).toHaveBeenCalledWith(expect.anything(), "admin_change_email", "old@example.com", {
+      newEmail: "new@example.com",
+      outcome: "success",
+    });
+  });
+
+  it("writes audit log on role change", async () => {
+    const jwtUtils = await import("@/utils/server/jwtUtils");
+    (jwtUtils.verifyToken as jest.Mock).mockReturnValue({ email: "root@example.com", role: "superuser" });
+
+    // Pre-populate the user in the mock database
+    const mockDb = jest.requireMock("@/services/firebase").db;
+    mockDb.__docMap["target@example.com"] = {
+      email: "target@example.com",
+      role: "user",
+    };
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "PATCH",
@@ -243,8 +357,16 @@ describe("/api/admin/users/[userId] update user", () => {
     });
   });
 
-  it("GET returns conversation count for all admin roles, no chat details", async () => {
+  it("GET returns conversation count for admin, no chat details", async () => {
     const jwtUtils = await import("@/utils/server/jwtUtils");
+
+    // Pre-populate the user in the mock database with UUID for conversation count
+    const mockDb = jest.requireMock("@/services/firebase").db;
+    mockDb.__docMap["target@example.com"] = {
+      email: "target@example.com",
+      role: "user",
+      uuid: "test-uuid-123",
+    };
 
     // Test admin user - should get conversation count only
     (jwtUtils.verifyToken as jest.Mock).mockReturnValue({ email: "admin@example.com", role: "admin" });
@@ -260,8 +382,19 @@ describe("/api/admin/users/[userId] update user", () => {
     expect(adminResponse.user).not.toHaveProperty("chats"); // No chats field at all
     expect(adminResponse.user).toHaveProperty("conversationCount");
     expect(typeof adminResponse.user.conversationCount).toBe("number");
+  });
 
-    // Test superuser - should also only get conversation count, no chat details
+  it("GET returns conversation count for superuser, no chat details", async () => {
+    const jwtUtils = await import("@/utils/server/jwtUtils");
+
+    // Pre-populate the user in the mock database with UUID for conversation count
+    const mockDb = jest.requireMock("@/services/firebase").db;
+    mockDb.__docMap["target@example.com"] = {
+      email: "target@example.com",
+      role: "user",
+      uuid: "test-uuid-123",
+    };
+
     (jwtUtils.verifyToken as jest.Mock).mockReturnValue({ email: "super@example.com", role: "superuser" });
     const superReq = createMocks<NextApiRequest, NextApiResponse>({
       method: "GET",

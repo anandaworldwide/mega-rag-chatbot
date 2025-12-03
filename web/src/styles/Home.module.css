@@ -2,9 +2,7 @@
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  min-height: calc(
-    100vh - 100px
-  ); /* Adjust based on your header/footer height */
+  min-height: calc(100vh - 100px); /* Adjust based on your header/footer height */
   padding: 1rem;
 }
 
@@ -414,7 +412,7 @@
 }
 
 /* Input and Textarea Styles */
-.shareDialog input[type='text'],
+.shareDialog input[type="text"],
 .shareDialog textarea {
   width: 100%;
   padding: 10px;

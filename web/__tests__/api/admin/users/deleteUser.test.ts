@@ -1,6 +1,7 @@
 import { createMocks } from "node-mocks-http";
 import type { NextApiRequest, NextApiResponse } from "next";
-import { MOCK_UUID_V4 } from "uuid";
+
+const MOCK_UUID_V4 = "00000000-0000-4000-8000-000000000000";
 
 // Mock writeAuditLog to capture audit entries
 jest.mock("@/utils/server/auditLog", () => ({
@@ -59,6 +60,12 @@ jest.mock("@/utils/server/jwtUtils", () => ({
   withJwtAuth: (handler: any) => handler,
 }));
 
+// Mock authz functions - behavior configured in individual tests via verifyToken mock
+jest.mock("@/utils/server/authz", () => ({
+  requireAdminRoleFromFirestore: jest.fn(),
+  getRequesterRoleFromFirestore: jest.fn(),
+}));
+
 // Mock API middleware
 jest.mock("@/utils/server/apiMiddleware", () => ({
   withApiMiddleware: (handler: any) => handler,
@@ -70,6 +77,10 @@ jest.mock("@/utils/server/genericRateLimiter", () => ({
 }));
 
 import handler from "@/pages/api/admin/users/[userId]";
+import { requireAdminRoleFromFirestore, getRequesterRoleFromFirestore } from "@/utils/server/authz";
+
+const mockRequireAdmin = requireAdminRoleFromFirestore as jest.Mock;
+const mockGetRole = getRequesterRoleFromFirestore as jest.Mock;
 
 describe("/api/admin/users/[userId] DELETE user", () => {
   let writeAuditLogSpy: jest.Mock;
@@ -80,6 +91,22 @@ describe("/api/admin/users/[userId] DELETE user", () => {
     const auditLog = await import("@/utils/server/auditLog");
     writeAuditLogSpy = auditLog.writeAuditLog as jest.Mock;
     writeAuditLogSpy.mockClear();
+
+    // Set up authz mocks to check JWT role by default
+    mockRequireAdmin.mockImplementation(async (req: any) => {
+      const jwtUtils = await import("@/utils/server/jwtUtils");
+      const payload = (jwtUtils.verifyToken as jest.Mock)(req.cookies?.auth || "");
+      const role = payload?.role || "user";
+      if (role !== "admin" && role !== "superuser") {
+        throw new Error("Unauthorized: Admin privileges required");
+      }
+    });
+
+    mockGetRole.mockImplementation(async (req: any) => {
+      const jwtUtils = await import("@/utils/server/jwtUtils");
+      const payload = (jwtUtils.verifyToken as jest.Mock)(req.cookies?.auth || "");
+      return payload?.role || "user";
+    });
   });
 
   it("returns 403 for non-admin/superuser", async () => {
@@ -95,7 +122,7 @@ describe("/api/admin/users/[userId] DELETE user", () => {
 
     await handler(req, res);
     expect(res.statusCode).toBe(403);
-    expect(res._getJSONData()).toEqual({ error: "Forbidden" });
+    expect(res._getJSONData()).toEqual({ error: "Unauthorized: Admin privileges required" });
   });
 
   it("returns 404 when user not found", async () => {
@@ -159,18 +186,34 @@ describe("/api/admin/users/[userId] DELETE user", () => {
       inviteStatus: "accepted",
     };
 
-    let call = 0;
+    // Mock Firestore doc() to track which document is being accessed
+    // Then mock get() to return appropriate data based on the doc ID
+    let currentDocId = "";
+    (mockDoc as any).mockImplementation((docId: string) => {
+      currentDocId = docId;
+      return {
+        get: mockGet,
+        delete: mockDelete,
+      };
+    });
+
+    // Mock get() to return data based on which document was requested
     mockGet.mockImplementation(() => {
-      call += 1;
-      // First get() is for resolveRequesterRole → return admin document with admin role
-      if (call === 1) {
+      // If asking for admin's document (for role verification)
+      if (currentDocId === "admin@example.com") {
         return Promise.resolve({
           exists: true,
           data: () => ({ email: "admin@example.com", role: "admin" }),
         });
       }
-      // Second get() is for the target user document
-      return Promise.resolve({ exists: true, data: () => targetUserData });
+
+      // If asking for target user's document
+      if (currentDocId === "target@example.com") {
+        return Promise.resolve({ exists: true, data: () => targetUserData });
+      }
+
+      // Default: document doesn't exist
+      return Promise.resolve({ exists: false, data: () => ({}) });
     });
     mockDelete.mockResolvedValue(undefined);
 

@@ -8,7 +8,7 @@ import { getAnswersCollectionName } from "@/utils/server/firestoreUtils";
 import { db } from "@/services/firebase";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { withJwtAuth } from "@/utils/server/jwtUtils";
-import { firestoreUpdate } from "@/utils/server/firestoreRetryUtils";
+import firebase from "firebase-admin";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "PATCH") {
@@ -35,24 +35,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const collectionName = getAnswersCollectionName();
     const docRef = db.collection(collectionName).doc(docId);
 
-    // Check if document exists
-    const docSnapshot = await docRef.get();
-    if (!docSnapshot.exists) {
-      return res.status(404).json({ message: "Document not found" });
-    }
+    // Use transaction to prevent race conditions when multiple regenerations happen simultaneously
+    await (db as NonNullable<typeof db>).runTransaction(async (tx) => {
+      // PHASE 1: ALL READS FIRST (Firestore transaction requirement)
+      const docSnapshot = await tx.get(docRef);
 
-    // Update the answer and model used
-    await firestoreUpdate(
-      docRef,
-      {
+      if (!docSnapshot.exists) {
+        throw new Error("Document not found");
+      }
+
+      // PHASE 2: ALL WRITES AFTER ALL READS
+      tx.update(docRef, {
         answer: response,
         modelUsed: modelUsed || "gpt-4.1",
-        updatedAt: new Date(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
         updatedVia: "inline_comparison",
-      },
-      "answer update from comparison",
-      `docId: ${docId}`
-    );
+      });
+    });
 
     return res.status(200).json({
       success: true,

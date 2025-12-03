@@ -2,37 +2,12 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { db } from "@/services/firebase";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
-import { withJwtAuth } from "@/utils/server/jwtUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { writeAuditLog } from "@/utils/server/auditLog";
 import { createIndexErrorResponse } from "@/utils/server/firestoreIndexErrorHandler";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import firebase from "firebase-admin";
-
-/**
- * Middleware that allows either JWT authentication or Vercel cron requests
- * @param handler The API route handler to wrap
- * @returns A wrapped handler that checks for either valid JWT or Vercel cron
- */
-function withJwtOrCronAuth(handler: (req: NextApiRequest, res: NextApiResponse) => Promise<void> | void) {
-  return async (req: NextApiRequest, res: NextApiResponse) => {
-    const userAgent = req.headers["user-agent"] || "";
-    const isVercelCron = userAgent.startsWith("vercel-cron/");
-    const authHeader = req.headers.authorization || "";
-
-    if (isVercelCron) {
-      // Verify that cron requests provide the correct secret
-      if (!process.env.CRON_SECRET || authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-        return res.status(401).json({ error: "Unauthorized" });
-      }
-      // Allow authorized Vercel cron requests through
-      return handler(req, res);
-    } else {
-      // For all other requests, require JWT authentication
-      return withJwtAuth(handler)(req, res);
-    }
-  };
-}
+import { withJwtOrCronAuth } from "@/utils/server/cronAuthUtils";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST" && req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
@@ -160,7 +135,4 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 }
 
-// Apply API middleware, skipping its default auth check and relying solely on withJwtOrCronAuth
-export default withApiMiddleware(withJwtOrCronAuth(handler), {
-  skipAuth: true,
-});
+export default withApiMiddleware(withJwtOrCronAuth(handler), { skipAuth: true });

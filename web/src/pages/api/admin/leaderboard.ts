@@ -1,10 +1,12 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { withJwtAuth } from "@/utils/server/jwtUtils";
+import { requireAdminRoleFromFirestore } from "@/utils/server/authz";
 import { db } from "@/services/firebase";
 import { getAnswersCollectionName, getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreQueryGet } from "@/utils/server/firestoreRetryUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
+import { unescapeName, formatFullName } from "@/utils/shared/nameUtils";
 import type { QueryDocumentSnapshot } from "firebase-admin/firestore";
 import * as fbadmin from "firebase-admin";
 
@@ -29,6 +31,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     name: "admin-leaderboard",
   });
   if (!isAllowed) return;
+
+  // Critical security fix – verify admin role from Firestore (source of truth)
+  // Prevents stale JWT admin roles from granting access after revocation
+  try {
+    await requireAdminRoleFromFirestore(req);
+  } catch (error) {
+    return res.status(403).json({ error: "Unauthorized: Admin privileges required" });
+  }
 
   if (!db) {
     return res.status(503).json({ error: "Database not available" });
@@ -91,25 +101,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           return null;
         }
 
-        // Create display name
-        const firstName = userData.firstName?.trim() || "";
-        const lastName = userData.lastName?.trim() || "";
-        let displayName: string;
-
-        if (firstName && lastName) {
-          displayName = `${firstName} ${lastName}`;
-        } else if (firstName) {
-          displayName = firstName;
-        } else if (lastName) {
-          displayName = lastName;
-        } else {
-          displayName = email;
-        }
+        // Unescape names to handle existing data with backslashes
+        const firstName = unescapeName(userData.firstName)?.trim() || "";
+        const lastName = unescapeName(userData.lastName)?.trim() || "";
+        const displayName = formatFullName(firstName, lastName) || email;
 
         return {
           email,
-          firstName: userData.firstName || null,
-          lastName: userData.lastName || null,
+          firstName: firstName || null,
+          lastName: lastName || null,
           uuid,
           questionCount,
           displayName,

@@ -48,7 +48,11 @@ const Footer: React.FC<FooterProps> = ({ siteConfig }) => {
           const isExpired = Date.now() - parsed.timestamp > 60 * 1000; // 1 minute (reduced from 5 minutes)
           if (!isExpired && parsed.role) {
             const isAdmin = parsed.role === "admin" || parsed.role === "superuser";
-            if (mounted) setIsAdminRole(isAdmin);
+            const isSuper = parsed.role === "superuser";
+            if (mounted) {
+              setIsAdminRole(isAdmin);
+              setIsSuperuser(isSuper);
+            }
             return; // Use cached result
           }
         }
@@ -114,22 +118,28 @@ const Footer: React.FC<FooterProps> = ({ siteConfig }) => {
     <>
       {/* Admin section for admins/superusers via JWT role */}
       {showAdminSection && (
-        <div className="bg-gray-100 text-gray-700 py-2 border-t border-t-slate-200 mt-4">
+        <div className="bg-blue-50 text-gray-800 py-3 border-t-2 border-blue-600 mt-4">
           <div className="mx-auto max-w-[800px] px-4">
             <div className="flex flex-col items-center w-full">
-              <div className="flex flex-row justify-center items-center w-full gap-2">
-                {isSuperuser && siteConfig?.requireLogin && (
+              <div className="flex flex-row justify-center items-center w-full gap-3">
+                {((siteConfig?.requireLogin && isSuperuser) || (!siteConfig?.requireLogin && isSudoUser)) && (
                   <>
-                    <Link href="/answers" className="text-sm hover:text-slate-600 cursor-pointer flex items-center">
+                    <Link
+                      href="/answers"
+                      className="text-base font-medium hover:text-blue-700 cursor-pointer flex items-center transition-colors"
+                    >
                       View all answers
-                      <span className="material-icons text-sm ml-1">question_answer</span>
+                      <span className="material-icons text-base ml-1.5">question_answer</span>
                     </Link>
-                    <span className="text-gray-400">|</span>
+                    <span className="text-blue-300 text-lg">|</span>
                   </>
                 )}
-                <Link href="/admin" className="text-sm hover:text-slate-600 cursor-pointer flex items-center">
+                <Link
+                  href="/admin"
+                  className="text-base font-semibold text-blue-700 hover:text-blue-800 cursor-pointer flex items-center transition-colors"
+                >
                   Admin Dashboard
-                  <span className="material-icons text-sm ml-1">dashboard</span>
+                  <span className="material-icons text-lg ml-2">dashboard</span>
                 </Link>
               </div>
             </div>

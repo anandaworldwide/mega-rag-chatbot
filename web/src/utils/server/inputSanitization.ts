@@ -81,6 +81,59 @@ export function sanitizeTextInput(
 }
 
 /**
+ * Sanitizes names (first name, last name, etc.) to prevent XSS attacks
+ * Allows quotes and apostrophes (common in names) but removes dangerous patterns
+ *
+ * @param input - The name string to sanitize
+ * @param maxLength - Maximum length for the name (default: 100)
+ * @returns Sanitized name safe for storage and display
+ */
+export function sanitizeName(input: string, maxLength: number = 100): string {
+  if (typeof input !== "string") {
+    throw new Error("Input must be a string");
+  }
+
+  // Check UTF-8 validity and length first
+  if (!isValidUTF8(input)) {
+    throw new Error("Input contains invalid UTF-8 encoding");
+  }
+
+  if (input.length > maxLength) {
+    throw new Error(`Input exceeds maximum length of ${maxLength} characters`);
+  }
+
+  let sanitized = input.trim();
+
+  // Remove null bytes and control characters (except spaces)
+  sanitized = sanitized.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, "");
+
+  // Remove potentially dangerous patterns
+  // Script tags and event handlers
+  sanitized = sanitized.replace(/<script[^>]*>.*?<\/script>/gi, "");
+  sanitized = sanitized.replace(/on\w+\s*=/gi, ""); // onclick=, onload=, etc.
+  sanitized = sanitized.replace(/javascript:/gi, "");
+  sanitized = sanitized.replace(/data:text\/html/gi, "");
+
+  // Remove HTML/XML tags
+  sanitized = sanitized.replace(/<[^>]+>/g, "");
+
+  // Remove backslashes to prevent escaping bypass and ensure data consistency
+  // This prevents names like "ROBERT \"RAMI\" SMITH" from being stored with backslashes
+  sanitized = sanitized.replace(/\\/g, "");
+
+  // Remove command injection patterns (but allow quotes and apostrophes)
+  sanitized = sanitized.replace(/[|&;`$(){}[\]]/g, "");
+
+  // Remove semicolons (SQL injection defense)
+  sanitized = sanitized.replace(/;/g, "");
+
+  // Normalize whitespace (but preserve single spaces)
+  sanitized = sanitized.replace(/\s+/g, " ");
+
+  return sanitized;
+}
+
+/**
  * Validates UTF-8 encoding
  * @param input - String to validate
  * @returns True if valid UTF-8

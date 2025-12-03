@@ -44,31 +44,83 @@ export function generateEmailContent(options: EmailTemplateOptions): {
     message: string,
     actionUrl?: string,
     actionText?: string
-  ): { html: string; text: string } {
+  ): { html: string; text: string; hasButton: boolean } {
     if (actionUrl && actionText) {
-      // Replace the action text with a proper link in HTML
-      let htmlMessage = message.replace(
-        actionText,
-        `<a href="${actionUrl}" style="color: #3498db; text-decoration: none; font-weight: bold;">${actionText}</a>`
-      );
+      // Remove the action text from message if it exists (we'll add it as a button)
+      let htmlMessage = message.replace(new RegExp(actionText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), "");
 
-      // Make the parenthetical URL smaller in HTML version
-      const urlPattern = new RegExp(`\\(Or click ${actionUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\)`, "g");
-      htmlMessage = htmlMessage.replace(
-        urlPattern,
-        `<span style="font-size: 12px; color: #666;">(Or click ${actionUrl})</span>`
-      );
+      // Create the left-justified blue button (matching admin approval email style)
+      const buttonHtml = `<div style="text-align: left; margin: 4px 0 2px 0;"><a href="${actionUrl}" style="display: inline-block; padding: 12px 24px; background-color: #3498db; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">${actionText}</a></div>`;
+
+      // Look for parenthetical URL patterns (both "visit" and "click" variations)
+      // Also handle URL-encoded versions and different URL formats
+      const escapedUrl = actionUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const encodedUrl = encodeURIComponent(actionUrl).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+      // Try multiple patterns to find where the URL appears in the message
+      const urlPatterns = [
+        new RegExp(`\\(Or visit ${escapedUrl}\\)`, "gi"),
+        new RegExp(`\\(Or click ${escapedUrl}\\)`, "gi"),
+        new RegExp(`\\(Or visit ${encodedUrl}\\)`, "gi"),
+        new RegExp(`\\(Or click ${encodedUrl}\\)`, "gi"),
+        // Also try to find any parenthetical URL pattern
+        /\(Or (?:visit|click) [^)]+\)/gi,
+      ];
+
+      const styledParentheticalUrl = `<span style="font-size: 12px; color: #666; display: block; margin-top: 2px; margin-bottom: 8px;">(Or visit ${actionUrl})</span>`;
+      let buttonInserted = false;
+
+      // Try to replace parenthetical URL with button + styled URL
+      for (const pattern of urlPatterns) {
+        if (pattern.test(htmlMessage)) {
+          htmlMessage = htmlMessage.replace(pattern, `${buttonHtml}\n${styledParentheticalUrl}`);
+          buttonInserted = true;
+          break;
+        }
+      }
+
+      // If no parenthetical URL found, insert button after the main message content
+      // Look for common patterns like "Click here..." or expiry messages
+      if (!buttonInserted) {
+        const lines = htmlMessage.split("\n");
+        // Find where to insert - look for lines with "Click here" or before expiry messages
+        let insertIndex = lines.length;
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].toLowerCase();
+          // Insert after "Click here" type lines or before expiry messages
+          if (line.includes("click here") || line.includes("expires") || line.includes("link expires")) {
+            insertIndex = i + 1;
+            break;
+          }
+        }
+
+        // If we didn't find a good spot, insert before the last non-empty line (usually expiry info)
+        if (insertIndex === lines.length) {
+          for (let i = lines.length - 1; i >= 0; i--) {
+            if (lines[i].trim().length > 0) {
+              insertIndex = i + 1;
+              break;
+            }
+          }
+        }
+
+        // Insert button and styled URL
+        lines.splice(insertIndex, 0, buttonHtml, styledParentheticalUrl);
+        htmlMessage = lines.join("\n");
+      }
 
       // For text version, keep it as is (already formatted with raw URL)
       return {
         html: htmlMessage,
         text: message,
+        hasButton: true,
       };
     }
 
     return {
       html: message,
       text: message,
+      hasButton: false,
     };
   }
 
@@ -105,13 +157,28 @@ export function generateEmailContent(options: EmailTemplateOptions): {
     }
     .greeting {
       font-size: 16px;
-      margin-bottom: 20px;
+      margin-bottom: 12px;
       color: #2c3e50;
     }
     .message {
       font-size: 16px;
-      margin-bottom: 30px;
+      margin-bottom: 16px;
       white-space: pre-line;
+    }
+    .action-button {
+      display: inline-block;
+      padding: 12px 24px;
+      margin: 20px 0;
+      background-color: #3498db;
+      color: white;
+      text-decoration: none;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 16px;
+      text-align: center;
+    }
+    .action-button:hover {
+      background-color: #2980b9;
     }
             ${
               loginImageUrl

@@ -1,7 +1,6 @@
 import React from "react";
 import Link from "next/link";
 import { useRouter } from "next/router";
-import Cookies from "js-cookie";
 import { useState, useEffect } from "react";
 import { logEvent } from "@/utils/client/analytics";
 import { HeaderConfig } from "@/types/siteConfig";
@@ -38,17 +37,32 @@ export default function BaseHeader({
   helpUrl,
 }: BaseHeaderProps) {
   const router = useRouter();
-  // Fast initial state from non-HttpOnly cookie to avoid flicker; will be reconciled after init
-  const [isLoggedIn, setIsLoggedIn] = useState(() => Cookies.get("isLoggedIn") === "true");
+  // Fast initial state from cookie presence to avoid flicker; will be reconciled after init
+  // TODO: Remove migration bridge after June 2026 - during bridge, check legacy isLoggedIn for pre-migration sessions
+  // Check for authToken (new), auth (legacy HttpOnly), or isLoggedIn (old non-HttpOnly) during migration
+  const [isLoggedIn, setIsLoggedIn] = useState(() => {
+    if (typeof document === "undefined") return false;
+    return (
+      document.cookie.includes("authToken=") ||
+      document.cookie.includes("auth=") ||
+      document.cookie.includes("isLoggedIn=true")
+    );
+  });
   const [authReady, setAuthReady] = useState(false);
   const isActive = (pathname: string) => router.pathname === pathname;
 
   // Keep auth state in sync without extra network calls
   useEffect(() => {
     const updateAuthState = () => {
-      const cookieLoggedIn = Cookies.get("isLoggedIn") === "true";
+      // TODO: Remove migration bridge after June 2026 - during bridge, check legacy isLoggedIn for pre-migration sessions
+      // Check for authToken (new), auth (legacy HttpOnly), or isLoggedIn (old non-HttpOnly) during migration
+      const hasAuthCookie =
+        typeof document !== "undefined" &&
+        (document.cookie.includes("authToken=") ||
+          document.cookie.includes("auth=") ||
+          document.cookie.includes("isLoggedIn=true"));
       const tokenAuthenticated = isAuthenticated();
-      setIsLoggedIn(tokenAuthenticated || cookieLoggedIn);
+      setIsLoggedIn(tokenAuthenticated || hasAuthCookie);
     };
 
     // Trigger (deduped) auth initialization so we can reflect JWT state
@@ -68,11 +82,17 @@ export default function BaseHeader({
 
     // Enhanced focus handler for mobile browser restoration
     const handleFocus = async () => {
-      const cookieLoggedIn = Cookies.get("isLoggedIn") === "true";
+      // TODO: Remove migration bridge after June 2026 - during bridge, check legacy isLoggedIn for pre-migration sessions
+      // Check for authToken (new), auth (legacy HttpOnly), or isLoggedIn (old non-HttpOnly) during migration
+      const hasAuthCookie =
+        typeof document !== "undefined" &&
+        (document.cookie.includes("authToken=") ||
+          document.cookie.includes("auth=") ||
+          document.cookie.includes("isLoggedIn=true"));
       const tokenAuthenticated = isAuthenticated();
 
       // If we have cookies but no token (mobile browser restoration scenario)
-      if (cookieLoggedIn && !tokenAuthenticated) {
+      if (hasAuthCookie && !tokenAuthenticated) {
         console.log("BaseHeader: Mobile browser restoration detected - refreshing token");
         try {
           await initializeTokenManager();
@@ -99,6 +119,29 @@ export default function BaseHeader({
     logEvent("click_back_to_library", "Navigation", "");
   };
 
+  const handleLogoClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    // Don't call onNewChat if modifier keys are pressed (Command/Ctrl/Shift/Meta)
+    // This allows the browser's default behavior (open in new tab) to work
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+      return;
+    }
+    if (onNewChat) {
+      e.preventDefault();
+      onNewChat();
+    }
+  };
+
+  const handleNavItemClick = (path: string) => (e: React.MouseEvent<HTMLAnchorElement>) => {
+    // Don't call onNewChat if modifier keys are pressed (Command/Ctrl/Shift/Meta)
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+      return;
+    }
+    if (path === "/" && onNewChat) {
+      e.preventDefault();
+      onNewChat();
+    }
+  };
+
   return (
     <header className="sticky top-0 z-50 w-full">
       {isDevelopment() && (
@@ -114,7 +157,7 @@ export default function BaseHeader({
         <div className="flex justify-between items-center h-full px-[35px]">
           <div className="flex items-center gap-[35px] pt-[5px]">
             {logoComponent ? (
-              <Link href="/" onClick={onNewChat}>
+              <Link href="/" onClick={handleLogoClick}>
                 {logoComponent}
               </Link>
             ) : null}
@@ -134,7 +177,7 @@ export default function BaseHeader({
                   <Link
                     key={item.path}
                     href={item.path}
-                    onClick={item.path === "/" && onNewChat ? () => onNewChat() : undefined}
+                    onClick={handleNavItemClick(item.path)}
                     className={`font-['Open_Sans'] font-bold text-[18px] text-white hover:text-gray-200 cursor-pointer ${
                       isActive(item.path) ? "text-white" : ""
                     }`}

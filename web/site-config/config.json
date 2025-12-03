@@ -92,7 +92,8 @@
         "description": "Connect with minister for private spiritual counseling"
       }
     },
-    "accessRequestNoteLabel": "Please let us know the name and location of an Ananda leader who knows you."
+    "accessRequestNoteLabel": "Please let us know the name and location of an Ananda leader who knows you.",
+    "adminAccessGuidelines": "Any Ananda devotee can use Luca if they are a regular participant, meaning they've at least come to a Sunday service or a meditation group several times, or has had other recurring participation. This is at the discretion of the center leaders. They are **not** required to have taken discipleship in order to use Luca."
   },
   "ananda-public": {
     "name": "Vivek, The Ananda.org Chatbot",

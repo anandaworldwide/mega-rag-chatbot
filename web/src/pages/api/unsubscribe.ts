@@ -38,7 +38,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     let decoded: UnsubscribeToken;
     try {
-      decoded = jwt.verify(token, jwtSecret) as UnsubscribeToken;
+      // Verify algorithm for security (newsletter tokens don't use issuer/audience)
+      decoded = jwt.verify(token, jwtSecret, { algorithms: ["HS256"] }) as UnsubscribeToken;
     } catch (jwtError: any) {
       if (jwtError.name === "TokenExpiredError") {
         return res.status(400).json({ error: "Unsubscribe link has expired" });

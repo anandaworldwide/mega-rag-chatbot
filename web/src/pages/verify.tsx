@@ -53,11 +53,11 @@ export default function VerifyPage() {
     })();
   }, [token, email, status]);
 
-  // After profile save, redirect to auth method choice page after 2 seconds
+  // After profile save, redirect to home page after 2 seconds
   useEffect(() => {
     if (status !== "success") return;
     const t = setTimeout(() => {
-      router.replace("/choose-auth-method");
+      router.replace("/");
     }, 2000);
     return () => clearTimeout(t);
   }, [status, router]);

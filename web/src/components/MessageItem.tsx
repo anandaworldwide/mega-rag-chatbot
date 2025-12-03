@@ -44,6 +44,9 @@ interface MessageItemProps {
   editingText?: string; // Current editing text
   onSaveEdit?: (messageIndex: number, editedText: string) => void; // Handler for saving edit
   onCancelEdit?: (messageIndex: number) => void; // Handler for canceling edit
+  sourceLinkCopied?: string | null; // Source ID that was copied (for visual feedback)
+  onSourceExpanded?: (index: number) => void; // Callback when source should be expanded (for deep linking)
+  onSourceLinkCopied?: (sourceId: string) => void; // Callback when source link is copied
 }
 
 const MessageItem: React.FC<MessageItemProps> = ({
@@ -73,6 +76,9 @@ const MessageItem: React.FC<MessageItemProps> = ({
   editingText = "",
   onSaveEdit,
   onCancelEdit,
+  sourceLinkCopied,
+  onSourceExpanded,
+  onSourceLinkCopied,
 }) => {
   const { isSudoUser } = useSudo();
   const [localEditingText, setLocalEditingText] = React.useState(editingText);
@@ -94,6 +100,9 @@ const MessageItem: React.FC<MessageItemProps> = ({
             siteConfig={siteConfig}
             isSudoAdmin={isSudoUser}
             docId={message.docId}
+            sourceLinkCopied={sourceLinkCopied}
+            onSourceExpanded={onSourceExpanded}
+            onSourceLinkCopied={onSourceLinkCopied}
           />
         </div>
       );
@@ -346,8 +355,8 @@ const MessageItem: React.FC<MessageItemProps> = ({
                         </div>
                       ))}
 
-                    {/* Compare with Alternate AI button - only show if handler provided and not already regenerating */}
-                    {!readOnly && onTryGPT41 && !isRegenerating && (
+                    {/* Compare with Alternate AI button - only show on last answer if handler provided and not already regenerating */}
+                    {!readOnly && onTryGPT41 && !isRegenerating && isLastMessage && (
                       <button
                         onClick={() => onTryGPT41(index)}
                         className="flex items-center space-x-1 px-3 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-blue-500 text-white text-sm hover:from-purple-600 hover:to-blue-600 transition-all h-8"

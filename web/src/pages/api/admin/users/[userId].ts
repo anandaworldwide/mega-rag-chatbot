@@ -4,6 +4,7 @@ import jwt from "jsonwebtoken";
 import { db } from "@/services/firebase";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { withJwtAuth, getTokenFromRequest, verifyToken } from "@/utils/server/jwtUtils";
+import { requireAdminRoleFromFirestore, getRequesterRoleFromFirestore } from "@/utils/server/authz";
 import { getUsersCollectionName, getAnswersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreQueryGet } from "@/utils/server/firestoreRetryUtils";
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
@@ -13,6 +14,7 @@ import { isDevelopment } from "@/utils/env";
 import { deleteFromCache } from "@/utils/server/redisUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
+import { sanitizeName } from "@/utils/server/inputSanitization";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Apply rate limiting
@@ -34,41 +36,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const dbNonNull = db as NonNullable<typeof db>;
   const currentId = userId.toLowerCase();
 
-  // Resolve the requester role, preferring live Firestore role for the cookie's email
-  async function resolveRequesterRole(): Promise<string> {
-    try {
-      const cookieJwt = req.cookies?.["auth"];
-      if (cookieJwt) {
-        const payload: any = verifyToken(cookieJwt);
-        const jwtRole = typeof payload?.role === "string" ? payload.role : "user";
-        const email = typeof payload?.email === "string" ? payload.email.toLowerCase() : undefined;
-        if (email) {
-          try {
-            const snap = await dbNonNull.collection(usersCol).doc(email).get();
-            const liveRole =
-              snap.exists && typeof (snap.data() as any)?.role === "string" ? (snap.data() as any).role : undefined;
-            return typeof liveRole === "string" ? liveRole : jwtRole;
-          } catch {
-            return jwtRole;
-          }
-        }
-        return jwtRole;
-      }
-      // Fallback to Authorization header payload
-      const headerPayload: any = getTokenFromRequest(req);
-      return typeof headerPayload?.role === "string" ? headerPayload.role : "user";
-    } catch {
-      return "user";
-    }
-  }
-
   if (req.method === "GET") {
     try {
-      // Authorization: only admin/superuser may view
-      const requesterRole = await resolveRequesterRole();
-      if (requesterRole !== "admin" && requesterRole !== "superuser") {
-        return res.status(403).json({ error: "Forbidden" });
+      // Critical security fix – verify admin role from Firestore (source of truth)
+      // Prevents stale JWT admin roles from granting access after revocation
+      try {
+        await requireAdminRoleFromFirestore(req);
+      } catch (error) {
+        return res.status(403).json({ error: "Unauthorized: Admin privileges required" });
       }
+
+      const requesterRole = await getRequesterRoleFromFirestore(req);
       const doc = await db.collection(usersCol).doc(currentId).get();
       if (!doc.exists) return res.status(404).json({ error: "User not found" });
       const data = doc.data() || {};
@@ -165,10 +143,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         approverLocation?: string;
         approverRegion?: string;
       };
+      // Critical security fix – verify admin role from Firestore (source of truth)
+      // Prevents stale JWT admin roles from granting access after revocation
+      try {
+        await requireAdminRoleFromFirestore(req);
+      } catch (error) {
+        return res.status(403).json({ error: "Unauthorized: Admin privileges required" });
+      }
+
+      const requesterRole = await getRequesterRoleFromFirestore(req);
       const updates: Record<string, any> = {};
       const now = firebase.firestore.Timestamp.now();
       const siteConfig = loadSiteConfigSync();
-      const requesterRole = await resolveRequesterRole();
 
       // Validate role if provided (only superuser can change role)
       if (body.role !== undefined) {
@@ -187,13 +173,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         if (typeof body.firstName !== "string" || body.firstName.length > 100) {
           return res.status(400).json({ error: "Invalid first name" });
         }
-        updates.firstName = body.firstName.trim();
+        try {
+          updates.firstName = sanitizeName(body.firstName, 100);
+        } catch (error: any) {
+          return res.status(400).json({ error: `Invalid first name: ${error.message || "Name validation failed"}` });
+        }
       }
       if (body.lastName !== undefined) {
         if (typeof body.lastName !== "string" || body.lastName.length > 100) {
           return res.status(400).json({ error: "Invalid last name" });
         }
-        updates.lastName = body.lastName.trim();
+        try {
+          updates.lastName = sanitizeName(body.lastName, 100);
+        } catch (error: any) {
+          return res.status(400).json({ error: `Invalid last name: ${error.message || "Name validation failed"}` });
+        }
       }
 
       // Newsletter subscription update
@@ -205,21 +199,30 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
 
       // Approver fields - only superuser can update, only on admin/superuser roles
+      // Only validate when approver fields are being actively set (not just cleared)
+      const isSettingApprover = body.isApprover === true;
+      const isSettingLocation = body.approverLocation && body.approverLocation.trim().length > 0;
+      const isSettingRegion = body.approverRegion && body.approverRegion.trim().length > 0;
+      const isSettingAnyApproverField = isSettingApprover || isSettingLocation || isSettingRegion;
+
       if (body.isApprover !== undefined || body.approverLocation !== undefined || body.approverRegion !== undefined) {
         if (requesterRole !== "superuser") {
           return res.status(403).json({ error: "Only superuser may update approver settings" });
         }
 
-        // Get current user data to check role
-        const currentUserDoc = await db.collection(usersCol).doc(currentId).get();
-        if (!currentUserDoc.exists) {
-          return res.status(404).json({ error: "User not found" });
-        }
-        const currentUserData = currentUserDoc.data() || {};
-        const currentUserRole = currentUserData.role || "user";
+        // Only check role requirement when actually setting approver fields (not clearing them)
+        if (isSettingAnyApproverField) {
+          // Get current user data to check role
+          const currentUserDoc = await db.collection(usersCol).doc(currentId).get();
+          if (!currentUserDoc.exists) {
+            return res.status(404).json({ error: "User not found" });
+          }
+          const currentUserData = currentUserDoc.data() || {};
+          const currentUserRole = currentUserData.role || "user";
 
-        if (currentUserRole !== "admin" && currentUserRole !== "superuser") {
-          return res.status(400).json({ error: "Approver settings can only be set on admin or superuser roles" });
+          if (currentUserRole !== "admin" && currentUserRole !== "superuser") {
+            return res.status(400).json({ error: "Approver settings can only be set on admin or superuser roles" });
+          }
         }
 
         if (body.isApprover !== undefined) {
@@ -230,17 +233,25 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         }
 
         if (body.approverLocation !== undefined) {
-          if (typeof body.approverLocation !== "string" || body.approverLocation.length > 200) {
+          // Allow null to clear the field, or validate string length
+          if (
+            body.approverLocation !== null &&
+            (typeof body.approverLocation !== "string" || body.approverLocation.length > 200)
+          ) {
             return res.status(400).json({ error: "Invalid approver location (max 200 characters)" });
           }
-          updates.approverLocation = body.approverLocation.trim() || null;
+          updates.approverLocation = body.approverLocation === null ? null : body.approverLocation.trim() || null;
         }
 
         if (body.approverRegion !== undefined) {
-          if (typeof body.approverRegion !== "string" || body.approverRegion.length > 200) {
+          // Allow null to clear the field, or validate string length
+          if (
+            body.approverRegion !== null &&
+            (typeof body.approverRegion !== "string" || body.approverRegion.length > 200)
+          ) {
             return res.status(400).json({ error: "Invalid approver region (max 200 characters)" });
           }
-          updates.approverRegion = body.approverRegion.trim() || null;
+          updates.approverRegion = body.approverRegion === null ? null : body.approverRegion.trim() || null;
         }
 
         // Clear approvers cache when approver settings are updated
@@ -268,15 +279,31 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           return res.status(400).json({ error: "No updates provided" });
         }
         updates.updatedAt = now;
-        await db.collection(usersCol).doc(currentId).set(updates, { merge: true });
+
+        // Use transaction to prevent race conditions when multiple admins update simultaneously
+        let data: any = {};
+        await (db as NonNullable<typeof db>).runTransaction(async (tx) => {
+          // PHASE 1: ALL READS FIRST (Firestore transaction requirement)
+          const userRef = (db as NonNullable<typeof db>).collection(usersCol).doc(currentId);
+          const userSnap = await tx.get(userRef);
+
+          if (!userSnap.exists) {
+            throw new Error("User not found in transaction");
+          }
+
+          // PHASE 2: ALL WRITES AFTER ALL READS
+          tx.set(userRef, updates, { merge: true });
+
+          // Store data for response after transaction completes
+          data = { ...userSnap.data(), ...updates };
+        });
+
         if (updates.role) {
           await writeAuditLog(req, "admin_change_role", currentId, {
             role: updates.role,
             outcome: "success",
           });
         }
-        const updated = await db.collection(usersCol).doc(currentId).get();
-        const data = updated.data() || {};
 
         // Fetch user's total question count for all admin roles
         let conversationCount = 0;
@@ -339,8 +366,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         const data = currentSnap.data() || {};
         const newData = {
           ...data,
-          // Note: email is stored as document ID, not as a field
-          ...(updates.role ? { role: updates.role } : {}),
+          // Apply all validated updates (role, firstName, lastName, approver settings, etc.)
+          ...updates,
           updatedAt: now,
         };
 
@@ -373,7 +400,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
                 role: payload.role || "user",
                 site: process.env.SITE_ID || "default",
               };
-              const newAuthToken = jwt.sign(newAuthPayload, jwtSecret, { expiresIn: "180d" });
+              const newAuthToken = jwt.sign(newAuthPayload, jwtSecret, {
+                expiresIn: "180d",
+                algorithm: "HS256",
+                issuer: "mega-rag-chatbot",
+                audience: "mega-rag-chatbot-users",
+              });
 
               // Set the updated auth cookie
               const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
@@ -462,7 +494,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const errorMessage = err?.message || "";
       let status = 500;
       let safeMessage = "Failed to update user";
-      
+
       if (errorMessage.includes("not found")) {
         status = 404;
         safeMessage = "User not found";
@@ -473,17 +505,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // For other errors, use sanitized message
         safeMessage = getSafeErrorMessage(err, "Failed to update user");
       }
-      
+
       return res.status(status).json({ error: safeMessage });
     }
   }
 
   if (req.method === "DELETE") {
     try {
-      const requesterRole = await resolveRequesterRole();
-      if (requesterRole !== "admin" && requesterRole !== "superuser") {
-        return res.status(403).json({ error: "Forbidden" });
+      // Critical security fix – verify admin role from Firestore (source of truth)
+      // Prevents stale JWT admin roles from granting access after revocation
+      try {
+        await requireAdminRoleFromFirestore(req);
+      } catch (error) {
+        return res.status(403).json({ error: "Unauthorized: Admin privileges required" });
       }
+
+      const requesterRole = await getRequesterRoleFromFirestore(req);
 
       // Get user data before deletion for audit log
       const userDoc = await dbNonNull.collection(usersCol).doc(currentId).get();
@@ -542,7 +579,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const errorMessage = err?.message || "";
       let status = 500;
       let safeMessage = "Failed to delete user";
-      
+
       if (errorMessage.includes("not found")) {
         status = 404;
         safeMessage = "User not found";
@@ -550,7 +587,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // For other errors, use sanitized message
         safeMessage = getSafeErrorMessage(err, "Failed to delete user");
       }
-      
+
       return res.status(status).json({ error: safeMessage });
     }
   }

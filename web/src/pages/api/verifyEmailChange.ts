@@ -112,7 +112,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           role: updatedUserData.role || "user",
           site: process.env.SITE_ID || "default",
         };
-        const newAuthToken = jwt.sign(newAuthPayload, jwtSecret, { expiresIn: "180d" });
+        const newAuthToken = jwt.sign(newAuthPayload, jwtSecret, {
+          expiresIn: "180d",
+          algorithm: "HS256",
+          issuer: "mega-rag-chatbot",
+          audience: "mega-rag-chatbot-users",
+        });
 
         // Set the updated auth cookie
         res.setHeader("Set-Cookie", [

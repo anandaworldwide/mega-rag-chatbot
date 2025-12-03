@@ -10,6 +10,7 @@ import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { isDevelopment } from "@/utils/env";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreGet } from "@/utils/server/firestoreRetryUtils";
+import { createSignedUUIDCookie } from "@/utils/server/uuidUtils";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -112,7 +113,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         site: process.env.SITE_ID || "default",
       },
       jwtSecret,
-      { expiresIn: "180d" }
+      {
+        expiresIn: "180d",
+        algorithm: "HS256",
+        issuer: "mega-rag-chatbot",
+        audience: "mega-rag-chatbot-users",
+      }
     );
 
     try {
@@ -124,7 +130,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         path: "/",
       });
 
-      cookies.set("uuid", finalUuid as string, {
+      // Set signed UUID cookie to prevent spoofing
+      cookies.set("uuid", createSignedUUIDCookie(finalUuid as string), {
         httpOnly: false,
         sameSite: "lax",
         secure: isSecure,
@@ -132,9 +139,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         path: "/",
       });
 
-      // Set isLoggedIn cookie for header component compatibility
-      cookies.set("isLoggedIn", "true", {
-        httpOnly: false,
+      // TODO: Remove migration bridge after June 2026 - only set authToken
+      // Set both auth and authToken cookies during migration period
+      // auth: legacy cookie for backward compatibility
+      cookies.set("auth", authToken, {
+        httpOnly: true,
+        sameSite: "lax",
+        secure: isSecure,
+        maxAge: 180 * 24 * 60 * 60 * 1000,
+        path: "/",
+      });
+      // authToken: new cookie name
+      cookies.set("authToken", authToken, {
+        httpOnly: true,
         sameSite: "lax",
         secure: isSecure,
         maxAge: 180 * 24 * 60 * 60 * 1000,

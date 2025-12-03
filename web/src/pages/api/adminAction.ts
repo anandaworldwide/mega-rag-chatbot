@@ -11,7 +11,6 @@ import { withJwtAuth } from "@/utils/server/jwtUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import { requireSuperuserRoleFromFirestore } from "@/utils/server/authz";
-import { firestoreUpdate } from "@/utils/server/firestoreRetryUtils";
 import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -62,29 +61,32 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   try {
     const docRef = db.collection(getAnswersCollectionName()).doc(docId);
-    if (action === undefined) {
-      // If action is undefined, remove the adminAction and adminActionTimestamp fields
-      await firestoreUpdate(
-        docRef,
-        {
+
+    // Use transaction to prevent race conditions when multiple admins update simultaneously
+    await (db as NonNullable<typeof db>).runTransaction(async (tx) => {
+      // PHASE 1: ALL READS FIRST (Firestore transaction requirement)
+      const docSnap = await tx.get(docRef);
+
+      if (!docSnap.exists) {
+        throw new Error("Document not found");
+      }
+
+      // PHASE 2: ALL WRITES AFTER ALL READS
+      if (action === undefined) {
+        // If action is undefined, remove the adminAction and adminActionTimestamp fields
+        tx.update(docRef, {
           adminAction: firebase.firestore.FieldValue.delete(),
           adminActionTimestamp: firebase.firestore.FieldValue.delete(),
-        },
-        "admin action removal",
-        `docId: ${docId}`
-      );
-    } else {
-      // Otherwise, set the new action and timestamp
-      await firestoreUpdate(
-        docRef,
-        {
+        });
+      } else {
+        // Otherwise, set the new action and timestamp
+        tx.update(docRef, {
           adminAction: action,
-          adminActionTimestamp: new Date(),
-        },
-        "admin action update",
-        `docId: ${docId}, action: ${action}`
-      );
-    }
+          adminActionTimestamp: firebase.firestore.FieldValue.serverTimestamp(),
+        });
+      }
+    });
+
     res.status(200).json({ message: "Admin action updated" });
   } catch (error) {
     // Use safe error message to prevent information leakage

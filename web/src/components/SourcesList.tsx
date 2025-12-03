@@ -31,6 +31,7 @@ import { DocMetadata } from "@/types/DocMetadata";
 import { SiteConfig } from "@/types/siteConfig";
 import { getOrCreateUUID } from "@/utils/client/uuid";
 import { getToken } from "@/utils/client/tokenManager";
+import { generateSourceId, generateSourceDeepLink } from "@/utils/client/sourceUtils";
 
 // Helper function to extract the title from document metadata.
 const extractTitle = (metadata: DocMetadata): string => {
@@ -43,6 +44,9 @@ interface SourcesListProps {
   siteConfig?: SiteConfig | null;
   isSudoAdmin?: boolean;
   docId?: string;
+  onSourceExpanded?: (index: number) => void; // Callback when source should be expanded (for deep linking)
+  sourceLinkCopied?: string | null; // Source ID that was copied (for visual feedback)
+  onSourceLinkCopied?: (sourceId: string) => void; // Callback when source link is copied
 }
 
 // Function to transform YouTube URLs into embed URLs
@@ -67,6 +71,9 @@ const SourcesList: React.FC<SourcesListProps> = ({
   siteConfig,
   isSudoAdmin = false,
   docId,
+  onSourceExpanded,
+  sourceLinkCopied,
+  onSourceLinkCopied,
 }) => {
   // DEBUG: Add logging for sources display debugging
   React.useEffect(() => {
@@ -94,6 +101,25 @@ const SourcesList: React.FC<SourcesListProps> = ({
   React.useEffect(() => {
     setExpandedSources(new Set());
   }, [sources]);
+
+  // Handle external source expansion requests (for deep linking)
+  // Note: expandedSources is intentionally NOT in the dependency array to prevent
+  // re-expanding sources when user manually collapses them
+  React.useEffect(() => {
+    if (onSourceExpanded && sources.length > 0) {
+      // Find source index by matching source IDs
+      const hash = typeof window !== "undefined" ? window.location.hash : "";
+      if (hash && hash.startsWith("#source-")) {
+        const sourceId = hash.substring(1);
+        const sourceIndex = sources.findIndex((doc) => generateSourceId(doc) === sourceId);
+        if (sourceIndex !== -1) {
+          setExpandedSources((prev) => new Set([...prev, sourceIndex]));
+          onSourceExpanded(sourceIndex);
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sources, onSourceExpanded]);
 
   // Handle Escape key to close interstitial modal
   React.useEffect(() => {
@@ -162,36 +188,86 @@ const SourcesList: React.FC<SourcesListProps> = ({
               lazyLoad={true}
               isExpanded={isExpanded}
               docId={docId}
+              sourceDoc={doc}
+              sourceLinkCopied={sourceLinkCopied}
+              onCopySourceLink={() => {
+                const sourceId = generateSourceId(doc);
+                if (onSourceLinkCopied) {
+                  onSourceLinkCopied(sourceId);
+                }
+              }}
             />
           </div>
         );
       }
       return null;
     },
-    [docId]
+    [docId, sourceLinkCopied, onSourceLinkCopied]
   );
 
-  const renderYouTubePlayer = useCallback((doc: Document<DocMetadata>) => {
-    if (doc.metadata.type === "youtube") {
-      if (!doc.metadata.url) {
-        return <div className="text-red-500 mb-2">Error: YouTube URL is missing for this source.</div>;
+  const renderYouTubePlayer = useCallback(
+    (doc: Document<DocMetadata>) => {
+      if (doc.metadata.type === "youtube") {
+        if (!doc.metadata.url) {
+          return <div className="text-red-500 mb-2">Error: YouTube URL is missing for this source.</div>;
+        }
+        const embedUrl = transformYouTubeUrl(doc.metadata.url, doc.metadata.start_time);
+
+        // Handle copy source link for YouTube
+        const handleCopyYouTubeLink = async () => {
+          if (!docId) {
+            return;
+          }
+          try {
+            const deepLink = generateSourceDeepLink(docId, doc);
+            await navigator.clipboard.writeText(deepLink);
+            logEvent("copy_source_link", "Engagement", `youtube-${doc.metadata.url}`);
+            // Trigger parent callback for visual feedback
+            if (onSourceLinkCopied) {
+              onSourceLinkCopied(sourceId);
+            }
+          } catch (error) {
+            console.error("Failed to copy YouTube source link:", error);
+            logEvent("copy_source_link_error", "Error", `youtube-${doc.metadata.url}`);
+          }
+        };
+
+        const sourceId = generateSourceId(doc);
+        const isLinkCopied = sourceLinkCopied === sourceId;
+
+        return (
+          <div className="aspect-video mb-7">
+            <iframe
+              className="h-full w-full rounded-xl"
+              src={embedUrl}
+              title={doc.metadata.title}
+              style={{ border: "none" }}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            ></iframe>
+            {docId && (
+              <div className="mt-2 flex justify-end">
+                <button
+                  onClick={handleCopyYouTubeLink}
+                  className={`inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-xl transition-colors ${
+                    isLinkCopied
+                      ? "bg-green-50 hover:bg-green-100 text-green-700"
+                      : "bg-gray-50 hover:bg-gray-100 text-gray-700"
+                  }`}
+                  title="Copy link to this source"
+                >
+                  <span className="material-icons text-sm">{isLinkCopied ? "check" : "link"}</span>
+                  {isLinkCopied ? "Link copied!" : "Copy source link"}
+                </button>
+              </div>
+            )}
+          </div>
+        );
       }
-      const embedUrl = transformYouTubeUrl(doc.metadata.url, doc.metadata.start_time);
-      return (
-        <div className="aspect-video mb-7">
-          <iframe
-            className="h-full w-full rounded-xl"
-            src={embedUrl}
-            title={doc.metadata.title}
-            style={{ border: "none" }}
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
-          ></iframe>
-        </div>
-      );
-    }
-    return null;
-  }, []);
+      return null;
+    },
+    [docId, onSourceLinkCopied, sourceLinkCopied]
+  );
 
   // Check if sources should be hidden based on site config
   const shouldHideSources = siteConfig?.hideSources && !isSudoAdmin;
@@ -507,37 +583,40 @@ const SourcesList: React.FC<SourcesListProps> = ({
               </div>
 
               <div className="space-y-4">
-                {sources.map((doc, index) => (
-                  <div key={index} className="border-b border-gray-200 pb-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="material-icons text-sm">{getSourceIcon(doc)}</span>
-                        {renderSourceTitle(doc)}
+                {sources.map((doc, index) => {
+                  const sourceId = generateSourceId(doc);
+                  return (
+                    <div key={index} id={sourceId} className="border-b border-gray-200 pb-4 scroll-mt-28">
+                      <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="material-icons text-sm">{getSourceIcon(doc)}</span>
+                          {renderSourceTitle(doc)}
+                        </div>
+                        {doc.metadata.library && doc.metadata.library !== "Default Library" && (
+                          <span className="text-gray-400 text-sm sm:ml-auto">{renderLibraryName(doc)}</span>
+                        )}
                       </div>
-                      {doc.metadata.library && doc.metadata.library !== "Default Library" && (
-                        <span className="text-gray-400 text-sm sm:ml-auto">{renderLibraryName(doc)}</span>
-                      )}
+                      {doc.metadata.type === "audio" && renderAudioPlayer(doc, index, true)}
+                      {doc.metadata.type === "youtube" && renderYouTubePlayer(doc)}
+                      {/* Render author name if available */}
+                      {renderAuthorName(doc)}
+                      {/* Render source content as markdown with matching passage label */}
+                      <div className="text-xs text-gray-400 mb-1 uppercase tracking-wide">Matching Passage</div>
+                      <ReactMarkdown
+                        remarkPlugins={[gfm]}
+                        components={{
+                          a: ({ ...props }) => <a target="_blank" rel="noopener noreferrer" {...props} />,
+                        }}
+                      >
+                        {doc.pageContent}
+                      </ReactMarkdown>
+                      <div className="mt-2 mb-3 flex gap-2">
+                        {renderPdfDownloadButton(doc)}
+                        {renderGoToSourceButton(doc)}
+                      </div>
                     </div>
-                    {doc.metadata.type === "audio" && renderAudioPlayer(doc, index, true)}
-                    {doc.metadata.type === "youtube" && renderYouTubePlayer(doc)}
-                    {/* Render author name if available */}
-                    {renderAuthorName(doc)}
-                    {/* Render source content as markdown with matching passage label */}
-                    <div className="text-xs text-gray-400 mb-1 uppercase tracking-wide">Matching Passage</div>
-                    <ReactMarkdown
-                      remarkPlugins={[gfm]}
-                      components={{
-                        a: ({ ...props }) => <a target="_blank" rel="noopener noreferrer" {...props} />,
-                      }}
-                    >
-                      {doc.pageContent}
-                    </ReactMarkdown>
-                    <div className="mt-2 mb-3 flex gap-2">
-                      {renderPdfDownloadButton(doc)}
-                      {renderGoToSourceButton(doc)}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </>
@@ -590,10 +669,12 @@ const SourcesList: React.FC<SourcesListProps> = ({
           {sources.map((doc, index) => {
             const isExpanded = expandedSources.has(index);
             const isLastSource = index === sources.length - 1;
+            const sourceId = generateSourceId(doc);
             return (
               <details
                 key={index}
-                className={`${styles.sourceDocsContainer} ${isLastSource ? "" : "border-b border-gray-200"} group`}
+                id={sourceId}
+                className={`${styles.sourceDocsContainer} ${isLastSource ? "" : "border-b border-gray-200"} group scroll-mt-28`}
                 open={isExpanded}
               >
                 {/* Source summary (always visible) */}

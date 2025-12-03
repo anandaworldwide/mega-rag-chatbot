@@ -12,11 +12,26 @@ export default function ChatConversation() {
   const router = useRouter();
 
   useEffect(() => {
-    // Immediate redirect to home page
-    // The home page will detect the /chat/[convId] URL and load the conversation with proper title
-    window.history.pushState(null, "", "/");
-    router.push("/", router.asPath, { shallow: true });
-  }, [router]);
+    if (!router.isReady) {
+      return;
+    }
+
+    const { convId } = router.query;
+    if (!convId || typeof convId !== "string") {
+      router.replace("/");
+      return;
+    }
+
+    // Preserve hash fragment if present (for source deep linking)
+    const hash = typeof window !== "undefined" ? window.location.hash : "";
+    const targetPath = hash ? `/chat/${convId}${hash}` : `/chat/${convId}`;
+
+    // Navigate to home page, preserving the /chat/[convId] path and hash in the URL
+    // The home page will detect this path and load the conversation
+    // Use replace with the 'as' parameter to show /chat/[convId] in the URL
+    // but render the home page component
+    router.replace("/", targetPath, { shallow: false });
+  }, [router.isReady, router.query, router]);
 
   // Simple loading display (no title setting to avoid flashing)
   return (

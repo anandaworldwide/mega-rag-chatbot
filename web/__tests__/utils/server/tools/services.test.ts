@@ -327,6 +327,8 @@ describe("Services - Dependency Injection Architecture", () => {
       service = new GoogleGeocodingService();
       // Mock the API key
       process.env.GOOGLE_MAPS_API_KEY = "test-api-key";
+      // Ensure maps.googleapis.com is allowed for SSRF protection in tests
+      process.env.SSRF_ALLOWED_DOMAINS = "maps.googleapis.com,www.googleapis.com";
     });
 
     afterEach(() => {
@@ -366,7 +368,10 @@ describe("Services - Dependency Injection Architecture", () => {
         source: "google-geolocation",
       });
 
-      expect(fetch).toHaveBeenCalledWith(expect.stringContaining("https://maps.googleapis.com/maps/api/geocode/json"));
+      expect(global.fetch).toHaveBeenCalledWith(
+        expect.stringContaining("https://maps.googleapis.com/maps/api/geocode/json"),
+        undefined
+      );
     });
 
     it("should handle ZERO_RESULTS status", async () => {
@@ -692,7 +697,7 @@ describe("Services - Dependency Injection Architecture", () => {
       expect(mockDistanceCalculator.calculateDistance).toHaveBeenCalledTimes(2);
     });
 
-    it("should filter out centers beyond 150 miles", async () => {
+    it("should always include first 3 closest centers regardless of distance", async () => {
       const mockCenters = [
         { name: "Ananda Palo Alto", latitude: 37.4419, longitude: -122.143, city: "Palo Alto" },
         { name: "Ananda New York", latitude: 40.7128, longitude: -74.006, city: "New York" },
@@ -700,30 +705,111 @@ describe("Services - Dependency Injection Architecture", () => {
 
       mockCenterDataService.loadCenters.mockResolvedValue(mockCenters);
       mockDistanceCalculator.calculateDistance
-        .mockReturnValueOnce(25) // 25 miles - within range
-        .mockReturnValueOnce(2800); // 2800 miles - too far
+        .mockReturnValueOnce(25) // 25 miles - close
+        .mockReturnValueOnce(2800); // 2800 miles - very far, but still included in top 3
 
       const result = await service.findNearestCenters(37.5, -122.2);
 
+      // Both centers should be included since they're in the top 3 closest
       expect(result).toEqual({
         found: true,
-        centers: [{ ...mockCenters[0], distance: 25 }],
+        centers: [
+          { ...mockCenters[0], distance: 25 },
+          { ...mockCenters[1], distance: 2800 },
+        ],
       });
     });
 
-    it("should handle no centers within range", async () => {
+    it("should include closest center even if far away (within top 3)", async () => {
       const mockCenters = [{ name: "Ananda Far Away", latitude: 0, longitude: 0, city: "Far Away" }];
 
       mockCenterDataService.loadCenters.mockResolvedValue(mockCenters);
-      mockDistanceCalculator.calculateDistance.mockReturnValue(500); // 500 miles - too far
+      mockDistanceCalculator.calculateDistance.mockReturnValue(500); // 500 miles - far but still included
+
+      const result = await service.findNearestCenters(37.5, -122.2);
+
+      // Center should be included since it's in the top 3 closest (even though it's far)
+      expect(result).toEqual({
+        found: true,
+        centers: [{ ...mockCenters[0], distance: 500 }],
+      });
+    });
+
+    it("should filter out 4th and 5th centers beyond 1000 miles", async () => {
+      const mockCenters = [
+        { name: "Ananda Close 1", latitude: 37.4419, longitude: -122.143, city: "Close 1" },
+        { name: "Ananda Close 2", latitude: 37.5, longitude: -122.2, city: "Close 2" },
+        { name: "Ananda Close 3", latitude: 37.6, longitude: -122.3, city: "Close 3" },
+        { name: "Ananda Far 4", latitude: 40.7128, longitude: -74.006, city: "Far 4" },
+        { name: "Ananda Far 5", latitude: 34.0522, longitude: -118.2437, city: "Far 5" },
+      ];
+
+      mockCenterDataService.loadCenters.mockResolvedValue(mockCenters);
+      mockDistanceCalculator.calculateDistance
+        .mockReturnValueOnce(10) // Close 1 - 10 miles
+        .mockReturnValueOnce(20) // Close 2 - 20 miles
+        .mockReturnValueOnce(30) // Close 3 - 30 miles
+        .mockReturnValueOnce(1200) // Far 4 - 1200 miles (beyond 1000, should be filtered)
+        .mockReturnValueOnce(1500); // Far 5 - 1500 miles (beyond 1000, should be filtered)
+
+      const result = await service.findNearestCenters(37.5, -122.2);
+
+      // First 3 should always be included, 4th and 5th should be filtered out (>1000 miles)
+      expect(result).toEqual({
+        found: true,
+        centers: [
+          { ...mockCenters[0], distance: 10 },
+          { ...mockCenters[1], distance: 20 },
+          { ...mockCenters[2], distance: 30 },
+        ],
+      });
+    });
+
+    it("should include 4th and 5th centers if within 1000 miles", async () => {
+      const mockCenters = [
+        { name: "Ananda Close 1", latitude: 37.4419, longitude: -122.143, city: "Close 1" },
+        { name: "Ananda Close 2", latitude: 37.5, longitude: -122.2, city: "Close 2" },
+        { name: "Ananda Close 3", latitude: 37.6, longitude: -122.3, city: "Close 3" },
+        { name: "Ananda Medium 4", latitude: 40.7128, longitude: -74.006, city: "Medium 4" },
+        { name: "Ananda Medium 5", latitude: 34.0522, longitude: -118.2437, city: "Medium 5" },
+      ];
+
+      mockCenterDataService.loadCenters.mockResolvedValue(mockCenters);
+      mockDistanceCalculator.calculateDistance
+        .mockReturnValueOnce(10) // Close 1 - 10 miles
+        .mockReturnValueOnce(20) // Close 2 - 20 miles
+        .mockReturnValueOnce(30) // Close 3 - 30 miles
+        .mockReturnValueOnce(800) // Medium 4 - 800 miles (within 1000, should be included)
+        .mockReturnValueOnce(900); // Medium 5 - 900 miles (within 1000, should be included)
+
+      const result = await service.findNearestCenters(37.5, -122.2);
+
+      // All 5 should be included since 4th and 5th are within 1000 miles
+      expect(result).toEqual({
+        found: true,
+        centers: [
+          { ...mockCenters[0], distance: 10 },
+          { ...mockCenters[1], distance: 20 },
+          { ...mockCenters[2], distance: 30 },
+          { ...mockCenters[3], distance: 800 },
+          { ...mockCenters[4], distance: 900 },
+        ],
+      });
+    });
+
+    it("should handle no centers at all", async () => {
+      mockCenterDataService.loadCenters.mockResolvedValue([]);
+      mockCenterDataService.getLastError.mockReturnValue({
+        type: undefined,
+        message: undefined,
+      });
 
       const result = await service.findNearestCenters(37.5, -122.2);
 
       expect(result).toEqual({
         found: false,
         centers: [],
-        fallbackMessage:
-          "No Ananda centers found within 150 miles of your location. You might want to check out Ananda's virtual events and online community!",
+        fallbackMessage: "No Ananda centers data available at this time.",
       });
     });
 

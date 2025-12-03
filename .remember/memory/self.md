@@ -2,7 +2,40 @@
 
 ## Critical Lessons Learned
 
-### 1. Firestore Transaction Ordering - ALL Reads Before ALL Writes
+### 1. Document Migration Must Include All Validated Updates
+
+**Rule**: When migrating a Firestore document (e.g., changing email address as document ID), ALL validated updates must
+be carried over to the new document, not just a subset.
+
+**Wrong**: Selectively including only some fields from updates object.
+
+```typescript
+const newData = {
+  ...existingData,
+  ...(updates.role ? { role: updates.role } : {}), // Only role carried over
+  updatedAt: now,
+};
+```
+
+**Correct**: Spread all validated updates to ensure nothing is lost.
+
+```typescript
+const newData = {
+  ...existingData,
+  ...updates, // All validated fields: role, firstName, lastName, approverLocation, etc.
+  updatedAt: now,
+};
+```
+
+**Why This Matters**:
+
+- Admins expect simultaneous updates (email + name + role) to all apply
+- Silently dropping validated fields creates data inconsistency
+- Tests should verify all fields migrate during document moves
+
+**Fixed In**: `/api/admin/users/[userId].ts` email migration (lines 372-378)
+
+### 2. Firestore Transaction Ordering - ALL Reads Before ALL Writes
 
 **Rule**: Firestore transactions REQUIRE all `transaction.get()` calls to complete BEFORE any `transaction.update()`,
 `transaction.set()`, or `transaction.delete()` calls.
@@ -37,6 +70,41 @@ await db.runTransaction(async (transaction) => {
 - Atomic operations (all succeed or all fail)
 - Optimistic locking prevents race conditions
 - Better than manual retry wrappers
+
+**When to Use Transactions**: Any operation where multiple users/admins might update the same document concurrently:
+
+- Admin user management (role changes, approver settings)
+- Voting/starring operations on same document
+- Status updates that multiple people might trigger
+- Document moves/renames across collections
+- Answer regenerations or updates
+
+**Fixed Race Conditions**: Applied transactions to critical API endpoints:
+
+- `/api/vote.ts`: Rapid vote changes (1 → -1 → 0) arriving out of order
+- `/api/adminAction.ts`: Concurrent admin actions overwriting each other
+- `/api/conversations/star.ts`: Simultaneous star/unstar operations (upgraded from batch to transaction)
+- `/api/answers/[docId].ts`: Concurrent answer regenerations conflicting
+- `/api/admin/users/[userId].ts`: Multiple admins updating same user simultaneously
+
+**Example - Concurrent Admin Updates**:
+
+```typescript
+// Wrong: Race condition when multiple admins update simultaneously
+await db.collection(usersCol).doc(userId).set(updates, { merge: true });
+// Admin A's role change could overwrite Admin B's approver settings
+
+// Correct: Transaction prevents race conditions
+await db.runTransaction(async (tx) => {
+  // PHASE 1: Read current state
+  const userSnap = await tx.get(userRef);
+  if (!userSnap.exists) throw new Error("User not found");
+
+  // PHASE 2: Apply updates atomically
+  tx.set(userRef, updates, { merge: true });
+});
+// Now both admins' changes are properly merged or retried
+```
 
 **Related**: Firestore doesn't accept `undefined` as field values. Conditionally include optional fields:
 
@@ -839,8 +907,12 @@ useEffect(() => {
 }, [loginRequired]);
 
 // Conditionally render
-{isSuperuser && <Link href="/admin/downvotes">Review Downvotes</Link>}
-{loginRequired && isSuperuser && <Link href="/admin/newsletters">Newsletter Management</Link>}
+{
+  isSuperuser && <Link href="/admin/downvotes">Review Downvotes</Link>;
+}
+{
+  loginRequired && isSuperuser && <Link href="/admin/newsletters">Newsletter Management</Link>;
+}
 ```
 
 **Pattern**: When features are restricted to superusers, fetch the user's role client-side (with sessionStorage caching)
@@ -1085,3 +1157,81 @@ Always convert to string before calling string methods like `.toLowerCase()`.
 
 **Applied To**: Fixed `networkErrorUtils.ts` in both `isNetworkError()` and `analyzeNetworkError()` functions. Also
 improved error logging in `[userId].ts` audit log catch block to include full error details.
+
+### 34. Link onClick Handlers Must Check for Modifier Keys
+
+**Problem**: When users Command+click (or Ctrl+click) on links with onClick handlers, the handler executes even though
+the browser opens the link in a new tab, causing the current tab to navigate as well.
+
+**Wrong**: onClick handler executes regardless of modifier keys.
+
+```typescript
+<Link href="/" onClick={onNewChat}>
+  {logoComponent}
+</Link>
+// Command+click opens new tab AND navigates current tab
+```
+
+**Correct**: Check for modifier keys and skip handler execution when they're pressed.
+
+```typescript
+const handleLogoClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+  // Don't call handler if modifier keys are pressed (Command/Ctrl/Shift/Meta)
+  // This allows the browser's default behavior (open in new tab) to work
+  if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) {
+    return;
+  }
+  if (onNewChat) {
+    e.preventDefault();
+    onNewChat();
+  }
+};
+
+<Link href="/" onClick={handleLogoClick}>
+  {logoComponent}
+</Link>
+// Command+click only opens new tab, current tab stays put
+```
+
+**Pattern**: For any Link component with onClick handlers that perform navigation or state changes, always check for
+modifier keys (`metaKey`, `ctrlKey`, `shiftKey`, `altKey`) and return early to allow the browser's default new-tab
+behavior without executing the handler.
+
+**Applied To**: Fixed logo link and nav item links in `BaseHeader.tsx` to respect modifier key clicks.
+
+### 35. Jest Fetch Mock Expectations Must Include credentials Option
+
+**Problem**: Tests fail when implementation adds `credentials: "include"` to fetch calls but tests don't expect it.
+
+**Wrong**: Test expectations missing `credentials: "include"` option.
+
+```typescript
+// Implementation correctly includes credentials for cookie-based auth
+const response = await fetch("/api/web-token", {
+  credentials: "include",
+});
+
+// Test expectation missing credentials option
+expect(fetchMock).toHaveBeenCalledWith("/api/web-token"); // Fails
+```
+
+**Correct**: Include `credentials: "include"` in test expectations when implementation uses it.
+
+```typescript
+expect(fetchMock).toHaveBeenCalledWith("/api/web-token", {
+  credentials: "include",
+});
+
+// For authenticated requests
+expect(fetchMock).toHaveBeenCalledWith("/api/test", {
+  headers: { Authorization: `Bearer ${token}` },
+  credentials: "include",
+});
+```
+
+**Pattern**: When testing fetch calls that include `credentials: "include"` (required for cookie-based authentication),
+always include this option in Jest mock expectations. The implementation is correct - tests need to match the actual
+behavior.
+
+**Applied To**: Fixed `tokenManager.test.ts` - updated three failing test expectations to include
+`credentials: "include"`.

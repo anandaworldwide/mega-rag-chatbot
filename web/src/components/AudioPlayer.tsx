@@ -1,11 +1,14 @@
 // This component renders an audio player with play/pause controls, a seek bar,
 // and time display. It supports lazy loading and handles audio playback states.
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { useAudioContext } from "@/contexts/AudioContext";
 import { logEvent } from "@/utils/client/analytics";
 import { getCachedSecureAudioUrl } from "@/utils/client/getSecureAudioUrl";
+import { generateSourceDeepLink, generateSourceId } from "@/utils/client/sourceUtils";
+import { Document } from "langchain/document";
+import { DocMetadata } from "@/types/DocMetadata";
 
 interface AudioPlayerProps {
   src: string;
@@ -15,6 +18,9 @@ interface AudioPlayerProps {
   isExpanded?: boolean;
   library?: string; // Add library property for path resolution
   docId?: string;
+  sourceDoc?: Document<DocMetadata>; // Source document for deep linking
+  sourceLinkCopied?: string | null; // Source ID that was copied (for visual feedback)
+  onCopySourceLink?: () => void; // Callback when link is copied
 }
 
 // Loading spinner component for visual feedback during audio loading
@@ -32,6 +38,9 @@ export function AudioPlayer({
   isExpanded = false,
   library,
   docId,
+  sourceDoc,
+  sourceLinkCopied,
+  onCopySourceLink,
 }: AudioPlayerProps) {
   const [isLoaded, setIsLoaded] = useState(!lazyLoad);
   const [secureAudioUrl, setSecureAudioUrl] = useState<string | null>(null);
@@ -56,7 +65,7 @@ export function AudioPlayer({
   });
 
   // Function to fetch secure audio URL
-  const fetchSecureAudioUrl = async () => {
+  const fetchSecureAudioUrl = useCallback(async () => {
     if (!src) {
       setUrlError("No audio source provided");
       return;
@@ -77,7 +86,7 @@ export function AudioPlayer({
     } finally {
       setIsLoadingUrl(false);
     }
-  };
+  }, [src, library, docId, audioId]);
 
   // Load secure audio URL when component mounts or when conditions change
   useEffect(() => {
@@ -85,7 +94,7 @@ export function AudioPlayer({
       fetchSecureAudioUrl();
       setIsLoaded(true);
     }
-  }, [lazyLoad, isExpanded, isLoaded, secureAudioUrl, isLoadingUrl, src, library, docId]);
+  }, [lazyLoad, isExpanded, isLoaded, secureAudioUrl, isLoadingUrl, fetchSecureAudioUrl]);
 
   // Pause this audio if another audio starts playing
   useEffect(() => {
@@ -165,6 +174,43 @@ export function AudioPlayer({
     }
   };
 
+  // Local state for link copy feedback
+  const [localLinkCopied, setLocalLinkCopied] = useState(false);
+
+  // Handle copy source link button click
+  const handleCopySourceLink = async () => {
+    if (!docId || !sourceDoc) {
+      return;
+    }
+
+    try {
+      const deepLink = generateSourceDeepLink(docId, sourceDoc);
+      await navigator.clipboard.writeText(deepLink);
+      logEvent("copy_source_link", "Engagement", audioId);
+
+      // Show local feedback immediately
+      setLocalLinkCopied(true);
+
+      // Clear feedback after 1.5 seconds
+      setTimeout(() => {
+        setLocalLinkCopied(false);
+      }, 1500);
+
+      // Notify parent component (for any other purposes)
+      if (onCopySourceLink) {
+        onCopySourceLink();
+      }
+    } catch (error) {
+      console.error("Failed to copy source link:", error);
+      logEvent("copy_source_link_error", "Error", audioId);
+    }
+  };
+
+  // Determine if this source link was copied (for visual feedback)
+  // Use local state for immediate feedback, fallback to parent state
+  const sourceId = sourceDoc ? generateSourceId(sourceDoc) : null;
+  const isLinkCopied = localLinkCopied || sourceLinkCopied === sourceId;
+
   // Determine if controls should be disabled
   const isDisabled = !secureAudioUrl || !!error || !!audioError || !!urlError || isSeeking || isLoadingUrl;
 
@@ -213,16 +259,31 @@ export function AudioPlayer({
         <div className="text-xs">
           {formatTime(currentTime)} / {formatTime(duration)}
         </div>
-        <button
-          onClick={handleDownload}
-          className={`text-gray-500 p-1 rounded-full hover:bg-gray-200 focus:outline-none ${
-            isDisabled ? "opacity-50 cursor-not-allowed" : ""
-          }`}
-          disabled={isDisabled}
-          aria-label="Download audio"
-        >
-          <span className="material-icons text-2xl">download</span>
-        </button>
+        <div className="flex items-center gap-1">
+          {docId && sourceDoc && (
+            <button
+              onClick={handleCopySourceLink}
+              className={`p-1 rounded-full hover:bg-gray-200 focus:outline-none ${
+                isDisabled ? "opacity-50 cursor-not-allowed" : ""
+              } ${isLinkCopied ? "text-black" : "text-gray-500"}`}
+              disabled={isDisabled}
+              aria-label="Copy source link"
+              title="Copy link to this source"
+            >
+              <span className="material-icons text-2xl">{isLinkCopied ? "check" : "link"}</span>
+            </button>
+          )}
+          <button
+            onClick={handleDownload}
+            className={`text-gray-500 p-1 rounded-full hover:bg-gray-200 focus:outline-none ${
+              isDisabled ? "opacity-50 cursor-not-allowed" : ""
+            }`}
+            disabled={isDisabled}
+            aria-label="Download audio"
+          >
+            <span className="material-icons text-2xl">download</span>
+          </button>
+        </div>
       </div>
       <div className="px-2 pb-2">
         <input

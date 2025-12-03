@@ -12,21 +12,23 @@
  * - Only accessible via GET for simplicity
  * - Server-side environment variables are never exposed to the client
  * - Error messages are generic to avoid leaking implementation details
- * - Requires a valid JWT auth cookie for authentication when site config requires login
- *   EXCEPT for certain public endpoints (contact form) that need JWT auth
- *   but don't require user login
+ * - Always issues tokens (authenticated with user info if valid auth cookie present,
+ *   or anonymous without user info if no/invalid auth cookie)
+ * - Authorization decisions are delegated to downstream endpoints (chat API, contact
+ *   form, etc.) which can check if the token contains user info or accept anonymous tokens
+ * - Does NOT trust client-controlled headers (like Referer) for authorization decisions
  */
 
 import { NextApiRequest, NextApiResponse } from "next";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import jwt from "jsonwebtoken";
-import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
+import Cookies from "cookies";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { verifyToken } from "@/utils/server/jwtUtils";
 import { db } from "@/services/firebase";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreGet } from "@/utils/server/firestoreRetryUtils";
-import { PUBLIC_PATHS } from "@/config/publicPaths";
+import { isDevelopment } from "@/utils/env";
 
 /**
  * API handler for the web token endpoint
@@ -52,41 +54,57 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    // Get site config to check if login is required
-    const siteConfig = loadSiteConfigSync();
-    const loginRequired = siteConfig?.requireLogin === true;
+    // Always issue tokens (authenticated or anonymous)
+    // Authorization decisions are made by downstream endpoints (chat API, contact form, etc.)
+    // This endpoint is a token factory, not an authorization gatekeeper
 
-    // Get referer to check if it's a special case
-    const referer = req.headers.referer || "";
+    // TODO: Remove migration bridge after June 2026
+    // Check for both new authToken and legacy auth cookies for migration compatibility
+    const authToken = req.cookies["authToken"];
+    const authJwt = req.cookies["auth"];
 
-    // Use centralized list of public pages that can receive tokens without authentication
-    const publicJwtPaths = PUBLIC_PATHS.alwaysPublicPages;
+    // Prefer authToken, fall back to auth cookie
+    const tokenToVerify = authToken || authJwt;
 
-    // Check if this is a request from a public JWT-only path
-    const isPublicJwtPath = typeof referer === "string" && publicJwtPaths.some((path) => referer.includes(path));
-
-    // Either check authentication if login is required, or skip if it's a public JWT path
-    if (loginRequired && !isPublicJwtPath) {
-      // Only accept JWT auth cookies when requireLogin is true - no legacy siteAuth fallback
-      const authJwt = req.cookies["auth"];
-
-      if (authJwt) {
-        // Verify the JWT token
-        try {
-          const jwtSecret = process.env.SECURE_TOKEN;
-          if (!jwtSecret) {
-            console.error("Missing SECURE_TOKEN environment variable for JWT verification");
-            return res.status(500).json({ error: "Server configuration error" });
-          }
-
-          // Verify the JWT token
-          jwt.verify(authJwt, jwtSecret);
-          // JWT is valid, proceed to token generation
-        } catch (jwtError) {
-          return res.status(401).json({ error: "Invalid authentication" });
+    // If there's an auth cookie, verify and migrate it
+    if (tokenToVerify) {
+      try {
+        const jwtSecret = process.env.SECURE_TOKEN;
+        if (!jwtSecret) {
+          console.error("Missing SECURE_TOKEN environment variable for JWT verification");
+          return res.status(500).json({ error: "Server configuration error" });
         }
-      } else {
-        return res.status(401).json({ error: "Authentication required" });
+
+        // Verify the JWT token with security options
+        jwt.verify(tokenToVerify, jwtSecret, {
+          algorithms: ["HS256"],
+          issuer: "mega-rag-chatbot",
+          audience: "mega-rag-chatbot-users",
+        });
+
+        // TODO: Remove migration bridge after June 2026
+        // Migration: If we have auth cookie but no authToken, migrate it
+        // This is a silent migration - if it fails, continue anyway
+        try {
+          if (authJwt && !authToken && res) {
+            const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
+            const cookies = new Cookies(req, res, { secure: isSecure });
+            cookies.set("authToken", authJwt, {
+              httpOnly: true,
+              secure: isSecure,
+              sameSite: "lax",
+              maxAge: 180 * 24 * 60 * 60 * 1000, // 180 days
+              path: "/",
+            });
+          }
+        } catch (migrationError) {
+          // Silently fail migration - user can still use auth cookie
+          console.warn("Failed to migrate auth cookie to authToken:", migrationError);
+        }
+      } catch (jwtError) {
+        // Invalid auth cookie - continue with anonymous token
+        // Don't block the request, just log it
+        console.warn("Invalid auth cookie in web-token request:", jwtError);
       }
     }
 
@@ -102,8 +120,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       iat: Math.floor(Date.now() / 1000),
     };
 
-    // Check for auth cookie and add user info if present and valid
-    const authCookie = req.cookies?.["auth"];
+    // TODO: Remove migration bridge after June 2026 - only check authToken
+    // Check for authToken or legacy auth cookie and add user info if present and valid
+    const authCookie = req.cookies?.["authToken"] || req.cookies?.["auth"];
     if (authCookie) {
       try {
         const userPayload = verifyToken(authCookie) as any;
@@ -130,7 +149,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Create a JWT token with the conditional payload
     try {
-      const webToken = jwt.sign(payload, process.env.SECURE_TOKEN, { expiresIn: "15m" });
+      const webToken = jwt.sign(payload, process.env.SECURE_TOKEN, {
+        expiresIn: "15m",
+        algorithm: "HS256",
+        issuer: "mega-rag-chatbot",
+        audience: "mega-rag-chatbot-users",
+      });
       return res.status(200).json({ token: webToken });
     } catch (tokenError) {
       console.error("Error creating web token:", tokenError);

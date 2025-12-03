@@ -100,7 +100,7 @@ export default function SetPasswordPage({ siteConfig }: SetPasswordProps) {
           <div className="p-6 bg-white rounded shadow-md max-w-md w-full">
             <h1 className="mb-4 text-2xl font-semibold">Set Your Password</h1>
             <p className="mb-6 text-gray-600">
-              Create a password for faster logins. You can always use magic link login if you prefer.
+              Create a password for faster logins. You can always get a login link if you prefer.
             </p>
 
             <form onSubmit={handleSubmit}>

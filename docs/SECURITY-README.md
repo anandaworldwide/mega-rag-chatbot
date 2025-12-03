@@ -470,7 +470,7 @@ users quickly identify and fix configuration issues.
    - Configure the Expected Site ID in the plugin settings to match your target environment
    - Activate the plugin in WordPress admin
 
-### Security Considerations
+### Token Security Considerations
 
 - Uses the same SECURE_TOKEN already proven secure in your login system
 - JWT tokens are set to expire after 15 minutes
@@ -529,7 +529,7 @@ used.
   - `useAnswers`: Fetches paginated answers with authentication
   - `useVote`: Handles voting on messages
 
-#### How It Works
+#### JWT Authentication Flow
 
 1. **Authentication Flow**:
    - JWTs are issued upon login/authentication or for public endpoint access
@@ -619,7 +619,7 @@ where:
 3. Client still has old JWT with `role: "admin"` until expiration
 4. Client could potentially access admin endpoints until token expires
 
-**Implementation**
+#### Implementation
 
 The system provides two verification functions in `utils/server/authz.ts`:
 
@@ -634,7 +634,7 @@ These functions:
 4. Throw error if role is insufficient
 5. Fall back to JWT role if Firestore lookup fails (defensive programming)
 
-**Endpoints Using Firestore Verification**
+#### Endpoints Using Firestore Verification
 
 Sensitive operations that require Firestore role verification:
 
@@ -655,7 +655,7 @@ Sensitive operations that require Firestore role verification:
 - `/api/admin/pendingUsersCount` - Get pending user count
 - `/api/admin/pendingRequests` - Manage approval requests
 
-**Usage Pattern**
+#### Usage Pattern
 
 ```typescript
 import { requireSuperuserRoleFromFirestore } from "@/utils/server/authz";
@@ -676,7 +676,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 ```
 
-**Security Benefits**
+#### Security Benefits
 
 - **Immediate Effect**: Role changes take effect immediately, not after JWT expiration
 - **Source of Truth**: Firestore is the authoritative source for user roles
@@ -684,7 +684,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 - **Audit Trail**: All role checks are logged for security monitoring
 - **Prevents Privilege Escalation**: Compromised admin accounts cannot access superuser endpoints
 
-**Performance Considerations**
+#### Performance Considerations
 
 - Firestore lookups add ~50-100ms latency per request
 - Acceptable trade-off for sensitive operations
@@ -919,6 +919,60 @@ try {
 - Validate UTF-8 encoding for international characters
 - Prevent email header injection by sanitizing newlines
 
+### Subprocess Execution Best Practices
+
+#### Preventing Command Injection in Python Scripts
+
+**Critical Rule**: Never use `shell=True` with variable interpolation in subprocess calls. This creates critical command
+injection vulnerabilities (RCE - Remote Code Execution).
+
+**Why**: When `shell=True` is used with string interpolation, user-controlled or external data can be injected into
+shell commands, allowing attackers to execute arbitrary commands.
+
+**Implementation Pattern**:
+
+```python
+import subprocess
+import shlex
+
+# ❌ WRONG: Command injection vulnerability
+username = user_input  # Could be "admin; rm -rf /"
+subprocess.run(f"mysql -u {username} -p", shell=True)  # DANGEROUS!
+
+# ✅ CORRECT: List-based subprocess call (no shell)
+subprocess.run(["mysql", "-u", username, "-p", db_name], shell=False)
+
+# ✅ CORRECT: For command strings, use shlex.split() to safely parse
+cmd_string = f"vercel ls {project}"
+cmd_list = shlex.split(cmd_string) if isinstance(cmd_string, str) else cmd_string
+subprocess.run(cmd_list, shell=False)
+
+# ✅ CORRECT: For file redirection, use stdin parameter
+with open(sql_file, encoding="utf-8") as f:
+    subprocess.run(["mysql", "-u", username, "-p", db_name], stdin=f, text=True, check=True)
+```
+
+**Best Practices**:
+
+- **Always use `shell=False`**: Prevents shell interpretation of special characters
+- **Use list form for subprocess calls**: `subprocess.run(["command", "arg1", "arg2"], shell=False)`
+- **For command strings**: Use `shlex.split()` to safely parse command strings into lists
+- **For file redirection**: Use `stdin` parameter instead of shell redirection (`<`, `>`)
+- **For pipes**: Use `subprocess.Popen` with proper argument lists, not shell pipes
+- **Never interpolate variables into shell strings**: Always use list form with separate arguments
+- **Validate inputs**: Even with `shell=False`, validate inputs before passing to subprocess
+
+**Verification**:
+
+- Run `grep -r "shell=True" --include="*.py"` - should return zero results
+- Review all subprocess calls to ensure they use list form
+- Test with malicious inputs (e.g., `"; rm -rf /"`) to verify injection prevention
+
+**Files Fixed**:
+
+- `data_ingestion/sql_to_vector_db/process_anandalib_dump.py` - Converted MySQL commands to list form
+- `bin/cancel-other-deployments.py` - Added `shlex.split()` for safe command parsing
+
 ### Rate Limiting Best Practices
 
 #### Consistent Rate Limiting
@@ -1076,6 +1130,124 @@ if (isDevelopment()) {
 }
 ```
 
+### SSRF Protection Best Practices
+
+#### Server-Side Request Forgery Prevention
+
+**Critical Rule**: Always validate URLs before making server-side HTTP requests to prevent SSRF attacks.
+
+**Why**: SSRF attacks allow attackers to make the server request arbitrary URLs, potentially accessing internal
+services, cloud metadata endpoints, or external resources.
+
+**Implementation Pattern**:
+
+```typescript
+import { safeFetch, validateUrlForSSRF } from "@/utils/server/ssrfProtection";
+
+// ✅ CORRECT: Use safeFetch for all external requests
+const response = await safeFetch(url, {
+  method: "GET",
+  headers: { "User-Agent": "AnandaBot/1.0" },
+});
+
+// ✅ CORRECT: Validate URLs before constructing fetch calls
+const validation = validateUrlForSSRF(userProvidedUrl);
+if (!validation.isValid) {
+  return res.status(400).json({ error: validation.error });
+}
+```
+
+**Features**:
+
+- **Domain Whitelist**: Only pre-approved domains can be accessed
+- **Private IP Blocking**: Blocks access to private/internal IP ranges (10.x.x.x, 192.168.x.x, etc.)
+- **Protocol Validation**: Only HTTP and HTTPS protocols allowed
+- **IP Address Protection**: IP addresses must be explicitly whitelisted
+- **Configurable Domains**: Additional domains via `SSRF_ALLOWED_DOMAINS` environment variable
+
+**Default Allowed Domains**:
+
+- `maps.googleapis.com` - Google Maps API
+- `www.googleapis.com` - Google APIs
+- `www.google-analytics.com` - Google Analytics
+- `analytics.google.com` - Google Analytics
+
+**Adding Custom Domains**:
+
+Set `SSRF_ALLOWED_DOMAINS` environment variable (comma-separated):
+
+```bash
+SSRF_ALLOWED_DOMAINS=api.example.com,cdn.example.com
+```
+
+**Best Practices**:
+
+- Always use `safeFetch()` instead of raw `fetch()` for external URLs
+- Validate URLs from environment variables before use
+- Log blocked SSRF attempts for security monitoring
+- Never trust user-provided URLs without validation
+- Use domain whitelist approach, not blacklist
+
+**Applied To**:
+
+- `/api/cron/download-locations` - Location data downloads
+- Google Maps API calls in location services
+- All external HTTP/HTTPS requests
+
+### Content Security Policy (CSP) Best Practices
+
+#### CSP Configuration
+
+**Current Implementation**: CSP headers with nonce support and tightened directives.
+
+**Key Features**:
+
+- **Nonce Support**: Generated nonces for inline scripts (Next.js compatible)
+- **Tightened connect-src**: Only specific domains allowed for API calls
+- **Upgrade Insecure Requests**: Forces HTTPS for all resources
+- **Strict Default Policy**: `default-src 'self'` as baseline
+
+**CSP Directives**:
+
+```typescript
+// Current CSP configuration
+default-src 'self';
+script-src 'self' 'nonce-{nonce}' 'unsafe-inline' 'unsafe-eval' ...;
+connect-src 'self' https://www.google-analytics.com ...;
+style-src 'self' 'unsafe-inline' ...;
+```
+
+**Why `unsafe-inline` and `unsafe-eval`**:
+
+- **`unsafe-inline`**: Required for Tailwind CSS and CSS-in-JS libraries
+- **`unsafe-eval`**: Required for Next.js development mode and some React features
+- Nonces are used where possible to reduce reliance on `unsafe-inline`
+
+**Tightened `connect-src`**:
+
+Only allows connections to:
+
+- `'self'` - Same origin
+- `https://www.google-analytics.com` - Analytics
+- `https://analytics.google.com` - Analytics
+- `https://*.google-analytics.com` - Analytics subdomains
+- `https://maps.googleapis.com` - Google Maps API
+- `https://www.googleapis.com` - Google APIs
+
+**Best Practices**:
+
+- Review CSP violations in browser console regularly
+- Add specific domains to `connect-src` as needed (not wildcards)
+- Use nonces for inline scripts when possible
+- Monitor CSP reports for security issues
+- Test CSP changes in staging before production
+
+**Future Improvements**:
+
+- Consider removing `unsafe-eval` in production builds (if Next.js allows)
+- Use strict-dynamic for script-src when possible
+- Implement CSP reporting endpoint for violation monitoring
+
 ### Security Checklist for New Endpoints
 
 When creating a new API endpoint, ensure:
@@ -1085,6 +1257,7 @@ When creating a new API endpoint, ensure:
 - [ ] **Authorization**: Proper role checks (Firestore verification for sensitive ops)
 - [ ] **Error Handling**: Safe error messages (no sensitive info leakage)
 - [ ] **CORS**: Credentials only set when origin is verified
+- [ ] **SSRF Protection**: Use `safeFetch()` for all external requests
 - [ ] **Logging**: Security events logged with context
 - [ ] **IP Handling**: Proper IP extraction and sanitization
 - [ ] **Testing**: Security tests included in test suite
@@ -1109,3 +1282,4 @@ When creating a new API endpoint, ensure:
 - Audit authorization checks annually
 - Update dependencies for security patches
 - Review error handling patterns for new vulnerabilities
+- Review and update SSRF domain whitelist as needed

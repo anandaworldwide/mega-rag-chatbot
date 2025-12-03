@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext } from "react";
+import React, { createContext, useState, useEffect, useContext, useCallback } from "react";
 import { fetchWithAuth } from "@/utils/client/tokenManager";
 
 interface SudoContextType {
@@ -16,7 +16,7 @@ export const SudoProvider: React.FC<{ children: React.ReactNode; disableChecks?:
   const [isSudoUser, setIsSudoUser] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const checkSudoStatus = async () => {
+  const checkSudoStatus = useCallback(async () => {
     try {
       // Early return: Skip sudo checks entirely if disabled (role-based auth sites)
       if (disableChecks) {
@@ -50,6 +50,18 @@ export const SudoProvider: React.FC<{ children: React.ReactNode; disableChecks?:
         } else {
           setErrorMessage(null);
         }
+      } else if (response.status === 400) {
+        // 400 indicates sudo API is not available (e.g., login-required site)
+        // This is expected and not an error - just set sudo to false
+        const data = await response.json().catch(() => ({}));
+        if (data.error?.includes("login-required")) {
+          setIsSudoUser(false);
+          setErrorMessage(null);
+          return; // Early return - this is expected behavior
+        }
+        // Other 400 errors
+        setIsSudoUser(false);
+        setErrorMessage(null);
       } else if (response.status === 401) {
         // 401 is expected for anonymous users - don't treat as an error
         setIsSudoUser(false);
@@ -76,11 +88,11 @@ export const SudoProvider: React.FC<{ children: React.ReactNode; disableChecks?:
         setErrorMessage("Error checking admin privileges");
       }
     }
-  };
+  }, [disableChecks]);
 
   useEffect(() => {
     checkSudoStatus();
-  }, []);
+  }, [checkSudoStatus]);
 
   return <SudoContext.Provider value={{ isSudoUser, errorMessage, checkSudoStatus }}>{children}</SudoContext.Provider>;
 };

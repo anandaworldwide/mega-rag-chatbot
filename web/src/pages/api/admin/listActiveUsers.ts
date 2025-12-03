@@ -15,9 +15,11 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { db } from "@/services/firebase";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { withJwtAuth } from "@/utils/server/jwtUtils";
+import { requireAdminRoleFromFirestore } from "@/utils/server/authz";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
+import { formatFullName } from "@/utils/shared/nameUtils";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Apply rate limiting
@@ -30,6 +32,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method !== "GET") {
     return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  // Critical security fix – verify admin role from Firestore (source of truth)
+  // Prevents stale JWT admin roles from granting access after revocation
+  try {
+    await requireAdminRoleFromFirestore(req);
+  } catch (error) {
+    return res.status(403).json({ error: "Unauthorized: Admin privileges required" });
   }
 
   if (!db) return res.status(503).json({ error: "Database not available" });
@@ -47,11 +57,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     // Helper function to get display name
     const getDisplayName = (user: any) => {
-      const firstName = user.firstName?.trim() || "";
-      const lastName = user.lastName?.trim() || "";
-      if (firstName && lastName) return `${firstName} ${lastName}`;
-      if (firstName) return firstName;
-      if (lastName) return lastName;
+      const fullName = formatFullName(user.firstName, user.lastName);
+      if (fullName) return fullName;
       return user.email || ""; // Use email field (which contains document ID)
     };
 

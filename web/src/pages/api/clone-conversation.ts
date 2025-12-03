@@ -63,7 +63,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     } else {
       // For non-login sites, get UUID from cookies
-      const uuidResult = getSecureUUID(req);
+      const uuidResult = getSecureUUID(req, res);
       if (!uuidResult.success) {
         return res.status(uuidResult.statusCode).json({ error: uuidResult.error });
       }

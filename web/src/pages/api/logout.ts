@@ -17,7 +17,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (req.method === "POST") {
     const cookies = new Cookies(req, res);
-    cookies.set("siteAuth", "", {
+    // TODO: Remove migration bridge after June 2026 - only clear authToken
+    // Clear both new and legacy auth cookies
+    cookies.set("authToken", "", {
       expires: new Date(0),
       path: "/",
     });
@@ -25,6 +27,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       expires: new Date(0),
       path: "/",
     });
+    // Clear legacy isLoggedIn cookie during migration bridge
     cookies.set("isLoggedIn", "", {
       expires: new Date(0),
       path: "/",
