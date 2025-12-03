@@ -42,7 +42,7 @@ certifi==2025.4.26
     # via
     #   httpcore
     #   httpx
-    #   pinecone-client
+    #   pinecone
     #   requests
 cffi==1.17.1
     # via cryptography
@@ -236,7 +236,7 @@ jsonpointer==3.0.0
     # via jsonpatch
 kiwisolver==1.4.8
     # via matplotlib
-langchain-core==0.3.79
+langchain-core==0.3.80
     # via
     #   -r requirements.in
     #   langchain-openai
@@ -328,7 +328,9 @@ openpyxl==3.1.5
 optimum==1.25.3
     # via -r requirements.in
 orjson==3.10.18
-    # via langsmith
+    # via
+    #   langsmith
+    #   pinecone
 packaging==24.2
     # via
     #   huggingface-hub
@@ -337,6 +339,7 @@ packaging==24.2
     #   matplotlib
     #   onnxruntime
     #   optimum
+    #   pinecone-plugin-assistant
     #   pipdeptree
     #   pytest
     #   spacy
@@ -357,15 +360,14 @@ pillow==11.3.0
     #   matplotlib
     #   pdfplumber
     #   reportlab
-pinecone-client==5.0.1
+pinecone==8.0.0
     # via -r requirements.in
-pinecone-plugin-inference==1.1.0
-    # via pinecone-client
+pinecone-plugin-assistant==3.0.1
+    # via pinecone
 pinecone-plugin-interface==0.0.7
     # via
     #   -r requirements.in
-    #   pinecone-client
-    #   pinecone-plugin-inference
+    #   pinecone
 pipdeptree==2.26.1
     # via -r requirements.in
 playwright==1.52.0
@@ -452,6 +454,7 @@ python-dateutil==2.9.0.post0
     #   botocore
     #   matplotlib
     #   pandas
+    #   pinecone
 python-dotenv==1.1.0
     # via -r requirements.in
 pytz==2024.1
@@ -482,6 +485,7 @@ requests==2.32.5
     #   huggingface-hub
     #   langsmith
     #   moviepy
+    #   pinecone-plugin-assistant
     #   requests-toolbelt
     #   spacy
     #   tiktoken
@@ -563,7 +567,6 @@ tqdm==4.67.1
     #   moviepy
     #   nltk
     #   openai
-    #   pinecone-client
     #   proglog
     #   spacy
     #   transformers
@@ -588,7 +591,7 @@ typing-extensions==4.14.0
     #   langchain-core
     #   onnx
     #   openai
-    #   pinecone-client
+    #   pinecone
     #   pydantic
     #   pydantic-core
     #   pyee
@@ -603,7 +606,7 @@ urllib3==2.5.0
     # via
     #   -r requirements.in
     #   botocore
-    #   pinecone-client
+    #   pinecone
     #   requests
     #   types-requests
 wasabi==1.1.3
