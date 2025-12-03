@@ -40,6 +40,59 @@ def mock_embedding_model():
         yield
 
 
+@pytest.fixture(autouse=True)
+def mock_tiktoken(mocker):
+    """Mock tiktoken to speed up tests - real tokenization is expensive.
+
+    This mock approximates tiktoken behavior:
+    - ~1.3 tokens per word (typical for English text)
+    - encode() returns token IDs
+    - decode() reconstructs text from IDs
+    """
+    # Cache for text -> token mapping to make decode() work properly
+    _token_cache = {}
+    _next_id = [0]
+
+    def mock_encode(text):
+        if not text or not text.strip():
+            return []
+        # Split on whitespace and punctuation to approximate tiktoken
+        import re
+
+        # Simple tokenization: split words and keep punctuation separate
+        tokens = re.findall(r"\w+|[^\w\s]", text)
+        # Store mapping for decode
+        token_ids = []
+        for token in tokens:
+            if token not in _token_cache:
+                _token_cache[token] = _next_id[0]
+                _next_id[0] += 1
+            token_ids.append(_token_cache[token])
+        return token_ids
+
+    def mock_decode(ids):
+        if not ids:
+            return ""
+        # Reverse lookup
+        id_to_token = {v: k for k, v in _token_cache.items()}
+        tokens = [id_to_token.get(i, "?") for i in ids]
+        # Reconstruct with proper spacing (no space before punctuation)
+        result = []
+        for i, token in enumerate(tokens):
+            if i > 0 and token not in ".,!?;:)]}'\"" and result[-1] not in "([{\"'":
+                result.append(" ")
+            result.append(token)
+        return "".join(result)
+
+    mock_encoding = mocker.MagicMock()
+    mock_encoding.encode = mock_encode
+    mock_encoding.decode = mock_decode
+    mocker.patch(
+        "data_ingestion.utils.text_splitter_utils.tiktoken.encoding_for_model",
+        return_value=mock_encoding,
+    )
+
+
 @pytest.fixture
 def text_splitter():
     return SpacyTextSplitter()
