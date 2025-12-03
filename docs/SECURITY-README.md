@@ -470,7 +470,7 @@ users quickly identify and fix configuration issues.
    - Configure the Expected Site ID in the plugin settings to match your target environment
    - Activate the plugin in WordPress admin
 
-### Security Considerations
+### Token Security Considerations
 
 - Uses the same SECURE_TOKEN already proven secure in your login system
 - JWT tokens are set to expire after 15 minutes
@@ -529,7 +529,7 @@ used.
   - `useAnswers`: Fetches paginated answers with authentication
   - `useVote`: Handles voting on messages
 
-#### How It Works
+#### JWT Authentication Flow
 
 1. **Authentication Flow**:
    - JWTs are issued upon login/authentication or for public endpoint access
@@ -619,7 +619,7 @@ where:
 3. Client still has old JWT with `role: "admin"` until expiration
 4. Client could potentially access admin endpoints until token expires
 
-**Implementation**
+#### Implementation
 
 The system provides two verification functions in `utils/server/authz.ts`:
 
@@ -634,7 +634,7 @@ These functions:
 4. Throw error if role is insufficient
 5. Fall back to JWT role if Firestore lookup fails (defensive programming)
 
-**Endpoints Using Firestore Verification**
+#### Endpoints Using Firestore Verification
 
 Sensitive operations that require Firestore role verification:
 
@@ -655,7 +655,7 @@ Sensitive operations that require Firestore role verification:
 - `/api/admin/pendingUsersCount` - Get pending user count
 - `/api/admin/pendingRequests` - Manage approval requests
 
-**Usage Pattern**
+#### Usage Pattern
 
 ```typescript
 import { requireSuperuserRoleFromFirestore } from "@/utils/server/authz";
@@ -676,7 +676,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 }
 ```
 
-**Security Benefits**
+#### Security Benefits
 
 - **Immediate Effect**: Role changes take effect immediately, not after JWT expiration
 - **Source of Truth**: Firestore is the authoritative source for user roles
@@ -684,7 +684,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 - **Audit Trail**: All role checks are logged for security monitoring
 - **Prevents Privilege Escalation**: Compromised admin accounts cannot access superuser endpoints
 
-**Performance Considerations**
+#### Performance Considerations
 
 - Firestore lookups add ~50-100ms latency per request
 - Acceptable trade-off for sensitive operations
