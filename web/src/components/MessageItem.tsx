@@ -357,9 +357,10 @@ const MessageItem: React.FC<MessageItemProps> = ({
                       ))}
 
                     {/* Compare with Alternate AI button - only show on last answer if handler provided and not already regenerating */}
-                    {!readOnly && onTryGPT41 && !isRegenerating && isLastMessage && (
+                    {/* Temporarily hidden - feature code kept intact for future use */}
+                    {false && !readOnly && onTryGPT41 && !isRegenerating && isLastMessage && (
                       <button
-                        onClick={() => onTryGPT41(index)}
+                        onClick={() => onTryGPT41!(index)}
                         className="flex items-center space-x-1 px-3 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-blue-500 text-white text-sm hover:from-purple-600 hover:to-blue-600 transition-all h-8"
                         title="See an alternate answer from a different AI model"
                       >
