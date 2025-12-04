@@ -712,4 +712,83 @@ describe("CopyButton", () => {
       '<a href="https://ananda-chatbot.s3.us-west-1.amazonaws.com/public/audio/treasures/Thumb%20drive%20from%20Krishna%207-2024/MP3%202017/sp-marriage-8-2-80.mp3">Spiritual Marriage & Family 8/2/80</a> (Treasures) → 31:11'
     );
   });
+
+  describe("temporary session handling", () => {
+    it("should include temporary chat annotation and exclude 'From:' link section for temporary sessions", async () => {
+      const temporarySessionProps = {
+        ...mockProps,
+        temporarySession: true,
+        siteConfig: mockSiteConfig,
+      };
+
+      const { getByTitle } = render(<CopyButton {...temporarySessionProps} />);
+      const button = getByTitle("Copy answer to clipboard");
+
+      await act(async () => {
+        fireEvent.click(button);
+      });
+
+      expect(mockedCopyTextToClipboard).toHaveBeenCalled();
+      const callHtml = mockedCopyTextToClipboard.mock.calls[0][0];
+
+      // Should contain temporary chat annotation
+      expect(callHtml).toContain("<em>Note: This is from a temporary chat session.</em>");
+
+      // Should NOT contain "From:" section with link (showdown adds id attribute)
+      expect(callHtml).not.toContain('<h3 id="from">From:</h3>');
+      expect(callHtml).not.toContain("https://test.com/share/123");
+      expect(callHtml).not.toContain("(Test Site)");
+    });
+
+    it("should include 'From:' link section for regular (non-temporary) sessions", async () => {
+      const regularSessionProps = {
+        ...mockProps,
+        temporarySession: false,
+        siteConfig: mockSiteConfig,
+      };
+
+      const { getByTitle } = render(<CopyButton {...regularSessionProps} />);
+      const button = getByTitle("Copy answer to clipboard");
+
+      await act(async () => {
+        fireEvent.click(button);
+      });
+
+      expect(mockedCopyTextToClipboard).toHaveBeenCalled();
+      const callHtml = mockedCopyTextToClipboard.mock.calls[0][0];
+
+      // Should NOT contain temporary chat annotation
+      expect(callHtml).not.toContain("temporary chat session");
+
+      // Should contain "From:" section with link (showdown adds id attribute)
+      expect(callHtml).toContain('<h3 id="from">From:</h3>');
+      expect(callHtml).toContain("https://test.com/share/123");
+      expect(callHtml).toContain("(Test Site)");
+    });
+
+    it("should default to regular session behavior when temporarySession is not provided", async () => {
+      const defaultProps = {
+        ...mockProps,
+        siteConfig: mockSiteConfig,
+        // temporarySession not provided, should default to false
+      };
+
+      const { getByTitle } = render(<CopyButton {...defaultProps} />);
+      const button = getByTitle("Copy answer to clipboard");
+
+      await act(async () => {
+        fireEvent.click(button);
+      });
+
+      expect(mockedCopyTextToClipboard).toHaveBeenCalled();
+      const callHtml = mockedCopyTextToClipboard.mock.calls[0][0];
+
+      // Should NOT contain temporary chat annotation
+      expect(callHtml).not.toContain("temporary chat session");
+
+      // Should contain "From:" section with link (showdown adds id attribute)
+      expect(callHtml).toContain('<h3 id="from">From:</h3>');
+      expect(callHtml).toContain("https://test.com/share/123");
+    });
+  });
 });

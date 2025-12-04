@@ -35,9 +35,17 @@ interface CopyButtonProps {
   sources?: Document<DocMetadata>[];
   question: string;
   siteConfig: SiteConfig | null;
+  temporarySession?: boolean;
 }
 
-const CopyButton: React.FC<CopyButtonProps> = ({ markdown, answerId, sources, question, siteConfig }) => {
+const CopyButton: React.FC<CopyButtonProps> = ({
+  markdown,
+  answerId,
+  sources,
+  question,
+  siteConfig,
+  temporarySession = false,
+}) => {
   const [copied, setCopied] = React.useState(false);
 
   const convertMarkdownToHtml = (markdown: string): string => {
@@ -134,12 +142,18 @@ const CopyButton: React.FC<CopyButtonProps> = ({ markdown, answerId, sources, qu
       contentToCopy += "\n\n### Sources\n" + (await formatSources(sources));
     }
 
-    const truncatedQuestion = truncateQuestion(question);
-    const siteName = getSiteName(siteConfig);
-    contentToCopy +=
-      `\n\n### From:\n\n[${truncatedQuestion}](` +
-      `${process.env.NEXT_PUBLIC_BASE_URL}/share/${answerId}` +
-      `) (${siteName})`;
+    // Add temporary chat annotation if applicable
+    if (temporarySession) {
+      contentToCopy += `\n\n*Note: This is from a temporary chat session.*`;
+      // Temporary chats are not stored, so no link is available
+    } else {
+      // For regular sessions, add the "From:" link section
+      const truncatedQuestion = truncateQuestion(question);
+      const siteName = getSiteName(siteConfig);
+      const shareUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/share/${answerId}`;
+      contentToCopy += `\n\n### From:\n\n[${truncatedQuestion}](${shareUrl}) (${siteName})`;
+    }
+
     const htmlContent = convertMarkdownToHtml(contentToCopy);
     await copyTextToClipboard(htmlContent, true);
     setCopied(true);

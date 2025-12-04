@@ -315,6 +315,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
                   sources={message.sourceDocs}
                   question={previousMessage?.message ?? ""}
                   siteConfig={siteConfig}
+                  temporarySession={temporarySession}
                 />
 
                 {/* Link and vote buttons - always visible after loading, but disabled until docId available */}
