@@ -12,7 +12,9 @@ export interface ChatHistoryItem {
   convId?: string;
   title?: string; // AI-generated title
   sources?: string; // JSON string of source documents
-  suggestions?: string[]; // Follow-up question suggestions
+  suggestions?:
+    | string[]
+    | Array<{ id: string; text: string; type: "deeper" | "broader"; sourceDocId?: string; score?: number }>; // Follow-up question suggestions (legacy string[] or typed)
   restatedQuestion?: string; // AI-generated restated question for better context
   isStarred?: boolean; // Star state for this conversation
 }

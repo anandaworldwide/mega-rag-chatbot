@@ -48,6 +48,7 @@ import { toast } from "react-toastify";
 
 import { ExtendedAIMessage } from "@/types/ExtendedAIMessage";
 import { StreamingResponseData } from "@/types/StreamingResponseData";
+import { TypedSuggestion } from "@/types/Suggestion";
 import { SudoProvider, useSudo } from "@/contexts/SudoContext";
 import { fetchWithAuth } from "@/utils/client/tokenManager";
 import { getOrCreateUUID } from "@/utils/client/uuid";
@@ -1218,6 +1219,10 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     // Reset accumulated response at the start of each new query
     accumulatedResponseRef.current = "";
 
+    // Check if this is the second question or later (more than 2 messages = greeting + first Q&A)
+    const isSecondQuestionOrLater = messageState.messages.length > 2;
+    const newUserMessageIndex = messageState.messages.length;
+
     // Add user message to the state
     setMessageState((prevState) => ({
       ...prevState,
@@ -1233,6 +1238,19 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       ],
       history: [...prevState.history, { role: "user", content: submittedQuery }, { role: "assistant", content: "" }],
     }));
+
+    // Scroll to the new user message if it's the second question or later
+    if (isSecondQuestionOrLater) {
+      // Use requestAnimationFrame + setTimeout to ensure the DOM has updated with the new message
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          const userMessageElement = userMessageRefs.current.get(newUserMessageIndex);
+          if (userMessageElement) {
+            userMessageElement.scrollIntoView({ behavior: "smooth", block: "start" });
+          }
+        }, 100);
+      });
+    }
 
     // Clear the input
     setQuery("");
@@ -1332,12 +1350,36 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   };
 
   // Function to handle suggestion pill clicks
-  const handleSuggestionClick = (suggestion: string) => {
-    // Track suggestion pill click in Google Analytics
-    logEvent("suggestion_pill_click", "Engagement", suggestion);
+  const handleSuggestionClick = async (suggestion: TypedSuggestion, position: number) => {
+    // Track suggestion pill click in Google Analytics with type information
+    // Label includes type prefix (deeper|broader) to enable filtering and comparison
+    // Value is the position (0-indexed) within the lane
+    logEvent("suggestion_pill_click", "Engagement", `${suggestion.type}:${suggestion.text}`, position);
+
+    // Log interaction to backend
+    if (currentConvIdRef.current) {
+      try {
+        await fetchWithAuth("/api/suggestions/interact", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            convId: currentConvIdRef.current,
+            suggestionId: suggestion.id,
+            type: suggestion.type,
+            position,
+          }),
+        });
+      } catch (error) {
+        console.error("Failed to log suggestion interaction:", error);
+        // Don't block user action if logging fails
+      }
+    }
 
     // Submit the suggestion as a new question
-    handleSubmit(new Event("submit") as unknown as React.FormEvent, suggestion);
+    handleSubmit(new Event("submit") as unknown as React.FormEvent, suggestion.text);
   };
 
   // State for categorized queries
@@ -2679,6 +2721,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                     setSourceCount={setSourceCount}
                     onTemporarySessionChange={handleTemporarySessionChange}
                     categorizedQueries={categorizedQueries}
+                    shouldShowSuggestions={shouldShowSuggestions}
                   />
                 )}
               </div>

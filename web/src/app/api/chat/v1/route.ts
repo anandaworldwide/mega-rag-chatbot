@@ -369,7 +369,7 @@ async function saveOrUpdateDocument(
   restatedQuestion: string,
   uuid?: string | undefined,
   convId?: string | undefined, // Accept convId from frontend
-  suggestions?: string[] // Accept suggestions for saving
+  suggestions?: Array<{ id: string; text: string; type: "deeper" | "broader"; sourceDocId?: string; score?: number }> // Accept typed suggestions for saving
 ): Promise<string | null> {
   if (!db) {
     return null;
@@ -382,6 +382,26 @@ async function saveOrUpdateDocument(
   // Sanitize originalQuestion before saving to prevent XSS/injection in stored data
   // Note: We keep originalQuestion for display, but sanitize before storage
   const sanitizedOriginalQuestion = sanitizeForLogging(originalQuestion, 4000);
+
+  // Sanitize suggestions: remove undefined values (Firestore doesn't accept undefined)
+  const sanitizedSuggestions = suggestions
+    ? suggestions.map((s) => {
+        const sanitized: any = {
+          id: s.id,
+          text: s.text,
+          type: s.type,
+        };
+        // Only include optional fields if they're defined
+        if (s.sourceDocId !== undefined) {
+          sanitized.sourceDocId = s.sourceDocId;
+        }
+        if (s.score !== undefined) {
+          sanitized.score = s.score;
+        }
+        return sanitized;
+      })
+    : [];
+
   const dataToSave = {
     question: sanitizedOriginalQuestion,
     answer: fullResponse,
@@ -395,7 +415,7 @@ async function saveOrUpdateDocument(
     restatedQuestion: restatedQuestion,
     uuid: uuid || null, // legacy DB rows may be null; new writes always provide uuid
     convId: finalConvId, // Add conversation ID for grouping
-    suggestions: suggestions || [], // Save follow-up suggestions
+    suggestions: sanitizedSuggestions, // Save follow-up suggestions (typed, with undefined values removed)
   };
 
   try {

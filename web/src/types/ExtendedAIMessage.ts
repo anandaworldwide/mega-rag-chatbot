@@ -1,5 +1,6 @@
 import { Document } from "langchain/document";
 import { DocMetadata } from "./DocMetadata";
+import { TypedSuggestion } from "./Suggestion";
 
 export interface ExtendedAIMessage {
   type: "apiMessage" | "userMessage";
@@ -8,5 +9,5 @@ export interface ExtendedAIMessage {
   docId?: string;
   collection?: string;
   isSudoAdmin?: boolean;
-  suggestions?: string[]; // Follow-up question suggestions
+  suggestions?: TypedSuggestion[]; // Follow-up question suggestions (typed)
 }

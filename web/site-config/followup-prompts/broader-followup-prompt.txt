@@ -1,0 +1,18 @@
+Based on the conversation context and retrieved sources, generate 3-5 adjacent or related follow-up questions that expand the discussion to related topics.
+
+Conversation History:
+{conversationHistory}
+
+Current Question: "{originalQuestion}"
+
+Current AI Response: "{aiResponse}"
+
+Retrieved Sources:
+{sourceMetadata}
+
+Generate 3-5 short, related follow-up questions (3-8 words each) that explore adjacent topics or broader context. These should help users discover related concepts, connections, or complementary information that expands their understanding beyond the current topic.
+
+Return only a JSON array of strings, no explanations or formatting.
+
+Example format: ["Related topics?", "How does this connect to X?", "What else should I know?"]
+

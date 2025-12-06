@@ -11,6 +11,7 @@ import CopyButton from "@/components/CopyButton";
 import { SiteConfig } from "@/types/siteConfig";
 import { ExtendedAIMessage } from "@/types/ExtendedAIMessage";
 import SuggestionPills from "@/components/SuggestionPills";
+import { TypedSuggestion } from "@/types/Suggestion";
 
 import { useSudo } from "@/contexts/SudoContext";
 import { Components } from "react-markdown";
@@ -34,7 +35,7 @@ interface MessageItemProps {
   voteError?: string | null;
   allowAllAnswersPage: boolean;
   showSourcesBelow?: boolean;
-  onSuggestionClick?: (suggestion: string) => void;
+  onSuggestionClick?: (suggestion: TypedSuggestion, position: number) => void;
   readOnly?: boolean; // New prop to disable interactive elements
   onTryGPT41?: (messageIndex: number) => void; // New prop for regenerating with GPT-4.1
   isRegenerating?: boolean; // Track if this message is being regenerated
@@ -285,15 +286,6 @@ const MessageItem: React.FC<MessageItemProps> = ({
             )}
             {showSourcesBelow && renderSources()}
 
-            {/* Follow-up question suggestions - only for AI messages */}
-            {!readOnly && message.type === "apiMessage" && message.suggestions && message.suggestions.length > 0 && (
-              <SuggestionPills
-                suggestions={message.suggestions}
-                onSuggestionClick={onSuggestionClick || (() => {})}
-                loading={loading}
-              />
-            )}
-
             {/* Action buttons for AI messages */}
             {message.type === "apiMessage" && index !== 0 && (!loading || !isLastMessage) && (
               <div className="mt-2 flex items-center space-x-2">
@@ -379,6 +371,15 @@ const MessageItem: React.FC<MessageItemProps> = ({
                   </>
                 )}
               </div>
+            )}
+
+            {/* Follow-up question suggestions - only for AI messages, below action buttons */}
+            {!readOnly && message.type === "apiMessage" && message.suggestions && message.suggestions.length > 0 && (
+              <SuggestionPills
+                suggestions={message.suggestions}
+                onSuggestionClick={onSuggestionClick || (() => {})}
+                loading={loading}
+              />
             )}
           </div>
         )}

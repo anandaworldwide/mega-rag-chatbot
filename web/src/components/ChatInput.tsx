@@ -68,6 +68,7 @@ interface ChatInputProps {
   setSourceCount: (count: number) => void;
   onTemporarySessionChange?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   categorizedQueries?: { general: string[]; location: string[]; resources: string[] } | null;
+  shouldShowSuggestions?: boolean; // Hide suggestions after first question
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
@@ -99,6 +100,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   sourceCount,
   setSourceCount,
   categorizedQueries,
+  shouldShowSuggestions = true,
 }) => {
   // State variables for managing component behavior
   const [, setLocalQuery] = useState<string>("");
@@ -363,7 +365,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   };
 
   // Get configuration options from siteConfig
-  const showSuggestedQueries = getEnableSuggestedQueries(siteConfig);
+  const showSuggestedQueries = getEnableSuggestedQueries(siteConfig) && shouldShowSuggestions;
 
   // Function to handle clicking on a suggested query
   const onQueryClick = (q: string) => {

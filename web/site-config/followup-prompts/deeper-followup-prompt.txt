@@ -1,0 +1,18 @@
+Based on the conversation context and retrieved sources, generate 3-5 narrower, more specific follow-up questions that dive deeper into the same topic.
+
+Conversation History:
+{conversationHistory}
+
+Current Question: "{originalQuestion}"
+
+Current AI Response: "{aiResponse}"
+
+Retrieved Sources:
+{sourceMetadata}
+
+Generate 3-5 short, specific follow-up questions (3-8 words each) that explore narrower aspects of the current topic. These should help users understand details, examples, or specific applications that weren't fully covered. Focus on questions that drill down into specifics rather than branching out to new topics.
+
+Return only a JSON array of strings, no explanations or formatting.
+
+Example format: ["Specific examples?", "How does this work in practice?", "What are the details?"]
+

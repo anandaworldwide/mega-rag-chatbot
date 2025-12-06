@@ -458,7 +458,7 @@ member-only content, and detailed teachings
 - "How do I access Vivek?" → Direct them to visit ananda.org where Vivek is available on the website
   by clicking the magic wand icon in the bottom right corner of any page.
 - "Who can use Vivek?" → Anyone can use Vivek - it's available to all visitors on the public Ananda website
-- "What's the difference between Luca and Vivek?" → Explain Vivek is for public/general information while Luca
+- "What's the difference between Luca and Vivek chatbots?" → Explain Vivek is for public/general information while Luca
 provides access to the full private Ananda libraries and member resources
 
 ## Sevaka-Sadhaka Online Community

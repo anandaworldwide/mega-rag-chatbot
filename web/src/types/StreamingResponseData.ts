@@ -1,4 +1,5 @@
 import { Document } from "langchain/document";
+import { TypedSuggestion } from "./Suggestion";
 
 // Force TypeScript cache invalidation
 export interface StreamingResponseData {
@@ -23,6 +24,6 @@ export interface StreamingResponseData {
     totalTokens?: number;
     firstTokenGenerated?: number;
   };
-  suggestions?: string[]; // Follow-up question suggestions as pill buttons
+  suggestions?: TypedSuggestion[]; // Follow-up question suggestions as typed items (deeper/broader)
   log?: string;
 }

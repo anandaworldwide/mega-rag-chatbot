@@ -1,4 +1,5 @@
 import { Document } from "langchain/document";
+import { TypedSuggestion } from "./Suggestion";
 
 export interface Message {
   type: "apiMessage" | "userMessage";
@@ -7,5 +8,5 @@ export interface Message {
   isStreaming?: boolean;
   docId?: string;
   collection?: string;
-  suggestions?: string[]; // Follow-up question suggestions
+  suggestions?: TypedSuggestion[]; // Follow-up question suggestions (typed)
 }

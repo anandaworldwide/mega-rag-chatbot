@@ -10,6 +10,7 @@ import { Message } from "@/types/chat";
 import { ChatMessage, createChatMessages } from "@/utils/shared/chatHistory";
 import { ChatHistoryItem } from "@/hooks/useChatHistory";
 import { Document } from "langchain/document";
+import { TypedSuggestion } from "@/types/Suggestion";
 
 export interface LoadedConversation {
   messages: Message[];
@@ -123,14 +124,40 @@ export async function loadConversationByConvId(
         console.warn("Failed to parse sources for chat:", chat.id, error);
       }
 
-      // Parse suggestions if available
-      let suggestions: string[] = [];
+      // Parse suggestions if available (handle both legacy string[] and new TypedSuggestion[])
+      let suggestions: TypedSuggestion[] = [];
       try {
         if (chat.suggestions) {
           if (Array.isArray(chat.suggestions)) {
-            suggestions = chat.suggestions;
+            // Check if it's typed suggestions (has objects with 'text' property) or legacy strings
+            if (
+              chat.suggestions.length > 0 &&
+              typeof chat.suggestions[0] === "object" &&
+              "text" in chat.suggestions[0]
+            ) {
+              // Typed suggestions - use as-is
+              suggestions = chat.suggestions as TypedSuggestion[];
+            } else {
+              // Legacy string array - convert to typed format for compatibility
+              suggestions = (chat.suggestions as string[]).map((text, idx) => ({
+                id: `legacy-${idx}`,
+                text,
+                type: "deeper" as const, // Default to deeper for legacy suggestions
+              }));
+            }
           } else if (typeof chat.suggestions === "string") {
-            suggestions = JSON.parse(chat.suggestions);
+            const parsed = JSON.parse(chat.suggestions);
+            if (Array.isArray(parsed)) {
+              if (parsed.length > 0 && typeof parsed[0] === "object" && "text" in parsed[0]) {
+                suggestions = parsed as TypedSuggestion[];
+              } else {
+                suggestions = (parsed as string[]).map((text: string, idx: number) => ({
+                  id: `legacy-${idx}`,
+                  text,
+                  type: "deeper" as const,
+                }));
+              }
+            }
           }
         }
       } catch (error) {

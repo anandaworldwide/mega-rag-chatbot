@@ -40,6 +40,8 @@ import { Readable } from "stream";
 import { StreamingResponseData } from "@/types/StreamingResponseData";
 import { initializeLocationIntentDetector, hasLocationIntentAsync } from "@/utils/server/locationIntentDetector";
 import { PineconeStore } from "@langchain/pinecone";
+import { TypedSuggestion } from "@/types/Suggestion";
+import { v4 as uuidv4 } from "uuid";
 
 import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
 import { SiteConfig as AppSiteConfig } from "@/types/siteConfig";
@@ -1114,13 +1116,13 @@ export const makeComparisonChains = async (
   }
 };
 
-// Load follow-up prompt template from site-specific or default file
-async function loadFollowUpPrompt(siteId?: string): Promise<string> {
+// Load follow-up prompt template for a specific type (deeper or broader)
+async function loadFollowUpPrompt(type: "deeper" | "broader", siteId?: string): Promise<string> {
   const promptsDir = path.join(process.cwd(), "site-config", "followup-prompts");
 
   // Try site-specific prompt first
   if (siteId) {
-    const siteSpecificPath = path.join(promptsDir, `${siteId}-followup-prompt.txt`);
+    const siteSpecificPath = path.join(promptsDir, `${siteId}-${type}-followup-prompt.txt`);
     try {
       const sitePrompt = await fs.readFile(siteSpecificPath, "utf-8");
       return sitePrompt.trim();
@@ -1129,14 +1131,15 @@ async function loadFollowUpPrompt(siteId?: string): Promise<string> {
     }
   }
 
-  // Try default prompt
-  const defaultPath = path.join(promptsDir, "default-followup-prompt.txt");
+  // Try default prompt for type
+  const defaultPath = path.join(promptsDir, `${type}-followup-prompt.txt`);
   try {
     const defaultPrompt = await fs.readFile(defaultPath, "utf-8");
     return defaultPrompt.trim();
   } catch (error) {
     // If no prompt files exist, use hardcoded fallback
-    return `Based on the full conversation context, generate 3 short follow-up questions as pill buttons.
+    if (type === "deeper") {
+      return `Based on the conversation context and retrieved sources, generate 3-5 narrower, more specific follow-up questions that dive deeper into the same topic.
 
 Conversation History:
 {conversationHistory}
@@ -1145,30 +1148,92 @@ Current Question: "{originalQuestion}"
 
 Current AI Response: "{aiResponse}"
 
-Generate 3 short, specific follow-up questions (3-5 words each) that would be natural next steps considering the full conversation context. Focus on deepening the discussion or exploring related aspects that haven't been covered yet. Return only a JSON array of strings, no explanations or formatting.
+Retrieved Sources:
+{sourceMetadata}
 
-Example format: ["Daily routine tips", "Common mistakes", "Advanced techniques"]`;
+Generate 3-5 short, specific follow-up questions (3-8 words each) that explore narrower aspects of the current topic. These should help users understand details, examples, or specific applications that weren't fully covered. Focus on questions that drill down into specifics rather than branching out to new topics.
+
+Return only a JSON array of strings, no explanations or formatting.
+
+Example format: ["Specific examples?", "How does this work in practice?", "What are the details?"]`;
+    } else {
+      return `Based on the conversation context and retrieved sources, generate 3-5 adjacent or related follow-up questions that expand the discussion to related topics.
+
+Conversation History:
+{conversationHistory}
+
+Current Question: "{originalQuestion}"
+
+Current AI Response: "{aiResponse}"
+
+Retrieved Sources:
+{sourceMetadata}
+
+Generate 3-5 short, related follow-up questions (3-8 words each) that explore adjacent topics or broader context. These should help users discover related concepts, connections, or complementary information that expands their understanding beyond the current topic.
+
+Return only a JSON array of strings, no explanations or formatting.
+
+Example format: ["Related topics?", "How does this connect to X?", "What else should I know?"]`;
+    }
   }
 }
 
-// Generate follow-up question suggestions using GPT-3.5-turbo
+// Simple Jaccard similarity for deduplication (case-insensitive)
+export function jaccardSimilarity(text1: string, text2: string): number {
+  const words1 = new Set(text1.toLowerCase().split(/\s+/));
+  const words2 = new Set(text2.toLowerCase().split(/\s+/));
+  const intersection = new Set([...words1].filter((x) => words2.has(x)));
+  const union = new Set([...words1, ...words2]);
+  return intersection.size / union.size;
+}
+
+// Filter suggestions for diversity and deduplication
+export function filterSuggestionsForDiversity(
+  suggestions: string[],
+  existingSuggestions: string[],
+  maxSuggestions: number = 5,
+  similarityThreshold: number = 0.6
+): string[] {
+  const filtered: string[] = [];
+  const allExisting = [...existingSuggestions];
+
+  for (const suggestion of suggestions) {
+    // Check against existing suggestions
+    const isDuplicate = allExisting.some((existing) => jaccardSimilarity(suggestion, existing) >= similarityThreshold);
+
+    // Check against already filtered suggestions
+    const isDuplicateInFiltered = filtered.some(
+      (filteredSuggestion) => jaccardSimilarity(suggestion, filteredSuggestion) >= similarityThreshold
+    );
+
+    if (!isDuplicate && !isDuplicateInFiltered && suggestion.length >= 3 && suggestion.length <= 50) {
+      filtered.push(suggestion);
+      allExisting.push(suggestion);
+      if (filtered.length >= maxSuggestions) {
+        break;
+      }
+    }
+  }
+
+  return filtered;
+}
+
+// Generate follow-up question suggestions using GPT-3.5-turbo (dual-head: deeper and broader)
 async function generateFollowUpSuggestions(
   originalQuestion: string,
   aiResponse: string,
   conversationHistory: ChatMessage[],
+  sourceDocuments: Document[],
   sendData: (data: StreamingResponseData) => void,
   siteId?: string
-): Promise<string[]> {
+): Promise<TypedSuggestion[]> {
   try {
     // Create a lightweight model for suggestions
     const suggestionModel = new ChatOpenAI({
       modelName: "gpt-3.5-turbo",
       temperature: 0.7,
-      maxTokens: 150,
+      maxTokens: 200,
     });
-
-    // Load the appropriate prompt template
-    const promptTemplate = await loadFollowUpPrompt(siteId);
 
     // Format conversation history for context
     const formattedHistory = conversationHistory
@@ -1179,31 +1244,79 @@ async function generateFollowUpSuggestions(
       })
       .join("\n\n");
 
-    // Replace placeholders in the template
-    const prompt = promptTemplate
+    // Format source metadata for context
+    const sourceMetadata = sourceDocuments
+      .slice(0, 3) // Top 3 sources
+      .map((doc, idx) => {
+        const title = doc.metadata?.title || doc.metadata?.source || `Source ${idx + 1}`;
+        const section = doc.metadata?.section || "";
+        return section ? `${title} - ${section}` : title;
+      })
+      .join("\n");
+
+    // Generate deeper suggestions
+    const deeperPromptTemplate = await loadFollowUpPrompt("deeper", siteId);
+    const deeperPrompt = deeperPromptTemplate
       .replace("{originalQuestion}", originalQuestion)
       .replace("{aiResponse}", aiResponse.substring(0, 2500) + "...")
-      .replace("{conversationHistory}", formattedHistory || "No previous conversation");
+      .replace("{conversationHistory}", formattedHistory || "No previous conversation")
+      .replace("{sourceMetadata}", sourceMetadata || "No sources available");
 
-    const response = await suggestionModel.invoke([{ role: "user", content: prompt }]);
-
-    if (!response.content || typeof response.content !== "string") {
-      return [];
+    const deeperResponse = await suggestionModel.invoke([{ role: "user", content: deeperPrompt }]);
+    let deeperSuggestions: string[] = [];
+    if (deeperResponse.content && typeof deeperResponse.content === "string") {
+      try {
+        deeperSuggestions = JSON.parse(deeperResponse.content.trim()) as string[];
+      } catch (parseError) {
+        console.error("Failed to parse deeper suggestions:", parseError);
+      }
     }
 
-    // Parse the JSON response
-    const suggestions = JSON.parse(response.content.trim()) as string[];
+    // Generate broader suggestions
+    const broaderPromptTemplate = await loadFollowUpPrompt("broader", siteId);
+    const broaderPrompt = broaderPromptTemplate
+      .replace("{originalQuestion}", originalQuestion)
+      .replace("{aiResponse}", aiResponse.substring(0, 2500) + "...")
+      .replace("{conversationHistory}", formattedHistory || "No previous conversation")
+      .replace("{sourceMetadata}", sourceMetadata || "No sources available");
 
-    // Validate and filter suggestions
-    const validSuggestions = suggestions
-      .filter((suggestion) => typeof suggestion === "string" && suggestion.length >= 3 && suggestion.length <= 50)
-      .slice(0, 3); // Limit to 3 suggestions
+    const broaderResponse = await suggestionModel.invoke([{ role: "user", content: broaderPrompt }]);
+    let broaderSuggestions: string[] = [];
+    if (broaderResponse.content && typeof broaderResponse.content === "string") {
+      try {
+        broaderSuggestions = JSON.parse(broaderResponse.content.trim()) as string[];
+      } catch (parseError) {
+        console.error("Failed to parse broader suggestions:", parseError);
+      }
+    }
 
-    // Send suggestions to frontend immediately for real-time display
-    sendData({ suggestions: validSuggestions });
+    // Filter and dedupe suggestions (max 2 per category)
+    const filteredDeeper = filterSuggestionsForDiversity(deeperSuggestions, [], 2, 0.6);
+    const filteredBroader = filterSuggestionsForDiversity(broaderSuggestions, filteredDeeper, 2, 0.6);
 
-    // Return suggestions for saving to database
-    return validSuggestions;
+    // Convert to typed suggestions
+    const typedSuggestions: TypedSuggestion[] = [
+      ...filteredDeeper.map((text, idx) => ({
+        id: uuidv4(),
+        text,
+        type: "deeper" as const,
+        sourceDocId: sourceDocuments[0]?.metadata?.docId,
+        score: 1.0 - idx * 0.1, // Simple scoring based on position
+      })),
+      ...filteredBroader.map((text, idx) => ({
+        id: uuidv4(),
+        text,
+        type: "broader" as const,
+        sourceDocId: sourceDocuments[0]?.metadata?.docId,
+        score: 1.0 - idx * 0.1,
+      })),
+    ];
+
+    // Send suggestions to frontend (post-stream, so this happens after answer completes)
+    sendData({ suggestions: typedSuggestions });
+
+    // Return typed suggestions for saving to database
+    return typedSuggestions;
   } catch (error) {
     console.error("Failed to generate follow-up suggestions:", error);
     return [];
@@ -1225,7 +1338,7 @@ export async function setupAndExecuteLanguageModelChain(
   timingMetrics?: any, // Accept timing metrics for detailed tracking
   modelOverride?: string, // Optional model override for testing/comparison
   selectedLibraries?: string[] // Selected libraries for filtering
-): Promise<{ fullResponse: string; finalDocs: Document[]; restatedQuestion: string; suggestions: string[] }> {
+): Promise<{ fullResponse: string; finalDocs: Document[]; restatedQuestion: string; suggestions: TypedSuggestion[] }> {
   const TIMEOUT_MS = process.env.NODE_ENV === "test" ? 1000 : 30000;
   const RETRY_DELAY_MS = process.env.NODE_ENV === "test" ? 10 : 1000;
   const MAX_RETRIES = 3;
@@ -1506,6 +1619,7 @@ export async function setupAndExecuteLanguageModelChain(
         sanitizedQuestion,
         fullResponse || result.answer.content,
         history,
+        result.sourceDocuments, // Pass source documents for context
         sendData,
         siteConfig?.siteId
       ).catch((error) => {
