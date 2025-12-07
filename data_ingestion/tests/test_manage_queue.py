@@ -312,6 +312,7 @@ class TestManageQueue:
         mock_args.directory = None
         mock_args.default_author = "Test Author"
         mock_args.library = "TestLibrary"
+        mock_args.site = "test_site"
 
         mock_queue = MagicMock()
 
@@ -320,7 +321,7 @@ class TestManageQueue:
 
         # Verify audio processing delegation
         mock_process_audio_input.assert_called_once_with(
-            "/path/to/audio.mp3", mock_queue, "Test Author", "TestLibrary"
+            "/path/to/audio.mp3", mock_queue, "Test Author", "TestLibrary", "test_site"
         )
 
     def test_add_to_queue_no_valid_input(self):
