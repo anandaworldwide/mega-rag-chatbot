@@ -19,7 +19,7 @@ import { getFromCache, setInCache } from "@/utils/server/redisUtils";
 const SEARCH_WINDOW_SIZE = 200;
 const DEFAULT_SEARCH_RESULTS_LIMIT = 30;
 const DEFAULT_MAX_SEARCH_RESULTS = SEARCH_WINDOW_SIZE;
-const DEFAULT_SEARCH_QUERIES_PER_USER_PER_DAY = 100;
+const DEFAULT_SEARCH_QUERIES_PER_USER_PER_DAY = 500;
 
 type PineconeFilter = {
   $and?: Array<Record<string, any>>;
@@ -126,8 +126,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse<SearchResponse 
         filterConditions.push({ type: { $in: body.filters.type } });
       }
 
-      if (body.filters.library) {
-        filterConditions.push({ library: { $eq: body.filters.library } });
+      if (body.filters.library && Array.isArray(body.filters.library) && body.filters.library.length > 0) {
+        filterConditions.push({ library: { $in: body.filters.library } });
       }
     }
 
@@ -157,7 +157,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse<SearchResponse 
           title: body.filters.title || null,
           author: body.filters.author || null,
           type: body.filters.type ? [...body.filters.type].sort() : null,
-          library: body.filters.library || null,
+          library: body.filters.library ? [...body.filters.library].sort() : null,
         })
       : "none";
     const cacheKey = `search:${siteConfig.siteId || "default"}:${normalizedQuery}:${cacheKeyFilters}`;

@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useRef } from "react";
 
 interface ModalProps {
   isOpen: boolean;
@@ -9,6 +9,8 @@ interface ModalProps {
 }
 
 export function Modal({ isOpen, onClose, title, children, className = "" }: ModalProps) {
+  const modalRef = useRef<HTMLDivElement | null>(null);
+
   // Handle escape key press
   useEffect(() => {
     function handleEscapeKey(event: KeyboardEvent) {
@@ -29,6 +31,13 @@ export function Modal({ isOpen, onClose, title, children, className = "" }: Moda
     };
   }, [isOpen, onClose]);
 
+  // Auto-focus the modal container when opened for immediate keyboard control
+  useEffect(() => {
+    if (isOpen && modalRef.current) {
+      modalRef.current.focus();
+    }
+  }, [isOpen]);
+
   // Don't render anything if modal is closed
   if (!isOpen) return null;
 
@@ -43,6 +52,8 @@ export function Modal({ isOpen, onClose, title, children, className = "" }: Moda
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
+        tabIndex={-1}
+        ref={modalRef}
       >
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-200">

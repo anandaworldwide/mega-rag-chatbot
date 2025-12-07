@@ -21,6 +21,7 @@ interface AudioPlayerProps {
   sourceDoc?: Document<DocMetadata>; // Source document for deep linking
   sourceLinkCopied?: string | null; // Source ID that was copied (for visual feedback)
   onCopySourceLink?: () => void; // Callback when link is copied
+  enableGlobalSpaceToggle?: boolean; // Allow spacebar to toggle play/pause (e.g., in modal overlays)
 }
 
 // Loading spinner component for visual feedback during audio loading
@@ -41,6 +42,7 @@ export function AudioPlayer({
   sourceDoc,
   sourceLinkCopied,
   onCopySourceLink,
+  enableGlobalSpaceToggle = false,
 }: AudioPlayerProps) {
   const [isLoaded, setIsLoaded] = useState(!lazyLoad);
   const [secureAudioUrl, setSecureAudioUrl] = useState<string | null>(null);
@@ -90,11 +92,12 @@ export function AudioPlayer({
 
   // Load secure audio URL when component mounts or when conditions change
   useEffect(() => {
-    if ((!lazyLoad || isExpanded) && !isLoaded && !secureAudioUrl && !isLoadingUrl) {
+    // Fetch URL when: (not lazy loading OR expanded) AND we don't have a URL yet AND not currently loading
+    if ((!lazyLoad || isExpanded) && !secureAudioUrl && !isLoadingUrl) {
       fetchSecureAudioUrl();
       setIsLoaded(true);
     }
-  }, [lazyLoad, isExpanded, isLoaded, secureAudioUrl, isLoadingUrl, fetchSecureAudioUrl]);
+  }, [lazyLoad, isExpanded, secureAudioUrl, isLoadingUrl, fetchSecureAudioUrl]);
 
   // Pause this audio if another audio starts playing
   useEffect(() => {
@@ -114,7 +117,7 @@ export function AudioPlayer({
   };
 
   // Handle play/pause button click
-  const handleTogglePlayPause = async () => {
+  const handleTogglePlayPause = useCallback(async () => {
     // If we don't have a secure URL yet, try to fetch it
     if (!secureAudioUrl && !isLoadingUrl) {
       await fetchSecureAudioUrl();
@@ -132,7 +135,38 @@ export function AudioPlayer({
       }
       togglePlayPause();
     }
-  };
+  }, [
+    audioId,
+    fetchSecureAudioUrl,
+    isLoaded,
+    isLoadingUrl,
+    isPlaying,
+    secureAudioUrl,
+    setCurrentlyPlayingId,
+    togglePlayPause,
+  ]);
+
+  // Enable spacebar play/pause when requested (e.g., modal overlay)
+  useEffect(() => {
+    if (!enableGlobalSpaceToggle) return;
+
+    const handleSpaceToggle = (event: KeyboardEvent) => {
+      if (event.code !== "Space" && event.key !== " " && event.key !== "Spacebar") return;
+
+      const target = event.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        const isFormControl = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON";
+        if (isFormControl || target.isContentEditable) return;
+      }
+
+      event.preventDefault(); // Prevent page scroll
+      handleTogglePlayPause();
+    };
+
+    window.addEventListener("keydown", handleSpaceToggle);
+    return () => window.removeEventListener("keydown", handleSpaceToggle);
+  }, [enableGlobalSpaceToggle, handleTogglePlayPause]);
 
   // Handle seek bar change
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {

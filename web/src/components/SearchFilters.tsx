@@ -1,5 +1,6 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { SearchFilters as SearchFiltersType, SearchFacets } from "@/types/SearchTypes";
+import { libraryMappings, getMappedLibraryName } from "@/utils/client/libraryMappings";
 
 interface SearchFiltersProps {
   filters: SearchFiltersType;
@@ -9,6 +10,7 @@ interface SearchFiltersProps {
   isMobile?: boolean;
   isOpen?: boolean;
   onToggle?: () => void;
+  allLibraries?: string[]; // Full library list from site config (supports zero-count display)
 }
 
 export default function SearchFilters({
@@ -19,6 +21,7 @@ export default function SearchFilters({
   isMobile = false,
   isOpen = false,
   onToggle,
+  allLibraries,
 }: SearchFiltersProps) {
   const handleTitleChange = (title: string) => {
     onFiltersChange({
@@ -45,9 +48,13 @@ export default function SearchFilters({
   };
 
   const handleLibraryChange = (library: string) => {
+    const currentLibraries = filters.library || [];
+    const next = currentLibraries.includes(library)
+      ? currentLibraries.filter((l) => l !== library)
+      : [...currentLibraries, library];
     onFiltersChange({
       ...filters,
-      library: filters.library === library ? undefined : library,
+      library: next.length > 0 ? next : undefined,
     });
   };
 
@@ -56,6 +63,27 @@ export default function SearchFilters({
   };
 
   const hasActiveFilters = Boolean(filters.title || filters.author || filters.type?.length || filters.library);
+
+  const mergedTypes = useMemo(() => {
+    const DEFAULT_TYPES: Array<"text" | "audio" | "youtube"> = ["text", "audio", "youtube"];
+    return DEFAULT_TYPES.map((name) => {
+      const facet = facets.types.find((t) => t.name === name);
+      return { name, count: facet?.count ?? 0 };
+    });
+  }, [facets.types]);
+
+  const mergedLibraries = useMemo(() => {
+    const base = new Set<string>();
+    (allLibraries || []).forEach((lib) => base.add(lib));
+    Object.keys(libraryMappings).forEach((lib) => base.add(lib));
+    facets.libraries.forEach((lib) => base.add(lib.name));
+    if (filters.library) filters.library.forEach((lib) => base.add(lib));
+
+    return Array.from(base).map((name) => {
+      const facet = facets.libraries.find((l) => l.name === name);
+      return { name, count: facet?.count ?? 0, display: getMappedLibraryName(name) };
+    });
+  }, [allLibraries, facets.libraries, filters.library]);
 
   const content = (
     <div className="space-y-6">
@@ -115,52 +143,42 @@ export default function SearchFilters({
       )}
 
       {/* Type filter */}
-      {facets.types.length > 0 && (
-        <div>
-          <h4 className="text-sm font-medium text-gray-700 mb-2">Type</h4>
-          <div className="space-y-1">
-            {facets.types.map((type) => (
-              <label key={type.name} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1 rounded">
-                <input
-                  type="checkbox"
-                  checked={filters.type?.includes(type.name as "text" | "audio" | "youtube") || false}
-                  onChange={() => handleTypeChange(type.name as "text" | "audio" | "youtube")}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span className="text-sm text-gray-700 flex-1 capitalize">{type.name}</span>
-                <span className="text-xs text-gray-500">({type.count})</span>
-              </label>
-            ))}
-          </div>
+      <div>
+        <h4 className="text-sm font-medium text-gray-700 mb-2">Type</h4>
+        <div className="space-y-1">
+          {mergedTypes.map((type) => (
+            <label key={type.name} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1 rounded">
+              <input
+                type="checkbox"
+                checked={filters.type?.includes(type.name) || false}
+                onChange={() => handleTypeChange(type.name)}
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-700 flex-1 capitalize">{type.name}</span>
+              <span className="text-xs text-gray-500">({type.count})</span>
+            </label>
+          ))}
         </div>
-      )}
+      </div>
 
       {/* Library filter */}
-      {facets.libraries.length > 0 && (
-        <div>
-          <h4 className="text-sm font-medium text-gray-700 mb-2">Library</h4>
-          <div className="space-y-1">
-            {facets.libraries.map((library) => (
-              <label key={library.name} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1 rounded">
-                <input
-                  type="checkbox"
-                  checked={filters.library === library.name}
-                  onChange={() => handleLibraryChange(library.name)}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span className="text-sm text-gray-700 flex-1">{library.name}</span>
-                <span className="text-xs text-gray-500">({library.count})</span>
-              </label>
-            ))}
-          </div>
+      <div>
+        <h4 className="text-sm font-medium text-gray-700 mb-2">Library</h4>
+        <div className="space-y-1">
+          {mergedLibraries.map((library) => (
+            <label key={library.name} className="flex items-center gap-2 cursor-pointer hover:bg-gray-50 p-1 rounded">
+              <input
+                type="checkbox"
+                checked={filters.library?.includes(library.name) || false}
+                onChange={() => handleLibraryChange(library.name)}
+                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              <span className="text-sm text-gray-700 flex-1">{library.display}</span>
+              <span className="text-xs text-gray-500">({library.count})</span>
+            </label>
+          ))}
         </div>
-      )}
-    </div>
-  );
-
-  const loadingOverlay = loading && (
-    <div className="absolute inset-0 bg-white/70 flex items-center justify-center z-10 rounded-lg">
-      <span className="material-icons text-blue-600 animate-spin text-3xl">refresh</span>
+      </div>
     </div>
   );
 
@@ -177,20 +195,10 @@ export default function SearchFilters({
             </span>
           )}
         </button>
-        {isOpen && (
-          <div className="mb-4 relative">
-            {loadingOverlay}
-            {content}
-          </div>
-        )}
+        {isOpen && <div className="mb-4 relative">{content}</div>}
       </>
     );
   }
 
-  return (
-    <div className="bg-white p-4 rounded-lg border border-gray-200 relative min-h-[120px]">
-      {loadingOverlay}
-      {content}
-    </div>
-  );
+  return <div className="bg-white p-4 rounded-lg border border-gray-200 relative min-h-[120px]">{content}</div>;
 }

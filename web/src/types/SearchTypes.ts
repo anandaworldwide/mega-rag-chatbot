@@ -24,7 +24,7 @@ export interface SearchFilters {
   title?: string;
   author?: string;
   type?: ("text" | "audio" | "youtube")[];
-  library?: string;
+  library?: string[];
 }
 
 export interface SearchRequest {

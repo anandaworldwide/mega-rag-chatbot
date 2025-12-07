@@ -1382,6 +1382,36 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     handleSubmit(new Event("submit") as unknown as React.FormEvent, suggestion.text);
   };
 
+  // Handle URL query params for pre-filled query with auto-submit (e.g., from Search page "Explain This")
+  const hasAutoSubmittedRef = useRef(false);
+  useEffect(() => {
+    // Only run once per page load
+    if (hasAutoSubmittedRef.current) return;
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const queryParam = urlParams.get("q");
+    const submitParam = urlParams.get("submit");
+
+    if (queryParam && submitParam === "true") {
+      hasAutoSubmittedRef.current = true;
+
+      // Set the query in the input field
+      setQuery(queryParam);
+
+      // Auto-submit after a brief delay to ensure state is set
+      setTimeout(() => {
+        handleSubmit(new Event("submit") as unknown as React.FormEvent, queryParam);
+
+        // Clean up URL params
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.delete("q");
+        newUrl.searchParams.delete("submit");
+        window.history.replaceState({}, document.title, newUrl.pathname + newUrl.search);
+      }, 100);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // State for categorized queries
   const [categorizedQueries, setCategorizedQueries] = useState<{
     general: string[];

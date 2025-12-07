@@ -88,10 +88,7 @@ describe("ResendInvitationModal", () => {
     // Clear the existing content and type the new message
     await user.clear(textarea);
 
-    // Wait for the textarea to actually be cleared
-    await waitFor(() => {
-      expect(textarea).toHaveValue("");
-    });
+    expect(textarea).toHaveValue("");
 
     await user.type(textarea, "Custom test message");
 

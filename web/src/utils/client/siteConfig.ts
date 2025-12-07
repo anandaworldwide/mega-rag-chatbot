@@ -54,6 +54,15 @@ export const getEnableAuthorSelection = (siteConfig: SiteConfig | null) => siteC
 // Check if search page feature is enabled (defaults to false)
 export const getEnableSearchPage = (siteConfig: SiteConfig | null) => siteConfig?.enableSearchPage ?? false;
 
+// Normalize includedLibraries to a simple string array
+export const getIncludedLibraryNames = (siteConfig: SiteConfig | null): string[] => {
+  if (!siteConfig?.includedLibraries) return [];
+  return siteConfig.includedLibraries.map((entry) => {
+    if (typeof entry === "string") return entry;
+    return entry.name;
+  });
+};
+
 // Get welcome popup heading (defaults to 'Welcome!')
 export const getWelcomePopupHeading = (siteConfig: SiteConfig | null) =>
   siteConfig?.welcome_popup_heading ?? "Welcome!";

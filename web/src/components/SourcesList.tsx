@@ -32,6 +32,7 @@ import { SiteConfig } from "@/types/siteConfig";
 import { getOrCreateUUID } from "@/utils/client/uuid";
 import { getToken } from "@/utils/client/tokenManager";
 import { generateSourceId, generateSourceDeepLink } from "@/utils/client/sourceUtils";
+import { transformYouTubeUrl } from "@/utils/client/youtubeUtils";
 
 // Helper function to extract the title from document metadata.
 const extractTitle = (metadata: DocMetadata): string => {
@@ -48,22 +49,6 @@ interface SourcesListProps {
   sourceLinkCopied?: string | null; // Source ID that was copied (for visual feedback)
   onSourceLinkCopied?: (sourceId: string) => void; // Callback when source link is copied
 }
-
-// Function to transform YouTube URLs into embed URLs
-const transformYouTubeUrl = (url: string, startTime: number | undefined) => {
-  const urlObj = new URL(url);
-  let videoId = "";
-  if (urlObj.hostname === "youtu.be") {
-    videoId = urlObj.pathname.slice(1);
-  } else if (urlObj.hostname === "www.youtube.com" && urlObj.pathname.includes("watch")) {
-    videoId = urlObj.searchParams.get("v") || "";
-  }
-  const baseUrl = `https://www.youtube.com/embed/${videoId}`;
-  const params = new URLSearchParams(urlObj.search);
-  params.set("start", Math.floor(startTime || 0).toString());
-  params.set("rel", "0");
-  return `${baseUrl}?${params.toString()}`;
-};
 
 const SourcesList: React.FC<SourcesListProps> = ({
   sources,
