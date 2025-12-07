@@ -51,6 +51,9 @@ export const getEnableMediaTypeSelection = (siteConfig: SiteConfig | null) =>
 // Check if author selection feature is enabled (defaults to false)
 export const getEnableAuthorSelection = (siteConfig: SiteConfig | null) => siteConfig?.enableAuthorSelection ?? false;
 
+// Check if search page feature is enabled (defaults to false)
+export const getEnableSearchPage = (siteConfig: SiteConfig | null) => siteConfig?.enableSearchPage ?? false;
+
 // Get welcome popup heading (defaults to 'Welcome!')
 export const getWelcomePopupHeading = (siteConfig: SiteConfig | null) =>
   siteConfig?.welcome_popup_heading ?? "Welcome!";
