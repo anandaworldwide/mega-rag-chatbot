@@ -27,20 +27,26 @@ from mutagen.mp3 import MP3
 from pydub import AudioSegment
 from pydub.silence import split_on_silence
 
+from data_ingestion.utils.author_normalization import normalize_author
+
 logger = logging.getLogger(__name__)
 
 
-def get_media_metadata(file_path):
+def get_media_metadata(file_path, site_id=None):
     """
     Routes metadata extraction based on file type.
     Centralizes error handling for all media types.
+
+    Args:
+        file_path: Path to the media file
+        site_id: Optional site identifier for author normalization
 
     Raises: ValueError for unsupported formats
     """
     file_extension = os.path.splitext(file_path)[1].lower()
     try:
         if file_extension == ".mp3":
-            return get_mp3_metadata(file_path)
+            return get_mp3_metadata(file_path, site_id)
         elif file_extension == ".wav":
             return get_wav_metadata(file_path)
         else:
@@ -50,7 +56,7 @@ def get_media_metadata(file_path):
         raise
 
 
-def get_mp3_metadata(file_path):
+def get_mp3_metadata(file_path, site_id=None):
     """
     Extracts MP3 metadata with fallbacks for missing tags.
 
@@ -64,6 +70,10 @@ def get_mp3_metadata(file_path):
     2. Try generic COMM frames with url descriptor
     3. Try ffmpeg-style comments (text starting with "url:")
 
+    Args:
+        file_path: Path to the MP3 file
+        site_id: Optional site identifier for author normalization
+
     Returns: (title, author, duration, url, album)
     """
     try:
@@ -73,7 +83,7 @@ def get_mp3_metadata(file_path):
             title = audio.tags.get(
                 "TIT2", [os.path.splitext(os.path.basename(file_path))[0]]
             )[0]
-            author = audio.tags.get("TPE1", ["Unknown"])[0]
+            author = normalize_author(audio.tags.get("TPE1", ["Unknown"])[0], site_id)
 
             # URL extraction with multiple format support
             url = None

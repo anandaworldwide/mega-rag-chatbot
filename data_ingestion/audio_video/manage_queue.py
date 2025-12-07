@@ -111,6 +111,7 @@ from data_ingestion.audio_video.youtube_utils import (
     get_playlist_videos,
     load_youtube_data_map,
 )
+from data_ingestion.utils.author_normalization import normalize_author
 from pyutil.env_utils import load_env
 from pyutil.logging_utils import configure_logging
 
@@ -158,7 +159,7 @@ def get_unique_files(directory_path):
     return list(unique_files.values())
 
 
-def process_audio_input(input_path, queue, default_author, library):
+def process_audio_input(input_path, queue, default_author, library, site_id=None):
     """
     Routes audio processing based on input type (single file vs directory).
 
@@ -183,7 +184,7 @@ def process_audio_input(input_path, queue, default_author, library):
                 "audio_file",
                 {
                     "file_path": input_path,
-                    "author": default_author,
+                    "author": normalize_author(default_author, site_id),
                     "library": LIBRARY_CONFIG[library],
                     "s3_folder": s3_folder,
                     "s3_key": s3_key,
@@ -199,13 +200,13 @@ def process_audio_input(input_path, queue, default_author, library):
             logger.error(f"Unsupported file type: {input_path}")
             return []
     elif os.path.isdir(input_path):
-        return process_directory(input_path, queue, default_author, library)
+        return process_directory(input_path, queue, default_author, library, site_id)
     else:
         logger.error(f"Invalid input path: {input_path}")
         return []
 
 
-def process_directory(directory_path, queue, default_author, library):
+def process_directory(directory_path, queue, default_author, library, site_id=None):
     # Check if the library is in the config file
     if library not in LIBRARY_CONFIG:
         error_msg = f"Error: Library '{library}' not found in library_config.json. Please use a valid library name."
@@ -227,7 +228,7 @@ def process_directory(directory_path, queue, default_author, library):
             "audio_file",
             {
                 "file_path": file_path,
-                "author": default_author,
+                "author": normalize_author(default_author, site_id),
                 "library": LIBRARY_CONFIG[library],
                 "s3_folder": s3_folder,
                 "s3_key": s3_key,
@@ -255,7 +256,7 @@ def add_to_queue(args, queue, source=None):
                 {
                     "url": args.video,
                     "youtube_id": youtube_id,
-                    "author": args.default_author,
+                    "author": normalize_author(args.default_author, args.site),
                     "library": args.library,
                     "source": source,  # Tracks origin playlist for duplicate detection
                 },
@@ -277,7 +278,7 @@ def add_to_queue(args, queue, source=None):
                 {
                     "url": video["url"],
                     "youtube_id": video["youtube_id"],
-                    "author": args.default_author,
+                    "author": normalize_author(args.default_author, args.site),
                     "library": args.library,
                     "source": args.playlist,
                 },
@@ -290,7 +291,7 @@ def add_to_queue(args, queue, source=None):
     elif args.audio or args.directory:
         input_path = args.audio or args.directory
         added_items = process_audio_input(
-            input_path, queue, args.default_author, args.library
+            input_path, queue, args.default_author, args.library, args.site
         )
         if added_items:
             logger.info(f"Added {len(added_items)} audio file(s) to queue")
@@ -545,9 +546,17 @@ def process_playlists_file(args, queue):
     workbook = load_workbook(filename=args.playlists_file, read_only=True)
     sheet = workbook.active
 
+    if sheet is None:
+        raise ValueError("Excel file has no active sheet")
+
     all_videos = []
     video_sources = defaultdict(list)  # Tracks which playlists contain each video
     processed_playlists = 0
+
+    # Track last valid metadata for use in queue additions
+    default_author = None
+    library = None
+    playlist_url = None
 
     # Skip header row and process each playlist
     for row_num, row in enumerate(
@@ -571,11 +580,17 @@ def process_playlists_file(args, queue):
     duplicates_removed = len(all_videos) - len(unique_videos)
 
     # Add unique videos to queue with original metadata
+    # Use last valid metadata from loop (or None if no valid rows processed)
     for video in unique_videos:
         args.video = video["url"]
-        args.default_author = default_author
-        args.library = library
-        add_to_queue(args, queue, source=playlist_url)
+        if default_author is not None:
+            args.default_author = default_author
+        if library is not None:
+            args.library = library
+        if playlist_url is not None:
+            add_to_queue(args, queue, source=playlist_url)
+        else:
+            add_to_queue(args, queue, source=None)
 
     # Log processing summary and duplicates
     logger.info(f"Processed {processed_playlists} playlists")
@@ -600,9 +615,14 @@ def print_queue_status(queue, items=None):
         and audio_estimate.get("time") is not None
         and audio_estimate.get("size") is not None
     ):
-        print(
-            f"Average processing time for audio files: {timedelta(seconds=int(audio_estimate['time']))} for {audio_estimate['size'] / (1024 * 1024):.2f} MB"
-        )
+        audio_time = audio_estimate["time"]
+        audio_size = audio_estimate["size"]
+        if audio_time is not None and audio_size is not None:
+            print(
+                f"Average processing time for audio files: {timedelta(seconds=int(audio_time))} for {audio_size / (1024 * 1024):.2f} MB"
+            )
+        else:
+            print("No data available for audio file processing times.")
     else:
         print("No data available for audio file processing times.")
 
@@ -611,9 +631,14 @@ def print_queue_status(queue, items=None):
         and video_estimate.get("time") is not None
         and video_estimate.get("size") is not None
     ):
-        print(
-            f"Average processing time for YouTube videos: {timedelta(seconds=int(video_estimate['time']))} for {video_estimate['size'] / (1024 * 1024):.2f} MB"
-        )
+        video_time = video_estimate["time"]
+        video_size = video_estimate["size"]
+        if video_time is not None and video_size is not None:
+            print(
+                f"Average processing time for YouTube videos: {timedelta(seconds=int(video_time))} for {video_size / (1024 * 1024):.2f} MB"
+            )
+        else:
+            print("No data available for YouTube video processing times.")
     else:
         print("No data available for YouTube video processing times.")
 
@@ -648,7 +673,7 @@ def process_urls_file(args, queue):
             continue
 
         # Check if already processed via youtube_data_map
-        youtube_data_map = load_youtube_data_map()
+        youtube_data_map = load_youtube_data_map(args.site)
         if youtube_id in youtube_data_map:
             logger.info(f"Skipping already processed video: {url}")
             skipped += 1

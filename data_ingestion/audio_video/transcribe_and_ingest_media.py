@@ -86,6 +86,7 @@ from data_ingestion.audio_video.youtube_utils import (
     download_youtube_audio,
     extract_youtube_id,
 )
+from data_ingestion.utils.author_normalization import normalize_author
 from data_ingestion.utils.pinecone_utils import clear_library_vectors
 from data_ingestion.utils.s3_utils import S3UploadError, upload_to_s3
 from pyutil.env_utils import load_env
@@ -135,7 +136,7 @@ def verify_and_update_transcription_metadata(
     transcription_data.update(
         {
             "file_path": file_path,
-            "author": author,
+            "author": normalize_author(author, site),
             "library": library_name,
             "type": "youtube" if is_youtube_video else "audio_file",
             "updated_at": current_time,
@@ -182,11 +183,15 @@ def verify_and_update_transcription_metadata(
         # Only try to get file metadata for local audio files that exist
         if file_path and os.path.exists(file_path):
             # Get metadata for local audio file
-            title, mp3_author, duration, url, album = get_media_metadata(file_path)
+            title, mp3_author, duration, url, album = get_media_metadata(
+                file_path, site
+            )
             transcription_data.update(
                 {
                     "title": title,
-                    "author": mp3_author if mp3_author != "Unknown" else author,
+                    "author": normalize_author(
+                        mp3_author if mp3_author != "Unknown" else author, site
+                    ),
                     "file_name": os.path.basename(file_path),
                     "duration": duration,
                     "album": album,
@@ -413,6 +418,7 @@ def _process_and_store_transcription(
     library_name,
     s3_key,
     site_config,
+    site=None,
 ):
     """
     Processes transcription into chunks and stores in Pinecone.
@@ -462,13 +468,15 @@ def _process_and_store_transcription(
                     metadata = youtube_data["media_metadata"]
                     title = metadata.get("title", "Unknown Title")
                     url = metadata.get("url")
-                    author = default_author
+                    author = normalize_author(default_author, site)
                     album = None  # YouTube videos don't have albums
                 else:
                     title, mp3_author, duration, url, album = get_media_metadata(
-                        file_path
+                        file_path, site
                     )
-                    author = mp3_author if mp3_author != "Unknown" else default_author
+                    author = normalize_author(
+                        mp3_author if mp3_author != "Unknown" else default_author, site
+                    )
 
                 # Determine content type and source identifier based on video type
                 content_type = "video" if is_youtube_video else "audio"
@@ -622,6 +630,7 @@ def process_file(
         library_name,
         s3_key,
         site_config,
+        site=site,
     )
 
     if processing_report["errors"] > 0:
@@ -691,6 +700,7 @@ def worker(task_queue, result_queue, args, stop_event):
     # Load site configuration once per worker
     site_config = load_site_config(args.site)
 
+    item = None
     while not stop_event.is_set():
         try:
             # 1 second timeout prevents workers from hanging indefinitely
@@ -711,7 +721,7 @@ def worker(task_queue, result_queue, args, stop_event):
             logger.error(f"Worker error: {str(e)}")
             logger.exception("Full traceback:")
             # Ensure the item ID is included in the error report
-            if "item" in locals():
+            if item is not None:
                 result_queue.put((item["id"], {"errors": 1, "error_details": [str(e)]}))
             else:
                 result_queue.put((None, {"errors": 1, "error_details": [str(e)]}))
