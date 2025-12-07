@@ -66,11 +66,38 @@ export default function SearchResultItem({ result, query }: SearchResultItemProp
     });
   };
 
+  // Normalize source URLs (prepend https:// when missing, support relative paths with library base)
+  const buildSourceUrl = () => {
+    const raw = result.metadata.source?.trim();
+    if (!raw) return null;
+
+    // If already absolute
+    if (/^https?:\/\//i.test(raw)) return raw;
+
+    // If starts with // (protocol-relative)
+    if (/^\/\//.test(raw)) return `https:${raw}`;
+
+    // If starts with / and we have a library base URL, resolve against it
+    if (raw.startsWith("/") && getLibraryUrl(result.metadata.library)) {
+      try {
+        return new URL(raw, getLibraryUrl(result.metadata.library)).toString();
+      } catch {
+        return `https:${raw}`;
+      }
+    }
+
+    // Otherwise, treat as domain/path without protocol
+    return `https://${raw}`;
+  };
+
   const handleViewSource = () => {
     logEvent("search_view_source", "Search", result.metadata.type || "unknown");
 
-    if (result.metadata.type === "text" && result.metadata.source) {
-      window.open(result.metadata.source, "_blank", "noopener,noreferrer");
+    if (result.metadata.type === "text") {
+      const url = buildSourceUrl();
+      if (url) {
+        window.open(url, "_blank", "noopener,noreferrer");
+      }
     }
   };
 
