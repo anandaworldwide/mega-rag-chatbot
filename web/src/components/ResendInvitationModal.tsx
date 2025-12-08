@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { SiteConfig } from "@/types/siteConfig";
 
@@ -23,7 +23,17 @@ export function ResendInvitationModal({
   const [adminFirstName, setAdminFirstName] = useState<string>("Admin");
   // Tracks whether the admin has typed in the textarea. If true we stop
   // overwriting their input when the admin name loads or the modal re-opens.
-  const [messageModified, setMessageModified] = useState(false);
+  const messageModifiedRef = useRef(false);
+
+  const buildDefaultMessage = useCallback(() => {
+    const siteName = siteConfig?.shortname || siteConfig?.name || "our chatbot";
+    const siteTagline = siteConfig?.tagline || "explore and discover answers to your questions";
+    return `Please join us in using ${siteName} to ${siteTagline.toLowerCase()}\n\nAums,\n${adminFirstName}`;
+  }, [adminFirstName, siteConfig]);
+
+  function resetMessageState() {
+    messageModifiedRef.current = false;
+  }
 
   // Fetch admin's profile to get first name
   useEffect(() => {
@@ -50,19 +60,15 @@ export function ResendInvitationModal({
 
   // Set default message when admin name is available or modal opens
   useEffect(() => {
-    if (isOpen && !messageModified) {
-      // Generate site-specific invitation message
-      const siteName = siteConfig?.shortname || siteConfig?.name || "our chatbot";
-      const siteTagline = siteConfig?.tagline || "explore and discover answers to your questions";
-      const defaultMessage = `Please join us in using ${siteName} to ${siteTagline.toLowerCase()}\n\nAums,\n${adminFirstName}`;
-      setCustomMessage(defaultMessage);
+    if (isOpen && !messageModifiedRef.current) {
+      setCustomMessage(buildDefaultMessage());
     }
-  }, [adminFirstName, isOpen, messageModified, siteConfig]);
+  }, [adminFirstName, buildDefaultMessage, isOpen, siteConfig]);
 
   // Reset modified flag when modal is closed so next open re-initialises textarea
   useEffect(() => {
     if (!isOpen) {
-      setMessageModified(false);
+      resetMessageState();
     }
   }, [isOpen]);
 
@@ -72,12 +78,8 @@ export function ResendInvitationModal({
     try {
       await onResend(email, customMessage.trim() || undefined);
       // Clear the form and close modal on success
-      const siteName = siteConfig?.shortname || siteConfig?.name || "our chatbot";
-      const siteTagline = siteConfig?.tagline || "explore and discover answers to your questions";
-      setCustomMessage(
-        `Please join us in using ${siteName} to ${siteTagline.toLowerCase()}\n\nAums,\n${adminFirstName}`
-      );
-      setMessageModified(false);
+      setCustomMessage(buildDefaultMessage());
+      resetMessageState();
       onClose();
     } catch (error) {
       // Error handling is done by the parent component
@@ -86,12 +88,8 @@ export function ResendInvitationModal({
 
   const handleClose = () => {
     if (!isSubmitting) {
-      const siteName = siteConfig?.shortname || siteConfig?.name || "our chatbot";
-      const siteTagline = siteConfig?.tagline || "explore and discover answers to your questions";
-      setCustomMessage(
-        `Please join us in using ${siteName} to ${siteTagline.toLowerCase()}\n\nAums,\n${adminFirstName}`
-      );
-      setMessageModified(false);
+      setCustomMessage(buildDefaultMessage());
+      resetMessageState();
       onClose();
     }
   };
@@ -113,7 +111,7 @@ export function ResendInvitationModal({
             id="custom-message"
             value={customMessage}
             onChange={(e) => {
-              setMessageModified(true);
+              messageModifiedRef.current = true;
               setCustomMessage(e.target.value);
             }}
             disabled={isSubmitting}
