@@ -57,7 +57,7 @@ export default function SearchResultItem({ result, query }: SearchResultItemProp
     const author = result.metadata.author && result.metadata.author !== "Unknown" ? result.metadata.author : null;
 
     const titleByAuthor = author ? `${title} by ${author}` : title;
-    const question = `Please explain this content from ${titleByAuthor}:\n\n${result.pageContent}`;
+    const question = `Give me a brief summary and one clarifying question I could ask next about "${titleByAuthor}".\n\nContent:\n${result.pageContent}`;
 
     // Navigate to chat with pre-filled query and auto-submit flag
     router.push({
@@ -212,7 +212,7 @@ export default function SearchResultItem({ result, query }: SearchResultItemProp
           className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm"
         >
           <span className="material-icons text-sm">chat</span>
-          Explain This
+          Summarize & Ask
         </button>
 
         {/* Audio Player button */}
