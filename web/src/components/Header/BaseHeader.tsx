@@ -21,6 +21,7 @@ interface BaseHeaderProps {
   isChatEmpty?: boolean;
   allowTemporarySessions?: boolean;
   helpUrl?: string;
+  enableSearchPage?: boolean;
 }
 
 export default function BaseHeader({
@@ -35,6 +36,7 @@ export default function BaseHeader({
   isChatEmpty = true,
   allowTemporarySessions = false,
   helpUrl,
+  enableSearchPage = false,
 }: BaseHeaderProps) {
   const router = useRouter();
   // Fast initial state from cookie presence to avoid flicker; will be reconciled after init
@@ -198,7 +200,7 @@ export default function BaseHeader({
                 className="text-white hover:text-gray-200 p-1 rounded-xl hover:bg-white/10 transition-colors flex items-center"
                 title="Start temporary chat. It will not be logged, saved, or shareable."
               >
-                <span className="text-sm font-medium">Start Temporary Chat</span>
+                <span className="material-icons text-xl">cloud_off</span>
               </button>
             )}
             {/* Show new chat button when chat is not empty OR when temporary session is active */}
@@ -211,6 +213,15 @@ export default function BaseHeader({
               >
                 <span className="material-icons text-xl">edit_square</span>
               </button>
+            )}
+            {enableSearchPage && (
+              <Link
+                href="/search"
+                className="text-white hover:text-gray-200 p-1 rounded-xl hover:bg-white/10 transition-colors flex items-center"
+                title="Search Passages"
+              >
+                <span className="material-icons text-xl">search</span>
+              </Link>
             )}
             {helpUrl && (
               <a

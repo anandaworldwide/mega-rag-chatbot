@@ -2,7 +2,7 @@ import React from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { SiteConfig } from "@/types/siteConfig";
-import { getParentSiteUrl } from "@/utils/client/siteConfig";
+import { getParentSiteUrl, getEnableSearchPage } from "@/utils/client/siteConfig";
 
 interface CrystalHeaderProps {
   siteConfig: SiteConfig;
@@ -57,6 +57,15 @@ export default function CrystalHeader({ siteConfig, onNewChat }: CrystalHeaderPr
               >
                 <span className="material-icons text-xl">edit_square</span>
               </button>
+            )}
+            {getEnableSearchPage(siteConfig) && (
+              <Link
+                href="/search"
+                className="text-white hover:text-gray-200 p-1 rounded-xl hover:bg-white/10 transition-colors flex items-center"
+                title="Search Passages"
+              >
+                <span className="material-icons text-xl">search</span>
+              </Link>
             )}
             <Link
               href={parentSiteUrl}

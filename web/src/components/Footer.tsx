@@ -2,7 +2,7 @@
 import React from "react";
 import Link from "next/link";
 import { SiteConfig } from "@/types/siteConfig";
-import { getFooterConfig, getEnableSearchPage } from "@/utils/client/siteConfig";
+import { getFooterConfig } from "@/utils/client/siteConfig";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { useSudo } from "@/contexts/SudoContext";
@@ -111,7 +111,6 @@ const Footer: React.FC<FooterProps> = ({ siteConfig }) => {
     };
   }, [router.asPath, siteConfig?.requireLogin]);
   const footerConfig = getFooterConfig(siteConfig);
-  const enableSearchPage = getEnableSearchPage(siteConfig);
 
   const showAdminSection = siteConfig?.requireLogin ? isAdminRole : isSudoUser;
 
@@ -151,18 +150,6 @@ const Footer: React.FC<FooterProps> = ({ siteConfig }) => {
       <footer className="bg-white text-gray-500 py-4 border-t border-t-slate-200">
         <div className="mx-auto max-w-[800px] px-4">
           <div className="flex flex-wrap justify-center items-center">
-            {enableSearchPage && (
-              <>
-                <Link
-                  href="/search"
-                  className="text-sm hover:text-slate-600 cursor-pointer mx-2 my-1 inline-flex items-center"
-                >
-                  Search
-                  <span className="material-icons text-sm ml-1">search</span>
-                </Link>
-                {footerConfig.links.length > 0 && <span className="text-slate-300 text-lg mx-1">|</span>}
-              </>
-            )}
             {footerConfig.links.map((link, index) => {
               // Add default icons if not specified in config
               let icon = link.icon;

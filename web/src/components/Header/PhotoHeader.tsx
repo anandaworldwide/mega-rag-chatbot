@@ -1,6 +1,6 @@
 import BaseHeader from "./BaseHeader";
 import { SiteConfig } from "@/types/siteConfig";
-import { getParentSiteUrl, getParentSiteName } from "@/utils/client/siteConfig";
+import { getParentSiteUrl, getParentSiteName, getEnableSearchPage } from "@/utils/client/siteConfig";
 
 interface PhotoHeaderProps {
   siteConfig: SiteConfig;
@@ -32,6 +32,7 @@ export default function PhotoHeader({
         onTemporarySessionChange={onTemporarySessionChange}
         isChatEmpty={isChatEmpty}
         allowTemporarySessions={siteConfig.allowTemporarySessions}
+        enableSearchPage={getEnableSearchPage(siteConfig)}
       />
     </>
   );

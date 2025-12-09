@@ -1,6 +1,6 @@
 import BaseHeader from "./BaseHeader";
 import { SiteConfig } from "@/types/siteConfig";
-import { getParentSiteUrl, getParentSiteName } from "@/utils/client/siteConfig";
+import { getParentSiteUrl, getParentSiteName, getEnableSearchPage } from "@/utils/client/siteConfig";
 
 interface JairamHeaderProps {
   siteConfig: SiteConfig;
@@ -12,16 +12,17 @@ export default function JairamHeader({ siteConfig, onNewChat }: JairamHeaderProp
   const parentSiteName = getParentSiteName(siteConfig);
 
   return (
-    <BaseHeader
-      config={siteConfig.header}
-      parentSiteUrl={parentSiteUrl}
-      parentSiteName={parentSiteName}
-      requireLogin={siteConfig.requireLogin}
-      onNewChat={onNewChat}
-      temporarySession={false}
-      onTemporarySessionChange={undefined}
-      isChatEmpty={true}
-      allowTemporarySessions={false}
-    />
+      <BaseHeader
+        config={siteConfig.header}
+        parentSiteUrl={parentSiteUrl}
+        parentSiteName={parentSiteName}
+        requireLogin={siteConfig.requireLogin}
+        onNewChat={onNewChat}
+        temporarySession={false}
+        onTemporarySessionChange={undefined}
+        isChatEmpty={true}
+        allowTemporarySessions={false}
+        enableSearchPage={getEnableSearchPage(siteConfig)}
+      />
   );
 }
