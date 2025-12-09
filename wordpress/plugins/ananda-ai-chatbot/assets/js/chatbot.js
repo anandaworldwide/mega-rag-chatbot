@@ -1504,7 +1504,7 @@ document.addEventListener("DOMContentLoaded", () => {
           await sendErrorEmail(
             error,
             "Chatbot Error",
-            chatHistory.length > 0 ? chatHistory[chatHistory.length - 1][0] : "No user message"
+            chatHistory.length > 0 ? (chatHistory[chatHistory.length - 1]?.userMessage || "No user message") : "No user message"
           );
         } catch (emailError) {
           console.error("Failed to send error email:", emailError);
