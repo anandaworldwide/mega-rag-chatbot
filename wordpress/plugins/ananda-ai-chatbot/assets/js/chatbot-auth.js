@@ -22,6 +22,34 @@ let tokenData = null;
 const EXPIRATION_BUFFER = 30 * 1000;
 
 /**
+ * Retry a function with exponential backoff for network errors
+ * @param {Function} fn - Async function to retry
+ * @param {number} maxRetries - Max retry attempts (default: 3)
+ * @param {number} baseDelay - Base delay in ms (default: 1000)
+ * @returns {Promise} - Result of successful fn call
+ */
+async function retryOnNetworkError(fn, maxRetries = 3, baseDelay = 1000) {
+  let lastError;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      // Only retry on network/fetch errors
+      if (!error.message?.includes('Failed to fetch') && !(error instanceof TypeError)) {
+        throw error; // Non-network error: fail immediately
+      }
+      if (attempt === maxRetries - 1) {
+        throw lastError; // All retries exhausted
+      }
+      // Exponential backoff with jitter
+      const delay = baseDelay * Math.pow(2, attempt) + Math.random() * 100;
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+}
+
+/**
  * Parse a JWT token to extract the expiration time
  *
  * @param {string} token - The JWT token to parse
@@ -70,9 +98,11 @@ async function fetchNewToken() {
   const tokenUrl = aichatbotData.ajaxUrl + '?action=aichatbot_get_token';
 
   try {
-    const response = await fetch(tokenUrl, {
-      method: 'GET',
-      credentials: 'same-origin', // Include cookies for WordPress nonce validation
+    const response = await retryOnNetworkError(async () => {
+      return fetch(tokenUrl, {
+        method: 'GET',
+        credentials: 'same-origin', // Include cookies for WordPress nonce validation
+      });
     });
 
     if (!response.ok) {
@@ -173,7 +203,7 @@ async function fetchNewToken() {
 
     if (error.message.includes('Failed to fetch')) {
       userFriendlyError = new Error(
-        'Network error: Unable to connect to WordPress backend. Check your internet connection.',
+        'Network error: Unable to connect to the chatbot server. Check your internet connection.',
       );
     } else if (error.message.includes('HTTP 403')) {
       userFriendlyError = new Error(
