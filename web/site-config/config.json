@@ -144,7 +144,7 @@
     "enableSuggestedQueries": true,
     "enableMediaTypeSelection": false,
     "enableAuthorSelection": false,
-    "enableSearchPage": true,
+    "enableSearchPage": false,
     "requireLogin": false,
     "allowTemporarySessions": false,
     "allowAllAnswersPage": true,

@@ -46,6 +46,19 @@ jest.mock("@/utils/server/loadSiteConfig");
 jest.mock("@/utils/server/passwordUtils");
 jest.mock("crypto-js");
 jest.mock("jsonwebtoken");
+jest.mock("@/utils/env", () => ({
+  isDevelopment: jest.fn().mockReturnValue(false),
+}));
+
+// Mock cookies library
+const setCookieMock = jest.fn();
+jest.mock("cookies", () => {
+  return jest.fn().mockImplementation(() => {
+    return {
+      set: setCookieMock,
+    };
+  });
+});
 
 describe("/api/web-token", () => {
   // Mock request and response objects
@@ -92,6 +105,12 @@ describe("/api/web-token", () => {
 
     // Set up jwt.sign mock
     (jwt.sign as jest.Mock).mockImplementation(() => "test-jwt-token");
+
+    // Set up jwt.verify mock to succeed by default
+    (jwt.verify as jest.Mock).mockReturnValue({ client: "web", exp: Math.floor(Date.now() / 1000) + 900 });
+
+    // Reset cookies mock
+    setCookieMock.mockClear();
 
     jest.clearAllMocks();
   });
@@ -265,8 +284,13 @@ describe("/api/web-token", () => {
   });
 
   it("should issue anonymous token when invalid auth cookie present", async () => {
-    // Mock jwt.verify to throw error (invalid cookie)
-    (jwt.verify as jest.Mock).mockImplementationOnce(() => {
+    // Set site config to not require login (default behavior for this test)
+    (loadSiteConfigSync as jest.Mock).mockReturnValue({
+      requireLogin: false,
+    });
+
+    // Mock jwt.verify to throw error for invalid cookie (called twice: once directly, once via verifyToken)
+    (jwt.verify as jest.Mock).mockImplementation(() => {
       throw new Error("Invalid token");
     });
 
@@ -275,8 +299,35 @@ describe("/api/web-token", () => {
 
     await handler(req as NextApiRequest, res as NextApiResponse);
 
-    // Should still issue anonymous token, not block the request
+    // Should clear invalid cookies and issue anonymous token (not block the request)
     expect(statusMock).toHaveBeenCalledWith(200);
     expect(jsonMock).toHaveBeenCalledWith({ token: "test-jwt-token" });
+    // Verify cookies were cleared
+    expect(setCookieMock).toHaveBeenCalledWith("authToken", "", expect.objectContaining({ expires: expect.any(Date) }));
+    expect(setCookieMock).toHaveBeenCalledWith("auth", "", expect.objectContaining({ expires: expect.any(Date) }));
+  });
+
+  it("should return 401 when invalid auth cookie present on login-required site", async () => {
+    // Set site config to require login
+    (loadSiteConfigSync as jest.Mock).mockReturnValue({
+      requireLogin: true,
+    });
+
+    // Mock jwt.verify to throw error for invalid cookie
+    (jwt.verify as jest.Mock).mockImplementation(() => {
+      throw new Error("Invalid token");
+    });
+
+    req.cookies = { authToken: "invalid-token" };
+    req.headers = {};
+
+    await handler(req as NextApiRequest, res as NextApiResponse);
+
+    // Should return 401 and clear invalid cookies
+    expect(statusMock).toHaveBeenCalledWith(401);
+    expect(jsonMock).toHaveBeenCalledWith({ error: "Authentication required" });
+    // Verify cookies were cleared
+    expect(setCookieMock).toHaveBeenCalledWith("authToken", "", expect.objectContaining({ expires: expect.any(Date) }));
+    expect(setCookieMock).toHaveBeenCalledWith("auth", "", expect.objectContaining({ expires: expect.any(Date) }));
   });
 });

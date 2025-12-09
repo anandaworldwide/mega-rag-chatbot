@@ -20,6 +20,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
+import { JWT_SIGN_OPTIONS } from "@/utils/server/jwtUtils";
 
 /**
  * API handler for the token issuance endpoint
@@ -119,7 +120,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Sign the JWT using the SECURE_TOKEN with a 15-minute expiration
     // This relatively short expiration improves security by limiting
     // the window of opportunity if a token is somehow compromised
+    // Use JWT_SIGN_OPTIONS to ensure issuer and audience match verification requirements
     const token = jwt.sign(payload, secureToken, {
+      algorithm: JWT_SIGN_OPTIONS.algorithm as jwt.Algorithm,
+      issuer: JWT_SIGN_OPTIONS.issuer,
+      audience: JWT_SIGN_OPTIONS.audience,
       expiresIn: "15m",
     });
 

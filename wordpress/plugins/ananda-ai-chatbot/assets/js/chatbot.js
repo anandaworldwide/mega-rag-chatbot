@@ -227,7 +227,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /**
    * Create and display follow-up suggestion chips
-   * @param {Array} suggestions - Array of suggestion strings
+   * @param {Array} suggestions - Array of TypedSuggestion objects with {id, text, type}
    * @param {Element} botMessage - The bot message element to append chips to
    */
   function createSuggestionChips(suggestions, botMessage) {
@@ -245,30 +245,77 @@ document.addEventListener("DOMContentLoaded", () => {
       existingChips.remove();
     }
 
-    // Create chips container
+    // Validate suggestions are TypedSuggestion objects
+    const validSuggestions = suggestions.filter(
+      (suggestion) => suggestion && typeof suggestion === "object" && suggestion.text && suggestion.type
+    );
+
+    if (validSuggestions.length === 0) {
+      return;
+    }
+
+    // Separate suggestions by type
+    const deeperSuggestions = validSuggestions.filter((s) => s.type === "deeper");
+    const broaderSuggestions = validSuggestions.filter((s) => s.type === "broader");
+
+    // Create main container
     const chipsContainer = document.createElement("div");
     chipsContainer.className = "aichatbot-suggestion-chips";
 
-    // Create chips for up to 2 suggestions as requested
-    const maxChips = Math.min(suggestions.length, 2);
-
-    for (let i = 0; i < maxChips; i++) {
-      const suggestion = suggestions[i];
-      if (!suggestion || suggestion.length === 0) {
-        continue;
-      }
-
+    // Helper function to create a chip button
+    const createChip = (suggestion, index) => {
       const chip = document.createElement("button");
       chip.className = "aichatbot-suggestion-chip";
-      chip.textContent = suggestion;
-      chip.title = suggestion; // Full text on hover
+      chip.textContent = suggestion.text;
+      chip.title = suggestion.text; // Full text on hover
+      chip.setAttribute("data-suggestion-id", suggestion.id);
 
       // Add click handler
       chip.addEventListener("click", () => {
-        handleSuggestionClick(suggestion, i);
+        handleSuggestionClick(suggestion.text, index, suggestion);
       });
 
-      chipsContainer.appendChild(chip);
+      return chip;
+    };
+
+    // Create "Go deeper" section if we have deeper suggestions
+    if (deeperSuggestions.length > 0) {
+      const deeperSection = document.createElement("div");
+      deeperSection.className = "aichatbot-suggestion-section";
+
+      const deeperHeader = document.createElement("h4");
+      deeperHeader.className = "aichatbot-suggestion-header";
+      deeperHeader.textContent = "Go deeper";
+      deeperSection.appendChild(deeperHeader);
+
+      const deeperChipsContainer = document.createElement("div");
+      deeperChipsContainer.className = "aichatbot-suggestion-chips-row";
+      deeperSuggestions.forEach((suggestion, index) => {
+        deeperChipsContainer.appendChild(createChip(suggestion, index));
+      });
+      deeperSection.appendChild(deeperChipsContainer);
+
+      chipsContainer.appendChild(deeperSection);
+    }
+
+    // Create "Go broader" section if we have broader suggestions
+    if (broaderSuggestions.length > 0) {
+      const broaderSection = document.createElement("div");
+      broaderSection.className = "aichatbot-suggestion-section";
+
+      const broaderHeader = document.createElement("h4");
+      broaderHeader.className = "aichatbot-suggestion-header";
+      broaderHeader.textContent = "Go broader";
+      broaderSection.appendChild(broaderHeader);
+
+      const broaderChipsContainer = document.createElement("div");
+      broaderChipsContainer.className = "aichatbot-suggestion-chips-row";
+      broaderSuggestions.forEach((suggestion, index) => {
+        broaderChipsContainer.appendChild(createChip(suggestion, index));
+      });
+      broaderSection.appendChild(broaderChipsContainer);
+
+      chipsContainer.appendChild(broaderSection);
     }
 
     // Only add container if we have chips
@@ -279,29 +326,29 @@ document.addEventListener("DOMContentLoaded", () => {
 
   /**
    * Handle suggestion chip click
-   * @param {string} suggestion - The suggestion text
+   * @param {string} suggestionText - The suggestion text
    * @param {number} index - The index of the clicked suggestion
+   * @param {Object} suggestion - The full TypedSuggestion object (optional)
    */
-  function handleSuggestionClick(suggestion, index) {
+  function handleSuggestionClick(suggestionText, index, suggestion = null) {
     // Track analytics
     sendGoogleAnalyticsEvent("chatbot_vivek_suggestion_click", {
       event_category: "chatbot_engagement",
-      suggestion_text: suggestion.substring(0, 100), // First 100 chars for analysis
+      suggestion_text: suggestionText.substring(0, 100), // First 100 chars for analysis
       suggestion_index: index,
+      suggestion_type: suggestion?.type || "unknown",
+      suggestion_id: suggestion?.id || `suggestion-${index}`,
       session_questions_total: sessionQuestionCount,
     });
 
     // Set the suggestion as input value
-    input.value = suggestion;
+    input.value = suggestionText;
 
     // Auto-resize textarea to fit the suggestion
     autoResizeTextarea();
 
-    // Focus the input
-    input.focus();
-
-    // Optionally auto-submit (uncomment if desired)
-    // sendMessage();
+    // Auto-submit the suggestion
+    sendMessage();
   }
 
   /**

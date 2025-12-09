@@ -29,6 +29,7 @@ import { db } from "@/services/firebase";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreGet } from "@/utils/server/firestoreRetryUtils";
 import { isDevelopment } from "@/utils/env";
+import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 
 /**
  * API handler for the web token endpoint
@@ -102,9 +103,41 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           console.warn("Failed to migrate auth cookie to authToken:", migrationError);
         }
       } catch (jwtError) {
-        // Invalid auth cookie - continue with anonymous token
-        // Don't block the request, just log it
-        console.warn("Invalid auth cookie in web-token request:", jwtError);
+        // Invalid auth cookie - handle based on site configuration
+        const siteConfig = loadSiteConfigSync();
+        const requiresLogin = siteConfig?.requireLogin === true;
+
+        if (requiresLogin) {
+          // Site requires login - invalid cookie means unauthorized access
+          // Clear the bad cookies and return 401
+          const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
+          const cookies = new Cookies(req, res, { secure: isSecure });
+          // TODO: Remove migration bridge after June 2026 - only clear authToken
+          cookies.set("authToken", "", {
+            expires: new Date(0),
+            path: "/",
+          });
+          cookies.set("auth", "", {
+            expires: new Date(0),
+            path: "/",
+          });
+          return res.status(401).json({ error: "Authentication required" });
+        } else {
+          // Site doesn't require login - clear bad cookies and continue with anonymous token
+          const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
+          const cookies = new Cookies(req, res, { secure: isSecure });
+          // TODO: Remove migration bridge after June 2026 - only clear authToken
+          cookies.set("authToken", "", {
+            expires: new Date(0),
+            path: "/",
+          });
+          cookies.set("auth", "", {
+            expires: new Date(0),
+            path: "/",
+          });
+          // Log warning but continue with anonymous token
+          console.warn("Invalid auth cookie in web-token request (cleared):", jwtError);
+        }
       }
     }
 
@@ -142,8 +175,41 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           }
         }
       } catch (error) {
-        // If auth cookie is invalid, continue with anonymous token
-        // This allows graceful degradation for expired/invalid sessions
+        // If auth cookie is invalid (e.g., expired, wrong issuer), handle based on site config
+        // Note: Signature errors are already handled in the first check above
+        const siteConfig = loadSiteConfigSync();
+        const requiresLogin = siteConfig?.requireLogin === true;
+
+        if (requiresLogin) {
+          // Site requires login - invalid cookie means unauthorized access
+          // Clear the bad cookies and return 401
+          const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
+          const cookies = new Cookies(req, res, { secure: isSecure });
+          // TODO: Remove migration bridge after June 2026 - only clear authToken
+          cookies.set("authToken", "", {
+            expires: new Date(0),
+            path: "/",
+          });
+          cookies.set("auth", "", {
+            expires: new Date(0),
+            path: "/",
+          });
+          return res.status(401).json({ error: "Authentication required" });
+        } else {
+          // Site doesn't require login - clear bad cookies and continue with anonymous token
+          const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
+          const cookies = new Cookies(req, res, { secure: isSecure });
+          // TODO: Remove migration bridge after June 2026 - only clear authToken
+          cookies.set("authToken", "", {
+            expires: new Date(0),
+            path: "/",
+          });
+          cookies.set("auth", "", {
+            expires: new Date(0),
+            path: "/",
+          });
+          // Continue with anonymous token - already logged warning in first check if signature error
+        }
       }
     }
 
