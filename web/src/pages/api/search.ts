@@ -119,7 +119,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse<SearchResponse 
       }
 
       if (body.filters.author) {
-        filterConditions.push({ author: { $eq: body.filters.author } });
+        if (body.filters.author === "(No author)") {
+          // Don't add author filter for "(No author)" - we'll post-filter results instead
+          // This handles cases where Pinecone doesn't store the author field for missing authors
+        } else {
+          filterConditions.push({ author: { $eq: body.filters.author } });
+        }
       }
 
       if (body.filters.type && body.filters.type.length > 0) {
@@ -188,11 +193,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse<SearchResponse 
     console.log(`[Search API] Pinecone returned ${searchResults.length} results`);
 
     // Convert to SearchResult format
-    const allResults: SearchResult[] = searchResults.map(([doc, score]) => ({
+    let allResults: SearchResult[] = searchResults.map(([doc, score]) => ({
       pageContent: doc.pageContent,
       metadata: doc.metadata as DocMetadata,
       score: score,
     }));
+
+    // Post-filter for "(No author)" if needed (handles missing author fields in Pinecone)
+    // Pinecone might not store the author field when it's undefined, so we filter client-side
+    if (body.filters?.author === "(No author)") {
+      allResults = allResults.filter((result) => {
+        const author = result.metadata.author;
+        return !author || author.trim() === "";
+      });
+      console.log(`[Search API] Post-filtered to ${allResults.length} results with no author`);
+    }
 
     // Apply pagination
     const paginatedResults = allResults.slice(offset, offset + limit);
@@ -214,9 +229,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse<SearchResponse 
       if (result.metadata.title) {
         titleCounts[result.metadata.title] = (titleCounts[result.metadata.title] || 0) + 1;
       }
-      if (result.metadata.author) {
-        authorCounts[result.metadata.author] = (authorCounts[result.metadata.author] || 0) + 1;
-      }
+      // Count blank/undefined authors as "(No author)" for display purposes
+      // The actual metadata remains blank/undefined - this is just for facet counting
+      const author = result.metadata.author?.trim() || "(No author)";
+      authorCounts[author] = (authorCounts[author] || 0) + 1;
       if (result.metadata.type) {
         typeCounts[result.metadata.type] = (typeCounts[result.metadata.type] || 0) + 1;
       }
