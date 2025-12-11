@@ -3888,8 +3888,10 @@ def _initialize_crawl_loop(
         logging.info(f"Will stop crawling after processing {stop_after} pages")
 
     stats = crawler.get_queue_stats()
+    pending_ready = stats["pending"] - stats.get("pending_retry", 0)
     logging.info(
-        f"Initial queue stats: {stats['pending']} pending, {stats['visited']} visited, {stats['failed']} failed"
+        f"Initial queue stats: {stats['pending']} pending ({pending_ready} ready, {stats.get('pending_retry', 0)} waiting for retry), "
+        f"{stats['visited']} visited, {stats['failed']} failed"
     )
 
     return (

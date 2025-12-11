@@ -425,6 +425,13 @@ if [ -z "$CRAWLER_SG_ID" ] || [ "$CRAWLER_SG_ID" == "None" ]; then
         --ip-permissions IpProtocol=tcp,FromPort=53,ToPort=53,IpRanges='[{CidrIp='$DNS_SERVER'/32,Description="DNS TCP for large responses"}]' \
         &> /dev/null || true
     
+    # Outbound: Allow NFS (2049) for EFS volume mounts
+    aws ec2 authorize-security-group-egress \
+        --region "$REGION" \
+        --group-id "$CRAWLER_SG_ID" \
+        --ip-permissions IpProtocol=tcp,FromPort=2049,ToPort=2049,IpRanges='[{CidrIp='$VPC_CIDR',Description="NFS for EFS"}]' \
+        &> /dev/null || true
+    
     # Remove default "allow all" outbound rule for strict least-privilege
     # AWS creates a default rule allowing all outbound traffic - remove it
     aws ec2 revoke-security-group-egress \
@@ -436,7 +443,7 @@ if [ -z "$CRAWLER_SG_ID" ] || [ "$CRAWLER_SG_ID" == "None" ]; then
     
     echo -e "${GREEN}✓ Created hardened security group: ${CRAWLER_SG_ID}${NC}"
     echo -e "${GREEN}  Inbound: Deny all (no ports exposed)${NC}"
-    echo -e "${GREEN}  Outbound: HTTPS (443), HTTP (80), DNS (53) only${NC}"
+    echo -e "${GREEN}  Outbound: HTTPS (443), HTTP (80), DNS (53), NFS (2049) only${NC}"
 else
     echo -e "${YELLOW}Hardened security group already exists: ${CRAWLER_SG_ID}${NC}"
 fi

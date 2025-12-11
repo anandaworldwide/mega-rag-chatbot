@@ -1199,7 +1199,39 @@ behavior without executing the handler.
 
 **Applied To**: Fixed logo link and nav item links in `BaseHeader.tsx` to respect modifier key clicks.
 
-### 35. Jest Fetch Mock Expectations Must Include credentials Option
+### 35. EFS Mount Failures in ECS with Hardened Security Groups
+
+**Issue**: ECS tasks fail with
+`ResourceInitializationError: failed to invoke EFS utils commands to set up EFS volumes: mount.nfs4: mount system call failed`
+when using hardened security groups.
+
+**Root Cause**: Hardened security groups that only allow outbound HTTPS (443), HTTP (80), and DNS (53) block NFS traffic
+(port 2049) required for EFS volume mounts.
+
+**Wrong**: Security group missing NFS egress rule.
+
+```bash
+# Only allows web traffic - EFS mount fails
+aws ec2 describe-security-groups --group-ids $SG_ID --query 'SecurityGroups[0].IpPermissionsEgress'
+# Shows only: 443, 80, 53 - missing 2049
+```
+
+**Correct**: Add NFS egress rule to allow EFS communication.
+
+```bash
+aws ec2 authorize-security-group-egress \
+  --group-id $CRAWLER_SG_ID \
+  --ip-permissions 'IpProtocol=tcp,FromPort=2049,ToPort=2049,IpRanges=[{CidrIp=172.31.0.0/16,Description="NFS for EFS"}]' \
+  --region us-west-1
+```
+
+**Pattern**: When using EFS with ECS Fargate tasks and hardened security groups, always ensure outbound NFS (port 2049)
+is allowed to the VPC CIDR. This applies to any security group that doesn't have a default "allow all outbound" rule.
+
+**Diagnosis**: Check service events with `aws ecs describe-services --query 'services[0].events[0:5]'` to see EFS mount
+failures.
+
+### 36. Jest Fetch Mock Expectations Must Include credentials Option
 
 **Problem**: Tests fail when implementation adds `credentials: "include"` to fetch calls but tests don't expect it.
 

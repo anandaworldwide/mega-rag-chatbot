@@ -2,6 +2,11 @@
 
 Deploy the Ananda crawler to AWS ECS Fargate for scheduled execution (9am-5pm PT daily).
 
+## 🚀 Cost Optimization Available
+
+**New**: Automatic Fargate Spot capacity with 70%+ cost savings! See [SPOT-CAPACITY-README.md](SPOT-CAPACITY-README.md)
+for setup.
+
 ## Architecture
 
 - **Container**: Docker image in ECR (us-west-1)
@@ -37,6 +42,9 @@ cd data_ingestion/crawler
 Manager secret (placeholder), hardened security group for crawler tasks
 
 **Note**: Save the EFS ID from the output for later use.
+
+**Cost Optimization**: After basic setup, run `./setup-spot-capacity.sh` to enable automatic Fargate Spot capacity with
+70%+ cost savings. See [SPOT-CAPACITY-README.md](SPOT-CAPACITY-README.md).
 
 **Security**: The setup script creates a hardened security group (`crawler-hardened-sg`) with:
 
@@ -134,15 +142,34 @@ Create the daily schedule that starts the crawler at 9am PT:
 
 ---
 
-### Step 7: Test the Deployment
+### Step 7: Enable Cost Optimization (Recommended)
+
+Set up automatic Fargate Spot capacity for 70%+ cost savings:
+
+```bash
+# Enable Spot capacity with on-demand fallback
+./setup-spot-capacity.sh
+
+# Update EventBridge schedule to use Spot capacity
+./update-schedule-for-service.sh
+
+# Switch to service-based control (replaces manual run-task)
+./service-control.sh start
+./service-control.sh status
+```
+
+### Step 8: Test the Deployment
 
 Verify everything works:
 
 ```bash
-# Start crawler manually in cloud
-./manual-control.sh start-cloud
+# If using Spot capacity (recommended)
+./service-control.sh status
+./service-control.sh stop
+./service-control.sh start
 
-# Check status
+# Legacy manual control (still available)
+./manual-control.sh start-cloud
 ./manual-control.sh status-cloud
 
 # View logs
@@ -150,7 +177,7 @@ aws logs tail /ecs/ananda-crawler --follow --region us-west-1
 ```
 
 **What to look for**: Task starts successfully, logs show crawler initialization, no database/EFS mount errors, crawler
-begins processing URLs
+begins processing URLs. With Spot capacity, check that tasks show `capacityProviderName` as your Spot provider.
 
 ## Transition Period: Laptop ↔ Cloud
 
@@ -592,6 +619,19 @@ The SQLite database is stored on EFS. To backup:
 
 **Monthly costs** (8 hours/day, 30 days):
 
+### With Fargate Spot (Recommended - 70% savings)
+
+- **ECS Fargate Spot**: ~$4-6 (0.5 vCPU × 1GB × 240 hours, 70% discount)
+- **EFS**: ~$1-2 (minimal storage, bursting throughput)
+- **ECR**: ~$0.10 (image storage)
+- **CloudWatch Logs**: ~$1-2 (log ingestion and storage)
+- **Secrets Manager**: ~$0.40 (one secret)
+- **EventBridge**: Free tier covers this use case
+
+**Total**: ~$6-11/month
+
+### With Fargate On-Demand (Legacy)
+
 - **ECS Fargate**: ~$10-15 (0.5 vCPU × 1GB × 240 hours)
 - **EFS**: ~$1-2 (minimal storage, bursting throughput)
 - **ECR**: ~$0.10 (image storage)
@@ -603,6 +643,27 @@ The SQLite database is stored on EFS. To backup:
 
 ## Quick Reference Commands
 
+### Service Control (Recommended - with Spot capacity)
+
+```bash
+# Start cloud crawler
+./service-control.sh start
+
+# Stop cloud crawler
+./service-control.sh stop
+
+# Check status (shows capacity type)
+./service-control.sh status
+
+# Scale to multiple instances
+./service-control.sh scale 2
+
+# Force restart
+./service-control.sh restart
+```
+
+### Manual Control (Legacy)
+
 ```bash
 # Start cloud crawler
 ./manual-control.sh start-cloud
@@ -612,7 +673,11 @@ The SQLite database is stored on EFS. To backup:
 
 # Check status
 ./manual-control.sh status-cloud
+```
 
+### General Commands
+
+```bash
 # View logs
 aws logs tail /ecs/ananda-crawler --follow --region us-west-1
 
@@ -625,6 +690,12 @@ aws secretsmanager put-secret-value --secret-id ananda-crawler-secrets --secret-
 # Update image and redeploy
 ./build-and-push.sh v1.0.1
 ./register-task-definition.sh v1.0.1
+
+# Setup Spot capacity (one-time)
+./setup-spot-capacity.sh
+
+# Update schedule for Spot capacity (one-time)
+./update-schedule-for-service.sh
 ```
 
 ## NAT-less Deployment Checklist
@@ -642,7 +713,7 @@ Before deploying with public subnet configuration:
 - [ ] Task definition sets `assignPublicIp=ENABLED` in network configuration
 - [ ] Container runs as non-root user (UID 1000)
 
-### Security Validation
+### Security Validation Checklist
 
 - [ ] Run task and verify public IP assignment:
 
