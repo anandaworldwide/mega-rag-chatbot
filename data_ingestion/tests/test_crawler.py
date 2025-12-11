@@ -12,7 +12,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, Mock, call, mock_open, patch
 
 # Import the crawler class
 import pytest
@@ -84,13 +84,15 @@ class BaseWebsiteCrawlerTest(unittest.TestCase):
 
     def setUp(self):
         """Set up environment variables required by WebsiteCrawler."""
-        self.env_patcher = patch.dict(
-            os.environ,
-            {
-                "OPENAI_INGEST_EMBEDDINGS_MODEL": "text-embedding-ada-002",
-                "OPENAI_API_KEY": "test-api-key",
-            },
-        )
+        # Ensure DATA_DIR is not set to use default paths in tests
+        env_vars = {
+            "OPENAI_INGEST_EMBEDDINGS_MODEL": "text-embedding-ada-002",
+            "OPENAI_API_KEY": "test-api-key",
+        }
+        # Remove DATA_DIR if it exists to ensure default path behavior
+        if "DATA_DIR" in os.environ:
+            env_vars["DATA_DIR"] = ""
+        self.env_patcher = patch.dict(os.environ, env_vars)
         self.env_patcher.start()
 
     def tearDown(self):
@@ -132,13 +134,14 @@ class TestCrawlerConfig(unittest.TestCase):
         # Patch the open function to use our temp file
         with patch(
             "builtins.open",
-            new_callable=unittest.mock.mock_open,
+            new_callable=mock_open,
             read_data=json.dumps(self.config_data),
         ):
             config = load_config(self.site_id)
 
             # Verify config was loaded correctly
             self.assertIsNotNone(config)
+            assert config is not None  # Type narrowing for Pyright
             self.assertEqual(config["domain"], "example.com")
             self.assertEqual(config["skip_patterns"], ["pattern1", "pattern2"])
             self.assertEqual(config["crawl_frequency_days"], 14)
@@ -161,13 +164,14 @@ class TestCrawlerConfig(unittest.TestCase):
         # Patch the open function to use our temp file
         with patch(
             "builtins.open",
-            new_callable=unittest.mock.mock_open,
+            new_callable=mock_open,
             read_data=json.dumps(csv_config_data),
         ):
             config = load_config(self.site_id)
 
             # Verify config was loaded correctly
             self.assertIsNotNone(config)
+            assert config is not None  # Type narrowing for Pyright
             self.assertEqual(config["domain"], "example.com")
             self.assertEqual(config["csv_export_url"], "https://example.com/export.csv")
             self.assertEqual(config["csv_modified_days_threshold"], 3)
@@ -220,9 +224,11 @@ class TestSQLiteIntegration(BaseWebsiteCrawlerTest):
         # sqlite3.connect (the mock) should have been called by WebsiteCrawler
         # The path it was called with would be based on the mocked Path
         # For this test, we mainly care that the crawler got a connection and set up tables.
+        assert isinstance(sqlite3.connect, Mock)
         self.assertTrue(sqlite3.connect.called)
 
         # Verify table structure on the in-memory DB the crawler is using
+        assert crawler.conn is not None  # Type narrowing for Pyright
         cursor = crawler.conn.cursor()
         cursor.execute("PRAGMA table_info(crawl_queue)")
         columns_info = cursor.fetchall()
@@ -252,6 +258,7 @@ class TestSQLiteIntegration(BaseWebsiteCrawlerTest):
         crawler = WebsiteCrawler(self.site_id, self.site_config)
 
         # Verify CSV tracking table structure (simplified schema)
+        assert crawler.conn is not None  # Type narrowing for Pyright
         cursor = crawler.conn.cursor()
         cursor.execute("PRAGMA table_info(csv_tracking)")
         columns_info = cursor.fetchall()
@@ -277,6 +284,7 @@ class TestSQLiteIntegration(BaseWebsiteCrawlerTest):
             ensure_scheme(self.site_config["domain"])
         )
 
+        assert crawler.conn is not None  # Type narrowing for Pyright
         cursor = crawler.conn.cursor()
         cursor.execute("SELECT url FROM crawl_queue WHERE status = 'pending'")
         rows = cursor.fetchall()
@@ -299,6 +307,7 @@ class TestSQLiteIntegration(BaseWebsiteCrawlerTest):
         for url, priority in test_urls:
             crawler.add_url_to_queue(url, priority=priority)
 
+        assert crawler.conn is not None  # Type narrowing for Pyright
         cursor = crawler.conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM crawl_queue WHERE status = 'pending'")
         # Seeded URL + 3 test URLs
@@ -334,6 +343,7 @@ class TestSQLiteIntegration(BaseWebsiteCrawlerTest):
         for url in test_urls:
             crawler.add_url_to_queue(url)  # add_url_to_queue also normalizes
 
+        assert crawler.conn is not None  # Type narrowing for Pyright
         cursor = crawler.conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM crawl_queue WHERE status = 'pending'")
         # Seeded URL + 3 test URLs
@@ -354,6 +364,8 @@ class TestSQLiteIntegration(BaseWebsiteCrawlerTest):
         # Manually advance time for retry_after to pass for test_urls[2]
         # This depends on the default retry logic (e.g., 5 minutes)
         # For simplicity, we'll assume page3 (test_urls[2]) has its next_crawl due now.
+        assert crawler.cursor is not None  # Type narrowing for Pyright
+        assert crawler.conn is not None  # Type narrowing for Pyright
         crawler.cursor.execute(
             "UPDATE crawl_queue SET next_crawl = datetime('now', '-1 hour') WHERE url = ?",
             (test_urls[2],),
@@ -506,6 +518,7 @@ https://example.com/page2,2025-07-13 09:30:00,Test Page 2
             result = crawler.download_csv_data(mock_browser)
 
             self.assertIsNotNone(result)
+            assert result is not None  # Type narrowing for Pyright
             self.assertEqual(len(result), 2)
             self.assertEqual(result[0]["URL"], "https://example.com/page1")
             self.assertEqual(result[0]["Modified Date"], "2025-07-12 08:45:00")
@@ -568,6 +581,7 @@ https://example.com/page2,2025-07-13 09:30:00,Test Page 2
         self.assertEqual(added_count, 1)
 
         # Verify URL was added with high priority
+        assert crawler.conn is not None  # Type narrowing for Pyright
         cursor = crawler.conn.cursor()
         normalized_url = crawler.normalize_url("https://example.com/recent-page")
         cursor.execute(
@@ -598,6 +612,7 @@ https://example.com/page2,2025-07-13 09:30:00,Test Page 2
         crawler.update_csv_tracking(csv_error="Test error")
 
         # Verify the CSV tracking table still exists and has the basic structure
+        assert crawler.conn is not None  # Type narrowing for Pyright
         cursor = crawler.conn.cursor()
         cursor.execute("SELECT id, initial_crawl_completed FROM csv_tracking")
         # Should not raise an error, table should exist
@@ -646,6 +661,7 @@ https://example.com/page2,2025-07-13 09:30:00,Test Page 2
         self.assertTrue(crawler.initial_crawl_completed)
 
         # Verify in database
+        assert crawler.conn is not None  # Type narrowing for Pyright
         cursor = crawler.conn.cursor()
         cursor.execute("SELECT initial_crawl_completed FROM csv_tracking LIMIT 1")
         result = cursor.fetchone()
@@ -727,6 +743,8 @@ class TestChangeDetection(BaseWebsiteCrawlerTest):
 
         # Add URL to queue and mark as visited with initial hash
         # Ensure the URL stored in DB is normalized, as should_process_content will query with normalized URL
+        assert crawler.cursor is not None  # Type narrowing for Pyright
+        assert crawler.conn is not None  # Type narrowing for Pyright
         crawler.cursor.execute(
             "INSERT INTO crawl_queue (url, status, content_hash, last_crawl, next_crawl, crawl_frequency) VALUES (?, ?, ?, datetime('now'), datetime('now', '+7 days'), ?)",
             (
@@ -799,6 +817,7 @@ class TestFailureHandling(BaseWebsiteCrawlerTest):
         error_msg = "Connection reset by peer"
         crawler.mark_url_status(normalized_test_url, "failed", error_msg=error_msg)
 
+        assert crawler.conn is not None  # Type narrowing for Pyright
         cursor = crawler.conn.cursor()
         cursor.execute(
             "SELECT status, failure_type, retry_count, retry_after FROM crawl_queue WHERE url = ?",
@@ -825,6 +844,7 @@ class TestFailureHandling(BaseWebsiteCrawlerTest):
         error_msg = "HTTP 403 Forbidden"
         crawler.mark_url_status(normalized_test_url, "failed", error_msg=error_msg)
 
+        assert crawler.conn is not None  # Type narrowing for Pyright
         cursor = crawler.conn.cursor()
         cursor.execute(
             "SELECT status, failure_type, retry_count FROM crawl_queue WHERE url = ?",
@@ -849,6 +869,8 @@ class TestFailureHandling(BaseWebsiteCrawlerTest):
         norm_temp_url = crawler.normalize_url(temp_url_raw)
 
         # Add permanent failure
+        assert crawler.cursor is not None  # Type narrowing for Pyright
+        assert crawler.conn is not None  # Type narrowing for Pyright
         crawler.cursor.execute(
             "INSERT INTO crawl_queue (url, status, failure_type, last_error) VALUES (?, 'failed', 'permanent', ?)",
             (norm_perm_url, "Some permanent error"),
@@ -864,6 +886,7 @@ class TestFailureHandling(BaseWebsiteCrawlerTest):
         crawler.retry_failed_urls()  # This method is in WebsiteCrawler
 
         # Check permanent failure was reset
+        assert crawler.conn is not None  # Type narrowing for Pyright
         cursor = crawler.conn.cursor()
         cursor.execute(
             "SELECT status, retry_after, failure_type, retry_count FROM crawl_queue WHERE url = ?",
@@ -937,6 +960,8 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
         crawler = WebsiteCrawler(self.site_id, self.site_config)
 
         # Empty the queue to ensure get_next_url_to_crawl returns None
+        assert crawler.cursor is not None  # Type narrowing for Pyright
+        assert crawler.conn is not None  # Type narrowing for Pyright
         crawler.cursor.execute("DELETE FROM crawl_queue")
         crawler.conn.commit()
 
@@ -962,7 +987,9 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
                 mock_is_exiting.side_effect = exit_requested_side_effect
 
                 # Mock sync_playwright to prevent actual playwright launch
-                with patch("crawler.website_crawler.sync_playwright") as mock_playwright:
+                with patch(
+                    "crawler.website_crawler.sync_playwright"
+                ) as mock_playwright:
                     mock_p = MagicMock()
                     mock_playwright.return_value.__enter__.return_value = mock_p
 
@@ -1003,6 +1030,8 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
         crawler.mark_initial_crawl_completed()
 
         # Empty the queue to trigger sleep
+        assert crawler.cursor is not None  # Type narrowing for Pyright
+        assert crawler.conn is not None  # Type narrowing for Pyright
         crawler.cursor.execute("DELETE FROM crawl_queue")
         crawler.conn.commit()
 
@@ -1028,7 +1057,9 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
                 mock_is_exiting.side_effect = exit_requested_side_effect
 
                 # Mock sync_playwright to prevent actual playwright launch
-                with patch("crawler.website_crawler.sync_playwright") as mock_playwright:
+                with patch(
+                    "crawler.website_crawler.sync_playwright"
+                ) as mock_playwright:
                     mock_p = MagicMock()
                     mock_playwright.return_value.__enter__.return_value = mock_p
 
@@ -1952,9 +1983,7 @@ class TestGracefulSleep(unittest.TestCase):
 
         # Should call sleep 3 times: 30, 30, 30 seconds
         self.assertEqual(mock_sleep.call_count, 3)
-        mock_sleep.assert_has_calls(
-            [unittest.mock.call(30), unittest.mock.call(30), unittest.mock.call(30)]
-        )
+        mock_sleep.assert_has_calls([call(30), call(30), call(30)])
 
     @patch("crawler.website_crawler.is_exiting")
     @patch("time.sleep")
@@ -2112,6 +2141,7 @@ class TestCrawlFrequencyJitter(BaseWebsiteCrawlerTest):
             mock_jitter.assert_called_once_with(25)
 
             # Verify next_crawl was set to the jittered value
+            assert crawler.conn is not None  # Type narrowing for Pyright
             cursor = crawler.conn.cursor()
             cursor.execute(
                 "SELECT next_crawl FROM crawl_queue WHERE url = ?",
@@ -2227,10 +2257,15 @@ class TestCrawlerInitializationBug(BaseWebsiteCrawlerTest):
 
     def test_empty_database_seeds_start_url(self):
         """Test that start URL is added when database is completely empty."""
-        with patch("data_ingestion.crawler.website_crawler.load_config") as mock_load:
+        # Ensure DATA_DIR is not set to use default path
+        with (
+            patch.dict(os.environ, {"DATA_DIR": ""}, clear=False),
+            patch("data_ingestion.crawler.website_crawler.load_config") as mock_load,
+        ):
             mock_load.return_value = self.config
 
             # First, clear any existing database file to ensure we start empty
+            # Use default path (DATA_DIR not set)
             script_dir = Path(__file__).resolve().parent.parent
             db_dir = script_dir / "crawler" / "db"
             db_file = db_dir / f"crawler_queue_{self.site_id}.db"
@@ -2246,6 +2281,7 @@ class TestCrawlerInitializationBug(BaseWebsiteCrawlerTest):
             )
 
             # Check that start URL was added
+            assert crawler.cursor is not None  # Type narrowing for Pyright
             cursor = crawler.cursor
             cursor.execute("SELECT COUNT(*) FROM crawl_queue")
             total_count = cursor.fetchone()[0]
@@ -2275,6 +2311,8 @@ class TestCrawlerInitializationBug(BaseWebsiteCrawlerTest):
             )
 
             # Clear the database and manually add some visited URLs that aren't due for re-crawling
+            assert crawler.cursor is not None  # Type narrowing for Pyright
+            assert crawler.conn is not None  # Type narrowing for Pyright
             cursor = crawler.cursor
             cursor.execute("DELETE FROM crawl_queue")
 
@@ -2350,6 +2388,8 @@ class TestCrawlerInitializationBug(BaseWebsiteCrawlerTest):
             )
 
             # Clear the database and manually add some pending URLs
+            assert crawler.cursor is not None  # Type narrowing for Pyright
+            assert crawler.conn is not None  # Type narrowing for Pyright
             cursor = crawler.cursor
             cursor.execute("DELETE FROM crawl_queue")
 
@@ -2391,6 +2431,46 @@ class TestCrawlerInitializationBug(BaseWebsiteCrawlerTest):
             start_url_exists = cursor.fetchone()
             self.assertIsNone(start_url_exists, "Start URL should NOT be in database")
 
+            crawler.close()
+
+
+class TestDataDirSupport(BaseWebsiteCrawlerTest):
+    """Test DATA_DIR environment variable support."""
+
+    def setUp(self):
+        """Set up test environment."""
+        super().setUp()
+        self.site_id = "test-site"
+        self.site_config = {
+            "domain": "example.com",
+            "skip_patterns": ["pattern1", "pattern2"],
+            "crawl_frequency_days": 7,
+        }
+
+    def test_database_uses_data_dir_when_set(self):
+        """Test that database is created in DATA_DIR when set."""
+        with (
+            tempfile.TemporaryDirectory() as temp_dir,
+            patch.dict(os.environ, {"DATA_DIR": temp_dir}, clear=False),
+        ):
+            crawler = WebsiteCrawler(self.site_id, self.site_config)
+            expected_db_path = (
+                Path(temp_dir) / "db" / f"crawler_queue_{self.site_id}.db"
+            )
+            self.assertEqual(str(crawler.db_file), str(expected_db_path))
+            crawler.close()
+
+    def test_database_uses_default_path_when_data_dir_not_set(self):
+        """Test that database uses default path when DATA_DIR not set."""
+        # Ensure DATA_DIR is not set
+        with patch.dict(os.environ, {"DATA_DIR": ""}, clear=False):
+            crawler = WebsiteCrawler(self.site_id, self.site_config)
+            # Verify default path logic - should be in crawler/db directory
+            script_dir = Path(__file__).resolve().parent.parent
+            expected_db_path = (
+                script_dir / "crawler" / "db" / f"crawler_queue_{self.site_id}.db"
+            )
+            self.assertEqual(str(crawler.db_file), str(expected_db_path))
             crawler.close()
 
 
@@ -2477,6 +2557,7 @@ class Test404PineconeDeletion(BaseWebsiteCrawlerTest):
         crawler.mark_url_status(test_url, "failed", error_msg)
 
         # Check database status - should be pending for retry
+        assert crawler.conn is not None  # Type narrowing for Pyright
         cursor = crawler.conn.cursor()
         cursor.execute(
             "SELECT status, failure_type, retry_count FROM crawl_queue WHERE url = ?",
@@ -2499,6 +2580,8 @@ class Test404PineconeDeletion(BaseWebsiteCrawlerTest):
 
         # Add URL to queue and simulate it already has 3 retries
         crawler.add_url_to_queue(test_url)
+        assert crawler.cursor is not None  # Type narrowing for Pyright
+        assert crawler.conn is not None  # Type narrowing for Pyright
         crawler.cursor.execute(
             "UPDATE crawl_queue SET retry_count = 3 WHERE url = ?", (normalized_url,)
         )
@@ -2546,6 +2629,8 @@ class Test404PineconeDeletion(BaseWebsiteCrawlerTest):
 
         # Mark one as already cleaned
         normalized_url1 = crawler.normalize_url(test_urls[1])
+        assert crawler.cursor is not None  # Type narrowing for Pyright
+        assert crawler.conn is not None  # Type narrowing for Pyright
         crawler.cursor.execute(
             "UPDATE crawl_queue SET content_hash = 'pinecone_cleaned' WHERE url = ?",
             (normalized_url1,),
@@ -2576,6 +2661,7 @@ class Test404PineconeDeletion(BaseWebsiteCrawlerTest):
         self.assertTrue(result)
 
         # Check database
+        assert crawler.conn is not None  # Type narrowing for Pyright
         cursor = crawler.conn.cursor()
         cursor.execute(
             "SELECT content_hash FROM crawl_queue WHERE url = ?", (normalized_url,)
@@ -2684,6 +2770,8 @@ class Test404PineconeDeletion(BaseWebsiteCrawlerTest):
         crawler.add_url_to_queue(test_url)
 
         # Step 2: Simulate exhausted 404 retries (4th attempt)
+        assert crawler.cursor is not None  # Type narrowing for Pyright
+        assert crawler.conn is not None  # Type narrowing for Pyright
         crawler.cursor.execute(
             "UPDATE crawl_queue SET retry_count = 3 WHERE url = ?", (normalized_url,)
         )
@@ -2815,6 +2903,7 @@ class Test404PineconeDeletion(BaseWebsiteCrawlerTest):
 
         # Success URL should be cleaned up
         success_normalized = crawler.normalize_url(success_url)
+        assert crawler.conn is not None  # Type narrowing for Pyright
         cursor = crawler.conn.cursor()
         cursor.execute(
             "SELECT content_hash FROM crawl_queue WHERE url = ?", (success_normalized,)

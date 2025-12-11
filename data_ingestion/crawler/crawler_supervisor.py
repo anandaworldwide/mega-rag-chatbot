@@ -21,11 +21,30 @@ from dotenv import load_dotenv
 class CrawlerSupervisor:
     """Supervisor for managing bounded crawler instances."""
 
-    def __init__(self, site_id: str):
+    def __init__(self, site_id: str, max_runtime_minutes: int = 0):
         self.site_id = site_id
-        self.project_dir = Path(__file__).resolve().parent.parent.parent
-        self.crawler_dir = self.project_dir / "data_ingestion" / "crawler"
-        self.log_dir = Path.home() / "Library" / "Logs" / "AnandaCrawler"
+        self.max_runtime_minutes = max_runtime_minutes
+        self.supervisor_start_time = time.time()
+
+        # Determine paths based on environment (local vs Docker container)
+        script_dir = Path(__file__).resolve().parent
+
+        # In Docker: /app/crawler/crawler_supervisor.py -> crawler_dir = /app/crawler
+        # Local: .../data_ingestion/crawler/crawler_supervisor.py -> crawler_dir = same
+        self.crawler_dir = script_dir
+
+        # Project dir: local = parent.parent.parent, Docker = /app
+        if (script_dir.parent.parent.parent / "data_ingestion").exists():
+            self.project_dir = script_dir.parent.parent.parent
+        else:
+            self.project_dir = script_dir.parent  # /app in Docker
+        # Support DATA_DIR environment variable for EFS mounts (cloud deployment)
+        data_dir = os.getenv("DATA_DIR")
+        self.log_dir = (
+            Path(data_dir) / "logs"
+            if data_dir
+            else Path.home() / "Library" / "Logs" / "AnandaCrawler"
+        )
         self.pid_file = Path(f"/tmp/crawler_supervisor_{site_id}.pid")
 
         # Ensure log directory exists
@@ -58,10 +77,22 @@ class CrawlerSupervisor:
         self.logger = logging.getLogger(__name__)
 
     def load_environment(self):
-        """Load environment variables for the site."""
+        """Load environment variables for the site.
+
+        In cloud deployment, env vars come from AWS Secrets Manager.
+        Locally, they come from .env files.
+        """
+        # Check if we're running in cloud mode (env vars already set via Secrets Manager)
+        required_vars = ["OPENAI_API_KEY", "PINECONE_API_KEY"]
+        if all(os.getenv(var) for var in required_vars):
+            self.logger.info("Environment variables already set (cloud mode)")
+            return
+
+        # Local mode: load from .env file
         env_file = self.project_dir / f".env.{self.site_id}"
         if not env_file.exists():
             self.logger.error(f"Environment file not found: {env_file}")
+            self.logger.error("Either set required env vars or provide .env file")
             sys.exit(1)
 
         load_dotenv(env_file)
@@ -127,15 +158,31 @@ class CrawlerSupervisor:
         self.logger.info(f"Starting crawler instance: {' '.join(cmd)}")
 
         try:
-            with open(crawler_log, "a") as log_file:
-                result = subprocess.run(
+            # Cloud mode: stream to stdout (CloudWatch captures it)
+            # Local mode: write to log file
+            is_cloud = bool(os.getenv("DATA_DIR"))
+
+            if is_cloud:
+                # Let subprocess write directly to stdout (CloudWatch captures it)
+                # Don't pipe - avoids line buffering issues with Playwright
+                process = subprocess.Popen(
                     cmd,
                     cwd=self.crawler_dir,
-                    stdout=log_file,
-                    stderr=subprocess.STDOUT,
-                    timeout=60 * 60,  # 1 hour timeout for the subprocess
+                    # stdout/stderr inherit from parent - goes to CloudWatch
                 )
-            return result.returncode
+                process.wait(timeout=60 * 60)
+                return process.returncode if process.returncode is not None else 1
+            else:
+                # Local: write to log file
+                with open(crawler_log, "a") as log_file:
+                    result = subprocess.run(
+                        cmd,
+                        cwd=self.crawler_dir,
+                        stdout=log_file,
+                        stderr=subprocess.STDOUT,
+                        timeout=60 * 60,
+                    )
+                return result.returncode
         except subprocess.TimeoutExpired:
             self.logger.error("Crawler instance timed out after 1 hour")
             return 1
@@ -168,9 +215,20 @@ class CrawlerSupervisor:
         self.logger.info(f"Starting crawler supervisor for site: {self.site_id}")
         self.logger.info(f"Project directory: {self.project_dir}")
         self.logger.info(f"Log directory: {self.log_dir}")
+        if self.max_runtime_minutes > 0:
+            self.logger.info(f"Max runtime: {self.max_runtime_minutes} minutes")
 
         try:
             while True:
+                # Check if we've exceeded max runtime
+                if self.max_runtime_minutes > 0:
+                    elapsed_minutes = (time.time() - self.supervisor_start_time) / 60
+                    if elapsed_minutes >= self.max_runtime_minutes:
+                        self.logger.info(
+                            f"Max runtime of {self.max_runtime_minutes} minutes reached. Shutting down."
+                        )
+                        break
+
                 start_time = time.time()
 
                 # Run crawler instance
@@ -214,12 +272,20 @@ def parse_arguments():
         required=True,
         help="Site ID for environment variables (e.g., ananda-public)",
     )
+    parser.add_argument(
+        "--max-runtime-minutes",
+        type=int,
+        default=0,
+        help="Maximum total runtime in minutes (0 = unlimited, default for cloud: 480 = 8 hours)",
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_arguments()
-    supervisor = CrawlerSupervisor(args.site)
+    supervisor = CrawlerSupervisor(
+        args.site, max_runtime_minutes=args.max_runtime_minutes
+    )
     supervisor.run_supervisor_loop()
 
 

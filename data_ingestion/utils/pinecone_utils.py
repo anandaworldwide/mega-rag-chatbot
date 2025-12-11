@@ -23,7 +23,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from pinecone import Index, Pinecone, ServerlessSpec
+from pinecone import Pinecone, ServerlessSpec
 from pinecone.exceptions import PineconeException
 
 from .document_hash import generate_document_hash
@@ -94,14 +94,19 @@ def validate_pinecone_config() -> dict[str, str]:
             f"Missing required environment variables: {', '.join(missing_vars)}"
         )
 
+    # After validation, all values are guaranteed to be strings
+    validated_vars: dict[str, str] = {
+        k: v for k, v in required_vars.items() if v is not None
+    }
+
     # Validate dimension is a valid integer
     try:
-        dimension = int(required_vars["OPENAI_INGEST_EMBEDDINGS_DIMENSION"])
+        dimension = int(validated_vars["OPENAI_INGEST_EMBEDDINGS_DIMENSION"])
         if dimension <= 0:
             raise ValueError(
                 "OPENAI_INGEST_EMBEDDINGS_DIMENSION must be a positive integer"
             )
-        required_vars["OPENAI_INGEST_EMBEDDINGS_DIMENSION"] = str(dimension)
+        validated_vars["OPENAI_INGEST_EMBEDDINGS_DIMENSION"] = str(dimension)
     except ValueError as e:
         if "invalid literal" in str(e):
             raise ValueError(
@@ -109,7 +114,7 @@ def validate_pinecone_config() -> dict[str, str]:
             ) from e
         raise
 
-    return required_vars
+    return validated_vars
 
 
 def create_pinecone_index_if_not_exists(
@@ -274,7 +279,7 @@ async def create_pinecone_index_if_not_exists_async(
 
 
 def clear_library_vectors(
-    pinecone_index: Index,
+    pinecone_index: Any,
     library_name: str,
     dry_run: bool = False,
     ask_confirmation: bool = True,
@@ -377,7 +382,7 @@ def clear_library_vectors(
 
 
 async def clear_library_vectors_async(
-    pinecone_index: Index,
+    pinecone_index: Any,
     library_name: str,
     progress_callback: Callable | None = None,
 ) -> bool:
@@ -476,7 +481,7 @@ async def clear_library_vectors_async(
         return False
 
 
-def get_index_stats(pinecone_index: Index) -> dict[str, Any]:
+def get_index_stats(pinecone_index: Any) -> dict[str, Any]:
     """
     Get comprehensive statistics about a Pinecone index.
 
@@ -499,7 +504,7 @@ def get_index_stats(pinecone_index: Index) -> dict[str, Any]:
         return {}
 
 
-def count_vectors_by_prefix(pinecone_index: Index, prefix: str) -> int:
+def count_vectors_by_prefix(pinecone_index: Any, prefix: str) -> int:
     """
     Count vectors matching a specific prefix.
 
@@ -525,7 +530,7 @@ def count_vectors_by_prefix(pinecone_index: Index, prefix: str) -> int:
 
 
 def batch_upsert_vectors(
-    pinecone_index: Index,
+    pinecone_index: Any,
     vectors: list[dict[str, Any]],
     batch_size: int = 100,
     progress_callback: Callable | None = None,

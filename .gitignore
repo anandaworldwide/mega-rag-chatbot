@@ -45,6 +45,9 @@ yarn-error.log*
 .env.*
 !.env.example
 
+# AWS secrets (generated from .env files)
+secrets.json
+
 # temporary files
 .temp-*
 

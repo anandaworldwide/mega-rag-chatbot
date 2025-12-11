@@ -87,7 +87,6 @@ OPENAI_API_KEY=your_openai_api_key_here
 # Pinecone Configuration
 PINECONE_API_KEY=your_pinecone_api_key_here
 PINECONE_INDEX_NAME=your_pinecone_index_name
-PINECONE_ENVIRONMENT=your_pinecone_environment
 
 # Firebase Configuration
 GOOGLE_APPLICATION_CREDENTIALS=path/to/your/firebase-credentials.json

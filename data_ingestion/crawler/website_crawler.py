@@ -42,11 +42,14 @@ import traceback
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse, urlunparse
 from urllib.robotparser import RobotFileParser
 
+if TYPE_CHECKING:
+    pass
+
 # Third party imports
-import pinecone
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
@@ -289,10 +292,11 @@ class WebsiteCrawler:
         self.health_monitor = HealthMonitor(self)
 
         # Set up SQLite database for crawl queue (skip for tests)
-        self.conn = None
-        self.cursor = None
-        self.db_file = None
+        self.conn: sqlite3.Connection | None = None
+        self.cursor: sqlite3.Cursor | None = None
+        self.db_file: Path | None = None
         self.current_processing_url: str | None = None
+        self._rate_limit_exit: bool = False
 
         if not skip_db_init:
             self._init_database()
@@ -306,8 +310,10 @@ class WebsiteCrawler:
 
     def _init_database(self):
         """Initialize SQLite database - separated for testability."""
-        db_dir = Path(__file__).parent / "db"
-        db_dir.mkdir(exist_ok=True)
+        # Support DATA_DIR environment variable for EFS mounts (cloud deployment)
+        data_dir = os.getenv("DATA_DIR")
+        db_dir = Path(data_dir) / "db" if data_dir else Path(__file__).parent / "db"
+        db_dir.mkdir(parents=True, exist_ok=True)
         self.db_file = db_dir / f"crawler_queue_{self.site_id}.db"
         self.conn = sqlite3.connect(str(self.db_file))
         self.conn.row_factory = sqlite3.Row  # Allow dictionary-like access to rows
@@ -348,6 +354,14 @@ class WebsiteCrawler:
 
         self.conn.commit()
 
+    def _ensure_db_initialized(self) -> None:
+        """Ensure database is initialized. Raises RuntimeError if not."""
+        if self.cursor is None or self.conn is None:
+            raise RuntimeError("Database not initialized. Call _init_database() first.")
+        # Type narrowing for Pyright
+        assert self.cursor is not None
+        assert self.conn is not None
+
     @property
     def text_splitter(self):
         """Lazy initialization of text splitter to avoid loading spaCy models in tests."""
@@ -376,6 +390,9 @@ class WebsiteCrawler:
         """Run the initialization logic to check if start URL should be added."""
         # Check if database is completely empty (no URLs at all)
         # Only seed with start URL if this is a fresh database with no crawl history
+        self._ensure_db_initialized()
+        assert self.cursor is not None
+        assert self.conn is not None
         self.cursor.execute("SELECT COUNT(*) FROM crawl_queue")
         total_count = self.cursor.fetchone()[0]
 
@@ -440,6 +457,9 @@ class WebsiteCrawler:
         self, url: str, priority: int = 0, modified_date: str | None = None
     ):
         """Add URL to crawl queue if not already present, or update priority if higher"""
+        self._ensure_db_initialized()
+        assert self.cursor is not None
+        assert self.conn is not None
         normalized_url = self.normalize_url(url)
 
         try:
@@ -518,6 +538,9 @@ class WebsiteCrawler:
 
     def retry_failed_urls(self):
         """Reset failed URLs to pending status for retry"""
+        self._ensure_db_initialized()
+        assert self.cursor is not None
+        assert self.conn is not None
         try:
             self.cursor.execute("""
             UPDATE crawl_queue 
@@ -536,6 +559,8 @@ class WebsiteCrawler:
 
     def is_url_visited(self, url: str) -> bool:
         """Check if URL has already been successfully visited"""
+        self._ensure_db_initialized()
+        assert self.cursor is not None
         normalized_url = self.normalize_url(url)
         self.cursor.execute(
             "SELECT status FROM crawl_queue WHERE url = ? AND status = 'visited'",
@@ -545,6 +570,8 @@ class WebsiteCrawler:
 
     def is_url_in_database(self, url: str) -> bool:
         """Check if URL is already in the database (regardless of status)"""
+        self._ensure_db_initialized()
+        assert self.cursor is not None
         normalized_url = self.normalize_url(url)
         self.cursor.execute(
             "SELECT url FROM crawl_queue WHERE url = ?",
@@ -554,6 +581,9 @@ class WebsiteCrawler:
 
     def get_next_url_to_crawl(self) -> str | None:
         """Get the next URL to crawl from the queue"""
+        self._ensure_db_initialized()
+        assert self.cursor is not None
+        assert self.conn is not None
         try:
             # Get URLs that are due for crawling, including visited URLs due for re-crawling
             # and pending URLs, respecting retry_after for temporary failures
@@ -606,6 +636,8 @@ class WebsiteCrawler:
         if not error_msg or "404" not in error_msg:
             return False
 
+        self._ensure_db_initialized()
+        assert self.cursor is not None
         # This is a 404 error - handle retry logic
         retry_count = 0
         self.cursor.execute(
@@ -669,6 +701,8 @@ class WebsiteCrawler:
         self, normalized_url: str, error_msg: str
     ) -> bool:
         """Handle temporary failure retry logic. Returns True if retry was set up, False for permanent failure."""
+        self._ensure_db_initialized()
+        assert self.cursor is not None
         # Check for typical temporary failure patterns
         temporary_patterns = [
             "timeout",
@@ -762,6 +796,9 @@ class WebsiteCrawler:
         content_hash: str | None = None,
     ):
         """Update URL status in the database"""
+        self._ensure_db_initialized()
+        assert self.cursor is not None
+        assert self.conn is not None
         normalized_url = self.normalize_url(url)
         now = datetime.now().isoformat()
 
@@ -804,10 +841,12 @@ class WebsiteCrawler:
                     )
             elif status == "failed":
                 # Try 404 retry logic first
-                if self._handle_404_retry_logic(normalized_url, error_msg, now):
+                if self._handle_404_retry_logic(normalized_url, error_msg or "", now):
                     pass  # 404 retry logic handled it
                 # Try temporary failure retry logic
-                elif self._handle_temporary_failure_retry(normalized_url, error_msg):
+                elif self._handle_temporary_failure_retry(
+                    normalized_url, error_msg or ""
+                ):
                     pass  # Temporary failure retry logic handled it
                 else:
                     # Permanent failure, don't retry automatically
@@ -840,6 +879,8 @@ class WebsiteCrawler:
 
     def commit_db_changes(self):
         """Commit any pending database changes"""
+        self._ensure_db_initialized()
+        assert self.conn is not None
         try:
             self.conn.commit()
             logging.debug("Database changes committed")
@@ -850,6 +891,8 @@ class WebsiteCrawler:
 
     def get_queue_stats(self) -> dict:
         """Get statistics about the crawl queue"""
+        self._ensure_db_initialized()
+        assert self.cursor is not None
         stats = {
             "pending": 0,
             "visited": 0,
@@ -918,6 +961,8 @@ class WebsiteCrawler:
 
     def get_failed_urls(self) -> list[tuple[str, str]]:
         """Get list of failed URLs with error messages"""
+        self._ensure_db_initialized()
+        assert self.cursor is not None
         failed_urls = []
         try:
             self.cursor.execute("""
@@ -1681,6 +1726,8 @@ class WebsiteCrawler:
 
     def get_urls_pending_pinecone_deletion(self) -> list[str]:
         """Get URLs marked as 'deleted' that need Pinecone cleanup."""
+        self._ensure_db_initialized()
+        assert self.cursor is not None
         try:
             self.cursor.execute(
                 "SELECT url FROM crawl_queue WHERE status = 'deleted' AND content_hash != 'pinecone_cleaned'"
@@ -1693,6 +1740,9 @@ class WebsiteCrawler:
 
     def mark_pinecone_cleanup_complete(self, url: str) -> bool:
         """Mark that Pinecone cleanup has been completed for a URL."""
+        self._ensure_db_initialized()
+        assert self.cursor is not None
+        assert self.conn is not None
         try:
             normalized_url = self.normalize_url(url)
             self.cursor.execute(
@@ -1786,6 +1836,8 @@ class WebsiteCrawler:
         return deleted_count
 
     def should_process_content(self, url: str, current_hash: str) -> bool:
+        self._ensure_db_initialized()
+        assert self.cursor is not None
         """Check if content has changed and should be processed"""
         self.cursor.execute(
             "SELECT content_hash FROM crawl_queue WHERE url = ?",
@@ -1974,6 +2026,8 @@ class WebsiteCrawler:
                         raise Exception(f"Download error: {download_info['error']}")
 
                     # Parse CSV content
+                    if download_info["content"] is None:
+                        raise Exception("No content downloaded from CSV URL")
                     csv_data = self._parse_csv_content(download_info["content"])
 
                     self.update_csv_tracking(success=True)
@@ -2039,6 +2093,8 @@ class WebsiteCrawler:
         self, url: str, modified_date: datetime, cutoff_date: datetime
     ) -> tuple[bool, str]:
         """Check if CSV URL should be processed. Returns (should_process, skip_reason)."""
+        self._ensure_db_initialized()
+        assert self.cursor is not None
         # Check if modified within threshold
         if modified_date < cutoff_date:
             return False, "skipped_date"
@@ -2122,6 +2178,9 @@ class WebsiteCrawler:
         self, full_url: str, stats: dict, pinecone_index=None
     ) -> None:
         """Handle removal action for CSV row."""
+        self._ensure_db_initialized()
+        assert self.cursor is not None
+        assert self.conn is not None
         normalized_url = self.normalize_url(full_url)
 
         # Check if we've already processed this removal
@@ -2182,6 +2241,9 @@ class WebsiteCrawler:
         stats: dict,
     ) -> None:
         """Handle add/update action for CSV row."""
+        self._ensure_db_initialized()
+        assert self.cursor is not None
+        assert self.conn is not None
         # Check if URL should be processed
         should_process, skip_reason = self._should_process_csv_url(
             row.get("URL", "").strip(), modified_date, cutoff_date
@@ -2308,6 +2370,8 @@ class WebsiteCrawler:
 
     def process_csv_data(self, csv_data: list[dict], pinecone_index=None) -> int:
         """Process CSV data and add modified URLs to queue with high priority"""
+        self._ensure_db_initialized()
+        assert self.conn is not None
         if not csv_data:
             return 0
 
@@ -2345,6 +2409,9 @@ class WebsiteCrawler:
 
     def update_csv_tracking(self, csv_error: str | None = None, success: bool = False):
         """Update CSV tracking table with latest status and timestamp"""
+        self._ensure_db_initialized()
+        assert self.cursor is not None
+        assert self.conn is not None
         try:
             current_time = datetime.now().isoformat()
 
@@ -2383,6 +2450,8 @@ class WebsiteCrawler:
 
     def should_check_csv(self) -> bool:
         """Check if CSV should be processed with cooldown period to prevent frequent downloads"""
+        self._ensure_db_initialized()
+        assert self.cursor is not None
         if not self.csv_mode_enabled:
             return False
 
@@ -2422,6 +2491,9 @@ class WebsiteCrawler:
 
     def mark_initial_crawl_completed(self):
         """Mark that the initial full crawl has been completed"""
+        self._ensure_db_initialized()
+        assert self.cursor is not None
+        assert self.conn is not None
         try:
             self.cursor.execute("SELECT id FROM csv_tracking LIMIT 1")
             tracking_record = self.cursor.fetchone()
@@ -2453,6 +2525,8 @@ class WebsiteCrawler:
 
     def is_initial_crawl_completed(self) -> bool:
         """Check if initial crawl has been completed"""
+        self._ensure_db_initialized()
+        assert self.cursor is not None
         try:
             self.cursor.execute("""
                 SELECT initial_crawl_completed 
@@ -2535,7 +2609,7 @@ def create_chunks_from_page(page_content, text_splitter) -> list[str]:
     return chunks
 
 
-def upsert_to_pinecone(vectors: list[dict], index: pinecone.Index, index_name: str):
+def upsert_to_pinecone(vectors: list[dict], index: Any, index_name: str):
     """Upsert vectors to Pinecone index."""
     if vectors:
         batch_size = 100  # Pinecone recommends batches of 100 or less
@@ -2622,15 +2696,23 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def initialize_pinecone(env_file: str) -> pinecone.Index | None:
+def initialize_pinecone(env_file: str) -> Any | None:
     """Load environment, connect to Pinecone, and create index using shared utilities."""
-    if not os.path.exists(env_file):
-        logging.error(f"Environment file {env_file} not found.")
-        print(f"Error: Environment file {env_file} not found.")
+    # Check if env vars already set (cloud mode) or load from file
+    required_vars = ["OPENAI_API_KEY", "PINECONE_API_KEY"]
+    if all(os.getenv(var) for var in required_vars):
+        logging.debug("Environment variables already set (cloud mode)")
+    elif os.path.exists(env_file):
+        load_dotenv(env_file)
+        logging.debug(f"Loaded environment from: {os.path.abspath(env_file)}")
+    else:
+        logging.error(
+            f"Environment file {env_file} not found and required env vars not set."
+        )
+        print(
+            f"Error: Environment file {env_file} not found and required env vars not set."
+        )
         return None
-
-    load_dotenv(env_file)
-    logging.debug(f"Loaded environment from: {os.path.abspath(env_file)}")
 
     try:
         # Use shared utilities for Pinecone setup
@@ -2723,6 +2805,9 @@ def _check_system_health() -> tuple[bool, list[str]]:
     Returns (is_healthy, list_of_issues)."""
     issues = []
 
+    if psutil is None:
+        return True, []  # Skip health checks if psutil not available
+
     try:
         # Check memory - be more lenient for systems with plenty of RAM
         memory = psutil.virtual_memory()
@@ -2778,6 +2863,8 @@ def _check_system_health() -> tuple[bool, list[str]]:
 
 def _log_system_resources() -> None:
     """Log current system resource usage for debugging."""
+    if psutil is None:
+        return  # Skip logging if psutil not available
     try:
         # Memory info
         memory = psutil.virtual_memory()
@@ -2807,6 +2894,8 @@ def _log_system_resources() -> None:
 
 def _collect_firefox_processes() -> list:
     """Collect Firefox processes with memory information."""
+    if psutil is None:
+        return []
     firefox_processes = []
     for proc in psutil.process_iter(["pid", "name", "cmdline", "memory_info"]):
         try:
@@ -2823,7 +2912,7 @@ def _collect_firefox_processes() -> list:
                         else 0,
                     }
                 )
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
+        except (psutil.NoSuchProcess, psutil.AccessDenied):  # type: ignore
             continue
     return firefox_processes
 
@@ -2863,6 +2952,8 @@ def _log_firefox_processes(firefox_processes: list) -> None:
 
 def _collect_playwright_processes() -> list:
     """Collect Playwright and Node.js process PIDs."""
+    if psutil is None:
+        return []
     playwright_processes = []
     for proc in psutil.process_iter(["pid", "name", "cmdline"]):
         try:
@@ -2871,7 +2962,7 @@ def _collect_playwright_processes() -> list:
                 or "node" in proc.info["name"].lower()
             ):
                 playwright_processes.append(proc.info["pid"])
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
+        except (psutil.NoSuchProcess, psutil.AccessDenied):  # type: ignore
             continue
     return playwright_processes
 
@@ -2964,13 +3055,15 @@ def _is_process_old_enough(proc) -> tuple[bool, float]:
 
 def _is_resource_usage_high(proc) -> tuple[bool, float, float]:
     """Check if process has high resource usage indicating it's problematic."""
+    if psutil is None:
+        return False, 0.0, 0.0
     try:
         cpu_percent = proc.cpu_percent(interval=0.1)
         memory_mb = proc.memory_info().rss / 1024 / 1024
 
         is_high_usage = cpu_percent > 50 or memory_mb > 500
         return is_high_usage, cpu_percent, memory_mb
-    except (psutil.NoSuchProcess, psutil.AccessDenied):
+    except (psutil.NoSuchProcess, psutil.AccessDenied):  # type: ignore
         return False, 0, 0
 
 
@@ -2998,6 +3091,8 @@ def _collect_playwright_firefox_processes(current_pid: int) -> list:
     Returns:
         List of process dictionaries with metadata for analysis.
     """
+    if psutil is None:
+        return []
     playwright_firefox_procs = []
     for proc in psutil.process_iter(["pid", "name", "cmdline", "create_time"]):
         try:
@@ -3101,7 +3196,7 @@ def _terminate_selected_processes(processes_to_kill: list) -> int:
 
 
 def _is_nodejs_process_eligible_for_cleanup(
-    proc_info, current_pid: int, min_age_override: int = None
+    proc_info, current_pid: int, min_age_override: int | None = None
 ) -> tuple[bool, str]:
     """Check if a Node.js process should be cleaned up.
 
@@ -3149,7 +3244,7 @@ def _terminate_nodejs_process(proc, pid: int, cmdline_str: str) -> bool:
         # Give it 5 seconds to terminate gracefully
         proc.wait(timeout=5.0)
         return True
-    except psutil.TimeoutExpired:
+    except psutil.TimeoutExpired:  # type: ignore
         # Force kill if it doesn't terminate gracefully
         proc.kill()
         logging.warning(f"Force-killed stubborn Node.js process {pid}")
@@ -3186,19 +3281,22 @@ def _cleanup_orphaned_nodejs_processes(current_pid: int) -> int:
         else:
             min_age_override = None
 
-        for proc in psutil.process_iter(["pid", "name", "cmdline", "create_time"]):
-            try:
-                should_cleanup, cmdline_str = _is_nodejs_process_eligible_for_cleanup(
-                    proc.info, current_pid, min_age_override
-                )
+        if psutil is not None:
+            for proc in psutil.process_iter(["pid", "name", "cmdline", "create_time"]):
+                try:
+                    should_cleanup, cmdline_str = (
+                        _is_nodejs_process_eligible_for_cleanup(
+                            proc.info, current_pid, min_age_override
+                        )
+                    )
 
-                if should_cleanup and _terminate_nodejs_process(
-                    proc, proc.info["pid"], cmdline_str
-                ):
-                    orphaned_count += 1
+                    if should_cleanup and _terminate_nodejs_process(
+                        proc, proc.info["pid"], cmdline_str
+                    ):
+                        orphaned_count += 1
 
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue  # Process disappeared or access denied
+                except (psutil.NoSuchProcess, psutil.AccessDenied):  # type: ignore
+                    continue  # Process disappeared or access denied
 
         return orphaned_count
 
@@ -3220,6 +3318,8 @@ def _cleanup_orphaned_processes() -> None:
 
     This should NOT affect normal Firefox browsers or legitimate Node.js applications.
     """
+    if psutil is None:
+        return
     try:
         current_pid = os.getpid()  # Our current process ID
         total_cleaned = 0
@@ -3272,6 +3372,7 @@ def _setup_browser(p, timeout_ms: int = 60000) -> tuple:
     """Setup and return browser and page with retry logic and resource cleanup."""
     max_retries = 3
     base_delay = 15  # seconds - increased delay for better recovery
+    browser = None  # Initialize for type safety
 
     for attempt in range(max_retries):
         try:
@@ -3327,28 +3428,18 @@ def _setup_browser(p, timeout_ms: int = 60000) -> tuple:
             # The timeout_ms is for overall operation, but browser launch should be faster
             launch_timeout = min(30000, timeout_ms)  # Max 30 seconds for browser launch
 
-            # Enhanced browser launch with better arguments
+            # Browser launch - note: args are for Chromium, not Firefox
+            # Firefox uses firefox_user_prefs for configuration
             browser = p.firefox.launch(
                 headless=True,
                 firefox_user_prefs={
                     "media.volume_scale": "0.0",
-                    "dom.disable_beforeunload": True,  # Reduce memory usage
+                    "dom.disable_beforeunload": True,
                     "browser.sessionstore.resume_from_crash": False,
                     "browser.tabs.warnOnClose": False,
                     "browser.tabs.warnOnCloseOtherTabs": False,
                 },
-                args=[
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                    "--disable-software-rasterizer",
-                    "--disable-background-timer-throttling",
-                    "--disable-renderer-backgrounding",
-                    "--disable-features=TranslateUI",
-                    "--disable-ipc-flooding-protection",
-                    "--max_old_space_size=4096",  # Increase Node.js heap size
-                ],
-                timeout=launch_timeout,  # 30 seconds max for browser launch
+                timeout=launch_timeout,
             )
 
             page = browser.new_page()
@@ -3429,7 +3520,7 @@ def _setup_browser(p, timeout_ms: int = 60000) -> tuple:
 
             # Enhanced cleanup of any partially created browser instances
             try:
-                if "browser" in locals() and browser:
+                if browser:
                     logging.debug("Cleaning up partially created browser instance")
                     browser.close()
             except Exception as cleanup_e:
@@ -3557,6 +3648,8 @@ def _process_page_content(
     """Process page content and return (pages_processed_increment, pages_since_restart_increment)."""
     if not content:
         # Check if this URL was already marked as successfully skipped (non-HTML content)
+        crawler._ensure_db_initialized()
+        assert crawler.cursor is not None
         crawler.cursor.execute(
             "SELECT status, content_hash FROM crawl_queue WHERE url = ?",
             (crawler.normalize_url(url),),
@@ -3769,7 +3862,7 @@ def _process_crawl_iteration(
 
 def _initialize_crawl_loop(
     args: argparse.Namespace, crawler: WebsiteCrawler
-) -> tuple[str, int, int, int, list, float]:
+) -> tuple[str | None, int, int, int, list, float]:
     """Initialize crawl loop variables and return setup values."""
     index_name = os.getenv("PINECONE_INGEST_INDEX_NAME")
     if not index_name:
@@ -3982,6 +4075,8 @@ def _handle_no_url_processing(
     # SQLite connections can become stale after extended periods
     try:
         # Test the connection with a simple query
+        crawler._ensure_db_initialized()
+        assert crawler.cursor is not None
         crawler.cursor.execute("SELECT 1")
         crawler.cursor.fetchone()
     except Exception as e:
@@ -4019,7 +4114,7 @@ def _handle_browser_restart_check(
     batch_start_time: float,
     crawler: WebsiteCrawler,
     pages_processed: int,
-) -> tuple[int, int, bool, bool, tuple, bool]:
+) -> tuple[int, int, bool, bool, tuple, bool] | None:
     """Handle browser restart if needed."""
     if pages_since_restart >= PAGES_PER_RESTART:
         browser, page, batch_start_time, batch_results = _handle_browser_restart(
@@ -4412,9 +4507,9 @@ def _handle_crawler_error(e: Exception) -> None:
 
 def run_crawl_loop(
     crawler: WebsiteCrawler,
-    pinecone_index: pinecone.Index,
+    pinecone_index: Any,
     args: argparse.Namespace,
-    lock_file: str = None,
+    lock_file: str | None = None,
 ):
     """Run the main crawling loop with graceful exception handling and bounded execution."""
     start_time, max_runtime_seconds = _initialize_crawler_runtime(args)
@@ -4482,8 +4577,13 @@ def handle_fresh_start(args: argparse.Namespace) -> None:
     if not args.fresh_start:
         return
 
-    script_dir = Path(__file__).resolve().parent
-    db_dir = script_dir / "db"
+    # Support DATA_DIR environment variable for EFS mounts (cloud deployment)
+    data_dir = os.getenv("DATA_DIR")
+    if data_dir:
+        db_dir = Path(data_dir) / "db"
+    else:
+        script_dir = Path(__file__).resolve().parent
+        db_dir = script_dir / "db"
     db_file_to_delete = db_dir / f"crawler_queue_{args.site}.db"
 
     if db_file_to_delete.exists():
@@ -4522,7 +4622,7 @@ def handle_fresh_start(args: argparse.Namespace) -> None:
 
 def handle_clear_vectors(
     args: argparse.Namespace,
-    pinecone_index: pinecone.Index,
+    pinecone_index: Any,
     domain: str,
     crawler: WebsiteCrawler,
 ) -> None:
@@ -4546,9 +4646,9 @@ def handle_clear_vectors(
         sys.exit(1)
 
 
-def cleanup_and_exit(crawler: WebsiteCrawler) -> None:
+def cleanup_and_exit(crawler: WebsiteCrawler | None) -> None:
     """Perform final cleanup and exit with appropriate code."""
-    if "crawler" in locals() and crawler:
+    if crawler:
         logging.info("Performing final database commit and cleanup...")
         crawler.commit_db_changes()
         crawler.close()
@@ -4677,15 +4777,20 @@ def _perform_system_health_check(args) -> None:
 
 def _initialize_crawler_and_services(
     args: argparse.Namespace, site_config: dict, env_file_str: str
-) -> tuple[WebsiteCrawler, pinecone.Index, str]:
+) -> tuple[WebsiteCrawler, Any, str]:
     """Initialize crawler, Pinecone, and handle clear vectors."""
-    # Load environment variables first before initializing crawler
-    if not os.path.exists(env_file_str):
-        print(f"Error: Environment file {env_file_str} not found.")
+    # Load environment variables - check if already set (cloud mode) or load from file
+    required_vars = ["OPENAI_API_KEY", "PINECONE_API_KEY"]
+    if all(os.getenv(var) for var in required_vars):
+        logging.info("Environment variables already set (cloud mode)")
+    elif os.path.exists(env_file_str):
+        load_dotenv(env_file_str)
+        logging.debug(f"Loaded environment from: {os.path.abspath(env_file_str)}")
+    else:
+        print(
+            f"Error: Environment file {env_file_str} not found and required env vars not set."
+        )
         sys.exit(1)
-
-    load_dotenv(env_file_str)
-    logging.debug(f"Loaded environment from: {os.path.abspath(env_file_str)}")
 
     domain = site_config.get("domain")
     crawler = WebsiteCrawler(
@@ -4696,8 +4801,13 @@ def _initialize_crawler_and_services(
     )
 
     env_file = Path(env_file_str)
-    pinecone_index = initialize_pinecone(env_file)
+    pinecone_index = initialize_pinecone(str(env_file))
     if not pinecone_index:
+        crawler.close()
+        sys.exit(1)
+
+    if domain is None:
+        logging.error("Domain not found in site config")
         crawler.close()
         sys.exit(1)
 
@@ -4708,10 +4818,10 @@ def _initialize_crawler_and_services(
 
 def _execute_crawler(
     crawler: WebsiteCrawler,
-    pinecone_index: pinecone.Index,
+    pinecone_index: Any,
     args: argparse.Namespace,
     start_url: str,
-    lock_file: str = None,
+    lock_file: str | None = None,
 ) -> None:
     """Execute the main crawler logic with proper error handling."""
     try:

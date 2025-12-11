@@ -38,8 +38,17 @@ retrieval-augmented generation (RAG) systems.
 
 - Python 3.10+
 - Required Python packages (see requirements.txt)
-- macOS (for daemon support)
+- macOS (for daemon support) or Docker (for cloud deployment)
 - Access to Pinecone and OpenAI APIs
+
+### Deployment Options
+
+The crawler can run in two modes:
+
+1. **Local (macOS)**: Uses macOS LaunchAgent for 24/7 operation
+2. **Cloud (AWS ECS)**: Scheduled execution on AWS Fargate (9am-5pm PT daily)
+
+See [CLOUD-DEPLOYMENT.md](CLOUD-DEPLOYMENT.md) for cloud deployment instructions.
 
 ### Setup
 
@@ -57,7 +66,6 @@ retrieval-augmented generation (RAG) systems.
    OPENAI_API_KEY=your_openai_api_key
    OPENAI_INGEST_EMBEDDINGS_MODEL=text-embedding-3-large
    PINECONE_API_KEY=your_pinecone_api_key
-   PINECONE_ENVIRONMENT=your_pinecone_environment
    PINECONE_INGEST_INDEX_NAME=your_index_name
    ```
 
@@ -257,7 +265,6 @@ launchctl list com.ananda.service-name
 | `OPENAI_API_KEY`                 | OpenAI API key for embeddings | Yes      |
 | `OPENAI_INGEST_EMBEDDINGS_MODEL` | Embedding model to use        | Yes      |
 | `PINECONE_API_KEY`               | Pinecone API key              | Yes      |
-| `PINECONE_ENVIRONMENT`           | Pinecone environment          | Yes      |
 | `PINECONE_INGEST_INDEX_NAME`     | Pinecone index name           | Yes      |
 
 ## Architecture

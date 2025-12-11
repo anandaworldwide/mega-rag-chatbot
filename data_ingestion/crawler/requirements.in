@@ -1,0 +1,28 @@
+# Crawler-specific requirements (minimal)
+# pip-compile requirements.in to generate requirements.txt
+
+# Web crawling
+beautifulsoup4
+playwright
+readability-lxml
+
+# Environment and config
+python-dotenv
+
+# OpenAI embeddings
+langchain-openai
+
+# Vector database
+pinecone
+
+# Text chunking (spaCy for sentence boundaries)
+spacy
+
+# Token counting
+tiktoken
+
+# Progress bars
+tqdm
+
+# System monitoring (optional but useful)
+psutil
