@@ -29,10 +29,16 @@ COPY data_ingestion/utils/ /app/utils/
 COPY pyutil/ /app/pyutil/
 
 # Create directories for DB and logs (will be mounted from EFS)
-RUN mkdir -p /app/data/db /app/data/logs
+# Ensure proper ownership for non-root user (UID 1000)
+RUN mkdir -p /app/data/db /app/data/logs && \
+    chown -R 1000:1000 /app
 
 # Set Python path
 ENV PYTHONPATH=/app
+
+# Run as non-root user (UID 1000) for security hardening
+# This matches the task definition user setting
+USER 1000:1000
 
 # Default command runs supervisor (can be overridden in task definition)
 CMD ["python", "/app/crawler/crawler_supervisor.py", "--site", "ananda-public"]

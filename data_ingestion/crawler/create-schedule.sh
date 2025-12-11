@@ -23,38 +23,38 @@ if [ "$VPC_ID" == "None" ] || [ -z "$VPC_ID" ]; then
     VPC_ID=$(aws ec2 describe-vpcs --region "$REGION" --query 'Vpcs[0].VpcId' --output text)
 fi
 
+# Find public subnet (required for NAT-less configuration)
 SUBNET_ID=$(aws ec2 describe-subnets \
     --region "$REGION" \
-    --filters "Name=vpc-id,Values=$VPC_ID" \
+    --filters "Name=vpc-id,Values=$VPC_ID" "Name=map-public-ip-on-launch,Values=true" \
     --query 'Subnets[0].SubnetId' \
-    --output text)
+    --output text 2>/dev/null)
 
-# Get security group (create one for ECS tasks if needed)
-SG_NAME="ecs-crawler-sg"
+# Fallback to any subnet if no public subnet found
+if [ -z "$SUBNET_ID" ] || [ "$SUBNET_ID" == "None" ]; then
+    SUBNET_ID=$(aws ec2 describe-subnets \
+        --region "$REGION" \
+        --filters "Name=vpc-id,Values=$VPC_ID" \
+        --query 'Subnets[0].SubnetId' \
+        --output text)
+    echo -e "${YELLOW}Warning: Using subnet $SUBNET_ID (may not be public - ensure route to IGW)${NC}"
+fi
+
+# Get hardened security group for crawler tasks
+CRAWLER_SG_NAME="crawler-hardened-sg"
 SG_ID=$(aws ec2 describe-security-groups \
     --region "$REGION" \
-    --filters "Name=group-name,Values=$SG_NAME" "Name=vpc-id,Values=$VPC_ID" \
+    --filters "Name=group-name,Values=$CRAWLER_SG_NAME" "Name=vpc-id,Values=$VPC_ID" \
     --query 'SecurityGroups[0].GroupId' \
     --output text 2>/dev/null || echo "")
 
 if [ -z "$SG_ID" ] || [ "$SG_ID" == "None" ]; then
-    SG_ID=$(aws ec2 create-security-group \
-        --region "$REGION" \
-        --group-name "$SG_NAME" \
-        --description "Security group for crawler ECS tasks" \
-        --vpc-id "$VPC_ID" \
-        --query 'GroupId' \
-        --output text)
-    
-    # Allow outbound HTTPS
-    aws ec2 authorize-security-group-egress \
-        --region "$REGION" \
-        --group-id "$SG_ID" \
-        --ip-permissions IpProtocol=tcp,FromPort=443,ToPort=443,IpRanges='[{CidrIp=0.0.0.0/0}]' \
-        &> /dev/null || true
-    
-    echo -e "${GREEN}✓ Created security group: ${SG_ID}${NC}"
+    echo -e "${RED}Error: Hardened security group '${CRAWLER_SG_NAME}' not found${NC}"
+    echo "Please run aws-setup.sh first to create the security group"
+    exit 1
 fi
+
+echo -e "${GREEN}Using hardened security group: ${SG_ID}${NC}"
 
 # Get latest task definition revision
 TASK_DEF_REVISION=$(aws ecs describe-task-definition \
@@ -145,6 +145,9 @@ cat > /tmp/start-schedule.json <<EOF
 {
   "Name": "${SCHEDULE_NAME_START}",
   "ScheduleExpression": "cron(0 16 * * ? *)",
+  "FlexibleTimeWindow": {
+    "Mode": "OFF"
+  },
   "Description": "Start crawler at 9am PT daily",
   "Target": {
     "Arn": "arn:aws:ecs:${REGION}:$(aws sts get-caller-identity --query Account --output text):cluster/${CLUSTER_NAME}",
@@ -156,7 +159,7 @@ cat > /tmp/start-schedule.json <<EOF
         "awsvpcConfiguration": {
           "Subnets": ["${SUBNET_ID}"],
           "SecurityGroups": ["${SG_ID}"],
-          "AssignPublicIp": "DISABLED"
+          "AssignPublicIp": "ENABLED"
         }
       }
     }
@@ -193,4 +196,5 @@ fi
 echo -e "${GREEN}✓ EventBridge schedule configured${NC}"
 echo -e "${YELLOW}Note: Stop schedule is disabled. Tasks will auto-stop after 8 hours (max-runtime-minutes=480)${NC}"
 echo -e "${GREEN}Schedule runs daily at 9am PT (16:00 UTC)${NC}"
+echo -e "${GREEN}Security: Using hardened security group with public IP enabled (NAT-less configuration)${NC}"
 

@@ -1933,6 +1933,12 @@ class WebsiteCrawler:
 
     def _navigate_to_csv_url(self, page, download_info: dict) -> None:
         """Navigate to CSV URL and handle download/content extraction with proper timeout handling."""
+        # Ensure download_info dict has required keys initialized
+        if "content" not in download_info:
+            download_info["content"] = None
+        if "error" not in download_info:
+            download_info["error"] = None
+
         try:
             # Navigate with explicit timeout and error handling
             response = page.goto(

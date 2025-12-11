@@ -372,8 +372,77 @@ EOF
     echo -e "${GREEN}✓ Task role created with S3 and Secrets Manager access${NC}"
 fi
 
+# Create hardened security group for crawler tasks (outbound-only, no inbound)
+echo -e "\n${YELLOW}Step 6: Creating hardened security group for crawler tasks...${NC}"
+CRAWLER_SG_NAME="crawler-hardened-sg"
+CRAWLER_SG_ID=$(aws ec2 describe-security-groups \
+    --region "$REGION" \
+    --filters "Name=group-name,Values=$CRAWLER_SG_NAME" "Name=vpc-id,Values=$VPC_ID" \
+    --query 'SecurityGroups[0].GroupId' \
+    --output text 2>/dev/null || echo "")
+
+if [ -z "$CRAWLER_SG_ID" ] || [ "$CRAWLER_SG_ID" == "None" ]; then
+    CRAWLER_SG_ID=$(aws ec2 create-security-group \
+        --region "$REGION" \
+        --group-name "$CRAWLER_SG_NAME" \
+        --description "Hardened security group for crawler tasks - outbound-only, no inbound ports" \
+        --vpc-id "$VPC_ID" \
+        --query 'GroupId' \
+        --output text)
+    
+    # Inbound: Deny all (default, but make explicit for documentation)
+    # AWS default is deny-all, so we don't need to add explicit deny rules
+    
+    # Outbound: Allow HTTPS (443) for web crawling
+    aws ec2 authorize-security-group-egress \
+        --region "$REGION" \
+        --group-id "$CRAWLER_SG_ID" \
+        --ip-permissions IpProtocol=tcp,FromPort=443,ToPort=443,IpRanges='[{CidrIp=0.0.0.0/0,Description="HTTPS for web crawling"}]' \
+        &> /dev/null || true
+    
+    # Outbound: Allow HTTP (80) for legacy sites
+    aws ec2 authorize-security-group-egress \
+        --region "$REGION" \
+        --group-id "$CRAWLER_SG_ID" \
+        --ip-permissions IpProtocol=tcp,FromPort=80,ToPort=80,IpRanges='[{CidrIp=0.0.0.0/0,Description="HTTP for legacy sites"}]' \
+        &> /dev/null || true
+    
+    # Outbound: Allow DNS (UDP 53) to AmazonProvidedDNS
+    # Note: AmazonProvidedDNS resolves to VPC DNS server IPs
+    VPC_CIDR=$(aws ec2 describe-vpcs --region "$REGION" --vpc-ids "$VPC_ID" --query 'Vpcs[0].CidrBlock' --output text)
+    # DNS server is typically VPC base + 2 (e.g., 10.0.0.2 for 10.0.0.0/16)
+    DNS_SERVER=$(echo "$VPC_CIDR" | awk -F'/' '{split($1,a,"."); print a[1]"."a[2]"."a[3]".2"}')
+    aws ec2 authorize-security-group-egress \
+        --region "$REGION" \
+        --group-id "$CRAWLER_SG_ID" \
+        --ip-permissions IpProtocol=udp,FromPort=53,ToPort=53,IpRanges='[{CidrIp='$DNS_SERVER'/32,Description="DNS resolution"}]' \
+        &> /dev/null || true
+    
+    # Also allow TCP DNS (for large responses)
+    aws ec2 authorize-security-group-egress \
+        --region "$REGION" \
+        --group-id "$CRAWLER_SG_ID" \
+        --ip-permissions IpProtocol=tcp,FromPort=53,ToPort=53,IpRanges='[{CidrIp='$DNS_SERVER'/32,Description="DNS TCP for large responses"}]' \
+        &> /dev/null || true
+    
+    # Remove default "allow all" outbound rule for strict least-privilege
+    # AWS creates a default rule allowing all outbound traffic - remove it
+    aws ec2 revoke-security-group-egress \
+        --region "$REGION" \
+        --group-id "$CRAWLER_SG_ID" \
+        --ip-permissions IpProtocol=-1,IpRanges='[{CidrIp=0.0.0.0/0}]' \
+        &> /dev/null || true
+    echo -e "${GREEN}✓ Removed default 'allow all' outbound rule${NC}"
+    
+    echo -e "${GREEN}✓ Created hardened security group: ${CRAWLER_SG_ID}${NC}"
+    echo -e "${GREEN}  Inbound: Deny all (no ports exposed)${NC}"
+    echo -e "${GREEN}  Outbound: HTTPS (443), HTTP (80), DNS (53) only${NC}"
+else
+    echo -e "${YELLOW}Hardened security group already exists: ${CRAWLER_SG_ID}${NC}"
+fi
+
 # Create CloudWatch log group for ECS tasks
-echo -e "\n${YELLOW}Step 6: Creating CloudWatch log group...${NC}"
+echo -e "\n${YELLOW}Step 7: Creating CloudWatch log group...${NC}"
 LOG_GROUP_NAME="/ecs/ananda-crawler"
 if aws logs describe-log-groups --log-group-name-prefix "$LOG_GROUP_NAME" --region "$REGION" &> /dev/null; then
     echo -e "${YELLOW}Log group already exists${NC}"
@@ -384,8 +453,8 @@ else
     echo -e "${GREEN}✓ Log group created${NC}"
 fi
 
-# Step 7: Create Secrets Manager secret (user needs to populate values)
-echo -e "\n${YELLOW}Step 7: Creating Secrets Manager secret...${NC}"
+# Step 8: Create Secrets Manager secret (user needs to populate values)
+echo -e "\n${YELLOW}Step 8: Creating Secrets Manager secret...${NC}"
 if aws secretsmanager describe-secret --secret-id "$SECRETS_NAME" --region "$REGION" &> /dev/null; then
     echo -e "${YELLOW}Secret already exists${NC}"
     echo -e "${YELLOW}Note: Update secret values manually if needed${NC}"
@@ -427,4 +496,7 @@ echo "  Task Execution Role: ${EXEC_ROLE_ARN}"
 echo "  Task Role: ${TASK_ROLE_ARN}"
 echo "  Log Group: ${LOG_GROUP_NAME}"
 echo "  Secrets: ${SECRETS_NAME}"
+echo "  Crawler Security Group: ${CRAWLER_SG_ID}"
+echo ""
+echo "Security: Hardened security group created with outbound-only rules (no inbound ports)"
 

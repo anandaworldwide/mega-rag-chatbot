@@ -131,7 +131,8 @@ cat > /tmp/task-definition.json <<EOF
           "awslogs-region": "${REGION}",
           "awslogs-stream-prefix": "crawler"
         }
-      }
+      },
+      "user": "1000:1000"
     }
   ],
   "volumes": [

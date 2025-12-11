@@ -93,39 +93,26 @@ start_cloud() {
     
     echo -e "${YELLOW}Found EFS: ${EFS_ID}${NC}"
     
-    # Get security group from EFS mount target (preferred method)
-    SG_ID=$(aws efs describe-mount-targets \
+    # Get hardened security group for crawler tasks (not EFS SG)
+    CRAWLER_SG_NAME="crawler-hardened-sg"
+    SG_ID=$(aws ec2 describe-security-groups \
         --region "$REGION" \
-        --file-system-id "$EFS_ID" \
-        --query 'MountTargets[0].SecurityGroups[0]' \
+        --filters "Name=group-name,Values=$CRAWLER_SG_NAME" "Name=vpc-id,Values=$VPC_ID" \
+        --query 'SecurityGroups[0].GroupId' \
         --output text 2>/dev/null || echo "")
     
-    # If not found from mount target, try to find by name pattern
     if [ -z "$SG_ID" ] || [ "$SG_ID" == "None" ]; then
-        echo -e "${YELLOW}Security group not found in mount targets, trying by name pattern...${NC}"
-        SG_PATTERN="efs-sg-${EFS_ID:0:8}"
-        SG_ID=$(aws ec2 describe-security-groups \
-            --region "$REGION" \
-            --filters "Name=group-name,Values=$SG_PATTERN" "Name=vpc-id,Values=$VPC_ID" \
-            --query 'SecurityGroups[0].GroupId' \
-            --output text 2>/dev/null || echo "")
-    fi
-    
-    if [ -z "$SG_ID" ] || [ "$SG_ID" == "None" ]; then
-        echo -e "${RED}Error: Could not find security group for EFS${NC}"
-        echo "EFS ID: ${EFS_ID}"
+        echo -e "${RED}Error: Could not find hardened security group '${CRAWLER_SG_NAME}'${NC}"
         echo "VPC ID: ${VPC_ID}"
         echo ""
         echo "Troubleshooting:"
-        echo "1. Check if EFS mount targets exist:"
-        echo "   aws efs describe-mount-targets --file-system-id ${EFS_ID} --region ${REGION}"
+        echo "1. Run aws-setup.sh to create the hardened security group"
         echo "2. Check if security group exists:"
         echo "   aws ec2 describe-security-groups --filters \"Name=vpc-id,Values=${VPC_ID}\" --region ${REGION}"
-        echo "3. Re-run aws-setup.sh to ensure everything is configured"
         exit 1
     fi
     
-    echo -e "${GREEN}Found security group: ${SG_ID}${NC}"
+    echo -e "${GREEN}Found hardened security group: ${SG_ID}${NC}"
     
     # Run task
     TASK_ARN=$(aws ecs run-task \
