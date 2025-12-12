@@ -1,8 +1,9 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import jwt from "jsonwebtoken";
 import path from "path";
-import Email from "email-templates";
+import juice from "juice";
 import { marked } from "marked";
+import pug from "pug";
 import { db } from "@/services/firebase";
 import { getNewslettersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreQueryGet, firestoreUpdate } from "@/utils/server/firestoreRetryUtils";
@@ -31,6 +32,20 @@ async function convertMarkdownToHtml(markdownContent: string): Promise<string> {
     console.error("Markdown parsing error:", error);
     return markdownContent.replace(/\n/g, "<br>");
   }
+}
+
+function renderNewsletterHtml(templateVars: {
+  subject: string;
+  siteName: string;
+  userName: string;
+  content: string;
+  ctaUrl?: string;
+  ctaText?: string;
+  unsubscribeUrl: string;
+}): string {
+  const templatePath = path.join(process.cwd(), "emails", "newsletter.pug");
+  const rawHtml = pug.renderFile(templatePath, templateVars);
+  return juice(rawHtml);
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -75,13 +90,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return res.status(500).json({ error: "Configuration missing" });
     }
 
-    // Initialize email template
-    const email = new Email({
-      juice: true,
-      views: { root: path.join(process.cwd(), "emails") },
-      send: false,
-    });
-
     for (const doc of itemsSnapshot.docs) {
       const data = doc.data();
       try {
@@ -101,7 +109,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // Convert content
         const htmlContent = await convertMarkdownToHtml(data.content);
 
-        const html = await email.render("newsletter", {
+        const html = renderNewsletterHtml({
           subject: data.subject,
           siteName,
           userName,

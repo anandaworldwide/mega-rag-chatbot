@@ -47,11 +47,10 @@ jest.mock("firebase-admin", () => ({
     },
   },
 }));
-jest.mock("email-templates", () =>
-  jest.fn().mockImplementation(() => ({
-    render: jest.fn().mockResolvedValue("<html>Newsletter content</html>"),
-  }))
-);
+jest.mock("pug", () => ({
+  renderFile: jest.fn(() => "<html>Newsletter content</html>"),
+}));
+jest.mock("juice", () => jest.fn((html: string) => html));
 jest.mock("marked", () => ({
   marked: jest.fn().mockResolvedValue("<p>Converted markdown</p>"),
 }));

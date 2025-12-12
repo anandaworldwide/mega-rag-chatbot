@@ -4765,9 +4765,6 @@ def _setup_environment_and_paths(
     handle_fresh_start(args)
 
     env_file_str = str(env_file)
-    logging.info(
-        f"Will load environment variables from: {os.path.abspath(env_file_str)}"
-    )
 
     # Get Domain & Start URL from Config
     domain = site_config.get("domain")
