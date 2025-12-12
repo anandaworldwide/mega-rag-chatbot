@@ -156,10 +156,10 @@ echo -e "\n${YELLOW}Updating start schedule to use Fargate Spot...${NC}"
 
 aws scheduler update-schedule \
     --name "$SCHEDULE_NAME_START" \
-    --schedule-expression "cron(0 7-22 * * ? *)" \
+    --schedule-expression "cron(0 7-23 * * ? *)" \
     --schedule-expression-timezone "America/Los_Angeles" \
     --flexible-time-window '{"Mode": "OFF"}' \
-    --description "Run crawler hourly 7am-10pm PT (15m max) (uses Fargate Spot)" \
+    --description "Run crawler hourly 7am-11pm PT (15m max) (uses Fargate Spot)" \
     --target "{
         \"Arn\": \"arn:aws:ecs:${REGION}:${ACCOUNT_ID}:cluster/${CLUSTER_NAME}\",
         \"RoleArn\": \"${EVENTBRIDGE_ROLE_ARN}\",
@@ -186,7 +186,7 @@ echo -e "${GREEN}✓ Updated start schedule to use Fargate Spot${NC}"
 
 echo -e "\n${GREEN}✓ EventBridge schedule updated for Fargate Spot capacity${NC}"
 echo -e "${BLUE}Schedule Summary:${NC}"
-echo "  Schedule: hourly, 7am–10pm PT (America/Los_Angeles)"
+echo "  Schedule: hourly, 7am–11pm PT (America/Los_Angeles)"
 echo "  Capacity: 95% Fargate Spot, 5% Fargate on-demand (fallback)"
 echo "  Runtime: 15 minutes max (max-runtime-minutes=15)"
 echo ""
