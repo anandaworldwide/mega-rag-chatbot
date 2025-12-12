@@ -150,7 +150,6 @@ def create_pinecone_index_if_not_exists(
         print(f"Unexpected error checking Pinecone index: {e}")
         sys.exit(1)
     else:
-        print(f"Index {index_name} already exists")
         return
 
     # Index doesn't exist, handle creation
@@ -231,7 +230,6 @@ async def create_pinecone_index_if_not_exists_async(
         print(f"Unexpected error checking Pinecone index: {e}")
         sys.exit(1)
     else:
-        print(f"Index {index_name} already exists")
         return
 
     print(f"Index {index_name} does not exist. Creating...")

@@ -79,11 +79,12 @@ cat > /tmp/task-definition.json <<EOF
       "essential": true,
       "command": [
         "python",
-        "/app/crawler/crawler_supervisor.py",
+        "/app/crawler/website_crawler.py",
         "--site",
         "ananda-public",
         "--max-runtime-minutes",
-        "480"
+        "15",
+        "--non-interactive"
       ],
       "environment": [
         {

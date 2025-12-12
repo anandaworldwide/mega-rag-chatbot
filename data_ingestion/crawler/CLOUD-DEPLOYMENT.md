@@ -1,6 +1,13 @@
 # Cloud Deployment Guide - Ananda Crawler
 
-Deploy the Ananda crawler to AWS ECS Fargate for scheduled execution (9am-5pm PT daily).
+> **Note**: Cloud deployment is **optional**. The crawler can be run in two ways:
+>
+> - **Cloud Mode**: Deploy to AWS ECS Fargate for scheduled execution (this guide)
+> - **Local Mode**: Run directly on a laptop or desktop computer using `python website_crawler.py --site <site-name>`
+>
+> This guide covers cloud deployment. For local execution, see the main crawler documentation.
+
+Deploy the Ananda crawler to AWS ECS Fargate for scheduled execution.
 
 ## 🚀 Cost Optimization Available
 
@@ -12,7 +19,7 @@ for setup.
 - **Container**: Docker image in ECR (us-west-1)
 - **Compute**: ECS Fargate (0.5 vCPU, 1GB RAM)
 - **Storage**: EFS for SQLite database and logs (persistent across runs)
-- **Scheduling**: EventBridge (starts at 9am PT daily)
+- **Scheduling**: EventBridge Scheduler (hourly during active hours, PT timezone)
 - **Secrets**: AWS Secrets Manager for environment variables
 - **Logging**: CloudWatch Logs
 - **Network**: Public subnet with public IP assignment (NAT-less, cost-optimized)
@@ -132,28 +139,33 @@ ECS task to access EFS, copies database to `/app/data/db/` on EFS, verifies copy
 
 ### Step 6: Create EventBridge Schedule (Optional)
 
-Create the daily schedule that starts the crawler at 9am PT:
+Create the hourly schedule (7am–10pm PT) that runs one short task per hour:
 
 ```bash
-./create-schedule.sh
+./update-schedule-for-service.sh
 ```
 
-**Note**: Skip this if you want manual control only (use `manual-control.sh`).
+This schedule uses `America/Los_Angeles` timezone (no UTC/DST math) and runs the crawler as a **one-shot ECS task** (no
+always-on service required).
+
+**Note**: `create-schedule.sh` is legacy (daily schedule + UTC conversion). Use it only if you intentionally want that
+behavior.
 
 ---
 
 ### Step 7: Enable Cost Optimization (Recommended)
 
-Set up automatic Fargate Spot capacity for 70%+ cost savings:
+Use Fargate Spot capacity for 70%+ cost savings:
 
 ```bash
-# Enable Spot capacity with on-demand fallback
-./setup-spot-capacity.sh
-
-# Update EventBridge schedule to use Spot capacity
+# Update EventBridge schedule to use Spot capacity (recommended)
 ./update-schedule-for-service.sh
+```
 
-# Switch to service-based control (replaces manual run-task)
+If you want to run the crawler as an **always-on ECS service** (continuous mode), you can still do that (optional):
+
+```bash
+./setup-spot-capacity.sh
 ./service-control.sh start
 ./service-control.sh status
 ```
@@ -163,14 +175,16 @@ Set up automatic Fargate Spot capacity for 70%+ cost savings:
 Verify everything works:
 
 ```bash
-# If using Spot capacity (recommended)
-./service-control.sh status
-./service-control.sh stop
-./service-control.sh start
+# Check schedule configuration
+aws scheduler get-schedule --name ananda-crawler-start --region us-west-1 --output table
 
-# Legacy manual control (still available)
-./manual-control.sh start-cloud
-./manual-control.sh status-cloud
+# Trigger a one-shot run immediately (optional)
+# (Uses Spot with on-demand fallback, and will exit automatically after max-runtime-minutes)
+aws ecs run-task --cluster ananda-crawler-cluster --region us-west-1 \
+  --task-definition ananda-crawler-task \
+  --count 1 \
+  --capacity-provider-strategy capacityProvider=FARGATE_SPOT,weight=95 capacityProvider=FARGATE,weight=5 \
+  --network-configuration 'awsvpcConfiguration={subnets=[subnet-69894a33],securityGroups=[sg-00cff461f9ad3d8b2],assignPublicIp=ENABLED}'
 
 # View logs
 aws logs tail /ecs/ananda-crawler --follow --region us-west-1
@@ -218,7 +232,7 @@ launchctl list com.ananda.crawler
 # Disable automatic schedule (for manual control)
 ./manual-control.sh disable-schedule
 
-# Enable automatic schedule (9am PT daily start)
+# Enable automatic schedule (hourly, 7am–10pm PT)
 ./manual-control.sh enable-schedule
 ```
 
@@ -553,7 +567,7 @@ To apply the NAT-less security hardening to an existing deployment:
 5. **Update EventBridge schedule** to use hardened SG and public IP:
 
    ```bash
-   ./create-schedule.sh
+   ./update-schedule-for-service.sh
    ```
 
 6. **Restart tasks** with new configuration:
@@ -643,23 +657,14 @@ The SQLite database is stored on EFS. To backup:
 
 ## Quick Reference Commands
 
-### Service Control (Recommended - with Spot capacity)
+### Scheduled Runs (Recommended)
 
 ```bash
-# Start cloud crawler
-./service-control.sh start
+# Update/verify schedule (hourly 7am–10pm PT)
+./update-schedule-for-service.sh
 
-# Stop cloud crawler
-./service-control.sh stop
-
-# Check status (shows capacity type)
-./service-control.sh status
-
-# Scale to multiple instances
-./service-control.sh scale 2
-
-# Force restart
-./service-control.sh restart
+# Check schedule details
+aws scheduler get-schedule --name ananda-crawler-start --region us-west-1 --output table
 ```
 
 ### Manual Control (Legacy)
@@ -673,6 +678,15 @@ The SQLite database is stored on EFS. To backup:
 
 # Check status
 ./manual-control.sh status-cloud
+```
+
+### Continuous Service Mode (Optional / Legacy)
+
+```bash
+# Start/stop always-on ECS service (runs continuously until stopped)
+./service-control.sh start
+./service-control.sh stop
+./service-control.sh status
 ```
 
 ### General Commands

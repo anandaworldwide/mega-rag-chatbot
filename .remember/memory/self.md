@@ -1267,3 +1267,18 @@ behavior.
 
 **Applied To**: Fixed `tokenManager.test.ts` - updated three failing test expectations to include
 `credentials: "include"`.
+
+### Mistake: AWS Cost Explorer Region Confusion
+
+**Wrong**: Assuming Cost Explorer must be queried in the workload region (e.g., `us-west-1`).
+
+**Correct**: Query Cost Explorer in `us-east-1` (global-style endpoint) and **filter by REGION** for the workload:
+
+```bash
+aws ce get-cost-and-usage \
+  --time-period Start=YYYY-MM-DD,End=YYYY-MM-DD \
+  --granularity DAILY \
+  --metrics UnblendedCost \
+  --filter '{"Dimensions":{"Key":"REGION","Values":["us-west-1"]}}' \
+  --region us-east-1
+```

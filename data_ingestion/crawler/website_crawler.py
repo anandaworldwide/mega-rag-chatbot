@@ -37,8 +37,10 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import traceback
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -52,6 +54,7 @@ if TYPE_CHECKING:
 # Third party imports
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
+from langchain_openai import OpenAIEmbeddings
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
 from playwright.sync_api import sync_playwright
 from readability import Document
@@ -61,12 +64,6 @@ try:
     import psutil
 except ImportError:
     psutil = None
-
-# Additional imports for specific functionality
-import threading
-from contextlib import suppress
-
-from langchain_openai import OpenAIEmbeddings
 
 # OpenAI imports for rate limit handling (used for fallback checks)
 try:
@@ -87,7 +84,38 @@ from utils.pinecone_utils import (
 from utils.progress_utils import is_exiting, setup_signal_handlers
 from utils.text_splitter_utils import SpacyTextSplitter
 
-# Configure logging with timestamps (will be updated in main() if debug mode)
+
+def _is_running_in_cloud() -> bool:
+    """
+    Heuristic: treat ECS/Fargate runs as "cloud" for log formatting.
+
+    CloudWatch Logs already prefixes each line with a timestamp, so we avoid duplicating it.
+    """
+    return bool(
+        os.getenv("ECS_CONTAINER_METADATA_URI_V4")
+        or os.getenv("ECS_CONTAINER_METADATA_URI")
+        or os.getenv("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")
+        or os.getenv("AWS_CONTAINER_CREDENTIALS_FULL_URI")
+        or os.getenv("AWS_EXECUTION_ENV", "").startswith("AWS_ECS")
+    )
+
+
+def _configure_logging(*, debug: bool) -> None:
+    is_cloud = _is_running_in_cloud()
+    log_level = logging.DEBUG if debug else logging.INFO
+
+    # CloudWatch already adds a timestamp prefix, so omit %(asctime)s in cloud.
+    log_format = (
+        "%(levelname)s - %(message)s"
+        if is_cloud
+        else "%(asctime)s - %(levelname)s - %(message)s"
+    )
+
+    # Ensure we override the module-level default handler.
+    logging.basicConfig(level=log_level, format=log_format, force=True)
+
+
+# Configure logging defaults (main() will override with _configure_logging()).
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
@@ -195,7 +223,6 @@ def load_config(site_id: str) -> dict | None:
     try:
         with open(config_file) as f:
             config_data = json.load(f)
-        logging.info(f"Loaded configuration from {config_file}")
         # Basic validation (add more as needed)
         if "domain" not in config_data or "skip_patterns" not in config_data:
             logging.error(
@@ -627,6 +654,35 @@ class WebsiteCrawler:
             return None
         except Exception as e:
             logging.error(f"Error getting next URL to crawl: {e}")
+            return None
+
+    def peek_next_url_to_crawl(self) -> str | None:
+        """Return the next eligible URL without mutating queue state."""
+        self._ensure_db_initialized()
+        assert self.cursor is not None
+        try:
+            self.cursor.execute(
+                """
+                SELECT url FROM crawl_queue
+                WHERE (
+                    (status = 'pending' AND (retry_after IS NULL OR retry_after <= datetime('now')))
+                    OR
+                    (status = 'visited' AND next_crawl <= datetime('now'))
+                )
+                ORDER BY
+                    priority DESC,
+                    status = 'pending' DESC,
+                    last_crawl IS NULL DESC,
+                    retry_count ASC,
+                    next_crawl ASC,
+                    url ASC
+                LIMIT 1
+                """
+            )
+            result = self.cursor.fetchone()
+            return result[0] if result else None
+        except Exception as e:
+            logging.error(f"Error peeking next URL to crawl: {e}")
             return None
 
     def _handle_404_retry_logic(
@@ -4335,6 +4391,9 @@ def _initialize_crawler_runtime(args: argparse.Namespace) -> tuple[float, float]
 
 def _log_crawler_completion(start_time: float, pages_processed: int) -> None:
     """Log final crawler session statistics."""
+    if pages_processed == 0:
+        return
+
     final_elapsed = time.time() - start_time
     logging.info("=== CRAWLER SESSION COMPLETE ===")
     logging.info(
@@ -4536,6 +4595,12 @@ def run_crawl_loop(
         stop_after,
     ) = _unpack_crawler_setup(setup_result, args)
 
+    # If nothing is eligible, exit before launching Playwright/Firefox.
+    if not crawler.peek_next_url_to_crawl():
+        logging.info("No URLs ready for processing; skipping browser launch (0 pages).")
+        _log_crawler_completion(start_time, 0)
+        return
+
     with sync_playwright() as p:
         browser, page = _setup_crawler_browser(crawler, p)
 
@@ -4673,9 +4738,8 @@ def cleanup_and_exit(crawler: WebsiteCrawler | None) -> None:
 
 def _setup_logging_and_config(args: argparse.Namespace) -> dict:
     """Setup logging and load site configuration."""
-    # Configure logging level based on debug flag
+    _configure_logging(debug=bool(args.debug))
     if args.debug:
-        logging.getLogger().setLevel(logging.DEBUG)
         logging.info("Debug mode enabled - detailed logging activated")
 
     # Load Site Configuration
@@ -4723,7 +4787,6 @@ def _setup_environment_and_paths(
 
 def _perform_system_health_check(args) -> None:
     """Perform system health check and handle critical issues."""
-    logging.info("Performing pre-flight system health check...")
     is_healthy, issues = _check_system_health()
 
     if not is_healthy:
@@ -4779,8 +4842,6 @@ def _perform_system_health_check(args) -> None:
                         "No interactive input available: Continuing despite critical system health issues: %s",
                         "; ".join(critical_issues),
                     )
-    else:
-        logging.info("System health check passed - proceeding with crawler startup")
 
 
 def _initialize_crawler_and_services(
@@ -4789,16 +4850,15 @@ def _initialize_crawler_and_services(
     """Initialize crawler, Pinecone, and handle clear vectors."""
     # Load environment variables - check if already set (cloud mode) or load from file
     required_vars = ["OPENAI_API_KEY", "PINECONE_API_KEY"]
-    if all(os.getenv(var) for var in required_vars):
-        logging.info("Environment variables already set (cloud mode)")
-    elif os.path.exists(env_file_str):
-        load_dotenv(env_file_str)
-        logging.debug(f"Loaded environment from: {os.path.abspath(env_file_str)}")
-    else:
-        print(
-            f"Error: Environment file {env_file_str} not found and required env vars not set."
-        )
-        sys.exit(1)
+    if not all(os.getenv(var) for var in required_vars):
+        if os.path.exists(env_file_str):
+            load_dotenv(env_file_str)
+            logging.debug(f"Loaded environment from: {os.path.abspath(env_file_str)}")
+        else:
+            print(
+                f"Error: Environment file {env_file_str} not found and required env vars not set."
+            )
+            sys.exit(1)
 
     domain = site_config.get("domain")
     crawler = WebsiteCrawler(

@@ -78,6 +78,18 @@
 - **Security headers**: CSP, HSTS, X-Frame-Options required
 - **WordPress integration**: Use signed tokens for cross-site communication
 
+### AWS Scheduling (Crawler)
+
+- Prefer **EventBridge Scheduler** `ScheduleExpressionTimezone` (e.g. `America/Los_Angeles`) over hardcoding UTC cron
+  expressions to avoid DST/UTC conversion mistakes.
+- For the crawler, prefer **one-shot scheduled ECS tasks** with `--max-runtime-minutes` over an always-on ECS service +
+  supervisor loop when you want strict “only run in this window” behavior.
+
+### AWS Cost Reporting
+
+- Cost Explorer should be queried via `--region us-east-1`, then filtered to the workload region via the `REGION`
+  dimension (e.g., `us-west-1`).
+
 ## User Preferences
 
 ### Code Style
