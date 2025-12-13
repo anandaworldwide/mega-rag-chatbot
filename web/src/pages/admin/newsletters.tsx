@@ -463,7 +463,9 @@ export default function NewslettersPage({ siteConfig }: NewsletterPageProps) {
                   ></path>
                 </svg>
               )}
-              {isProcessingBatch ? "Processing..." : "Process Next 50 Emails"}
+              {isProcessingBatch
+                ? "Processing..."
+                : `Process Next ${Math.min(selectedNewsletterRemainingCount, 50)} Email${Math.min(selectedNewsletterRemainingCount, 50) === 1 ? "" : "s"}`}
             </button>
             <button
               onClick={handleDeleteQueue}
