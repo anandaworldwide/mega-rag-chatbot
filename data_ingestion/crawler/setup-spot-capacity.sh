@@ -116,7 +116,7 @@ else
         --query 'taskDefinition.taskDefinitionArn' \
         --output text)
 
-    # Get VPC configuration (same as used in manual-control.sh)
+    # Get VPC configuration
     VPC_ID=$(aws ec2 describe-vpcs --region "$REGION" --filters "Name=isDefault,Values=true" --query 'Vpcs[0].VpcId' --output text)
     if [ "$VPC_ID" == "None" ] || [ -z "$VPC_ID" ]; then
         VPC_ID=$(aws ec2 describe-vpcs --region "$REGION" --query 'Vpcs[0].VpcId' --output text)

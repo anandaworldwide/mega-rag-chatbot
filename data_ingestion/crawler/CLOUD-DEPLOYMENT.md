@@ -148,9 +148,6 @@ Create the hourly schedule (7am–10pm PT) that runs one short task per hour:
 This schedule uses `America/Los_Angeles` timezone (no UTC/DST math) and runs the crawler as a **one-shot ECS task** (no
 always-on service required).
 
-**Note**: `create-schedule.sh` is legacy (daily schedule + UTC conversion). Use it only if you intentionally want that
-behavior.
-
 ---
 
 ### Step 7: Enable Cost Optimization (Recommended)
@@ -201,39 +198,48 @@ During transition, you can run on either laptop or cloud, but **never both simul
 
 ```bash
 # 1. Stop laptop service
-./manual-control.sh stop-laptop
+./manage_crawler.sh stop
 
-# 2. (Optional) Disable automatic schedule for manual control
-./manual-control.sh disable-schedule
+# 2. Cloud runs automatically on schedule (hourly 7am-11pm PT)
+# Or trigger a manual run:
+aws ecs run-task --cluster ananda-crawler-cluster --region us-west-1 \
+  --task-definition ananda-crawler-task \
+  --capacity-provider-strategy capacityProvider=FARGATE_SPOT,weight=95 capacityProvider=FARGATE,weight=5 \
+  --network-configuration "awsvpcConfiguration={subnets=[subnet-69894a33],securityGroups=[sg-00cff461f9ad3d8b2],assignPublicIp=ENABLED}"
 
-# 3. Start cloud crawler
-./manual-control.sh start-cloud
-
-# 4. Verify it's running
-./manual-control.sh status-cloud
+# 3. Check status
+aws ecs list-tasks --cluster ananda-crawler-cluster --region us-west-1
 ```
 
 ### Stop Cloud, Start Laptop
 
 ```bash
-# 1. Stop cloud task
-./manual-control.sh stop-cloud
+# 1. Stop any running cloud tasks
+TASK_ARN=$(aws ecs list-tasks --cluster ananda-crawler-cluster --region us-west-1 --query 'taskArns[0]' --output text)
+aws ecs stop-task --cluster ananda-crawler-cluster --task "$TASK_ARN" --region us-west-1
 
 # 2. Start laptop service
-launchctl start com.ananda.crawler
+./manage_crawler.sh start
 
 # 3. Verify it's running
-launchctl list com.ananda.crawler
+./manage_crawler.sh status
 ```
 
 ### Schedule Management
 
 ```bash
-# Disable automatic schedule (for manual control)
-./manual-control.sh disable-schedule
+# Check schedule status
+aws scheduler get-schedule --name ananda-crawler-start --region us-west-1 --query '{State:State,Schedule:ScheduleExpression}' --output table
 
-# Enable automatic schedule (hourly, 7am–10pm PT)
-./manual-control.sh enable-schedule
+# Disable schedule (for manual control)
+aws scheduler update-schedule --name ananda-crawler-start --region us-west-1 --state DISABLED \
+  --schedule-expression "cron(0 7-23 * * ? *)" --schedule-expression-timezone "America/Los_Angeles" \
+  --flexible-time-window '{"Mode":"OFF"}' --target "$(aws scheduler get-schedule --name ananda-crawler-start --region us-west-1 --query 'Target' --output json)"
+
+# Enable schedule
+aws scheduler update-schedule --name ananda-crawler-start --region us-west-1 --state ENABLED \
+  --schedule-expression "cron(0 7-23 * * ? *)" --schedule-expression-timezone "America/Los_Angeles" \
+  --flexible-time-window '{"Mode":"OFF"}' --target "$(aws scheduler get-schedule --name ananda-crawler-start --region us-west-1 --query 'Target' --output json)"
 ```
 
 **Important**: Always verify one is stopped before starting the other to avoid duplicate crawling. If switching, you may
@@ -469,7 +475,11 @@ nmap -p- "$PUBLIC_IP" || echo "nmap not installed - install to verify port secur
 3. Try manual copy via ECS exec (if task is running):
 
    ```bash
-   ./manual-control.sh start-cloud
+   # Start a task if none running
+   aws ecs run-task --cluster ananda-crawler-cluster --region us-west-1 \
+     --task-definition ananda-crawler-task --launch-type FARGATE \
+     --network-configuration "awsvpcConfiguration={subnets=[subnet-69894a33],securityGroups=[sg-00cff461f9ad3d8b2],assignPublicIp=ENABLED}"
+
    TASK_ARN=$(aws ecs list-tasks --cluster ananda-crawler-cluster --region us-west-1 --query 'taskArns[0]' --output text)
    aws ecs execute-command --cluster ananda-crawler-cluster --task "$TASK_ARN" --container crawler --command "/bin/bash" --interactive --region us-west-1
    ```
@@ -545,7 +555,8 @@ To apply the NAT-less security hardening to an existing deployment:
 2. **Stop any running tasks** (to avoid conflicts):
 
    ```bash
-   ./manual-control.sh stop-cloud
+   TASK_ARN=$(aws ecs list-tasks --cluster ananda-crawler-cluster --region us-west-1 --query 'taskArns[0]' --output text)
+   [ "$TASK_ARN" != "None" ] && aws ecs stop-task --cluster ananda-crawler-cluster --task "$TASK_ARN" --region us-west-1
    ```
 
 3. **Rebuild Docker image** with updated Dockerfile (non-root user):
@@ -573,7 +584,10 @@ To apply the NAT-less security hardening to an existing deployment:
 6. **Restart tasks** with new configuration:
 
    ```bash
-   ./manual-control.sh start-cloud
+   aws ecs run-task --cluster ananda-crawler-cluster --region us-west-1 \
+     --task-definition ananda-crawler-task \
+     --capacity-provider-strategy capacityProvider=FARGATE_SPOT,weight=95 capacityProvider=FARGATE,weight=5 \
+     --network-configuration "awsvpcConfiguration={subnets=[subnet-69894a33],securityGroups=[sg-00cff461f9ad3d8b2],assignPublicIp=ENABLED}"
    ```
 
 7. **Verify security configuration**:
@@ -616,9 +630,10 @@ aws secretsmanager put-secret-value \
   --secret-string file://secrets.json \
   --region us-west-1
 
-# Restart tasks to pick up new secrets
-./manual-control.sh stop-cloud
-./manual-control.sh start-cloud
+# Stop existing tasks and start new ones to pick up updated secrets
+TASK_ARN=$(aws ecs list-tasks --cluster ananda-crawler-cluster --region us-west-1 --query 'taskArns[0]' --output text)
+[ "$TASK_ARN" != "None" ] && aws ecs stop-task --cluster ananda-crawler-cluster --task "$TASK_ARN" --region us-west-1
+# New task starts on next scheduled run, or trigger manually
 ```
 
 ### Database Backup
@@ -667,17 +682,22 @@ The SQLite database is stored on EFS. To backup:
 aws scheduler get-schedule --name ananda-crawler-start --region us-west-1 --output table
 ```
 
-### Manual Control (Legacy)
+### Manual Task Control
 
 ```bash
-# Start cloud crawler
-./manual-control.sh start-cloud
+# Start a one-shot task manually
+aws ecs run-task --cluster ananda-crawler-cluster --region us-west-1 \
+  --task-definition ananda-crawler-task \
+  --capacity-provider-strategy capacityProvider=FARGATE_SPOT,weight=95 capacityProvider=FARGATE,weight=5 \
+  --network-configuration "awsvpcConfiguration={subnets=[subnet-69894a33],securityGroups=[sg-00cff461f9ad3d8b2],assignPublicIp=ENABLED}"
 
-# Stop cloud crawler
-./manual-control.sh stop-cloud
+# Stop a running task
+TASK_ARN=$(aws ecs list-tasks --cluster ananda-crawler-cluster --region us-west-1 --query 'taskArns[0]' --output text)
+aws ecs stop-task --cluster ananda-crawler-cluster --task "$TASK_ARN" --region us-west-1
 
-# Check status
-./manual-control.sh status-cloud
+# Check task status
+aws ecs list-tasks --cluster ananda-crawler-cluster --region us-west-1
+aws logs tail /ecs/ananda-crawler --since 10m --region us-west-1
 ```
 
 ### Continuous Service Mode (Optional / Legacy)

@@ -120,12 +120,12 @@ aws cloudwatch get-metric-statistics \
 
 ## Migration from Manual Tasks
 
-If you're currently using `manual-control.sh` with `run-task`:
+If you're currently using manual `aws ecs run-task` commands:
 
-1. **Run setup**: `./setup-spot-capacity.sh` (creates service)
-2. **Switch to service control**: Use `./service-control.sh` instead
-3. **Update EventBridge schedule**: Modify to start service instead of run-task (see below)
-4. **Keep manual control**: Still available for debugging/emergencies
+1. **Run setup**: `./setup-spot-capacity.sh` (creates service with Spot capacity)
+2. **Switch to service control**: Use `./service-control.sh` for always-on mode
+3. **Or use scheduled tasks**: Run `./update-schedule-for-service.sh` for hourly one-shot tasks
+4. **Manual runs**: Use `aws ecs run-task` with capacity provider strategy for ad-hoc runs
 
 ### Updating EventBridge Schedule for Spot Capacity
 

@@ -128,7 +128,7 @@ fi
 ASSIGN_PUBLIC_IP="ENABLED"
 echo -e "${GREEN}✓ Using subnet: $SUBNET_ID (public IP enabled)${NC}"
 
-# Get security group from EFS mount targets (same logic as manual-control.sh)
+# Get security group from EFS mount targets
 EFS_ID_TEMP=$(aws efs describe-file-systems \
     --region "$REGION" \
     --query "FileSystems[?Tags[?Key=='Name' && Value=='ananda-crawler-efs']].FileSystemId" \
