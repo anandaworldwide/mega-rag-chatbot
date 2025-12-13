@@ -14,6 +14,7 @@
     "^/free-inspiration/books/efl$",
     "^/ask/answerer/",
     "^/video/locations/",
+    "^/yogananda-institute/",
     "^/__"
   ],
   "crawl_frequency_days": 25,
