@@ -37,6 +37,49 @@
     }
   },
 
+  // ESLint configuration for TypeScript/JavaScript
+  "eslint.enable": true,
+  "eslint.validate": ["javascript", "javascriptreact", "typescript", "typescriptreact"],
+  "eslint.workingDirectories": [
+    {
+      "pattern": "./web"
+    }
+  ],
+  // Use flat config format (eslint.config.mjs)
+  "eslint.experimental.useFlatConfig": true,
+  // Show ESLint errors in Problems panel
+  "eslint.format.enable": true,
+  "eslint.lintTask.enable": true,
+  // Auto-fix on save for TypeScript/JavaScript
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.eslint": "explicit"
+    }
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.eslint": "explicit"
+    }
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.eslint": "explicit"
+    }
+  },
+  "[javascriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.eslint": "explicit"
+    }
+  },
+
   // Show problems in Problems panel
   "python.linting.ignorePatterns": [".vscode/*.py", "**/site-packages/**/*.py"],
 

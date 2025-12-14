@@ -4,6 +4,7 @@
     "charliermarsh.ruff",
     "ms-python.debugpy",
     "DavidAnson.vscode-markdownlint",
-    "esbenp.prettier-vscode"
+    "esbenp.prettier-vscode",
+    "dbaeumer.vscode-eslint"
   ]
 }
