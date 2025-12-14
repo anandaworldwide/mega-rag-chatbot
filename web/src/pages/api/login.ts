@@ -104,8 +104,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         entitlements: userData.entitlements || {},
         site: process.env.SITE_ID || "default",
       };
+      // Use 180 days expiry to match other login endpoints (magicLogin, loginWithPassword)
       const jwtToken = jwt.sign(tokenPayload, jwtSecret, {
-        expiresIn: "24h",
+        expiresIn: "180d",
         algorithm: "HS256",
         issuer: "mega-rag-chatbot",
         audience: "mega-rag-chatbot-users",
@@ -114,16 +115,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
       const cookies = new Cookies(req, res, { secure: isSecure });
 
-      const expiryDate = new Date();
-      expiryDate.setDate(expiryDate.getDate() + 1); // 24h
-
       // TODO: Remove migration bridge after June 2026 - only set authToken
       // Set both auth and authToken cookies during migration period
       // auth: legacy cookie for backward compatibility
       cookies.set("auth", jwtToken, {
         httpOnly: true,
         secure: isSecure,
-        expires: expiryDate,
+        maxAge: 180 * 24 * 60 * 60 * 1000, // 180 days
         sameSite: "lax",
         path: "/",
       });
@@ -131,7 +129,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       cookies.set("authToken", jwtToken, {
         httpOnly: true,
         secure: isSecure,
-        expires: expiryDate,
+        maxAge: 180 * 24 * 60 * 60 * 1000, // 180 days
         sameSite: "lax",
         path: "/",
       });

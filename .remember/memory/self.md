@@ -1282,3 +1282,66 @@ aws ce get-cost-and-usage \
   --filter '{"Dimensions":{"Key":"REGION","Values":["us-west-1"]}}' \
   --region us-east-1
 ```
+
+### 37. Auth Token Fetch Should Not Redirect Directly - Let AuthGuard Handle It
+
+**Problem**: When `fetchNewToken()` gets a 401 from `/api/web-token`, it immediately redirects via
+`window.location.href`. This bypasses the retry logic in `AuthGuard`, causing premature redirects to login even when the
+session might still be valid.
+
+**Symptoms**: User returns to an idle tab and gets redirected to login, but pressing browser "back" shows they were
+never actually logged out.
+
+**Wrong**: Token fetch function directly redirecting on 401.
+
+```typescript
+// Inside fetchNewToken()
+if (response.status === 401 && window.location.pathname !== "/login") {
+  window.location.href = `/login?redirect=...`; // Bypasses retry logic!
+  return "";
+}
+```
+
+**Correct**: Throw a custom error that the caller (AuthGuard) can handle with retry logic.
+
+```typescript
+// Custom error class
+export class AuthenticationError extends Error {
+  public readonly status: number;
+  public readonly shouldRedirect: boolean;
+
+  constructor(message: string, status: number, shouldRedirect: boolean = false) {
+    super(message);
+    this.name = "AuthenticationError";
+    this.status = status;
+    this.shouldRedirect = shouldRedirect;
+  }
+}
+
+// Inside fetchNewToken()
+if (response.status === 401 && window.location.pathname !== "/login") {
+  throw new AuthenticationError("Authentication required - session may have expired", 401, true);
+}
+
+// AuthGuard catches and retries before redirecting
+for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+  try {
+    await initializeTokenManager();
+    // ...
+  } catch (error) {
+    if (error instanceof AuthenticationError && attempt < MAX_ATTEMPTS) {
+      await new Promise((r) => setTimeout(r, 500 * attempt));
+      continue;
+    }
+    if (error.shouldRedirect) {
+      router.replace(`/login?redirect=...`);
+    }
+  }
+}
+```
+
+**Pattern**: For authentication flows with retry logic, the lower-level function should throw errors, not redirect. The
+higher-level component (AuthGuard) should decide when to redirect after exhausting retries.
+
+**Related Fix**: Also ensure all login endpoints use consistent JWT expiry. Legacy `login.ts` used 24h while newer
+endpoints used 180d, causing premature session expiration for users who logged in via the legacy endpoint.

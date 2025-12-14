@@ -211,7 +211,7 @@ describe("Login API", () => {
       },
       "test-secret",
       {
-        expiresIn: "24h",
+        expiresIn: "180d",
         algorithm: "HS256",
         issuer: "mega-rag-chatbot",
         audience: "mega-rag-chatbot-users",

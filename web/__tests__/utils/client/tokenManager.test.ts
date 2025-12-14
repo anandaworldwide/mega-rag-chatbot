@@ -71,6 +71,7 @@ describe("Token Manager", () => {
     jest.resetModules();
 
     // Import fresh module instance
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     tokenManager = require("@/utils/client/tokenManager");
   });
 
@@ -165,8 +166,7 @@ describe("Token Manager", () => {
       expect(consoleSpy.log).toHaveBeenCalledWith("Token fetch failed on login page, using placeholder token");
     });
 
-    it("should redirect to login page on 401 error when not on login page", async () => {
-      const mockLocationAssign = jest.fn();
+    it("should throw AuthenticationError on 401 error when not on login page", async () => {
       Object.defineProperty(window, "location", {
         configurable: true,
         value: {
@@ -174,23 +174,31 @@ describe("Token Manager", () => {
           get href() {
             return "http://localhost:3000/dashboard";
           },
-          set href(url) {
-            mockLocationAssign(url);
+          set href(_url: string) {
+            // No-op - setter required for property definition
           },
         },
       });
 
       fetchMock.mockResponseOnce("", { status: 401 });
 
-      const token = await tokenManager.initializeTokenManager();
+      // Should throw AuthenticationError instead of redirecting
+      await expect(tokenManager.initializeTokenManager()).rejects.toThrow(
+        "Authentication required - session may have expired"
+      );
 
-      expect(token).toBe("");
-      expect(mockLocationAssign).toHaveBeenCalledWith("/login?redirect=%2Fdashboard");
+      // Verify it's an AuthenticationError with correct properties
+      fetchMock.mockResponseOnce("", { status: 401 });
+      try {
+        await tokenManager.initializeTokenManager();
+      } catch (error: any) {
+        expect(error.name).toBe("AuthenticationError");
+        expect(error.status).toBe(401);
+        expect(error.shouldRedirect).toBe(true);
+      }
     });
 
-    // Newly added test
-    it("should redirect to login with encoded path+search on protected page 401", async () => {
-      const mockLocationAssign = jest.fn();
+    it("should throw AuthenticationError with shouldRedirect=true on protected page 401", async () => {
       Object.defineProperty(window, "location", {
         configurable: true,
         value: {
@@ -199,18 +207,17 @@ describe("Token Manager", () => {
           get href() {
             return "http://localhost:3000/dashboard?x=1&y=2";
           },
-          set href(url) {
-            mockLocationAssign(url);
+          set href(_url: string) {
+            // No-op - setter required for property definition
           },
         },
       });
 
       fetchMock.mockResponseOnce("", { status: 401 });
 
-      const token = await tokenManager.initializeTokenManager();
-
-      expect(token).toBe("");
-      expect(mockLocationAssign).toHaveBeenCalledWith("/login?redirect=%2Fdashboard%3Fx%3D1%26y%3D2");
+      // Should throw AuthenticationError instead of redirecting
+      // The AuthGuard is responsible for handling the redirect
+      await expect(tokenManager.initializeTokenManager()).rejects.toThrow(tokenManager.AuthenticationError);
     });
 
     it("should throw error on non-401 HTTP errors", async () => {

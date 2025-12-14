@@ -8,7 +8,7 @@ import { render, screen, waitFor, act } from "@testing-library/react";
 import { useRouter } from "next/router";
 import AuthGuard from "@/components/AuthGuard";
 import { isPublicPage } from "@/utils/client/authConfig";
-import { initializeTokenManager, isAuthenticated } from "@/utils/client/tokenManager";
+import { initializeTokenManager, isAuthenticated, AuthenticationError } from "@/utils/client/tokenManager";
 
 // Mock dependencies
 jest.mock("next/router", () => ({
@@ -19,10 +19,15 @@ jest.mock("@/utils/client/authConfig", () => ({
   isPublicPage: jest.fn(),
 }));
 
-jest.mock("@/utils/client/tokenManager", () => ({
-  initializeTokenManager: jest.fn(),
-  isAuthenticated: jest.fn(),
-}));
+jest.mock("@/utils/client/tokenManager", () => {
+  const actual = jest.requireActual("@/utils/client/tokenManager");
+  return {
+    initializeTokenManager: jest.fn(),
+    isAuthenticated: jest.fn(),
+    // Export the real AuthenticationError class so instanceof checks work
+    AuthenticationError: actual.AuthenticationError,
+  };
+});
 
 // Mock fetch globally
 global.fetch = jest.fn();
@@ -187,8 +192,9 @@ describe("AuthGuard", () => {
   });
 
   it("redirects to login when authentication fails with 401", async () => {
-    // Mock authentication failure
+    // Mock authentication failure - isAuthenticated returns false
     (isAuthenticated as jest.Mock).mockReturnValue(false);
+    (initializeTokenManager as jest.Mock).mockResolvedValue(undefined);
     mockRouter.asPath = "/protected-page?param=value";
 
     render(
@@ -203,6 +209,48 @@ describe("AuthGuard", () => {
 
     // Should not render children during redirect (may or may not show loading)
     expect(screen.queryByText("Protected Content")).not.toBeInTheDocument();
+  });
+
+  it("redirects to login when token fetch throws AuthenticationError", async () => {
+    // Use fake timers to control async delays
+    jest.useFakeTimers();
+
+    // Mock token fetch throwing AuthenticationError on all attempts
+    const authError = new AuthenticationError("Session expired", 401, true);
+    (initializeTokenManager as jest.Mock).mockRejectedValue(authError);
+    mockRouter.asPath = "/protected-page?param=value";
+
+    render(
+      <AuthGuard siteConfig={mockSiteConfig}>
+        <TestComponent />
+      </AuthGuard>
+    );
+
+    // Run through all the async operations and timers
+    // Each retry has a delay: 500ms, 1000ms for attempts 1 and 2
+    await act(async () => {
+      // First attempt and its delay
+      await Promise.resolve();
+      jest.advanceTimersByTime(500);
+    });
+
+    await act(async () => {
+      // Second attempt and its delay
+      await Promise.resolve();
+      jest.advanceTimersByTime(1000);
+    });
+
+    await act(async () => {
+      // Third attempt (no delay, should redirect)
+      await Promise.resolve();
+      jest.advanceTimersByTime(100);
+    });
+
+    // Check that redirect was called
+    expect(mockReplace).toHaveBeenCalledWith("/login?redirect=%2Fprotected-page%3Fparam%3Dvalue");
+    expect(screen.queryByText("Protected Content")).not.toBeInTheDocument();
+
+    jest.useRealTimers();
   });
 
   it("handles network errors gracefully", async () => {

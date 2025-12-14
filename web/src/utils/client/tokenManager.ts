@@ -71,7 +71,27 @@ function isTokenValid(): boolean {
 }
 
 /**
+ * Custom error class for authentication failures
+ * This allows AuthGuard to distinguish between auth failures and other errors
+ */
+export class AuthenticationError extends Error {
+  public readonly status: number;
+  public readonly shouldRedirect: boolean;
+
+  constructor(message: string, status: number, shouldRedirect: boolean = false) {
+    super(message);
+    this.name = "AuthenticationError";
+    this.status = status;
+    this.shouldRedirect = shouldRedirect;
+  }
+}
+
+/**
  * Fetch a new token from the server
+ *
+ * IMPORTANT: This function does NOT redirect on 401. Instead, it throws an
+ * AuthenticationError that the caller (AuthGuard) can handle. This allows
+ * AuthGuard to implement retry logic before deciding to redirect.
  */
 async function fetchNewToken(): Promise<string> {
   // Helper function to detect any auth cookie presence for migration bridge
@@ -122,10 +142,12 @@ async function fetchNewToken(): Promise<string> {
           return placeholderToken;
         }
 
-        // Otherwise redirect to login
-        const fullPath = path + (window.location.search || "");
-        window.location.href = `/login?redirect=${encodeURIComponent(fullPath)}`;
-        return ""; // Return empty token or placeholder
+        // Throw AuthenticationError instead of redirecting - let AuthGuard handle retry/redirect logic
+        throw new AuthenticationError(
+          "Authentication required - session may have expired",
+          401,
+          true // shouldRedirect - signals to AuthGuard this is a redirect-worthy auth failure
+        );
       }
 
       throw new Error(`Failed to fetch token: ${response.status}`);
@@ -146,6 +168,11 @@ async function fetchNewToken(): Promise<string> {
 
     return token;
   } catch (error) {
+    // Re-throw AuthenticationError as-is for AuthGuard to handle
+    if (error instanceof AuthenticationError) {
+      throw error;
+    }
+
     // Special handling for the login or magic-login pages - don't throw errors
     // BUT: After magic login succeeds, we should have valid cookies, so don't use placeholder
     if (window.location.pathname === "/login" || (window.location.pathname === "/magic-login" && !hasAnyAuthCookie())) {
@@ -335,8 +362,17 @@ async function fetchWithRetry(url: string, options?: RequestInit, retryCount = 0
 
     return response;
   } catch (error) {
+    // Handle AuthenticationError from token refresh - redirect to login
+    if (error instanceof AuthenticationError && error.shouldRedirect) {
+      if (window.location.pathname !== "/login") {
+        const fullPath = window.location.pathname + (window.location.search || "");
+        window.location.href = `/login?redirect=${encodeURIComponent(fullPath)}`;
+      }
+      return new Response("", { status: 401 });
+    }
+
     // For network errors, retry if we haven't reached the max attempts
-    if (retryCount < MAX_RETRY_ATTEMPTS) {
+    if (retryCount < MAX_RETRY_ATTEMPTS && !(error instanceof AuthenticationError)) {
       console.log(`Network error on attempt ${retryCount + 1}, retrying...`);
 
       // Calculate exponential backoff delay with a maximum

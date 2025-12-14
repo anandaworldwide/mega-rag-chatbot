@@ -41,6 +41,13 @@ export default [
         clearInterval: "readonly",
         location: "readonly",
         history: "readonly",
+        // Base64 encoding/decoding (browser globals)
+        btoa: "readonly",
+        atob: "readonly",
+        // Fetch API types (TypeScript globals)
+        RequestInit: "readonly",
+        Response: "readonly",
+        Request: "readonly",
       },
     },
     plugins: {
