@@ -68,7 +68,7 @@ describe("SearchResults", () => {
     const headerSpan = screen.getByText((_content, element) => {
       return (
         element?.tagName.toLowerCase() === "span" &&
-        Boolean(element.textContent?.includes("Showing") && element.textContent?.includes("of top 200"))
+        Boolean(element.textContent?.includes("Showing") && element.textContent?.includes("of top 1"))
       );
     });
     expect(headerSpan).toBeInTheDocument();

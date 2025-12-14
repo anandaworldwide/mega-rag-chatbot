@@ -17,7 +17,7 @@ export default function SearchResults({
   query,
   loading,
   total,
-  windowSize,
+  windowSize: _windowSize,
   hasMore,
   onLoadMore,
 }: SearchResultsProps) {
@@ -32,8 +32,7 @@ export default function SearchResults({
     <div>
       <div className="mb-4 text-sm text-gray-600 flex flex-wrap items-center gap-2">
         <span>
-          Showing {Math.min(windowSize || total, results.length)} of top {windowSize || total}{" "}
-          {total === 1 ? "result" : "results"}
+          Showing {results.length} of top {total} {total === 1 ? "result" : "results"}
           {query && ` for “${query}”`}
         </span>
       </div>
