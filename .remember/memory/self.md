@@ -165,7 +165,55 @@ token_count = len(encoding.encode(text))
 target_range = 450-750  # tokens (75%-125% of 600-token target)
 ```
 
-### 3. HTML Processing Destroying Paragraph Structure
+### 3. Pinecone Vector ID Prefix Construction
+
+**Rule**: Pinecone vector IDs follow a strict 7-part format separated by `||`:
+
+```text
+{content_type}||{library}||{source_location}||{sanitized_title}||{author}||{document_hash}||{chunk_index}
+```
+
+**Key Fields**:
+
+- `content_type`: "audio", "video", or "text"
+- `library`: Library name (e.g., "The Bhaktan Files")
+- `source_location`: For audio/video, this is "audio" or "video" (NOT the file path)
+- `sanitized_title`: Title truncated to 50 chars, sanitized (from audio metadata, not filename)
+- `author`: Author name truncated to 20 chars
+- `document_hash`: Content-based hash (depends on `chunk_text`, so re-chunking creates new IDs)
+- `chunk_index`: Chunk number within the document
+
+**Common Mistake**: When constructing prefixes for deletion, missing the `source_location` field.
+
+**Wrong**: Missing `source_location` in prefix construction.
+
+```python
+# delete_pinecone_data.py construct_media_prefix() - WRONG
+prefix = f"{file_type}||{library}||{title}||"  # Missing source_location!
+# Results in: "audio||The Bhaktan Files||Interview 11.11.2010||"
+# Actual IDs:  "audio||The Bhaktan Files||audio||Interview 11.11.2010||..."
+```
+
+**Correct**: Include all fields up to the point you want to match.
+
+```python
+# For audio files, include source_location
+prefix = f"{content_type}||{library}||{source_location}||{title}"
+# Results in: "audio||The Bhaktan Files||audio||Interview 11.11.2010"
+```
+
+**Important Notes**:
+
+- Title comes from **audio file metadata (ID3 tags)**, not the filename
+- For audio: `source_location = "audio"` (hardcoded in `pinecone_utils.py` line 215)
+- For video: `source_location = "video"`
+- When re-chunking with different strategy, `document_hash` changes → new vector IDs → creates duplicates
+- Always delete old records before re-ingesting with new chunking strategy
+
+**Fixed In**: `bin/delete_pinecone_data.py` - use `--prefix` argument directly instead of `--file-type` to avoid prefix
+construction bugs
+
+### 4. HTML Processing Destroying Paragraph Structure
 
 **Wrong**: Aggressive whitespace normalization destroys paragraph breaks.
 

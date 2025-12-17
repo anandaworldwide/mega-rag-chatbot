@@ -93,6 +93,7 @@ import argparse
 import json
 import logging
 import os
+import sys
 from collections import defaultdict
 from datetime import datetime, timedelta
 
@@ -100,20 +101,26 @@ import pytz
 from openpyxl import load_workbook
 from tqdm import tqdm
 
-from data_ingestion.audio_video.IngestQueue import IngestQueue
-from data_ingestion.audio_video.media_utils import get_file_hash
-from data_ingestion.audio_video.processing_time_estimates import (
+# Add project root to Python path so imports work when running from audio_video directory
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_project_root = os.path.dirname(os.path.dirname(_script_dir))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
+from data_ingestion.audio_video.IngestQueue import IngestQueue  # noqa: E402
+from data_ingestion.audio_video.media_utils import get_file_hash  # noqa: E402
+from data_ingestion.audio_video.processing_time_estimates import (  # noqa: E402
     estimate_total_processing_time,
     get_estimate,
 )
-from data_ingestion.audio_video.youtube_utils import (
+from data_ingestion.audio_video.youtube_utils import (  # noqa: E402
     extract_youtube_id,
     get_playlist_videos,
     load_youtube_data_map,
 )
-from data_ingestion.utils.author_normalization import normalize_author
-from pyutil.env_utils import load_env
-from pyutil.logging_utils import configure_logging
+from data_ingestion.utils.author_normalization import normalize_author  # noqa: E402
+from pyutil.env_utils import load_env  # noqa: E402
+from pyutil.logging_utils import configure_logging  # noqa: E402
 
 # Load library configuration
 script_dir = os.path.dirname(os.path.abspath(__file__))

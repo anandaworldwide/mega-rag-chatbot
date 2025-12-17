@@ -33,6 +33,13 @@
 - **Result**: 70%+ target range compliance (225-450 words)
 - **Don't change**: All evaluations show current system is optimal
 
+### Audio/Video Chunking Strategy
+
+- **Rule**: Keep timestamp alignment **word-based** (derive `start_time`/`end_time` from Whisper word timestamps) to
+  avoid drift.
+- **Tuning**: You can increase chunk size for retrieval quality without affecting timestamp correctness by changing the
+  **word-count target**, not by mapping text chunks back onto words.
+
 ### Embedding Models
 
 - **Production**: text-embedding-ada-002 (1536D) - proven performance

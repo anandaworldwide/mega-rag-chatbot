@@ -60,18 +60,26 @@ from openai import OpenAI
 from tenacity import RetryError
 from tqdm import tqdm
 
-from data_ingestion.audio_video.IngestQueue import IngestQueue
-from data_ingestion.audio_video.media_utils import (
+# Add project root to Python path so imports work when running from data_ingestion directory
+_script_dir = os.path.dirname(os.path.abspath(__file__))
+_project_root = os.path.dirname(os.path.dirname(_script_dir))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
+from data_ingestion.audio_video.IngestQueue import IngestQueue  # noqa: E402
+from data_ingestion.audio_video.media_utils import (  # noqa: E402
     get_media_metadata,
     print_chunk_statistics,
 )
-from data_ingestion.audio_video.pinecone_utils import (
+from data_ingestion.audio_video.pinecone_utils import (  # noqa: E402
     create_embeddings,
     load_pinecone,
     store_in_pinecone,
 )
-from data_ingestion.audio_video.processing_time_estimates import save_estimate
-from data_ingestion.audio_video.transcription_utils import (
+from data_ingestion.audio_video.processing_time_estimates import (  # noqa: E402
+    save_estimate,
+)
+from data_ingestion.audio_video.transcription_utils import (  # noqa: E402
     RateLimitError,
     UnsupportedAudioFormatError,
     chunk_transcription,
@@ -82,16 +90,19 @@ from data_ingestion.audio_video.transcription_utils import (
     save_youtube_transcription,
     transcribe_media,
 )
-from data_ingestion.audio_video.youtube_utils import (
+from data_ingestion.audio_video.youtube_utils import (  # noqa: E402
     download_youtube_audio,
     extract_youtube_id,
 )
-from data_ingestion.utils.author_normalization import normalize_author
-from data_ingestion.utils.pinecone_utils import clear_library_vectors
-from data_ingestion.utils.s3_utils import S3UploadError, upload_to_s3
-from pyutil.env_utils import load_env
-from pyutil.logging_utils import configure_logging
-from pyutil.site_config_utils import determine_access_level, load_site_config
+from data_ingestion.utils.author_normalization import normalize_author  # noqa: E402
+from data_ingestion.utils.pinecone_utils import clear_library_vectors  # noqa: E402
+from data_ingestion.utils.s3_utils import S3UploadError, upload_to_s3  # noqa: E402
+from pyutil.env_utils import load_env  # noqa: E402
+from pyutil.logging_utils import configure_logging  # noqa: E402
+from pyutil.site_config_utils import (  # noqa: E402
+    determine_access_level,
+    load_site_config,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -867,10 +878,11 @@ def print_report(report):
 
 def print_enhanced_chunk_statistics(chunk_lengths):
     """
-    Print enhanced spaCy-style chunking statistics similar to other ingestion scripts.
+    Print enhanced chunking statistics.
 
-    Provides detailed analysis of chunk quality including target range achievement,
-    distribution analysis, and quality metrics.
+    For audio/video ingestion, chunk sizes are word-based and configurable via:
+    - AUDIO_CHUNK_TARGET_WORDS (default: 300)
+    - AUDIO_CHUNK_OVERLAP_WORDS (default: 20% of target)
     """
     if not chunk_lengths:
         print("No chunks to analyze.")
@@ -882,25 +894,32 @@ def print_enhanced_chunk_statistics(chunk_lengths):
     min_words = min(chunk_lengths)
     max_words = max(chunk_lengths)
 
-    # Target range analysis (225-450 words as per spaCy chunking strategy)
-    target_range_chunks = sum(1 for length in chunk_lengths if 225 <= length <= 450)
+    # Target range analysis derived from target (75%–150%)
+    try:
+        target_words_env = int(os.getenv("AUDIO_CHUNK_TARGET_WORDS", "300"))
+    except ValueError:
+        target_words_env = 300
+
+    AUDIO_TARGET_MIN = max(1, int(round(target_words_env * 0.75)))
+    AUDIO_TARGET_MAX = max(AUDIO_TARGET_MIN, int(round(target_words_env * 1.5)))
+    target_range_chunks = sum(
+        1 for length in chunk_lengths if AUDIO_TARGET_MIN <= length <= AUDIO_TARGET_MAX
+    )
     target_percentage = (target_range_chunks / total_chunks) * 100
 
-    # Distribution analysis
-    very_small = sum(1 for length in chunk_lengths if length < 100)
-    small = sum(1 for length in chunk_lengths if 100 <= length < 225)
-    target = target_range_chunks
-    large = sum(1 for length in chunk_lengths if 450 < length <= 800)
-    very_large = sum(1 for length in chunk_lengths if length > 800)
+    # Distribution analysis for audio chunks
+    very_small = sum(1 for length in chunk_lengths if length < AUDIO_TARGET_MIN)
+    in_target = target_range_chunks
+    large = sum(1 for length in chunk_lengths if length > AUDIO_TARGET_MAX)
 
-    print("📊 Chunk Analysis Summary:")
+    print("📊 Audio Chunk Analysis Summary:")
     print(f"  Total chunks processed: {total_chunks:,}")
     print(f"  Total words processed: {total_words:,}")
     print(f"  Average words per chunk: {avg_words:.1f}")
     print(f"  Range: {min_words} - {max_words} words")
     print()
 
-    print("🎯 Target Range Achievement (225-450 words):")
+    print(f"🎯 Target Range Achievement ({AUDIO_TARGET_MIN}-{AUDIO_TARGET_MAX} words):")
     print(
         f"  Chunks in target range: {target_range_chunks:,}/{total_chunks:,} ({target_percentage:.1f}%)"
     )
@@ -908,19 +927,13 @@ def print_enhanced_chunk_statistics(chunk_lengths):
 
     print("📈 Distribution Analysis:")
     print(
-        f"  Very small (<100 words):   {very_small:,} chunks ({very_small / total_chunks * 100:.1f}%)"
+        f"  Below target (<{AUDIO_TARGET_MIN} words): {very_small:,} chunks ({very_small / total_chunks * 100:.1f}%)"
     )
     print(
-        f"  Small (100-224 words):     {small:,} chunks ({small / total_chunks * 100:.1f}%)"
+        f"  In target ({AUDIO_TARGET_MIN}-{AUDIO_TARGET_MAX} words):  {in_target:,} chunks ({in_target / total_chunks * 100:.1f}%)"
     )
     print(
-        f"  Target (225-450 words):    {target:,} chunks ({target / total_chunks * 100:.1f}%)"
-    )
-    print(
-        f"  Large (451-800 words):     {large:,} chunks ({large / total_chunks * 100:.1f}%)"
-    )
-    print(
-        f"  Very large (>800 words):   {very_large:,} chunks ({very_large / total_chunks * 100:.1f}%)"
+        f"  Above target (>{AUDIO_TARGET_MAX} words): {large:,} chunks ({large / total_chunks * 100:.1f}%)"
     )
     print()
 
@@ -941,13 +954,13 @@ def print_enhanced_chunk_statistics(chunk_lengths):
     print(f"{emoji} Chunking Quality: {quality}")
 
     # Recommendations
-    if very_small > total_chunks * 0.1:  # More than 10% very small chunks
+    if very_small > total_chunks * 0.1:  # More than 10% below target
         print(
-            f"⚠️  High number of very small chunks ({very_small}). Consider adjusting chunking parameters."
+            f"⚠️  High number of small chunks ({very_small}). Consider adjusting chunking parameters."
         )
-    if very_large > total_chunks * 0.05:  # More than 5% very large chunks
+    if large > total_chunks * 0.1:  # More than 10% above target
         print(
-            f"⚠️  Large chunks detected ({very_large}). May impact processing efficiency."
+            f"⚠️  Large chunks detected ({large}). Consider adjusting chunking parameters."
         )
 
     print()
@@ -1182,9 +1195,9 @@ def _run_worker_pool_processing(args, overall_report):
             current_report = report_container["report"]
             print_report(current_report)
 
-            # Print spaCy chunking statistics on graceful shutdown as well
+            # Print audio chunking statistics on graceful shutdown as well
             if current_report["chunk_lengths"]:
-                print("\nSpaCy Chunking Statistics:")
+                print("\nAudio Chunking Statistics:")
                 print_enhanced_chunk_statistics(current_report["chunk_lengths"])
 
             reset_terminal()
@@ -1300,9 +1313,9 @@ def main():
     print("\nOverall Processing Report:")
     print_report(overall_report)
 
-    # Print spaCy chunking statistics similar to other ingestion scripts
+    # Print audio chunking statistics
     if overall_report["chunk_lengths"]:
-        print("\nSpaCy Chunking Statistics:")
+        print("\nAudio Chunking Statistics:")
         print_enhanced_chunk_statistics(overall_report["chunk_lengths"])
 
     queue_status = ingest_queue.get_queue_status()
