@@ -54,7 +54,7 @@
     "requireLogin": true,
     "allowTemporarySessions": true,
     "allowAllAnswersPage": true,
-    "loginImage": "luca.png",
+    "loginImage": "luca-santa.png",
     "header": {
       "logo": "ananda-logo.png",
       "navItems": []
