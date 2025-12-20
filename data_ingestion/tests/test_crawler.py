@@ -959,6 +959,14 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
 
         crawler = WebsiteCrawler(self.site_id, self.site_config)
 
+        # Mock peek_next_url_to_crawl to return True initially (so browser gets set up),
+        # then None to trigger no-URL processing
+        def peek_side_effect():
+            if not hasattr(peek_side_effect, "called"):
+                peek_side_effect.called = True
+                return True  # Return True first time to allow browser setup
+            return None  # Return None after to trigger no-URL path
+
         # Empty the queue to ensure get_next_url_to_crawl returns None
         assert crawler.cursor is not None  # Type narrowing for Pyright
         assert crawler.conn is not None  # Type narrowing for Pyright
@@ -966,14 +974,21 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
         crawler.conn.commit()
 
         # Mock get_next_url_to_crawl to reliably return None for this test
-        with patch.object(crawler, "get_next_url_to_crawl", return_value=None):
+        with (
+            patch.object(
+                crawler, "peek_next_url_to_crawl", side_effect=peek_side_effect
+            ),
+            patch.object(crawler, "get_next_url_to_crawl", return_value=None),
+        ):
             # Mock args for run_crawl_loop
             mock_args = MagicMock()
             mock_args.daemon = True  # Ensure daemon mode is on
             mock_args.stop_after = (
                 None  # Set stop_after to None to avoid comparison error
             )
-            mock_args.max_runtime_minutes = 0  # Set to 0 to avoid comparison error
+            mock_args.max_runtime_minutes = (
+                120  # Set to 2 hours to allow sleep/CSV operations
+            )
 
             # Mock is_exiting from shared utilities to be False for a few iterations
             with patch("crawler.website_crawler.is_exiting") as mock_is_exiting:
@@ -1029,6 +1044,14 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
         # Mark initial crawl as completed
         crawler.mark_initial_crawl_completed()
 
+        # Mock peek_next_url_to_crawl to return True initially (so browser gets set up),
+        # then None to trigger no-URL processing
+        def peek_side_effect():
+            if not hasattr(peek_side_effect, "called"):
+                peek_side_effect.called = True
+                return True  # Return True first time to allow browser setup
+            return None  # Return None after to trigger no-URL path
+
         # Empty the queue to trigger sleep
         assert crawler.cursor is not None  # Type narrowing for Pyright
         assert crawler.conn is not None  # Type narrowing for Pyright
@@ -1040,11 +1063,16 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
             patch.object(
                 crawler, "check_and_process_csv", return_value=2
             ) as mock_csv_check,
+            patch.object(
+                crawler, "peek_next_url_to_crawl", side_effect=peek_side_effect
+            ),
             patch.object(crawler, "get_next_url_to_crawl", return_value=None),
         ):
             mock_args = MagicMock()
             mock_args.stop_after = None
-            mock_args.max_runtime_minutes = 0  # Set to 0 to avoid comparison error
+            mock_args.max_runtime_minutes = (
+                120  # Set to 2 hours to allow CSV check operations
+            )
 
             with patch("crawler.website_crawler.is_exiting") as mock_is_exiting:
                 effect_count = 0

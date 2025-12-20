@@ -8,10 +8,26 @@ import logging
 import os
 import re
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import spacy
 import tiktoken
+
+if TYPE_CHECKING:
+    from spacy.tokens import Doc
+else:
+    # Runtime import - handle test mocking
+    try:
+        from spacy.tokens import Doc
+    except (ImportError, AttributeError):
+        # Fallback for test environments where spacy might be mocked
+        Doc = Any  # type: ignore
+
+# NOTE: We intentionally do NOT import `spacy.cli.download` at module import time.
+# Tests mock `spacy` via `sys.modules["spacy"] = mock_spacy`, which is not a real package,
+# and importing submodules would crash test collection. Instead, we resolve the download
+# function lazily inside `_ensure_nlp()` via `getattr(spacy, "cli")`.
+spacy_download = None
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -24,7 +40,7 @@ _SPACY_MODEL_CACHE = {}
 class Document:
     """Simple document class with content and metadata"""
 
-    def __init__(self, page_content: str, metadata: dict[str, Any] = None):
+    def __init__(self, page_content: str, metadata: dict[str, Any] | None = None):
         self.page_content = page_content
         self.metadata = metadata or {}
 
@@ -75,7 +91,7 @@ class ChunkingMetrics:
                 self.chunk_size_distribution["313+"] += 1
 
     def _detect_edge_cases(
-        self, word_count: int, chunk_count: int, document_id: str = None
+        self, word_count: int, chunk_count: int, document_id: str | None = None
     ) -> None:
         """Detect and log edge cases in document processing."""
         if word_count < 50:
@@ -93,7 +109,10 @@ class ChunkingMetrics:
             )
 
     def _detect_anomalies(
-        self, chunk_token_counts: list[int], word_count: int, document_id: str = None
+        self,
+        chunk_token_counts: list[int],
+        word_count: int,
+        document_id: str | None = None,
     ) -> None:
         """Detect and log anomalies in chunk sizes using token counts."""
         if not chunk_token_counts:
@@ -119,7 +138,7 @@ class ChunkingMetrics:
         chunk_count: int,
         chunk_token_counts: list[int],
         chunk_overlaps: list[int],
-        document_id: str = None,
+        document_id: str | None = None,
     ):
         """Log metrics for a single document using token counts for chunk analysis."""
         self.total_documents += 1
@@ -301,7 +320,17 @@ class SpacyTextSplitter:
             except OSError:
                 try:
                     self.logger.info(f"Downloading spaCy model {self.pipeline}...")
-                    spacy.cli.download(self.pipeline)
+                    download_fn = spacy_download
+                    if download_fn is None:
+                        download_fn = getattr(
+                            getattr(spacy, "cli", None), "download", None
+                        )
+                    if download_fn is None:
+                        raise RuntimeError(
+                            "spaCy download function unavailable (spacy.cli.download missing)"
+                        )
+
+                    download_fn(self.pipeline)
                     self.nlp = spacy.load(self.pipeline)
 
                     # Increase max_length for downloaded model too
@@ -345,8 +374,6 @@ class SpacyTextSplitter:
 
         try:
             # Use tiktoken for consistent token counting with OpenAI embeddings
-            import tiktoken
-
             model_name = self._get_embedding_model()
             encoding = tiktoken.encoding_for_model(model_name)
             # Get token IDs and convert back to strings for compatibility
@@ -362,6 +389,8 @@ class SpacyTextSplitter:
             # Fallback to spaCy tokenization
             try:
                 self._ensure_nlp()
+                if self.nlp is None:
+                    raise RuntimeError("spaCy model failed to load")
                 doc = self.nlp(text)
                 # Extract non-space tokens as strings
                 tokens = [token.text for token in doc if not token.is_space]
@@ -412,13 +441,13 @@ class SpacyTextSplitter:
         self.logger.debug(f"Cleaned text: {len(text)} -> {len(cleaned_text)} chars")
         return cleaned_text
 
-    def _estimate_word_count(self, text: str, doc: spacy.language.Doc = None) -> int:
+    def _estimate_word_count(self, text: str, doc: Doc | None = None) -> int:
         """
         Estimate the word count of the input text by splitting on spaces or using pre-tokenized SpaCy Doc.
 
         Args:
             text (str): The text to estimate word count for (used if doc is None)
-            doc (spacy.language.Doc, optional): Pre-tokenized SpaCy document to use if available
+            doc (Doc, optional): Pre-tokenized SpaCy document to use if available
 
         Returns:
             int: Approximate number of words
@@ -436,7 +465,7 @@ class SpacyTextSplitter:
         return len(words)
 
     def _log_chunk_metrics(
-        self, chunks: list[str], word_count: int, document_id: str = None
+        self, chunks: list[str], word_count: int, document_id: str | None = None
     ) -> None:
         """
         Log detailed chunking metrics for a document using token counts.
@@ -511,7 +540,7 @@ class SpacyTextSplitter:
         self,
         chunk: str,
         chunk_tokens: int,
-        document_id: str,
+        document_id: str | None,
         merged_chunks: list[str],
         current_merged: list[str],
         current_token_count: int,
@@ -614,7 +643,7 @@ class SpacyTextSplitter:
         return current_merged, current_token_count
 
     def _merge_small_chunks(
-        self, chunks: list[str], document_id: str = None
+        self, chunks: list[str], document_id: str | None = None
     ) -> list[str]:
         """
         Merge small chunks to better meet the target token count range (188-313 tokens).
@@ -699,7 +728,7 @@ class SpacyTextSplitter:
 
         return merged_chunks
 
-    def _split_by_tokens(self, text: str, doc: spacy.language.Doc) -> list[str]:
+    def _split_by_tokens(self, text: str, doc: Doc | None) -> list[str]:
         """Split text into token-based chunks using spaCy tokenization."""
         if doc is None:
             # Fallback to simple word splitting if no spaCy doc available
@@ -824,7 +853,7 @@ class SpacyTextSplitter:
 
         return "".join(result)
 
-    def _apply_token_overlap(self, chunks: list[str]) -> list[str]:
+    def _apply_token_overlap(self, chunks: list[str]) -> list[str]:  # noqa: C901
         """Apply token-based overlap to chunks."""
         if self.chunk_overlap <= 0 or len(chunks) <= 1:
             return chunks
@@ -838,6 +867,10 @@ class SpacyTextSplitter:
             # For single-character separators like space, use token-based overlap
             if self.separator and len(self.separator) == 1 and self.separator.isspace():
                 # Tokenize the previous chunk to get accurate token count
+                if self.nlp is None:
+                    self._ensure_nlp()
+                if self.nlp is None:
+                    raise RuntimeError("spaCy model failed to load")
                 prev_doc = self.nlp(prev_chunk)
                 prev_tokens = [token for token in prev_doc if not token.is_space]
 
@@ -858,6 +891,10 @@ class SpacyTextSplitter:
                         )
             else:
                 # Use token-based overlap for other separators too
+                if self.nlp is None:
+                    self._ensure_nlp()
+                if self.nlp is None:
+                    raise RuntimeError("spaCy model failed to load")
                 prev_doc = self.nlp(prev_chunk)
                 prev_tokens = [token for token in prev_doc if not token.is_space]
 
@@ -887,15 +924,19 @@ class SpacyTextSplitter:
 
         return result
 
-    def _get_split_doc(self, split_text: str, doc: spacy.language.Doc):
+    def _get_split_doc(self, split_text: str, doc: Doc | None) -> Doc:
         """Get the spaCy doc for the split text, either from the original doc or by re-tokenizing."""
         if doc:
             # Find the corresponding span in the original doc
             for sent in doc.sents:
                 if sent.text.strip() == split_text.strip():
-                    return sent
+                    return sent  # type: ignore
 
         # Fallback: re-tokenize the split
+        if self.nlp is None:
+            self._ensure_nlp()
+        if self.nlp is None:
+            raise RuntimeError("spaCy model failed to load")
         split_doc = self.nlp(split_text)
         self.logger.debug("Re-tokenized split for sentence-based splitting")
         return split_doc
@@ -953,19 +994,24 @@ class SpacyTextSplitter:
         return current_chunk_tokens, current_token_count
 
     def _split_by_sentences_with_token_limits(
-        self, split_text: str, doc: spacy.language.Doc
+        self, split_text: str, doc: Doc | None
     ) -> list[str]:
         """Split text into sentence-based chunks when it exceeds chunk_size, using token counts."""
         chunks = []
 
         # Get the document for processing
-        split_doc = self._get_split_doc(split_text, doc)
+        split_doc = (
+            self._get_split_doc(split_text, doc)
+            if doc is not None
+            else self._get_split_doc(split_text, None)
+        )
 
         current_chunk_tokens = []
         current_token_count = 0
 
         # Process each sentence
-        for sent in split_doc.sents:
+        # split_doc is a Doc or Span, both have .sents attribute
+        for sent in split_doc.sents:  # type: ignore
             current_chunk_tokens, current_token_count = self._process_sentence(
                 sent, chunks, current_chunk_tokens, current_token_count
             )
@@ -980,7 +1026,7 @@ class SpacyTextSplitter:
 
         return chunks
 
-    def _process_initial_splits(self, text: str, doc: spacy.language.Doc) -> list[str]:
+    def _process_initial_splits(self, text: str, doc: Doc | None) -> list[str]:
         """Process initial text splits based on separator, using token counts for decisions."""
         chunks = []
 
@@ -1079,7 +1125,7 @@ class SpacyTextSplitter:
 
         return chunks
 
-    def split_text(self, text: str, document_id: str = None) -> list[str]:
+    def split_text(self, text: str, document_id: str | None = None) -> list[str]:
         """
         Split text into chunks using paragraph-based boundaries with fixed sizing.
 
@@ -1113,6 +1159,7 @@ class SpacyTextSplitter:
         # Apply paragraph-based chunking (proven approach from evaluation)
         # Show progress for large documents (>50k chars)
         show_progress = len(text) > 50000
+        progress = None
         if show_progress:
             # Create a simple progress indicator for chunking stages
             from tqdm import tqdm
@@ -1127,14 +1174,14 @@ class SpacyTextSplitter:
 
         chunks = self._chunk_by_paragraphs(text)
 
-        if show_progress:
+        if show_progress and progress is not None:
             progress.update(1)
             progress.set_postfix(stage="overlap")
 
         # Apply overlap between chunks
         overlapped_chunks = self._apply_overlap_to_chunks(chunks)
 
-        if show_progress:
+        if show_progress and progress is not None:
             progress.update(1)
             progress.set_postfix(stage="finalizing")
 
@@ -1163,7 +1210,7 @@ class SpacyTextSplitter:
                 f"target compliance={compliance_rate:.1f}% ({target_range_count}/{len(chunk_sizes)} in {target_min}-{target_max} range)"
             )
 
-        if show_progress:
+        if show_progress and progress is not None:
             progress.update(1)
             progress.close()
 
@@ -1293,6 +1340,8 @@ class SpacyTextSplitter:
         """Fall back to spaCy sentence splitting or token-based splitting."""
         try:
             self._ensure_nlp()
+            if self.nlp is None:
+                raise RuntimeError("spaCy model failed to load")
             doc = self.nlp(text)
             paragraphs = [sent.text.strip() for sent in doc.sents if sent.text.strip()]
             self.logger.debug(
@@ -1309,6 +1358,8 @@ class SpacyTextSplitter:
         """Final fallback to token-based splitting."""
         try:
             self._ensure_nlp()
+            if self.nlp is None:
+                raise RuntimeError("spaCy model failed to load")
             doc = self.nlp(text)
             token_chunks = self._split_by_tokens(text, doc)
             self.logger.info(
@@ -1352,9 +1403,11 @@ class SpacyTextSplitter:
                 current_chunk.append(para)
                 current_length += para_tokens
 
-        # Close progress bar if it was opened
-        if hasattr(paragraphs_iter, "close"):
-            paragraphs_iter.close()
+        # Close progress bar if it was opened (tqdm objects have close method)
+        if hasattr(paragraphs_iter, "close") and callable(
+            getattr(paragraphs_iter, "close", None)
+        ):
+            paragraphs_iter.close()  # type: ignore
 
         # Add the final chunk if it exists
         if current_chunk:
@@ -1385,7 +1438,9 @@ class SpacyTextSplitter:
         # Split the large paragraph using token-based approach
         try:
             self._ensure_nlp()
-            doc = self.nlp(para)
+            if self.nlp is None:
+                raise RuntimeError("spaCy model failed to load")
+            doc: Doc = self.nlp(para)
             para_chunks = self._split_by_tokens(para, doc)
             chunks.extend(para_chunks)
             self.logger.debug(
@@ -1407,6 +1462,8 @@ class SpacyTextSplitter:
             if chunk_tokens > self.chunk_size:
                 try:
                     self._ensure_nlp()
+                    if self.nlp is None:
+                        raise RuntimeError("spaCy model failed to load")
                     doc = self.nlp(chunk)
                     split_chunks = self._split_by_tokens(chunk, doc)
                     final_chunks.extend(split_chunks)
@@ -1434,6 +1491,7 @@ class SpacyTextSplitter:
 
         # Show progress for documents with many chunks (>50)
         show_overlap_progress = len(chunks) > 50
+        overlap_progress = None
         if show_overlap_progress:
             from tqdm import tqdm
 
@@ -1444,7 +1502,7 @@ class SpacyTextSplitter:
         overlapped_chunks = []
 
         for i, chunk in enumerate(chunks):
-            if show_overlap_progress:
+            if show_overlap_progress and overlap_progress is not None:
                 overlap_progress.update(1)
 
             overlapped_chunk = chunk
@@ -1509,7 +1567,7 @@ class SpacyTextSplitter:
 
             overlapped_chunks.append(overlapped_chunk)
 
-        if show_overlap_progress:
+        if show_overlap_progress and overlap_progress is not None:
             overlap_progress.close()
 
         return overlapped_chunks

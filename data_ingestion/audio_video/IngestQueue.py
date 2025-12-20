@@ -27,7 +27,7 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -75,8 +75,8 @@ class IngestQueue:
             "type": item_type,
             "data": data,
             "status": "pending",
-            "created_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
         }
 
         try:
@@ -123,7 +123,9 @@ class IngestQueue:
                             if item["status"] == "pending":
                                 # Update status while holding lock
                                 item["status"] = "processing"
-                                item["updated_at"] = datetime.utcnow().isoformat()
+                                item["updated_at"] = datetime.now(
+                                    timezone.utc
+                                ).isoformat()
                                 f.seek(0)
                                 json.dump(item, f)
                                 f.truncate()
@@ -154,7 +156,7 @@ class IngestQueue:
             with open(filepath, "r+") as f:
                 item = json.load(f)
                 item["status"] = status
-                item["updated_at"] = datetime.utcnow().isoformat()
+                item["updated_at"] = datetime.now(timezone.utc).isoformat()
                 f.seek(0)
                 json.dump(item, f)
                 f.truncate()
@@ -297,7 +299,7 @@ class IngestQueue:
                             and item["status"] != "pending"
                         ):
                             item["status"] = "pending"
-                            item["updated_at"] = datetime.utcnow().isoformat()
+                            item["updated_at"] = datetime.now(timezone.utc).isoformat()
                             f.seek(0)
                             json.dump(item, f)
                             f.truncate()
@@ -381,7 +383,7 @@ class IngestQueue:
             return False, "Item is already pending"
 
         item["status"] = "pending"
-        item["updated_at"] = datetime.utcnow().isoformat()
+        item["updated_at"] = datetime.now(timezone.utc).isoformat()
 
         filepath = os.path.join(self.queue_dir, f"{item_id}.json")
         try:
@@ -408,7 +410,7 @@ class IngestQueue:
                     with open(filepath, "r+") as f:
                         item = json.load(f)
                         item["status"] = "pending"
-                        item["updated_at"] = datetime.utcnow().isoformat()
+                        item["updated_at"] = datetime.now(timezone.utc).isoformat()
                         f.seek(0)
                         json.dump(item, f)
                         f.truncate()

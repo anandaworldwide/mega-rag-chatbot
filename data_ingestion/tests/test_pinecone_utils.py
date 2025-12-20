@@ -169,9 +169,10 @@ class TestCreatePineconeIndexSync:
 
         create_pinecone_index_if_not_exists(mock_pinecone, "test-index")
 
-        captured = capsys.readouterr()
-        assert "Index test-index already exists" in captured.out
+        # Verify describe_index was called but index creation was skipped
         mock_pinecone.describe_index.assert_called_once_with("test-index")
+        # Verify create_index was not called
+        mock_pinecone.create_index.assert_not_called()
 
     def test_create_index_not_exists_success(self, capsys):
         """Test successful index creation."""
@@ -262,11 +263,12 @@ class TestCreatePineconeIndexAsync:
         with patch("asyncio.to_thread", return_value=Mock()) as mock_to_thread:
             await create_pinecone_index_if_not_exists_async(mock_pinecone, "test-index")
 
+            # Verify describe_index was called via to_thread
             mock_to_thread.assert_called_once_with(
                 mock_pinecone.describe_index, "test-index"
             )
-            captured = capsys.readouterr()
-            assert "Index test-index already exists" in captured.out
+            # Verify create_index was not called
+            mock_pinecone.create_index.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_create_index_async_success(self, capsys):

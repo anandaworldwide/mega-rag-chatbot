@@ -7,7 +7,7 @@ import re
 import signal
 import sqlite3
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 
 from openai import APIConnectionError, APIError, APITimeoutError, OpenAI
 from tenacity import (
@@ -313,13 +313,13 @@ def save_transcription(file_path, transcripts, youtube_id=None, site=None):
             "words": [
                 word for segment in transcripts for word in segment.get("words", [])
             ],
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "media_type": "video" if youtube_id else "audio",
         }
     else:
         transcription_data = transcripts
         transcription_data["file_path"] = file_path
-        transcription_data["timestamp"] = datetime.utcnow().isoformat()
+        transcription_data["timestamp"] = datetime.now(timezone.utc).isoformat()
         transcription_data["media_type"] = "video" if youtube_id else "audio"
         if youtube_id:
             transcription_data["youtube_id"] = youtube_id
