@@ -1393,3 +1393,52 @@ higher-level component (AuthGuard) should decide when to redirect after exhausti
 
 **Related Fix**: Also ensure all login endpoints use consistent JWT expiry. Legacy `login.ts` used 24h while newer
 endpoints used 180d, causing premature session expiration for users who logged in via the legacy endpoint.
+
+### 38. Header Authentication State Bug - Expired Token with Valid Session Cookie
+
+**Problem**: After leaving a page open for hours, the settings icon changes to "login" even though the user is still
+logged in. Navigation still works because the session cookie is valid, but the UI shows incorrect state.
+
+**Root Cause**: The `BaseHeader` component's `updateAuthState()` function checks `isAuthenticated()` which relies on
+in-memory JWT token. When the token expires (typically after 15 minutes), `isAuthenticated()` returns false even though
+the session cookie (`authToken`) is still valid (may last 24 hours or 180 days). The component was using cookies as a
+fallback but not refreshing the expired token.
+
+**Wrong**: Only checking token state and using cookies as fallback without refreshing expired tokens.
+
+```typescript
+const updateAuthState = () => {
+  const hasAuthCookie = document.cookie.includes("authToken=");
+  const tokenAuthenticated = isAuthenticated();
+  setIsLoggedIn(tokenAuthenticated || hasAuthCookie); // Falls back to cookie but doesn't refresh token
+};
+```
+
+**Correct**: When cookies exist but token is expired, refresh the token instead of just using cookie fallback.
+
+```typescript
+const updateAuthState = async () => {
+  const tokenAuthenticated = isAuthenticated();
+  const cookiesExist = hasAuthCookie();
+
+  // If we have cookies but token is expired/invalid, refresh the token
+  if (cookiesExist && !tokenAuthenticated) {
+    try {
+      await initializeTokenManager(); // Refresh the expired token
+      const refreshedAuth = isAuthenticated();
+      setIsLoggedIn(refreshedAuth || cookiesExist);
+    } catch (error) {
+      setIsLoggedIn(cookiesExist); // Fallback to cookie state
+    }
+  } else {
+    setIsLoggedIn(tokenAuthenticated || cookiesExist);
+  }
+};
+```
+
+**Pattern**: When authentication state depends on both in-memory tokens and session cookies, always refresh expired
+tokens when cookies indicate a valid session. Also add `visibilitychange` event listener to refresh tokens when tabs
+become visible after being hidden.
+
+**Applied To**: `BaseHeader.tsx` - updated `updateAuthState()` to refresh tokens when expired, added `visibilitychange`
+event listener for tab visibility changes.

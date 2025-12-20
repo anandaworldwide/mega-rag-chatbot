@@ -16,6 +16,7 @@ export default [
         ecmaFeatures: {
           jsx: true,
         },
+        project: true,
       },
       globals: {
         // Node.js globals
@@ -48,6 +49,11 @@ export default [
         RequestInit: "readonly",
         Response: "readonly",
         Request: "readonly",
+        // DOM element types (TypeScript DOM lib types)
+        HTMLButtonElement: "readonly",
+        HTMLAnchorElement: "readonly",
+        HTMLElement: "readonly",
+        Element: "readonly",
       },
     },
     plugins: {
@@ -62,6 +68,7 @@ export default [
     },
     rules: {
       ...typescriptEslint.configs.recommended.rules,
+      "no-undef": "off", // TypeScript handles this
       "@typescript-eslint/no-unused-vars": [
         "error",
         {

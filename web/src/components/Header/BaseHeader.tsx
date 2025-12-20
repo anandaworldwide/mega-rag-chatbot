@@ -55,16 +55,39 @@ export default function BaseHeader({
 
   // Keep auth state in sync without extra network calls
   useEffect(() => {
-    const updateAuthState = () => {
-      // TODO: Remove migration bridge after June 2026 - during bridge, check legacy isLoggedIn for pre-migration sessions
-      // Check for authToken (new), auth (legacy HttpOnly), or isLoggedIn (old non-HttpOnly) during migration
-      const hasAuthCookie =
+    // TODO: Remove migration bridge after June 2026 - during bridge, check legacy isLoggedIn for pre-migration sessions
+    // Check for authToken (new), auth (legacy HttpOnly), or isLoggedIn (old non-HttpOnly) during migration
+    const hasAuthCookie = (): boolean => {
+      return (
         typeof document !== "undefined" &&
         (document.cookie.includes("authToken=") ||
           document.cookie.includes("auth=") ||
-          document.cookie.includes("isLoggedIn=true"));
+          document.cookie.includes("isLoggedIn=true"))
+      );
+    };
+
+    const updateAuthState = async () => {
       const tokenAuthenticated = isAuthenticated();
-      setIsLoggedIn(tokenAuthenticated || hasAuthCookie);
+      const cookiesExist = hasAuthCookie();
+
+      // If we have cookies but token is expired/invalid, refresh the token
+      // This handles the case where page is left open for hours and token expires
+      if (cookiesExist && !tokenAuthenticated) {
+        console.log("BaseHeader: Token expired but cookies exist - refreshing token");
+        try {
+          await initializeTokenManager();
+          // After refresh, check authentication again
+          const refreshedAuth = isAuthenticated();
+          setIsLoggedIn(refreshedAuth || cookiesExist);
+        } catch (error) {
+          console.error("BaseHeader: Failed to refresh token:", error);
+          // Still update auth state to reflect cookie state
+          setIsLoggedIn(cookiesExist);
+        }
+      } else {
+        // Token is valid or no cookies - use current state
+        setIsLoggedIn(tokenAuthenticated || cookiesExist);
+      }
     };
 
     // Trigger (deduped) auth initialization so we can reflect JWT state
@@ -79,41 +102,30 @@ export default function BaseHeader({
         setAuthReady(true);
       });
 
-    const handleRoute = () => updateAuthState();
+    const handleRoute = () => {
+      updateAuthState();
+    };
     router.events.on("routeChangeComplete", handleRoute);
 
-    // Enhanced focus handler for mobile browser restoration
+    // Enhanced focus handler for mobile browser restoration and idle page restoration
     const handleFocus = async () => {
-      // TODO: Remove migration bridge after June 2026 - during bridge, check legacy isLoggedIn for pre-migration sessions
-      // Check for authToken (new), auth (legacy HttpOnly), or isLoggedIn (old non-HttpOnly) during migration
-      const hasAuthCookie =
-        typeof document !== "undefined" &&
-        (document.cookie.includes("authToken=") ||
-          document.cookie.includes("auth=") ||
-          document.cookie.includes("isLoggedIn=true"));
-      const tokenAuthenticated = isAuthenticated();
+      await updateAuthState();
+    };
 
-      // If we have cookies but no token (mobile browser restoration scenario)
-      if (hasAuthCookie && !tokenAuthenticated) {
-        console.log("BaseHeader: Mobile browser restoration detected - refreshing token");
-        try {
-          await initializeTokenManager();
-          updateAuthState();
-        } catch (error) {
-          console.error("BaseHeader: Failed to refresh token on focus:", error);
-          // Still update auth state to reflect cookie state
-          updateAuthState();
-        }
-      } else {
-        updateAuthState();
+    // Handle visibility change (tab becomes visible after being hidden)
+    const handleVisibilityChange = async () => {
+      if (document.visibilityState === "visible") {
+        await updateAuthState();
       }
     };
 
     window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       router.events.off("routeChangeComplete", handleRoute);
       window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [router.events]);
 
@@ -152,8 +164,9 @@ export default function BaseHeader({
       <div
         className="bg-[#0092e3] relative h-[68px]"
         style={{
-          backgroundImage:
-            "url('data:image/svg+xml;utf8,<svg viewBox=\\\'0 0 1512 68\\\' xmlns=\\\'http://www.w3.org/2000/svg\\\' preserveAspectRatio=\\\'none\\\'><rect x=\\\'0\\\' y=\\\'0\\\' height=\\\'100%\\\' width=\\\'100%\\\' fill=\\\'url(%23grad)\\\' opacity=\\\'0.20000000298023224\\\'/><defs><radialGradient id=\\\'grad\\\' gradientUnits=\\\'userSpaceOnUse\\\' cx=\\\'0\\\' cy=\\\'0\\\' r=\\\'10\\\' gradientTransform=\\\'matrix(62.9 2.8609e-7 -7.2655e-8 15.974 756 34)\\\'><stop stop-color=\\\'rgba(255,255,255,0.2)\\\' offset=\\\'0\\\'/><stop stop-color=\\\'rgba(128,201,241,0.2)\\\' offset=\\\'0.5\\\'/><stop stop-color=\\\'rgba(64,173,234,0.2)\\\' offset=\\\'0.75\\\'/><stop stop-color=\\\'rgba(0,146,227,0.2)\\\' offset=\\\'1\\\'/></radialGradient></defs></svg>')",
+          backgroundImage: `url('data:image/svg+xml;utf8,${encodeURIComponent(
+            '<svg viewBox="0 0 1512 68" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"><rect x="0" y="0" height="100%" width="100%" fill="url(%23grad)" opacity="0.20000000298023224"/><defs><radialGradient id="grad" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="10" gradientTransform="matrix(62.9 2.8609e-7 -7.2655e-8 15.974 756 34)"><stop stop-color="rgba(255,255,255,0.2)" offset="0"/><stop stop-color="rgba(128,201,241,0.2)" offset="0.5"/><stop stop-color="rgba(64,173,234,0.2)" offset="0.75"/><stop stop-color="rgba(0,146,227,0.2)" offset="1"/></radialGradient></defs></svg>'
+          )}')`,
         }}
       >
         <div className="flex justify-between items-center h-full px-[35px]">
