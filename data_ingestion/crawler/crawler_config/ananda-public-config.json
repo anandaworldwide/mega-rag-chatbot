@@ -5,7 +5,7 @@
   "skip_patterns": [
     "^/search/",
     "^/login/",
-    "^/cart/",
+    "^/cart(/|$)",
     "^/account/",
     "^/checkout/",
     "^/wp-admin/",

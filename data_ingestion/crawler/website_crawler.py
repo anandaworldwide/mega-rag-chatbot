@@ -291,6 +291,8 @@ class WebsiteCrawler:
             "csv_modified_days_threshold", 1
         )
         self.csv_mode_enabled = bool(self.csv_export_url)
+        self.force_csv_mode = False  # Set to True via --force-csv-mode flag
+        self._csv_force_used = False  # Track if force bypass has been used once
 
         # Track if we've completed initial full crawl
         self.initial_crawl_completed = False
@@ -1015,6 +1017,35 @@ class WebsiteCrawler:
             logging.error(f"Error getting queue stats: {e}")
             return stats
 
+    def all_pending_urls_have_failed(self) -> bool:
+        """Check if all pending URLs have been tried at least once (retry_count >= 1).
+
+        This is used to determine if the initial crawl is effectively complete,
+        even if there are still pending URLs that are just stuck in retry loops.
+        """
+        self._ensure_db_initialized()
+        assert self.cursor is not None
+        try:
+            # Count pending URLs that have never been tried (retry_count = 0)
+            self.cursor.execute("""
+                SELECT COUNT(*) FROM crawl_queue 
+                WHERE status = 'pending' 
+                AND retry_count = 0
+            """)
+            untried_count = self.cursor.fetchone()[0]
+
+            if untried_count > 0:
+                logging.debug(
+                    f"Initial crawl not complete: {untried_count} pending URLs never tried"
+                )
+                return False
+
+            # All pending URLs have retry_count >= 1
+            return True
+        except Exception as e:
+            logging.error(f"Error checking pending URL retry status: {e}")
+            return False
+
     def get_failed_urls(self) -> list[tuple[str, str]]:
         """Get list of failed URLs with error messages"""
         self._ensure_db_initialized()
@@ -1052,12 +1083,15 @@ class WebsiteCrawler:
 
     def should_skip_url(self, url: str) -> bool:
         """Check if URL should be skipped based on patterns"""
-        # Check standard skip patterns
-        if any(re.search(pattern, url) for pattern in self.skip_patterns):
+        parsed = urlparse(url)
+        # Extract path for pattern matching (patterns match after domain)
+        path = parsed.path
+
+        # Check standard skip patterns against the path
+        if any(re.search(pattern, path) for pattern in self.skip_patterns):
             return True
 
         # Check for calendar/export URLs that serve non-HTML content
-        parsed = urlparse(url)
         query_params = parsed.query.lower()
 
         # Skip URLs with calendar/export parameters
@@ -2358,6 +2392,32 @@ class WebsiteCrawler:
 
         return messages
 
+    def _log_csv_summary(self, csv_data: list[dict]) -> None:
+        """Log a summary of CSV data before processing."""
+        total_rows = len(csv_data)
+        add_update_count = 0
+        remove_count = 0
+        invalid_action_count = 0
+
+        for row in csv_data:
+            action = row.get("Required Action", "").strip().lower()
+            if action == "add/update":
+                add_update_count += 1
+            elif action == "remove":
+                remove_count += 1
+            elif action:  # Has an action but it's not recognized
+                invalid_action_count += 1
+
+        logging.info(
+            f"CSV summary: {total_rows} total rows - "
+            f"{add_update_count} add/update, {remove_count} remove"
+            + (
+                f", {invalid_action_count} invalid/unknown"
+                if invalid_action_count
+                else ""
+            )
+        )
+
     def _get_csv_message_templates(self, stats: dict) -> list[tuple[str, int, str]]:
         """Get message templates for CSV processing results."""
         templates = [
@@ -2435,7 +2495,11 @@ class WebsiteCrawler:
         self._ensure_db_initialized()
         assert self.conn is not None
         if not csv_data:
+            logging.info("CSV processing: No rows to process")
             return 0
+
+        # Log CSV summary before processing
+        self._log_csv_summary(csv_data)
 
         cutoff_date = datetime.now() - timedelta(days=self.csv_modified_days_threshold)
 
@@ -2517,9 +2581,14 @@ class WebsiteCrawler:
         if not self.csv_mode_enabled:
             return False
 
-        # Only check CSV if initial crawl is completed
+        # Only check CSV if initial crawl is completed (unless force_csv_mode bypasses this)
         if not self.is_initial_crawl_completed():
-            return False
+            if self.force_csv_mode:
+                logging.debug(
+                    "--force-csv-mode: Bypassing initial crawl completion check"
+                )
+            else:
+                return False
 
         # Check if enough time has passed since last CSV check (minimum 30 minutes)
         try:
@@ -2534,12 +2603,18 @@ class WebsiteCrawler:
                 last_check = datetime.fromisoformat(result[0])
                 time_since_last_check = datetime.now() - last_check
 
-                # Minimum 30 minutes between CSV checks
+                # Minimum 30 minutes between CSV checks (unless force_csv_mode is enabled and not yet used)
                 if time_since_last_check.total_seconds() < 30 * 60:
-                    logging.debug(
-                        f"CSV check skipped - only {time_since_last_check.total_seconds():.0f} seconds since last check (minimum 1800 seconds)"
-                    )
-                    return False
+                    if self.force_csv_mode and not self._csv_force_used:
+                        logging.info(
+                            f"CSV cooldown bypassed once (--force-csv-mode): {time_since_last_check.total_seconds():.0f}s since last check"
+                        )
+                        self._csv_force_used = True  # Only bypass once per session
+                    else:
+                        logging.debug(
+                            f"CSV check skipped - only {time_since_last_check.total_seconds():.0f} seconds since last check (minimum 1800 seconds)"
+                        )
+                        return False
 
                 logging.debug(
                     f"CSV check allowed - {time_since_last_check.total_seconds():.0f} seconds since last check"
@@ -2754,6 +2829,11 @@ def parse_arguments() -> argparse.Namespace:
         type=int,
         default=45,
         help="Maximum runtime in minutes before exiting (default: 45). Use 0 for unlimited.",
+    )
+    parser.add_argument(
+        "--force-csv-mode",
+        action="store_true",
+        help="Force CSV mode to activate regardless of initial crawl completion status.",
     )
     return parser.parse_args()
 
@@ -3961,12 +4041,27 @@ def _initialize_crawl_loop(
 
 
 def _handle_initial_crawl_completion(crawler: WebsiteCrawler) -> None:
-    """Handle marking initial crawl as completed if needed."""
+    """Handle marking initial crawl as completed if needed.
+
+    Initial crawl is considered complete when:
+    1. No pending URLs remain, OR
+    2. All pending URLs have failed at least once (retry_count >= 1)
+    """
     if crawler.csv_mode_enabled and not crawler.is_initial_crawl_completed():
         stats = crawler.get_queue_stats()
-        if stats["pending"] == 0:  # No more pending URLs
+
+        if stats["pending"] == 0:
+            # No more pending URLs
             crawler.mark_initial_crawl_completed()
-            logging.info("Initial crawl completed - CSV mode now active")
+            logging.info(
+                "Initial crawl completed (no pending URLs) - CSV mode now active"
+            )
+        elif crawler.all_pending_urls_have_failed():
+            # All pending URLs have been tried at least once
+            crawler.mark_initial_crawl_completed()
+            logging.info(
+                f"Initial crawl completed ({stats['pending']} pending URLs all have retries) - CSV mode now active"
+            )
 
 
 def _process_pinecone_deletions(crawler: WebsiteCrawler, pinecone_index) -> int:
@@ -4468,9 +4563,24 @@ def _run_crawler_main_loop(
     start_time,
     max_runtime_seconds,
     args,
+    lock_file: str | None = None,
 ):
     """Run the main crawler loop and return final page count."""
+    # Track last heartbeat time for cloud lock updates
+    last_heartbeat_time = time.time()
+    HEARTBEAT_INTERVAL_SECONDS = 60  # Update lock every 60 seconds
+
     while not is_exiting():
+        # Update cloud lock heartbeat periodically to prevent stale lock detection
+        if lock_file and _is_cloud_mode():
+            current_time = time.time()
+            if current_time - last_heartbeat_time >= HEARTBEAT_INTERVAL_SECONDS:
+                try:
+                    _write_cloud_lock(lock_file)
+                    last_heartbeat_time = current_time
+                    logging.debug("Updated cloud lock heartbeat")
+                except Exception as e:
+                    logging.warning(f"Failed to update cloud lock heartbeat: {e}")
         if _check_runtime_limits(
             start_time, max_runtime_seconds, args, pages_processed
         ):
@@ -4604,11 +4714,17 @@ def run_crawl_loop(
     with sync_playwright() as p:
         browser, page = _setup_crawler_browser(crawler, p)
 
-        # Only create lock file after successful browser setup
-        if lock_file:
-            logging.info("Browser setup successful, creating lock file")
-            with open(lock_file, "w") as f:
-                f.write(str(os.getpid()))
+        # Lock file is already created in main() after lock check
+        # Just update heartbeat for cloud mode
+        if lock_file and _is_cloud_mode():
+            _write_cloud_lock(lock_file)
+
+        # Check CSV once at start of each crawler run (before main loop)
+        if crawler.csv_mode_enabled:
+            logging.info("Checking CSV at start of crawler run...")
+            csv_added = crawler.check_and_process_csv(browser, pinecone_index)
+            if csv_added > 0:
+                logging.info(f"CSV startup check added {csv_added} high-priority URLs")
 
         try:
             pages_processed = _run_crawler_main_loop(
@@ -4627,6 +4743,7 @@ def run_crawl_loop(
                 start_time,
                 max_runtime_seconds,
                 args,
+                lock_file,
             )
 
         except SystemExit:
@@ -4891,6 +5008,18 @@ def _execute_crawler(
     """Execute the main crawler logic with proper error handling."""
     try:
         logging.info(f"Starting crawl of {start_url} for site '{args.site}'")
+
+        # Handle --force-csv-mode flag
+        force_csv = getattr(args, "force_csv_mode", False)
+        if force_csv and crawler.csv_mode_enabled:
+            crawler.force_csv_mode = True
+            logging.info(
+                "--force-csv-mode: CSV cooldown bypassed, forcing immediate processing"
+            )
+            if not crawler.is_initial_crawl_completed():
+                logging.info("--force-csv-mode: Forcing initial crawl completion")
+                crawler.mark_initial_crawl_completed()
+
         if crawler.csv_mode_enabled:
             logging.debug(
                 f"CSV mode enabled - will check {crawler.csv_export_url} once per hour when system wakes up"
@@ -4911,6 +5040,153 @@ def _execute_crawler(
             logging.error(traceback.format_exc())
 
 
+def _get_lock_file_path(site: str) -> str:
+    """Get the appropriate lock file path based on environment.
+
+    Cloud mode (DATA_DIR set): Use EFS-based lock for cross-container coordination.
+    Local mode: Use /tmp for single-machine PID-based locking.
+    """
+    data_dir = os.getenv("DATA_DIR")
+    if data_dir:
+        # Cloud mode: put lock file on EFS so it's visible across containers
+        lock_dir = Path(data_dir)
+        lock_dir.mkdir(parents=True, exist_ok=True)
+        return str(lock_dir / f"crawler_{site}.lock")
+    else:
+        # Local mode: use /tmp (existing behavior)
+        return f"/tmp/crawler_{site}.lock"
+
+
+def _is_cloud_mode() -> bool:
+    """Check if running in cloud mode (ECS with EFS)."""
+    return bool(os.getenv("DATA_DIR"))
+
+
+def _check_cloud_lock(lock_file: str, site: str) -> bool:
+    """Check for existing lock in cloud mode using timestamp-based detection.
+
+    Returns True if another instance is actively running (lock is valid).
+    Returns False if no lock exists or lock is stale.
+
+    In cloud mode, we can't use PID checking because each container has its own
+    PID namespace. Instead, we use timestamp-based detection with a heartbeat.
+    """
+    # Lock timeout: if lock file hasn't been updated in this many seconds,
+    # consider it stale (crashed process). Set to 5 minutes to allow for
+    # long operations like Pinecone upserts.
+    LOCK_TIMEOUT_SECONDS = 300
+
+    if not os.path.exists(lock_file):
+        return False
+
+    try:
+        with open(lock_file) as f:
+            lock_data = json.load(f)
+
+        lock_timestamp = lock_data.get("timestamp", 0)
+        lock_instance = lock_data.get("instance_id", "unknown")
+        lock_age_seconds = time.time() - lock_timestamp
+
+        if lock_age_seconds < LOCK_TIMEOUT_SECONDS:
+            # Lock is fresh - another instance is running
+            print(
+                f"Crawler for site '{site}' already running "
+                f"(instance {lock_instance}, lock age: {lock_age_seconds:.0f}s), exiting"
+            )
+            logging.info(
+                f"Crawler for site '{site}' already running "
+                f"(instance {lock_instance}, lock age: {lock_age_seconds:.0f}s), exiting"
+            )
+            return True
+        else:
+            # Lock is stale - previous instance likely crashed
+            print(
+                f"Removing stale cloud lock (instance {lock_instance}, "
+                f"age: {lock_age_seconds:.0f}s > {LOCK_TIMEOUT_SECONDS}s timeout)"
+            )
+            logging.warning(
+                f"Removing stale cloud lock (instance {lock_instance}, "
+                f"age: {lock_age_seconds:.0f}s > {LOCK_TIMEOUT_SECONDS}s timeout)"
+            )
+            os.remove(lock_file)
+            return False
+
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        print(f"Error reading cloud lock file, removing it: {e}")
+        logging.warning(f"Error reading cloud lock file, removing it: {e}")
+        with suppress(OSError):
+            os.remove(lock_file)
+        return False
+    except OSError as e:
+        print(f"Error accessing cloud lock file: {e}")
+        logging.warning(f"Error accessing cloud lock file: {e}")
+        return False
+
+
+def _check_local_lock(lock_file: str, site: str) -> bool:
+    """Check for existing lock in local mode using PID-based detection.
+
+    Returns True if another instance is actively running.
+    Returns False if no lock exists or process is dead.
+    """
+    if not os.path.exists(lock_file):
+        return False
+
+    try:
+        with open(lock_file) as f:
+            old_pid = int(f.read().strip())
+
+        # Check if the PID is still running
+        result = subprocess.run(
+            ["ps", "-p", str(old_pid)], capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            print(f"Crawler for site '{site}' already running (PID {old_pid}), exiting")
+            logging.info(
+                f"Crawler for site '{site}' already running (PID {old_pid}), exiting"
+            )
+            return True
+        else:
+            print(f"Removing stale lock file from dead process (PID {old_pid})")
+            logging.info(f"Removing stale lock file from dead process (PID {old_pid})")
+            os.remove(lock_file)
+            return False
+
+    except (ValueError, OSError) as e:
+        print(f"Error reading lock file, removing it: {e}")
+        logging.warning(f"Error reading lock file, removing it: {e}")
+        with suppress(OSError):
+            os.remove(lock_file)
+        return False
+
+
+def _generate_instance_id() -> str:
+    """Generate a unique instance ID for this crawler run."""
+    import uuid
+
+    return uuid.uuid4().hex
+
+
+# Global instance ID for this crawler run (used for cloud lock heartbeat)
+_INSTANCE_ID: str | None = None
+
+
+def _write_cloud_lock(lock_file: str) -> None:
+    """Write/update the cloud lock file with current timestamp."""
+    global _INSTANCE_ID
+    if _INSTANCE_ID is None:
+        _INSTANCE_ID = _generate_instance_id()
+
+    lock_data = {
+        "instance_id": _INSTANCE_ID,
+        "timestamp": time.time(),
+        "pid": os.getpid(),  # For debugging, not used for detection
+        "started_at": datetime.now().isoformat(),
+    }
+    with open(lock_file, "w") as f:
+        json.dump(lock_data, f)
+
+
 def main():
     args = parse_arguments()
 
@@ -4921,35 +5197,23 @@ def main():
     setup_signal_handlers()
     _perform_system_health_check(args)
 
-    # File locking to prevent multiple instances - check for existing lock first
-    lock_file = f"/tmp/crawler_{args.site}.lock"
-    if os.path.exists(lock_file):
-        try:
-            with open(lock_file) as f:
-                old_pid = int(f.read().strip())
-            # Check if the PID is still running
-            result = subprocess.run(
-                ["ps", "-p", str(old_pid)], capture_output=True, text=True
-            )
-            if result.returncode == 0:
-                print(
-                    f"Crawler for site '{args.site}' already running (PID {old_pid}), exiting"
-                )
-                logging.info(
-                    f"Crawler for site '{args.site}' already running (PID {old_pid}), exiting"
-                )
-                sys.exit(1)
-            else:
-                print(f"Removing stale lock file from dead process (PID {old_pid})")
-                logging.info(
-                    f"Removing stale lock file from dead process (PID {old_pid})"
-                )
-                os.remove(lock_file)
-        except (ValueError, OSError) as e:
-            print(f"Error reading lock file, removing it: {e}")
-            logging.warning(f"Error reading lock file, removing it: {e}")
-            with suppress(OSError):
-                os.remove(lock_file)
+    # File locking to prevent multiple instances
+    lock_file = _get_lock_file_path(args.site)
+    is_cloud = _is_cloud_mode()
+
+    if is_cloud:
+        logging.info(f"Cloud mode detected - using EFS-based lock at {lock_file}")
+        if _check_cloud_lock(lock_file, args.site):
+            sys.exit(1)
+        # Create lock file immediately after check passes to prevent race condition
+        _write_cloud_lock(lock_file)
+    else:
+        logging.info(f"Local mode - using PID-based lock at {lock_file}")
+        if _check_local_lock(lock_file, args.site):
+            sys.exit(1)
+        # Create lock file immediately after check passes to prevent race condition
+        with open(lock_file, "w") as f:
+            f.write(str(os.getpid()))
 
     crawler = None
     try:
@@ -4959,6 +5223,7 @@ def main():
         )
 
         # Execution phase - pass lock_file to create it only after browser setup
+        # Also pass is_cloud flag so run_crawl_loop can update heartbeat
         _execute_crawler(crawler, pinecone_index, args, start_url, lock_file)
 
     finally:

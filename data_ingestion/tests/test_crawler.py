@@ -961,9 +961,11 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
 
         # Mock peek_next_url_to_crawl to return True initially (so browser gets set up),
         # then None to trigger no-URL processing
+        peek_called = [False]  # Use list to allow mutation in closure
+
         def peek_side_effect():
-            if not hasattr(peek_side_effect, "called"):
-                peek_side_effect.called = True
+            if not peek_called[0]:
+                peek_called[0] = True
                 return True  # Return True first time to allow browser setup
             return None  # Return None after to trigger no-URL path
 
@@ -1046,9 +1048,11 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
 
         # Mock peek_next_url_to_crawl to return True initially (so browser gets set up),
         # then None to trigger no-URL processing
+        peek_called = [False]  # Use list to allow mutation in closure
+
         def peek_side_effect():
-            if not hasattr(peek_side_effect, "called"):
-                peek_side_effect.called = True
+            if not peek_called[0]:
+                peek_called[0] = True
                 return True  # Return True first time to allow browser setup
             return None  # Return None after to trigger no-URL path
 
@@ -1745,6 +1749,70 @@ class TestRobotsTxtCompliance(BaseWebsiteCrawlerTest):
         old_timestamp = datetime.now() - timedelta(hours=13)
         crawler.robots_cache_timestamp = old_timestamp
         self.assertTrue(crawler._is_robots_cache_expired())
+        crawler.close()
+
+    @patch("crawler.website_crawler.RobotFileParser")
+    def test_should_skip_url_matches_path_patterns(self, mock_robot_parser_class):
+        """Test that should_skip_url correctly matches patterns against URL path (not full URL)."""
+        mock_parser = Mock()
+        mock_parser.can_fetch.return_value = True
+        mock_robot_parser_class.return_value = mock_parser
+
+        # Configure crawler with skip patterns that match path after domain
+        # Update site_config to use ananda.org domain and add skip patterns
+        # Pattern matches /cart followed by / or end of string (but not /cartography)
+        site_config = {
+            "domain": "ananda.org",
+            "skip_patterns": [
+                "^/cart(/|$)",  # Match /cart or /cart/ but not /cartography
+                "^/search/",
+                "^/login/",
+            ],
+            "crawl_frequency_days": 14,
+            "crawl_delay_seconds": 1,
+        }
+        crawler = WebsiteCrawler(self.site_id, site_config)
+
+        # Test URLs that should be skipped (patterns match path)
+        self.assertTrue(
+            crawler.should_skip_url("https://www.ananda.org/cart/"),
+            "Should skip /cart/ path",
+        )
+        self.assertTrue(
+            crawler.should_skip_url("https://www.ananda.org/cart?undo_item=123"),
+            "Should skip /cart with query params",
+        )
+        self.assertTrue(
+            crawler.should_skip_url("https://www.ananda.org/cart"),
+            "Should skip /cart path (no trailing slash)",
+        )
+        self.assertTrue(
+            crawler.should_skip_url("https://ananda.org/cart/checkout"),
+            "Should skip /cart/checkout path",
+        )
+        self.assertTrue(
+            crawler.should_skip_url("https://www.ananda.org/search/"),
+            "Should skip /search/ path",
+        )
+        self.assertTrue(
+            crawler.should_skip_url("https://www.ananda.org/login/"),
+            "Should skip /login/ path",
+        )
+
+        # Test URLs that should NOT be skipped (patterns don't match path)
+        self.assertFalse(
+            crawler.should_skip_url("https://www.ananda.org/page"),
+            "Should not skip regular page",
+        )
+        self.assertFalse(
+            crawler.should_skip_url("https://www.ananda.org/blog/post"),
+            "Should not skip blog post",
+        )
+        self.assertFalse(
+            crawler.should_skip_url("https://www.ananda.org/cartography"),
+            "Should not skip /cartography (doesn't match ^/cart)",
+        )
+
         crawler.close()
 
 

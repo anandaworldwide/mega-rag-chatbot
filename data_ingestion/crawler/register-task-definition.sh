@@ -84,7 +84,8 @@ cat > /tmp/task-definition.json <<EOF
         "ananda-public",
         "--max-runtime-minutes",
         "15",
-        "--non-interactive"
+        "--non-interactive",
+        "--force-csv-mode"
       ],
       "environment": [
         {
