@@ -68,7 +68,7 @@ cat > /tmp/task-definition.json <<EOF
   "family": "${TASK_FAMILY}",
   "networkMode": "awsvpc",
   "requiresCompatibilities": ["FARGATE"],
-  "cpu": "1024",
+  "cpu": "512",
   "memory": "2048",
   "executionRoleArn": "${EXEC_ROLE_ARN}",
   "taskRoleArn": "${TASK_ROLE_ARN}",
