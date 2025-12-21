@@ -15,7 +15,8 @@
     "^/ask/answerer/",
     "^/video/locations/",
     "^/yogananda-institute/",
-    "^/__"
+    "^/__",
+    "void\\(0\\)"
   ],
   "crawl_frequency_days": 25,
   "crawl_delay_seconds": 1

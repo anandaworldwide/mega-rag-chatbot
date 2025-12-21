@@ -616,25 +616,46 @@ class WebsiteCrawler:
         try:
             # Get URLs that are due for crawling, including visited URLs due for re-crawling
             # and pending URLs, respecting retry_after for temporary failures
-            self.cursor.execute("""
-            SELECT url FROM crawl_queue 
-            WHERE (
-                (status = 'pending' AND (retry_after IS NULL OR retry_after <= datetime('now'))) 
-                OR 
-                (status = 'visited' AND next_crawl <= datetime('now'))
-            )
-            ORDER BY 
-                priority DESC,           -- Highest priority first
-                status = 'pending' DESC,  -- Prioritize pending URLs first
-                last_crawl IS NULL DESC,  -- Then new URLs
-                retry_count ASC,         -- Then URLs with fewer retries
-                next_crawl ASC,          -- Then URLs due longest ago
-                url ASC                  -- Finally alphabetical for consistency
-            LIMIT 1
-            """)
-            result = self.cursor.fetchone()
-            if result:
+            # Loop until we find a URL that doesn't match skip patterns
+            max_iterations = 100  # Prevent infinite loop
+            iteration = 0
+            while iteration < max_iterations:
+                iteration += 1
+                self.cursor.execute("""
+                SELECT url FROM crawl_queue 
+                WHERE (
+                    (status = 'pending' AND (retry_after IS NULL OR retry_after <= datetime('now'))) 
+                    OR 
+                    (status = 'visited' AND next_crawl <= datetime('now'))
+                )
+                ORDER BY 
+                    priority DESC,           -- Highest priority first
+                    status = 'pending' DESC,  -- Prioritize pending URLs first
+                    last_crawl IS NULL DESC,  -- Then new URLs
+                    retry_count ASC,         -- Then URLs with fewer retries
+                    next_crawl ASC,          -- Then URLs due longest ago
+                    url ASC                  -- Finally alphabetical for consistency
+                LIMIT 1
+                """)
+                result = self.cursor.fetchone()
+                if not result:
+                    return None
+
                 url = result[0]
+
+                # Check if URL matches skip patterns - if so, remove it from database
+                if self.should_skip_url(url):
+                    normalized_url = self.normalize_url(url)
+                    logging.info(
+                        f"Removing URL matching skip pattern from database: {url}"
+                    )
+                    self.cursor.execute(
+                        "DELETE FROM crawl_queue WHERE url = ?", (normalized_url,)
+                    )
+                    self.conn.commit()
+                    # Continue to next iteration to find another URL
+                    continue
+
                 # If this is a visited URL due for re-crawling, reset it to pending
                 self.cursor.execute(
                     "SELECT status FROM crawl_queue WHERE url = ?",
@@ -653,6 +674,11 @@ class WebsiteCrawler:
                     )
                     self.conn.commit()
                 return url
+
+            # If we've iterated too many times, return None
+            logging.warning(
+                f"Reached max iterations ({max_iterations}) in get_next_url_to_crawl, stopping"
+            )
             return None
         except Exception as e:
             logging.error(f"Error getting next URL to crawl: {e}")
@@ -1085,7 +1111,20 @@ class WebsiteCrawler:
         """Check if URL should be skipped based on patterns"""
         parsed = urlparse(url)
         # Extract path for pattern matching (patterns match after domain)
-        path = parsed.path
+        # Handle normalized URLs (without scheme) - they're stored as "domain.com/path"
+        if not parsed.netloc and parsed.path:
+            # This is a normalized URL - extract the path part
+            # Normalized format: "domain.com/path" -> path is "/path"
+            path_part = parsed.path
+            # If path contains domain (normalized format), extract just the path
+            if "/" in path_part and not path_part.startswith("/"):
+                # Split on first "/" and take everything after domain
+                parts = path_part.split("/", 1)
+                path = "/" + parts[1] if len(parts) > 1 else "/"
+            else:
+                path = path_part if path_part.startswith("/") else "/" + path_part
+        else:
+            path = parsed.path
 
         # Check standard skip patterns against the path
         if any(re.search(pattern, path) for pattern in self.skip_patterns):
@@ -2493,9 +2532,11 @@ class WebsiteCrawler:
         """Log CSV processing results in a concise format."""
         messages = self._create_csv_processing_messages(stats)
 
-        # Log results concisely
+        # Log results with bullet points for readability
         if messages:
-            logging.info("CSV processing results: " + ", ".join(messages))
+            logging.info("CSV processing results:")
+            for message in messages:
+                logging.info(f"  - {message}")
         else:
             logging.info("CSV processing results: No URLs processed")
 
@@ -3973,8 +4014,15 @@ def _handle_url_processing(
     logging.info(f"Processing page: {url}")
 
     if crawler.should_skip_url(url):
-        logging.info(f"Skipping URL based on skip patterns: {url}")
-        crawler.mark_url_status(url, "failed", "Skipped by pattern rule")
+        logging.info(f"Removing URL matching skip pattern from database: {url}")
+        crawler._ensure_db_initialized()
+        assert crawler.cursor is not None
+        assert crawler.conn is not None
+        normalized_url = crawler.normalize_url(url)
+        crawler.cursor.execute(
+            "DELETE FROM crawl_queue WHERE url = ?", (normalized_url,)
+        )
+        crawler.conn.commit()
         crawler.current_processing_url = None
         return (None, [], False), True  # Return empty results and should_skip=True
 
@@ -5238,6 +5286,8 @@ def _write_cloud_lock(lock_file: str) -> None:
 
 def main():
     args = parse_arguments()
+
+    logging.info("-" * 40)
 
     # Setup phase
     site_config = _setup_logging_and_config(args)

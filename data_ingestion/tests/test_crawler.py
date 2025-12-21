@@ -1815,6 +1815,170 @@ class TestRobotsTxtCompliance(BaseWebsiteCrawlerTest):
 
         crawler.close()
 
+    @patch("crawler.website_crawler.RobotFileParser")
+    def test_get_next_url_to_crawl_removes_skip_pattern_urls(
+        self, mock_robot_parser_class
+    ):
+        """Test that get_next_url_to_crawl removes URLs matching skip patterns from database."""
+        mock_parser = Mock()
+        mock_parser.can_fetch.return_value = True
+        mock_robot_parser_class.return_value = mock_parser
+
+        site_config = {
+            "domain": "ananda.org",
+            "skip_patterns": [
+                "^/cart(/|$)",
+                "^/search(/|$)",  # Match both /search and /search/
+            ],
+            "crawl_frequency_days": 14,
+            "crawl_delay_seconds": 1,
+        }
+        crawler = WebsiteCrawler(self.site_id, site_config)
+
+        # Add URLs to the database - some matching skip patterns, some not
+        cart_url = "https://www.ananda.org/cart?remove_item=123"
+        search_url = "https://www.ananda.org/search/?q=test"
+        valid_url = "https://www.ananda.org/page"
+
+        # Mark the start_url as visited so it doesn't interfere with our test
+        seeded_url = crawler.normalize_url(crawler.start_url)
+        crawler.mark_url_status(seeded_url, "visited", content_hash="seeded")
+
+        crawler.add_url_to_queue(cart_url)
+        crawler.add_url_to_queue(search_url)
+        crawler.add_url_to_queue(valid_url)
+
+        # Verify all URLs are in the database
+        assert crawler.cursor is not None  # Type narrowing for Pyright
+        crawler.cursor.execute(
+            "SELECT url FROM crawl_queue WHERE url IN (?, ?, ?)",
+            (
+                crawler.normalize_url(cart_url),
+                crawler.normalize_url(search_url),
+                crawler.normalize_url(valid_url),
+            ),
+        )
+        urls_in_db = {row[0] for row in crawler.cursor.fetchall()}
+        self.assertEqual(len(urls_in_db), 3, "All URLs should be in database initially")
+
+        # get_next_url_to_crawl should skip cart_url and search_url, remove them, and return valid_url
+        # Note: get_next_url_to_crawl returns normalized URLs (without scheme)
+        # The function processes one URL at a time, removing skip-pattern URLs as it encounters them
+        # Call it multiple times to process all URLs, marking each as visited to get the next one
+        returned_urls = []
+        max_calls = 10  # Prevent infinite loop
+        for _ in range(max_calls):
+            next_url = crawler.get_next_url_to_crawl()
+            if next_url is None:
+                break
+            returned_urls.append(next_url)
+            # Mark returned URL as visited so we can get the next one
+            crawler.mark_url_status(next_url, "visited", content_hash="test")
+
+        # Should have returned the valid URL (skip-pattern URLs are removed, not returned)
+        self.assertIn(
+            crawler.normalize_url(valid_url),
+            returned_urls,
+            "Should return the valid URL",
+        )
+        # Skip-pattern URLs should not be returned
+        self.assertNotIn(
+            crawler.normalize_url(cart_url),
+            returned_urls,
+            "Cart URL should not be returned (should be removed)",
+        )
+        self.assertNotIn(
+            crawler.normalize_url(search_url),
+            returned_urls,
+            "Search URL should not be returned (should be removed)",
+        )
+
+        # Verify skip-pattern URLs were removed from database
+        assert crawler.cursor is not None  # Type narrowing for Pyright
+        crawler.cursor.execute(
+            "SELECT url FROM crawl_queue WHERE url IN (?, ?, ?)",
+            (
+                crawler.normalize_url(cart_url),
+                crawler.normalize_url(search_url),
+                crawler.normalize_url(valid_url),
+            ),
+        )
+        urls_in_db = {row[0] for row in crawler.cursor.fetchall()}
+        self.assertNotIn(
+            crawler.normalize_url(cart_url), urls_in_db, "Cart URL should be removed"
+        )
+        self.assertNotIn(
+            crawler.normalize_url(search_url),
+            urls_in_db,
+            "Search URL should be removed",
+        )
+        # Valid URL should still be in database (it was returned but may be marked as visited)
+        self.assertIn(
+            crawler.normalize_url(valid_url),
+            urls_in_db,
+            "Valid URL should still be in database",
+        )
+
+        crawler.close()
+
+    @patch("crawler.website_crawler.RobotFileParser")
+    def test_handle_url_processing_removes_skip_pattern_urls(
+        self, mock_robot_parser_class
+    ):
+        """Test that _handle_url_processing removes URLs matching skip patterns from database."""
+        from crawler.website_crawler import _handle_url_processing
+
+        mock_parser = Mock()
+        mock_parser.can_fetch.return_value = True
+        mock_robot_parser_class.return_value = mock_parser
+
+        site_config = {
+            "domain": "ananda.org",
+            "skip_patterns": [
+                "^/cart(/|$)",
+            ],
+            "crawl_frequency_days": 14,
+            "crawl_delay_seconds": 1,
+        }
+        crawler = WebsiteCrawler(self.site_id, site_config)
+
+        # Add a cart URL to the database
+        cart_url = "https://www.ananda.org/cart?remove_item=123"
+        crawler.add_url_to_queue(cart_url)
+
+        # Verify URL is in the database
+        normalized_cart_url = crawler.normalize_url(cart_url)
+        assert crawler.cursor is not None  # Type narrowing for Pyright
+        crawler.cursor.execute(
+            "SELECT url FROM crawl_queue WHERE url = ?", (normalized_cart_url,)
+        )
+        self.assertIsNotNone(
+            crawler.cursor.fetchone(), "Cart URL should be in database initially"
+        )
+
+        # Mock browser and page objects
+        mock_browser = Mock()
+        mock_page = Mock()
+
+        # _handle_url_processing should detect skip pattern and remove URL
+        result, should_skip = _handle_url_processing(
+            cart_url, crawler, mock_browser, mock_page
+        )
+
+        self.assertTrue(should_skip, "Should skip the URL")
+        self.assertEqual(result, (None, [], False), "Should return empty results")
+
+        # Verify URL was removed from database
+        assert crawler.cursor is not None  # Type narrowing for Pyright
+        crawler.cursor.execute(
+            "SELECT url FROM crawl_queue WHERE url = ?", (normalized_cart_url,)
+        )
+        self.assertIsNone(
+            crawler.cursor.fetchone(), "Cart URL should be removed from database"
+        )
+
+        crawler.close()
+
 
 class TestRateLimiting(BaseWebsiteCrawlerTest):
     """Test cases for rate limiting enforcement."""
