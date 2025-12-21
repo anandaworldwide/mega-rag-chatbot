@@ -2021,34 +2021,56 @@ class WebsiteCrawler:
             # If text extraction fails, use HTML content as fallback
             return content
 
-    def _navigate_to_csv_url(self, page, download_info: dict) -> None:
-        """Navigate to CSV URL and handle download/content extraction with proper timeout handling."""
-        # Ensure download_info dict has required keys initialized
+    def _initialize_download_info(self, download_info: dict) -> None:
+        """Ensure download_info dict has required keys initialized."""
         if "content" not in download_info:
             download_info["content"] = None
         if "error" not in download_info:
             download_info["error"] = None
 
+    def _navigate_and_check_response(self, page) -> None:
+        """Navigate to CSV URL and check response status."""
+        response = page.goto(
+            self.csv_export_url, timeout=30000, wait_until="networkidle"
+        )
+
+        # Check response status
+        if response and response.status >= 400:
+            raise Exception(f"HTTP {response.status} error when accessing CSV URL")
+
+    def _extract_content_if_needed(self, page, download_info: dict) -> None:
+        """Extract page content if download didn't occur."""
+        if not download_info["content"] and not download_info["error"]:
+            # Wait a moment for potential download with timeout
+            try:
+                page.wait_for_timeout(3000)
+            except Exception as wait_error:
+                logging.warning(f"Timeout during download wait: {wait_error}")
+
+            if not download_info["content"]:
+                download_info["content"] = self._extract_page_content_csv(page)
+
+    def _handle_download_exception(self, page, e: Exception) -> None:
+        """Handle download-related exceptions."""
+        if "Download is starting" in str(e):
+            # This is expected - wait for download to complete with timeout
+            try:
+                page.wait_for_timeout(5000)
+            except Exception as download_wait_error:
+                logging.warning(
+                    f"Timeout during download completion wait: {download_wait_error}"
+                )
+        else:
+            # Re-raise with more context
+            raise Exception(f"Navigation failed: {e}") from e
+
+    def _navigate_to_csv_url(self, page, download_info: dict) -> None:
+        """Navigate to CSV URL and handle download/content extraction with proper timeout handling."""
+        self._initialize_download_info(download_info)
+
         try:
-            # Navigate with explicit timeout and error handling
-            response = page.goto(
-                self.csv_export_url, timeout=30000, wait_until="networkidle"
-            )
-
-            # Check response status
-            if response and response.status >= 400:
-                raise Exception(f"HTTP {response.status} error when accessing CSV URL")
-
-            # If we get here without download, try to get page content
-            if not download_info["content"] and not download_info["error"]:
-                # Wait a moment for potential download with timeout
-                try:
-                    page.wait_for_timeout(3000)
-                except Exception as wait_error:
-                    logging.warning(f"Timeout during download wait: {wait_error}")
-
-                if not download_info["content"]:
-                    download_info["content"] = self._extract_page_content_csv(page)
+            self._navigate_and_check_response(page)
+            self._extract_content_if_needed(page, download_info)
 
         except PlaywrightTimeout as timeout_error:
             # Handle Playwright timeouts specifically
@@ -2056,17 +2078,7 @@ class WebsiteCrawler:
                 f"Navigation timeout after 30 seconds: {timeout_error}"
             ) from timeout_error
         except Exception as e:
-            if "Download is starting" in str(e):
-                # This is expected - wait for download to complete with timeout
-                try:
-                    page.wait_for_timeout(5000)
-                except Exception as download_wait_error:
-                    logging.warning(
-                        f"Timeout during download completion wait: {download_wait_error}"
-                    )
-            else:
-                # Re-raise with more context
-                raise Exception(f"Navigation failed: {e}") from e
+            self._handle_download_exception(page, e)
 
     def _parse_csv_content(self, content: str) -> list[dict]:
         """Parse CSV content and return list of dictionaries."""
@@ -2942,6 +2954,78 @@ def _graceful_sleep(total_seconds: int, check_interval: int = 10) -> bool:
     return False
 
 
+def _check_memory_health() -> list[str]:
+    """Check memory health and return list of issues."""
+    issues = []
+    if psutil is None:
+        return issues
+
+    memory = psutil.virtual_memory()
+
+    # Be more lenient for bounded execution - only flag critical issues that prevent operation
+    # For bounded execution (45-min runs), we can tolerate higher memory usage since we'll exit soon
+    available_gb = memory.available / 1024**3
+
+    if memory.percent > 98:  # Only flag when truly critical (>98% usage)
+        issues.append(
+            f"Critical memory usage: {memory.percent:.1f}% used ({available_gb:.1f}GB available)"
+        )
+    elif available_gb < 0.2:  # Less than 200MB available - truly critical
+        issues.append(f"Critically low memory available: {available_gb:.1f}GB")
+    # Removed high memory pressure warning for bounded execution
+
+    return issues
+
+
+def _check_disk_health() -> list[str]:
+    """Check disk space health and return list of issues."""
+    issues = []
+    if psutil is None:
+        return issues
+
+    disk = psutil.disk_usage("/")
+    if disk.percent > 90:
+        issues.append(
+            f"Low disk space: {disk.percent}% used ({disk.free / 1024**3:.1f}GB free)"
+        )
+    elif disk.free < 5 * 1024**3:  # Less than 5GB free
+        issues.append(f"Very low disk space: {disk.free / 1024**3:.1f}GB free")
+    return issues
+
+
+def _check_firefox_processes() -> list[str]:
+    """Check for orphaned Firefox processes and return list of issues."""
+    issues = []
+    if psutil is None:
+        return issues
+
+    firefox_count = 0
+    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+        try:
+            if proc.info["name"] and "firefox" in proc.info["name"].lower():
+                firefox_count += 1
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+    if firefox_count > 2:  # More than 2 Firefox processes might indicate issues
+        issues.append(
+            f"Multiple Firefox processes detected: {firefox_count} (may indicate orphaned processes)"
+        )
+    return issues
+
+
+def _check_cpu_health() -> list[str]:
+    """Check CPU usage and return list of issues."""
+    issues = []
+    if psutil is None:
+        return issues
+
+    cpu_percent = psutil.cpu_percent(interval=1)
+    if cpu_percent > 80:
+        issues.append(f"High CPU usage: {cpu_percent}%")
+    return issues
+
+
 def _check_system_health() -> tuple[bool, list[str]]:
     """Perform comprehensive system health check before starting crawler.
     Returns (is_healthy, list_of_issues)."""
@@ -2951,48 +3035,10 @@ def _check_system_health() -> tuple[bool, list[str]]:
         return True, []  # Skip health checks if psutil not available
 
     try:
-        # Check memory - be more lenient for systems with plenty of RAM
-        memory = psutil.virtual_memory()
-
-        # Be more lenient for bounded execution - only flag critical issues that prevent operation
-        # For bounded execution (45-min runs), we can tolerate higher memory usage since we'll exit soon
-        available_gb = memory.available / 1024**3
-
-        if memory.percent > 98:  # Only flag when truly critical (>98% usage)
-            issues.append(
-                f"Critical memory usage: {memory.percent:.1f}% used ({available_gb:.1f}GB available)"
-            )
-        elif available_gb < 0.2:  # Less than 200MB available - truly critical
-            issues.append(f"Critically low memory available: {available_gb:.1f}GB")
-        # Removed high memory pressure warning for bounded execution
-
-        # Check disk space
-        disk = psutil.disk_usage("/")
-        if disk.percent > 90:
-            issues.append(
-                f"Low disk space: {disk.percent}% used ({disk.free / 1024**3:.1f}GB free)"
-            )
-        elif disk.free < 5 * 1024**3:  # Less than 5GB free
-            issues.append(f"Very low disk space: {disk.free / 1024**3:.1f}GB free")
-
-        # Check for orphaned Firefox processes
-        firefox_count = 0
-        for proc in psutil.process_iter(["pid", "name", "cmdline"]):
-            try:
-                if proc.info["name"] and "firefox" in proc.info["name"].lower():
-                    firefox_count += 1
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue
-
-        if firefox_count > 2:  # More than 2 Firefox processes might indicate issues
-            issues.append(
-                f"Multiple Firefox processes detected: {firefox_count} (may indicate orphaned processes)"
-            )
-
-        # Check CPU usage
-        cpu_percent = psutil.cpu_percent(interval=1)
-        if cpu_percent > 80:
-            issues.append(f"High CPU usage: {cpu_percent}%")
+        issues.extend(_check_memory_health())
+        issues.extend(_check_disk_health())
+        issues.extend(_check_firefox_processes())
+        issues.extend(_check_cpu_health())
 
     except ImportError:
         issues.append("psutil not available - cannot perform system health checks")
@@ -3510,6 +3556,149 @@ def _setup_browser_with_timeout(p, timeout_seconds: int = 120) -> tuple:
     return _setup_browser(p, timeout_ms=timeout_ms)
 
 
+def _prepare_browser_launch(attempt: int) -> None:
+    """Prepare system for browser launch with diagnostics and cleanup."""
+    if attempt == 0:
+        logging.info("=== BROWSER LAUNCH DIAGNOSTICS ===")
+        logging.info("System resources before browser launch:")
+        _log_system_resources()
+        _log_process_diagnostics()
+        logging.info("==================================")
+
+    # Force garbage collection before browser launch to free memory
+    gc.collect()
+
+    # Check memory availability before attempting browser launch
+    if psutil:
+        memory = psutil.virtual_memory()
+        available_gb = memory.available / (1024**3)
+        if available_gb < 1.5:  # Need at least 1.5GB for browser launch
+            logging.warning(
+                f"Low memory available ({available_gb:.1f}GB), "
+                f"performing aggressive cleanup"
+            )
+            # More aggressive garbage collection
+            gc.collect(2)  # Full collection
+            time.sleep(2)  # Give OS time to reclaim memory
+
+    # Kill any orphaned Firefox processes before launching new one
+    _cleanup_orphaned_processes()
+
+    # Always add a small delay after cleanup to let ports/resources free up
+    time.sleep(3)
+
+
+def _handle_retry_delay(attempt: int, max_retries: int, base_delay: int) -> None:
+    """Handle retry delay with exponential backoff and diagnostics."""
+    if attempt > 0:
+        delay = base_delay * (2 ** (attempt - 1))  # Exponential backoff: 15s, 30s
+        logging.warning(
+            f"Browser launch attempt {attempt + 1}/{max_retries} failed. "
+            f"Waiting {delay}s before retry..."
+        )
+        logging.info("System resources before retry:")
+        _log_system_resources()
+        _log_process_diagnostics()
+        time.sleep(delay)
+
+
+def _launch_browser_instance(
+    p, timeout_ms: int, attempt: int, max_retries: int
+) -> tuple:
+    """Launch browser instance and verify responsiveness."""
+    logging.info(
+        f"Launching Firefox browser (timeout: {timeout_ms / 1000:.0f}s, attempt {attempt + 1}/{max_retries})..."
+    )
+
+    # Use a shorter timeout for browser launch to avoid hanging
+    # The timeout_ms is for overall operation, but browser launch should be faster
+    launch_timeout = min(30000, timeout_ms)  # Max 30 seconds for browser launch
+
+    # Browser launch - note: args are for Chromium, not Firefox
+    # Firefox uses firefox_user_prefs for configuration
+    browser = p.firefox.launch(
+        headless=True,
+        firefox_user_prefs={
+            "media.volume_scale": "0.0",
+            "dom.disable_beforeunload": True,
+            "browser.sessionstore.resume_from_crash": False,
+            "browser.tabs.warnOnClose": False,
+            "browser.tabs.warnOnCloseOtherTabs": False,
+        },
+        timeout=launch_timeout,
+    )
+
+    page = browser.new_page()
+    page.set_extra_http_headers({"User-Agent": USER_AGENT})
+
+    # Test that browser is actually responsive
+    try:
+        test_result = page.evaluate("() => 'browser_ready'")
+        if test_result != "browser_ready":
+            raise Exception("Browser launched but not responsive to JavaScript")
+    except Exception as test_e:
+        logging.warning(f"Browser launched but failed responsiveness test: {test_e}")
+        with suppress(Exception):
+            browser.close()
+        raise Exception(f"Browser not responsive: {test_e}") from test_e
+
+    logging.info("Browser launched successfully and passed responsiveness test")
+    return browser, page
+
+
+def _handle_browser_error(
+    e: Exception, attempt: int, max_retries: int, browser
+) -> None:
+    """Handle browser launch errors with diagnostics and cleanup."""
+    error_msg = f"Browser launch attempt {attempt + 1}/{max_retries} failed: {e}"
+    logging.warning(error_msg)
+
+    # Log additional diagnostic information on failure
+    error_str_lower = str(e).lower()
+    if "timeout" in error_str_lower:
+        logging.warning("Browser launch timed out - this may indicate:")
+        logging.warning("  - Insufficient system memory or CPU resources")
+        logging.warning("  - Previous browser processes not properly cleaned up")
+        logging.warning("  - System under heavy load")
+        _log_process_diagnostics()
+    elif "connection" in error_str_lower or "closed while reading" in error_str_lower:
+        logging.warning(
+            "Browser connection failed - this may indicate network issues or driver instability"
+        )
+        # Add small delay to let network recover
+        time.sleep(2)
+    elif "no space left on device" in error_str_lower or "disk" in error_str_lower:
+        logging.error("Disk space issue detected - browser launch cannot proceed")
+        raise Exception(
+            "Critical disk space issue - manual intervention required"
+        ) from e
+
+    if attempt == max_retries - 1:
+        # Final attempt failed - provide comprehensive error info
+        logging.error("=== CRITICAL BROWSER LAUNCH FAILURE ===")
+        logging.error(
+            f"All {max_retries} browser launch attempts failed. Last error: {e}"
+        )
+        logging.error("Troubleshooting recommendations:")
+        logging.error("1. Check system resources (memory, CPU, disk space)")
+        logging.error("2. Kill any orphaned Firefox processes: pkill -f firefox")
+        logging.error("3. Update Playwright browsers: playwright install firefox")
+        logging.error("4. Restart the system if resources are exhausted")
+        logging.error("5. Run with --debug flag for more detailed diagnostics")
+        logging.error("======================================")
+        raise Exception(
+            f"Browser launch failed after {max_retries} attempts: {e}"
+        ) from e
+
+    # Enhanced cleanup of any partially created browser instances
+    try:
+        if browser:
+            logging.debug("Cleaning up partially created browser instance")
+            browser.close()
+    except Exception as cleanup_e:
+        logging.debug(f"Error during browser cleanup: {cleanup_e}")
+
+
 def _setup_browser(p, timeout_ms: int = 60000) -> tuple:
     """Setup and return browser and page with retry logic and resource cleanup."""
     max_retries = 3
@@ -3518,155 +3707,15 @@ def _setup_browser(p, timeout_ms: int = 60000) -> tuple:
 
     for attempt in range(max_retries):
         try:
-            # Enhanced resource monitoring before browser launch
-            if attempt == 0:
-                logging.info("=== BROWSER LAUNCH DIAGNOSTICS ===")
-                logging.info("System resources before browser launch:")
-                _log_system_resources()
-                _log_process_diagnostics()
-                logging.info("==================================")
-
-            # Force garbage collection before browser launch to free memory
-            gc.collect()
-
-            # Check memory availability before attempting browser launch
-            if psutil:
-                memory = psutil.virtual_memory()
-                available_gb = memory.available / (1024**3)
-                if available_gb < 1.5:  # Need at least 1.5GB for browser launch
-                    logging.warning(
-                        f"Low memory available ({available_gb:.1f}GB), "
-                        f"performing aggressive cleanup"
-                    )
-                    # More aggressive garbage collection
-                    gc.collect(2)  # Full collection
-                    time.sleep(2)  # Give OS time to reclaim memory
-
-            # Kill any orphaned Firefox processes before launching new one
-            _cleanup_orphaned_processes()
-
-            # Always add a small delay after cleanup to let ports/resources free up
-            time.sleep(3)
-
-            # Add increased delay between attempts to let system recover
-            if attempt > 0:
-                delay = base_delay * (
-                    2 ** (attempt - 1)
-                )  # Exponential backoff: 15s, 30s
-                logging.warning(
-                    f"Browser launch attempt {attempt + 1}/{max_retries} failed. "
-                    f"Waiting {delay}s before retry..."
-                )
-                logging.info("System resources before retry:")
-                _log_system_resources()
-                _log_process_diagnostics()
-                time.sleep(delay)
-
-            logging.info(
-                f"Launching Firefox browser (timeout: {timeout_ms / 1000:.0f}s, attempt {attempt + 1}/{max_retries})..."
+            _prepare_browser_launch(attempt)
+            _handle_retry_delay(attempt, max_retries, base_delay)
+            browser, page = _launch_browser_instance(
+                p, timeout_ms, attempt, max_retries
             )
-
-            # Use a shorter timeout for browser launch to avoid hanging
-            # The timeout_ms is for overall operation, but browser launch should be faster
-            launch_timeout = min(30000, timeout_ms)  # Max 30 seconds for browser launch
-
-            # Browser launch - note: args are for Chromium, not Firefox
-            # Firefox uses firefox_user_prefs for configuration
-            browser = p.firefox.launch(
-                headless=True,
-                firefox_user_prefs={
-                    "media.volume_scale": "0.0",
-                    "dom.disable_beforeunload": True,
-                    "browser.sessionstore.resume_from_crash": False,
-                    "browser.tabs.warnOnClose": False,
-                    "browser.tabs.warnOnCloseOtherTabs": False,
-                },
-                timeout=launch_timeout,
-            )
-
-            page = browser.new_page()
-            page.set_extra_http_headers({"User-Agent": USER_AGENT})
-
-            # Test that browser is actually responsive
-            try:
-                test_result = page.evaluate("() => 'browser_ready'")
-                if test_result != "browser_ready":
-                    raise Exception("Browser launched but not responsive to JavaScript")
-            except Exception as test_e:
-                logging.warning(
-                    f"Browser launched but failed responsiveness test: {test_e}"
-                )
-                with suppress(Exception):
-                    browser.close()
-                raise Exception(f"Browser not responsive: {test_e}") from test_e
-
-            logging.info("Browser launched successfully and passed responsiveness test")
             return browser, page
 
         except Exception as e:
-            error_msg = (
-                f"Browser launch attempt {attempt + 1}/{max_retries} failed: {e}"
-            )
-            logging.warning(error_msg)
-
-            # Log additional diagnostic information on failure
-            error_str_lower = str(e).lower()
-            if "timeout" in error_str_lower:
-                logging.warning("Browser launch timed out - this may indicate:")
-                logging.warning("  - Insufficient system memory or CPU resources")
-                logging.warning(
-                    "  - Previous browser processes not properly cleaned up"
-                )
-                logging.warning("  - System under heavy load")
-                _log_process_diagnostics()
-            elif (
-                "connection" in error_str_lower
-                or "closed while reading" in error_str_lower
-            ):
-                logging.warning(
-                    "Browser connection failed - this may indicate network issues or driver instability"
-                )
-                # Add small delay to let network recover
-                time.sleep(2)
-            elif (
-                "no space left on device" in error_str_lower
-                or "disk" in error_str_lower
-            ):
-                logging.error(
-                    "Disk space issue detected - browser launch cannot proceed"
-                )
-                raise Exception(
-                    "Critical disk space issue - manual intervention required"
-                ) from e
-
-            if attempt == max_retries - 1:
-                # Final attempt failed - provide comprehensive error info
-                logging.error("=== CRITICAL BROWSER LAUNCH FAILURE ===")
-                logging.error(
-                    f"All {max_retries} browser launch attempts failed. Last error: {e}"
-                )
-                logging.error("Troubleshooting recommendations:")
-                logging.error("1. Check system resources (memory, CPU, disk space)")
-                logging.error(
-                    "2. Kill any orphaned Firefox processes: pkill -f firefox"
-                )
-                logging.error(
-                    "3. Update Playwright browsers: playwright install firefox"
-                )
-                logging.error("4. Restart the system if resources are exhausted")
-                logging.error("5. Run with --debug flag for more detailed diagnostics")
-                logging.error("======================================")
-                raise Exception(
-                    f"Browser launch failed after {max_retries} attempts: {e}"
-                ) from e
-
-            # Enhanced cleanup of any partially created browser instances
-            try:
-                if browser:
-                    logging.debug("Cleaning up partially created browser instance")
-                    browser.close()
-            except Exception as cleanup_e:
-                logging.debug(f"Error during browser cleanup: {cleanup_e}")
+            _handle_browser_error(e, attempt, max_retries, browser)
 
     # Should never reach here due to exception above, but for type safety
     raise Exception("Unexpected error in browser setup")
