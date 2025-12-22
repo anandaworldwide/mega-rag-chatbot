@@ -162,3 +162,34 @@ aws ecs register-task-definition \
 echo -e "${GREEN}✓ Task definition registered successfully${NC}"
 echo -e "${GREEN}Task family: ${TASK_FAMILY}${NC}"
 
+# Get the new task definition revision
+NEW_TASK_DEF_ARN=$(aws ecs describe-task-definition \
+    --task-definition "$TASK_FAMILY" \
+    --region "$REGION" \
+    --query 'taskDefinition.taskDefinitionArn' \
+    --output text)
+
+echo -e "${GREEN}New revision: ${NEW_TASK_DEF_ARN}${NC}"
+
+# Check if EventBridge schedule exists and update it
+SCHEDULE_NAME="ananda-crawler-start"
+if aws scheduler get-schedule --name "$SCHEDULE_NAME" --region "$REGION" &> /dev/null; then
+    echo ""
+    echo -e "${YELLOW}Updating EventBridge schedule to use new task definition...${NC}"
+    
+    # Get the script directory to call update-schedule-for-service.sh
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    
+    if [ -f "$SCRIPT_DIR/update-schedule-for-service.sh" ]; then
+        bash "$SCRIPT_DIR/update-schedule-for-service.sh"
+        echo -e "${GREEN}✓ EventBridge schedule updated to use new task definition${NC}"
+    else
+        echo -e "${YELLOW}Warning: update-schedule-for-service.sh not found${NC}"
+        echo -e "${YELLOW}Run ./update-schedule-for-service.sh manually to update the schedule${NC}"
+    fi
+else
+    echo ""
+    echo -e "${YELLOW}No EventBridge schedule found. Scheduled runs not configured.${NC}"
+    echo -e "${YELLOW}To set up scheduled runs, run: ./update-schedule-for-service.sh${NC}"
+fi
+

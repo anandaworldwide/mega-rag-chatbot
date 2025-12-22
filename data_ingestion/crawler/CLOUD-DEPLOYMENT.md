@@ -112,6 +112,9 @@ Register the task definition that tells ECS how to run your container:
 **Configures**: Docker image reference, CPU/memory (0.5 vCPU, 1GB RAM), EFS mount (`/app/data`), environment variables
 from Secrets Manager, CloudWatch logging, max runtime (8 hours)
 
+**Note**: This script automatically updates the EventBridge schedule (if configured) to use the new task definition
+revision, ensuring scheduled runs use the latest code.
+
 **Security Hardening**:
 
 - No port mappings (container doesn't expose any ports)
@@ -567,7 +570,7 @@ To apply the NAT-less security hardening to an existing deployment:
    ./build-and-push.sh
    ```
 
-4. **Re-register task definition** with hardening settings:
+4. **Re-register task definition** with hardening settings (automatically updates EventBridge schedule):
 
    ```bash
    ./register-task-definition.sh v1.0.1
@@ -575,13 +578,7 @@ To apply the NAT-less security hardening to an existing deployment:
    ./register-task-definition.sh
    ```
 
-5. **Update EventBridge schedule** to use hardened SG and public IP:
-
-   ```bash
-   ./update-schedule-for-service.sh
-   ```
-
-6. **Restart tasks** with new configuration:
+5. **Restart tasks** with new configuration:
 
    ```bash
    aws ecs run-task --cluster ananda-crawler-cluster --region us-west-1 \
@@ -590,7 +587,7 @@ To apply the NAT-less security hardening to an existing deployment:
      --network-configuration "awsvpcConfiguration={subnets=[subnet-69894a33],securityGroups=[sg-00cff461f9ad3d8b2],assignPublicIp=ENABLED}"
    ```
 
-7. **Verify security configuration**:
+6. **Verify security configuration**:
 
    ```bash
    # Check task has public IP
@@ -721,15 +718,12 @@ aws logs tail /ecs/ananda-crawler --follow --region us-west-1
 # Update secrets
 aws secretsmanager put-secret-value --secret-id ananda-crawler-secrets --secret-string file://secrets.json --region us-west-1
 
-# Update image and redeploy
+# Update image and redeploy (automatically updates EventBridge schedule)
 ./build-and-push.sh v1.0.1
 ./register-task-definition.sh v1.0.1
 
-# Setup Spot capacity (one-time)
+# Setup Spot capacity (one-time, only needed for initial setup)
 ./setup-spot-capacity.sh
-
-# Update schedule for Spot capacity (one-time)
-./update-schedule-for-service.sh
 ```
 
 ## NAT-less Deployment Checklist

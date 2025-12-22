@@ -3337,5 +3337,232 @@ class TestCSVRemoval:
         assert result == 0  # Should return 0 on error
 
 
+class TestChatbotFiltering(BaseWebsiteCrawlerTest):
+    """Test cases for filtering chatbot content from crawled pages."""
+
+    def setUp(self):
+        """Set up test environment."""
+        super().setUp()
+        self.temp_dir = tempfile.mkdtemp()
+        self.site_id = "test-site"
+        self.site_config = {
+            "domain": "example.com",
+            "skip_patterns": [],
+            "crawl_frequency_days": 7,
+        }
+        self.path_patcher = patch("crawler.website_crawler.Path")
+        mock_path_constructor = self.path_patcher.start()
+        mock_path_constructor.return_value.parent.return_value = Path(self.temp_dir)
+
+        self.original_sqlite_connect = sqlite3.connect
+        self.connect_patcher = patch("sqlite3.connect")
+        mock_sqlite_connect = self.connect_patcher.start()
+        mock_sqlite_connect.side_effect = (
+            lambda db_path_arg: self.original_sqlite_connect(":memory:")
+        )
+
+    def tearDown(self):
+        """Clean up after tests."""
+        self.path_patcher.stop()
+        self.connect_patcher.stop()
+        shutil.rmtree(self.temp_dir)
+        super().tearDown()
+
+    def test_chatbot_content_filtered_by_class(self):
+        """Test that chatbot content with class='chatbot' is filtered out."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        html_with_chatbot = """
+        <html>
+        <body>
+            <main>
+                <h1>Main Article Title</h1>
+                <p>This is the main content of the article.</p>
+            </main>
+            <div class="chatbot">
+                <p>Hi, I'm Vivek! I can help you with spiritual questions.</p>
+            </div>
+        </body>
+        </html>
+        """
+
+        result = crawler.clean_content(html_with_chatbot)
+
+        # Main content should be preserved
+        assert "Main Article Title" in result
+        assert "main content of the article" in result
+        # Chatbot content should be removed
+        assert "Hi, I'm Vivek" not in result
+        assert "spiritual questions" not in result
+
+    def test_chatbot_content_filtered_by_id(self):
+        """Test that chatbot content with id='chatbot' is filtered out."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        html_with_chatbot = """
+        <html>
+        <body>
+            <article>
+                <h1>Article Content</h1>
+                <p>This is important content.</p>
+            </article>
+            <div id="chatbot-widget">
+                <p>What would you like to know?</p>
+            </div>
+        </body>
+        </html>
+        """
+
+        result = crawler.clean_content(html_with_chatbot)
+
+        assert "Article Content" in result
+        assert "important content" in result
+        assert "What would you like to know" not in result
+
+    def test_vivek_chatbot_filtered(self):
+        """Test that Vivek chatbot content is filtered out."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        html_with_vivek = """
+        <html>
+        <body>
+            <div class="content">
+                <h1>Spiritual Teaching</h1>
+                <p>Meditation is a powerful practice.</p>
+            </div>
+            <div class="vivek-chat-window">
+                <p>steve, Author at Ananda Hi, I'm Vivek! I can help you with spiritual questions, finding Ananda resources, or locating centers and meditation groups near you. What would you like to know?</p>
+            </div>
+        </body>
+        </html>
+        """
+
+        result = crawler.clean_content(html_with_vivek)
+
+        assert "Spiritual Teaching" in result
+        assert "Meditation is a powerful practice" in result
+        assert "I'm Vivek" not in result
+        assert "steve, Author at Ananda" not in result
+        assert "What would you like to know" not in result
+
+    def test_hidden_chatbot_content_filtered(self):
+        """Test that hidden chatbot content (display:none) is filtered out."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        html_with_hidden_chatbot = """
+        <html>
+        <body>
+            <main>
+                <h1>Page Title</h1>
+                <p>Visible content here.</p>
+            </main>
+            <div class="chat-widget" style="display:none">
+                <p>Hidden chatbot: Hi, I'm Vivek!</p>
+            </div>
+        </body>
+        </html>
+        """
+
+        result = crawler.clean_content(html_with_hidden_chatbot)
+
+        assert "Page Title" in result
+        assert "Visible content here" in result
+        assert "Hidden chatbot" not in result
+        assert "Hi, I'm Vivek" not in result
+
+    def test_modal_popup_filtered(self):
+        """Test that modal/popup elements are filtered out."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        html_with_modal = """
+        <html>
+        <body>
+            <article>
+                <h1>Article Title</h1>
+                <p>Article content.</p>
+            </article>
+            <div class="modal">
+                <p>Modal content with chatbot.</p>
+            </div>
+        </body>
+        </html>
+        """
+
+        result = crawler.clean_content(html_with_modal)
+
+        assert "Article Title" in result
+        assert "Article content" in result
+        assert "Modal content" not in result
+
+    def test_aria_label_chatbot_filtered(self):
+        """Test that elements with chatbot-related aria-label are filtered."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        html_with_aria_chatbot = """
+        <html>
+        <body>
+            <main>
+                <h1>Main Content</h1>
+                <p>This is the main article.</p>
+            </main>
+            <div aria-label="Chat with Vivek">
+                <p>Chatbot greeting text.</p>
+            </div>
+        </body>
+        </html>
+        """
+
+        result = crawler.clean_content(html_with_aria_chatbot)
+
+        assert "Main Content" in result
+        assert "main article" in result
+        assert "Chatbot greeting text" not in result
+
+    def test_normal_content_preserved(self):
+        """Test that normal content without chatbot is preserved."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        html_normal = """
+        <html>
+        <body>
+            <main>
+                <h1>Article Title</h1>
+                <p>This is normal article content.</p>
+                <p>It should be preserved.</p>
+            </main>
+        </body>
+        </html>
+        """
+
+        result = crawler.clean_content(html_normal)
+
+        assert "Article Title" in result
+        assert "normal article content" in result
+        assert "should be preserved" in result
+
+    def test_chatbot_in_main_content_not_filtered(self):
+        """Test that legitimate content mentioning 'chat' is not filtered."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        html_with_chat_mention = """
+        <html>
+        <body>
+            <main>
+                <h1>Discussion Groups</h1>
+                <p>Join our chat groups for spiritual discussion.</p>
+                <p>We have weekly chat sessions.</p>
+            </main>
+        </body>
+        </html>
+        """
+
+        result = crawler.clean_content(html_with_chat_mention)
+
+        # Content mentioning "chat" should be preserved if it's in main content
+        assert "Discussion Groups" in result
+        assert "chat groups" in result
+        assert "chat sessions" in result
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1442,3 +1442,29 @@ become visible after being hidden.
 
 **Applied To**: `BaseHeader.tsx` - updated `updateAuthState()` to refresh tokens when expired, added `visibilitychange`
 event listener for tab visibility changes.
+
+### ECS Manual Task Runs Require Public IP for Secrets Manager Access
+
+**Rule**: When manually running ECS Fargate tasks via `aws ecs run-task`, the network configuration MUST include `assignPublicIp=ENABLED` if the task needs to access AWS Secrets Manager or other AWS services.
+
+**Wrong**: Using `assignPublicIp=DISABLED` for manual task runs.
+
+```bash
+aws ecs run-task ... --network-configuration "awsvpcConfiguration={...,assignPublicIp=DISABLED}"
+# Task fails with: "ResourceInitializationError: unable to pull secrets or registry auth: 
+# unable to retrieve secret from asm: There is a connection issue between the task and AWS Secrets Manager"
+```
+
+**Correct**: Use `assignPublicIp=ENABLED` to allow the task to reach AWS services like Secrets Manager.
+
+```bash
+aws ecs run-task ... --network-configuration "awsvpcConfiguration={...,assignPublicIp=ENABLED}"
+```
+
+**Why This Matters**:
+
+- Tasks in private subnets without public IPs cannot reach AWS Secrets Manager unless VPC endpoints are configured
+- EventBridge scheduled tasks use `assignPublicIp=ENABLED` by default
+- Manual task runs must match the scheduled task's network configuration
+
+**Pattern**: Always check the EventBridge schedule's network configuration (`aws scheduler get-schedule --query 'Target.EcsParameters.NetworkConfiguration'`) and match it when running tasks manually.

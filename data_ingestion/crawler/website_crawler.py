@@ -81,7 +81,13 @@ from utils.pinecone_utils import (
     get_pinecone_client,
     get_pinecone_ingest_index_name,
 )
-from utils.progress_utils import is_exiting, setup_signal_handlers
+from utils.progress_utils import (
+    is_exiting,
+    setup_signal_handlers,
+)
+from utils.progress_utils import (
+    signal_handler as progress_signal_handler,
+)
 from utils.text_splitter_utils import SpacyTextSplitter
 
 
@@ -644,10 +650,11 @@ class WebsiteCrawler:
                 url = result[0]
 
                 # Check if URL matches skip patterns - if so, remove it from database
-                if self.should_skip_url(url):
+                skip_result = self.should_skip_url(url)
+                if skip_result:
                     normalized_url = self.normalize_url(url)
                     logging.info(
-                        f"Removing URL matching skip pattern from database: {url}"
+                        f"Removing URL matching skip pattern from database: {url} (normalized: {normalized_url})"
                     )
                     self.cursor.execute(
                         "DELETE FROM crawl_queue WHERE url = ?", (normalized_url,)
@@ -1127,8 +1134,9 @@ class WebsiteCrawler:
             path = parsed.path
 
         # Check standard skip patterns against the path
-        if any(re.search(pattern, path) for pattern in self.skip_patterns):
-            return True
+        for pattern in self.skip_patterns:
+            if re.search(pattern, path):
+                return True
 
         # Check for calendar/export URLs that serve non-HTML content
         query_params = parsed.query.lower()
@@ -1138,6 +1146,24 @@ class WebsiteCrawler:
         if any(param in query_params for param in calendar_params):
             logging.debug(f"Skipping calendar/export URL: {url}")
             return True
+
+        # Skip URLs with comment reply parameters (replytocom)
+        if "replytocom" in query_params:
+            logging.debug(f"Skipping comment reply URL: {url}")
+            return True
+
+        # Skip WordPress logout URLs
+        if "action=logout" in query_params:
+            logging.debug(f"Skipping WordPress logout URL: {url}")
+            return True
+
+        # TEMPORARY: Defensive debug for cart URLs that aren't being skipped
+        url_lower = url.lower()
+        if "cart" in url_lower:
+            logging.warning(
+                f"DEFENSIVE DEBUG: URL contains 'cart' but did NOT match skip patterns. "
+                f"URL: {url}, extracted_path: {path}, skip_patterns: {self.skip_patterns}"
+            )
 
         return False
 
@@ -1353,10 +1379,53 @@ class WebsiteCrawler:
         self._log_debug_content_info(html_content, soup)
 
         elements_to_remove = soup.select(
-            "header, footer, nav, script, style, iframe, .sidebar"
+            "header, footer, nav, script, style, iframe, .sidebar, "
+            "[class*='chatbot'], [id*='chatbot'], "
+            "[class*='chat-widget'], [id*='chat-widget'], "
+            "[class*='vivek'], [id*='vivek'], "
+            "[class*='chat-window'], [id*='chat-window'], "
+            ".modal, .popup, [class*='modal'], [id*='modal'], "
+            "[class*='popup'], [id*='popup'], "
+            "[aria-label*='chat'], [aria-label*='Chat'], "
+            "[aria-label*='Vivek'], [aria-label*='vivek'], "
+            "[data-chatbot], [data-chat-widget], "
+            "[role='dialog'][aria-label*='chat'], [role='dialog'][aria-label*='Chat']"
         )
         for element in elements_to_remove:
             element.decompose()
+
+        # Also remove elements with hidden inline styles (display:none, visibility:hidden)
+        # This catches chatbot content that's in the DOM but hidden
+        all_elements = soup.find_all(True)
+        chatbot_keywords = ["chat", "vivek", "bot", "widget"]
+        for element in all_elements:
+            style = element.get("style", "")
+            if style:
+                style_lower = style.lower()
+                is_hidden = (
+                    "display:none" in style_lower
+                    or "display: none" in style_lower
+                    or "visibility:hidden" in style_lower
+                    or "visibility: hidden" in style_lower
+                )
+                if is_hidden:
+                    # Check if it's chatbot-related by checking class, id, and aria-label attributes
+                    class_attr = element.get("class", [])
+                    class_str = (
+                        " ".join(class_attr).lower()
+                        if isinstance(class_attr, list)
+                        else str(class_attr).lower()
+                    )
+                    id_attr = element.get("id", "").lower()
+                    aria_label = element.get("aria-label", "").lower()
+
+                    if any(
+                        keyword in class_str
+                        or keyword in id_attr
+                        or keyword in aria_label
+                        for keyword in chatbot_keywords
+                    ):
+                        element.decompose()
 
         # Debug content selectors
         self._log_content_selectors_debug(soup)
@@ -3869,6 +3938,28 @@ def _handle_browser_restart(
         raise
 
 
+def _update_pinecone_vectors(
+    crawler: WebsiteCrawler,
+    pinecone_index,
+    index_name: str,
+    url: str,
+    chunks: list[str],
+    title: str,
+) -> None:
+    """Clear old vectors and upsert new ones for a URL."""
+    # Always clear old vectors before upserting new ones
+    # This handles: recrawls with changed content, first crawls with stale data,
+    # and any edge cases where Pinecone has old vectors for this URL
+    deleted_count = crawler.remove_url_from_pinecone(pinecone_index, url)
+    if deleted_count > 0:
+        logging.info(f"Cleared {deleted_count} old vectors from Pinecone for: {url}")
+
+    embeddings = crawler.create_embeddings(chunks, url, title)
+    upsert_to_pinecone(embeddings, pinecone_index, index_name)
+    logging.debug(f"Successfully processed and upserted: {url}")
+    logging.debug(f"Created {len(chunks)} chunks, {len(embeddings)} embeddings.")
+
+
 def _process_page_content(
     content,
     new_links: list,
@@ -3924,11 +4015,8 @@ def _process_page_content(
             content_hash = hashlib.sha256(content.content.encode()).hexdigest()
 
             if crawler.should_process_content(url, content_hash):
-                embeddings = crawler.create_embeddings(chunks, url, content.title)
-                upsert_to_pinecone(embeddings, pinecone_index, index_name)
-                logging.debug(f"Successfully processed and upserted: {url}")
-                logging.debug(
-                    f"Created {len(chunks)} chunks, {len(embeddings)} embeddings."
+                _update_pinecone_vectors(
+                    crawler, pinecone_index, index_name, url, chunks, content.title
                 )
             else:
                 logging.info(
@@ -5267,6 +5355,9 @@ def _generate_instance_id() -> str:
 # Global instance ID for this crawler run (used for cloud lock heartbeat)
 _INSTANCE_ID: str | None = None
 
+# Global lock file path for signal handler cleanup
+_LOCK_FILE_PATH: str | None = None
+
 
 def _write_cloud_lock(lock_file: str) -> None:
     """Write/update the cloud lock file with current timestamp."""
@@ -5284,6 +5375,30 @@ def _write_cloud_lock(lock_file: str) -> None:
         json.dump(lock_data, f)
 
 
+def _cleanup_lock_file() -> None:
+    """Remove the lock file if it exists. Called by signal handlers."""
+    global _LOCK_FILE_PATH
+    if _LOCK_FILE_PATH and os.path.exists(_LOCK_FILE_PATH):
+        try:
+            os.remove(_LOCK_FILE_PATH)
+            logging.info(f"Lock file removed by signal handler: {_LOCK_FILE_PATH}")
+        except Exception as e:
+            logging.warning(f"Failed to remove lock file on signal: {e}")
+
+
+def _create_lock_cleanup_signal_handler():
+    """Create a signal handler that cleans up the lock file before exiting."""
+
+    def lock_cleanup_handler(signum: int, frame: Any) -> None:
+        """Signal handler that removes lock file before calling original handler."""
+        logging.info(f"Received signal {signum}, cleaning up lock file...")
+        _cleanup_lock_file()
+        # Call the original handler to set the exiting flag
+        progress_signal_handler(signum, frame)
+
+    return lock_cleanup_handler
+
+
 def main():
     args = parse_arguments()
 
@@ -5293,12 +5408,21 @@ def main():
     site_config = _setup_logging_and_config(args)
     domain, start_url, env_file_str = _setup_environment_and_paths(args, site_config)
 
-    setup_signal_handlers()
-    _perform_system_health_check(args)
-
     # File locking to prevent multiple instances
     lock_file = _get_lock_file_path(args.site)
     is_cloud = _is_cloud_mode()
+
+    # Store lock file path globally for signal handler
+    global _LOCK_FILE_PATH
+    _LOCK_FILE_PATH = lock_file
+
+    # Setup signal handlers with lock cleanup (handle both SIGTERM and SIGINT)
+    lock_cleanup_handler = _create_lock_cleanup_signal_handler()
+    setup_signal_handlers(
+        custom_handler=lock_cleanup_handler,
+        signals_to_handle=[signal.SIGTERM, signal.SIGINT],
+    )
+    _perform_system_health_check(args)
 
     if is_cloud:
         logging.info(f"Cloud mode detected - using EFS-based lock at {lock_file}")
