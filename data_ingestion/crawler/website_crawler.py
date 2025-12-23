@@ -333,6 +333,13 @@ class WebsiteCrawler:
         self.current_processing_url: str | None = None
         self._rate_limit_exit: bool = False
 
+        # Track URLs that timeout within a session to avoid retry loops
+        # Key: normalized URL, Value: timeout count in this session
+        self.session_timeout_counts: dict[str, int] = {}
+        self.MAX_SESSION_TIMEOUTS = (
+            2  # Skip URL after this many timeouts in one session
+        )
+
         if not skip_db_init:
             self._init_database()
 
@@ -350,7 +357,9 @@ class WebsiteCrawler:
         db_dir = Path(data_dir) / "db" if data_dir else Path(__file__).parent / "db"
         db_dir.mkdir(parents=True, exist_ok=True)
         self.db_file = db_dir / f"crawler_queue_{self.site_id}.db"
-        self.conn = sqlite3.connect(str(self.db_file))
+        self.conn = sqlite3.connect(
+            str(self.db_file), timeout=30.0
+        )  # 30s busy timeout for EFS
         self.conn.row_factory = sqlite3.Row  # Allow dictionary-like access to rows
         self.cursor = self.conn.cursor()
 
@@ -436,19 +445,23 @@ class WebsiteCrawler:
             self.add_url_to_queue(self.start_url, priority=1)
             self.conn.commit()
         else:
-            # Check how many URLs are available for crawling for informational purposes
+            # Get breakdown of what's available for crawling
             self.cursor.execute("""
             SELECT COUNT(*) FROM crawl_queue 
-            WHERE (
-                (status = 'pending' AND (retry_after IS NULL OR retry_after <= datetime('now'))) 
-                OR 
-                (status = 'visited' AND next_crawl <= datetime('now'))
-            )
+            WHERE status = 'pending' AND (retry_after IS NULL OR retry_after <= datetime('now'))
             """)
-            available_count = self.cursor.fetchone()[0]
+            pending_ready = self.cursor.fetchone()[0]
 
+            self.cursor.execute("""
+            SELECT COUNT(*) FROM crawl_queue 
+            WHERE status = 'visited' AND next_crawl <= datetime('now')
+            """)
+            stale_count = self.cursor.fetchone()[0]
+
+            available_count = pending_ready + stale_count
             logging.info(
-                f"Database contains {total_count} URLs total, {available_count} available for crawling"
+                f"Database contains {total_count} URLs total, "
+                f"{available_count} ready to process ({pending_ready} new/retry + {stale_count} stale re-crawl)"
             )
 
     def close(self):
@@ -3914,7 +3927,7 @@ def _handle_browser_restart(
         _cleanup_orphaned_processes()
 
     # Add delay to let system resources recover after cleanup
-    recovery_delay = 10  # Increased delay for better recovery
+    recovery_delay = 2  # Short delay - system resources are typically fine
     logging.info(
         f"Waiting {recovery_delay}s for system resource recovery after browser cleanup..."
     )
@@ -4099,6 +4112,18 @@ def _handle_url_processing(
 ) -> tuple[tuple, bool]:
     """Handle URL processing setup and skip checks. Returns ((content, links, restart_needed), should_skip)."""
     crawler.current_processing_url = url
+    normalized_url = crawler.normalize_url(url)
+
+    # Check if URL has timed out too many times this session
+    timeout_count = crawler.session_timeout_counts.get(normalized_url, 0)
+    if timeout_count >= crawler.MAX_SESSION_TIMEOUTS:
+        logging.warning(
+            f"Skipping {url} - timed out {timeout_count} times this session. "
+            "Will retry next session."
+        )
+        crawler.current_processing_url = None
+        return (None, [], False), True  # Skip this URL for now
+
     logging.info(f"Processing page: {url}")
 
     if crawler.should_skip_url(url):
@@ -4106,7 +4131,6 @@ def _handle_url_processing(
         crawler._ensure_db_initialized()
         assert crawler.cursor is not None
         assert crawler.conn is not None
-        normalized_url = crawler.normalize_url(url)
         crawler.cursor.execute(
             "DELETE FROM crawl_queue WHERE url = ?", (normalized_url,)
         )
@@ -4117,7 +4141,13 @@ def _handle_url_processing(
     content, new_links, restart_needed = crawler.crawl_page(browser, page, url)
 
     if restart_needed:
-        logging.warning(f"Browser restart requested after attempting {url}.")
+        # Track timeout for this URL in the session
+        crawler.session_timeout_counts[normalized_url] = timeout_count + 1
+        new_count = crawler.session_timeout_counts[normalized_url]
+        logging.warning(
+            f"Browser restart requested after attempting {url} "
+            f"(timeout #{new_count} this session)."
+        )
         crawler.mark_url_status(url, "pending")
         crawler.current_processing_url = None
 
@@ -4202,7 +4232,7 @@ def _initialize_crawl_loop(
     pages_since_restart = 0
     batch_results = []
     batch_start_time = time.time()
-    PAGES_PER_RESTART = 50
+    PAGES_PER_RESTART = 100
     stop_after = args.stop_after
 
     if stop_after:
@@ -4211,8 +4241,9 @@ def _initialize_crawl_loop(
     stats = crawler.get_queue_stats()
     pending_ready = stats["pending"] - stats.get("pending_retry", 0)
     logging.info(
-        f"Initial queue stats: {stats['pending']} pending ({pending_ready} ready, {stats.get('pending_retry', 0)} waiting for retry), "
-        f"{stats['visited']} visited, {stats['failed']} failed"
+        f"Queue breakdown: {stats['pending']} pending URLs "
+        f"({pending_ready} ready now, {stats.get('pending_retry', 0)} scheduled for retry), "
+        f"{stats['visited']} previously visited, {stats['failed']} permanently failed"
     )
 
     return (
@@ -4430,8 +4461,8 @@ def _handle_no_url_processing(
             if hasattr(crawler, "conn") and crawler.conn:
                 crawler.conn.close()
 
-            # Recreate the connection
-            crawler.conn = sqlite3.connect(str(crawler.db_file))
+            # Recreate the connection with same timeout
+            crawler.conn = sqlite3.connect(str(crawler.db_file), timeout=30.0)
             crawler.conn.row_factory = sqlite3.Row
             crawler.cursor = crawler.conn.cursor()
             logging.info("Database connection refreshed successfully")

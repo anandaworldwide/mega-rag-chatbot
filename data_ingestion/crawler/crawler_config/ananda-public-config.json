@@ -21,6 +21,6 @@
     "^/__",
     "void\\(0\\)"
   ],
-  "crawl_frequency_days": 25,
+  "crawl_frequency_days": 38,
   "crawl_delay_seconds": 1
 }
