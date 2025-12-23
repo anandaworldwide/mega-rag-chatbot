@@ -93,7 +93,7 @@ def get_index(pc: Pinecone):
 
 def load_config(site_id: str) -> dict:
     """Load configuration from a JSON file based on site_id."""
-    config_dir = Path(__file__).parent / "crawler_config"
+    config_dir = Path(__file__).parent.parent / "crawler_config"
     config_file = config_dir / f"{site_id}-config.json"
     config_path = str(config_file)  # Convert Path to string for file operations
 
@@ -433,7 +433,9 @@ def main():
         if not library:
             # Use config_path calculated inside load_config for error message
             config_path = (
-                Path(__file__).parent / "crawler_config" / f"{args.site}-config.json"
+                Path(__file__).parent.parent
+                / "crawler_config"
+                / f"{args.site}-config.json"
             )
             raise ValueError(
                 f"'domain' key is missing or empty in config file: {config_path}"

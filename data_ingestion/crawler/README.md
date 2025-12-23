@@ -148,16 +148,110 @@ tail -f ~/Library/Logs/AnandaCrawler/supervisor_ananda-public.log ~/Library/Logs
 
 ```bash
 # Rotate logs manually
-python log_rotate.py --log-dir ~/Library/Logs/AnandaCrawler
+python bin/log_rotate.py --log-dir ~/Library/Logs/AnandaCrawler
 
 # Check what would be rotated (dry run)
-python log_rotate.py --log-dir ~/Library/Logs/AnandaCrawler --dry-run
+python bin/log_rotate.py --log-dir ~/Library/Logs/AnandaCrawler --dry-run
 
 # Custom settings
-python log_rotate.py --log-dir ~/Library/Logs/AnandaCrawler --max-age-days 7 --no-compress
+python bin/log_rotate.py --log-dir ~/Library/Logs/AnandaCrawler --max-age-days 7 --no-compress
 ```
 
 Logs are automatically rotated daily at 2 AM via LaunchAgent.
+
+### Utility Scripts (`bin/`)
+
+The `bin/` directory contains utility scripts for maintenance, health checks, and analysis:
+
+#### Pinecone Health Check
+
+Comprehensive health check for the Pinecone index:
+
+```bash
+# Full health check
+python bin/pinecone_health_check.py --site ananda-public
+
+# Quick check (skip slow orphaned detection)
+python bin/pinecone_health_check.py --site ananda-public --quick
+
+# JSON output for monitoring/alerting
+python bin/pinecone_health_check.py --site ananda-public --json
+```
+
+**Health Checks Performed:**
+
+- **Stale Records**: Counts vectors with `crawl_timestamp` > 30 days old
+- **Missing Timestamps**: Identifies legacy records without `crawl_timestamp` metadata
+- **Duplicate URLs**: Finds URLs with vectors from multiple crawl sessions (>1 day apart)
+- **Age Distribution**: Breakdown of all vectors by age (7 days, 30 days, 60 days, 90+ days)
+- **Orphaned Records**: Vectors that don't exist in the SQLite database (sampled)
+
+**Recommended Usage**: Run weekly or monthly to monitor Pinecone health and catch stale/duplicate records early.
+
+#### Cleanup Old Pinecone Vectors
+
+Remove duplicate vectors by keeping only the latest crawl_timestamp for each URL:
+
+```bash
+# With confirmation prompts
+python bin/cleanup_old_pinecone_vectors.py --site ananda-public --confirm
+
+# Automatic deletion (no prompts)
+python bin/cleanup_old_pinecone_vectors.py --site ananda-public
+```
+
+This script only deletes vectors that are **at least 1 day older** than the latest timestamp to avoid accidentally
+removing chunks from the same crawl session.
+
+#### Check Crawl Queue Status
+
+Analyze the crawl queue to see what's due for processing:
+
+```bash
+python bin/check_priority_due.py --site ananda-public
+```
+
+Shows:
+
+- Overall queue statistics by status
+- Priority distribution
+- URLs due for processing right now
+- Recent crawling activity
+
+#### Check Robots.txt Compliance
+
+Verify that the crawler respected robots.txt rules:
+
+```bash
+python bin/check_robots_compliance.py --site ananda-public
+
+# Remove disallowed URLs from database
+python bin/check_robots_compliance.py --site ananda-public --clean
+```
+
+#### Delete Vectors by Skip Pattern
+
+Remove Pinecone vectors matching URL skip patterns:
+
+```bash
+# Dry run (preview what would be deleted)
+python bin/delete_by_skip_pattern.py --site ananda-public --dry-run
+
+# Actually delete matching vectors
+python bin/delete_by_skip_pattern.py --site ananda-public
+```
+
+#### Log Rotation
+
+Rotate and compress old log files:
+
+```bash
+# Rotate logs manually
+python bin/log_rotate.py --log-dir ~/Library/Logs/AnandaCrawler
+
+# Dry run
+python bin/log_rotate.py --log-dir ~/Library/Logs/AnandaCrawler --dry-run
+```
 
 ### LaunchAgent Setup (macOS)
 

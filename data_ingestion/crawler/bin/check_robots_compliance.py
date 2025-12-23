@@ -178,7 +178,7 @@ def check_url_allowed(
 
 def get_crawled_urls(site_id: str) -> list:
     """Get all URLs that have been successfully crawled from the database."""
-    script_dir = Path(__file__).resolve().parent
+    script_dir = Path(__file__).resolve().parent.parent
     db_dir = script_dir / "db"
     db_file = db_dir / f"crawler_queue_{site_id}.db"
 
@@ -320,7 +320,7 @@ def check_robots_compliance(
 
 def clean_disallowed_urls(site_id: str, violations: list) -> None:
     """Remove disallowed URLs from the SQLite database."""
-    script_dir = Path(__file__).resolve().parent
+    script_dir = Path(__file__).resolve().parent.parent
     db_dir = script_dir / "db"
     db_file = db_dir / f"crawler_queue_{site_id}.db"
 
