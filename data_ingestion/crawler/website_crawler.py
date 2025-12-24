@@ -48,6 +48,8 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse, urlunparse
 from urllib.robotparser import RobotFileParser
 
+from dateutil import tz
+
 if TYPE_CHECKING:
     pass
 
@@ -296,6 +298,9 @@ class WebsiteCrawler:
         self.csv_modified_days_threshold = self.config.get(
             "csv_modified_days_threshold", 1
         )
+        self.csv_timezone = self.config.get(
+            "csv_timezone", "America/Los_Angeles"
+        )  # Timezone for CSV date parsing (defaults to Pacific)
         self.csv_mode_enabled = bool(self.csv_export_url)
         self.force_csv_mode = False  # Set to True via --force-csv-mode flag
         self._csv_force_used = False  # Track if force bypass has been used once
@@ -2060,21 +2065,40 @@ class WebsiteCrawler:
         return bool(not result or not result[0] or result[0] != current_hash)
 
     def parse_csv_date(self, date_str: str) -> datetime | None:
-        """Parse CSV date format like '2025-07-13 12:45:35' to datetime object"""
+        """Parse CSV date format (in configured timezone) and convert to UTC.
+
+        CSV dates are in the timezone specified by csv_timezone config (defaults to
+        America/Los_Angeles). Database stores times in UTC. This function converts
+        the CSV timezone to UTC for consistent comparison.
+        """
+        source_tz_obj = tz.gettz(self.csv_timezone)
+        utc_tz_obj = tz.UTC
+
+        naive_dt = None
         try:
             # Handle format "2025-07-13 12:45:35" - ISO-like format
-            return datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
+            naive_dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M:%S")
         except ValueError:
             try:
                 # Try alternative format without seconds "2025-07-13 12:45"
-                return datetime.strptime(date_str, "%Y-%m-%d %H:%M")
+                naive_dt = datetime.strptime(date_str, "%Y-%m-%d %H:%M")
             except ValueError:
                 try:
-                    # Try legacy format "7/12/25 8:45" - assuming MM/DD/YY HH:MM
-                    return datetime.strptime(date_str, "%m/%d/%y %H:%M")
+                    # Try legacy format "12/22/25 16:09" - MM/DD/YY HH:MM
+                    naive_dt = datetime.strptime(date_str, "%m/%d/%y %H:%M")
                 except ValueError:
                     logging.warning(f"Could not parse CSV date: {date_str}")
                     return None
+
+        if naive_dt is None:
+            return None
+
+        # Treat parsed datetime as source timezone and convert to UTC
+        source_dt = naive_dt.replace(tzinfo=source_tz_obj)
+        utc_dt = source_dt.astimezone(utc_tz_obj)
+
+        # Return as naive UTC datetime to match database storage format
+        return utc_dt.replace(tzinfo=None)
 
     def _establish_csv_session(self, page) -> bool:
         """Establish session by visiting main site. Returns True if successful."""
@@ -2300,6 +2324,9 @@ class WebsiteCrawler:
             action = row.get("Required Action", "").strip().lower()
 
             if not url or not modified_date_str or not action:
+                logging.debug(
+                    f"CSV row validation failed - missing fields. URL: {url}, Modified Date: {modified_date_str}, Action: {action}"
+                )
                 return None
 
             # Validate action values (case-insensitive)
@@ -2312,10 +2339,16 @@ class WebsiteCrawler:
             # Parse modified date
             modified_date = self.parse_csv_date(modified_date_str)
             if not modified_date:
+                logging.warning(
+                    f"Could not parse modified date '{modified_date_str}' for URL {url}"
+                )
                 return None
 
             return url, modified_date, action
-        except Exception:
+        except Exception as e:
+            logging.warning(
+                f"Exception validating CSV row for URL {row.get('URL', 'unknown')}: {e}"
+            )
             return None
 
     def _should_process_csv_url(
@@ -2324,8 +2357,17 @@ class WebsiteCrawler:
         """Check if CSV URL should be processed. Returns (should_process, skip_reason)."""
         self._ensure_db_initialized()
         assert self.cursor is not None
+
+        # Log all CSV URL checks at INFO level for visibility
+        logging.info(f"CSV URL check starting for: {url}")
+        logging.info(f"  - Modified date (UTC): {modified_date.isoformat()}")
+        logging.info(f"  - Cutoff date (UTC): {cutoff_date.isoformat()}")
+
         # Check if modified within threshold
         if modified_date < cutoff_date:
+            logging.info(
+                f"  - Decision: SKIP (modified date {modified_date.isoformat()} is older than cutoff {cutoff_date.isoformat()})"
+            )
             return False, "skipped_date"
 
         # Ensure URL has scheme
@@ -2333,7 +2375,9 @@ class WebsiteCrawler:
 
         # Check if URL should be crawled
         if not self.is_valid_url(full_url) or self.should_skip_url(full_url):
-            logging.debug(f"Skipping CSV URL due to validation/skip rules: {full_url}")
+            logging.info(
+                f"  - Decision: SKIP (URL validation failed or matches skip pattern: {full_url})"
+            )
             return False, "skipped_validation"
 
         # Check if URL exists in database and if last crawl is more recent than modified date
@@ -2351,11 +2395,11 @@ class WebsiteCrawler:
         if existing:
             last_crawl, existing_modified_date = existing
 
-            # Debug logging for decision process
-            logging.debug(f"CSV URL check for {full_url}:")
-            logging.debug(f"  - Last crawl: {last_crawl}")
-            logging.debug(f"  - Existing modified date: {existing_modified_date}")
-            logging.debug(f"  - CSV modified date: {modified_date.isoformat()}")
+            # Log decision process (INFO level for visibility in production)
+            logging.info(f"CSV URL check for {full_url}:")
+            logging.info(f"  - Last crawl: {last_crawl}")
+            logging.info(f"  - Existing modified date: {existing_modified_date}")
+            logging.info(f"  - CSV modified date: {modified_date.isoformat()}")
 
             # If we have a last crawl date, check if it's more recent than the modified date
             if last_crawl:
@@ -2363,19 +2407,22 @@ class WebsiteCrawler:
                     last_crawl_dt = datetime.fromisoformat(last_crawl)
                     # If last crawl is more recent than modified date, skip it
                     if last_crawl_dt > modified_date:
-                        logging.debug(
+                        logging.info(
                             f"  - Decision: SKIP (last crawl {last_crawl} is more recent than modified date {modified_date.isoformat()})"
                         )
                         return False, "skipped_already_current"
                 except ValueError:
                     # If we can't parse the date, proceed with processing
+                    logging.warning(
+                        f"  - Warning: Could not parse last_crawl date: {last_crawl}"
+                    )
                     pass
 
-            logging.debug(
-                "  - Decision: PROCESS (last crawl is older than modified date or no crawl date)"
+            logging.info(
+                f"  - Decision: PROCESS (last crawl {last_crawl} is older than modified date {modified_date.isoformat()})"
             )
         else:
-            logging.debug(f"CSV URL check for {full_url}: NEW URL - will process")
+            logging.info(f"CSV URL check for {full_url}: NEW URL - will process")
 
         return True, ""
 
@@ -2384,9 +2431,12 @@ class WebsiteCrawler:
     ) -> None:
         """Process a single CSV row and update stats."""
         try:
+            url = row.get("URL", "").strip()
             # Validate CSV row
             validation_result = self._validate_csv_row(row)
             if not validation_result:
+                stats["skipped_validation"] = stats.get("skipped_validation", 0) + 1
+                logging.debug(f"CSV row validation failed for URL: {url}")
                 return
 
             url, modified_date, action = validation_result
