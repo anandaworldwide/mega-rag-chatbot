@@ -291,7 +291,6 @@ class WebsiteCrawler:
         self.start_url = ensure_scheme(self.domain)  # Start URL is now just the domain
         self.skip_patterns = self.config.get("skip_patterns", [])
         self.crawl_frequency_days = self.config.get("crawl_frequency_days", 14)
-        self.crawl_delay_seconds = self.config.get("crawl_delay_seconds", 1)
 
         # CSV mode configuration
         self.csv_export_url = self.config.get("csv_export_url")
@@ -822,9 +821,11 @@ class WebsiteCrawler:
             "network",
             "unreachable",
             "server error",
-            "5",
+            "http 5",  # Match HTTP 5xx errors (was "5" which matched any digit 5 in URL)
+            "500",
             "503",
             "502",
+            "504",
             "overloaded",
             "too many requests",
             "429",
@@ -1174,14 +1175,6 @@ class WebsiteCrawler:
         if "action=logout" in query_params:
             logging.debug(f"Skipping WordPress logout URL: {url}")
             return True
-
-        # TEMPORARY: Defensive debug for cart URLs that aren't being skipped
-        url_lower = url.lower()
-        if "cart" in url_lower:
-            logging.warning(
-                f"DEFENSIVE DEBUG: URL contains 'cart' but did NOT match skip patterns. "
-                f"URL: {url}, extracted_path: {path}, skip_patterns: {self.skip_patterns}"
-            )
 
         return False
 
@@ -1902,11 +1895,16 @@ class WebsiteCrawler:
     def create_embeddings(
         self, chunks: list[str], url: str, page_title: str
     ) -> list[dict]:
-        """Create embeddings for text chunks using shared embeddings instance."""
-        vectors = []
+        """Create embeddings for text chunks using batch API for efficiency."""
+        if not chunks:
+            return []
 
-        for i, chunk in enumerate(chunks):
-            vector = self.embeddings.embed_query(chunk)
+        # Batch embed all chunks in a single API call (more efficient than N calls)
+        # LangChain's OpenAIEmbeddings automatically handles batching internally
+        all_vectors = self.embeddings.embed_documents(chunks)
+
+        vectors = []
+        for i, (chunk, vector) in enumerate(zip(chunks, all_vectors, strict=True)):
             chunk_id = generate_vector_id(
                 library_name=self.domain,
                 title=page_title,
@@ -2358,16 +2356,8 @@ class WebsiteCrawler:
         self._ensure_db_initialized()
         assert self.cursor is not None
 
-        # Log all CSV URL checks at INFO level for visibility
-        logging.info(f"CSV URL check starting for: {url}")
-        logging.info(f"  - Modified date (UTC): {modified_date.isoformat()}")
-        logging.info(f"  - Cutoff date (UTC): {cutoff_date.isoformat()}")
-
         # Check if modified within threshold
         if modified_date < cutoff_date:
-            logging.info(
-                f"  - Decision: SKIP (modified date {modified_date.isoformat()} is older than cutoff {cutoff_date.isoformat()})"
-            )
             return False, "skipped_date"
 
         # Ensure URL has scheme
@@ -2375,9 +2365,6 @@ class WebsiteCrawler:
 
         # Check if URL should be crawled
         if not self.is_valid_url(full_url) or self.should_skip_url(full_url):
-            logging.info(
-                f"  - Decision: SKIP (URL validation failed or matches skip pattern: {full_url})"
-            )
             return False, "skipped_validation"
 
         # Check if URL exists in database and if last crawl is more recent than modified date
@@ -2395,21 +2382,12 @@ class WebsiteCrawler:
         if existing:
             last_crawl, existing_modified_date = existing
 
-            # Log decision process (INFO level for visibility in production)
-            logging.info(f"CSV URL check for {full_url}:")
-            logging.info(f"  - Last crawl: {last_crawl}")
-            logging.info(f"  - Existing modified date: {existing_modified_date}")
-            logging.info(f"  - CSV modified date: {modified_date.isoformat()}")
-
             # If we have a last crawl date, check if it's more recent than the modified date
             if last_crawl:
                 try:
                     last_crawl_dt = datetime.fromisoformat(last_crawl)
                     # If last crawl is more recent than modified date, skip it
                     if last_crawl_dt > modified_date:
-                        logging.info(
-                            f"  - Decision: SKIP (last crawl {last_crawl} is more recent than modified date {modified_date.isoformat()})"
-                        )
                         return False, "skipped_already_current"
                 except ValueError:
                     # If we can't parse the date, proceed with processing
@@ -2417,12 +2395,6 @@ class WebsiteCrawler:
                         f"  - Warning: Could not parse last_crawl date: {last_crawl}"
                     )
                     pass
-
-            logging.info(
-                f"  - Decision: PROCESS (last crawl {last_crawl} is older than modified date {modified_date.isoformat()})"
-            )
-        else:
-            logging.info(f"CSV URL check for {full_url}: NEW URL - will process")
 
         return True, ""
 
@@ -4023,6 +3995,32 @@ def _update_pinecone_vectors(
     logging.debug(f"Created {len(chunks)} chunks, {len(embeddings)} embeddings.")
 
 
+def _handle_no_content(url: str, crawler: WebsiteCrawler) -> tuple[int, int, bool]:
+    """Handle case where no content was extracted. Returns (pages_inc, restart_inc, rate_limit)."""
+    crawler._ensure_db_initialized()
+    assert crawler.cursor is not None
+    crawler.cursor.execute(
+        "SELECT status, content_hash FROM crawl_queue WHERE url = ?",
+        (crawler.normalize_url(url),),
+    )
+    result = crawler.cursor.fetchone()
+
+    if result:
+        status, content_hash = result[0], result[1]
+        # Already successfully processed as non-HTML content
+        if status == "visited" and content_hash in ["non_html", "non_html_content"]:
+            logging.debug(f"Non-HTML content already processed: {url}")
+            return 1, 1, False
+        # Already marked as deleted (404) or failed - don't re-mark
+        if status in ["deleted", "failed"]:
+            logging.debug(f"URL already marked as {status}, skipping: {url}")
+            return 0, 0, False
+
+    # Genuine failure that hasn't been handled
+    crawler.mark_url_status(url, "failed", f"No content extracted from {url}")
+    return 0, 0, False
+
+
 def _process_page_content(
     content,
     new_links: list,
@@ -4033,28 +4031,7 @@ def _process_page_content(
 ) -> tuple[int, int, bool]:
     """Process page content and return (pages_processed_increment, pages_since_restart_increment)."""
     if not content:
-        # Check if this URL was already marked as successfully skipped (non-HTML content)
-        crawler._ensure_db_initialized()
-        assert crawler.cursor is not None
-        crawler.cursor.execute(
-            "SELECT status, content_hash FROM crawl_queue WHERE url = ?",
-            (crawler.normalize_url(url),),
-        )
-        result = crawler.cursor.fetchone()
-
-        if (
-            result
-            and result[0] == "visited"
-            and result[1] in ["non_html", "non_html_content"]
-        ):
-            # This was already successfully processed as non-HTML content
-            logging.debug(f"Non-HTML content already processed: {url}")
-            return 1, 1, False  # Count as successful processing
-
-        # Otherwise, this is a genuine failure
-        error_msg = f"No content extracted from {url}"
-        crawler.mark_url_status(url, "failed", error_msg)
-        return 0, 0, False
+        return _handle_no_content(url, crawler)
 
     # Handle special cases (WordPress login redirects, etc.)
     if (
@@ -4257,12 +4234,8 @@ def _process_crawl_iteration(
         logging.info("Exit requested after saving checkpoint, stopping loop.")
         return 0, 0, True  # Signal exit
 
-    # Rate limiting: Sleep between requests to be respectful to the server
-    if pages_inc > 0:  # Only delay if page was successfully processed
-        delay = crawler.crawl_delay_seconds
-        if delay > 0:
-            logging.debug(f"Rate limiting: sleeping for {delay} seconds")
-            time.sleep(delay)
+    # Crawl delay removed for improved throughput
+    # Server rate limiting is handled by the website's own rate limiters if needed
 
     return pages_inc, restart_inc, False  # Continue normally
 

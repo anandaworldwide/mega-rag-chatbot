@@ -14,7 +14,7 @@
     "^/wp-admin/",
     "^/wp-login\\.php",
     "^/online-courses/lessons-in-meditation-reviews/",
-    "^/autobiography$",
+    "^/autobiography\\.?$",
     "^/free-inspiration/books/efl$",
     "^/ask/answerer/",
     "^/video/locations/",
@@ -22,6 +22,5 @@
     "^/__",
     "void\\(0\\)"
   ],
-  "crawl_frequency_days": 38,
-  "crawl_delay_seconds": 1
+  "crawl_frequency_days": 38
 }

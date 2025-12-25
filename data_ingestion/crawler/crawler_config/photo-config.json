@@ -1,6 +1,5 @@
 {
   "domain": "photographytalk.com",
   "skip_patterns": ["^/search/", "^/login/", "^/cart/", "^/account/", "^/checkout/", "^/wp-admin/"],
-  "crawl_frequency_days": 25,
-  "crawl_delay_seconds": 1
+  "crawl_frequency_days": 25
 }

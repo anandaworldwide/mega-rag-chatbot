@@ -13,6 +13,5 @@
     "^/ask/answerer/",
     "^/video/locations/"
   ],
-  "crawl_frequency_days": 7,
-  "crawl_delay_seconds": 1
+  "crawl_frequency_days": 7
 }
