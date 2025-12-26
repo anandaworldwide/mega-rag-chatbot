@@ -9,6 +9,50 @@
 
 Deploy the Ananda crawler to AWS ECS Fargate for scheduled execution.
 
+## 🔄 Quick Reference: Switching Between Cloud and Local
+
+**⚠️ CRITICAL**: Never run cloud and local crawlers simultaneously - this causes duplicate crawling and database
+conflicts.
+
+### Cloud → Local (For Debugging)
+
+```bash
+# 1. Disable cloud schedule
+aws scheduler update-schedule --name ananda-crawler-start --region us-west-1 --state DISABLED \
+  --schedule-expression "cron(0 * * * ? *)" --schedule-expression-timezone "America/Los_Angeles" \
+  --flexible-time-window '{"Mode":"OFF"}' \
+  --target "$(aws scheduler get-schedule --name ananda-crawler-start --region us-west-1 --query 'Target' --output json)"
+
+# 2. Stop running cloud tasks
+TASK_ARNS=$(aws ecs list-tasks --cluster ananda-crawler-cluster --region us-west-1 --query 'taskArns[]' --output text)
+for TASK_ARN in $TASK_ARNS; do [ "$TASK_ARN" != "None" ] && aws ecs stop-task --cluster ananda-crawler-cluster --task "$TASK_ARN" --region us-west-1; done
+
+# 3. Download database from EFS
+cd data_ingestion/crawler/bin && ./download-database-from-efs.sh ananda-public
+
+# 4. Start local daemon
+cd ../.. && ./manage_crawler.sh start ananda-public
+```
+
+### Local → Cloud (Back to Production)
+
+```bash
+# 1. Stop local daemon
+cd data_ingestion/crawler && ./manage_crawler.sh stop ananda-public
+
+# 2. Upload database to EFS
+./copy-database-to-efs.sh
+
+# 3. Enable cloud schedule
+aws scheduler update-schedule --name ananda-crawler-start --region us-west-1 --state ENABLED \
+  --schedule-expression "cron(0 * * * ? *)" --schedule-expression-timezone "America/Los_Angeles" \
+  --flexible-time-window '{"Mode":"OFF"}' \
+  --target "$(aws scheduler get-schedule --name ananda-crawler-start --region us-west-1 --query 'Target' --output json)"
+```
+
+**Full details**: See [Switching Between Cloud and Local Operation](#switching-between-cloud-and-local-operation)
+section below.
+
 ## 🚀 Cost Optimization Available
 
 **New**: Automatic Fargate Spot capacity with 70%+ cost savings! See [SPOT-CAPACITY-README.md](SPOT-CAPACITY-README.md)
@@ -193,63 +237,303 @@ aws logs tail /ecs/ananda-crawler --follow --region us-west-1
 **What to look for**: Task starts successfully, logs show crawler initialization, no database/EFS mount errors, crawler
 begins processing URLs. With Spot capacity, check that tasks show `capacityProviderName` as your Spot provider.
 
-## Transition Period: Laptop ↔ Cloud
+## Switching Between Cloud and Local Operation
 
-During transition, you can run on either laptop or cloud, but **never both simultaneously**.
+> **⚠️ CRITICAL**: The crawler can run in **either** cloud mode **or** local mode, but **NEVER both simultaneously**.
+> Running both at the same time will cause duplicate crawling, database conflicts, and data corruption.
 
-### Stop Laptop, Start Cloud
+### Quick Reference
+
+| Operation         | Cloud → Local                 | Local → Cloud   |
+| ----------------- | ----------------------------- | --------------- |
+| **Stop cloud**    | Disable schedule + stop tasks | N/A             |
+| **Sync database** | Download from EFS             | Upload to EFS   |
+| **Start local**   | Start daemon                  | N/A             |
+| **Start cloud**   | N/A                           | Enable schedule |
+
+---
+
+## Switching from Cloud to Local (For Debugging/Development)
+
+Use this when you need to debug locally or run crawler on your laptop.
+
+### Step 1: Stop Cloud Crawling
+
+**Disable the EventBridge schedule** (prevents automatic hourly runs):
 
 ```bash
-# 1. Stop laptop service
-./manage_crawler.sh stop
+cd data_ingestion/crawler
 
-# 2. Cloud runs automatically on schedule (hourly 7am-11pm PT)
-# Or trigger a manual run:
+# Disable the schedule
+aws scheduler update-schedule --name ananda-crawler-start --region us-west-1 --state DISABLED \
+  --schedule-expression "cron(0 * * * ? *)" --schedule-expression-timezone "America/Los_Angeles" \
+  --flexible-time-window '{"Mode":"OFF"}' \
+  --target "$(aws scheduler get-schedule --name ananda-crawler-start --region us-west-1 --query 'Target' --output json)"
+```
+
+**Stop any currently running cloud tasks**:
+
+```bash
+# List running tasks
+aws ecs list-tasks --cluster ananda-crawler-cluster --region us-west-1
+
+# Stop all running tasks (if any)
+TASK_ARNS=$(aws ecs list-tasks --cluster ananda-crawler-cluster --region us-west-1 --query 'taskArns[]' --output text)
+for TASK_ARN in $TASK_ARNS; do
+  [ "$TASK_ARN" != "None" ] && aws ecs stop-task --cluster ananda-crawler-cluster --task "$TASK_ARN" --region us-west-1
+done
+
+# Verify no tasks are running
+aws ecs list-tasks --cluster ananda-crawler-cluster --region us-west-1
+# Should return empty or "None"
+```
+
+**Verify schedule is disabled**:
+
+```bash
+aws scheduler get-schedule --name ananda-crawler-start --region us-west-1 \
+  --query '{State:State,Schedule:ScheduleExpression}' --output table
+# State should show: DISABLED
+```
+
+### Step 2: Download Database from Cloud (EFS)
+
+**Download the production database** to sync your local state with cloud:
+
+```bash
+cd data_ingestion/crawler/bin
+./download-database-from-efs.sh ananda-public
+```
+
+This will:
+
+- Start a temporary ECS task to access EFS
+- Copy database from EFS to S3 (temporary)
+- Download database to `data_ingestion/crawler/db/crawler_queue_ananda-public.db`
+- Clean up temporary resources
+
+**Verify database downloaded**:
+
+```bash
+ls -lh data_ingestion/crawler/db/crawler_queue_ananda-public.db
+# Should show recent file with size > 0
+```
+
+### Step 3: Start Local Crawler
+
+**Start the local daemon**:
+
+```bash
+cd data_ingestion/crawler
+./manage_crawler.sh start ananda-public
+```
+
+**Verify it's running**:
+
+```bash
+./manage_crawler.sh status ananda-public
+# Should show running processes and recent log activity
+```
+
+**Monitor logs in real-time**:
+
+```bash
+./manage_crawler.sh logs ananda-public
+# Or directly:
+tail -f ~/Library/Logs/AnandaCrawler/crawler_ananda-public.log
+```
+
+---
+
+## Switching from Local to Cloud (Back to Production)
+
+Use this when you're done debugging locally and want to resume cloud crawling.
+
+### Step 1: Stop Local Crawler
+
+**Stop the local daemon**:
+
+```bash
+cd data_ingestion/crawler
+./manage_crawler.sh stop ananda-public
+```
+
+**Verify it's stopped**:
+
+```bash
+./manage_crawler.sh status ananda-public
+# Should show no running processes
+```
+
+**Check for any stuck processes**:
+
+```bash
+ps aux | grep -E "(crawler_supervisor|website_crawler)" | grep -v grep
+# Should return nothing
+```
+
+### Step 2: Upload Database to Cloud (EFS)
+
+**Upload your local database** to sync cloud state with local changes:
+
+```bash
+cd data_ingestion/crawler
+./copy-database-to-efs.sh
+```
+
+This will:
+
+- Find local database at `data_ingestion/crawler/db/crawler_queue_ananda-public.db`
+- Start a temporary ECS task to access EFS
+- Copy database to `/app/data/db/` on EFS
+- Verify copy succeeded
+- Clean up temporary resources
+
+**Verify database uploaded** (optional):
+
+```bash
+# Check EFS file size (should match local)
+aws efs describe-file-systems --region us-west-1 \
+  --query "FileSystems[?Name=='ananda-crawler-efs']" --output table
+```
+
+### Step 3: Enable Cloud Crawling
+
+**Enable the EventBridge schedule** (resumes automatic hourly runs):
+
+```bash
+cd data_ingestion/crawler
+
+# Enable the schedule
+aws scheduler update-schedule --name ananda-crawler-start --region us-west-1 --state ENABLED \
+  --schedule-expression "cron(0 * * * ? *)" --schedule-expression-timezone "America/Los_Angeles" \
+  --flexible-time-window '{"Mode":"OFF"}' \
+  --target "$(aws scheduler get-schedule --name ananda-crawler-start --region us-west-1 --query 'Target' --output json)"
+```
+
+**Verify schedule is enabled**:
+
+```bash
+aws scheduler get-schedule --name ananda-crawler-start --region us-west-1 \
+  --query '{State:State,Schedule:ScheduleExpression}' --output table
+# State should show: ENABLED
+```
+
+**Optionally trigger an immediate run** (to test):
+
+```bash
 aws ecs run-task --cluster ananda-crawler-cluster --region us-west-1 \
   --task-definition ananda-crawler-task \
   --capacity-provider-strategy capacityProvider=FARGATE_SPOT,weight=95 capacityProvider=FARGATE,weight=5 \
   --network-configuration "awsvpcConfiguration={subnets=[subnet-69894a33],securityGroups=[sg-00cff461f9ad3d8b2],assignPublicIp=ENABLED}"
-
-# 3. Check status
-aws ecs list-tasks --cluster ananda-crawler-cluster --region us-west-1
 ```
 
-### Stop Cloud, Start Laptop
+**Monitor cloud logs**:
 
 ```bash
-# 1. Stop any running cloud tasks
-TASK_ARN=$(aws ecs list-tasks --cluster ananda-crawler-cluster --region us-west-1 --query 'taskArns[0]' --output text)
-aws ecs stop-task --cluster ananda-crawler-cluster --task "$TASK_ARN" --region us-west-1
-
-# 2. Start laptop service
-./manage_crawler.sh start
-
-# 3. Verify it's running
-./manage_crawler.sh status
+aws logs tail /ecs/ananda-crawler --follow --region us-west-1
 ```
 
-### Schedule Management
+---
 
-```bash
-# Check schedule status
-aws scheduler get-schedule --name ananda-crawler-start --region us-west-1 --query '{State:State,Schedule:ScheduleExpression}' --output table
+## Verification Checklist
 
-# Disable schedule (for manual control)
-aws scheduler update-schedule --name ananda-crawler-start --region us-west-1 --state DISABLED \
-  --schedule-expression "cron(0 7-23 * * ? *)" --schedule-expression-timezone "America/Los_Angeles" \
-  --flexible-time-window '{"Mode":"OFF"}' --target "$(aws scheduler get-schedule --name ananda-crawler-start --region us-west-1 --query 'Target' --output json)"
+After switching, always verify:
 
-# Enable schedule
-aws scheduler update-schedule --name ananda-crawler-start --region us-west-1 --state ENABLED \
-  --schedule-expression "cron(0 7-23 * * ? *)" --schedule-expression-timezone "America/Los_Angeles" \
-  --flexible-time-window '{"Mode":"OFF"}' --target "$(aws scheduler get-schedule --name ananda-crawler-start --region us-west-1 --query 'Target' --output json)"
-```
+### ✅ Cloud → Local Checklist
 
-**Important**: Always verify one is stopped before starting the other to avoid duplicate crawling. If switching, you may
-want to copy the database again:
+- [ ] EventBridge schedule shows `DISABLED`
+- [ ] No running ECS tasks (`aws ecs list-tasks` returns empty)
+- [ ] Local database file exists and is recent
+- [ ] Local daemon is running (`./manage_crawler.sh status`)
+- [ ] Local logs show crawler activity (`tail -f` shows new entries)
 
-- **Laptop → Cloud**: Run `copy-database-to-efs.sh`
-- **Cloud → Laptop**: Copy from EFS to local (requires ECS exec or EC2 instance)
+### ✅ Local → Cloud Checklist
+
+- [ ] Local daemon is stopped (`./manage_crawler.sh status` shows no processes)
+- [ ] Database uploaded successfully (`copy-database-to-efs.sh` completed)
+- [ ] EventBridge schedule shows `ENABLED`
+- [ ] Cloud logs show crawler activity (check CloudWatch)
+
+---
+
+## Database Sync Notes
+
+**When to sync databases**:
+
+- **Cloud → Local**: Always download before starting local crawler (ensures you have latest state)
+- **Local → Cloud**: Always upload before enabling cloud schedule (ensures cloud has your changes)
+
+**What gets synced**:
+
+- SQLite database (`crawler_queue_${SITE}.db`) contains:
+  - URL queue state
+  - Crawl history and timestamps
+  - Content hashes for change detection
+  - Failed URL retry information
+
+**What doesn't get synced**:
+
+- Log files (separate in cloud vs local)
+- Lock files (local vs cloud use different mechanisms)
+- Temporary browser state
+
+---
+
+## Troubleshooting Switching Issues
+
+### Both crawlers running simultaneously
+
+**Symptoms**: Duplicate URLs being processed, database errors, lock conflicts
+
+**Fix**:
+
+1. Stop both immediately:
+
+   ```bash
+   # Stop local
+   ./manage_crawler.sh stop ananda-public
+
+   # Stop cloud
+   aws scheduler update-schedule --name ananda-crawler-start --region us-west-1 --state DISABLED ...
+   TASK_ARNS=$(aws ecs list-tasks --cluster ananda-crawler-cluster --region us-west-1 --query 'taskArns[]' --output text)
+   for TASK_ARN in $TASK_ARNS; do aws ecs stop-task --cluster ananda-crawler-cluster --task "$TASK_ARN" --region us-west-1; done
+   ```
+
+2. Verify both stopped
+3. Choose one mode and start it properly
+
+### Database sync failed
+
+**Symptoms**: `copy-database-to-efs.sh` or `download-database-from-efs.sh` fails
+
+**Fix**:
+
+1. Check EFS mount targets exist:
+
+   ```bash
+   EFS_ID=$(aws efs describe-file-systems --region us-west-1 --query "FileSystems[?Name=='ananda-crawler-efs'].FileSystemId" --output text)
+   aws efs describe-mount-targets --file-system-id "$EFS_ID" --region us-west-1
+   ```
+
+2. Verify task definition has EFS mount configured
+3. Check CloudWatch logs for ECS task errors
+4. Try manual copy via ECS exec (see troubleshooting section)
+
+### Schedule won't enable/disable
+
+**Symptoms**: `aws scheduler update-schedule` fails
+
+**Fix**:
+
+1. Verify schedule exists:
+
+   ```bash
+   aws scheduler get-schedule --name ananda-crawler-start --region us-west-1
+   ```
+
+2. Check IAM permissions for EventBridge Scheduler
+3. Verify target ARN is valid (task definition exists)
 
 ## Security Hardening (NAT-less Configuration)
 

@@ -33,9 +33,10 @@ class CrawlerSupervisor:
         # Local: .../data_ingestion/crawler/crawler_supervisor.py -> crawler_dir = same
         self.crawler_dir = script_dir
 
-        # Project dir: local = parent.parent.parent, Docker = /app
-        if (script_dir.parent.parent.parent / "data_ingestion").exists():
-            self.project_dir = script_dir.parent.parent.parent
+        # Project dir: local = parent.parent (crawler -> data_ingestion -> project root)
+        # Docker = /app
+        if (script_dir.parent.parent / "data_ingestion").exists():
+            self.project_dir = script_dir.parent.parent
         else:
             self.project_dir = script_dir.parent  # /app in Docker
         # Support DATA_DIR environment variable for EFS mounts (cloud deployment)
@@ -147,6 +148,7 @@ class CrawlerSupervisor:
 
         cmd = [
             sys.executable,
+            "-u",  # Unbuffered output for real-time logs
             str(self.crawler_dir / "website_crawler.py"),
             "--site",
             self.site_id,
@@ -173,16 +175,44 @@ class CrawlerSupervisor:
                 process.wait(timeout=60 * 60)
                 return process.returncode if process.returncode is not None else 1
             else:
-                # Local: write to log file
-                with open(crawler_log, "a") as log_file:
-                    result = subprocess.run(
+                # Local: write to log file with real-time output
+                # Read lines and write immediately with explicit flushing
+                env = os.environ.copy()
+                env["PYTHONUNBUFFERED"] = "1"
+
+                # Open file in append mode with line buffering
+                # Context manager keeps file open while subprocess runs
+                with open(crawler_log, "a", buffering=1) as log_file:  # Line buffered
+                    process = subprocess.Popen(
                         cmd,
                         cwd=self.crawler_dir,
-                        stdout=log_file,
+                        stdout=subprocess.PIPE,
                         stderr=subprocess.STDOUT,
-                        timeout=60 * 60,
+                        env=env,
+                        bufsize=1,  # Line buffered
+                        text=True,  # Text mode
                     )
-                return result.returncode
+
+                    # Read lines in real-time and write immediately
+                    if process.stdout is None:
+                        self.logger.error("Process stdout is None - cannot read output")
+                        process.wait(timeout=60 * 60)
+                        return (
+                            process.returncode if process.returncode is not None else 1
+                        )
+
+                    try:
+                        # Read line by line and flush immediately
+                        for line in iter(process.stdout.readline, ""):
+                            log_file.write(line)
+                            log_file.flush()  # Force immediate write
+                        process.wait(timeout=60 * 60)
+                    finally:
+                        if process.poll() is None:
+                            process.terminate()
+                            process.wait(timeout=5)
+
+                    return process.returncode if process.returncode is not None else 1
         except subprocess.TimeoutExpired:
             self.logger.error("Crawler instance timed out after 1 hour")
             return 1
