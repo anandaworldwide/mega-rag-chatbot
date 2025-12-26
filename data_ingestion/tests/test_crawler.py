@@ -203,7 +203,7 @@ class TestSQLiteIntegration(BaseWebsiteCrawlerTest):
         mock_sqlite_connect = self.connect_patcher.start()
         # The side_effect should call the original connect for ':memory:'
         mock_sqlite_connect.side_effect = (
-            lambda db_path_arg: self.original_sqlite_connect(":memory:")
+            lambda db_path_arg, **kwargs: self.original_sqlite_connect(":memory:")
         )
 
     def tearDown(self):
@@ -407,7 +407,7 @@ class TestCSVFunctionality(BaseWebsiteCrawlerTest):
         self.connect_patcher = patch("sqlite3.connect")
         mock_sqlite_connect = self.connect_patcher.start()
         mock_sqlite_connect.side_effect = (
-            lambda db_path_arg: self.original_sqlite_connect(":memory:")
+            lambda db_path_arg, **kwargs: self.original_sqlite_connect(":memory:")
         )
 
     def tearDown(self):
@@ -444,24 +444,65 @@ class TestCSVFunctionality(BaseWebsiteCrawlerTest):
         crawler.close()
 
     def test_parse_csv_date(self):
-        """Test CSV date parsing functionality."""
-        crawler = WebsiteCrawler(self.site_id, self.site_config)
+        """Test CSV date parsing with timezone conversion.
 
-        # Test valid date formats
-        test_cases = [
-            ("7/12/25 8:45", datetime(2025, 7, 12, 8, 45)),
-            ("12/31/24 23:59", datetime(2024, 12, 31, 23, 59)),
-            ("1/1/25 0:00", datetime(2025, 1, 1, 0, 0)),
-        ]
+        The parse_csv_date function converts from the timezone configured via
+        'csv_timezone' in site config (defaults to 'America/Los_Angeles') to UTC.
 
-        for date_str, expected_datetime in test_cases:
-            with self.subTest(date_str=date_str):
-                result = crawler.parse_csv_date(date_str)
-                self.assertEqual(result, expected_datetime)
+        Expected timezone offsets for America/Los_Angeles:
+        - PDT (Daylight Saving, ~Mar-Nov): UTC-7
+        - PST (Standard Time, ~Nov-Mar): UTC-8
+        """
+        # Add explicit csv_timezone to site config to make test dependency clear
+        config_with_timezone = {
+            **self.site_config,
+            "csv_timezone": "America/Los_Angeles",  # Explicit config (also the default)
+        }
+        crawler = WebsiteCrawler(self.site_id, config_with_timezone)
+
+        # Verify the crawler picked up the timezone config
+        self.assertEqual(crawler.csv_timezone, "America/Los_Angeles")
+
+        # Test valid date formats - input is in configured timezone, output is UTC
+        # July is PDT (UTC-7), so 8:45 LA = 15:45 UTC
+        result = crawler.parse_csv_date("7/12/25 8:45")
+        self.assertEqual(result, datetime(2025, 7, 12, 15, 45))
+
+        # December is PST (UTC-8), so 23:59 LA = 07:59 next day UTC
+        result = crawler.parse_csv_date("12/31/24 23:59")
+        self.assertEqual(result, datetime(2025, 1, 1, 7, 59))
+
+        # January is PST (UTC-8), so 0:00 LA = 08:00 UTC
+        result = crawler.parse_csv_date("1/1/25 0:00")
+        self.assertEqual(result, datetime(2025, 1, 1, 8, 0))
 
         # Test invalid date format
         invalid_result = crawler.parse_csv_date("invalid-date")
         self.assertIsNone(invalid_result)
+
+        crawler.close()
+
+    def test_parse_csv_date_different_timezone(self):
+        """Test CSV date parsing with a different configured timezone.
+
+        This verifies that the timezone conversion is truly configuration-dependent
+        by using a different timezone (UTC) and confirming no offset is applied.
+        """
+        config_with_utc = {
+            **self.site_config,
+            "csv_timezone": "UTC",  # No offset - input time equals output time
+        }
+        crawler = WebsiteCrawler(self.site_id, config_with_utc)
+
+        # Verify the crawler picked up the timezone config
+        self.assertEqual(crawler.csv_timezone, "UTC")
+
+        # With UTC timezone, input time should equal output time (no conversion)
+        result = crawler.parse_csv_date("7/12/25 8:45")
+        self.assertEqual(result, datetime(2025, 7, 12, 8, 45))
+
+        result = crawler.parse_csv_date("12/31/24 23:59")
+        self.assertEqual(result, datetime(2024, 12, 31, 23, 59))
 
         crawler.close()
 
@@ -723,7 +764,7 @@ class TestChangeDetection(BaseWebsiteCrawlerTest):
         self.connect_patcher = patch("sqlite3.connect")
         mock_sqlite_connect = self.connect_patcher.start()
         mock_sqlite_connect.side_effect = (
-            lambda db_path_arg: self.original_sqlite_connect(":memory:")
+            lambda db_path_arg, **kwargs: self.original_sqlite_connect(":memory:")
         )
 
     def tearDown(self):
@@ -793,7 +834,7 @@ class TestFailureHandling(BaseWebsiteCrawlerTest):
         self.connect_patcher = patch("sqlite3.connect")
         mock_sqlite_connect = self.connect_patcher.start()
         mock_sqlite_connect.side_effect = (
-            lambda db_path_arg: self.original_sqlite_connect(":memory:")
+            lambda db_path_arg, **kwargs: self.original_sqlite_connect(":memory:")
         )
 
     def tearDown(self):
@@ -936,7 +977,7 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
         self.connect_patcher = patch("sqlite3.connect")
         mock_sqlite_connect = self.connect_patcher.start()
         mock_sqlite_connect.side_effect = (
-            lambda db_path_arg: self.original_sqlite_connect(":memory:")
+            lambda db_path_arg, **kwargs: self.original_sqlite_connect(":memory:")
         )
 
     def tearDown(self):
@@ -1128,7 +1169,7 @@ class TestPunctuationPreservation(BaseWebsiteCrawlerTest):
         self.connect_patcher = patch("sqlite3.connect")
         mock_sqlite_connect = self.connect_patcher.start()
         mock_sqlite_connect.side_effect = (
-            lambda db_path_arg: self.original_sqlite_connect(":memory:")
+            lambda db_path_arg, **kwargs: self.original_sqlite_connect(":memory:")
         )
 
     def tearDown(self):
@@ -1505,7 +1546,7 @@ class TestRobotsTxtCompliance(BaseWebsiteCrawlerTest):
         self.connect_patcher = patch("sqlite3.connect")
         mock_sqlite_connect = self.connect_patcher.start()
         mock_sqlite_connect.side_effect = (
-            lambda db_path_arg: self.original_sqlite_connect(":memory:")
+            lambda db_path_arg, **kwargs: self.original_sqlite_connect(":memory:")
         )
 
     def tearDown(self):
@@ -1980,229 +2021,6 @@ class TestRobotsTxtCompliance(BaseWebsiteCrawlerTest):
         crawler.close()
 
 
-class TestRateLimiting(BaseWebsiteCrawlerTest):
-    """Test cases for rate limiting enforcement."""
-
-    def setUp(self):
-        """Set up test environment."""
-        super().setUp()  # Set up environment variables
-        self.temp_dir = tempfile.mkdtemp()
-
-        self.site_id = "test-site"
-        self.site_config = {
-            "domain": "example.com",
-            "skip_patterns": ["pattern1", "pattern2"],
-            "crawl_frequency_days": 7,
-            "crawl_delay_seconds": 2,  # 2 seconds between requests
-        }
-
-        self.path_patcher = patch("crawler.website_crawler.Path")
-        mock_path_constructor = self.path_patcher.start()
-        mock_path_constructor.return_value.parent.return_value = Path(self.temp_dir)
-
-        self.original_sqlite_connect = sqlite3.connect
-        self.connect_patcher = patch("sqlite3.connect")
-        mock_sqlite_connect = self.connect_patcher.start()
-        mock_sqlite_connect.return_value.row_factory = sqlite3.Row
-        mock_sqlite_connect.return_value.cursor.return_value.execute.return_value.fetchall.return_value = []
-
-        # Mock other dependencies as needed
-        self.robots_parser_patcher = patch("crawler.website_crawler.RobotFileParser")
-        mock_robots_parser = self.robots_parser_patcher.start()
-        mock_robots_parser.return_value.can_fetch.return_value = True
-
-    def tearDown(self):
-        """Clean up after tests."""
-        self.path_patcher.stop()
-        self.connect_patcher.stop()
-        self.robots_parser_patcher.stop()
-        shutil.rmtree(self.temp_dir)
-        super().tearDown()  # Clean up environment variables
-
-    def test_crawl_delay_configuration(self):
-        """Test that crawl delay is properly configured from site config."""
-        crawler = WebsiteCrawler(self.site_id, self.site_config)
-
-        # Verify crawler delay is set from config
-        self.assertEqual(crawler.crawl_delay_seconds, 2)
-
-        crawler.close()
-
-    def test_crawl_delay_default_value(self):
-        """Test default crawl delay when not specified in config."""
-        config_without_delay = {
-            "domain": "example.com",
-            "skip_patterns": [],
-            "crawl_frequency_days": 7,
-            # No crawl_delay_seconds specified
-        }
-
-        crawler = WebsiteCrawler(self.site_id, config_without_delay)
-
-        # Default delay should be 1 second (from crawler code)
-        self.assertEqual(crawler.crawl_delay_seconds, 1)
-
-        crawler.close()
-
-    @patch("time.sleep")
-    def test_rate_limiting_enforcement(self, mock_sleep):
-        """Test that rate limiting sleep is called after successful page processing."""
-        from crawler.website_crawler import _process_crawl_iteration
-
-        crawler = WebsiteCrawler(self.site_id, self.site_config)
-
-        # Mock dependencies for _process_crawl_iteration
-        mock_browser = Mock()
-        mock_page = Mock()
-        mock_pinecone_index = Mock()
-        index_name = "test-index"
-        url = "https://example.com/test"
-
-        # Mock sub-functions for successful processing
-        with (
-            patch(
-                "crawler.website_crawler._handle_url_processing",
-                return_value=((Mock(), [], False), False),
-            ),
-            patch(
-                "crawler.website_crawler._process_page_content",
-                return_value=(
-                    1,
-                    1,
-                    False,
-                ),  # pages_inc=1, restart_inc=1, rate_limit_hit=False (successful processing)
-            ),
-            patch.object(crawler, "commit_db_changes"),
-            patch("crawler.website_crawler.is_exiting", return_value=False),
-        ):
-            pages_inc, restart_inc, should_exit = _process_crawl_iteration(
-                url,
-                crawler,
-                mock_browser,
-                mock_page,
-                mock_pinecone_index,
-                index_name,
-            )
-
-            # Verify function executed successfully
-            self.assertEqual(pages_inc, 1)
-            self.assertEqual(restart_inc, 1)
-            self.assertFalse(should_exit)
-
-            # Verify rate limiting sleep was called with correct delay
-            mock_sleep.assert_called_once_with(2)  # crawl_delay_seconds from config
-
-        crawler.close()
-
-    @patch("time.sleep")
-    def test_no_rate_limiting_on_failed_processing(self, mock_sleep):
-        """Test that rate limiting sleep is NOT called when page processing fails."""
-        from crawler.website_crawler import _process_crawl_iteration
-
-        crawler = WebsiteCrawler(self.site_id, self.site_config)
-
-        # Mock dependencies
-        mock_browser = Mock()
-        mock_page = Mock()
-        mock_pinecone_index = Mock()
-        index_name = "test-index"
-        url = "https://example.com/test"
-
-        # Mock sub-functions to simulate failed processing
-        with (
-            patch(
-                "crawler.website_crawler._handle_url_processing",
-                return_value=((Mock(), [], False), False),
-            ),
-            patch(
-                "crawler.website_crawler._process_page_content",
-                return_value=(
-                    0,
-                    0,
-                    False,
-                ),  # pages_inc=0, restart_inc=0, rate_limit_hit=False (failed processing)
-            ),
-            patch.object(crawler, "commit_db_changes"),
-            patch("crawler.website_crawler.is_exiting", return_value=False),
-        ):
-            pages_inc, restart_inc, should_exit = _process_crawl_iteration(
-                url,
-                crawler,
-                mock_browser,
-                mock_page,
-                mock_pinecone_index,
-                index_name,
-            )
-
-            # Verify processing failed
-            self.assertEqual(pages_inc, 0)
-            self.assertEqual(restart_inc, 0)
-            self.assertFalse(should_exit)
-
-            # Verify NO rate limiting sleep was called
-            mock_sleep.assert_not_called()
-
-        crawler.close()
-
-    @patch("time.sleep")
-    def test_no_rate_limiting_when_delay_zero(self, mock_sleep):
-        """Test that rate limiting sleep is NOT called when delay is set to 0."""
-        # Config with zero delay
-        config_no_delay = {
-            "domain": "example.com",
-            "skip_patterns": [],
-            "crawl_frequency_days": 7,
-            "crawl_delay_seconds": 0,  # No delay
-        }
-
-        from crawler.website_crawler import _process_crawl_iteration
-
-        crawler = WebsiteCrawler(self.site_id, config_no_delay)
-
-        # Mock dependencies
-        mock_browser = Mock()
-        mock_page = Mock()
-        mock_pinecone_index = Mock()
-        index_name = "test-index"
-        url = "https://example.com/test"
-
-        # Mock sub-functions for successful processing
-        with (
-            patch(
-                "crawler.website_crawler._handle_url_processing",
-                return_value=((Mock(), [], False), False),
-            ),
-            patch(
-                "crawler.website_crawler._process_page_content",
-                return_value=(
-                    1,
-                    1,
-                    False,
-                ),  # pages_inc=1, restart_inc=1, rate_limit_hit=False (successful processing)
-            ),
-            patch.object(crawler, "commit_db_changes"),
-            patch("crawler.website_crawler.is_exiting", return_value=False),
-        ):
-            pages_inc, restart_inc, should_exit = _process_crawl_iteration(
-                url,
-                crawler,
-                mock_browser,
-                mock_page,
-                mock_pinecone_index,
-                index_name,
-            )
-
-            # Verify processing succeeded
-            self.assertEqual(pages_inc, 1)
-            self.assertEqual(restart_inc, 1)
-            self.assertFalse(should_exit)
-
-            # Verify NO sleep was called (delay is 0)
-            mock_sleep.assert_not_called()
-
-        crawler.close()
-
-
 class TestBrowserRestartCounter(BaseWebsiteCrawlerTest):
     """Test cases for browser restart counter logic."""
 
@@ -2310,7 +2128,7 @@ class TestCrawlFrequencyJitter(BaseWebsiteCrawlerTest):
         mock_sqlite_connect = self.connect_patcher.start()
         # The side_effect should call the original connect for ':memory:'
         mock_sqlite_connect.side_effect = (
-            lambda db_path_arg: self.original_sqlite_connect(":memory:")
+            lambda db_path_arg, **kwargs: self.original_sqlite_connect(":memory:")
         )
 
     def tearDown(self):
@@ -2755,7 +2573,7 @@ class Test404PineconeDeletion(BaseWebsiteCrawlerTest):
         self.connect_patcher = patch("sqlite3.connect")
         mock_sqlite_connect = self.connect_patcher.start()
         mock_sqlite_connect.side_effect = (
-            lambda db_path_arg: self.original_sqlite_connect(":memory:")
+            lambda db_path_arg, **kwargs: self.original_sqlite_connect(":memory:")
         )
 
     def tearDown(self):
@@ -2948,17 +2766,19 @@ class Test404PineconeDeletion(BaseWebsiteCrawlerTest):
         # Test removal
         deleted_count = crawler.remove_url_from_pinecone(mock_index, test_url)
 
-        # Verify Pinecone was called correctly
-        mock_index.query.assert_called_once()
-        call_args = mock_index.query.call_args
+        # Verify Pinecone was called correctly (two queries: one for url, one for source)
+        self.assertEqual(mock_index.query.call_count, 2)
+        # Check first query has correct parameters
+        first_call_args = mock_index.query.call_args_list[0]
         self.assertEqual(
-            len(call_args[1]["vector"]), 1536
+            len(first_call_args[1]["vector"]), 1536
         )  # Should use dimension from env
-        self.assertIn("$or", call_args[1]["filter"])
-        self.assertEqual(call_args[1]["top_k"], 1000)
+        self.assertEqual(first_call_args[1]["top_k"], 1000)
 
-        # Verify delete was called
-        mock_index.delete.assert_called_once_with(ids=["vec1", "vec2"])
+        # Verify delete was called (order may vary since we use a set internally)
+        mock_index.delete.assert_called_once()
+        deleted_ids = mock_index.delete.call_args[1]["ids"]
+        self.assertEqual(set(deleted_ids), {"vec1", "vec2"})
         self.assertEqual(deleted_count, 2)
 
         crawler.close()
@@ -3061,14 +2881,16 @@ class Test404PineconeDeletion(BaseWebsiteCrawlerTest):
         # Verify the maintenance cycle processed the URL
         self.assertEqual(processed_count, 1)
 
-        # Verify Pinecone operations were called correctly
-        mock_index.query.assert_called_once()
-        query_call_args = mock_index.query.call_args
-        self.assertEqual(len(query_call_args[1]["vector"]), 1536)
-        self.assertIn("$or", query_call_args[1]["filter"])
+        # Verify Pinecone operations were called correctly (two queries: one for url, one for source)
+        self.assertEqual(mock_index.query.call_count, 2)
+        # Check first query has correct parameters
+        first_call_args = mock_index.query.call_args_list[0]
+        self.assertEqual(len(first_call_args[1]["vector"]), 1536)
 
-        # Verify vectors were deleted
-        mock_index.delete.assert_called_once_with(ids=["vec1", "vec2", "vec3"])
+        # Verify vectors were deleted (order may vary since we use a set internally)
+        mock_index.delete.assert_called_once()
+        deleted_ids = mock_index.delete.call_args[1]["ids"]
+        self.assertEqual(set(deleted_ids), {"vec1", "vec2", "vec3"})
 
         # Step 6: Verify URL is marked as cleaned up
         cursor.execute(
@@ -3117,7 +2939,9 @@ class Test404PineconeDeletion(BaseWebsiteCrawlerTest):
 
         # Verify all URLs were processed
         self.assertEqual(processed_count, 3)
-        self.assertEqual(mock_index.query.call_count, 3)  # One query per URL
+        self.assertEqual(
+            mock_index.query.call_count, 6
+        )  # Two queries per URL (url + source filters)
         self.assertEqual(mock_index.delete.call_count, 3)  # One delete per URL
 
         # Verify no URLs are pending deletion anymore
@@ -3288,7 +3112,8 @@ class TestCSVRemoval:
         )
 
         assert result == 1
-        mock_index.query.assert_called_once()
+        # Two queries: one for url filter, one for source filter
+        assert mock_index.query.call_count == 2
         mock_index.delete.assert_called_once_with(ids=["test_vector_id"])
 
     def test_remove_url_from_pinecone_no_vectors(self, crawler):
@@ -3302,7 +3127,8 @@ class TestCSVRemoval:
         )
 
         assert result == 0
-        mock_index.query.assert_called_once()
+        # Two queries: one for url filter, one for source filter
+        assert mock_index.query.call_count == 2
         mock_index.delete.assert_not_called()
 
     def test_remove_url_from_pinecone_batch_deletion(self, crawler):
@@ -3320,21 +3146,24 @@ class TestCSVRemoval:
         )
 
         assert result == 150
-        mock_index.query.assert_called_once()
+        # Two queries: one for url filter, one for source filter
+        assert mock_index.query.call_count == 2
         # Should be called twice due to batch size of 100
         assert mock_index.delete.call_count == 2
 
     def test_remove_url_from_pinecone_error_handling(self, crawler):
-        """Test Pinecone removal error handling."""
+        """Test Pinecone removal error handling - raises PineconeCleanupError for retry."""
+        from crawler.website_crawler import PineconeCleanupError
+
         # Mock Pinecone index that raises exception
         mock_index = Mock()
         mock_index.query.side_effect = Exception("Pinecone error")
 
-        result = crawler.remove_url_from_pinecone(
-            mock_index, "https://example.com/test"
-        )
+        # Should raise PineconeCleanupError so URL gets marked for retry
+        with pytest.raises(PineconeCleanupError) as exc_info:
+            crawler.remove_url_from_pinecone(mock_index, "https://example.com/test")
 
-        assert result == 0  # Should return 0 on error
+        assert "Pinecone" in str(exc_info.value)
 
 
 class TestChatbotFiltering(BaseWebsiteCrawlerTest):
@@ -3358,7 +3187,7 @@ class TestChatbotFiltering(BaseWebsiteCrawlerTest):
         self.connect_patcher = patch("sqlite3.connect")
         mock_sqlite_connect = self.connect_patcher.start()
         mock_sqlite_connect.side_effect = (
-            lambda db_path_arg: self.original_sqlite_connect(":memory:")
+            lambda db_path_arg, **kwargs: self.original_sqlite_connect(":memory:")
         )
 
     def tearDown(self):

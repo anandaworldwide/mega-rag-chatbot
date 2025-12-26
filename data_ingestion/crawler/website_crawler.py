@@ -43,18 +43,15 @@ import traceback
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from functools import wraps
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any, NamedTuple
 from urllib.parse import urlparse, urlunparse
 from urllib.robotparser import RobotFileParser
 
-from dateutil import tz
-
-if TYPE_CHECKING:
-    pass
-
 # Third party imports
 from bs4 import BeautifulSoup
+from dateutil import tz
 from dotenv import load_dotenv
 from langchain_openai import OpenAIEmbeddings
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
@@ -154,6 +151,7 @@ class HealthMonitor:
         self.last_progress_time = time.time()
         self.browser = None
         self.page = None
+        self._shutdown_requested = threading.Event()
 
     def update_progress(self):
         """Update the last progress timestamp."""
@@ -205,6 +203,14 @@ class HealthMonitor:
             logging.error(f"Health check error: {e}")
             return False
 
+    def request_shutdown(self):
+        """Request graceful shutdown from main thread."""
+        self._shutdown_requested.set()
+
+    def is_shutdown_requested(self) -> bool:
+        """Check if shutdown has been requested."""
+        return self._shutdown_requested.is_set()
+
     def start_monitoring(self):
         """Start the health monitoring thread."""
 
@@ -212,8 +218,9 @@ class HealthMonitor:
             while True:
                 time.sleep(HEALTH_CHECK_INTERVAL)
                 if not self.check_health():
-                    logging.error("Health check failed - triggering restart by exiting")
-                    os._exit(2)  # Exit with code 2 to signal daemon restart
+                    logging.error("Health check failed - requesting graceful shutdown")
+                    self.request_shutdown()
+                    return  # Exit the monitoring thread
 
         thread = threading.Thread(target=monitor_loop, daemon=True)
         thread.start()
@@ -254,6 +261,59 @@ class PageContent:
     metadata: dict
 
 
+class ContentHash:
+    """Constants for content_hash field values."""
+
+    NON_HTML = "non_html"
+    NON_HTML_CONTENT = "non_html_content"
+    MEDIA_REDIRECT = "media_redirect"
+    WP_LOGIN_REDIRECT = "wp_login_redirect"
+    PINECONE_CLEANED = "pinecone_cleaned"
+    NEEDS_PINECONE_CLEANUP = "needs_pinecone_cleanup"
+    EMPTY_CONTENT = "empty_content"
+    NO_CONTENT = "no_content"
+    DELETED = "deleted"
+
+
+class Timeouts:
+    """Timeout constants in milliseconds unless noted."""
+
+    BROWSER_LAUNCH_MS = 30000
+    PAGE_DEFAULT_MS = 30000
+    BODY_SELECTOR_MS = 30000
+    HTML_FALLBACK_MS = 10000
+    NETWORK_IDLE_MS = 15000
+    BROWSER_SETUP_SECONDS = 120
+
+
+class PineconeCleanupError(Exception):
+    """Raised when Pinecone cleanup fails and URL should be retried later."""
+
+    pass
+
+
+class CrawlIterationResult(NamedTuple):
+    """Result of a single crawl loop iteration."""
+
+    pages_processed: int
+    pages_since_restart: int
+    should_exit: bool
+    should_restart: bool
+    browser_state: tuple  # (browser, page, batch_start_time, batch_results)
+    rate_limit_hit: bool
+
+
+def requires_db(method):
+    """Decorator to ensure database is initialized before method execution."""
+
+    @wraps(method)
+    def wrapper(self, *args, **kwargs):
+        self._ensure_db_initialized()
+        return method(self, *args, **kwargs)
+
+    return wrapper
+
+
 def ensure_scheme(url: str, default_scheme: str = "https") -> str:
     """Ensure a URL has a scheme, adding a default if missing."""
     parsed = urlparse(url)
@@ -283,16 +343,38 @@ class WebsiteCrawler:
         skip_robots_init: bool = False,
         dry_run: bool = False,
     ):
+        # Core configuration
         self.site_id = site_id
         self.config = site_config
         self.debug = debug
         self.dry_run = dry_run
         self.domain = self.config["domain"]
-        self.start_url = ensure_scheme(self.domain)  # Start URL is now just the domain
+        self.start_url = ensure_scheme(self.domain)
         self.skip_patterns = self.config.get("skip_patterns", [])
         self.crawl_frequency_days = self.config.get("crawl_frequency_days", 14)
 
-        # CSV mode configuration
+        # Initialize subsystems
+        self._init_csv_config()
+        self._init_robots_config(skip_robots_init)
+        self._init_lazy_loaders()
+        self._init_db_state()
+
+        # Initialize health monitor
+        self.health_monitor = HealthMonitor(self)
+
+        if self.debug:
+            logging.info(
+                "Debug mode enabled - detailed logging and screenshots will be saved"
+            )
+
+        if not skip_db_init:
+            self._init_database()
+            if retry_failed:
+                self.retry_failed_urls()
+            self._run_initialization_logic()
+
+    def _init_csv_config(self) -> None:
+        """Initialize CSV mode configuration from site config."""
         self.csv_export_url = self.config.get("csv_export_url")
         self.csv_modified_days_threshold = self.config.get(
             "csv_modified_days_threshold", 1
@@ -303,56 +385,34 @@ class WebsiteCrawler:
         self.csv_mode_enabled = bool(self.csv_export_url)
         self.force_csv_mode = False  # Set to True via --force-csv-mode flag
         self._csv_force_used = False  # Track if force bypass has been used once
-
-        # Track if we've completed initial full crawl
         self.initial_crawl_completed = False
 
-        if self.debug:
-            logging.info(
-                "Debug mode enabled - detailed logging and screenshots will be saved"
-            )
-
-        # Initialize robots.txt parser with 24-hour caching (skip for tests)
+    def _init_robots_config(self, skip_init: bool) -> None:
+        """Initialize robots.txt parser with 24-hour caching."""
         self.robots_url = f"{self.start_url.rstrip('/')}/robots.txt"
         self.robots_parser = None
         self.robots_cache_timestamp = None
         self.robots_cache_duration_hours = 24
-        if not skip_robots_init:
+        if not skip_init:
             self._load_robots_txt()
 
-        # Initialize text splitter lazily to avoid loading spaCy models in tests
+    def _init_lazy_loaders(self) -> None:
+        """Initialize lazy-loaded components (text splitter, embeddings)."""
         self._text_splitter = None
-
-        # Initialize embeddings lazily to avoid API calls in tests
         self._embeddings = None
         self._embedding_model_name = None
 
-        # Initialize health monitor
-        self.health_monitor = HealthMonitor(self)
-
-        # Set up SQLite database for crawl queue (skip for tests)
+    def _init_db_state(self) -> None:
+        """Initialize database-related state variables."""
         self.conn: sqlite3.Connection | None = None
         self.cursor: sqlite3.Cursor | None = None
         self.db_file: Path | None = None
         self.current_processing_url: str | None = None
         self._rate_limit_exit: bool = False
-
         # Track URLs that timeout within a session to avoid retry loops
-        # Key: normalized URL, Value: timeout count in this session
         self.session_timeout_counts: dict[str, int] = {}
-        self.MAX_SESSION_TIMEOUTS = (
-            2  # Skip URL after this many timeouts in one session
-        )
-
-        if not skip_db_init:
-            self._init_database()
-
-            # Handle --retry-failed flag
-            if retry_failed:
-                self.retry_failed_urls()
-
-            # Run initialization logic
-            self._run_initialization_logic()
+        self.MAX_SESSION_TIMEOUTS = 2  # Skip URL after this many timeouts
+        self.MAX_TIMEOUT_COUNTS_ENTRIES = 1000  # Max entries before cleanup
 
     def _init_database(self):
         """Initialize SQLite database - separated for testability."""
@@ -362,8 +422,8 @@ class WebsiteCrawler:
         db_dir.mkdir(parents=True, exist_ok=True)
         self.db_file = db_dir / f"crawler_queue_{self.site_id}.db"
         self.conn = sqlite3.connect(
-            str(self.db_file), timeout=30.0
-        )  # 30s busy timeout for EFS
+            str(self.db_file), timeout=30.0, check_same_thread=False
+        )  # 30s busy timeout for EFS, allow cross-thread access
         self.conn.row_factory = sqlite3.Row  # Allow dictionary-like access to rows
         self.cursor = self.conn.cursor()
 
@@ -434,11 +494,11 @@ class WebsiteCrawler:
             self._embeddings = OpenAIEmbeddings(model=model_name, chunk_size=1000)
         return self._embeddings
 
+    @requires_db
     def _run_initialization_logic(self):
         """Run the initialization logic to check if start URL should be added."""
         # Check if database is completely empty (no URLs at all)
         # Only seed with start URL if this is a fresh database with no crawl history
-        self._ensure_db_initialized()
         assert self.cursor is not None
         assert self.conn is not None
         self.cursor.execute("SELECT COUNT(*) FROM crawl_queue")
@@ -505,11 +565,11 @@ class WebsiteCrawler:
             logging.info("Robots.txt cache expired, reloading...")
             self._load_robots_txt()
 
+    @requires_db
     def add_url_to_queue(
         self, url: str, priority: int = 0, modified_date: str | None = None
     ):
         """Add URL to crawl queue if not already present, or update priority if higher"""
-        self._ensure_db_initialized()
         assert self.cursor is not None
         assert self.conn is not None
         normalized_url = self.normalize_url(url)
@@ -588,9 +648,9 @@ class WebsiteCrawler:
             logging.error(f"Error adding URL to queue: {e}")
             return "error"
 
+    @requires_db
     def retry_failed_urls(self):
         """Reset failed URLs to pending status for retry"""
-        self._ensure_db_initialized()
         assert self.cursor is not None
         assert self.conn is not None
         try:
@@ -609,9 +669,9 @@ class WebsiteCrawler:
         except Exception as e:
             logging.error(f"Error retrying failed URLs: {e}")
 
+    @requires_db
     def is_url_visited(self, url: str) -> bool:
         """Check if URL has already been successfully visited"""
-        self._ensure_db_initialized()
         assert self.cursor is not None
         normalized_url = self.normalize_url(url)
         self.cursor.execute(
@@ -620,9 +680,9 @@ class WebsiteCrawler:
         )
         return bool(self.cursor.fetchone())
 
+    @requires_db
     def is_url_in_database(self, url: str) -> bool:
         """Check if URL is already in the database (regardless of status)"""
-        self._ensure_db_initialized()
         assert self.cursor is not None
         normalized_url = self.normalize_url(url)
         self.cursor.execute(
@@ -631,9 +691,9 @@ class WebsiteCrawler:
         )
         return bool(self.cursor.fetchone())
 
+    @requires_db
     def get_next_url_to_crawl(self) -> str | None:
         """Get the next URL to crawl from the queue"""
-        self._ensure_db_initialized()
         assert self.cursor is not None
         assert self.conn is not None
         try:
@@ -708,9 +768,9 @@ class WebsiteCrawler:
             logging.error(f"Error getting next URL to crawl: {e}")
             return None
 
+    @requires_db
     def peek_next_url_to_crawl(self) -> str | None:
         """Return the next eligible URL without mutating queue state."""
-        self._ensure_db_initialized()
         assert self.cursor is not None
         try:
             self.cursor.execute(
@@ -737,14 +797,13 @@ class WebsiteCrawler:
             logging.error(f"Error peeking next URL to crawl: {e}")
             return None
 
+    @requires_db
     def _handle_404_retry_logic(
         self, normalized_url: str, error_msg: str, now: str
     ) -> bool:
         """Handle 404 retry logic. Returns True if URL was processed, False if not a 404."""
         if not error_msg or "404" not in error_msg:
             return False
-
-        self._ensure_db_initialized()
         assert self.cursor is not None
         # This is a 404 error - handle retry logic
         retry_count = 0
@@ -805,11 +864,11 @@ class WebsiteCrawler:
 
         return True
 
+    @requires_db
     def _handle_temporary_failure_retry(
         self, normalized_url: str, error_msg: str
     ) -> bool:
         """Handle temporary failure retry logic. Returns True if retry was set up, False for permanent failure."""
-        self._ensure_db_initialized()
         assert self.cursor is not None
         # Check for typical temporary failure patterns
         temporary_patterns = [
@@ -831,6 +890,7 @@ class WebsiteCrawler:
             "429",
             "temporarily",
             "try again",
+            "pinecone",  # Pinecone cleanup failures should be retried
         ]
 
         is_temporary = False
@@ -898,6 +958,7 @@ class WebsiteCrawler:
             )
             return True
 
+    @requires_db
     def mark_url_status(
         self,
         url: str,
@@ -906,7 +967,6 @@ class WebsiteCrawler:
         content_hash: str | None = None,
     ):
         """Update URL status in the database"""
-        self._ensure_db_initialized()
         assert self.cursor is not None
         assert self.conn is not None
         normalized_url = self.normalize_url(url)
@@ -987,9 +1047,9 @@ class WebsiteCrawler:
             logging.error(f"Error updating URL status: {e}")
             return False
 
+    @requires_db
     def commit_db_changes(self):
         """Commit any pending database changes"""
-        self._ensure_db_initialized()
         assert self.conn is not None
         try:
             self.conn.commit()
@@ -999,9 +1059,9 @@ class WebsiteCrawler:
             logging.error(f"Error committing database changes: {e}")
             return False
 
+    @requires_db
     def get_queue_stats(self) -> dict:
         """Get statistics about the crawl queue"""
-        self._ensure_db_initialized()
         assert self.cursor is not None
         stats = {
             "pending": 0,
@@ -1069,13 +1129,13 @@ class WebsiteCrawler:
             logging.error(f"Error getting queue stats: {e}")
             return stats
 
+    @requires_db
     def all_pending_urls_have_failed(self) -> bool:
         """Check if all pending URLs have been tried at least once (retry_count >= 1).
 
         This is used to determine if the initial crawl is effectively complete,
         even if there are still pending URLs that are just stuck in retry loops.
         """
-        self._ensure_db_initialized()
         assert self.cursor is not None
         try:
             # Count pending URLs that have never been tried (retry_count = 0)
@@ -1098,9 +1158,9 @@ class WebsiteCrawler:
             logging.error(f"Error checking pending URL retry status: {e}")
             return False
 
+    @requires_db
     def get_failed_urls(self) -> list[tuple[str, str]]:
         """Get list of failed URLs with error messages"""
-        self._ensure_db_initialized()
         assert self.cursor is not None
         failed_urls = []
         try:
@@ -1536,7 +1596,9 @@ class WebsiteCrawler:
             ]
             if any(final_path.endswith(ext) for ext in media_extensions):
                 logging.info(f"Skipping media redirect: {url} -> {final_url}")
-                self.mark_url_status(url, "visited", content_hash="media_redirect")
+                self.mark_url_status(
+                    url, "visited", content_hash=ContentHash.MEDIA_REDIRECT
+                )
                 return False, None
 
         return True, None
@@ -1612,7 +1674,7 @@ class WebsiteCrawler:
                             f"Skipping non-HTML content ({content_type}): {url}"
                         )
                         self.mark_url_status(
-                            url, "visited", content_hash="non_html_content"
+                            url, "visited", content_hash=ContentHash.NON_HTML_CONTENT
                         )
                         raise Exception(
                             f"Non-HTML content detected: {content_type}"
@@ -1631,7 +1693,9 @@ class WebsiteCrawler:
             )
             if not body_text or len(body_text) < 10:  # Very minimal content
                 logging.info(f"Skipping page with empty/minimal body content: {url}")
-                self.mark_url_status(url, "visited", content_hash="empty_content")
+                self.mark_url_status(
+                    url, "visited", content_hash=ContentHash.EMPTY_CONTENT
+                )
                 raise Exception("Empty or minimal body content")
         except Exception as content_e:
             logging.warning(f"Failed to check body content for {url}: {content_e}")
@@ -1838,7 +1902,7 @@ class WebsiteCrawler:
                         f"Ignoring WordPress login redirect: {url} -> {final_url}"
                     )
                     self.mark_url_status(
-                        url, "visited", content_hash="wp_login_redirect"
+                        url, "visited", content_hash=ContentHash.WP_LOGIN_REDIRECT
                     )
                     # Create a special marker content to signal successful handling
                     wp_redirect_content = PageContent(
@@ -1938,13 +2002,13 @@ class WebsiteCrawler:
 
         return vectors
 
+    @requires_db
     def get_urls_pending_pinecone_deletion(self) -> list[str]:
         """Get URLs marked as 'deleted' that need Pinecone cleanup."""
-        self._ensure_db_initialized()
         assert self.cursor is not None
         try:
             self.cursor.execute(
-                "SELECT url FROM crawl_queue WHERE status = 'deleted' AND content_hash != 'pinecone_cleaned'"
+                f"SELECT url FROM crawl_queue WHERE status = 'deleted' AND content_hash != '{ContentHash.PINECONE_CLEANED}'"
             )
             results = self.cursor.fetchall()
             return [row[0] for row in results] if results else []
@@ -1952,15 +2016,15 @@ class WebsiteCrawler:
             logging.error(f"Error fetching URLs pending Pinecone deletion: {e}")
             return []
 
+    @requires_db
     def mark_pinecone_cleanup_complete(self, url: str) -> bool:
         """Mark that Pinecone cleanup has been completed for a URL."""
-        self._ensure_db_initialized()
         assert self.cursor is not None
         assert self.conn is not None
         try:
             normalized_url = self.normalize_url(url)
             self.cursor.execute(
-                "UPDATE crawl_queue SET content_hash = 'pinecone_cleaned' WHERE url = ?",
+                f"UPDATE crawl_queue SET content_hash = '{ContentHash.PINECONE_CLEANED}' WHERE url = ?",
                 (normalized_url,),
             )
             self.conn.commit()
@@ -1969,9 +2033,55 @@ class WebsiteCrawler:
             logging.error(f"Error marking Pinecone cleanup complete for {url}: {e}")
             return False
 
-    def remove_url_from_pinecone(self, pinecone_index, url: str) -> int:
+    def _query_pinecone_by_field(
+        self, pinecone_index, field: str, value: str, dummy_vector: list
+    ) -> set[str]:
+        """Query Pinecone for vector IDs matching a metadata field value.
+
+        Raises:
+            PineconeCleanupError: If the query fails (e.g., dimension mismatch)
         """
-        Remove all vectors for a specific URL from Pinecone using precise metadata queries.
+        try:
+            response = pinecone_index.query(
+                vector=dummy_vector,
+                filter={field: {"$eq": value}},
+                top_k=1000,
+                include_metadata=True,
+                include_values=False,
+            )
+            if response.matches:
+                return {match.id for match in response.matches}
+            return set()
+        except Exception as e:
+            logging.warning(f"Error querying Pinecone by '{field}' field: {e}")
+            raise PineconeCleanupError(
+                f"Failed to query Pinecone by '{field}' field: {e}"
+            ) from e
+
+    def _delete_pinecone_batch(
+        self, pinecone_index, batch_ids: list[str], url: str
+    ) -> int:
+        """Delete a batch of vectors from Pinecone. Returns count deleted."""
+        try:
+            if self.dry_run:
+                logging.info(
+                    f"[DRY RUN] Would delete batch of {len(batch_ids)} vectors for URL: {url}"
+                )
+                logging.debug(
+                    f"[DRY RUN] Vector IDs: {batch_ids[:3]}{'...' if len(batch_ids) > 3 else ''}"
+                )
+            else:
+                pinecone_index.delete(ids=batch_ids)
+                logging.debug(
+                    f"Deleted batch of {len(batch_ids)} vectors for URL: {url}"
+                )
+            return len(batch_ids)
+        except Exception as e:
+            logging.error(f"Failed to delete vector batch for URL {url}: {e}")
+            return 0
+
+    def remove_url_from_pinecone(self, pinecone_index, url: str) -> int:
+        """Remove all vectors for a specific URL from Pinecone.
 
         Args:
             pinecone_index: Pinecone index instance
@@ -1980,79 +2090,55 @@ class WebsiteCrawler:
         Returns:
             Number of vectors successfully deleted (or would be deleted in dry-run mode)
         """
-        deleted_count = 0
-
         try:
-            # Query Pinecone to find all vectors with this URL in metadata
-            # Use a dummy vector for the query (we only care about metadata filtering)
-            # Get vector dimension from environment
             vector_dimension = int(os.getenv("OPENAI_EMBEDDING_DIMENSION", 3072))
             dummy_vector = [0.0] * vector_dimension
-
-            # Normalize URL for consistent matching (same as our query scripts)
             normalized_url = self.normalize_url(url)
+
             logging.debug(
                 f"Querying Pinecone for vectors with normalized URL: {normalized_url}"
             )
 
-            # Query with metadata filter to find vectors for this URL
-            # Try both 'url' and 'source' fields since the metadata structure may vary
-            query_response = pinecone_index.query(
-                vector=dummy_vector,
-                filter={"$or": [{"url": normalized_url}, {"source": normalized_url}]},
-                top_k=1000,  # Get up to 1000 matching vectors (should be more than enough for one page)
-                include_metadata=True,
-                include_values=False,  # We don't need the vector values
+            # Query both 'url' and 'source' fields (Pinecone doesn't support $or)
+            vector_ids_set = self._query_pinecone_by_field(
+                pinecone_index, "url", normalized_url, dummy_vector
+            )
+            vector_ids_set.update(
+                self._query_pinecone_by_field(
+                    pinecone_index, "source", normalized_url, dummy_vector
+                )
             )
 
-            if not query_response.matches:
+            if not vector_ids_set:
                 logging.info(f"No vectors found in Pinecone for URL: {url}")
                 return 0
 
-            # Extract vector IDs from the matches
-            vector_ids = [match.id for match in query_response.matches]
+            vector_ids = list(vector_ids_set)
             logging.info(f"Found {len(vector_ids)} vectors to delete for URL: {url}")
 
-            if vector_ids:
-                # Delete vectors in batches of 100 (Pinecone batch limit)
-                batch_size = 100
-                for i in range(0, len(vector_ids), batch_size):
-                    batch_ids = vector_ids[i : i + batch_size]
-                    try:
-                        if self.dry_run:
-                            logging.info(
-                                f"[DRY RUN] Would delete batch of {len(batch_ids)} vectors for URL: {url}"
-                            )
-                            logging.debug(
-                                f"[DRY RUN] Vector IDs: {batch_ids[:3]}{'...' if len(batch_ids) > 3 else ''}"
-                            )
-                        else:
-                            pinecone_index.delete(ids=batch_ids)
-                            logging.debug(
-                                f"Deleted batch of {len(batch_ids)} vectors for URL: {url}"
-                            )
-                        deleted_count += len(batch_ids)
-                    except Exception as e:
-                        logging.error(
-                            f"Failed to delete vector batch for URL {url}: {e}"
-                        )
-                        # Continue with remaining batches
-                        continue
-
-                logging.info(
-                    f"Successfully deleted {deleted_count} vectors for URL: {url}"
+            # Delete in batches of 100 (Pinecone limit)
+            deleted_count = 0
+            batch_size = 100
+            for i in range(0, len(vector_ids), batch_size):
+                batch_ids = vector_ids[i : i + batch_size]
+                deleted_count += self._delete_pinecone_batch(
+                    pinecone_index, batch_ids, url
                 )
 
+            logging.info(f"Successfully deleted {deleted_count} vectors for URL: {url}")
+            return deleted_count
+
+        except PineconeCleanupError:
+            # Let this propagate so the URL gets marked for retry
+            raise
         except Exception as e:
             logging.error(f"Error removing URL from Pinecone {url}: {e}")
-            # Return partial count if some deletions succeeded
+            return 0
 
-        return deleted_count
-
+    @requires_db
     def should_process_content(self, url: str, current_hash: str) -> bool:
-        self._ensure_db_initialized()
-        assert self.cursor is not None
         """Check if content has changed and should be processed"""
+        assert self.cursor is not None
         self.cursor.execute(
             "SELECT content_hash FROM crawl_queue WHERE url = ?",
             (self.normalize_url(url),),
@@ -2102,7 +2188,9 @@ class WebsiteCrawler:
         """Establish session by visiting main site. Returns True if successful."""
         try:
             main_response = page.goto(
-                self.start_url, timeout=15000, wait_until="networkidle"
+                self.start_url,
+                timeout=Timeouts.NETWORK_IDLE_MS,
+                wait_until="networkidle",
             )
 
             if main_response and main_response.status < 400:
@@ -2174,7 +2262,9 @@ class WebsiteCrawler:
     def _navigate_and_check_response(self, page) -> None:
         """Navigate to CSV URL and check response status."""
         response = page.goto(
-            self.csv_export_url, timeout=30000, wait_until="networkidle"
+            self.csv_export_url,
+            timeout=Timeouts.PAGE_DEFAULT_MS,
+            wait_until="networkidle",
         )
 
         # Check response status
@@ -2256,7 +2346,7 @@ class WebsiteCrawler:
                 page = browser.new_page()
                 page.set_extra_http_headers({"User-Agent": USER_AGENT})
                 # Set default timeout to prevent indefinite hangs
-                page.set_default_timeout(30000)  # 30 seconds
+                page.set_default_timeout(Timeouts.PAGE_DEFAULT_MS)  # 30 seconds
 
                 try:
                     # Establish session with timeout
@@ -2327,6 +2417,16 @@ class WebsiteCrawler:
                 )
                 return None
 
+            # Add URL sanitization to prevent malicious URLs
+            if not url.startswith(("http://", "https://")):
+                logging.warning(f"Skipping invalid URL scheme: {url}")
+                return None
+
+            # Prevent path traversal and other injection attempts
+            if ".." in url or "\x00" in url:
+                logging.warning(f"Skipping potentially malicious URL: {url}")
+                return None
+
             # Validate action values (case-insensitive)
             if action not in ["add/update", "remove"]:
                 logging.warning(
@@ -2349,11 +2449,11 @@ class WebsiteCrawler:
             )
             return None
 
+    @requires_db
     def _should_process_csv_url(
         self, url: str, modified_date: datetime, cutoff_date: datetime
     ) -> tuple[bool, str]:
         """Check if CSV URL should be processed. Returns (should_process, skip_reason)."""
-        self._ensure_db_initialized()
         assert self.cursor is not None
 
         # Check if modified within threshold
@@ -2425,11 +2525,11 @@ class WebsiteCrawler:
             stats["error"] += 1
             logging.warning(f"Error processing CSV row {row}: {e}")
 
+    @requires_db
     def _handle_csv_removal(
         self, full_url: str, stats: dict, pinecone_index=None
     ) -> None:
         """Handle removal action for CSV row."""
-        self._ensure_db_initialized()
         assert self.cursor is not None
         assert self.conn is not None
         normalized_url = self.normalize_url(full_url)
@@ -2483,6 +2583,7 @@ class WebsiteCrawler:
 
         stats["removed"] = stats.get("removed", 0) + 1
 
+    @requires_db
     def _handle_csv_add_update(
         self,
         full_url: str,
@@ -2492,7 +2593,6 @@ class WebsiteCrawler:
         stats: dict,
     ) -> None:
         """Handle add/update action for CSV row."""
-        self._ensure_db_initialized()
         assert self.cursor is not None
         assert self.conn is not None
         # Check if URL should be processed
@@ -2647,9 +2747,9 @@ class WebsiteCrawler:
         if total_processed > 0:
             logging.info(f"Total URLs ready for processing: {total_processed}")
 
+    @requires_db
     def process_csv_data(self, csv_data: list[dict], pinecone_index=None) -> int:
         """Process CSV data and add modified URLs to queue with high priority"""
-        self._ensure_db_initialized()
         assert self.conn is not None
         if not csv_data:
             logging.info("CSV processing: No rows to process")
@@ -2690,9 +2790,9 @@ class WebsiteCrawler:
 
         return total_processed
 
+    @requires_db
     def update_csv_tracking(self, csv_error: str | None = None, success: bool = False):
         """Update CSV tracking table with latest status and timestamp"""
-        self._ensure_db_initialized()
         assert self.cursor is not None
         assert self.conn is not None
         try:
@@ -2731,9 +2831,9 @@ class WebsiteCrawler:
         except Exception as e:
             logging.error(f"Error updating CSV tracking: {e}")
 
+    @requires_db
     def should_check_csv(self) -> bool:
         """Check if CSV should be processed with cooldown period to prevent frequent downloads"""
-        self._ensure_db_initialized()
         assert self.cursor is not None
         if not self.csv_mode_enabled:
             return False
@@ -2783,9 +2883,9 @@ class WebsiteCrawler:
 
         return True
 
+    @requires_db
     def mark_initial_crawl_completed(self):
         """Mark that the initial full crawl has been completed"""
-        self._ensure_db_initialized()
         assert self.cursor is not None
         assert self.conn is not None
         try:
@@ -2817,9 +2917,9 @@ class WebsiteCrawler:
         except Exception as e:
             logging.error(f"Error marking initial crawl completed: {e}")
 
+    @requires_db
     def is_initial_crawl_completed(self) -> bool:
         """Check if initial crawl has been completed"""
-        self._ensure_db_initialized()
         assert self.cursor is not None
         try:
             self.cursor.execute("""
@@ -2848,6 +2948,22 @@ class WebsiteCrawler:
         self.update_csv_tracking(success=True)
 
         return added_count
+
+    def _cleanup_old_timeout_counts(self, max_entries: int | None = None) -> None:
+        """Remove oldest entries if dict exceeds max size to prevent memory leak."""
+        if max_entries is None:
+            max_entries = self.MAX_TIMEOUT_COUNTS_ENTRIES
+
+        if len(self.session_timeout_counts) > max_entries:
+            # Keep only most recent half
+            sorted_urls = sorted(self.session_timeout_counts.keys())
+            entries_to_remove = len(sorted_urls) // 2
+            for url in sorted_urls[:entries_to_remove]:
+                del self.session_timeout_counts[url]
+            logging.debug(
+                f"Cleaned up {entries_to_remove} old timeout count entries "
+                f"(kept {len(self.session_timeout_counts)} most recent)"
+            )
 
     def _calculate_next_crawl_with_jitter(self, base_frequency_days: int) -> datetime:
         """Calculate next crawl time with 12% jitter to prevent synchronized re-crawling.
@@ -2935,8 +3051,10 @@ def upsert_to_pinecone(vectors: list[dict], index: Any, index_name: str):
                     )
                     raise Exception(f"Vector ID sanitization error: {error_msg}") from e
 
-                # For other errors, continue with next batch
-                pass
+                # Log but continue for transient errors
+                logging.warning(
+                    f"Skipping batch {i // batch_size + 1} due to error, continuing with next batch..."
+                )
         logging.info(f"Upsert of {total_vectors} vectors complete.")
 
 
@@ -3757,7 +3875,9 @@ def _launch_browser_instance(
 
     # Use a shorter timeout for browser launch to avoid hanging
     # The timeout_ms is for overall operation, but browser launch should be faster
-    launch_timeout = min(30000, timeout_ms)  # Max 30 seconds for browser launch
+    launch_timeout = min(
+        Timeouts.BROWSER_LAUNCH_MS, timeout_ms
+    )  # Max 30 seconds for browser launch
 
     # Browser launch - note: args are for Chromium, not Firefox
     # Firefox uses firefox_user_prefs for configuration
@@ -3962,7 +4082,9 @@ def _handle_browser_restart(
 
     # Use enhanced browser setup with retry logic and timeout
     try:
-        browser, page = _setup_browser_with_timeout(p, timeout_seconds=120)
+        browser, page = _setup_browser_with_timeout(
+            p, timeout_seconds=Timeouts.BROWSER_SETUP_SECONDS
+        )
         logging.info("Browser restarted successfully.")
         return browser, page, time.time(), []
     except Exception as restart_err:
@@ -4021,6 +4143,54 @@ def _handle_no_content(url: str, crawler: WebsiteCrawler) -> tuple[int, int, boo
     return 0, 0, False
 
 
+def _is_rate_limit_error(e: Exception) -> bool:
+    """Check if an exception is a rate limit error.
+
+    Checks in order of reliability:
+    1. OpenAI RateLimitError exception type
+    2. HTTP status code 429
+    3. String matching on error message (fallback)
+    """
+    # Try OpenAI RateLimitError first
+    if openai is not None:
+        try:
+            from openai import RateLimitError
+
+            if isinstance(e, RateLimitError):
+                return True
+        except ImportError:
+            pass
+
+    # Check for HTTP status code 429
+    status_code = getattr(e, "status_code", None)
+    if status_code == 429:
+        return True
+
+    # Fallback to string matching
+    error_message = str(e).lower()
+    return (
+        "rate limit" in error_message
+        or "rate_limit_exceeded" in error_message
+        or "requests per day" in error_message
+        or "429" in error_message
+    )
+
+
+def _handle_rate_limit_error(
+    url: str, e: Exception, crawler: WebsiteCrawler
+) -> tuple[int, int, bool]:
+    """Handle rate limit errors by marking URL for retry and setting exit flag."""
+    logging.warning(f"OpenAI rate limit reached for {url}: {e}")
+    logging.warning(
+        "Stopping current crawl round and sleeping for 1 hour due to rate limit"
+    )
+    crawler.mark_url_status(
+        url, "pending", f"Rate limit hit - will retry after sleep: {str(e)}"
+    )
+    crawler._rate_limit_exit = True
+    return 0, 0, True  # Return rate_limit_hit flag
+
+
 def _process_page_content(
     content,
     new_links: list,
@@ -4065,7 +4235,7 @@ def _process_page_content(
 
             crawler.mark_url_status(url, "visited", content_hash=content_hash)
         else:
-            crawler.mark_url_status(url, "visited", content_hash="no_content")
+            crawler.mark_url_status(url, "visited", content_hash=ContentHash.NO_CONTENT)
             logging.warning(f"No content chunks created for {url}")
 
         # Add new links to queue
@@ -4083,30 +4253,21 @@ def _process_page_content(
             False,
         )  # Increment both counters for successful processing, no rate limit hit
 
+    except PineconeCleanupError as e:
+        # Pinecone cleanup failed (e.g., dimension mismatch) - mark for retry
+        logging.warning(f"Pinecone cleanup failed for {url}, marking for retry: {e}")
+        crawler.mark_url_status(
+            url, "failed", f"Pinecone cleanup failed (will retry): {str(e)}"
+        )
+        # The "failed" status with this error message will trigger retry logic
+        # because _handle_temporary_failure_retry checks for "pinecone" pattern
+        return 0, 0, False
+
     except Exception as e:
-        # Log exception type for debugging
         logging.debug(f"Exception type: {type(e).__name__}")
 
-        # Check for rate limit errors by message content (more reliable than exception type)
-        error_message = str(e).lower()
-        is_rate_limit = (
-            "rate limit" in error_message
-            or "rate_limit_exceeded" in error_message
-            or "requests per day" in error_message
-            or "429" in error_message
-        )
-
-        if is_rate_limit:
-            logging.warning(f"OpenAI rate limit reached for {url}: {e}")
-            logging.warning(
-                "Stopping current crawl round and sleeping for 1 hour due to rate limit"
-            )
-            crawler.mark_url_status(
-                url, "pending", f"Rate limit hit - will retry after sleep: {str(e)}"
-            )
-            # Set flag on crawler to indicate rate limit exit
-            crawler._rate_limit_exit = True
-            return 0, 0, True  # Return rate_limit_hit flag
+        if _is_rate_limit_error(e):
+            return _handle_rate_limit_error(url, e, crawler)
 
         logging.error(f"Failed to process page content {url}: {e}")
         logging.error(traceback.format_exc())
@@ -4175,6 +4336,8 @@ def _handle_url_processing(
             f"Browser restart requested after attempting {url} "
             f"(timeout #{new_count} this session)."
         )
+        # Cleanup old entries if dict grows too large
+        crawler._cleanup_old_timeout_counts()
         crawler.mark_url_status(url, "pending")
         crawler.current_processing_url = None
 
@@ -4233,9 +4396,6 @@ def _process_crawl_iteration(
     if is_exiting():
         logging.info("Exit requested after saving checkpoint, stopping loop.")
         return 0, 0, True  # Signal exit
-
-    # Crawl delay removed for improved throughput
-    # Server rate limiting is handled by the website's own rate limiters if needed
 
     return pages_inc, restart_inc, False  # Continue normally
 
@@ -4480,12 +4640,19 @@ def _handle_no_url_processing(
     except Exception as e:
         logging.warning(f"Database connection stale after sleep, refreshing: {e}")
         try:
+            # Check if db_file is None before reconnecting
+            if crawler.db_file is None:
+                logging.error("Database file path is None, cannot reconnect")
+                raise RuntimeError("Database not properly initialized")
+
             # Close the old connection
             if hasattr(crawler, "conn") and crawler.conn:
                 crawler.conn.close()
 
             # Recreate the connection with same timeout
-            crawler.conn = sqlite3.connect(str(crawler.db_file), timeout=30.0)
+            crawler.conn = sqlite3.connect(
+                str(crawler.db_file), timeout=30.0, check_same_thread=False
+            )
             crawler.conn.row_factory = sqlite3.Row
             crawler.cursor = crawler.conn.cursor()
             logging.info("Database connection refreshed successfully")
@@ -4786,6 +4953,34 @@ def _unpack_crawler_setup(setup_result, args):
     )
 
 
+def _update_cloud_heartbeat(
+    lock_file: str | None, last_heartbeat_time: float, interval_seconds: int = 60
+) -> float:
+    """Update cloud lock heartbeat if interval has elapsed. Returns new heartbeat time."""
+    if not lock_file or not _is_cloud_mode():
+        return last_heartbeat_time
+
+    current_time = time.time()
+    if current_time - last_heartbeat_time >= interval_seconds:
+        try:
+            _write_cloud_lock(lock_file)
+            logging.debug("Updated cloud lock heartbeat")
+            return current_time
+        except Exception as e:
+            logging.warning(f"Failed to update cloud lock heartbeat: {e}")
+    return last_heartbeat_time
+
+
+def _check_loop_exit_conditions(
+    crawler, start_time, max_runtime_seconds, args, pages_processed
+) -> bool:
+    """Check if main loop should exit. Returns True if should exit."""
+    if crawler.health_monitor.is_shutdown_requested():
+        logging.warning("Health monitor requested shutdown - exiting gracefully")
+        return True
+    return _check_runtime_limits(start_time, max_runtime_seconds, args, pages_processed)
+
+
 def _run_crawler_main_loop(
     crawler,
     browser,
@@ -4805,25 +5000,15 @@ def _run_crawler_main_loop(
     lock_file: str | None = None,
 ):
     """Run the main crawler loop and return final page count."""
-    # Track last heartbeat time for cloud lock updates
     last_heartbeat_time = time.time()
-    HEARTBEAT_INTERVAL_SECONDS = 60  # Update lock every 60 seconds
 
     while not is_exiting():
-        # Update cloud lock heartbeat periodically to prevent stale lock detection
-        if lock_file and _is_cloud_mode():
-            current_time = time.time()
-            if current_time - last_heartbeat_time >= HEARTBEAT_INTERVAL_SECONDS:
-                try:
-                    _write_cloud_lock(lock_file)
-                    last_heartbeat_time = current_time
-                    logging.debug("Updated cloud lock heartbeat")
-                except Exception as e:
-                    logging.warning(f"Failed to update cloud lock heartbeat: {e}")
-        if _check_runtime_limits(
-            start_time, max_runtime_seconds, args, pages_processed
+        last_heartbeat_time = _update_cloud_heartbeat(lock_file, last_heartbeat_time)
+
+        if _check_loop_exit_conditions(
+            crawler, start_time, max_runtime_seconds, args, pages_processed
         ):
-            return pages_processed
+            break
 
         (
             pages_processed,
@@ -4855,11 +5040,10 @@ def _run_crawler_main_loop(
         if should_restart:
             continue
 
-        # Handle rate limit - sleep for 1 hour and continue
-        if rate_limit_hit_flag:
-            if _handle_rate_limit_sleep(start_time, max_runtime_seconds):
-                break
-            continue
+        if rate_limit_hit_flag and _handle_rate_limit_sleep(
+            start_time, max_runtime_seconds
+        ):
+            break
 
     crawler.current_processing_url = None
     return pages_processed
@@ -5301,6 +5485,99 @@ def _is_cloud_mode() -> bool:
     return bool(os.getenv("DATA_DIR"))
 
 
+def _check_and_steal_stale_lock(lock_file: str, site: str) -> bool:
+    """Check if existing lock is stale and remove it if so.
+
+    Returns True if lock was stale and removed, False if lock is fresh.
+    """
+    # Lock timeout: if lock file hasn't been updated in this many seconds,
+    # consider it stale (crashed process). Set to 5 minutes to allow for
+    # long operations like Pinecone upserts.
+    LOCK_TIMEOUT_SECONDS = 300
+
+    if not os.path.exists(lock_file):
+        return True  # No lock exists, safe to proceed
+
+    try:
+        with open(lock_file) as f:
+            lock_data = json.load(f)
+
+        lock_timestamp = lock_data.get("timestamp", 0)
+        lock_instance = lock_data.get("instance_id", "unknown")
+        lock_age_seconds = time.time() - lock_timestamp
+
+        if lock_age_seconds < LOCK_TIMEOUT_SECONDS:
+            # Lock is fresh - another instance is running
+            print(
+                f"Crawler for site '{site}' already running "
+                f"(instance {lock_instance}, lock age: {lock_age_seconds:.0f}s), exiting"
+            )
+            logging.info(
+                f"Crawler for site '{site}' already running "
+                f"(instance {lock_instance}, lock age: {lock_age_seconds:.0f}s), exiting"
+            )
+            return False
+        else:
+            # Lock is stale - previous instance likely crashed
+            print(
+                f"Removing stale cloud lock (instance {lock_instance}, "
+                f"age: {lock_age_seconds:.0f}s > {LOCK_TIMEOUT_SECONDS}s timeout)"
+            )
+            logging.warning(
+                f"Removing stale cloud lock (instance {lock_instance}, "
+                f"age: {lock_age_seconds:.0f}s > {LOCK_TIMEOUT_SECONDS}s timeout)"
+            )
+            os.remove(lock_file)
+            return True
+
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        print(f"Error reading cloud lock file, removing it: {e}")
+        logging.warning(f"Error reading cloud lock file, removing it: {e}")
+        with suppress(OSError):
+            os.remove(lock_file)
+        return True
+    except OSError as e:
+        print(f"Error accessing cloud lock file: {e}")
+        logging.warning(f"Error accessing cloud lock file: {e}")
+        return False
+
+
+def _acquire_cloud_lock(lock_file: str, site: str, instance_id: str) -> bool:
+    """Atomically acquire cloud lock using O_CREAT | O_EXCL.
+
+    Returns True if lock was successfully acquired, False if another instance holds it.
+    """
+    try:
+        # Atomically create lock file - fails if file already exists
+        fd = os.open(lock_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        try:
+            # Write lock data
+            lock_data = {
+                "instance_id": instance_id,
+                "timestamp": time.time(),
+                "pid": os.getpid(),  # For debugging, not used for detection
+                "started_at": datetime.now().isoformat(),
+            }
+            lock_json = json.dumps(lock_data)
+            os.write(fd, lock_json.encode())
+            os.close(fd)
+            return True
+        except Exception:
+            # If write fails, close fd and remove file
+            os.close(fd)
+            with suppress(OSError):
+                os.remove(lock_file)
+            raise
+    except FileExistsError:
+        # Lock file exists - check if it's stale
+        return _check_and_steal_stale_lock(lock_file, site) and _acquire_cloud_lock(
+            lock_file, site, instance_id
+        )
+    except OSError as e:
+        logging.error(f"Error acquiring cloud lock: {e}")
+        return False
+
+
 def _check_cloud_lock(lock_file: str, site: str) -> bool:
     """Check for existing lock in cloud mode using timestamp-based detection.
 
@@ -5309,6 +5586,8 @@ def _check_cloud_lock(lock_file: str, site: str) -> bool:
 
     In cloud mode, we can't use PID checking because each container has its own
     PID namespace. Instead, we use timestamp-based detection with a heartbeat.
+
+    DEPRECATED: Use _acquire_cloud_lock() for atomic lock acquisition instead.
     """
     # Lock timeout: if lock file hasn't been updated in this many seconds,
     # consider it stale (crashed process). Set to 5 minutes to allow for
@@ -5406,57 +5685,116 @@ def _generate_instance_id() -> str:
     return uuid.uuid4().hex
 
 
-# Global instance ID for this crawler run (used for cloud lock heartbeat)
-_INSTANCE_ID: str | None = None
+class CrawlerLockManager:
+    """Manages crawler instance locking for both local and cloud modes.
 
-# Global lock file path for signal handler cleanup
-_LOCK_FILE_PATH: str | None = None
+    Encapsulates lock file path and instance ID, providing methods for:
+    - Atomic lock acquisition (cloud mode with O_CREAT | O_EXCL)
+    - PID-based locking (local mode)
+    - Heartbeat updates for cloud mode
+    - Signal-safe cleanup
+    """
+
+    def __init__(self, site: str, lock_file: str):
+        """Initialize lock manager.
+
+        Args:
+            site: Site identifier for logging
+            lock_file: Path to the lock file
+        """
+        self.site = site
+        self.lock_file = lock_file
+        self.instance_id: str | None = None
+        self.is_cloud = _is_cloud_mode()
+
+    def acquire(self) -> bool:
+        """Acquire the lock. Returns True if successful, False otherwise."""
+        if self.is_cloud:
+            self.instance_id = _generate_instance_id()
+            return _acquire_cloud_lock(self.lock_file, self.site, self.instance_id)
+        else:
+            if _check_local_lock(self.lock_file, self.site):
+                return False
+            # Create lock file immediately after check passes
+            with open(self.lock_file, "w") as f:
+                f.write(str(os.getpid()))
+            return True
+
+    def write_heartbeat(self) -> None:
+        """Update cloud lock file with current timestamp (heartbeat)."""
+        if self.instance_id is None:
+            self.instance_id = _generate_instance_id()
+
+        lock_data = {
+            "instance_id": self.instance_id,
+            "timestamp": time.time(),
+            "pid": os.getpid(),  # For debugging, not used for detection
+            "started_at": datetime.now().isoformat(),
+        }
+        with open(self.lock_file, "w") as f:
+            json.dump(lock_data, f)
+
+    def cleanup(self) -> None:
+        """Remove the lock file if it exists."""
+        if self.lock_file and os.path.exists(self.lock_file):
+            try:
+                os.remove(self.lock_file)
+                logging.info(f"Lock file removed: {self.lock_file}")
+            except Exception as e:
+                logging.warning(f"Failed to remove lock file: {e}")
+
+    def cleanup_silent(self) -> None:
+        """Remove lock file without logging (for signal handlers)."""
+        if self.lock_file and os.path.exists(self.lock_file):
+            with suppress(Exception):
+                os.remove(self.lock_file)
+
+    def create_signal_handler(self):
+        """Create a signal handler that cleans up the lock file before exiting."""
+
+        def lock_cleanup_handler(signum: int, frame: Any) -> None:
+            """Signal handler that removes lock file before calling original handler.
+
+            Note: No logging here as logging is not async-signal-safe.
+            """
+            self.cleanup_silent()  # File ops are relatively safe
+            # Call the original handler to set the exiting flag
+            progress_signal_handler(signum, frame)
+
+        return lock_cleanup_handler
+
+
+# Global lock manager instance - initialized in main()
+_lock_manager: CrawlerLockManager | None = None
 
 
 def _write_cloud_lock(lock_file: str) -> None:
-    """Write/update the cloud lock file with current timestamp."""
-    global _INSTANCE_ID
-    if _INSTANCE_ID is None:
-        _INSTANCE_ID = _generate_instance_id()
+    """Write/update the cloud lock file with current timestamp.
 
-    lock_data = {
-        "instance_id": _INSTANCE_ID,
-        "timestamp": time.time(),
-        "pid": os.getpid(),  # For debugging, not used for detection
-        "started_at": datetime.now().isoformat(),
-    }
-    with open(lock_file, "w") as f:
-        json.dump(lock_data, f)
-
-
-def _cleanup_lock_file() -> None:
-    """Remove the lock file if it exists. Called by signal handlers."""
-    global _LOCK_FILE_PATH
-    if _LOCK_FILE_PATH and os.path.exists(_LOCK_FILE_PATH):
-        try:
-            os.remove(_LOCK_FILE_PATH)
-            logging.info(f"Lock file removed by signal handler: {_LOCK_FILE_PATH}")
-        except Exception as e:
-            logging.warning(f"Failed to remove lock file on signal: {e}")
-
-
-def _create_lock_cleanup_signal_handler():
-    """Create a signal handler that cleans up the lock file before exiting."""
-
-    def lock_cleanup_handler(signum: int, frame: Any) -> None:
-        """Signal handler that removes lock file before calling original handler."""
-        logging.info(f"Received signal {signum}, cleaning up lock file...")
-        _cleanup_lock_file()
-        # Call the original handler to set the exiting flag
-        progress_signal_handler(signum, frame)
-
-    return lock_cleanup_handler
+    DEPRECATED: Use CrawlerLockManager.write_heartbeat() instead.
+    Kept for backward compatibility with existing heartbeat calls.
+    """
+    global _lock_manager
+    if _lock_manager is not None:
+        _lock_manager.write_heartbeat()
+    else:
+        # Fallback for edge cases where lock manager isn't initialized
+        lock_data = {
+            "instance_id": _generate_instance_id(),
+            "timestamp": time.time(),
+            "pid": os.getpid(),
+            "started_at": datetime.now().isoformat(),
+        }
+        with open(lock_file, "w") as f:
+            json.dump(lock_data, f)
 
 
 def main():
+    global _lock_manager
+
     args = parse_arguments()
 
-    logging.info("-" * 40)
+    logging.info("\n\n" + "-" * 40)
 
     # Setup phase
     site_config = _setup_logging_and_config(args)
@@ -5464,33 +5802,23 @@ def main():
 
     # File locking to prevent multiple instances
     lock_file = _get_lock_file_path(args.site)
-    is_cloud = _is_cloud_mode()
 
-    # Store lock file path globally for signal handler
-    global _LOCK_FILE_PATH
-    _LOCK_FILE_PATH = lock_file
+    # Initialize lock manager
+    _lock_manager = CrawlerLockManager(args.site, lock_file)
 
     # Setup signal handlers with lock cleanup (handle both SIGTERM and SIGINT)
-    lock_cleanup_handler = _create_lock_cleanup_signal_handler()
+    lock_cleanup_handler = _lock_manager.create_signal_handler()
     setup_signal_handlers(
         custom_handler=lock_cleanup_handler,
         signals_to_handle=[signal.SIGTERM, signal.SIGINT],
     )
     _perform_system_health_check(args)
 
-    if is_cloud:
-        logging.info(f"Cloud mode detected - using EFS-based lock at {lock_file}")
-        if _check_cloud_lock(lock_file, args.site):
-            sys.exit(1)
-        # Create lock file immediately after check passes to prevent race condition
-        _write_cloud_lock(lock_file)
-    else:
-        logging.info(f"Local mode - using PID-based lock at {lock_file}")
-        if _check_local_lock(lock_file, args.site):
-            sys.exit(1)
-        # Create lock file immediately after check passes to prevent race condition
-        with open(lock_file, "w") as f:
-            f.write(str(os.getpid()))
+    # Acquire lock (handles both cloud and local modes)
+    mode_str = "Cloud" if _lock_manager.is_cloud else "Local"
+    logging.info(f"{mode_str} mode - using lock at {lock_file}")
+    if not _lock_manager.acquire():
+        sys.exit(1)
 
     crawler = None
     try:
@@ -5504,9 +5832,8 @@ def main():
         _execute_crawler(crawler, pinecone_index, args, start_url, lock_file)
 
     finally:
-        # Remove lock file
-        if os.path.exists(lock_file):
-            os.remove(lock_file)
+        # Remove lock file using lock manager
+        _lock_manager.cleanup()
         cleanup_and_exit(crawler)
 
 
