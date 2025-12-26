@@ -73,7 +73,7 @@ def _robots_response(url: str, *args, **kwargs):
 urllib.request.urlopen = _robots_response  # type: ignore[assignment]
 
 # Load after mock setup.
-from crawler.website_crawler import (  # noqa: E402
+from crawler.config import (  # noqa: E402
     ensure_scheme,
     load_config,
 )
@@ -125,7 +125,7 @@ class TestCrawlerConfig(unittest.TestCase):
         """Clean up after tests."""
         shutil.rmtree(self.temp_dir)
 
-    @patch("crawler.website_crawler.Path")
+    @patch("crawler.config.Path")
     def test_load_config(self, mock_path):
         """Test loading configuration from a site-specific config file."""
         # Set up the mock path to point to our temp directory
@@ -146,7 +146,7 @@ class TestCrawlerConfig(unittest.TestCase):
             self.assertEqual(config["skip_patterns"], ["pattern1", "pattern2"])
             self.assertEqual(config["crawl_frequency_days"], 14)
 
-    @patch("crawler.website_crawler.Path")
+    @patch("crawler.config.Path")
     def test_load_config_with_csv_options(self, mock_path):
         """Test loading configuration with CSV-related options."""
         # Set up the mock path to point to our temp directory
@@ -506,7 +506,7 @@ class TestCSVFunctionality(BaseWebsiteCrawlerTest):
 
         crawler.close()
 
-    @patch("crawler.website_crawler.sync_playwright")
+    @patch("crawler.crawl_loop.sync_playwright")
     def test_download_csv_data_success(self, mock_sync_playwright):
         """Test successful CSV data download using Playwright."""
         crawler = WebsiteCrawler(self.site_id, self.site_config)
@@ -710,7 +710,7 @@ https://example.com/page2,2025-07-13 09:30:00,Test Page 2
 
         crawler.close()
 
-    @patch("crawler.website_crawler.sync_playwright")
+    @patch("crawler.crawl_loop.sync_playwright")
     def test_check_and_process_csv_integration(self, mock_sync_playwright):
         """Test integrated CSV check and processing."""
         crawler = WebsiteCrawler(self.site_id, self.site_config)
@@ -989,7 +989,7 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
 
     @patch("time.sleep")
     @patch(
-        "crawler.website_crawler._setup_crawler_browser"
+        "crawler.crawl_loop._setup_crawler_browser"
     )  # Mock browser setup to prevent actual browser launch
     def test_daemon_sleeps_when_no_urls(self, mock_setup_browser, mock_time_sleep):
         """Test that the daemon loop sleeps when no URLs are ready to crawl."""
@@ -1034,7 +1034,7 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
             )
 
             # Mock is_exiting from shared utilities to be False for a few iterations
-            with patch("crawler.website_crawler.is_exiting") as mock_is_exiting:
+            with patch("crawler.crawl_loop.is_exiting") as mock_is_exiting:
                 effect_count = 0
 
                 def exit_requested_side_effect():
@@ -1045,16 +1045,14 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
                 mock_is_exiting.side_effect = exit_requested_side_effect
 
                 # Mock sync_playwright to prevent actual playwright launch
-                with patch(
-                    "crawler.website_crawler.sync_playwright"
-                ) as mock_playwright:
+                with patch("crawler.crawl_loop.sync_playwright") as mock_playwright:
                     mock_p = MagicMock()
                     mock_playwright.return_value.__enter__.return_value = mock_p
 
                     # Mock os.getenv to return a dummy index name
                     with patch("os.getenv") as mock_getenv:
                         mock_getenv.return_value = "test-index"
-                        from crawler.website_crawler import run_crawl_loop
+                        from crawler.crawl_loop import run_crawl_loop
 
                         # Run the loop with a short timeout to prevent infinite loop in test
                         run_crawl_loop(crawler, MagicMock(), mock_args)
@@ -1065,7 +1063,7 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
         crawler.close()
 
     @patch("time.sleep")
-    @patch("crawler.website_crawler._setup_crawler_browser")
+    @patch("crawler.crawl_loop._setup_crawler_browser")
     def test_daemon_csv_check_during_sleep(self, mock_setup_browser, mock_time_sleep):
         """Test that CSV checking occurs during daemon sleep periods."""
         # Mock the browser and page objects
@@ -1119,7 +1117,7 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
                 120  # Set to 2 hours to allow CSV check operations
             )
 
-            with patch("crawler.website_crawler.is_exiting") as mock_is_exiting:
+            with patch("crawler.crawl_loop.is_exiting") as mock_is_exiting:
                 effect_count = 0
 
                 def exit_requested_side_effect():
@@ -1130,15 +1128,13 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
                 mock_is_exiting.side_effect = exit_requested_side_effect
 
                 # Mock sync_playwright to prevent actual playwright launch
-                with patch(
-                    "crawler.website_crawler.sync_playwright"
-                ) as mock_playwright:
+                with patch("crawler.crawl_loop.sync_playwright") as mock_playwright:
                     mock_p = MagicMock()
                     mock_playwright.return_value.__enter__.return_value = mock_p
 
                     with patch("os.getenv") as mock_getenv:
                         mock_getenv.return_value = "test-index"
-                        from crawler.website_crawler import run_crawl_loop
+                        from crawler.crawl_loop import run_crawl_loop
 
                         run_crawl_loop(crawler, MagicMock(), mock_args)
 
@@ -1363,7 +1359,8 @@ class TestCrawlerChunking(unittest.TestCase):
 
     def test_short_content_chunking(self):
         """Test chunking of short web content."""
-        from crawler.website_crawler import PageContent, create_chunks_from_page
+        from crawler.config import PageContent
+        from crawler.page_processing import create_chunks_from_page
 
         page_content = PageContent(
             url="https://example.com/short",
@@ -1386,7 +1383,8 @@ class TestCrawlerChunking(unittest.TestCase):
 
     def test_medium_content_chunking(self):
         """Test chunking of medium-length web content with paragraphs."""
-        from crawler.website_crawler import PageContent, create_chunks_from_page
+        from crawler.config import PageContent
+        from crawler.page_processing import create_chunks_from_page
 
         page_content = PageContent(
             url="https://example.com/medium",
@@ -1423,7 +1421,8 @@ This is the fourth paragraph that concludes the article. It summarizes the key p
 
     def test_long_content_chunking(self):
         """Test chunking of long web content."""
-        from crawler.website_crawler import PageContent, create_chunks_from_page
+        from crawler.config import PageContent
+        from crawler.page_processing import create_chunks_from_page
 
         # Configure mock for long content (multiple chunks with title and content)
         self.text_splitter.split_text.return_value = [
@@ -1463,7 +1462,8 @@ This is the fourth paragraph that concludes the article. It summarizes the key p
 
     def test_chunking_with_document_id(self):
         """Test that document ID is properly passed for metrics tracking."""
-        from crawler.website_crawler import PageContent, create_chunks_from_page
+        from crawler.config import PageContent
+        from crawler.page_processing import create_chunks_from_page
 
         page_content = PageContent(
             url="https://example.com/metrics-test",
@@ -1485,7 +1485,8 @@ This is the fourth paragraph that concludes the article. It summarizes the key p
 
     def test_chunking_metrics_tracking(self):
         """Test that chunking metrics are properly tracked."""
-        from crawler.website_crawler import PageContent, create_chunks_from_page
+        from crawler.config import PageContent
+        from crawler.page_processing import create_chunks_from_page
 
         page_content = PageContent(
             url="https://example.com/metrics",
@@ -1967,7 +1968,7 @@ class TestRobotsTxtCompliance(BaseWebsiteCrawlerTest):
         self, mock_robot_parser_class
     ):
         """Test that _handle_url_processing removes URLs matching skip patterns from database."""
-        from crawler.website_crawler import _handle_url_processing
+        from crawler.crawl_loop import _handle_url_processing
 
         mock_parser = Mock()
         mock_parser.can_fetch.return_value = True
@@ -2044,11 +2045,11 @@ class TestBrowserRestartCounter(BaseWebsiteCrawlerTest):
 class TestGracefulSleep(unittest.TestCase):
     """Test cases for graceful sleep functionality."""
 
-    @patch("crawler.website_crawler.is_exiting")
+    @patch("crawler.crawl_loop.is_exiting")
     @patch("time.sleep")
     def test_graceful_sleep_normal_completion(self, mock_sleep, mock_is_exiting):
         """Test that graceful sleep completes normally when no exit signal."""
-        from crawler.website_crawler import _graceful_sleep
+        from crawler.crawl_loop import _graceful_sleep
 
         # Mock is_exiting to always return False (no exit requested)
         mock_is_exiting.return_value = False
@@ -2063,11 +2064,11 @@ class TestGracefulSleep(unittest.TestCase):
         self.assertEqual(mock_sleep.call_count, 3)
         mock_sleep.assert_has_calls([call(30), call(30), call(30)])
 
-    @patch("crawler.website_crawler.is_exiting")
+    @patch("crawler.crawl_loop.is_exiting")
     @patch("time.sleep")
     def test_graceful_sleep_exit_requested(self, mock_sleep, mock_is_exiting):
         """Test that graceful sleep exits early when signal received."""
-        from crawler.website_crawler import _graceful_sleep
+        from crawler.crawl_loop import _graceful_sleep
 
         # Mock is_exiting to return False first, then True (exit after first interval)
         mock_is_exiting.side_effect = [False, True]
@@ -2082,11 +2083,11 @@ class TestGracefulSleep(unittest.TestCase):
         self.assertEqual(mock_sleep.call_count, 1)
         mock_sleep.assert_called_once_with(30)
 
-    @patch("crawler.website_crawler.is_exiting")
+    @patch("crawler.crawl_loop.is_exiting")
     @patch("time.sleep")
     def test_graceful_sleep_short_duration(self, mock_sleep, mock_is_exiting):
         """Test graceful sleep with duration shorter than check interval."""
-        from crawler.website_crawler import _graceful_sleep
+        from crawler.crawl_loop import _graceful_sleep
 
         # Mock is_exiting to always return False
         mock_is_exiting.return_value = False
@@ -2338,7 +2339,7 @@ class TestCrawlerInitializationBug(BaseWebsiteCrawlerTest):
         # Ensure DATA_DIR is not set to use default path
         with (
             patch.dict(os.environ, {"DATA_DIR": ""}, clear=False),
-            patch("data_ingestion.crawler.website_crawler.load_config") as mock_load,
+            patch("data_ingestion.crawler.config.load_config") as mock_load,
         ):
             mock_load.return_value = self.config
 
@@ -2377,7 +2378,7 @@ class TestCrawlerInitializationBug(BaseWebsiteCrawlerTest):
 
     def test_existing_visited_urls_no_reseed(self):
         """Test that start URL is NOT added when database has existing visited URLs."""
-        with patch("data_ingestion.crawler.website_crawler.load_config") as mock_load:
+        with patch("data_ingestion.crawler.config.load_config") as mock_load:
             mock_load.return_value = self.config
 
             # Create crawler first time to get database set up
@@ -2454,7 +2455,7 @@ class TestCrawlerInitializationBug(BaseWebsiteCrawlerTest):
 
     def test_existing_pending_urls_no_reseed(self):
         """Test that start URL is NOT added when database has existing pending URLs."""
-        with patch("data_ingestion.crawler.website_crawler.load_config") as mock_load:
+        with patch("data_ingestion.crawler.config.load_config") as mock_load:
             mock_load.return_value = self.config
 
             # Create crawler first time to get database set up
@@ -2805,7 +2806,7 @@ class Test404PineconeDeletion(BaseWebsiteCrawlerTest):
 
     def test_process_pinecone_deletions_function(self):
         """Test the _process_pinecone_deletions function."""
-        from crawler.website_crawler import _process_pinecone_deletions
+        from crawler.crawl_loop import _process_pinecone_deletions
 
         crawler = WebsiteCrawler(self.site_id, self.site_config)
         mock_index = Mock()
@@ -2834,7 +2835,7 @@ class Test404PineconeDeletion(BaseWebsiteCrawlerTest):
     @patch.dict(os.environ, {"OPENAI_EMBEDDING_DIMENSION": "1536"})
     def test_end_to_end_404_pinecone_cleanup_integration(self):
         """Test the complete end-to-end flow: 404 retry exhaustion -> automatic Pinecone cleanup."""
-        from crawler.website_crawler import _process_pinecone_deletions
+        from crawler.crawl_loop import _process_pinecone_deletions
 
         crawler = WebsiteCrawler(self.site_id, self.site_config)
         test_url = "https://example.com/deleted-after-retries"
@@ -2907,7 +2908,7 @@ class Test404PineconeDeletion(BaseWebsiteCrawlerTest):
 
     def test_maintenance_cycle_handles_multiple_deleted_urls(self):
         """Test that the maintenance cycle can handle multiple 404'd URLs at once."""
-        from crawler.website_crawler import _process_pinecone_deletions
+        from crawler.crawl_loop import _process_pinecone_deletions
 
         crawler = WebsiteCrawler(self.site_id, self.site_config)
 
@@ -2952,7 +2953,7 @@ class Test404PineconeDeletion(BaseWebsiteCrawlerTest):
 
     def test_maintenance_cycle_handles_pinecone_errors_gracefully(self):
         """Test that Pinecone errors don't stop the maintenance cycle."""
-        from crawler.website_crawler import _process_pinecone_deletions
+        from crawler.crawl_loop import _process_pinecone_deletions
 
         crawler = WebsiteCrawler(self.site_id, self.site_config)
 
@@ -3153,7 +3154,7 @@ class TestCSVRemoval:
 
     def test_remove_url_from_pinecone_error_handling(self, crawler):
         """Test Pinecone removal error handling - raises PineconeCleanupError for retry."""
-        from crawler.website_crawler import PineconeCleanupError
+        from crawler.config import PineconeCleanupError
 
         # Mock Pinecone index that raises exception
         mock_index = Mock()

@@ -8,11 +8,28 @@
 - **Fix**: Use `soup.get_text()` without separator parameter, handle block vs inline elements separately
 - **Location**: `data_ingestion/utils/text_processing.py`
 
-### Jest Mock Setup
+### Python @patch Decorator Paths When Refactoring
 
 - **Issue**: `@patch` decorators need path updates when modules are moved
 - **Fix**: Update both import statements AND @patch decorator paths
+- **Critical Rule**: Patch where the function is **USED**, not where it's **DEFINED**
+- **Example**: If `crawl_loop.py` does `from .browser import _setup_crawler_browser`, patch
+  `crawler.crawl_loop._setup_crawler_browser`, NOT `crawler.browser._setup_crawler_browser`
 - **Pattern**: `@patch("data_ingestion.audio_video.s3_utils.*")` → `@patch("data_ingestion.utils.s3_utils.*")`
+
+### Python Relative Imports for Both Module and Direct Execution
+
+- **Issue**: Relative imports (`from .config import ...`) fail when running script directly
+- **Fix**: Use try/except to support both execution modes:
+
+```python
+try:
+    from .config import load_config  # Module execution
+except ImportError:
+    from config import load_config  # type: ignore  # Direct execution
+```
+
+- **Apply to**: All modules with relative imports when refactoring to submodules
 
 ### Environment Variables Don't Persist
 

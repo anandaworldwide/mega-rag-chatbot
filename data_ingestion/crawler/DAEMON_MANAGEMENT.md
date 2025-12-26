@@ -28,38 +28,38 @@ execution and intelligent restarts.
 
 ### Daily Management
 
-Use the `manage_crawler.sh` script for all crawler operations:
+Use the `bin/manage_crawler.sh` script for all crawler operations:
 
 ```bash
 # Restart the crawler (most common operation)
-./manage_crawler.sh restart
+./bin/manage_crawler.sh restart
 
 # Show crawler status
-./manage_crawler.sh status
+./bin/manage_crawler.sh status
 
 # View logs in real-time
-./manage_crawler.sh logs
+./bin/manage_crawler.sh logs
 
 # Stop the crawler
-./manage_crawler.sh stop
+./bin/manage_crawler.sh stop
 
 # Start the crawler
-./manage_crawler.sh start
+./bin/manage_crawler.sh start
 
 # Get help
-./manage_crawler.sh help
+./bin/manage_crawler.sh help
 ```
 
 ## Management Script
 
-### `manage_crawler.sh`
+### `bin/manage_crawler.sh`
 
 All-in-one script for managing the crawler daemon.
 
 **Usage:**
 
 ```bash
-./manage_crawler.sh [command] [site-name]
+./bin/manage_crawler.sh [command] [site-name]
 ```
 
 **Available Commands:**
@@ -73,9 +73,9 @@ All-in-one script for managing the crawler daemon.
 **Examples:**
 
 ```bash
-./manage_crawler.sh restart             # Restart default site (ananda-public)
-./manage_crawler.sh status crystal      # Show status for crystal site
-./manage_crawler.sh logs jairam         # Follow logs for jairam site
+./bin/manage_crawler.sh restart             # Restart default site (ananda-public)
+./bin/manage_crawler.sh status crystal      # Show status for crystal site
+./bin/manage_crawler.sh logs jairam         # Follow logs for jairam site
 ```
 
 ## Manual launchctl Commands

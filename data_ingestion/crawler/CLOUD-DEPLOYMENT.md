@@ -31,17 +31,17 @@ for TASK_ARN in $TASK_ARNS; do [ "$TASK_ARN" != "None" ] && aws ecs stop-task --
 cd data_ingestion/crawler/bin && ./download-database-from-efs.sh ananda-public
 
 # 4. Start local daemon
-cd ../.. && ./manage_crawler.sh start ananda-public
+cd ../.. && ./bin/manage_crawler.sh start ananda-public
 ```
 
 ### Local → Cloud (Back to Production)
 
 ```bash
 # 1. Stop local daemon
-cd data_ingestion/crawler && ./manage_crawler.sh stop ananda-public
+cd data_ingestion/crawler && ./bin/manage_crawler.sh stop ananda-public
 
 # 2. Upload database to EFS
-./copy-database-to-efs.sh
+./bin/copy-database-to-efs.sh
 
 # 3. Enable cloud schedule
 aws scheduler update-schedule --name ananda-crawler-start --region us-west-1 --state ENABLED \
@@ -86,7 +86,7 @@ Creates all required AWS resources (ECR, EFS, ECS cluster, IAM roles, etc.):
 
 ```bash
 cd data_ingestion/crawler
-./aws-setup.sh
+./bin/aws-setup.sh
 ```
 
 **Creates**: ECR repository, EFS filesystem with access point, ECS cluster, IAM roles, CloudWatch log group, Secrets
@@ -94,8 +94,8 @@ Manager secret (placeholder), hardened security group for crawler tasks
 
 **Note**: Save the EFS ID from the output for later use.
 
-**Cost Optimization**: After basic setup, run `./setup-spot-capacity.sh` to enable automatic Fargate Spot capacity with
-70%+ cost savings. See [SPOT-CAPACITY-README.md](SPOT-CAPACITY-README.md).
+**Cost Optimization**: After basic setup, run `./bin/setup-spot-capacity.sh` to enable automatic Fargate Spot capacity
+with 70%+ cost savings. See [SPOT-CAPACITY-README.md](SPOT-CAPACITY-README.md).
 
 **Security**: The setup script creates a hardened security group (`crawler-hardened-sg`) with:
 
@@ -111,7 +111,7 @@ Create a JSON file with your environment variables:
 
 ```bash
 # Use helper script to generate secrets.json from your .env file
-./create-secrets-json.sh ananda-public
+./bin/create-secrets-json.sh ananda-public
 
 # Review the generated file
 cat secrets.json
@@ -133,10 +133,10 @@ Build and push the Docker image to ECR:
 
 ```bash
 # Build and push with 'latest' tag
-./build-and-push.sh
+./bin/build-and-push.sh
 
 # Or use semantic versioning
-./build-and-push.sh v1.0.0
+./bin/build-and-push.sh v1.0.0
 ```
 
 ---
@@ -147,10 +147,10 @@ Register the task definition that tells ECS how to run your container:
 
 ```bash
 # Use 'latest' tag
-./register-task-definition.sh
+./bin/register-task-definition.sh
 
 # Or specify a version tag
-./register-task-definition.sh v1.0.0
+./bin/register-task-definition.sh v1.0.0
 ```
 
 **Configures**: Docker image reference, CPU/memory (0.5 vCPU, 1GB RAM), EFS mount (`/app/data`), environment variables
@@ -174,7 +174,7 @@ revision, ensuring scheduled runs use the latest code.
 **IMPORTANT**: Copy your current crawl state to the cloud so the crawler continues where it left off.
 
 ```bash
-./copy-database-to-efs.sh
+./bin/copy-database-to-efs.sh
 ```
 
 **What it does**: Finds local database (`data_ingestion/crawler/db/crawler_queue_ananda-public.db`), starts temporary
@@ -189,7 +189,7 @@ ECS task to access EFS, copies database to `/app/data/db/` on EFS, verifies copy
 Create the hourly schedule (7am–10pm PT) that runs one short task per hour:
 
 ```bash
-./update-schedule-for-service.sh
+./bin/update-schedule-for-service.sh
 ```
 
 This schedule uses `America/Los_Angeles` timezone (no UTC/DST math) and runs the crawler as a **one-shot ECS task** (no
@@ -203,15 +203,15 @@ Use Fargate Spot capacity for 70%+ cost savings:
 
 ```bash
 # Update EventBridge schedule to use Spot capacity (recommended)
-./update-schedule-for-service.sh
+./bin/update-schedule-for-service.sh
 ```
 
 If you want to run the crawler as an **always-on ECS service** (continuous mode), you can still do that (optional):
 
 ```bash
-./setup-spot-capacity.sh
-./service-control.sh start
-./service-control.sh status
+./bin/setup-spot-capacity.sh
+./bin/service-control.sh start
+./bin/service-control.sh status
 ```
 
 ### Step 8: Test the Deployment
@@ -325,20 +325,20 @@ ls -lh data_ingestion/crawler/db/crawler_queue_ananda-public.db
 
 ```bash
 cd data_ingestion/crawler
-./manage_crawler.sh start ananda-public
+./bin/manage_crawler.sh start ananda-public
 ```
 
 **Verify it's running**:
 
 ```bash
-./manage_crawler.sh status ananda-public
+./bin/manage_crawler.sh status ananda-public
 # Should show running processes and recent log activity
 ```
 
 **Monitor logs in real-time**:
 
 ```bash
-./manage_crawler.sh logs ananda-public
+./bin/manage_crawler.sh logs ananda-public
 # Or directly:
 tail -f ~/Library/Logs/AnandaCrawler/crawler_ananda-public.log
 ```
@@ -355,13 +355,13 @@ Use this when you're done debugging locally and want to resume cloud crawling.
 
 ```bash
 cd data_ingestion/crawler
-./manage_crawler.sh stop ananda-public
+./bin/manage_crawler.sh stop ananda-public
 ```
 
 **Verify it's stopped**:
 
 ```bash
-./manage_crawler.sh status ananda-public
+./bin/manage_crawler.sh status ananda-public
 # Should show no running processes
 ```
 
@@ -378,7 +378,7 @@ ps aux | grep -E "(crawler_supervisor|website_crawler)" | grep -v grep
 
 ```bash
 cd data_ingestion/crawler
-./copy-database-to-efs.sh
+./bin/copy-database-to-efs.sh
 ```
 
 This will:
@@ -445,12 +445,12 @@ After switching, always verify:
 - [ ] EventBridge schedule shows `DISABLED`
 - [ ] No running ECS tasks (`aws ecs list-tasks` returns empty)
 - [ ] Local database file exists and is recent
-- [ ] Local daemon is running (`./manage_crawler.sh status`)
+- [ ] Local daemon is running (`./bin/manage_crawler.sh status`)
 - [ ] Local logs show crawler activity (`tail -f` shows new entries)
 
 ### ✅ Local → Cloud Checklist
 
-- [ ] Local daemon is stopped (`./manage_crawler.sh status` shows no processes)
+- [ ] Local daemon is stopped (`./bin/manage_crawler.sh status` shows no processes)
 - [ ] Database uploaded successfully (`copy-database-to-efs.sh` completed)
 - [ ] EventBridge schedule shows `ENABLED`
 - [ ] Cloud logs show crawler activity (check CloudWatch)
@@ -492,7 +492,7 @@ After switching, always verify:
 
    ```bash
    # Stop local
-   ./manage_crawler.sh stop ananda-public
+   ./bin/manage_crawler.sh stop ananda-public
 
    # Stop cloud
    aws scheduler update-schedule --name ananda-crawler-start --region us-west-1 --state DISABLED ...
@@ -828,7 +828,7 @@ To apply the NAT-less security hardening to an existing deployment:
 
    ```bash
    # Run setup script to create hardened SG (idempotent - won't recreate if exists)
-   ./aws-setup.sh
+   ./bin/aws-setup.sh
    ```
 
    Or verify it exists:
@@ -849,17 +849,17 @@ To apply the NAT-less security hardening to an existing deployment:
 3. **Rebuild Docker image** with updated Dockerfile (non-root user):
 
    ```bash
-   ./build-and-push.sh v1.0.1
+   ./bin/build-and-push.sh v1.0.1
    # Or use 'latest' tag
-   ./build-and-push.sh
+   ./bin/build-and-push.sh
    ```
 
 4. **Re-register task definition** with hardening settings (automatically updates EventBridge schedule):
 
    ```bash
-   ./register-task-definition.sh v1.0.1
+   ./bin/register-task-definition.sh v1.0.1
    # Or use 'latest' tag
-   ./register-task-definition.sh
+   ./bin/register-task-definition.sh
    ```
 
 5. **Restart tasks** with new configuration:
@@ -891,13 +891,13 @@ To apply the NAT-less security hardening to an existing deployment:
 2. Build and push new image:
 
    ```bash
-   ./build-and-push.sh v1.0.1
+   ./bin/build-and-push.sh v1.0.1
    ```
 
 3. Register new task definition:
 
    ```bash
-   ./register-task-definition.sh v1.0.1
+   ./bin/register-task-definition.sh v1.0.1
    ```
 
 4. New tasks will use the updated image automatically
@@ -957,7 +957,7 @@ The SQLite database is stored on EFS. To backup:
 
 ```bash
 # Update/verify schedule (hourly 7am–10pm PT)
-./update-schedule-for-service.sh
+./bin/update-schedule-for-service.sh
 
 # Check schedule details
 aws scheduler get-schedule --name ananda-crawler-start --region us-west-1 --output table
@@ -985,9 +985,9 @@ aws logs tail /ecs/ananda-crawler --since 10m --region us-west-1
 
 ```bash
 # Start/stop always-on ECS service (runs continuously until stopped)
-./service-control.sh start
-./service-control.sh stop
-./service-control.sh status
+./bin/service-control.sh start
+./bin/service-control.sh stop
+./bin/service-control.sh status
 ```
 
 ### General Commands
@@ -997,17 +997,17 @@ aws logs tail /ecs/ananda-crawler --since 10m --region us-west-1
 aws logs tail /ecs/ananda-crawler --follow --region us-west-1
 
 # Copy database to EFS
-./copy-database-to-efs.sh
+./bin/copy-database-to-efs.sh
 
 # Update secrets
 aws secretsmanager put-secret-value --secret-id ananda-crawler-secrets --secret-string file://secrets.json --region us-west-1
 
 # Update image and redeploy (automatically updates EventBridge schedule)
-./build-and-push.sh v1.0.1
-./register-task-definition.sh v1.0.1
+./bin/build-and-push.sh v1.0.1
+./bin/register-task-definition.sh v1.0.1
 
 # Setup Spot capacity (one-time, only needed for initial setup)
-./setup-spot-capacity.sh
+./bin/setup-spot-capacity.sh
 ```
 
 ## NAT-less Deployment Checklist

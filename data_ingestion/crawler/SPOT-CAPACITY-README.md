@@ -43,7 +43,7 @@ intelligent fallback to on-demand capacity.
 
 ```bash
 # Run the setup script to create capacity provider and service
-./setup-spot-capacity.sh
+./bin/setup-spot-capacity.sh
 ```
 
 This creates:
@@ -58,19 +58,19 @@ Use the service control script instead of manual run-task:
 
 ```bash
 # Start crawler
-./service-control.sh start
+./bin/service-control.sh start
 
 # Stop crawler
-./service-control.sh stop
+./bin/service-control.sh stop
 
 # Check status (shows capacity type used)
-./service-control.sh status
+./bin/service-control.sh status
 
 # Scale to multiple instances if needed
-./service-control.sh scale 2
+./bin/service-control.sh scale 2
 
 # Force restart (useful for config changes)
-./service-control.sh restart
+./bin/service-control.sh restart
 ```
 
 ## Monitoring
@@ -122,9 +122,9 @@ aws cloudwatch get-metric-statistics \
 
 If you're currently using manual `aws ecs run-task` commands:
 
-1. **Run setup**: `./setup-spot-capacity.sh` (creates service with Spot capacity)
-2. **Switch to service control**: Use `./service-control.sh` for always-on mode
-3. **Or use scheduled tasks**: Run `./update-schedule-for-service.sh` for hourly one-shot tasks
+1. **Run setup**: `./bin/setup-spot-capacity.sh` (creates service with Spot capacity)
+2. **Switch to service control**: Use `./bin/service-control.sh` for always-on mode
+3. **Or use scheduled tasks**: Run `./bin/update-schedule-for-service.sh` for hourly one-shot tasks
 4. **Manual runs**: Use `aws ecs run-task` with capacity provider strategy for ad-hoc runs
 
 ### Updating EventBridge Schedule for Spot Capacity
@@ -133,7 +133,7 @@ After setting up the service with capacity provider, update your EventBridge sch
 
 ```bash
 # Run this script to update EventBridge schedules for service-based control
-./update-schedule-for-service.sh
+./bin/update-schedule-for-service.sh
 ```
 
 **What this does:**
