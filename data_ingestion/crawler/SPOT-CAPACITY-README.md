@@ -13,7 +13,7 @@ intelligent fallback to on-demand capacity.
 
 ## Architecture
 
-```
+```text
 ┌─────────────────┐    ┌──────────────────────┐
 │   ECS Service   │────│  Capacity Provider   │
 │                 │    │  Strategy:           │
