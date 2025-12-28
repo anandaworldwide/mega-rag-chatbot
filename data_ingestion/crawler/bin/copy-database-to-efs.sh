@@ -39,7 +39,8 @@ echo -e "${GREEN}Copying SQLite database to EFS...${NC}"
 
 # Step 1: Find local database file
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOCAL_DB_FILE="${SCRIPT_DIR}/db/crawler_queue_${SITE_ID}.db"
+# Database is in ../db/ relative to bin/ directory
+LOCAL_DB_FILE="${SCRIPT_DIR}/../db/crawler_queue_${SITE_ID}.db"
 
 if [ ! -f "$LOCAL_DB_FILE" ]; then
     echo -e "${RED}Error: Local database file not found at:${NC}"
@@ -268,7 +269,7 @@ COPY_TASK_ARN=$(aws ecs run-task \
           {\"name\": \"COPY_DEST_PATH\", \"value\": \"/app/data/db/crawler_queue_${SITE_ID}.db\"},
           {\"name\": \"AWS_DEFAULT_REGION\", \"value\": \"${REGION}\"}
         ],
-        \"command\": [\"python3\", \"-c\", \"import time; time.sleep(5); import boto3, os; os.makedirs('/app/data/db', exist_ok=True); s3=boto3.client('s3'); s3.download_file(os.environ['COPY_S3_BUCKET'], os.environ['COPY_S3_KEY'], os.environ['COPY_DEST_PATH']); print('Database copied to', os.environ['COPY_DEST_PATH']); time.sleep(10)\"]
+        \"command\": [\"sh\", \"-c\", \"pip install --quiet boto3 && python3 -c 'import boto3, os, sys; os.makedirs(\\\"/app/data/db\\\", exist_ok=True); s3=boto3.client(\\\"s3\\\"); bucket=os.environ[\\\"COPY_S3_BUCKET\\\"]; key=os.environ[\\\"COPY_S3_KEY\\\"]; dest=os.environ[\\\"COPY_DEST_PATH\\\"]; print(\\\"Downloading\\\", bucket+\\\"/\\\"+key, \\\"to\\\", dest); s3.download_file(bucket, key, dest); size=os.path.getsize(dest); print(\\\"Database copied to\\\", dest, \\\"size:\\\", size, \\\"bytes\\\")'\"]
       }]
     }" \
     --query 'tasks[0].taskArn' \

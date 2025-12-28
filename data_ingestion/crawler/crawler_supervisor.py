@@ -7,9 +7,11 @@ Manages bounded crawler instances with adaptive restart logic
 import argparse
 import logging
 import os
+import select
 import signal
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -142,11 +144,123 @@ class CrawlerSupervisor:
             self.pid_file.unlink()
         self.logger.info("Supervisor shutdown complete")
 
-    def run_crawler_instance(self) -> int:
-        """Run a single crawler instance and return exit code."""
-        crawler_log = self.log_dir / f"crawler_{self.site_id}.log"
+    def _check_health_failure_in_log(self, crawler_log: Path) -> bool:
+        """Check if crawler log contains health check failure message."""
+        if not crawler_log.exists():
+            return False
 
-        cmd = [
+        try:
+            with open(crawler_log) as f:
+                lines = f.readlines()
+                for line in lines[-20:]:
+                    if "Health check failed - requesting graceful shutdown" in line:
+                        return True
+        except Exception as e:
+            self.logger.debug(f"Error reading crawler log: {e}")
+
+        return False
+
+    def _update_last_output_time(
+        self, crawler_log: Path, current_time: float, last_output_time: float
+    ) -> float:
+        """Update last output time based on log file activity."""
+        if not crawler_log.exists():
+            return last_output_time
+
+        try:
+            with open(crawler_log) as f:
+                lines = f.readlines()
+                # If log has any non-empty lines, consider it active output
+                if any(line.strip() for line in lines[-20:]):
+                    return current_time
+        except Exception as e:
+            self.logger.debug(f"Error checking log output: {e}")
+
+        return last_output_time
+
+    def _force_kill_process(self, process: subprocess.Popen) -> None:
+        """Forcefully kill a process that didn't terminate gracefully."""
+        try:
+            process.terminate()
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self.logger.error("Process didn't terminate, killing forcefully")
+            process.kill()
+            process.wait(timeout=5)
+
+    def _check_shutdown_timeout(
+        self,
+        process: subprocess.Popen,
+        shutdown_requested_time: float | None,
+        current_time: float,
+    ) -> bool:
+        """Check if graceful shutdown timeout exceeded and kill process if needed."""
+        GRACEFUL_SHUTDOWN_TIMEOUT = 300  # 5 minutes
+
+        if shutdown_requested_time is None:
+            return False
+
+        elapsed = current_time - shutdown_requested_time
+        if elapsed > GRACEFUL_SHUTDOWN_TIMEOUT:
+            self.logger.error(
+                f"Crawler requested graceful shutdown {elapsed:.0f}s ago but hasn't exited - killing forcefully"
+            )
+            self._force_kill_process(process)
+            return True
+
+        return False
+
+    def _monitor_crawler_health(
+        self, process: subprocess.Popen, crawler_log: Path, start_time: float
+    ) -> None:
+        """Monitor crawler process and log file for health check failures.
+
+        If crawler requests graceful shutdown but doesn't exit within 5 minutes,
+        kill it forcefully.
+        """
+        HEALTH_CHECK_INTERVAL = 30  # Check every 30 seconds
+        OUTPUT_TIMEOUT = 600  # 10 minutes without output
+
+        last_output_time = start_time
+        shutdown_requested_time = None
+
+        while process.poll() is None:
+            time.sleep(HEALTH_CHECK_INTERVAL)
+
+            current_time = time.time()
+
+            # Check if process is still producing output
+            if current_time - last_output_time > OUTPUT_TIMEOUT:
+                self.logger.error(
+                    f"Crawler has produced no output for {current_time - last_output_time:.0f} seconds - treating as wedged and killing"
+                )
+                self._force_kill_process(process)
+                return
+
+            # Update last output time from log file
+            last_output_time = self._update_last_output_time(
+                crawler_log, current_time, last_output_time
+            )
+
+            # Check for health check failure in log
+            if (
+                self._check_health_failure_in_log(crawler_log)
+                and shutdown_requested_time is None
+            ):
+                shutdown_requested_time = current_time
+                self.logger.warning(
+                    "Detected health check failure in crawler log - monitoring for graceful exit"
+                )
+
+            # Check if shutdown timeout exceeded
+            if self._check_shutdown_timeout(
+                process, shutdown_requested_time, current_time
+            ):
+                return
+
+    def _build_crawler_command(self) -> list[str]:
+        """Build the crawler command list."""
+        return [
             sys.executable,
             "-u",  # Unbuffered output for real-time logs
             str(self.crawler_dir / "website_crawler.py"),
@@ -157,62 +271,130 @@ class CrawlerSupervisor:
             "--non-interactive",
         ]
 
+    def _run_cloud_mode(self, cmd: list[str]) -> int:
+        """Run crawler in cloud mode (stdout goes to CloudWatch)."""
+        process = subprocess.Popen(
+            cmd,
+            cwd=self.crawler_dir,
+            # stdout/stderr inherit from parent - goes to CloudWatch
+        )
+        process.wait(timeout=60 * 60)
+        return process.returncode if process.returncode is not None else 1
+
+    def _read_process_output_unix(self, process: subprocess.Popen, log_file) -> None:
+        """Read process output on Unix systems using select for non-blocking reads."""
+        if process.stdout is None:
+            return
+
+        # Hard wall-clock cap to prevent indefinite wedges (e.g., browser launch hang under extreme memory pressure).
+        # Note: We cannot rely on Playwright timeouts when the system is thrashing heavily.
+        start_time = time.time()
+        MAX_INSTANCE_RUNTIME_SECONDS = 60 * 60  # 1 hour
+
+        while process.poll() is None:
+            if time.time() - start_time > MAX_INSTANCE_RUNTIME_SECONDS:
+                self.logger.error(
+                    "Crawler instance exceeded max runtime (1 hour) while still running - killing forcefully"
+                )
+                self._force_kill_process(process)
+                break
+
+            ready, _, _ = select.select([process.stdout], [], [], 30)
+            if ready:
+                line = process.stdout.readline()
+                if line:
+                    log_file.write(line)
+                    log_file.flush()
+                else:
+                    # EOF reached
+                    break
+            else:
+                # Timeout - check if process is still alive
+                if process.poll() is not None:
+                    break
+
+    def _read_process_output_windows(self, process: subprocess.Popen, log_file) -> None:
+        """Read process output on Windows using blocking read."""
+        if process.stdout is None:
+            return
+
+        for line in iter(process.stdout.readline, ""):
+            log_file.write(line)
+            log_file.flush()
+
+    def _wait_and_cleanup_process(self, process: subprocess.Popen) -> int:
+        """Wait for process completion and cleanup if needed."""
+        try:
+            process.wait(timeout=60 * 60)
+        except subprocess.TimeoutExpired:
+            self.logger.error("Crawler instance timed out after 1 hour")
+            process.kill()
+            process.wait(timeout=5)
+            return 1
+        finally:
+            if process.poll() is None:
+                self.logger.warning("Crawler process still running, terminating...")
+                process.terminate()
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    self.logger.error("Process didn't terminate, killing forcefully")
+                    process.kill()
+                    process.wait(timeout=5)
+
+        return process.returncode if process.returncode is not None else 1
+
+    def _run_local_mode(self, cmd: list[str], crawler_log: Path) -> int:
+        """Run crawler in local mode (write to log file)."""
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
+
+        with open(crawler_log, "a", buffering=1) as log_file:  # Line buffered
+            process = subprocess.Popen(
+                cmd,
+                cwd=self.crawler_dir,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                env=env,
+                bufsize=1,  # Line buffered
+                text=True,  # Text mode
+            )
+
+            if process.stdout is None:
+                self.logger.error("Process stdout is None - cannot read output")
+                process.wait(timeout=60 * 60)
+                return process.returncode if process.returncode is not None else 1
+
+            # Start health monitoring thread
+            start_time = time.time()
+            health_monitor = threading.Thread(
+                target=self._monitor_crawler_health,
+                args=(process, crawler_log, start_time),
+                daemon=True,
+            )
+            health_monitor.start()
+
+            # Read output based on platform
+            if sys.platform != "win32":
+                self._read_process_output_unix(process, log_file)
+            else:
+                self._read_process_output_windows(process, log_file)
+
+            return self._wait_and_cleanup_process(process)
+
+    def run_crawler_instance(self) -> int:
+        """Run a single crawler instance and return exit code."""
+        crawler_log = self.log_dir / f"crawler_{self.site_id}.log"
+        cmd = self._build_crawler_command()
+
         self.logger.info(f"Starting crawler instance: {' '.join(cmd)}")
 
         try:
-            # Cloud mode: stream to stdout (CloudWatch captures it)
-            # Local mode: write to log file
             is_cloud = bool(os.getenv("DATA_DIR"))
-
             if is_cloud:
-                # Let subprocess write directly to stdout (CloudWatch captures it)
-                # Don't pipe - avoids line buffering issues with Playwright
-                process = subprocess.Popen(
-                    cmd,
-                    cwd=self.crawler_dir,
-                    # stdout/stderr inherit from parent - goes to CloudWatch
-                )
-                process.wait(timeout=60 * 60)
-                return process.returncode if process.returncode is not None else 1
+                return self._run_cloud_mode(cmd)
             else:
-                # Local: write to log file with real-time output
-                # Read lines and write immediately with explicit flushing
-                env = os.environ.copy()
-                env["PYTHONUNBUFFERED"] = "1"
-
-                # Open file in append mode with line buffering
-                # Context manager keeps file open while subprocess runs
-                with open(crawler_log, "a", buffering=1) as log_file:  # Line buffered
-                    process = subprocess.Popen(
-                        cmd,
-                        cwd=self.crawler_dir,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.STDOUT,
-                        env=env,
-                        bufsize=1,  # Line buffered
-                        text=True,  # Text mode
-                    )
-
-                    # Read lines in real-time and write immediately
-                    if process.stdout is None:
-                        self.logger.error("Process stdout is None - cannot read output")
-                        process.wait(timeout=60 * 60)
-                        return (
-                            process.returncode if process.returncode is not None else 1
-                        )
-
-                    try:
-                        # Read line by line and flush immediately
-                        for line in iter(process.stdout.readline, ""):
-                            log_file.write(line)
-                            log_file.flush()  # Force immediate write
-                        process.wait(timeout=60 * 60)
-                    finally:
-                        if process.poll() is None:
-                            process.terminate()
-                            process.wait(timeout=5)
-
-                    return process.returncode if process.returncode is not None else 1
+                return self._run_local_mode(cmd, crawler_log)
         except subprocess.TimeoutExpired:
             self.logger.error("Crawler instance timed out after 1 hour")
             return 1

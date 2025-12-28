@@ -101,6 +101,11 @@ except ImportError:
 # Global lock manager instance - initialized in main()
 _lock_manager: CrawlerLockManager | None = None
 
+# Global timeout constants to prevent magic numbers
+DEFAULT_PAGE_TIMEOUT_MS = 30000  # 30 seconds
+NETWORK_IDLE_TIMEOUT_MS = 15000  # 15 seconds for network idle
+CSV_TIMEOUT_MS = 30000  # 30 seconds for CSV downloads
+
 # Configure logging defaults (main() will override with _configure_logging()).
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -192,6 +197,9 @@ class WebsiteCrawler:
         self.session_timeout_counts: dict[str, int] = {}
         self.MAX_SESSION_TIMEOUTS = 2  # Skip URL after this many timeouts
         self.MAX_TIMEOUT_COUNTS_ENTRIES = 1000  # Max entries before cleanup
+        self._last_cleanup_check = 0  # Track when we last checked for cleanup
+        self._session_operation_count = 0  # Track operations for periodic cleanup
+        self._total_timeouts_tracked = 0  # Monitor for memory usage
 
     def _init_database(self):
         """Initialize SQLite database - separated for testability."""
@@ -314,8 +322,19 @@ class WebsiteCrawler:
             logging.info("=== WEBSITE CRAWLER CHUNKING METRICS ===")
             self._text_splitter.metrics.print_summary()
 
+        # Close database connection with error handling
         if hasattr(self, "conn") and self.conn:
-            self.conn.close()
+            try:
+                if self.cursor:
+                    self.cursor.close()
+                self.conn.close()
+                logging.debug("Database connection closed successfully")
+            except Exception as e:
+                logging.error(f"Error closing database connection: {e}")
+
+        # Clean up timeout tracking to prevent memory leaks
+        self.session_timeout_counts.clear()
+        self._total_timeouts_tracked = 0
 
     def _is_robots_cache_expired(self) -> bool:
         """Check if robots.txt cache has expired (24 hours)."""
@@ -959,11 +978,23 @@ class WebsiteCrawler:
             return []
 
     def normalize_url(self, url: str) -> str:
-        """Normalize URL for comparison."""
+        """Normalize URL for comparison with path traversal protection."""
         parsed = urlparse(url)
         # Strip www and fragments, but preserve query parameters
-        normalized = parsed.netloc.replace("www.", "") + parsed.path.rstrip("/")
+        netloc = parsed.netloc.replace("www.", "")
+        path = parsed.path.rstrip("/")
+
+        # Prevent path traversal attacks
+        if ".." in path or "\x00" in path:
+            logging.warning(f"Path traversal attempt detected in URL: {url}")
+            raise ValueError(f"Invalid URL path: {path}")
+
+        normalized = netloc + path
         if parsed.query:
+            # Also check query parameters for injection attempts
+            if ".." in parsed.query or "\x00" in parsed.query:
+                logging.warning(f"Path traversal attempt in query parameters: {url}")
+                raise ValueError(f"Invalid URL query: {parsed.query}")
             normalized += "?" + parsed.query
         return normalized.lower()
 
@@ -1415,7 +1446,7 @@ class WebsiteCrawler:
     def _wait_for_page_ready(self, page, url: str) -> None:
         """Wait for page to be ready with appropriate selectors and timeouts."""
         # Progressive timeout strategy for better reliability
-        body_timeout = 30000  # Increased from 15s to 30s for slow-loading pages
+        body_timeout = DEFAULT_PAGE_TIMEOUT_MS
 
         # Add small delay between requests to be more respectful to the server
         time.sleep(1.0)  # 1 second delay between page requests
@@ -1719,6 +1750,13 @@ class WebsiteCrawler:
                     time.sleep(5)
                 else:
                     retries = 0
+
+                # Periodic cleanup of timeout tracking
+                self._session_operation_count += 1
+                if (
+                    self._session_operation_count % 50 == 0
+                ):  # Clean up every 50 operations
+                    self._cleanup_old_timeout_counts()
 
         if not restart_needed:
             error_message = (
@@ -2087,7 +2125,7 @@ class WebsiteCrawler:
         except PlaywrightTimeout as timeout_error:
             # Handle Playwright timeouts specifically
             raise Exception(
-                f"Navigation timeout after 30 seconds: {timeout_error}"
+                f"Navigation timeout after {CSV_TIMEOUT_MS / 1000} seconds: {timeout_error}"
             ) from timeout_error
         except Exception as e:
             self._handle_download_exception(page, e)
@@ -2196,14 +2234,32 @@ class WebsiteCrawler:
                 )
                 return None
 
-            # Add URL sanitization to prevent malicious URLs
+            # Comprehensive URL validation
             if not url.startswith(("http://", "https://")):
                 logging.warning(f"Skipping invalid URL scheme: {url}")
                 return None
 
-            # Prevent path traversal and other injection attempts
-            if ".." in url or "\x00" in url:
+            # Prevent path traversal and injection attacks
+            if (
+                ".." in url
+                or "\x00" in url
+                or "<script" in url.lower()
+                or "javascript:" in url.lower()
+            ):
                 logging.warning(f"Skipping potentially malicious URL: {url}")
+                raise ValueError(f"Malicious URL pattern detected: {url}")
+
+            # Additional security checks
+            parsed = urlparse(url)
+            if not parsed.netloc or len(parsed.netloc) > 253:  # RFC 1035 limit
+                logging.warning(f"Skipping invalid domain in URL: {url}")
+                return None
+
+            # Check for suspicious characters in domain
+            if any(char in parsed.netloc for char in ["<", ">", '"', "'", "\x00"]):
+                logging.warning(
+                    f"Skipping URL with suspicious characters in domain: {url}"
+                )
                 return None
 
             # Validate action values (case-insensitive)
@@ -2729,20 +2785,117 @@ class WebsiteCrawler:
         return added_count
 
     def _cleanup_old_timeout_counts(self, max_entries: int | None = None) -> None:
-        """Remove oldest entries if dict exceeds max size to prevent memory leak."""
+        """Remove oldest entries if dict exceeds max size to prevent memory leak.
+
+        Uses LRU-style cleanup: removes entries with lowest timeout counts first,
+        then by random selection if counts are equal.
+        """
         if max_entries is None:
             max_entries = self.MAX_TIMEOUT_COUNTS_ENTRIES
 
-        if len(self.session_timeout_counts) > max_entries:
-            # Keep only most recent half
-            sorted_urls = sorted(self.session_timeout_counts.keys())
-            entries_to_remove = len(sorted_urls) // 2
-            for url in sorted_urls[:entries_to_remove]:
-                del self.session_timeout_counts[url]
-            logging.debug(
-                f"Cleaned up {entries_to_remove} old timeout count entries "
-                f"(kept {len(self.session_timeout_counts)} most recent)"
-            )
+        current_time = time.time()
+        # Check for cleanup every time this is called if size exceeds limit
+        # OR every 5 minutes regardless of size (to prevent buildup)
+        should_cleanup = (
+            len(self.session_timeout_counts) > max_entries
+            or current_time - self._last_cleanup_check > 300
+        )
+
+        if should_cleanup and self.session_timeout_counts:
+            original_size = len(self.session_timeout_counts)
+
+            if len(self.session_timeout_counts) > max_entries:
+                # Remove excess entries using LRU-like strategy
+                # Sort by timeout count (ascending), then by URL for determinism
+                sorted_entries = sorted(
+                    self.session_timeout_counts.items(),
+                    key=lambda x: (
+                        x[1],
+                        x[0],
+                    ),  # (timeout_count, url) - lowest counts first
+                )
+
+                # Keep only the most recent entries (highest timeout counts)
+                # But ensure we keep at least some minimum number
+                keep_count = min(max_entries, max(100, len(sorted_entries) // 2))
+
+                # Get URLs to keep (highest timeout counts = most recent activity)
+                urls_to_keep = {url for url, _ in sorted_entries[-keep_count:]}
+
+                # Remove URLs not in the keep set
+                urls_to_remove = [
+                    url
+                    for url in self.session_timeout_counts
+                    if url not in urls_to_keep
+                ]
+
+                for url in urls_to_remove:
+                    del self.session_timeout_counts[url]
+
+                removed_count = len(urls_to_remove)
+                self._total_timeouts_tracked -= sum(
+                    self.session_timeout_counts.get(url, 0) for url in urls_to_remove
+                )
+                logging.info(
+                    f"Cleaned up {removed_count} old timeout count entries "
+                    f"({original_size} → {len(self.session_timeout_counts)} entries, "
+                    f"tracking {self._total_timeouts_tracked} total timeouts)"
+                )
+            else:
+                # Periodic cleanup even when under limit - remove entries with count = 0
+                # These are URLs that previously timed out but have since been processed successfully
+                zero_count_urls = [
+                    url
+                    for url, count in self.session_timeout_counts.items()
+                    if count == 0
+                ]
+                for url in zero_count_urls:
+                    del self.session_timeout_counts[url]
+
+                if zero_count_urls:
+                    logging.debug(
+                        f"Periodic cleanup: removed {len(zero_count_urls)} entries with zero timeout count"
+                    )
+
+            # Periodic stats logging every 10 cleanups
+            if hasattr(self, "_cleanup_count"):
+                self._cleanup_count = getattr(self, "_cleanup_count", 0) + 1
+            else:
+                self._cleanup_count = 1
+
+            if self._cleanup_count % 10 == 0:
+                stats = self.get_timeout_stats()
+                logging.info(
+                    f"Timeout tracking stats: {stats['total_entries']} URLs, "
+                    f"{stats['total_timeouts']} timeouts, max {stats['max_timeouts']} per URL"
+                )
+
+            self._last_cleanup_check = current_time
+
+    def reset_timeout_count(self, url: str) -> None:
+        """Reset timeout count for a URL when it's successfully processed."""
+        normalized_url = self.normalize_url(url)
+        if normalized_url in self.session_timeout_counts:
+            old_count = self.session_timeout_counts[normalized_url]
+            if old_count > 0:
+                self.session_timeout_counts[normalized_url] = (
+                    0  # Mark as successfully processed
+                )
+                logging.debug(f"Reset timeout count for {url}: {old_count} → 0")
+
+    def get_timeout_stats(self) -> dict:
+        """Get statistics about timeout tracking for monitoring."""
+        if not self.session_timeout_counts:
+            return {"total_entries": 0, "total_timeouts": 0, "max_timeouts": 0}
+
+        counts = list(self.session_timeout_counts.values())
+        return {
+            "total_entries": len(self.session_timeout_counts),
+            "total_timeouts": sum(counts),
+            "max_timeouts": max(counts),
+            "avg_timeouts": sum(counts) / len(counts) if counts else 0,
+            "zero_count_entries": sum(1 for c in counts if c == 0),
+        }
 
     def _calculate_next_crawl_with_jitter(self, base_frequency_days: int) -> datetime:
         """Calculate next crawl time with 12% jitter to prevent synchronized re-crawling.

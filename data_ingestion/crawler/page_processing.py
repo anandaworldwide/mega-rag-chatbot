@@ -231,6 +231,8 @@ def _process_page_content(
             crawler.mark_url_status(url, "visited", content_hash=ContentHash.NO_CONTENT)
             logging.warning(f"No content chunks created for {url}")
 
+        crawler.reset_timeout_count(url)
+
         # Add new links to queue
         for link in new_links:
             if (
