@@ -15,6 +15,9 @@ import {
   sendActivationEmail,
 } from "@/utils/server/userInviteUtils";
 import { isEmailDomainWhitelisted } from "@/utils/server/domainWhitelistUtils";
+import { getDefaultEmailPreferences } from "@/utils/server/emailPreferenceUtils";
+import { sanitizeEmail } from "@/utils/server/inputSanitization";
+import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -28,24 +31,32 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { email } = req.body as { email?: string };
   if (!email || typeof email !== "string") return res.status(400).json({ error: "Invalid email" });
 
+  // Sanitize and validate email with comprehensive security checks
+  let sanitizedEmailAddr: string;
+  try {
+    sanitizedEmailAddr = sanitizeEmail(email, 254);
+  } catch (error: any) {
+    return res.status(400).json({ error: `Invalid email: ${error.message || "Email validation failed"}` });
+  }
+
   const siteId = process.env.SITE_ID;
   if (!siteId) {
     return res.status(500).json({ error: "SITE_ID environment variable is not configured" });
   }
-  const isWhitelisted = await isEmailDomainWhitelisted(email, siteId);
+  const isWhitelisted = await isEmailDomainWhitelisted(sanitizedEmailAddr, siteId);
 
   if (!isWhitelisted) {
-    await writeAuditLog(req, "self_provision_attempt", email?.toLowerCase?.(), {
+    await writeAuditLog(req, "self_provision_attempt", sanitizedEmailAddr.toLowerCase(), {
       outcome: "non_whitelisted_request",
     });
     return res.status(200).json({ message: "requires_admin_approval" });
   }
 
   const usersCol = getUsersCollectionName();
-  const userDocRef = db.collection(usersCol).doc(email.toLowerCase());
+  const userDocRef = db.collection(usersCol).doc(sanitizedEmailAddr.toLowerCase());
 
   try {
-    const existing = await firestoreGet(userDocRef, "verify access", email);
+    const existing = await firestoreGet(userDocRef, "verify access", sanitizedEmailAddr);
     const now = firebase.firestore.Timestamp.now();
 
     if (existing.exists) {
@@ -61,8 +72,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         { merge: true },
         "resend activation on verify access"
       );
-      await sendActivationEmail(email, token, req);
-      await writeAuditLog(req, "self_provision_attempt", email.toLowerCase(), {
+      await sendActivationEmail(sanitizedEmailAddr, token, req);
+      await writeAuditLog(req, "self_provision_attempt", sanitizedEmailAddr.toLowerCase(), {
         outcome: "resent_pending_activation_whitelisted",
       });
       return res.status(200).json({ message: "activation-resent" });
@@ -75,33 +86,36 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     await firestoreSet(
       userDocRef,
       {
-        email: email.toLowerCase(),
+        email: sanitizedEmailAddr.toLowerCase(),
         role: "user",
         entitlements: { basic: true },
         inviteStatus: "pending",
         inviteTokenHash: tokenHash,
         inviteExpiresAt,
-        newsletterSubscribed: true, // Default opt-in for newsletter
+        newsletterSubscribed: true, // Legacy field for backward compatibility
+        emailPreferences: getDefaultEmailPreferences(), // New multi-category preferences
         createdAt: now,
         updatedAt: now,
       },
       undefined,
       "create user via verify access"
     );
-    await sendActivationEmail(email, token, req);
-    await writeAuditLog(req, "self_provision_attempt", email.toLowerCase(), {
+    await sendActivationEmail(sanitizedEmailAddr, token, req);
+    await writeAuditLog(req, "self_provision_attempt", sanitizedEmailAddr.toLowerCase(), {
       outcome: "created_pending_user_whitelisted",
     });
     return res.status(200).json({ message: "created" });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
+    const safeMessage = getSafeErrorMessage(err, "An error occurred");
     try {
-      await writeAuditLog(req, "self_provision_attempt", email?.toLowerCase?.(), {
+      await writeAuditLog(req, "self_provision_attempt", sanitizedEmailAddr.toLowerCase(), {
         outcome: "server_error",
-        error: message,
+        error: safeMessage,
       });
-    } catch {}
-    return res.status(500).json({ error: message });
+    } catch {
+      // Ignore audit log errors - already returning error response
+    }
+    return res.status(500).json({ error: safeMessage });
   }
 }
 

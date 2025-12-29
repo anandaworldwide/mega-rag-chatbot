@@ -261,9 +261,21 @@ describe("/api/admin/sendNewsletter", () => {
   });
 
   it("should return error when no subscribed users found", async () => {
+    // Mock users found but none subscribed
+    const unsubscribedUser = {
+      id: "user@example.com",
+      data: () => ({
+        inviteStatus: "accepted",
+        role: "user",
+        emailPreferences: {
+          newsletters: false,
+        },
+      }),
+    };
+
     mockFirestoreQueryGet.mockResolvedValue({
-      empty: true,
-      docs: [],
+      empty: false,
+      docs: [unsubscribedUser],
     } as any);
 
     const { req, res } = createMocks({
@@ -280,7 +292,7 @@ describe("/api/admin/sendNewsletter", () => {
     expect(res._getStatusCode()).toBe(400);
     const response = JSON.parse(res._getData());
     expect(response.error).toBe("No newsletter subscribers found");
-    expect(response.details).toContain("There are currently no Users with newsletter subscriptions enabled");
+    expect(response.details).toContain("There are currently no active Users with newsletter subscriptions enabled");
   });
 
   it("should successfully send newsletter to subscribed users", async () => {

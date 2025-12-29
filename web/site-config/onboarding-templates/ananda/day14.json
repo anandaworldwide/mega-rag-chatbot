@@ -1,0 +1,21 @@
+{
+  "day": 14,
+  "subject": "Two Weeks with Luca",
+  "greeting": "Hi {{firstName}},",
+  "body": "You've been with us for two weeks now! We hope Luca has become a valuable resource in your spiritual journey.\n\nAs you continue to explore Master's teachings, here are some thought-provoking questions:\n{{exampleQuestions}}\n\nRemember, Luca, our AI assistant, is available 24/7 to help answer your questions. Whether you're looking for understanding Master's philosophy or exploring deeper spiritual concepts, we're here to support you.\n\nWe look forward to continuing to serve you on your path to self-realization.\n\nIn divine friendship,\nThe Luca Team",
+  "exampleQuestionPool": [
+    "In Essence of the Bhagavad Gita, Swamiji lists 4 ways to know right action from wrong action. What are they?",
+    "What did Master and Swamiji say about the imitations of Christ book?",
+    "Does Kriya Yoga burn up good karma as well as bad karma?",
+    "What did Swamiji and Master say about the world's need today, especially for the Divine Mother aspect of God?",
+    "Did Swamiji talk about how a deep spiritual experience burns up past karma, much as Kriya Yoga also does?",
+    "How does Yogananda explain Krishna as an avatar?",
+    "What distinguishes calmness from peace?",
+    "Can you share stories by Master or Swamiji on the inner star?",
+    "What does Yogananda say about purification?",
+    "How to bring God into daily life?"
+  ],
+  "exampleQuestionCount": 4,
+  "ctaUrl": "{{baseUrl}}",
+  "ctaText": "Keep Exploring"
+}

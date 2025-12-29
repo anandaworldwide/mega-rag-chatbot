@@ -3,11 +3,13 @@ import jwt from "jsonwebtoken";
 import { db } from "@/services/firebase";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreGet, firestoreSet } from "@/utils/server/firestoreRetryUtils";
+import { EmailCategory } from "@/types/user";
 import firebase from "firebase-admin";
 
 interface ResubscribeToken {
   email: string;
   purpose: string;
+  category?: EmailCategory; // NEW: category-specific resubscribe
   iat: number;
   exp: number;
 }
@@ -46,8 +48,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: "Invalid resubscribe token" });
     }
 
-    // Validate token purpose
-    if (decoded.purpose !== "newsletter_unsubscribe") {
+    // Validate token purpose (support both legacy and new format)
+    const isLegacyToken = decoded.purpose === "newsletter_unsubscribe";
+    const isNewToken = decoded.purpose === "email_unsubscribe";
+    if (!isLegacyToken && !isNewToken) {
       return res.status(400).json({ error: "Invalid token purpose" });
     }
 
@@ -56,7 +60,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: "Invalid email in token" });
     }
 
-    // Update user's newsletter subscription
+    // Determine category (default to "newsletters" for legacy tokens)
+    const category: EmailCategory = decoded.category || "newsletters";
+
+    // Update user's email preference for the specific category
     const usersCol = getUsersCollectionName();
     const userRef = db.collection(usersCol).doc(email);
 
@@ -65,20 +72,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(404).json({ error: "User not found" });
     }
 
-    // Update newsletter subscription to true
-    await firestoreSet(
-      userRef,
-      {
-        newsletterSubscribed: true,
-        updatedAt: firebase.firestore.Timestamp.now(),
-      },
-      { merge: true },
-      "resubscribe to newsletter"
-    );
+    const userData = userDoc.data();
+    const currentPreferences = userData?.emailPreferences || {};
+
+    // Update the specific category preference to true
+    const updatedPreferences = {
+      ...currentPreferences,
+      [category]: true,
+    };
+
+    // Also update legacy newsletterSubscribed for backward compatibility
+    const updates: any = {
+      emailPreferences: updatedPreferences,
+      updatedAt: firebase.firestore.Timestamp.now(),
+    };
+
+    if (category === "newsletters" || isLegacyToken) {
+      updates.newsletterSubscribed = true;
+    }
+
+    await firestoreSet(userRef, updates, { merge: true }, `resubscribe to ${category}`);
+
+    // Category display names
+    const categoryNames: Record<EmailCategory, string> = {
+      newsletters: "newsletter updates",
+      onboarding: "onboarding emails",
+    };
+    const categoryDisplayName = categoryNames[category] || "emails";
 
     return res.status(200).json({
       success: true,
-      message: "Successfully resubscribed to newsletter",
+      message: `Successfully resubscribed to ${categoryDisplayName}`,
     });
   } catch (error: any) {
     console.error("Resubscribe error:", error);

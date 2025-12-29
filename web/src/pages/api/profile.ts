@@ -9,6 +9,8 @@ import { firestoreGet } from "@/utils/server/firestoreRetryUtils";
 import { verifyToken } from "@/utils/server/jwtUtils";
 import { writeAuditLog } from "@/utils/server/auditLog";
 import { sendWelcomeEmail } from "@/utils/server/userInviteUtils";
+import { getDefaultEmailPreferences } from "@/utils/server/emailPreferenceUtils";
+import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Rate limit
@@ -111,6 +113,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           // Mark as fully accepted when they complete their profile
           updates.inviteStatus = "accepted";
           isCompletingActivation = true;
+
+          // Initialize email preferences if not set (migrate from legacy newsletterSubscribed)
+          if (!userData?.emailPreferences) {
+            updates.emailPreferences = getDefaultEmailPreferences();
+            // Also set newsletterSubscribed for backward compatibility
+            if (userData?.newsletterSubscribed !== undefined) {
+              updates.emailPreferences.newsletters = userData.newsletterSubscribed !== false;
+            }
+          }
+
+          // Start onboarding sequence (cron will send first email)
+          if (!userData?.onboardingStartedAt) {
+            updates.onboardingStartedAt = firebase.firestore.Timestamp.now();
+            updates.onboardingEmailsSent = [];
+          }
         }
       }
 
@@ -137,7 +154,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     return res.status(405).json({ error: "Method not allowed" });
   } catch (e: any) {
-    return res.status(500).json({ error: e?.message || "Failed to load profile" });
+    const safeMessage = getSafeErrorMessage(e, "Failed to load profile");
+    return res.status(500).json({ error: safeMessage });
   }
 }
 

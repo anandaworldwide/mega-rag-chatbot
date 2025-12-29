@@ -22,6 +22,9 @@ jest.mock("@/utils/server/loadSiteConfig");
 jest.mock("@/utils/server/corsMiddleware", () => ({
   createErrorCorsHeaders: jest.fn(() => ({})),
 }));
+jest.mock("@/utils/server/genericRateLimiter", () => ({
+  genericRateLimiter: jest.fn().mockResolvedValue(true), // Always allow in tests
+}));
 
 jest.mock("firebase-admin", () => ({
   firestore: {
@@ -178,7 +181,7 @@ describe("/api/unsubscribe", () => {
     expect(res._getData()).toContain("Unsubscribed Successfully");
     expect(res._getData()).toContain("test@example.com");
     expect(res._getData()).toContain("Test Site Newsletter");
-    expect(res._getData()).toContain("Re-subscribe to Newsletter");
+    expect(res._getData()).toContain("Resubscribe to newsletter updates");
     expect(res._getData()).toContain("Go to Home Page");
     expect(res._getData()).toContain('href="/"');
 
@@ -190,7 +193,7 @@ describe("/api/unsubscribe", () => {
         updatedAt: expect.anything(),
       }),
       { merge: true },
-      "unsubscribe from newsletter"
+      "unsubscribe from newsletters"
     );
   });
 
@@ -234,7 +237,7 @@ describe("/api/unsubscribe", () => {
 
     expect(res._getStatusCode()).toBe(200);
     expect(res._getData()).toContain("Newsletter");
-    expect(res._getData()).toContain("Re-subscribe to Newsletter");
+    expect(res._getData()).toContain("Resubscribe to newsletter updates");
     expect(res._getData()).toContain("Go to Home Page");
   });
 

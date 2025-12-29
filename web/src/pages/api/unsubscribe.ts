@@ -4,11 +4,40 @@ import { db } from "@/services/firebase";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreGet, firestoreSet } from "@/utils/server/firestoreRetryUtils";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
+import { EmailCategory } from "@/types/user";
+import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import firebase from "firebase-admin";
+
+/**
+ * Escapes HTML special characters to prevent XSS attacks
+ */
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+/**
+ * Escapes a string for safe use in JavaScript string literals
+ */
+function escapeJsString(str: string): string {
+  return str
+    .replace(/\\/g, "\\\\")
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '\\"')
+    .replace(/\n/g, "\\n")
+    .replace(/\r/g, "\\r")
+    .replace(/</g, "\\x3c")
+    .replace(/>/g, "\\x3e");
+}
 
 interface UnsubscribeToken {
   email: string;
   purpose: string;
+  category?: EmailCategory; // NEW: category-specific unsubscribe
   iat: number;
   exp: number;
 }
@@ -17,6 +46,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method !== "GET") {
     return res.status(405).json({ error: "Method not allowed" });
   }
+
+  // Rate limiting to prevent abuse/enumeration
+  const allowed = await genericRateLimiter(req, res, {
+    windowMs: 60 * 1000, // 1 minute
+    max: 30, // 30 requests per minute
+    name: "unsubscribe",
+  });
+  if (!allowed) return;
 
   if (!db) {
     return res.status(503).json({ error: "Database not available" });
@@ -47,8 +84,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: "Invalid unsubscribe token" });
     }
 
-    // Validate token purpose
-    if (decoded.purpose !== "newsletter_unsubscribe") {
+    // Validate token purpose (support both legacy and new format)
+    const isLegacyToken = decoded.purpose === "newsletter_unsubscribe";
+    const isNewToken = decoded.purpose === "email_unsubscribe";
+    if (!isLegacyToken && !isNewToken) {
       return res.status(400).json({ error: "Invalid token purpose" });
     }
 
@@ -57,7 +96,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: "Invalid email in token" });
     }
 
-    // Update user's newsletter subscription
+    // Determine category (default to "newsletters" for legacy tokens)
+    const category: EmailCategory = decoded.category || "newsletters";
+
+    // Update user's email preference for the specific category
     const usersCol = getUsersCollectionName();
     const userRef = db.collection(usersCol).doc(email);
 
@@ -66,20 +108,43 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(404).json({ error: "User not found" });
     }
 
-    // Update newsletter subscription to false
-    await firestoreSet(
-      userRef,
-      {
-        newsletterSubscribed: false,
-        updatedAt: firebase.firestore.Timestamp.now(),
-      },
-      { merge: true },
-      "unsubscribe from newsletter"
-    );
+    const userData = userDoc.data();
+    const currentPreferences = userData?.emailPreferences || {};
+
+    // Update the specific category preference
+    const updatedPreferences = {
+      ...currentPreferences,
+      [category]: false,
+    };
+
+    // Also update legacy newsletterSubscribed for backward compatibility
+    const updates: any = {
+      emailPreferences: updatedPreferences,
+      updatedAt: firebase.firestore.Timestamp.now(),
+    };
+
+    if (category === "newsletters" || isLegacyToken) {
+      updates.newsletterSubscribed = false;
+    }
+
+    await firestoreSet(userRef, updates, { merge: true }, `unsubscribe from ${category}`);
 
     // Load site configuration to get detailed site name
     const siteConfig = await loadSiteConfig();
     const siteName = siteConfig?.name || "Newsletter";
+
+    // Category display names
+    const categoryNames: Record<EmailCategory, string> = {
+      newsletters: "newsletter updates",
+      onboarding: "onboarding emails",
+    };
+    const categoryDisplayName = categoryNames[category] || "emails";
+
+    // Escape values for safe HTML/JS output (XSS prevention)
+    const safeEmail = escapeHtml(email);
+    const safeSiteName = escapeHtml(siteName);
+    const safeCategoryDisplayName = escapeHtml(categoryDisplayName);
+    const safeToken = escapeJsString(token);
 
     // Return success page
     const successHtml = `
@@ -199,8 +264,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     <div class="container">
         <div class="success-icon">✓</div>
         <h1>Successfully Unsubscribed</h1>
-        <p>The email address <span class="email">${email}</span> has been unsubscribed from <strong>${siteName}</strong> newsletter updates.</p>
-        <p>You will no longer receive newsletter emails from us.</p>
+        <p>The email address <span class="email">${safeEmail}</span> has been unsubscribed from <strong>${safeSiteName}</strong> ${safeCategoryDisplayName}.</p>
+        <p>You will no longer receive ${safeCategoryDisplayName} from us.</p>
         
         <div class="note">
             Changed your mind? You can instantly re-subscribe below or log into your account to update your preferences.
@@ -209,7 +274,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         <div class="button-group">
             <a href="/" class="button secondary-button">Go to Home Page</a>
             <button class="button primary-button" onclick="resubscribe()">
-                Re-subscribe to Newsletter
+                Resubscribe to ${safeCategoryDisplayName}
             </button>
         </div>
         
@@ -232,7 +297,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        token: '${token}'
+                        token: '${safeToken}'
                     })
                 });
                 
@@ -240,7 +305,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 
                 if (response.ok) {
                     messageDiv.className = 'message success-message';
-                    messageDiv.textContent = 'Successfully re-subscribed! You will now receive newsletter updates.';
+                    messageDiv.textContent = 'Successfully re-subscribed! You will now receive ${safeCategoryDisplayName}.';
                     messageDiv.style.display = 'block';
                     button.textContent = 'Re-subscribed ✓';
                     button.style.backgroundColor = '#28a745';
@@ -252,7 +317,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 messageDiv.textContent = 'Failed to re-subscribe: ' + error.message;
                 messageDiv.style.display = 'block';
                 button.disabled = false;
-                button.textContent = 'Re-subscribe to Newsletter';
+                button.textContent = 'Resubscribe to ${safeCategoryDisplayName}';
             }
         }
     </script>

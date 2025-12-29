@@ -151,7 +151,7 @@ describe("/api/resubscribe", () => {
     expect(res._getStatusCode()).toBe(200);
     expect(JSON.parse(res._getData())).toEqual({
       success: true,
-      message: "Successfully resubscribed to newsletter",
+      message: "Successfully resubscribed to newsletter updates",
     });
 
     // Verify Firestore update was called
@@ -162,7 +162,7 @@ describe("/api/resubscribe", () => {
         updatedAt: expect.anything(),
       }),
       { merge: true },
-      "resubscribe to newsletter"
+      "resubscribe to newsletters"
     );
   });
 

@@ -19,6 +19,7 @@ import {
   sendActivationEmail,
 } from "@/utils/server/userInviteUtils";
 import { unescapeName } from "@/utils/shared/nameUtils";
+import { getDefaultEmailPreferences } from "@/utils/server/emailPreferenceUtils";
 
 const ses = new SESClient({
   region: process.env.AWS_REGION || "us-west-2",
@@ -301,7 +302,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
               inviteExpiresAt,
               invitedByEmail: txRequest.adminEmail?.toLowerCase(),
               invitedByName: txRequest.adminName,
-              newsletterSubscribed: true,
+              newsletterSubscribed: true, // Legacy field for backward compatibility
+              emailPreferences: getDefaultEmailPreferences(), // New multi-category preferences
               firstName,
               lastName,
               createdAt: existingUser.exists ? existingUser.data()?.createdAt : now,

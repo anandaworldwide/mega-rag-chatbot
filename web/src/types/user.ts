@@ -2,6 +2,16 @@
  * User type definitions for the Ananda Library Chatbot
  */
 
+export type EmailCategory = "newsletters" | "onboarding";
+
+export interface EmailPreferences {
+  newsletters: boolean; // Admin-sent newsletters
+  onboarding: boolean; // Onboarding drip emails
+  // Future categories (add as implemented):
+  // reengagement?: boolean;
+  // specialDay?: boolean; // Special occasion emails (holidays, events, etc.)
+}
+
 export interface User {
   // Note: email is now stored as the document ID, not as a field
   uuid?: string | null;
@@ -14,7 +24,15 @@ export interface User {
   pendingEmail?: string | null;
   emailChangeExpiresAt?: any;
   inviteStatus?: string | null;
+  // DEPRECATED - migrate to emailPreferences.newsletters
   newsletterSubscribed?: boolean;
+  // NEW - Multi-category email preferences
+  emailPreferences?: EmailPreferences;
+  // Onboarding tracking
+  onboardingEmailsSent?: number[]; // Array of day numbers (e.g., [1, 3, 7, 14])
+  onboardingStartedAt?: any; // firebase.firestore.Timestamp
+  onboardingCompleted?: boolean;
+  createdAt?: any; // firebase.firestore.Timestamp - account creation time
   // Password authentication fields
   hasPassword?: boolean; // Computed field for client - whether user has password set
   passwordSetAt?: string | null; // When password was first set

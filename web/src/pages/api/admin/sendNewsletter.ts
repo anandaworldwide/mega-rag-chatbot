@@ -5,6 +5,7 @@ import { firestoreQueryGet, firestoreSet } from "@/utils/server/firestoreRetryUt
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { requireSuperuserRoleFromFirestore } from "@/utils/server/authz";
 import { withJwtAuth, getTokenFromRequest } from "@/utils/server/jwtUtils";
+import { isSubscribedToCategory } from "@/utils/server/emailPreferenceUtils";
 import firebase from "firebase-admin";
 import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
 
@@ -89,20 +90,37 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (roleSelection.admins) allowedRoles.push("admin");
     if (roleSelection.superusers) allowedRoles.push("superuser");
 
-    // Query users with selected roles
-    const subscribedUsersQuery = db
+    // Query users with selected roles and accepted status
+    // Note: We can't filter by emailPreferences.newsletters in Firestore query,
+    // so we'll filter client-side after fetching
+    const usersQuery = db
       .collection(usersCol)
-      .where("newsletterSubscribed", "==", true)
       .where("inviteStatus", "==", "accepted") // Only send to fully activated users
       .where("role", "in", allowedRoles); // Filter by selected roles
 
-    const subscribedUsersSnapshot = await firestoreQueryGet(
-      subscribedUsersQuery,
-      "get subscribed users by role",
-      "newsletter send"
-    );
+    const usersSnapshot = await firestoreQueryGet(usersQuery, "get users by role", "newsletter send");
 
-    if (subscribedUsersSnapshot.empty) {
+    if (usersSnapshot.empty) {
+      const selectedRoleNames = [];
+      if (roleSelection.users) selectedRoleNames.push("Users");
+      if (roleSelection.admins) selectedRoleNames.push("Admins");
+      if (roleSelection.superusers) selectedRoleNames.push("Super Users");
+
+      return res.status(400).json({
+        error: "No users found",
+        details: `There are currently no active ${selectedRoleNames.join(", ")} accounts found.`,
+      });
+    }
+
+    // Filter users who are subscribed to newsletters using the new preference system
+    const subscribedUsers = usersSnapshot.docs
+      .map((doc: firebase.firestore.QueryDocumentSnapshot) => ({
+        email: doc.id,
+        data: doc.data(),
+      }))
+      .filter((user: { email: string; data: any }) => isSubscribedToCategory(user.data, "newsletters"));
+
+    if (subscribedUsers.length === 0) {
       const selectedRoleNames = [];
       if (roleSelection.users) selectedRoleNames.push("Users");
       if (roleSelection.admins) selectedRoleNames.push("Admins");
@@ -110,14 +128,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
       return res.status(400).json({
         error: "No newsletter subscribers found",
-        details: `There are currently no ${selectedRoleNames.join(", ")} with newsletter subscriptions enabled. You can enable newsletter subscriptions for users in the admin user management page, or run the newsletter opt-in migration script to enable it for all existing users.`,
+        details: `There are currently no active ${selectedRoleNames.join(", ")} with newsletter subscriptions enabled. You can enable newsletter subscriptions for users in the admin user management page.`,
       });
     }
-
-    const subscribedUsers = subscribedUsersSnapshot.docs.map((doc: firebase.firestore.QueryDocumentSnapshot) => ({
-      email: doc.id,
-      data: doc.data(),
-    }));
 
     console.log(`Queueing newsletter for ${subscribedUsers.length} subscribers`);
 
@@ -181,14 +194,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   } catch (error: any) {
     // Log sanitized error (prevents API key leakage)
     console.error("Newsletter sending error:", error instanceof Error ? error.name : "Unknown error");
-    
+
     // Handle authorization errors separately
     if (error.message?.includes("Unauthorized") || error.message?.includes("Superuser")) {
       return res.status(403).json({
         error: "Forbidden: Superuser privileges required",
       });
     }
-    
+
     // Return safe error message (no sensitive details)
     const safeMessage = getSafeErrorMessage(error, "Failed to send newsletter");
     return res.status(500).json({

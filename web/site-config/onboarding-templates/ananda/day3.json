@@ -1,0 +1,21 @@
+{
+  "day": 3,
+  "subject": "Deepening Your Practice - Day 3",
+  "greeting": "Hi {{firstName}},",
+  "body": "We hope you're enjoying exploring Luca!\n\nAs you continue your journey, here are some deeper questions about Master's teachings and practices:\n{{exampleQuestions}}\n\nOur library contains many teachings from Master, along with teachings from Swamiji and other Ananda ministers. Whether you're looking for guidance on meditation techniques, understanding spiritual principles, or exploring the path of Kriya Yoga, Luca, our AI assistant, is here to help.\n\nHave you tried asking about your specific interests yet?\n\nIn divine friendship,\nThe Luca Team",
+  "exampleQuestionPool": [
+    "How does one maintain focus at the spiritual eye?",
+    "What techniques does Master give to remember God in daily activities?",
+    "What are the qualities of Christ Consciousness?",
+    "How to develop a positive quality?",
+    "What is the relationship between the Aum vibration and Christ Consciousness?",
+    "Benefits of mindfulness practice?",
+    "Role of superconsciousness in meditation?",
+    "Symbolism of the Christmas tree according to Master?",
+    "How can we express Christ love?",
+    "What did Master say about how to go deep in meditation?"
+  ],
+  "exampleQuestionCount": 4,
+  "ctaUrl": "{{baseUrl}}",
+  "ctaText": "Continue Exploring"
+}

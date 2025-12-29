@@ -1,0 +1,21 @@
+{
+  "day": 0,
+  "subject": "Welcome to Luca!",
+  "greeting": "Hi {{firstName}},",
+  "body": "Welcome to Luca! We're thrilled to have you join our community of seekers.\n\nLuca, our AI assistant, is ready to help you explore Master's teachings, meditation practices, and the path of Kriya Yoga. You can ask questions about:\n\n• Meditation and Kriya Yoga techniques\n• Master's teachings and philosophy\n• Spiritual practices and daily living\n• Ananda communities and resources\n\nHere are some example questions to get you started:\n{{exampleQuestions}}\n\nWe're here to support you on your spiritual journey. Feel free to ask anything!\n\nIn divine friendship,\nThe Luca Team",
+  "exampleQuestionPool": [
+    "What are the Paths to God that Master spoke of?",
+    "What is the difference between spirit and soul according to Yogananda?",
+    "What does Master say about who Jesus Christ was?",
+    "Define Christ consciousness in one sentence.",
+    "What are the benefits of chanting Hong Sau?",
+    "What did Master say about angels?",
+    "What is the spiritual significance of the Christmas tree?",
+    "Can you provide examples of affirmations?",
+    "What did Master say about chanting?",
+    "How can meditation enhance spiritual growth?"
+  ],
+  "exampleQuestionCount": 4,
+  "ctaUrl": "{{baseUrl}}",
+  "ctaText": "Start Exploring"
+}

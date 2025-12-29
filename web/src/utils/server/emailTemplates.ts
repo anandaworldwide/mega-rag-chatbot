@@ -10,6 +10,7 @@ interface EmailTemplateOptions {
   siteId?: string;
   actionUrl?: string; // The main URL for the action (e.g., login, activation)
   actionText?: string; // The text for the action link (e.g., "Click here to sign in")
+  unsubscribeUrl?: string; // Optional unsubscribe link URL
 }
 
 /**
@@ -127,7 +128,15 @@ export function generateEmailContent(options: EmailTemplateOptions): {
   const messageContent = formatMessageContent(options.message, options.actionUrl, options.actionText);
 
   // Generate plain text version
-  const textContent = [emailGreeting, "", messageContent.text, "", loginImageUrl ? `View online: ${baseUrl}` : ""]
+  const unsubscribeText = options.unsubscribeUrl ? `\n\nUnsubscribe: ${options.unsubscribeUrl}` : "";
+  const textContent = [
+    emailGreeting,
+    "",
+    messageContent.text,
+    "",
+    loginImageUrl ? `View online: ${baseUrl}` : "",
+    unsubscribeText,
+  ]
     .filter((line) => line !== "")
     .join("\n");
 
@@ -215,6 +224,15 @@ export function generateEmailContent(options: EmailTemplateOptions): {
         ? `
     <div class="login-image">
       <img src="${loginImageUrl}" alt="${shortName}" />
+    </div>
+    `
+        : ""
+    }
+    ${
+      options.unsubscribeUrl
+        ? `
+    <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #999; text-align: center;">
+      <a href="${options.unsubscribeUrl}" style="color: #999; text-decoration: underline;">Unsubscribe</a>
     </div>
     `
         : ""

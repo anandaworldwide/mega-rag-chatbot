@@ -16,6 +16,7 @@ import {
   sendActivationEmail,
 } from "@/utils/server/userInviteUtils";
 import { writeAuditLog } from "@/utils/server/auditLog";
+import { getDefaultEmailPreferences } from "@/utils/server/emailPreferenceUtils";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const allowed = await genericRateLimiter(req, res, {
@@ -36,7 +37,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     await requireAdminRoleFromFirestore(req);
   } catch (error: any) {
     if (error.message?.includes("Unauthorized") || error.message?.includes("Admin")) {
-    return res.status(403).json({ error: "Forbidden" });
+      return res.status(403).json({ error: "Forbidden" });
     }
     throw error;
   }
@@ -128,7 +129,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         inviteExpiresAt,
         invitedByEmail: inviterEmail,
         invitedByName: inviterName,
-        newsletterSubscribed: true, // Default opt-in for newsletter
+        newsletterSubscribed: true, // Legacy field for backward compatibility
+        emailPreferences: getDefaultEmailPreferences(), // New multi-category preferences
         createdAt: now,
         updatedAt: now,
       },

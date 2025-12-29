@@ -1,0 +1,21 @@
+{
+  "day": 7,
+  "subject": "One Week with Luca",
+  "greeting": "Hi {{firstName}},",
+  "body": "It's been a week since you joined Luca! We hope you've been finding inspiration in Master's teachings.\n\nHere are some advanced questions that might interest you:\n{{exampleQuestions}}\n\nIf you have specific topics you'd like to explore, or if you've found particular teachings helpful, we'd love to hear about your experience.\n\nWe're glad you are part of the Ananda family.\n\nIn divine friendship,\nThe Luca Team",
+  "exampleQuestionPool": [
+    "How can one differentiate feeling from emotion?",
+    "What has Swamiji said about the difference between feeling and emotion?",
+    "Different states of consciousness?",
+    "How to access superconsciousness?",
+    "Superconsciousness vs. subconscious?",
+    "What did Master or Swamiji say about the 8 qualities of God?",
+    "Can emotions be transformed into feelings?",
+    "What are satwic foods and give some examples as per Yogananda and Swami?",
+    "Examples of tamasic food as per Yogananda and Swami?",
+    "How does meditation aid in spiritual growth?"
+  ],
+  "exampleQuestionCount": 4,
+  "ctaUrl": "{{baseUrl}}",
+  "ctaText": "Explore More"
+}
