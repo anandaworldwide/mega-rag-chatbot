@@ -75,23 +75,31 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Query users who:
     // 1. Have accepted invitations (are active users)
-    // 2. Have onboardingStartedAt set (have started onboarding)
-    // 3. Haven't completed onboarding
+    // 2. Haven't completed onboarding (including users where field is missing)
+    //
+    // NOTE: We only query for inviteStatus and filter onboardingCompleted in JavaScript
+    // because Firestore's != operator doesn't match documents where the field is missing.
     const usersCol = getUsersCollectionName();
-    const usersQuery = db
-      .collection(usersCol)
-      .where("inviteStatus", "==", "accepted")
-      .where("onboardingCompleted", "!=", true); // Not completed
+    const usersQuery = db.collection(usersCol).where("inviteStatus", "==", "accepted");
 
-    const usersSnapshot = await firestoreQueryGet(usersQuery, "get users for onboarding emails", "onboarding cron");
+    const allUsersSnapshot = await firestoreQueryGet(usersQuery, "get users for onboarding emails", "onboarding cron");
 
-    if (usersSnapshot.empty) {
+    // Filter out users who have completed onboarding (includes missing field as eligible)
+    const eligibleDocs = allUsersSnapshot.docs.filter((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
+      const data = doc.data();
+      return data.onboardingCompleted !== true;
+    });
+
+    if (eligibleDocs.length === 0) {
       console.log("No users eligible for onboarding emails");
       return res.status(200).json({
         message: "No users eligible for onboarding emails",
+        totalAcceptedUsers: allUsersSnapshot.docs.length,
         processed: 0,
         sent: 0,
         errors: 0,
+        sentList: [],
+        skippedList: [],
       });
     }
 
@@ -99,9 +107,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     let sent = 0;
     let errors = 0;
     const errorsList: string[] = [];
+    const sentList: { email: string; day: number; daysSinceStart: number }[] = [];
+    const skippedList: { email: string; reason: string }[] = [];
 
     // Process each user
-    for (const doc of usersSnapshot.docs) {
+    for (const doc of eligibleDocs) {
       processed++;
       const userData = doc.data() as User;
       const userEmail = doc.id; // Email is the document ID
@@ -111,6 +121,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // Check if user is subscribed to onboarding emails
         if (!isSubscribedToCategory(userData, "onboarding")) {
           console.log(`Skipping ${userEmail} - not subscribed to onboarding emails`);
+          skippedList.push({ email: userEmail, reason: "not subscribed to onboarding" });
           continue;
         }
 
@@ -165,6 +176,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             const template = await loadOnboardingTemplate(nextDay, siteId);
             if (!template) {
               console.log(`Skipping ${userEmail} - no onboarding template for day ${nextDay}, site ${siteId}`);
+              skippedList.push({ email: userEmail, reason: `no template for day ${nextDay}` });
               continue;
             }
             // Send the email
@@ -179,6 +191,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
                 `mark day ${nextDay} email sent`
               );
               sent++;
+              sentList.push({ email: userEmail, day: nextDay, daysSinceStart: daysSinceCreation });
               console.log(
                 `✅ Sent onboarding email (day ${nextDay}) to ${userEmail} (existing user, ${daysSinceCreation} days since signup)`
               );
@@ -187,6 +200,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
               errorsList.push(`${userEmail}: Failed to send day ${nextDay} email`);
             }
           }
+          // No email due - don't add to skippedList (too noisy)
           continue;
         }
 
@@ -204,13 +218,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             { merge: true },
             "mark onboarding completed"
           );
+          skippedList.push({ email: userEmail, reason: "marked as completed" });
           continue;
         }
 
         // Determine which email to send
         const nextDay = getNextEmailDay(daysSinceStart, emailsSent);
         if (!nextDay) {
-          // No email to send at this time
+          // No email to send at this time - don't add to skippedList (too noisy)
           continue;
         }
 
@@ -218,6 +233,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         const template = await loadOnboardingTemplate(nextDay, siteId);
         if (!template) {
           console.log(`Skipping ${userEmail} - no onboarding template for day ${nextDay}, site ${siteId}`);
+          skippedList.push({ email: userEmail, reason: `no template for day ${nextDay}` });
           continue;
         }
 
@@ -235,6 +251,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             `mark day ${nextDay} email sent`
           );
           sent++;
+          sentList.push({ email: userEmail, day: nextDay, daysSinceStart });
           console.log(`✅ Sent onboarding email (day ${nextDay}) to ${userEmail}`);
         } else {
           errors++;
@@ -250,9 +267,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const result = {
       message: "Onboarding emails processed",
+      totalAcceptedUsers: allUsersSnapshot.docs.length,
+      eligibleUsers: eligibleDocs.length,
       processed,
       sent,
       errors,
+      sentList,
+      skippedList: skippedList.slice(0, 50), // Limit skipped list
       errorsList: errorsList.slice(0, 10), // Limit error list
     };
 
