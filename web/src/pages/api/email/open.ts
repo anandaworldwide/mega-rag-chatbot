@@ -44,7 +44,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       const userEmail = email.toLowerCase();
 
-      // Log open to Firestore (async, don't wait)
+      // Log open to Firestore - await to ensure completion before serverless function terminates
+      // Without await, Vercel may kill the function after sending the response, causing timeouts
       if (db) {
         const usersCol = getUsersCollectionName();
         const userRef = db.collection(usersCol).doc(userEmail);
@@ -52,21 +53,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         // Create open event document in a subcollection
         const opensRef = userRef.collection("email_opens").doc();
 
-        firestoreSet(
-          opensRef,
-          {
-            campaign: campaignType,
-            campaignId: campaignId,
-            timestamp: firebase.firestore.Timestamp.now(),
-            userAgent: req.headers["user-agent"] || null,
-            ip: req.headers["x-forwarded-for"] || req.socket.remoteAddress || null,
-          },
-          {},
-          `log email open for ${userEmail}`
-        ).catch((error) => {
-          // Log error but don't fail the pixel
+        try {
+          await firestoreSet(
+            opensRef,
+            {
+              campaign: campaignType,
+              campaignId: campaignId,
+              timestamp: firebase.firestore.Timestamp.now(),
+              userAgent: req.headers["user-agent"] || null,
+              ip: req.headers["x-forwarded-for"] || req.socket.remoteAddress || null,
+            },
+            {},
+            `log email open for ${userEmail}`
+          );
+        } catch (error) {
+          // Log error but don't fail the pixel - tracking is best-effort
           console.error("Failed to log email open:", error);
-        });
+        }
       }
 
       return serveTrackingPixel(res);

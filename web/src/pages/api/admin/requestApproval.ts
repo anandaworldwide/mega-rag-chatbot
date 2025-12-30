@@ -82,7 +82,7 @@ export async function sendApprovalRequestEmail(
     message += `\n\nPlease review this request and approve or deny access.`;
   }
 
-  message += `\n\n(Or visit ${reviewUrl})`;
+  // Button will be added by email template
 
   const params = createEmailParams(
     process.env.CONTACT_EMAIL || "noreply@ananda.org",
@@ -467,7 +467,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         error: sanitizedError.message,
         adminEmail: adminEmailForLog?.toLowerCase(),
       });
-    } catch {}
+    } catch (auditError) {
+      // Audit logging is best-effort - don't fail the main error response if audit fails
+      console.error("Failed to write audit log for approval request error:", auditError);
+    }
 
     // Return safe error message to client
     const safeMessage = getSafeErrorMessage(error, "Internal server error");

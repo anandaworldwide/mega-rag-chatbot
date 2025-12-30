@@ -69,8 +69,6 @@ export async function sendPasswordResetEmail(email: string, token: string, req?:
 
 Click here to reset your password.
 
-(Or click ${url})
-
 This link expires in one hour.
 
 If you did not request a password reset, you can safely ignore this email.`;

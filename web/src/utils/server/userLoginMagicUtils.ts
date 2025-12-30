@@ -48,8 +48,6 @@ export async function sendLoginEmail(email: string, token: string, redirect?: st
 
   const message = `Click here to sign in.
 
-(Or click ${url})
-
 This link expires in one hour.`;
 
   const params = createEmailParams(process.env.CONTACT_EMAIL || "noreply@ananda.org", email, `Sign in to ${brand}`, {

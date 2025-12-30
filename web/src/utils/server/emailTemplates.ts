@@ -68,13 +68,12 @@ export function generateEmailContent(options: EmailTemplateOptions): {
         /\(Or (?:visit|click) [^)]+\)/gi,
       ];
 
-      const styledParentheticalUrl = `<span style="font-size: 12px; color: #666; display: block; margin-top: 2px; margin-bottom: 8px;">(Or visit ${actionUrl})</span>`;
       let buttonInserted = false;
 
-      // Try to replace parenthetical URL with button + styled URL
+      // Try to replace parenthetical URL pattern with just the button
       for (const pattern of urlPatterns) {
         if (pattern.test(htmlMessage)) {
-          htmlMessage = htmlMessage.replace(pattern, `${buttonHtml}\n${styledParentheticalUrl}`);
+          htmlMessage = htmlMessage.replace(pattern, buttonHtml);
           buttonInserted = true;
           break;
         }
@@ -105,8 +104,8 @@ export function generateEmailContent(options: EmailTemplateOptions): {
           }
         }
 
-        // Insert button and styled URL
-        lines.splice(insertIndex, 0, buttonHtml, styledParentheticalUrl);
+        // Insert button only (no fallback URL text needed)
+        lines.splice(insertIndex, 0, buttonHtml);
         htmlMessage = lines.join("\n");
       }
 

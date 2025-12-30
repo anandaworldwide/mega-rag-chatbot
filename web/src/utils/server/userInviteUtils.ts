@@ -55,15 +55,11 @@ ${customMessage}
 
 Click here to activate your account.
 
-(Or click ${url})
-
 This link expires in 14 days.`;
   } else {
     message = `Your request for access to ${brand} has been approved.
 
 Click here to activate your account.
-
-(Or click ${url})
 
 This link expires in 14 days.`;
   }
@@ -109,8 +105,6 @@ export async function sendWelcomeEmail(email: string, req?: any) {
 You can now start exploring our spiritual teachings and resources by chatting with ${brand}.
 
 Go to ${brand}
-
-(Or visit ${chatbotUrl})
 
 We're excited to have you join our community!`;
 

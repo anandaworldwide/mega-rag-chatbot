@@ -48,8 +48,6 @@ export async function sendEmailChangeVerificationEmail(newEmail: string, token: 
 
 Click here to verify your new email address.
 
-(Or click ${url})
-
 This link expires in 24 hours.
 
 If you didn't request this change, please ignore this email.`;
