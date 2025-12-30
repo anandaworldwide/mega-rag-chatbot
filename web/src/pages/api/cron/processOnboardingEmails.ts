@@ -91,15 +91,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     });
 
     if (eligibleDocs.length === 0) {
-      console.log("No users eligible for onboarding emails");
+      console.log(`📊 No users eligible for onboarding emails (${allUsersSnapshot.docs.length} total accepted users)`);
       return res.status(200).json({
         message: "No users eligible for onboarding emails",
-        totalAcceptedUsers: allUsersSnapshot.docs.length,
         processed: 0,
         sent: 0,
         errors: 0,
-        sentList: [],
-        skippedList: [],
       });
     }
 
@@ -224,7 +221,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
         // Determine which email to send
         const nextDay = getNextEmailDay(daysSinceStart, emailsSent);
-        if (!nextDay) {
+        if (nextDay === null) {
           // No email to send at this time - don't add to skippedList (too noisy)
           continue;
         }
@@ -265,20 +262,40 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
     }
 
-    const result = {
+    // Log detailed results to console (for Vercel logs)
+    console.log(`📊 Onboarding email processing complete:`);
+    console.log(`   Total accepted users: ${allUsersSnapshot.docs.length}`);
+    console.log(`   Eligible (not completed): ${eligibleDocs.length}`);
+    console.log(`   Processed: ${processed}, Sent: ${sent}, Errors: ${errors}`);
+
+    if (sentList.length > 0) {
+      console.log(`📬 Emails sent:`);
+      for (const item of sentList) {
+        console.log(`   ✅ ${item.email} - day ${item.day} (${item.daysSinceStart} days since start)`);
+      }
+    }
+
+    if (skippedList.length > 0) {
+      console.log(`⏭️ Skipped users:`);
+      for (const item of skippedList.slice(0, 50)) {
+        console.log(`   - ${item.email}: ${item.reason}`);
+      }
+    }
+
+    if (errorsList.length > 0) {
+      console.log(`❌ Errors:`);
+      for (const err of errorsList.slice(0, 10)) {
+        console.log(`   - ${err}`);
+      }
+    }
+
+    // Return summary JSON (lightweight)
+    return res.status(200).json({
       message: "Onboarding emails processed",
-      totalAcceptedUsers: allUsersSnapshot.docs.length,
-      eligibleUsers: eligibleDocs.length,
       processed,
       sent,
       errors,
-      sentList,
-      skippedList: skippedList.slice(0, 50), // Limit skipped list
-      errorsList: errorsList.slice(0, 10), // Limit error list
-    };
-
-    console.log(`📊 Onboarding email processing complete:`, result);
-    return res.status(200).json(result);
+    });
   } catch (error: any) {
     console.error("Error processing onboarding emails:", error);
 

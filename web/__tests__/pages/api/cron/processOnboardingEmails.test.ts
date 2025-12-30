@@ -429,7 +429,7 @@ describe("/api/cron/processOnboardingEmails", () => {
 
       const data = res._getJSONData();
       expect(data.errors).toBeGreaterThan(0);
-      expect(data.errorsList).toContainEqual(expect.stringContaining("Failed to send"));
+      // Error details are now logged to console, not returned in JSON
     });
   });
 
