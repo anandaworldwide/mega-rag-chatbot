@@ -36,6 +36,7 @@ export function getDefaultEmailPreferences(): EmailPreferences {
   return {
     newsletters: true,
     onboarding: true,
+    reengagement: true,
   };
 }
 
@@ -56,6 +57,7 @@ export function migrateEmailPreferences(user: User): User {
   const migratedPreferences: EmailPreferences = {
     newsletters: user.newsletterSubscribed !== false, // Default to true if not explicitly false
     onboarding: true, // New users get onboarding enabled by default
+    reengagement: true, // New users get re-engagement enabled by default
   };
 
   return {

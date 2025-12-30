@@ -120,6 +120,7 @@ describe("emailPreferenceUtils", () => {
       expect(preferences).toEqual({
         newsletters: true,
         onboarding: true,
+        reengagement: true,
       });
     });
   });
@@ -154,6 +155,7 @@ describe("emailPreferenceUtils", () => {
       expect(migrated.emailPreferences).toEqual({
         newsletters: true,
         onboarding: true,
+        reengagement: true,
       });
     });
 
@@ -168,6 +170,7 @@ describe("emailPreferenceUtils", () => {
       expect(migrated.emailPreferences).toEqual({
         newsletters: false,
         onboarding: true,
+        reengagement: true,
       });
     });
 
@@ -181,6 +184,7 @@ describe("emailPreferenceUtils", () => {
       expect(migrated.emailPreferences).toEqual({
         newsletters: true,
         onboarding: true,
+        reengagement: true,
       });
     });
 

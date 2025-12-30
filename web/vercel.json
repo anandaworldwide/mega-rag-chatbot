@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/processOnboardingEmails",
       "schedule": "0 10 * * *"
+    },
+    {
+      "path": "/api/cron/processReengagementEmails",
+      "schedule": "0 9 * * *"
     }
   ],
   "buildCommand": "npm install dotenv && npm install --include=dev && npm run build-with-api-tests",

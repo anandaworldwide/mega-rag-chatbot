@@ -137,6 +137,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const categoryNames: Record<EmailCategory, string> = {
       newsletters: "newsletter updates",
       onboarding: "onboarding emails",
+      reengagement: "re-engagement emails",
     };
     const categoryDisplayName = categoryNames[category] || "emails";
 
