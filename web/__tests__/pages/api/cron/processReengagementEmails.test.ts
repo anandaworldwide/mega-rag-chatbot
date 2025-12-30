@@ -16,7 +16,7 @@ import { NextApiRequest, NextApiResponse } from "next";
 import { createMocks } from "node-mocks-http";
 import handler from "@/pages/api/cron/processReengagementEmails";
 import { db } from "@/services/firebase";
-import { firestoreQueryGet, firestoreSet } from "@/utils/server/firestoreRetryUtils";
+import { firestoreQueryGet, firestoreGet, firestoreSet } from "@/utils/server/firestoreRetryUtils";
 import { isSubscribedToCategory } from "@/utils/server/emailPreferenceUtils";
 import { sendReengagementEmail, loadReengagementTemplate } from "@/utils/server/reengagementEmailUtils";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
@@ -78,6 +78,7 @@ jest.mock("firebase-admin", () => {
 
 const mockDb = db as any;
 const mockFirestoreQueryGet = firestoreQueryGet as jest.MockedFunction<typeof firestoreQueryGet>;
+const _mockFirestoreGet = firestoreGet as jest.MockedFunction<typeof firestoreGet>; // Available for test mode tests
 const mockFirestoreSet = firestoreSet as jest.MockedFunction<typeof firestoreSet>;
 const mockIsSubscribedToCategory = isSubscribedToCategory as jest.MockedFunction<typeof isSubscribedToCategory>;
 const mockSendReengagementEmail = sendReengagementEmail as jest.MockedFunction<typeof sendReengagementEmail>;
@@ -95,6 +96,8 @@ describe("/api/cron/processReengagementEmails", () => {
       SITE_ID: "ananda",
       NEXT_PUBLIC_BASE_URL: "https://test.example.com",
     };
+    // Ensure test mode is off by default
+    delete process.env.REENGAGEMENT_TEST_EMAIL;
 
     mockDb.collection = jest.fn().mockReturnValue({
       where: jest.fn().mockReturnThis(),
