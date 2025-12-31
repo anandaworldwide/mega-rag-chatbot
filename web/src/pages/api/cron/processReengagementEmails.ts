@@ -12,7 +12,7 @@ import { User } from "@/types/user";
 import { withJwtOrCronAuth } from "@/utils/server/cronAuthUtils";
 import firebase from "firebase-admin";
 
-const CAMPAIGN_ID = "reengagement-21-30-nudge";
+const CAMPAIGN_ID = "reengagement-21-nudge";
 const INACTIVITY_MIN_DAYS = 21;
 const INACTIVITY_MAX_DAYS = 60;
 

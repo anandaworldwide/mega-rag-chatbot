@@ -112,7 +112,7 @@ describe("/api/cron/processReengagementEmails", () => {
     } as any);
 
     mockLoadReengagementTemplate.mockResolvedValue({
-      campaignId: "reengagement-21-30-nudge",
+      campaignId: "reengagement-21-nudge",
       subject: "We miss you, {{firstName}}!",
       greeting: "Hi {{firstName}}, it's been a while...",
       leadIn: "If you're not sure what to ask, start here.",
@@ -256,7 +256,7 @@ describe("/api/cron/processReengagementEmails", () => {
       expect(mockFirestoreSet).toHaveBeenCalledWith(
         expect.any(Object),
         expect.objectContaining({
-          reengagementEmailsSent: ["reengagement-21-30-nudge"],
+          reengagementEmailsSent: ["reengagement-21-nudge"],
         }),
         { merge: true },
         expect.stringContaining("mark re-engagement campaign")
@@ -297,7 +297,7 @@ describe("/api/cron/processReengagementEmails", () => {
         data: () => ({
           inviteStatus: "accepted",
           emailPreferences: { reengagement: true },
-          reengagementEmailsSent: ["reengagement-21-30-nudge"],
+          reengagementEmailsSent: ["reengagement-21-nudge"],
           lastLoginAt: createMockTimestampFromMillis(twentyFiveDaysAgo),
         }),
         ref: { id: "test@example.com" },

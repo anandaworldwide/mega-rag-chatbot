@@ -76,7 +76,7 @@ describe("reengagementEmailUtils", () => {
   describe("loadReengagementTemplate", () => {
     it("should load site-specific template when it exists", async () => {
       const templateContent = JSON.stringify({
-        campaignId: "reengagement-21-30-nudge",
+        campaignId: "reengagement-21-nudge",
         subject: "We miss you, {{firstName}}!",
         greeting: "Hi {{firstName}}, it's been a while...",
         leadIn: "If you're not sure what to ask, start here.",
@@ -113,7 +113,7 @@ describe("reengagementEmailUtils", () => {
       const template = await loadReengagementTemplate("ananda");
 
       expect(template).not.toBeNull();
-      expect(template?.campaignId).toBe("reengagement-21-30-nudge");
+      expect(template?.campaignId).toBe("reengagement-21-nudge");
       expect(template?.subject).toBe("We miss you, {{firstName}}!");
       expect(mockFs.existsSync).toHaveBeenCalledWith(templatePath);
     });
@@ -235,7 +235,7 @@ describe("reengagementEmailUtils", () => {
     };
 
     const mockTemplate = {
-      campaignId: "reengagement-21-30-nudge",
+      campaignId: "reengagement-21-nudge",
       subject: "We miss you, {{firstName}}!",
       greeting: "Hi {{firstName}}, it's been a while...",
       leadIn: "If you're not sure what to ask, start here.",
@@ -310,7 +310,7 @@ describe("reengagementEmailUtils", () => {
       ] as any);
       mockFs.readFileSync.mockReturnValue(
         JSON.stringify({
-          campaignId: "reengagement-21-30-nudge",
+          campaignId: "reengagement-21-nudge",
           subject: "We miss you, {{firstName}}!",
           greeting: "Hi {{firstName}}, it's been a while...",
           leadIn: "If you're not sure what to ask, start here.",

@@ -1,5 +1,5 @@
 {
-  "campaignId": "reengagement-21-30-nudge",
+  "campaignId": "reengagement-21-nudge",
   "subject": "We miss you, {{firstName}}!",
   "greeting": "Hi {{firstName}}, it's been a while since you visited Luca, the Ananda devotee chatbot. Just a quick note to say hi, and to remind you that Luca is available for you 24/7.",
   "leadIn": "If you're not sure what to ask, start here:",
