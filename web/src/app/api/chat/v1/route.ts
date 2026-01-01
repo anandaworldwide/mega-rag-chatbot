@@ -74,6 +74,7 @@ import { isNetworkError, analyzeNetworkError } from "@/utils/server/networkError
 import { v4 as uuidv4 } from "uuid";
 import { generateTitle } from "@/utils/server/titleGeneration";
 import { firestoreUpdate } from "@/utils/server/firestoreRetryUtils";
+import { updateUserActivity } from "@/utils/server/userActivityUtils";
 
 export const runtime = "nodejs";
 export const maxDuration = 240;
@@ -175,7 +176,7 @@ async function validateAndPreprocessInput(
   let requestBody: ChatRequestBody;
   try {
     requestBody = await req.json();
-  } catch (error) {
+  } catch (_error) {
     const response = NextResponse.json({ error: "Invalid JSON in request body" }, { status: 400 });
     return corsMiddleware.addCorsHeaders(response, req, siteConfig);
   }
@@ -431,7 +432,7 @@ async function saveOrUpdateDocument(
           `docId: ${docId}, question: ${sanitizeForLogging(originalQuestion, 50)}`
         );
         return docId;
-      } catch (updateError) {
+      } catch (_updateError) {
         // Fall through to creation as a fallback
         docId = null; // Force creation path below
       }
@@ -447,14 +448,14 @@ async function saveOrUpdateDocument(
           `question: ${sanitizeForLogging(originalQuestion, 50)}`
         );
         return newDocRef.id;
-      } catch (createError) {
+      } catch (_createError) {
         return null;
       }
     }
 
     // This should never be reached, but just in case
     return docId || null;
-  } catch (error) {
+  } catch (_error) {
     return null;
   }
 }
@@ -824,7 +825,7 @@ async function handleComparisonRequest(req: NextRequest, requestBody: Comparison
 
           // Signal done
           controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
-        } catch (e) {
+        } catch (_e) {
           // Silently handle encoding errors
         }
 
@@ -1095,6 +1096,13 @@ async function handleChatRequest(req: NextRequest) {
                 docId: savedDocId,
               });
 
+              // Track user activity (fire-and-forget)
+              if (sanitizedInput.uuid) {
+                updateUserActivity(sanitizedInput.uuid).catch(() => {
+                  // Silently handle errors - activity tracking is non-critical
+                });
+              }
+
               // For new conversations, update the document with the generated title
               if (conversationId && titleGenerationPromise) {
                 // Wait for title generation to complete and update the document
@@ -1113,7 +1121,7 @@ async function handleChatRequest(req: NextRequest) {
                           );
                           console.log(`Updated document ${savedDocId} with generated title: "${generatedTitle}"`);
                         }
-                      } catch (titleUpdateError) {
+                      } catch (_titleUpdateError) {
                         // Non-critical: title update failed after 3 retry attempts (14s timeout per attempt)
                         console.warn(
                           `Title update skipped for ${savedDocId} after 3 retry attempts - user experience unaffected`
@@ -1128,7 +1136,7 @@ async function handleChatRequest(req: NextRequest) {
               // For follow-up messages, no title generation needed
             }
             timingMetrics.documentSaveComplete = Date.now();
-          } catch (saveError) {
+          } catch (_saveError) {
             // Silently handle save errors to avoid breaking the chat flow
             timingMetrics.documentSaveComplete = Date.now();
           }
@@ -1140,7 +1148,7 @@ async function handleChatRequest(req: NextRequest) {
         if (titleGenerationPromise) {
           try {
             await titleGenerationPromise;
-          } catch (titleError) {
+          } catch (_titleError) {
             // Title generation errors are already logged, just ensure cleanup
           }
         }

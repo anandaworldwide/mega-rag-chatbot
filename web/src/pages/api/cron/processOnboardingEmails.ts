@@ -85,7 +85,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const allUsersSnapshot = await firestoreQueryGet(usersQuery, "get users for onboarding emails", "onboarding cron");
 
     // Filter out users who have completed onboarding (includes missing field as eligible)
-    const eligibleDocs = allUsersSnapshot.docs.filter((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
+    const eligibleDocs = allUsersSnapshot.docs.filter((doc: firebase.firestore.QueryDocumentSnapshot) => {
       const data = doc.data();
       return data.onboardingCompleted !== true;
     });

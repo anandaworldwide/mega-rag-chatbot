@@ -6,6 +6,7 @@ import { firestoreQueryGet } from "@/utils/server/firestoreRetryUtils";
 import { createIndexErrorResponse } from "@/utils/server/firestoreIndexErrorHandler";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { createNetworkErrorResponse } from "@/utils/server/networkErrorUtils";
+import { updateUserActivity } from "@/utils/server/userActivityUtils";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") {
@@ -89,6 +90,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         isStarred: data.isStarred || false, // Include star state in response
       };
     });
+
+    // Track user activity when loading conversations (especially saved conversations via convId)
+    // Fire-and-forget - don't block the response
+    if (uuid && typeof uuid === "string") {
+      updateUserActivity(uuid).catch(() => {
+        // Silently handle errors - activity tracking is non-critical
+      });
+    }
 
     return res.status(200).json(chats);
   } catch (error: any) {

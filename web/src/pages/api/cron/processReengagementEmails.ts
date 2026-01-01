@@ -19,9 +19,9 @@ const INACTIVITY_MAX_DAYS = 60;
 /**
  * Calculates days since a timestamp
  */
-function daysSince(timestamp: any): number {
+function daysSince(timestamp: firebase.firestore.Timestamp | null | undefined): number {
   if (!timestamp) return 0;
-  const ts = timestamp.toMillis ? timestamp.toMillis() : timestamp._seconds * 1000;
+  const ts = timestamp.toMillis ? timestamp.toMillis() : (timestamp as any)._seconds * 1000;
   const now = Date.now();
   const diffMs = now - ts;
   return Math.floor(diffMs / (1000 * 60 * 60 * 24));
@@ -90,9 +90,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Query users who:
     // 1. Have accepted invitations (are active users)
-    // 2. Have lastLoginAt field (have logged in at least once)
+    // 2. Have lastLoginAt or lastActivityAt field (have logged in or been active at least once)
     const usersCol = getUsersCollectionName();
-    let allUsersSnapshot: FirebaseFirestore.QuerySnapshot;
+    let allUsersSnapshot: firebase.firestore.QuerySnapshot;
 
     if (testEmail) {
       // In test mode, fetch only the specific user document
@@ -119,9 +119,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
 
       // Convert single doc to QuerySnapshot-like structure for compatibility
+      // Cast DocumentSnapshot to QueryDocumentSnapshot for type compatibility
       allUsersSnapshot = {
         empty: false,
-        docs: [userDoc],
+        docs: [userDoc as FirebaseFirestore.QueryDocumentSnapshot],
         size: 1,
         query: userDocRef as any,
       } as FirebaseFirestore.QuerySnapshot;
@@ -138,8 +139,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Filter users based on eligibility criteria:
     // 1. Must be subscribed to re-engagement emails
     // 2. Must not have already received this campaign
-    // 3. Must have lastLoginAt within 21-30 days ago
-    const eligibleDocs = allUsersSnapshot.docs.filter((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
+    // 3. Must have lastActivityAt (or lastLoginAt) within 21-60 days ago
+    const eligibleDocs = allUsersSnapshot.docs.filter((doc: firebase.firestore.QueryDocumentSnapshot) => {
       const data = doc.data() as User;
 
       // Check subscription preference
@@ -153,15 +154,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         return false;
       }
 
-      // Check inactivity window (21-30 days)
-      const lastLoginAt = data.lastLoginAt;
-      if (!lastLoginAt) {
-        // Users who have never logged in are not eligible
+      // Check inactivity window (21-60 days)
+      // Use lastActivityAt if available (chat/search activity), fall back to lastLoginAt
+      const lastActivity = data.lastActivityAt || data.lastLoginAt;
+      if (!lastActivity) {
+        // Users who have never logged in or been active are not eligible
         return false;
       }
 
-      const daysSinceLogin = daysSince(lastLoginAt);
-      return daysSinceLogin >= INACTIVITY_MIN_DAYS && daysSinceLogin <= INACTIVITY_MAX_DAYS;
+      const daysSinceActivity = daysSince(lastActivity);
+      return daysSinceActivity >= INACTIVITY_MIN_DAYS && daysSinceActivity <= INACTIVITY_MAX_DAYS;
     });
 
     if (eligibleDocs.length === 0) {
@@ -206,20 +208,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           continue;
         }
 
-        // Calculate days since last login
-        const lastLoginAt = userData.lastLoginAt;
-        if (!lastLoginAt) {
-          skippedList.push({ email: userEmail, reason: "no lastLoginAt timestamp" });
+        // Calculate days since last activity (chat/search) or login
+        // Use lastActivityAt if available, fall back to lastLoginAt
+        const lastActivity = userData.lastActivityAt || userData.lastLoginAt;
+        if (!lastActivity) {
+          skippedList.push({ email: userEmail, reason: "no lastActivityAt or lastLoginAt timestamp" });
           continue;
         }
 
-        const daysSinceLogin = daysSince(lastLoginAt);
+        const daysSinceActivity = daysSince(lastActivity);
 
         // Final eligibility check
-        if (daysSinceLogin < INACTIVITY_MIN_DAYS || daysSinceLogin > INACTIVITY_MAX_DAYS) {
+        if (daysSinceActivity < INACTIVITY_MIN_DAYS || daysSinceActivity > INACTIVITY_MAX_DAYS) {
           skippedList.push({
             email: userEmail,
-            reason: `outside inactivity window (${daysSinceLogin} days since login)`,
+            reason: `outside inactivity window (${daysSinceActivity} days since activity)`,
           });
           continue;
         }
@@ -239,8 +242,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             `mark re-engagement campaign ${CAMPAIGN_ID} sent`
           );
           sent++;
-          sentList.push({ email: userEmail, daysSinceLogin });
-          console.log(`✅ Sent re-engagement email to ${userEmail} (${daysSinceLogin} days since login)`);
+          sentList.push({ email: userEmail, daysSinceLogin: daysSinceActivity });
+          console.log(`✅ Sent re-engagement email to ${userEmail} (${daysSinceActivity} days since activity)`);
         } else {
           errors++;
           errorsList.push(`${userEmail}: Failed to send re-engagement email`);

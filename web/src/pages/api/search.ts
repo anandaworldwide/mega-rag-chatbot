@@ -13,6 +13,9 @@ import { PineconeStore } from "@langchain/pinecone";
 import { Index, RecordMetadata } from "@pinecone-database/pinecone";
 import { DocMetadata } from "@/types/DocMetadata";
 import { getFromCache, setInCache } from "@/utils/server/redisUtils";
+import { getSecureUUID } from "@/utils/server/uuidUtils";
+import { updateUserActivity } from "@/utils/server/userActivityUtils";
+import { verifyToken } from "@/utils/server/jwtUtils";
 
 // Hardcoded shared defaults (not per-site config)
 // We fetch a fixed top window for faceting/pagination.
@@ -269,6 +272,40 @@ async function handler(req: NextApiRequest, res: NextApiResponse<SearchResponse 
       await setInCache(cacheKey, responsePayload, 300);
     } catch (e) {
       console.warn("Failed to cache search results:", e);
+    }
+
+    // Track user activity (fire-and-forget) before sending response
+    try {
+      // Extract UUID - try JWT token first, then fall back to getSecureUUID
+      let uuid: string | null = null;
+      const authHeader = req.headers.authorization;
+      if (authHeader && authHeader.startsWith("Bearer ")) {
+        try {
+          const token = authHeader.substring(7);
+          const userPayload = verifyToken(token);
+          if (userPayload?.uuid) {
+            uuid = userPayload.uuid;
+          }
+        } catch {
+          // Token verification failed, try getSecureUUID
+        }
+      }
+
+      // If UUID not found from JWT, try getSecureUUID (handles cookies for anonymous sites)
+      if (!uuid) {
+        const uuidResult = getSecureUUID(req, res);
+        if (uuidResult.success) {
+          uuid = uuidResult.uuid;
+        }
+      }
+
+      if (uuid) {
+        updateUserActivity(uuid).catch(() => {
+          // Silently handle errors - activity tracking is non-critical
+        });
+      }
+    } catch {
+      // Silently handle errors - activity tracking is non-critical
     }
 
     return res.status(200).json({

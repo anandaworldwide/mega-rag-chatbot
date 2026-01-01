@@ -35,6 +35,7 @@ export interface User {
   // Re-engagement tracking
   reengagementEmailsSent?: string[]; // Array of campaign IDs sent
   lastReengagementSentAt?: any; // firebase.firestore.Timestamp
+  lastActivityAt?: any; // firebase.firestore.Timestamp - last chat or search activity
   createdAt?: any; // firebase.firestore.Timestamp - account creation time
   // Password authentication fields
   hasPassword?: boolean; // Computed field for client - whether user has password set

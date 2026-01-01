@@ -380,14 +380,14 @@ describe("/api/cron/processReengagementEmails", () => {
       expect(mockSendReengagementEmail).not.toHaveBeenCalled();
     });
 
-    it("should skip user without lastLoginAt", async () => {
+    it("should skip user without lastActivityAt or lastLoginAt", async () => {
       const mockDoc = {
         id: "test@example.com",
         data: () => ({
           inviteStatus: "accepted",
           emailPreferences: { reengagement: true },
           reengagementEmailsSent: [],
-          // No lastLoginAt
+          // No lastActivityAt or lastLoginAt
         }),
         ref: { id: "test@example.com" },
       };
@@ -407,6 +407,78 @@ describe("/api/cron/processReengagementEmails", () => {
 
       expect(res.statusCode).toBe(200);
       expect(mockSendReengagementEmail).not.toHaveBeenCalled();
+    });
+
+    it("should prefer lastActivityAt over lastLoginAt", async () => {
+      const now = Date.now();
+      const twentyFiveDaysAgo = now - 25 * 24 * 60 * 60 * 1000;
+      const tenDaysAgo = now - 10 * 24 * 60 * 60 * 1000; // More recent activity
+
+      const mockDoc = {
+        id: "test@example.com",
+        data: () => ({
+          inviteStatus: "accepted",
+          emailPreferences: { reengagement: true },
+          reengagementEmailsSent: [],
+          lastActivityAt: createMockTimestampFromMillis(tenDaysAgo), // Recent activity
+          lastLoginAt: createMockTimestampFromMillis(twentyFiveDaysAgo), // Older login
+          firstName: "John",
+        }),
+        ref: { id: "test@example.com" },
+      };
+
+      mockFirestoreQueryGet.mockResolvedValue({
+        empty: false,
+        docs: [mockDoc],
+      } as any);
+
+      mockIsSubscribedToCategory.mockReturnValue(true);
+
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "POST",
+      });
+
+      await handler(req, res);
+
+      // Should skip because lastActivityAt (10 days) is too recent
+      expect(res.statusCode).toBe(200);
+      expect(mockSendReengagementEmail).not.toHaveBeenCalled();
+    });
+
+    it("should fall back to lastLoginAt when lastActivityAt is missing", async () => {
+      const now = Date.now();
+      const twentyFiveDaysAgo = now - 25 * 24 * 60 * 60 * 1000;
+
+      const mockDoc = {
+        id: "test@example.com",
+        data: () => ({
+          inviteStatus: "accepted",
+          emailPreferences: { reengagement: true },
+          reengagementEmailsSent: [],
+          // No lastActivityAt - should fall back to lastLoginAt
+          lastLoginAt: createMockTimestampFromMillis(twentyFiveDaysAgo),
+          firstName: "John",
+        }),
+        ref: { id: "test@example.com" },
+      };
+
+      mockFirestoreQueryGet.mockResolvedValue({
+        empty: false,
+        docs: [mockDoc],
+      } as any);
+
+      mockIsSubscribedToCategory.mockReturnValue(true);
+      mockSendReengagementEmail.mockResolvedValue(true);
+
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "POST",
+      });
+
+      await handler(req, res);
+
+      // Should send email using lastLoginAt as fallback
+      expect(res.statusCode).toBe(200);
+      expect(mockSendReengagementEmail).toHaveBeenCalledTimes(1);
     });
   });
 
