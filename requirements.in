@@ -13,7 +13,7 @@ click==8.2.1
 colorama==0.4.6
 cryptography==45.0.4
 dill==0.4.0
-filelock==3.18.0
+filelock==3.20.1
 firebase-admin==7.1.0
 fpdf==1.7.2
 frozenlist==1.7.0
@@ -75,7 +75,7 @@ tqdm==4.67.1
 transformers==4.52.4
 typer==0.16.0
 typing_extensions==4.14.0
-urllib3==2.5.0
+urllib3==2.6.0
 websockets==15.0.1
 yarl==1.20.1
 yt-dlp==2025.12.8
