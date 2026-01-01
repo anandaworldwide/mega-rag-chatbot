@@ -38,7 +38,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Prevents stale JWT admin roles from granting access after revocation
   try {
     await requireAdminRoleFromFirestore(req);
-  } catch (error) {
+  } catch (_error) {
     return res.status(403).json({ error: "Unauthorized: Admin privileges required" });
   }
 
@@ -50,7 +50,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const page = parseInt(req.query.page as string) || 1;
   const limit = parseInt(req.query.limit as string) || 20;
   const offset = (page - 1) * limit;
-  const sortBy = (req.query.sortBy as string) || "login-desc";
+  const sortBy = (req.query.sortBy as string) || "activity-desc";
   const searchQuery = (req.query.search as string) || "";
   const adminsOnly = req.query.adminsOnly === "true";
 
@@ -95,6 +95,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           role: data.role || undefined,
           verifiedAt: data.verifiedAt?.toDate?.() ?? null,
           lastLoginAt: data.lastLoginAt?.toDate?.() ?? null,
+          lastActivityAt: data.lastActivityAt?.toDate?.() ?? null,
           entitlements: data.entitlements || {},
         };
       });
@@ -115,12 +116,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           return nameA.localeCompare(nameB);
         });
       } else {
-        // Sort by login desc
+        // Sort by activity desc (fallback to lastLoginAt if no lastActivityAt)
         filteredUsers.sort((a, b) => {
-          if (!a.lastLoginAt && !b.lastLoginAt) return 0;
-          if (!a.lastLoginAt) return 1;
-          if (!b.lastLoginAt) return -1;
-          return new Date(b.lastLoginAt).getTime() - new Date(a.lastLoginAt).getTime();
+          // Get the effective activity timestamp (lastActivityAt or fallback to lastLoginAt)
+          const getActivityTime = (user: any) => {
+            if (user.lastActivityAt) return new Date(user.lastActivityAt).getTime();
+            if (user.lastLoginAt) return new Date(user.lastLoginAt).getTime();
+            return 0;
+          };
+
+          const timeA = getActivityTime(a);
+          const timeB = getActivityTime(b);
+
+          if (timeA === 0 && timeB === 0) return 0;
+          if (timeA === 0) return 1;
+          if (timeB === 0) return -1;
+          return timeB - timeA;
         });
       }
     } else {
@@ -138,16 +149,28 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           role: data.role || undefined,
           verifiedAt: data.verifiedAt?.toDate?.() ?? null,
           lastLoginAt: data.lastLoginAt?.toDate?.() ?? null,
+          lastActivityAt: data.lastActivityAt?.toDate?.() ?? null,
           entitlements: data.entitlements || {},
         };
       });
 
-      // Sort by login desc (users without lastLoginAt go to the end)
+      // Sort by activity desc (fallback to lastLoginAt if no lastActivityAt)
+      // Users without both timestamps go to the end
       filteredUsers.sort((a, b) => {
-        if (!a.lastLoginAt && !b.lastLoginAt) return 0;
-        if (!a.lastLoginAt) return 1;
-        if (!b.lastLoginAt) return -1;
-        return new Date(b.lastLoginAt).getTime() - new Date(a.lastLoginAt).getTime();
+        // Get the effective activity timestamp (lastActivityAt or fallback to lastLoginAt)
+        const getActivityTime = (user: any) => {
+          if (user.lastActivityAt) return new Date(user.lastActivityAt).getTime();
+          if (user.lastLoginAt) return new Date(user.lastLoginAt).getTime();
+          return 0;
+        };
+
+        const timeA = getActivityTime(a);
+        const timeB = getActivityTime(b);
+
+        if (timeA === 0 && timeB === 0) return 0;
+        if (timeA === 0) return 1;
+        if (timeB === 0) return -1;
+        return timeB - timeA;
       });
     }
 

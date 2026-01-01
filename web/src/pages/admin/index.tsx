@@ -18,6 +18,7 @@ interface ActiveUser {
   role?: string;
   verifiedAt: string | null;
   lastLoginAt: string | null;
+  lastActivityAt: string | null;
   entitlements: Record<string, any>;
 }
 
@@ -30,7 +31,7 @@ interface PaginationInfo {
   hasPrev: boolean;
 }
 
-type SortOption = "name-asc" | "login-desc";
+type SortOption = "name-asc" | "activity-desc";
 
 interface AdminDashboardProps {
   isSudoAdmin: boolean;
@@ -81,7 +82,7 @@ export default function AdminDashboardPage({ isSudoAdmin, siteConfig }: AdminDas
   const [jwt, setJwt] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
-  const [sortBy, setSortBy] = useState<SortOption>("login-desc");
+  const [sortBy, setSortBy] = useState<SortOption>("activity-desc");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState<string>("");
   const [showAdminsOnly, setShowAdminsOnly] = useState<boolean>(false);
@@ -176,6 +177,7 @@ export default function AdminDashboardPage({ isSudoAdmin, siteConfig }: AdminDas
         role: it.role || undefined,
         verifiedAt: it.verifiedAt ? new Date(it.verifiedAt).toLocaleString() : null,
         lastLoginAt: it.lastLoginAt ? new Date(it.lastLoginAt).toLocaleString() : null,
+        lastActivityAt: it.lastActivityAt ? new Date(it.lastActivityAt).toLocaleString() : null,
         entitlements: it.entitlements || {},
       }));
 
@@ -440,7 +442,7 @@ export default function AdminDashboardPage({ isSudoAdmin, siteConfig }: AdminDas
                       <div className="flex items-center gap-2">
                         <span className="material-icons text-gray-400 text-sm">schedule</span>
                         <span className="text-gray-600">
-                          <DateDisplay dateString={u.lastLoginAt} />
+                          <DateDisplay dateString={u.lastActivityAt || u.lastLoginAt} />
                         </span>
                       </div>
                       {Object.keys(u.entitlements).length > 0 && (
@@ -491,13 +493,13 @@ export default function AdminDashboardPage({ isSudoAdmin, siteConfig }: AdminDas
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     <button
-                      onClick={() => handleSortChange("login-desc")}
+                      onClick={() => handleSortChange("activity-desc")}
                       className={`flex items-center gap-1 hover:text-blue-600 ${
-                        sortBy === "login-desc" ? "text-blue-600 font-semibold" : ""
+                        sortBy === "activity-desc" ? "text-blue-600 font-semibold" : ""
                       }`}
                     >
-                      Last Login
-                      {sortBy === "login-desc" && <span className="text-xs">↓</span>}
+                      Latest Activity
+                      {sortBy === "activity-desc" && <span className="text-xs">↓</span>}
                     </button>
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -556,7 +558,7 @@ export default function AdminDashboardPage({ isSudoAdmin, siteConfig }: AdminDas
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-gray-900">{u.role || "–"}</td>
                       <td className="px-6 py-4 whitespace-nowrap text-gray-900">
-                        <DateDisplay dateString={u.lastLoginAt} />
+                        <DateDisplay dateString={u.lastActivityAt || u.lastLoginAt} />
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-gray-900">
                         {Object.keys(u.entitlements).length > 0
