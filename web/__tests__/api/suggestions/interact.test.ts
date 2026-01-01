@@ -32,9 +32,15 @@ jest.mock("@/utils/server/inputSanitization", () => ({
   sanitizeForLogging: jest.fn((input: string) => input),
 }));
 
+// Mock firestore utils
+jest.mock("@/utils/server/firestoreUtils", () => ({
+  getSuggestionsInteractionsCollectionName: jest.fn(() => "prod_suggestions_interactions"),
+}));
+
 import { firestoreAdd } from "@/utils/server/firestoreRetryUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { db } from "@/services/firebase";
+import { getSuggestionsInteractionsCollectionName } from "@/utils/server/firestoreUtils";
 
 describe("/api/suggestions/interact", () => {
   beforeEach(() => {
@@ -75,7 +81,8 @@ describe("/api/suggestions/interact", () => {
     expect(response.status).toBe(200);
     expect(data.success).toBe(true);
     expect(genericRateLimiter).toHaveBeenCalled();
-    expect(db!.collection).toHaveBeenCalledWith("suggestion_interactions");
+    expect(getSuggestionsInteractionsCollectionName).toHaveBeenCalled();
+    expect(db!.collection).toHaveBeenCalledWith("prod_suggestions_interactions");
     expect(firestoreAdd).toHaveBeenCalled();
   });
 
@@ -272,5 +279,39 @@ describe("/api/suggestions/interact", () => {
     // firestoreAdd signature: (ref, data, ...)
     const interactionData = addCall[1];
     expect(interactionData.questionHash).toBeNull();
+  });
+
+  it("uses environment-prefixed collection name (prod)", async () => {
+    (getSuggestionsInteractionsCollectionName as jest.Mock).mockReturnValue("prod_suggestions_interactions");
+
+    const mockBody = {
+      convId: "conv-123",
+      suggestionId: "suggestion-456",
+      type: "deeper",
+      position: 0,
+    };
+
+    const req = createMockRequest(mockBody);
+    await POST(req);
+
+    expect(getSuggestionsInteractionsCollectionName).toHaveBeenCalled();
+    expect(db!.collection).toHaveBeenCalledWith("prod_suggestions_interactions");
+  });
+
+  it("uses environment-prefixed collection name (dev)", async () => {
+    (getSuggestionsInteractionsCollectionName as jest.Mock).mockReturnValue("dev_suggestions_interactions");
+
+    const mockBody = {
+      convId: "conv-123",
+      suggestionId: "suggestion-456",
+      type: "deeper",
+      position: 0,
+    };
+
+    const req = createMockRequest(mockBody);
+    await POST(req);
+
+    expect(getSuggestionsInteractionsCollectionName).toHaveBeenCalled();
+    expect(db!.collection).toHaveBeenCalledWith("dev_suggestions_interactions");
   });
 });

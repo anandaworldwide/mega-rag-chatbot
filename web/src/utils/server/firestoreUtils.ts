@@ -14,3 +14,8 @@ export const getNewslettersCollectionName = () => {
   const env = getEnvName();
   return `${env}_newsletters`;
 };
+
+export const getSuggestionsInteractionsCollectionName = () => {
+  const env = getEnvName();
+  return `${env}_suggestions_interactions`;
+};

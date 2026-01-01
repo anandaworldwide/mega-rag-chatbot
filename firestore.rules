@@ -45,6 +45,17 @@ service cloud.firestore {
                        request.auth.token.role in ["admin", "superuser"]; // Only admins can read
         }
 
+        // Match the suggestions interactions collections (dev_suggestions_interactions, prod_suggestions_interactions)
+        match /dev_suggestions_interactions/{docId} {
+            allow create: if isServerRequest(); // Only server can write interaction logs
+            allow read: if isServerRequest(); // Only server can read (for analytics)
+        }
+
+        match /prod_suggestions_interactions/{docId} {
+            allow create: if isServerRequest(); // Only server can write interaction logs
+            allow read: if isServerRequest(); // Only server can read (for analytics)
+        }
+
         // Deny access to all other collections by default
         match /{document=**} {
             allow read, write: if false;

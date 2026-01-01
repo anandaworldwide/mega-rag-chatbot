@@ -10,6 +10,7 @@ import { db } from "@/services/firebase";
 import { firestoreAdd } from "@/utils/server/firestoreRetryUtils";
 import { sanitizeForLogging } from "@/utils/server/inputSanitization";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
+import { getSuggestionsInteractionsCollectionName } from "@/utils/server/firestoreUtils";
 
 interface SuggestionInteractionRequest {
   convId: string;
@@ -71,7 +72,7 @@ export async function POST(req: NextRequest) {
     };
 
     // Save to Firestore collection for suggestion interactions
-    const interactionsRef = db.collection("suggestion_interactions");
+    const interactionsRef = db.collection(getSuggestionsInteractionsCollectionName());
     await firestoreAdd(interactionsRef, interactionData, "suggestion interaction logging", `convId: ${convId}`);
 
     return NextResponse.json({ success: true });
