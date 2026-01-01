@@ -177,7 +177,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     let sent = 0;
     let errors = 0;
     const errorsList: string[] = [];
-    const sentList: { email: string; daysSinceLogin: number }[] = [];
+    const sentList: { email: string; daysSinceActivity: number }[] = [];
     const skippedList: { email: string; reason: string }[] = [];
 
     // Process each eligible user
@@ -280,7 +280,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             `mark re-engagement campaign ${CAMPAIGN_ID} sent`
           );
           sent++;
-          sentList.push({ email: userEmail, daysSinceLogin: daysSinceActivity });
+          sentList.push({ email: userEmail, daysSinceActivity: daysSinceActivity });
           console.log(`✅ Sent re-engagement email to ${userEmail} (${daysSinceActivity} days since activity)`);
         } else {
           // Send failed - remove pending key so it can be retried
@@ -323,7 +323,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (sentList.length > 0) {
       console.log(`📬 Emails sent:`);
       for (const item of sentList) {
-        console.log(`   ✅ ${item.email} - ${item.daysSinceLogin} days since login`);
+        console.log(`   ✅ ${item.email} - ${item.daysSinceActivity} days since activity`);
       }
     }
 
