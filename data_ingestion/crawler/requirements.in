@@ -26,3 +26,6 @@ tqdm
 
 # System monitoring (optional but useful)
 psutil
+
+# AWS SDK for CloudWatch logs access
+boto3

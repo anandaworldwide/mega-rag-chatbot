@@ -308,18 +308,10 @@ fi
 
 # Task role (for the application to access AWS services)
 TASK_ROLE_NAME="ananda-crawler-task-role"
-if aws iam get-role --role-name "$TASK_ROLE_NAME" --region "$REGION" &> /dev/null; then
-    echo -e "${YELLOW}Task role already exists${NC}"
-    TASK_ROLE_ARN=$(aws iam get-role --role-name "$TASK_ROLE_NAME" --query 'Role.Arn' --output text)
-else
-    TASK_ROLE_ARN=$(aws iam create-role \
-        --role-name "$TASK_ROLE_NAME" \
-        --assume-role-policy-document file:///tmp/ecs-trust-policy.json \
-        --query 'Role.Arn' \
-        --output text)
-    
-    # Create policy for Secrets Manager and S3 access
-    cat > /tmp/crawler-task-policy.json <<EOF
+POLICY_NAME="ananda-crawler-task-policy"
+
+# Create updated policy document with all required permissions
+cat > /tmp/crawler-task-policy.json <<EOF
 {
   "Version": "2012-10-17",
   "Statement": [
@@ -335,9 +327,10 @@ else
       "Effect": "Allow",
       "Action": [
         "logs:CreateLogStream",
-        "logs:PutLogEvents"
+        "logs:PutLogEvents",
+        "logs:FilterLogEvents"
       ],
-      "Resource": "*"
+      "Resource": "arn:aws:logs:${REGION}:*:log-group:/ecs/ananda-crawler*"
     },
     {
       "Effect": "Allow",
@@ -354,13 +347,60 @@ else
         "s3:ListBucket"
       ],
       "Resource": "arn:aws:s3:::ananda-crawler-temp-*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ses:SendEmail",
+        "ses:SendRawEmail"
+      ],
+      "Resource": "*"
     }
   ]
 }
 EOF
 
+if aws iam get-role --role-name "$TASK_ROLE_NAME" --region "$REGION" &> /dev/null; then
+    echo -e "${YELLOW}Task role already exists${NC}"
+    TASK_ROLE_ARN=$(aws iam get-role --role-name "$TASK_ROLE_NAME" --query 'Role.Arn' --output text)
+    
+    # Check if policy exists
+    ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
+    POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/${POLICY_NAME}"
+    
+    if aws iam get-policy --policy-arn "$POLICY_ARN" &> /dev/null; then
+        echo -e "${YELLOW}Updating existing policy with CloudWatch Logs read and SES permissions...${NC}"
+        # Create new policy version
+        aws iam create-policy-version \
+            --policy-arn "$POLICY_ARN" \
+            --policy-document file:///tmp/crawler-task-policy.json \
+            --set-as-default
+        
+        echo -e "${GREEN}✓ Policy updated with CloudWatch Logs read and SES permissions${NC}"
+    else
+        # Policy doesn't exist, create it
+        POLICY_ARN=$(aws iam create-policy \
+            --policy-name "$POLICY_NAME" \
+            --policy-document file:///tmp/crawler-task-policy.json \
+            --query 'Policy.Arn' \
+            --output text)
+        
+        aws iam attach-role-policy \
+            --role-name "$TASK_ROLE_NAME" \
+            --policy-arn "$POLICY_ARN"
+        
+        echo -e "${GREEN}✓ Policy created and attached to existing role${NC}"
+    fi
+else
+    TASK_ROLE_ARN=$(aws iam create-role \
+        --role-name "$TASK_ROLE_NAME" \
+        --assume-role-policy-document file:///tmp/ecs-trust-policy.json \
+        --query 'Role.Arn' \
+        --output text)
+    
+    # Create policy
     POLICY_ARN=$(aws iam create-policy \
-        --policy-name "ananda-crawler-task-policy" \
+        --policy-name "$POLICY_NAME" \
         --policy-document file:///tmp/crawler-task-policy.json \
         --query 'Policy.Arn' \
         --output text)
@@ -369,7 +409,7 @@ EOF
         --role-name "$TASK_ROLE_NAME" \
         --policy-arn "$POLICY_ARN"
     
-    echo -e "${GREEN}✓ Task role created with S3 and Secrets Manager access${NC}"
+    echo -e "${GREEN}✓ Task role created with S3, Secrets Manager, CloudWatch Logs, and SES access${NC}"
 fi
 
 # Create hardened security group for crawler tasks (outbound-only, no inbound)

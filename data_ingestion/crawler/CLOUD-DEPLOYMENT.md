@@ -237,6 +237,49 @@ aws logs tail /ecs/ananda-crawler --follow --region us-west-1
 **What to look for**: Task starts successfully, logs show crawler initialization, no database/EFS mount errors, crawler
 begins processing URLs. With Spot capacity, check that tasks show `capacityProviderName` as your Spot provider.
 
+### Step 9: Setup Daily Operations Report (Optional)
+
+Configure a daily operations report that runs at 5:50am PT (10 minutes before crawler starts) to email operations with
+crawler health metrics:
+
+```bash
+cd data_ingestion/crawler
+
+# Rebuild Docker image to include daily_report.py
+./bin/build-and-push.sh
+
+# Setup EventBridge schedule for daily report
+./bin/setup-daily-report-schedule.sh ananda-public
+```
+
+**What it does**:
+
+- Creates EventBridge schedule `ananda-crawler-daily-report` that runs daily at 5:50am PT
+- Uses same ECS task definition with command override to run `daily_report.py`
+- Report includes:
+  - Queue status (pending, processing, completed, failed counts)
+  - URLs processed in last 24 hours
+  - Last successful crawl time
+  - CloudWatch ERROR entries from last 24 hours
+- Email subject line shows key metrics: `Daily Crawler: 142 pending | 87 processed | 3 errors`
+
+**Verification**:
+
+```bash
+# Check schedule exists and is enabled
+aws scheduler get-schedule --name ananda-crawler-daily-report --region us-west-1 \
+    --query '{Name:Name, State:State, Schedule:ScheduleExpression}' --output table
+
+# Manually trigger a test run
+aws scheduler start-schedule --name ananda-crawler-daily-report --region us-west-1
+```
+
+**Note**: The report script requires:
+
+- Database access (EFS mount)
+- CloudWatch Logs access (IAM permissions)
+- SES email sending (OPS_ALERT_EMAIL env var configured)
+
 ## Switching Between Cloud and Local Operation
 
 > **⚠️ CRITICAL**: The crawler can run in **either** cloud mode **or** local mode, but **NEVER both simultaneously**.
@@ -819,6 +862,28 @@ nmap -p- "$PUBLIC_IP" || echo "nmap not installed - install to verify port secur
    ```
 
 ## Maintenance
+
+### Updating the Daily Report Schedule
+
+If you need to update the daily report schedule (e.g., change site ID or schedule time):
+
+```bash
+cd data_ingestion/crawler
+
+# Update schedule with new site ID
+./bin/setup-daily-report-schedule.sh ananda-public
+
+# Or disable the schedule
+aws scheduler update-schedule --name ananda-crawler-daily-report \
+    --state DISABLED --region us-west-1
+
+# Re-enable the schedule
+aws scheduler update-schedule --name ananda-crawler-daily-report \
+    --state ENABLED --region us-west-1
+```
+
+**Note**: After updating the Docker image, the schedule automatically uses the new task definition revision. No need to
+update the schedule unless changing the command or schedule time.
 
 ### Updating Production with Security Hardening
 

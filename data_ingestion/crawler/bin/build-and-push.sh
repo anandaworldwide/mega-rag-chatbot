@@ -33,7 +33,8 @@ echo -e "${GREEN}Logging in to ECR...${NC}"
 aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "${AWS_ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
 
 # Build image (from project root)
-PROJECT_ROOT=$(cd "$(dirname "$0")/../.." && pwd)
+# Go up 3 levels from bin/ to project root: bin -> crawler -> data_ingestion -> project_root
+PROJECT_ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 cd "$PROJECT_ROOT"
 
 echo -e "${GREEN}Building image from ${PROJECT_ROOT}...${NC}"

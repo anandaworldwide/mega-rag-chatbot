@@ -117,6 +117,10 @@ cat > /tmp/task-definition.json <<EOF
         {
           "name": "SITE",
           "valueFrom": "arn:aws:secretsmanager:${REGION}:$(aws sts get-caller-identity --query Account --output text):secret:${SECRETS_NAME}:SITE::"
+        },
+        {
+          "name": "OPS_ALERT_EMAIL",
+          "valueFrom": "arn:aws:secretsmanager:${REGION}:$(aws sts get-caller-identity --query Account --output text):secret:${SECRETS_NAME}:OPS_ALERT_EMAIL::"
         }
       ],
       "mountPoints": [

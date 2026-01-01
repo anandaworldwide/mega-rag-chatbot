@@ -95,6 +95,10 @@ def _build_email_body(message: str, error_details: dict[str, Any] | None) -> str
 
 def _format_subject_line(subject: str) -> str:
     """Format subject line with environment and site prefix."""
+    # If subject already starts with '[', assume it's already formatted (e.g., from crawler)
+    if subject.startswith("["):
+        return subject
+
     environment = "prod" if os.getenv("NODE_ENV") == "production" else "dev"
     site_name = os.getenv("SITE_ID", "unknown")
     return f"[{environment.upper()}-{site_name}] {subject}"
