@@ -14,11 +14,11 @@ import * as path from "path";
 import jwt from "jsonwebtoken";
 import {
   loadOnboardingTemplate,
-  generateUnsubscribeToken,
   renderOnboardingEmail,
   sendOnboardingEmail,
   selectRandomExampleQuestions,
 } from "@/utils/server/onboardingEmailUtils";
+import { generateUnsubscribeToken } from "@/utils/server/emailTokenUtils";
 import { User } from "@/types/user";
 import { sendEmail } from "@/utils/server/emailUtils";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
@@ -42,14 +42,25 @@ jest.mock("@/utils/server/emailTemplates", () => ({
   }),
 }));
 
-// Mock fs module for testing file operations
+// Mock fs module for testing file operations (including fs.promises for async ops)
 jest.mock("fs", () => ({
   existsSync: jest.fn(),
   readFileSync: jest.fn(),
   readdirSync: jest.fn(),
+  promises: {
+    access: jest.fn(),
+    readFile: jest.fn(),
+    readdir: jest.fn(),
+  },
 }));
 
-const mockFs = fs as jest.Mocked<typeof fs>;
+const mockFs = fs as jest.Mocked<typeof fs> & {
+  promises: {
+    access: jest.Mock;
+    readFile: jest.Mock;
+    readdir: jest.Mock;
+  };
+};
 const mockSendEmail = sendEmail as jest.MockedFunction<typeof sendEmail>;
 const mockLoadSiteConfig = loadSiteConfig as jest.MockedFunction<typeof loadSiteConfig>;
 
@@ -85,42 +96,43 @@ describe("onboardingEmailUtils", () => {
       const templatesDir = path.join("/test/cwd", "site-config", "onboarding-templates");
       const templatePath = path.join(templatesDir, "ananda", "day1.json");
 
-      // Mock getValidSiteIds() - templates directory exists and contains "ananda"
-      mockFs.existsSync.mockImplementation((filePath: fs.PathLike) => {
-        if (filePath === templatesDir) {
-          return true; // Templates directory exists
+      // Mock fs.promises.access - resolve for existing paths
+      mockFs.promises.access.mockImplementation((filePath: string) => {
+        if (filePath === templatesDir || filePath === templatePath) {
+          return Promise.resolve();
         }
-        if (filePath === templatePath) {
-          return true; // Template file exists
-        }
-        return false;
+        return Promise.reject(new Error("ENOENT"));
       });
-      mockFs.readdirSync.mockReturnValue([{ name: "ananda", isDirectory: () => true } as fs.Dirent] as any);
-      mockFs.readFileSync.mockReturnValue(templateContent);
+
+      // Mock fs.promises.readdir for getting valid site IDs
+      mockFs.promises.readdir.mockResolvedValue([
+        { name: "ananda", isDirectory: () => true, isFile: () => false } as fs.Dirent,
+      ]);
+
+      // Mock fs.promises.readFile for template content
+      mockFs.promises.readFile.mockResolvedValue(templateContent);
 
       const template = await loadOnboardingTemplate(1, "ananda");
 
       expect(template).not.toBeNull();
       expect(template?.day).toBe(1);
       expect(template?.subject).toBe("Welcome");
-      expect(mockFs.existsSync).toHaveBeenCalledWith(templatePath);
     });
 
     it("should return null when template does not exist", async () => {
       const templatesDir = path.join("/test/cwd", "site-config", "onboarding-templates");
-      const templatePath = path.join(templatesDir, "ananda", "day1.json");
 
-      // Mock getValidSiteIds() - templates directory exists and contains "ananda"
-      mockFs.existsSync.mockImplementation((filePath: fs.PathLike) => {
+      // Mock fs.promises.access - templates dir exists, but template file doesn't
+      mockFs.promises.access.mockImplementation((filePath: string) => {
         if (filePath === templatesDir) {
-          return true; // Templates directory exists
+          return Promise.resolve();
         }
-        if (filePath === templatePath) {
-          return false; // Template file does not exist
-        }
-        return false;
+        return Promise.reject(new Error("ENOENT"));
       });
-      mockFs.readdirSync.mockReturnValue([{ name: "ananda", isDirectory: () => true } as fs.Dirent] as any);
+
+      mockFs.promises.readdir.mockResolvedValue([
+        { name: "ananda", isDirectory: () => true, isFile: () => false } as fs.Dirent,
+      ]);
 
       const template = await loadOnboardingTemplate(1, "ananda");
 
@@ -131,20 +143,19 @@ describe("onboardingEmailUtils", () => {
       const templatesDir = path.join("/test/cwd", "site-config", "onboarding-templates");
       const templatePath = path.join(templatesDir, "ananda", "day1.json");
 
-      // Mock getValidSiteIds() - templates directory exists and contains "ananda"
-      mockFs.existsSync.mockImplementation((filePath: fs.PathLike) => {
-        if (filePath === templatesDir) {
-          return true; // Templates directory exists
+      // Mock fs.promises.access - both paths exist
+      mockFs.promises.access.mockImplementation((filePath: string) => {
+        if (filePath === templatesDir || filePath === templatePath) {
+          return Promise.resolve();
         }
-        if (filePath === templatePath) {
-          return true; // Template file exists
-        }
-        return false;
+        return Promise.reject(new Error("ENOENT"));
       });
-      mockFs.readdirSync.mockReturnValue([{ name: "ananda", isDirectory: () => true } as fs.Dirent] as any);
-      mockFs.readFileSync.mockImplementation(() => {
-        throw new Error("File read error");
-      });
+
+      mockFs.promises.readdir.mockResolvedValue([
+        { name: "ananda", isDirectory: () => true, isFile: () => false } as fs.Dirent,
+      ]);
+
+      mockFs.promises.readFile.mockRejectedValue(new Error("File read error"));
 
       const consoleSpy = jest.spyOn(console, "error").mockImplementation();
 
@@ -313,18 +324,19 @@ describe("onboardingEmailUtils", () => {
       const templatesDir = path.join("/test/cwd", "site-config", "onboarding-templates");
       const templatePath = path.join(templatesDir, "ananda", "day1.json");
 
-      // Mock getValidSiteIds() - templates directory exists and contains "ananda"
-      mockFs.existsSync.mockImplementation((filePath: fs.PathLike) => {
-        if (filePath === templatesDir) {
-          return true; // Templates directory exists
+      // Mock fs.promises.access - both paths exist
+      mockFs.promises.access.mockImplementation((filePath: string) => {
+        if (filePath === templatesDir || filePath === templatePath) {
+          return Promise.resolve();
         }
-        if (filePath === templatePath) {
-          return true; // Template file exists
-        }
-        return false;
+        return Promise.reject(new Error("ENOENT"));
       });
-      mockFs.readdirSync.mockReturnValue([{ name: "ananda", isDirectory: () => true } as fs.Dirent] as any);
-      mockFs.readFileSync.mockReturnValue(
+
+      mockFs.promises.readdir.mockResolvedValue([
+        { name: "ananda", isDirectory: () => true, isFile: () => false } as fs.Dirent,
+      ]);
+
+      mockFs.promises.readFile.mockResolvedValue(
         JSON.stringify({
           day: 1,
           subject: "Welcome",
@@ -356,7 +368,14 @@ describe("onboardingEmailUtils", () => {
     });
 
     it("should return false when template does not exist", async () => {
-      mockFs.existsSync.mockReturnValue(false);
+      // Override the access mock to reject for template file
+      const templatesDir = path.join("/test/cwd", "site-config", "onboarding-templates");
+      mockFs.promises.access.mockImplementation((filePath: string) => {
+        if (filePath === templatesDir) {
+          return Promise.resolve();
+        }
+        return Promise.reject(new Error("ENOENT"));
+      });
 
       const consoleSpy = jest.spyOn(console, "error").mockImplementation();
 

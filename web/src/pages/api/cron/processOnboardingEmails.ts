@@ -9,19 +9,19 @@ import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
 import { analyzeFirestoreError, notifyOpsOfIndexError } from "@/utils/server/firestoreIndexErrorHandler";
 import { User } from "@/types/user";
+import { daysSince } from "@/utils/server/dateUtils";
+import { sendOpsAlert } from "@/utils/server/emailOps";
 import firebase from "firebase-admin";
+import crypto from "crypto";
 
 const ONBOARDING_DAYS = [0, 3, 7, 14]; // Days when emails should be sent (0 = immediately)
 
 /**
- * Calculates days since a timestamp
+ * Generates an idempotency key for onboarding email operations
  */
-function daysSince(timestamp: any): number {
-  if (!timestamp) return 0;
-  const ts = timestamp.toMillis ? timestamp.toMillis() : timestamp._seconds * 1000;
-  const now = Date.now();
-  const diffMs = now - ts;
-  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+function generateOnboardingIdempotencyKey(email: string, day: number): string {
+  const date = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+  return crypto.createHash("sha256").update(`onboarding:${email}:day${day}:${date}`).digest("hex").substring(0, 16);
 }
 
 /**
@@ -132,12 +132,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           const now = firebase.firestore.Timestamp.now();
 
           // Calculate days since account creation (for existing users)
-          const daysSinceCreation = createdAt
-            ? Math.floor(
-                (now.toMillis() - (createdAt.toMillis ? createdAt.toMillis() : createdAt._seconds * 1000)) /
-                  (1000 * 60 * 60 * 24)
-              )
-            : 0;
+          const daysSinceCreation = daysSince(createdAt);
 
           // Mark earlier emails as "sent" if user has been a member long enough
           // This ensures they only get emails going forward, not retroactive spam
@@ -234,15 +229,61 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           continue;
         }
 
-        // Send the email
+        // Generate idempotency key to prevent duplicate sends
+        const idempotencyKey = generateOnboardingIdempotencyKey(userEmail, nextDay);
+
+        // Use a transaction to atomically check and update the email sent status
+        // This prevents race conditions if cron runs overlap
+        const userDocRef = doc.ref as firebase.firestore.DocumentReference;
+        const sendResult = await db.runTransaction(async (transaction) => {
+          // Re-read the user document to get fresh state
+          const freshDocSnap = await transaction.get(userDocRef);
+          if (!freshDocSnap.exists) {
+            return { sent: false, reason: "user_not_found" };
+          }
+
+          const freshData = freshDocSnap.data() as User;
+          const freshEmailsSent = freshData.onboardingEmailsSent || [];
+
+          // Check if already sent (another cron run may have sent it)
+          if (freshEmailsSent.includes(nextDay)) {
+            return { sent: false, reason: "already_sent" };
+          }
+
+          // Check idempotency key (prevents same-day duplicate attempts)
+          const pendingKeys = freshData.pendingOnboardingKeys || [];
+          if (pendingKeys.includes(idempotencyKey)) {
+            return { sent: false, reason: "pending_send" };
+          }
+
+          // Mark as pending before sending (optimistic lock)
+          transaction.update(userDocRef, {
+            pendingOnboardingKeys: firebase.firestore.FieldValue.arrayUnion(idempotencyKey),
+          });
+
+          return { sent: true, reason: "proceed" };
+        });
+
+        if (!sendResult.sent) {
+          if (sendResult.reason === "already_sent") {
+            skippedList.push({ email: userEmail, reason: `day ${nextDay} already sent (detected in transaction)` });
+          } else if (sendResult.reason === "pending_send") {
+            skippedList.push({ email: userEmail, reason: `day ${nextDay} pending send in progress` });
+          }
+          continue;
+        }
+
+        // Now send the email (outside transaction to avoid long-running txn)
         const success = await sendOnboardingEmail(userData, nextDay, siteId, baseUrl);
+
+        // Update the final state based on send result
         if (success) {
-          // Update emails sent list
-          const updatedEmailsSent = [...emailsSent, nextDay].sort((a, b) => a - b);
+          // Mark as sent and clean up pending key
           await firestoreSet(
             doc.ref,
             {
-              onboardingEmailsSent: updatedEmailsSent,
+              onboardingEmailsSent: firebase.firestore.FieldValue.arrayUnion(nextDay),
+              pendingOnboardingKeys: firebase.firestore.FieldValue.arrayRemove(idempotencyKey),
             },
             { merge: true },
             `mark day ${nextDay} email sent`
@@ -251,8 +292,26 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           sentList.push({ email: userEmail, day: nextDay, daysSinceStart });
           console.log(`✅ Sent onboarding email (day ${nextDay}) to ${userEmail}`);
         } else {
+          // Send failed - remove pending key so it can be retried
+          await firestoreSet(
+            doc.ref,
+            {
+              pendingOnboardingKeys: firebase.firestore.FieldValue.arrayRemove(idempotencyKey),
+            },
+            { merge: true },
+            `remove pending key after failed onboarding send`
+          );
           errors++;
           errorsList.push(`${userEmail}: Failed to send day ${nextDay} email`);
+
+          // Alert ops if we have repeated failures
+          if (errors >= 5) {
+            sendOpsAlert(
+              "Onboarding Email Failures",
+              `Multiple onboarding email failures detected:\n${errorsList.slice(0, 5).join("\n")}`,
+              { context: { endpoint: "/api/cron/processOnboardingEmails", errorCount: errors } }
+            ).catch(() => {});
+          }
         }
       } catch (error: any) {
         errors++;

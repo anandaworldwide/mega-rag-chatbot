@@ -7,7 +7,7 @@ export type EmailCategory = "newsletters" | "onboarding" | "reengagement";
 export interface EmailPreferences {
   newsletters: boolean; // Admin-sent newsletters
   onboarding: boolean; // Onboarding drip emails
-  reengagement?: boolean; // Re-engagement emails (21-30 day inactivity)
+  reengagement: boolean; // Re-engagement emails (21-60 day inactivity)
   // Future categories (add as implemented):
   // specialDay?: boolean; // Special occasion emails (holidays, events, etc.)
 }
@@ -35,8 +35,11 @@ export interface User {
   // Re-engagement tracking
   reengagementEmailsSent?: string[]; // Array of campaign IDs sent
   lastReengagementSentAt?: any; // firebase.firestore.Timestamp
+  pendingReengagementKeys?: string[]; // Idempotency keys for in-progress sends
   lastActivityAt?: any; // firebase.firestore.Timestamp - last chat or search activity
   createdAt?: any; // firebase.firestore.Timestamp - account creation time
+  // Onboarding idempotency
+  pendingOnboardingKeys?: string[]; // Idempotency keys for in-progress onboarding sends
   // Password authentication fields
   hasPassword?: boolean; // Computed field for client - whether user has password set
   passwordSetAt?: string | null; // When password was first set

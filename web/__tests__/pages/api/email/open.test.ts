@@ -29,11 +29,25 @@ jest.mock("@/utils/server/genericRateLimiter", () => ({
   genericRateLimiter: jest.fn().mockResolvedValue(true),
 }));
 
+// Mock emailTokenUtils for verifyOpenToken
+jest.mock("@/utils/server/emailTokenUtils", () => ({
+  verifyOpenToken: jest.fn(),
+}));
+
+// Mock sendOpsAlert
+jest.mock("@/utils/server/emailOps", () => ({
+  sendOpsAlert: jest.fn().mockResolvedValue(true),
+}));
+
 // Mock firebase-admin
 jest.mock("firebase-admin", () => {
   const mockTimestamp = {
     now: jest.fn(() => ({
       seconds: 1234567890,
+      nanoseconds: 0,
+    })),
+    fromDate: jest.fn((date: Date) => ({
+      seconds: Math.floor(date.getTime() / 1000),
       nanoseconds: 0,
     })),
   };
@@ -58,6 +72,8 @@ jest.mock("firebase-admin", () => {
 const { db } = jest.requireMock("@/services/firebase");
 const mockFirestoreSet = firestoreSet as jest.MockedFunction<typeof firestoreSet>;
 const { genericRateLimiter } = jest.requireMock("@/utils/server/genericRateLimiter");
+const { verifyOpenToken } = jest.requireMock("@/utils/server/emailTokenUtils");
+const mockVerifyOpenToken = verifyOpenToken as jest.Mock;
 
 // 1x1 transparent PNG for comparison
 const EXPECTED_PIXEL = Buffer.from(
@@ -81,6 +97,8 @@ describe("/api/email/open", () => {
 
     mockFirestoreSet.mockResolvedValue(undefined);
     genericRateLimiter.mockResolvedValue(true);
+    // Reset verifyOpenToken mock - default to returning null (invalid token)
+    mockVerifyOpenToken.mockReturnValue(null);
   });
 
   describe("Method Validation", () => {
@@ -182,7 +200,16 @@ describe("/api/email/open", () => {
 
   describe("Firestore Logging", () => {
     it("should log email open to Firestore with valid token", async () => {
-      const token = Buffer.from("test@example.com:onboarding:day0:1234567890").toString("base64");
+      // Mock verifyOpenToken to return valid payload
+      mockVerifyOpenToken.mockReturnValue({
+        email: "test@example.com",
+        campaignType: "onboarding",
+        campaignId: "day0",
+        timestamp: 1234567890,
+        isValid: true,
+      });
+
+      const token = "mock-signed-token";
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "GET",
         query: { token },
@@ -199,8 +226,6 @@ describe("/api/email/open", () => {
         expect.objectContaining({
           campaign: "onboarding",
           campaignId: "day0",
-          userAgent: "Test Browser",
-          ip: "192.168.1.1",
         }),
         {},
         "log email open for test@example.com"
@@ -219,7 +244,10 @@ describe("/api/email/open", () => {
     });
 
     it("should not log when token data is incomplete", async () => {
-      const token = Buffer.from("test@example.com").toString("base64"); // Missing campaign info
+      // Mock verifyOpenToken to return null for invalid token
+      mockVerifyOpenToken.mockReturnValue(null);
+
+      const token = "invalid-token";
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "GET",
         query: { token },
@@ -231,7 +259,16 @@ describe("/api/email/open", () => {
     });
 
     it("should handle uppercase email in token", async () => {
-      const token = Buffer.from("Test@Example.COM:newsletter:issue-42:1234567890").toString("base64");
+      // Mock verifyOpenToken to return payload with lowercased email
+      mockVerifyOpenToken.mockReturnValue({
+        email: "test@example.com", // Already lowercased by verifyOpenToken
+        campaignType: "newsletter",
+        campaignId: "issue-42",
+        timestamp: 1234567890,
+        isValid: true,
+      });
+
+      const token = "mock-signed-token";
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "GET",
         query: { token },
@@ -246,11 +283,43 @@ describe("/api/email/open", () => {
         "log email open for test@example.com" // Should be lowercased
       );
     });
+
+    it("should not log when token signature is invalid", async () => {
+      // Mock verifyOpenToken to return payload with isValid: false
+      mockVerifyOpenToken.mockReturnValue({
+        email: "test@example.com",
+        campaignType: "onboarding",
+        campaignId: "day0",
+        timestamp: 1234567890,
+        isValid: false, // Invalid signature
+      });
+
+      const token = "forged-token";
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "GET",
+        query: { token },
+      });
+
+      await handler(req, res);
+
+      // Should still serve pixel but not log
+      expect(res.statusCode).toBe(200);
+      expect(mockFirestoreSet).not.toHaveBeenCalled();
+    });
   });
 
   describe("Error Handling", () => {
     it("should still serve pixel when Firestore fails", async () => {
-      const token = Buffer.from("test@example.com:onboarding:day0:1234567890").toString("base64");
+      // Mock verifyOpenToken to return valid payload
+      mockVerifyOpenToken.mockReturnValue({
+        email: "test@example.com",
+        campaignType: "onboarding",
+        campaignId: "day0",
+        timestamp: 1234567890,
+        isValid: true,
+      });
+
+      const token = "mock-signed-token";
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "GET",
         query: { token },

@@ -4,12 +4,12 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import jwt from "jsonwebtoken";
 import { sendEmail } from "./emailUtils";
 import { generateEmailContent } from "./emailTemplates";
 import { loadSiteConfig } from "./loadSiteConfig";
 import { User } from "@/types/user";
 import { addUtmParams, generateClickTrackingUrl, generateOpenTrackingUrl } from "./emailTrackingUtils";
+import { generateUnsubscribeToken } from "./emailTokenUtils";
 
 export interface OnboardingTemplate {
   day: number;
@@ -23,16 +23,32 @@ export interface OnboardingTemplate {
   ctaText?: string;
 }
 
+// Cache for valid site IDs to avoid repeated file system reads
+let validSiteIdsCache: Set<string> | null = null;
+let validSiteIdsCacheTime: number = 0;
+const CACHE_TTL_MS = 60 * 1000; // 1 minute cache
+
 /**
  * Dynamically discovers site IDs that have onboarding templates by reading the directory
+ * Uses caching to avoid repeated file system reads
  */
-function getValidSiteIds(): Set<string> {
+async function getValidSiteIds(): Promise<Set<string>> {
+  const now = Date.now();
+  if (validSiteIdsCache && now - validSiteIdsCacheTime < CACHE_TTL_MS) {
+    return validSiteIdsCache;
+  }
+
   const templatesDir = path.join(process.cwd(), "site-config", "onboarding-templates");
   const siteIds = new Set<string>();
 
   try {
-    if (fs.existsSync(templatesDir)) {
-      const entries = fs.readdirSync(templatesDir, { withFileTypes: true });
+    // Use async file operations
+    const exists = await fs.promises
+      .access(templatesDir)
+      .then(() => true)
+      .catch(() => false);
+    if (exists) {
+      const entries = await fs.promises.readdir(templatesDir, { withFileTypes: true });
       for (const entry of entries) {
         // Only include directories with safe names (alphanumeric + hyphen)
         if (entry.isDirectory() && /^[a-zA-Z0-9-]+$/.test(entry.name)) {
@@ -44,6 +60,8 @@ function getValidSiteIds(): Set<string> {
     console.error("Error reading onboarding templates directory:", error);
   }
 
+  validSiteIdsCache = siteIds;
+  validSiteIdsCacheTime = now;
   return siteIds;
 }
 
@@ -51,38 +69,48 @@ function getValidSiteIds(): Set<string> {
  * Validates a site ID to prevent path traversal attacks
  * Checks against dynamically discovered sites that have onboarding templates
  */
-function isValidSiteId(siteId: string): boolean {
+async function isValidSiteId(siteId: string): Promise<boolean> {
   // First check: strict pattern match (alphanumeric + hyphen only)
   if (!/^[a-zA-Z0-9-]+$/.test(siteId)) {
     return false;
   }
 
   // Second check: must have onboarding templates directory
-  const validSiteIds = getValidSiteIds();
+  const validSiteIds = await getValidSiteIds();
   return validSiteIds.has(siteId);
 }
 
 /**
  * Loads an onboarding email template for a specific day and site
+ * Uses async file operations to avoid blocking the event loop
  *
- * @param day - Day number (1, 3, 7, or 14)
+ * @param day - Day number (0, 3, 7, or 14)
  * @param siteId - Site ID (e.g., "ananda")
  * @returns Template object or null if not found
  */
 export async function loadOnboardingTemplate(day: number, siteId: string): Promise<OnboardingTemplate | null> {
   try {
     // Validate siteId to prevent path traversal
-    if (!isValidSiteId(siteId)) {
+    if (!(await isValidSiteId(siteId))) {
       console.error(`Invalid siteId: ${siteId}`);
       return null;
     }
 
-    // Load site-specific template only
+    // Load site-specific template only using async file operations
     const templatePath = path.join(process.cwd(), "site-config", "onboarding-templates", siteId, `day${day}.json`);
 
-    if (fs.existsSync(templatePath)) {
-      const templateContent = fs.readFileSync(templatePath, "utf-8");
-      return JSON.parse(templateContent) as OnboardingTemplate;
+    const exists = await fs.promises
+      .access(templatePath)
+      .then(() => true)
+      .catch(() => false);
+    if (exists) {
+      const templateContent = await fs.promises.readFile(templatePath, "utf-8");
+      try {
+        return JSON.parse(templateContent) as OnboardingTemplate;
+      } catch (parseError) {
+        console.error(`Error parsing onboarding template JSON for day ${day}, site ${siteId}:`, parseError);
+        return null;
+      }
     }
 
     // No template found for this site
@@ -169,32 +197,7 @@ function formatExampleQuestions(
   return { html, text };
 }
 
-/**
- * Generates an unsubscribe token for a specific email category
- *
- * @param email - User email address
- * @param category - Email category ("onboarding", "newsletters", etc.)
- * @returns JWT token string
- */
-export function generateUnsubscribeToken(email: string, category: string): string {
-  const jwtSecret = process.env.SECURE_TOKEN;
-  if (!jwtSecret) {
-    throw new Error("SECURE_TOKEN not configured");
-  }
-
-  return jwt.sign(
-    {
-      email: email.toLowerCase(),
-      purpose: "email_unsubscribe",
-      category: category,
-    },
-    jwtSecret,
-    {
-      algorithm: "HS256", // Use HS256 for unsubscribe tokens (no issuer/audience)
-      expiresIn: "1y", // Long expiry for unsubscribe links
-    }
-  );
-}
+// generateUnsubscribeToken is now imported from emailTokenUtils.ts
 
 /**
  * Renders an onboarding email template with user data

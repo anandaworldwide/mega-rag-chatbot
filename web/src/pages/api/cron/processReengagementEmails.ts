@@ -10,30 +10,22 @@ import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
 import { analyzeFirestoreError, notifyOpsOfIndexError } from "@/utils/server/firestoreIndexErrorHandler";
 import { User } from "@/types/user";
 import { withJwtOrCronAuth } from "@/utils/server/cronAuthUtils";
+import { daysSince } from "@/utils/server/dateUtils";
+import { sendOpsAlert } from "@/utils/server/emailOps";
 import firebase from "firebase-admin";
+import crypto from "crypto";
 
 const CAMPAIGN_ID = "reengagement-21-nudge";
 const INACTIVITY_MIN_DAYS = 21;
 const INACTIVITY_MAX_DAYS = 60;
 
 /**
- * Calculates days since a timestamp
+ * Generates an idempotency key for email sending operations
+ * This prevents duplicate sends if cron runs overlap or retry
  */
-function daysSince(timestamp: firebase.firestore.Timestamp | null | undefined): number {
-  if (!timestamp) return 0;
-  const ts = timestamp.toMillis ? timestamp.toMillis() : (timestamp as any)._seconds * 1000;
-  const now = Date.now();
-  const diffMs = now - ts;
-  return Math.floor(diffMs / (1000 * 60 * 60 * 24));
-}
-
-/**
- * Checks if a site requires login (and thus has user accounts for re-engagement)
- */
-function isLoginRequiredSite(siteId: string): boolean {
-  // Only login-required sites have user accounts with email addresses
-  // Non-login sites (ananda-public, crystal) don't have user accounts
-  return siteId === "ananda" || siteId === "jairam";
+function generateIdempotencyKey(email: string, campaignId: string): string {
+  const date = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+  return crypto.createHash("sha256").update(`${email}:${campaignId}:${date}`).digest("hex").substring(0, 16);
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -60,8 +52,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "https://ananda.org";
 
     // Only process login-required sites (they have user accounts)
-    if (!isLoginRequiredSite(siteId)) {
-      console.log(`📊 Skipping re-engagement emails for site ${siteId} (not a login-required site)`);
+    // Use the requireLogin flag from site config instead of hardcoded site IDs
+    if (!siteConfig?.requireLogin) {
+      console.log(`📊 Skipping re-engagement emails for site ${siteId} (requireLogin is false in config)`);
       return res.status(200).json({
         message: `Site ${siteId} does not require login - skipping re-engagement emails`,
         processed: 0,
@@ -227,16 +220,61 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           continue;
         }
 
-        // Send the email
+        // Generate idempotency key to prevent duplicate sends
+        const idempotencyKey = generateIdempotencyKey(userEmail, CAMPAIGN_ID);
+
+        // Use a transaction to atomically check and update the campaign sent status
+        // This prevents race conditions if cron runs overlap
+        const sendResult = await db.runTransaction(async (transaction) => {
+          // Re-read the user document to get fresh state
+          const freshDoc = await transaction.get(doc.ref);
+          if (!freshDoc.exists) {
+            return { sent: false, reason: "user_not_found" };
+          }
+
+          const freshData = freshDoc.data() as User;
+          const freshEmailsSent = freshData.reengagementEmailsSent || [];
+
+          // Check if already sent (another cron run may have sent it)
+          if (freshEmailsSent.includes(CAMPAIGN_ID)) {
+            return { sent: false, reason: "already_sent" };
+          }
+
+          // Check idempotency key (prevents same-day duplicate attempts)
+          const pendingKeys = freshData.pendingReengagementKeys || [];
+          if (pendingKeys.includes(idempotencyKey)) {
+            return { sent: false, reason: "pending_send" };
+          }
+
+          // Mark as pending before sending (optimistic lock)
+          transaction.update(doc.ref, {
+            pendingReengagementKeys: firebase.firestore.FieldValue.arrayUnion(idempotencyKey),
+          });
+
+          return { sent: true, reason: "proceed" };
+        });
+
+        if (!sendResult.sent) {
+          if (sendResult.reason === "already_sent") {
+            skippedList.push({ email: userEmail, reason: "already sent (detected in transaction)" });
+          } else if (sendResult.reason === "pending_send") {
+            skippedList.push({ email: userEmail, reason: "pending send in progress" });
+          }
+          continue;
+        }
+
+        // Now send the email (outside transaction to avoid long-running txn)
         const success = await sendReengagementEmail(userData, siteId, baseUrl);
+
+        // Update the final state based on send result
         if (success) {
-          // Update emails sent list and timestamp
-          const updatedEmailsSent = [...emailsSent, CAMPAIGN_ID];
+          // Mark as sent and clean up pending key
           await firestoreSet(
             doc.ref,
             {
-              reengagementEmailsSent: updatedEmailsSent,
+              reengagementEmailsSent: firebase.firestore.FieldValue.arrayUnion(CAMPAIGN_ID),
               lastReengagementSentAt: firebase.firestore.Timestamp.now(),
+              pendingReengagementKeys: firebase.firestore.FieldValue.arrayRemove(idempotencyKey),
             },
             { merge: true },
             `mark re-engagement campaign ${CAMPAIGN_ID} sent`
@@ -245,8 +283,26 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           sentList.push({ email: userEmail, daysSinceLogin: daysSinceActivity });
           console.log(`✅ Sent re-engagement email to ${userEmail} (${daysSinceActivity} days since activity)`);
         } else {
+          // Send failed - remove pending key so it can be retried
+          await firestoreSet(
+            doc.ref,
+            {
+              pendingReengagementKeys: firebase.firestore.FieldValue.arrayRemove(idempotencyKey),
+            },
+            { merge: true },
+            `remove pending key after failed re-engagement send`
+          );
           errors++;
           errorsList.push(`${userEmail}: Failed to send re-engagement email`);
+
+          // Alert ops if we have repeated failures
+          if (errors >= 5) {
+            sendOpsAlert(
+              "Re-engagement Email Failures",
+              `Multiple re-engagement email failures detected:\n${errorsList.slice(0, 5).join("\n")}`,
+              { context: { endpoint: "/api/cron/processReengagementEmails", errorCount: errors } }
+            ).catch(() => {});
+          }
         }
       } catch (error: any) {
         errors++;
@@ -259,7 +315,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Log detailed results to console (for Vercel logs)
     console.log(`📊 Re-engagement email processing complete:`);
     console.log(`   Total accepted users: ${allUsersSnapshot.docs.length}`);
-    console.log(`   Eligible (21-30 days inactive, subscribed, not sent): ${eligibleDocs.length}`);
+    console.log(
+      `   Eligible (${INACTIVITY_MIN_DAYS}-${INACTIVITY_MAX_DAYS} days inactive, subscribed, not sent): ${eligibleDocs.length}`
+    );
     console.log(`   Processed: ${processed}, Sent: ${sent}, Errors: ${errors}`);
 
     if (sentList.length > 0) {

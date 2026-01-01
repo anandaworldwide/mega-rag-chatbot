@@ -47,7 +47,7 @@ jest.mock("@/utils/server/errorSanitization", () => ({
   getSafeErrorMessage: jest.fn((error, fallback) => fallback || error?.message || "Error"),
 }));
 
-// Mock firebase-admin for Timestamp.now()
+// Mock firebase-admin for Timestamp.now() and FieldValue
 jest.mock("firebase-admin", () => {
   const mockTimestamp = {
     now: jest.fn(() => ({
@@ -63,11 +63,17 @@ jest.mock("firebase-admin", () => {
       toMillis: () => ms,
     })),
   };
+  const mockFieldValue = {
+    arrayUnion: jest.fn((...items: any[]) => ({ _arrayUnion: items })),
+    arrayRemove: jest.fn((...items: any[]) => ({ _arrayRemove: items })),
+    serverTimestamp: jest.fn(() => ({ _serverTimestamp: true })),
+  };
   const firestoreFn = jest.fn(() => ({
     collection: jest.fn(),
     batch: jest.fn(),
   }));
   (firestoreFn as any).Timestamp = mockTimestamp;
+  (firestoreFn as any).FieldValue = mockFieldValue;
   return {
     apps: [{}],
     firestore: firestoreFn,
@@ -106,9 +112,27 @@ describe("/api/cron/processReengagementEmails", () => {
       }),
     });
 
+    // Mock runTransaction to allow sending emails
+    mockDb.runTransaction = jest.fn().mockImplementation(async (callback: any) => {
+      // Create a mock transaction object
+      const mockTransaction = {
+        get: jest.fn().mockResolvedValue({
+          exists: true,
+          data: () => ({
+            reengagementEmailsSent: [],
+            pendingReengagementKeys: [],
+          }),
+        }),
+        update: jest.fn(),
+        set: jest.fn(),
+      };
+      return callback(mockTransaction);
+    });
+
     mockLoadSiteConfig.mockResolvedValue({
       siteId: "ananda",
       name: "Ananda",
+      requireLogin: true,
     } as any);
 
     mockLoadReengagementTemplate.mockResolvedValue({
@@ -191,6 +215,7 @@ describe("/api/cron/processReengagementEmails", () => {
       mockLoadSiteConfig.mockResolvedValue({
         siteId: "ananda-public",
         name: "Ananda Public",
+        requireLogin: false,
       } as any);
 
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
@@ -253,10 +278,11 @@ describe("/api/cron/processReengagementEmails", () => {
 
       expect(res.statusCode).toBe(200);
       expect(mockSendReengagementEmail).toHaveBeenCalledTimes(1);
+      // Now uses FieldValue.arrayUnion for atomic array updates
       expect(mockFirestoreSet).toHaveBeenCalledWith(
         expect.any(Object),
         expect.objectContaining({
-          reengagementEmailsSent: ["reengagement-21-nudge"],
+          reengagementEmailsSent: { _arrayUnion: ["reengagement-21-nudge"] },
         }),
         { merge: true },
         expect.stringContaining("mark re-engagement campaign")
@@ -516,7 +542,16 @@ describe("/api/cron/processReengagementEmails", () => {
       expect(res.statusCode).toBe(200);
       const data = res._getJSONData();
       expect(data.errors).toBe(1);
-      expect(mockFirestoreSet).not.toHaveBeenCalled(); // Should not update on failure
+      // After send failure, the pending idempotency key is removed (so it can be retried)
+      // So firestoreSet IS called, but to remove the pending key, not to mark as sent
+      expect(mockFirestoreSet).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({
+          pendingReengagementKeys: expect.any(Object), // arrayRemove call
+        }),
+        { merge: true },
+        expect.stringContaining("remove pending key")
+      );
     });
   });
 

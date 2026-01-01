@@ -141,6 +141,8 @@ def update_test_users(db, selected_users, env_prefix: str):
                 "onboardingCompleted": False,
             },
             "set_timestamp": False,
+            "set_created_at": True,
+            "created_at_days_ago": 0,  # Brand new user - triggers day 0 email
             "remove_fields": ["onboardingStartedAt", "onboardingEmailsSent"],
             "description": "New user (no onboarding started) - will trigger day 0",
         },

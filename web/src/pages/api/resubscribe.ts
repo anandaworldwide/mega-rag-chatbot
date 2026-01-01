@@ -4,6 +4,7 @@ import { db } from "@/services/firebase";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreGet, firestoreSet } from "@/utils/server/firestoreRetryUtils";
 import { EmailCategory } from "@/types/user";
+import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import firebase from "firebase-admin";
 
 interface ResubscribeToken {
@@ -18,6 +19,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Method not allowed" });
   }
+
+  // Rate limiting to prevent abuse/subscription toggle attacks
+  const allowed = await genericRateLimiter(req, res, {
+    windowMs: 60 * 1000, // 1 minute
+    max: 10, // 10 requests per minute (matches unsubscribe but lower for toggle protection)
+    name: "resubscribe",
+  });
+  if (!allowed) return;
 
   if (!db) {
     return res.status(503).json({ error: "Database not available" });

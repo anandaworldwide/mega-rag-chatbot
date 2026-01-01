@@ -9,6 +9,8 @@
  * - specialDay: Special occasion emails (future)
  */
 
+import { generateSignedOpenToken } from "./emailTokenUtils";
+
 /**
  * Adds UTM parameters to a URL for email campaign tracking
  *
@@ -99,7 +101,7 @@ export function generateClickTrackingUrl(
 }
 
 /**
- * Generates an email open tracking pixel URL
+ * Generates an email open tracking pixel URL with signed token
  *
  * @param email - User email address
  * @param campaignType - Type of campaign ("onboarding", "newsletter", etc.)
@@ -116,8 +118,8 @@ export function generateOpenTrackingUrl(
   const trackingBase = baseUrl || process.env.NEXT_PUBLIC_BASE_URL || "";
   const trackingUrl = new URL("/api/email/open", trackingBase);
 
-  // Generate a token containing campaign info (not sensitive, just to prevent enumeration)
-  const token = Buffer.from(`${email}:${campaignType}:${campaignId}:${Date.now()}`).toString("base64");
+  // Generate a signed token to prevent forgery
+  const token = generateSignedOpenToken(email, campaignType, String(campaignId));
   trackingUrl.searchParams.set("token", token);
 
   return trackingUrl.toString();

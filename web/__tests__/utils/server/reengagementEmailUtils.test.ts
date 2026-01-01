@@ -16,10 +16,10 @@ import jwt from "jsonwebtoken";
 import {
   loadReengagementTemplate,
   selectRandomPrompt,
-  generateUnsubscribeToken,
   renderReengagementEmail,
   sendReengagementEmail,
 } from "@/utils/server/reengagementEmailUtils";
+import { generateUnsubscribeToken } from "@/utils/server/emailTokenUtils";
 import { User } from "@/types/user";
 import { sendEmail } from "@/utils/server/emailUtils";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
@@ -43,11 +43,16 @@ jest.mock("@/utils/server/emailTemplates", () => ({
   }),
 }));
 
-// Mock fs module for testing file operations
+// Mock fs module for testing file operations (including fs.promises for async ops)
 jest.mock("fs", () => ({
   existsSync: jest.fn(),
   readFileSync: jest.fn(),
   readdirSync: jest.fn(),
+  promises: {
+    access: jest.fn(),
+    readFile: jest.fn(),
+    readdir: jest.fn(),
+  },
 }));
 
 const mockFs = fs as jest.Mocked<typeof fs>;
@@ -95,46 +100,44 @@ describe("reengagementEmailUtils", () => {
       const templatesDir = path.join("/test/cwd", "site-config", "reengagement-templates");
       const templatePath = path.join(templatesDir, "ananda.json");
 
-      // Mock getValidSiteIds() - templates directory exists and contains "ananda.json"
-      mockFs.existsSync.mockImplementation((filePath: fs.PathLike) => {
-        if (filePath === templatesDir) {
-          return true; // Templates directory exists
+      // Mock fs.promises.access - resolve for existing paths, reject for non-existing
+      (mockFs.promises.access as jest.Mock).mockImplementation((filePath: string) => {
+        if (filePath === templatesDir || filePath === templatePath) {
+          return Promise.resolve();
         }
-        if (filePath === templatePath) {
-          return true; // Template file exists
-        }
-        return false;
+        return Promise.reject(new Error("ENOENT"));
       });
-      mockFs.readdirSync.mockReturnValue([
+
+      // Mock fs.promises.readdir for getting valid site IDs
+      (mockFs.promises.readdir as jest.Mock).mockResolvedValue([
         { name: "ananda.json", isFile: () => true, isDirectory: () => false } as fs.Dirent,
-      ] as any);
-      mockFs.readFileSync.mockReturnValue(templateContent);
+      ]);
+
+      // Mock fs.promises.readFile for template content
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValue(templateContent);
 
       const template = await loadReengagementTemplate("ananda");
 
       expect(template).not.toBeNull();
       expect(template?.campaignId).toBe("reengagement-21-nudge");
       expect(template?.subject).toBe("We miss you, {{firstName}}!");
-      expect(mockFs.existsSync).toHaveBeenCalledWith(templatePath);
     });
 
     it("should return null when template does not exist", async () => {
       const templatesDir = path.join("/test/cwd", "site-config", "reengagement-templates");
-      const templatePath = path.join(templatesDir, "ananda.json");
 
-      // Mock getValidSiteIds() - templates directory exists but no ananda.json
-      mockFs.existsSync.mockImplementation((filePath: fs.PathLike) => {
+      // Mock fs.promises.access - templates dir exists, but ananda.json doesn't
+      (mockFs.promises.access as jest.Mock).mockImplementation((filePath: string) => {
         if (filePath === templatesDir) {
-          return true; // Templates directory exists
+          return Promise.resolve();
         }
-        if (filePath === templatePath) {
-          return false; // Template file does not exist
-        }
-        return false;
+        return Promise.reject(new Error("ENOENT"));
       });
-      mockFs.readdirSync.mockReturnValue([
+
+      // Mock readdir - only jairam.json exists
+      (mockFs.promises.readdir as jest.Mock).mockResolvedValue([
         { name: "jairam.json", isFile: () => true, isDirectory: () => false } as fs.Dirent,
-      ] as any);
+      ]);
 
       const template = await loadReengagementTemplate("ananda");
 
@@ -151,21 +154,20 @@ describe("reengagementEmailUtils", () => {
       const templatesDir = path.join("/test/cwd", "site-config", "reengagement-templates");
       const templatePath = path.join(templatesDir, "ananda.json");
 
-      mockFs.existsSync.mockImplementation((filePath: fs.PathLike) => {
-        if (filePath === templatesDir) {
-          return true;
+      // Mock fs.promises.access - both paths exist
+      (mockFs.promises.access as jest.Mock).mockImplementation((filePath: string) => {
+        if (filePath === templatesDir || filePath === templatePath) {
+          return Promise.resolve();
         }
-        if (filePath === templatePath) {
-          return true;
-        }
-        return false;
+        return Promise.reject(new Error("ENOENT"));
       });
-      mockFs.readdirSync.mockReturnValue([
+
+      (mockFs.promises.readdir as jest.Mock).mockResolvedValue([
         { name: "ananda.json", isFile: () => true, isDirectory: () => false } as fs.Dirent,
-      ] as any);
-      mockFs.readFileSync.mockImplementation(() => {
-        throw new Error("File read error");
-      });
+      ]);
+
+      // Mock readFile to throw error
+      (mockFs.promises.readFile as jest.Mock).mockRejectedValue(new Error("File read error"));
 
       const consoleSpy = jest.spyOn(console, "error").mockImplementation();
 
@@ -295,20 +297,22 @@ describe("reengagementEmailUtils", () => {
         name: "Ananda",
       } as any);
 
-      // Mock template loading
+      // Mock template loading with async fs.promises
       const templatesDir = path.join("/test/cwd", "site-config", "reengagement-templates");
       const templatePath = path.join(templatesDir, "ananda.json");
 
-      mockFs.existsSync.mockImplementation((filePath: fs.PathLike) => {
+      (mockFs.promises.access as jest.Mock).mockImplementation((filePath: string) => {
         if (filePath === templatesDir || filePath === templatePath) {
-          return true;
+          return Promise.resolve();
         }
-        return false;
+        return Promise.reject(new Error("ENOENT"));
       });
-      mockFs.readdirSync.mockReturnValue([
+
+      (mockFs.promises.readdir as jest.Mock).mockResolvedValue([
         { name: "ananda.json", isFile: () => true, isDirectory: () => false } as fs.Dirent,
-      ] as any);
-      mockFs.readFileSync.mockReturnValue(
+      ]);
+
+      (mockFs.promises.readFile as jest.Mock).mockResolvedValue(
         JSON.stringify({
           campaignId: "reengagement-21-nudge",
           subject: "We miss you, {{firstName}}!",

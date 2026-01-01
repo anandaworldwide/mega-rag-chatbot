@@ -17,6 +17,11 @@ jest.mock("@/utils/server/firestoreUtils", () => ({
 
 jest.mock("@/utils/server/firestoreRetryUtils");
 
+// Mock rate limiter to always allow requests in tests
+jest.mock("@/utils/server/genericRateLimiter", () => ({
+  genericRateLimiter: jest.fn().mockResolvedValue(true),
+}));
+
 jest.mock("firebase-admin", () => ({
   firestore: {
     Timestamp: {
