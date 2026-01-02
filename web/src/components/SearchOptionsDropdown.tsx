@@ -583,7 +583,7 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
               )}
 
               {/* Reset Button */}
-              {isModified && (
+              {isModified ? (
                 <div className="pt-3 mt-3 border-t border-gray-200">
                   <button
                     type="button"
@@ -594,7 +594,7 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
                     Reset to Defaults
                   </button>
                 </div>
-              )}
+              ) : null}
 
               {/* Stats Legend */}
               {stats && (
