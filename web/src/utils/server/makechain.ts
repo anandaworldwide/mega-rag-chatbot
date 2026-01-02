@@ -1126,7 +1126,7 @@ async function loadFollowUpPrompt(type: "deeper" | "broader", siteId?: string): 
     try {
       const sitePrompt = await fs.readFile(siteSpecificPath, "utf-8");
       return sitePrompt.trim();
-    } catch (error) {
+    } catch (_error) {
       // Site-specific prompt not found, fall back to default
     }
   }
@@ -1136,7 +1136,7 @@ async function loadFollowUpPrompt(type: "deeper" | "broader", siteId?: string): 
   try {
     const defaultPrompt = await fs.readFile(defaultPath, "utf-8");
     return defaultPrompt.trim();
-  } catch (error) {
+  } catch (_error) {
     // If no prompt files exist, use hardcoded fallback
     if (type === "deeper") {
       return `Based on the conversation context and retrieved sources, generate 3-5 narrower, more specific follow-up questions that dive deeper into the same topic.
@@ -1185,6 +1185,85 @@ export function jaccardSimilarity(text1: string, text2: string): number {
   const intersection = new Set([...words1].filter((x) => words2.has(x)));
   const union = new Set([...words1, ...words2]);
   return intersection.size / union.size;
+}
+
+/**
+ * Robustly extract a JSON array from AI-generated content.
+ * Handles common issues like:
+ * - JSON wrapped in markdown code blocks
+ * - Extra text before/after the JSON
+ * - Truncated JSON arrays (attempts to recover valid items)
+ *
+ * @param content - The raw string content from the AI model
+ * @returns Parsed string array, or empty array on failure
+ */
+function extractJsonArray(content: string): string[] {
+  if (!content || typeof content !== "string") {
+    return [];
+  }
+
+  let cleanContent = content.trim();
+
+  // Remove markdown code blocks if present
+  cleanContent = cleanContent.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+
+  // Try to find and extract JSON array
+  const arrayMatch = cleanContent.match(/\[[\s\S]*\]/);
+  if (arrayMatch) {
+    cleanContent = arrayMatch[0];
+  }
+
+  // First attempt: direct parse
+  try {
+    const parsed = JSON.parse(cleanContent);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((item) => typeof item === "string" && item.trim());
+    }
+    return [];
+  } catch (_directError) {
+    // Direct parse failed, try recovery strategies
+  }
+
+  // Recovery attempt 1: Fix truncated JSON by closing the array
+  // Common pattern: ["item1", "item2", "item3...  (truncated)
+  try {
+    // Remove any trailing incomplete string and close the array
+    let recovered = cleanContent;
+
+    // If ends with incomplete string (no closing quote), try to fix
+    if (/,\s*"[^"]*$/.test(recovered)) {
+      // Remove the incomplete last element
+      recovered = recovered.replace(/,\s*"[^"]*$/, "]");
+    } else if (!recovered.endsWith("]")) {
+      // If just missing the closing bracket
+      recovered = recovered.replace(/,?\s*$/, "]");
+    }
+
+    const parsed = JSON.parse(recovered);
+    if (Array.isArray(parsed)) {
+      console.log(`Recovered ${parsed.length} suggestions from truncated JSON`);
+      return parsed.filter((item) => typeof item === "string" && item.trim());
+    }
+  } catch (_recoveryError) {
+    // Recovery failed
+  }
+
+  // Recovery attempt 2: Extract individual quoted strings
+  try {
+    const stringMatches = cleanContent.match(/"([^"\\]|\\.)*"/g);
+    if (stringMatches && stringMatches.length > 0) {
+      const items = stringMatches.map((s) => JSON.parse(s)).filter((item) => typeof item === "string" && item.trim());
+      if (items.length > 0) {
+        console.log(`Extracted ${items.length} suggestions via string recovery`);
+        return items;
+      }
+    }
+  } catch (_stringRecoveryError) {
+    // String recovery failed
+  }
+
+  console.warn("Could not extract JSON array from content:", cleanContent.substring(0, 200));
+  return [];
 }
 
 // Filter suggestions for diversity and deduplication
@@ -1263,14 +1342,10 @@ async function generateFollowUpSuggestions(
       .replace("{sourceMetadata}", sourceMetadata || "No sources available");
 
     const deeperResponse = await suggestionModel.invoke([{ role: "user", content: deeperPrompt }]);
-    let deeperSuggestions: string[] = [];
-    if (deeperResponse.content && typeof deeperResponse.content === "string") {
-      try {
-        deeperSuggestions = JSON.parse(deeperResponse.content.trim()) as string[];
-      } catch (parseError) {
-        console.error("Failed to parse deeper suggestions:", parseError);
-      }
-    }
+    const deeperSuggestions =
+      deeperResponse.content && typeof deeperResponse.content === "string"
+        ? extractJsonArray(deeperResponse.content)
+        : [];
 
     // Generate broader suggestions
     const broaderPromptTemplate = await loadFollowUpPrompt("broader", siteId);
@@ -1281,14 +1356,10 @@ async function generateFollowUpSuggestions(
       .replace("{sourceMetadata}", sourceMetadata || "No sources available");
 
     const broaderResponse = await suggestionModel.invoke([{ role: "user", content: broaderPrompt }]);
-    let broaderSuggestions: string[] = [];
-    if (broaderResponse.content && typeof broaderResponse.content === "string") {
-      try {
-        broaderSuggestions = JSON.parse(broaderResponse.content.trim()) as string[];
-      } catch (parseError) {
-        console.error("Failed to parse broader suggestions:", parseError);
-      }
-    }
+    const broaderSuggestions =
+      broaderResponse.content && typeof broaderResponse.content === "string"
+        ? extractJsonArray(broaderResponse.content)
+        : [];
 
     // Filter and dedupe suggestions (max 2 per category)
     const filteredDeeper = filterSuggestionsForDiversity(deeperSuggestions, [], 2, 0.6);
@@ -1401,7 +1472,6 @@ export async function setupAndExecuteLanguageModelChain(
       // Format chat history for the language model
       const pastMessages = convertChatHistory(history);
 
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       let fullResponse = ""; // This will be populated by streaming tokens
       let firstTokenTime: number | null = null;
       let firstByteTime: number | null = null;

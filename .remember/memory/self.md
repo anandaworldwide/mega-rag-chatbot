@@ -1472,7 +1472,60 @@ aws ecs run-task ... --network-configuration "awsvpcConfiguration={...,assignPub
 (`aws scheduler get-schedule --query 'Target.EcsParameters.NetworkConfiguration'`) and match it when running tasks
 manually.
 
-### 39. Paired Endpoints Must Use Consistent Token Validation
+### 39. Vercel Serverless Functions Terminate Orphaned Promises
+
+**Problem**: In Vercel serverless functions, once the response is sent, the function can terminate at any point.
+Fire-and-forget patterns using `.then()` or `.catch()` create orphaned promises that get cut off, causing errors like
+"Connection timed out" or "socket hang up" in production logs.
+
+**Wrong**: Using fire-and-forget patterns for operations that must complete.
+
+```typescript
+// WRONG: .then() creates an orphaned promise that Vercel can terminate
+titleGenerationPromise
+  .then(async (title) => {
+    await firestoreUpdate(docRef, { title }); // Gets cut off!
+  })
+  .catch(() => {});
+
+// WRONG: Fire-and-forget with .catch()
+updateUserActivity(uuid).catch(() => {}); // Gets cut off!
+```
+
+**Correct**: Await all operations that must complete before the function ends.
+
+```typescript
+// CORRECT: Await the full operation chain
+try {
+  const title = await titleGenerationPromise;
+  if (title && savedDocId && db) {
+    await firestoreUpdate(docRef, { title });
+  }
+} catch (_error) {
+  console.warn("Title update skipped");
+}
+
+// CORRECT: For non-critical operations, use Promise.race with timeout
+try {
+  await Promise.race([
+    updateUserActivity(uuid),
+    new Promise((resolve) => setTimeout(resolve, 3000)), // 3s timeout
+  ]);
+} catch (_error) {
+  // Silently handle - non-critical
+}
+```
+
+**Pattern**: In Vercel serverless functions:
+
+1. Never use `.then().catch()` for operations that must complete
+2. Always `await` operations before the function returns
+3. For non-critical operations, use `Promise.race` with a timeout to prevent blocking
+4. The `finally` block won't save orphaned `.then()` chains - they're separate promise contexts
+
+**Applied To**: Fixed chat route to properly await title generation updates and user activity tracking.
+
+### 40. Paired Endpoints Must Use Consistent Token Validation
 
 **Problem**: When implementing paired operations (subscribe/unsubscribe, enable/disable), endpoints must use the same
 token validation logic. If one endpoint is updated to support new token formats, the paired endpoint must be updated

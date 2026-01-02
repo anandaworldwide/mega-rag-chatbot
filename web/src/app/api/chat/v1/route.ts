@@ -1096,42 +1096,40 @@ async function handleChatRequest(req: NextRequest) {
                 docId: savedDocId,
               });
 
-              // Track user activity (fire-and-forget)
+              // Track user activity - await to prevent Vercel from cutting off the operation
+              // This is a quick operation and non-critical, so timeout after 3s to avoid blocking
               if (sanitizedInput.uuid) {
-                updateUserActivity(sanitizedInput.uuid).catch(() => {
+                try {
+                  await Promise.race([
+                    updateUserActivity(sanitizedInput.uuid),
+                    new Promise((resolve) => setTimeout(resolve, 3000)), // 3s timeout
+                  ]);
+                } catch (_activityError) {
                   // Silently handle errors - activity tracking is non-critical
-                });
+                }
               }
 
               // For new conversations, update the document with the generated title
+              // IMPORTANT: Await the full operation to prevent Vercel from terminating before completion
               if (conversationId && titleGenerationPromise) {
-                // Wait for title generation to complete and update the document
-                titleGenerationPromise
-                  .then(async (generatedTitle) => {
-                    if (generatedTitle && savedDocId) {
-                      try {
-                        // Use the already-generated title instead of generating it again
-                        if (db) {
-                          const docRef = db.collection(getAnswersCollectionName()).doc(savedDocId);
-                          await firestoreUpdate(
-                            docRef,
-                            { title: generatedTitle },
-                            "title generation update",
-                            `docId: ${savedDocId}, title: ${generatedTitle}`
-                          );
-                          console.log(`Updated document ${savedDocId} with generated title: "${generatedTitle}"`);
-                        }
-                      } catch (_titleUpdateError) {
-                        // Non-critical: title update failed after 3 retry attempts (14s timeout per attempt)
-                        console.warn(
-                          `Title update skipped for ${savedDocId} after 3 retry attempts - user experience unaffected`
-                        );
-                      }
-                    }
-                  })
-                  .catch(() => {
-                    // Non-critical: title generation failed - silently continue
-                  });
+                try {
+                  const generatedTitle = await titleGenerationPromise;
+                  if (generatedTitle && savedDocId && db) {
+                    const docRef = db.collection(getAnswersCollectionName()).doc(savedDocId);
+                    await firestoreUpdate(
+                      docRef,
+                      { title: generatedTitle },
+                      "title generation update",
+                      `docId: ${savedDocId}, title: ${generatedTitle}`
+                    );
+                    console.log(`Updated document ${savedDocId} with generated title: "${generatedTitle}"`);
+                  }
+                } catch (_titleUpdateError) {
+                  // Non-critical: title update failed after 3 retry attempts (14s timeout per attempt)
+                  console.warn(
+                    `Title update skipped for ${savedDocId} after 3 retry attempts - user experience unaffected`
+                  );
+                }
               }
               // For follow-up messages, no title generation needed
             }
