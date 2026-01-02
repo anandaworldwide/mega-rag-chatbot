@@ -10,7 +10,7 @@
  * and responsive design for mobile and desktop.
  */
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { SiteConfig } from "@/types/siteConfig";
 import {
@@ -69,8 +69,8 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
   });
   const showLibrarySelection = availableLibraries.length > 1;
 
-  // Helper function to determine if options have been changed from defaults
-  const areOptionsModified = () => {
+  // Determine if options have been changed from defaults
+  const isModified = useMemo((): boolean => {
     // Get default media types from site config (defaults to all enabled if not specified)
     const siteEnabledMediaTypes = getEnabledMediaTypes(siteConfig);
     const defaultMediaTypes = {
@@ -128,9 +128,19 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
         !selectedLibraries.every((lib) => defaultLibraries.includes(lib)));
 
     return mediaTypesChanged || collectionChanged || sourceCountChanged || librariesChanged;
-  };
-
-  const isModified = areOptionsModified();
+  }, [
+    showMediaTypeSelection,
+    showAuthorSelection,
+    showSourceCountSelector,
+    showLibrarySelection,
+    mediaTypes,
+    collection,
+    sourceCount,
+    selectedLibraries,
+    siteConfig,
+    collectionsConfig,
+    availableLibraries,
+  ]);
 
   // Helper function to format large numbers
   const formatCount = (count: number): string => {
