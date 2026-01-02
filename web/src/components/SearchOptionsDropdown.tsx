@@ -316,6 +316,77 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
     logEvent("toggle_extra_sources", "Settings", checked ? "enabled" : "disabled");
   };
 
+  const handleResetOptions = () => {
+    // Get default media types from site config (all enabled types checked)
+    const siteEnabledMediaTypes = getEnabledMediaTypes(siteConfig);
+    const defaultMediaTypes = {
+      text: siteEnabledMediaTypes.includes("text"),
+      audio: siteEnabledMediaTypes.includes("audio"),
+      youtube: siteEnabledMediaTypes.includes("youtube"),
+    };
+
+    // Reset media types - toggle each type if it doesn't match default
+    if (showMediaTypeSelection) {
+      (["text", "audio", "youtube"] as const).forEach((type) => {
+        if (mediaTypes[type] !== defaultMediaTypes[type]) {
+          handleMediaTypeChange(type);
+        }
+      });
+      // Clear localStorage for media types
+      localStorage.removeItem("searchMediaTypes");
+    }
+
+    // Reset collection to default (first key from collections config)
+    const defaultCollection = Object.keys(collectionsConfig)[0] || "";
+    if (showAuthorSelection && collection !== defaultCollection) {
+      handleCollectionChange(defaultCollection);
+    }
+
+    // Reset libraries to all available libraries
+    if (showLibrarySelection) {
+      const defaultLibraries = availableLibraries.map((lib) => (typeof lib === "string" ? lib : lib.name));
+      // Get libraries that need to be selected (in defaults but not currently selected)
+      const librariesToSelect = defaultLibraries.filter((lib) => !selectedLibraries.includes(lib));
+      // Get libraries that need to be deselected (currently selected but not in defaults)
+      const librariesToDeselect = selectedLibraries.filter((lib) => !defaultLibraries.includes(lib));
+
+      // First, select any missing default libraries (this ensures we have at least one selected)
+      librariesToSelect.forEach((lib) => {
+        handleLibraryChange(lib);
+      });
+
+      // Then, deselect any non-default libraries (safe now since we've selected defaults)
+      librariesToDeselect.forEach((lib) => {
+        handleLibraryChange(lib);
+      });
+
+      // Clear localStorage for libraries
+      localStorage.removeItem("selectedLibraries");
+    }
+
+    // Reset source count to default
+    const defaultSourceCount = siteConfig?.defaultNumSources || 4;
+    if (showSourceCountSelector) {
+      if (sourceCount !== defaultSourceCount) {
+        const useExtraSources = sourceCount === 10;
+        if (useExtraSources) {
+          // Toggle off extra sources if currently enabled
+          handleSourceCountToggle(false);
+        } else {
+          // Set to default (shouldn't happen, but handle it)
+          setSourceCount(defaultSourceCount);
+          localStorage.removeItem("useExtraSources");
+        }
+      } else {
+        // Already at default, just clear localStorage to ensure clean reset
+        localStorage.removeItem("useExtraSources");
+      }
+    }
+
+    // Log analytics event
+    logEvent("reset_chat_options", "Settings", "reset_to_defaults");
+  };
+
   // Don't render if no options are available
   if (!hasAnyOptions) {
     return null;
@@ -508,6 +579,20 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
                       Use 10 sources instead of 4 for more comprehensive responses
                     </span>
                   </label>
+                </div>
+              )}
+
+              {/* Reset Button */}
+              {isModified && (
+                <div className="pt-3 mt-3 border-t border-gray-200">
+                  <button
+                    type="button"
+                    onClick={handleResetOptions}
+                    className="w-full flex items-center justify-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  >
+                    <span className="material-icons text-base mr-2">refresh</span>
+                    Reset to Defaults
+                  </button>
                 </div>
               )}
 

@@ -466,7 +466,7 @@ function handleError(error: unknown, sendData: (data: StreamingResponseData) => 
     // Handle specific error cases
     if (error instanceof NoSourcesError) {
       // Build actionable error message based on active filters as a chat response
-      let message = "No sources found matching your search criteria. ";
+      let message = "No sources found matching your chat options. ";
       const suggestions: string[] = [];
 
       if (error.filters.libraries && error.filters.libraries.length > 0) {
@@ -490,7 +490,7 @@ function handleError(error: unknown, sendData: (data: StreamingResponseData) => 
 
       if (error.filters.collection) {
         message += `You're filtering by collection: "${error.filters.collection}". `;
-        suggestions.push("Try changing your collection filter");
+        suggestions.push("Try changing your collection filter.");
       }
 
       if (suggestions.length > 0) {
@@ -499,7 +499,7 @@ function handleError(error: unknown, sendData: (data: StreamingResponseData) => 
           message += `• ${suggestion}\n`;
         });
       } else {
-        message += "Try adjusting your chat options or rephrasing your question.";
+        message += "Please adjust or reset your chat options and try again.";
       }
 
       // Send as error message
