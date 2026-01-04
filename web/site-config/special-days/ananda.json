@@ -1,0 +1,59 @@
+{
+  "specialDays": [
+    {
+      "id": "masters-birthday",
+      "name": "Master's Birthday",
+      "month": 1,
+      "day": 5,
+      "sendDaysBefore": 2
+    },
+    {
+      "id": "mahasamadhi",
+      "name": "Master's Mahasamadhi",
+      "month": 3,
+      "day": 7,
+      "sendDaysBefore": 1
+    },
+    {
+      "id": "easter",
+      "name": "Easter",
+      "type": "easter",
+      "sendDaysBefore": 1
+    },
+    {
+      "id": "sri-yukteswar-birthday",
+      "name": "Sri Yukteswar's Birthday",
+      "month": 5,
+      "day": 10,
+      "sendDaysBefore": 1
+    },
+    {
+      "id": "swamijis-birthday",
+      "name": "Swamiji's Birthday",
+      "month": 5,
+      "day": 19,
+      "sendDaysBefore": 1
+    },
+    {
+      "id": "ananda-birthday",
+      "name": "Ananda's Birthday",
+      "month": 7,
+      "day": 4,
+      "sendDaysBefore": 1
+    },
+    {
+      "id": "lahiri-mahasaya-birthday",
+      "name": "Lahiri Mahasaya's Birthday",
+      "month": 9,
+      "day": 30,
+      "sendDaysBefore": 1
+    },
+    {
+      "id": "christmas",
+      "name": "Christmas",
+      "month": 12,
+      "day": 25,
+      "sendDaysBefore": 3
+    }
+  ]
+}

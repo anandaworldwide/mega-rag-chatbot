@@ -1,0 +1,31 @@
+{
+  "specialDayId": "lahiri-mahasaya-birthday",
+  "subject": "Tomorrow is Lahiri Mahasaya's Birthday \u2013 Honor with Luca",
+  "greeting": "Dear {{firstName}},",
+  "body": "Tomorrow we honor the birthday of Lahiri Mahasaya, the great householder yogi who revived the ancient science of Kriya Yoga and passed it down through the line of gurus to Master.\n\nLahiri Mahasaya demonstrated that it is possible to achieve the highest spiritual realization while living a normal householder life. He showed that Kriya Yoga can be practiced by anyone, regardless of their circumstances, and that God-realization is accessible to all sincere seekers.\n\nAs we honor this great master, let us reflect on the accessibility of the spiritual path and the power of Kriya Yoga.\n\nHere are some questions to explore with Luca:\n{{exampleQuestions}}\n\nMay this day deepen your understanding of Kriya Yoga and its universal accessibility.\n\nIn divine friendship,\nThe Luca Team",
+  "exampleQuestionPool": [
+    "What did Master teach about Lahiri Mahasaya and his role in reviving Kriya Yoga?",
+    "How did Master describe Lahiri Mahasaya's demonstration of householder yoga?",
+    "What did Master say about the accessibility of Kriya Yoga to all seekers?",
+    "Share Master's teachings about the power and effectiveness of Kriya Yoga.",
+    "What did Master teach about Lahiri Mahasaya's method of teaching Kriya Yoga?",
+    "How did Master describe the significance of Kriya Yoga in the modern age?",
+    "What did Master say about the relationship between Kriya Yoga and other spiritual practices?",
+    "Share Master's guidance on the importance of regular Kriya practice.",
+    "What did Master teach about Lahiri Mahasaya's emphasis on practical spirituality?",
+    "How did Master describe the benefits of Kriya Yoga for daily life?",
+    "What did Master say about the role of Kriya Yoga in achieving self-realization?",
+    "Share Master's teachings about the scientific basis of Kriya Yoga.",
+    "What did Master teach about Lahiri Mahasaya's ability to initiate disciples?",
+    "How did Master describe the experience of receiving Kriya initiation?",
+    "What did Master say about the importance of proper instruction in Kriya Yoga?",
+    "Share Master's guidance on deepening one's Kriya practice.",
+    "What did Master teach about the relationship between Kriya Yoga and the awakening of kundalini?",
+    "How did Master describe the transformative power of Kriya Yoga?",
+    "What did Master say about Lahiri Mahasaya's example for modern seekers?",
+    "Share Master's teachings about the universal availability of God-realization through Kriya Yoga."
+  ],
+  "exampleQuestionCount": 3,
+  "ctaUrl": "{{baseUrl}}",
+  "ctaText": "Honor Lahiri Mahasaya's Birthday with Luca"
+}

@@ -1,0 +1,31 @@
+{
+  "specialDayId": "christmas",
+  "subject": "Christmas is Coming \u2013 Prepare with Luca",
+  "greeting": "Dear {{firstName}},",
+  "body": "In three days we celebrate Christmas, the birth of Christ\u2014a time of joy, love, and spiritual renewal.\n\nMaster taught that Christmas represents not just the birth of Jesus, but the birth of Christ consciousness within each of us. It is a time to celebrate the divine potential within every soul and to renew our commitment to the spiritual path.\n\nAs we prepare for this sacred celebration, let us reflect on the deeper meaning of Christmas and how we can experience the birth of Christ consciousness in our own lives.\n\nHere are some questions to explore with Luca:\n{{exampleQuestions}}\n\nMay this Christmas bring you closer to the experience of divine love and Christ consciousness.\n\nIn divine friendship,\nThe Luca Team",
+  "exampleQuestionPool": [
+    "What did Master teach about the deeper meaning of Christmas?",
+    "How did Master describe the birth of Christ consciousness within us?",
+    "What did Master say about the relationship between Jesus Christ and the path of Kriya Yoga?",
+    "Share Master's teachings about the spiritual significance of Christmas.",
+    "What did Master teach about the symbolism of the Christmas story?",
+    "How did Master describe the experience of spiritual rebirth and renewal?",
+    "What did Master say about the importance of love and giving during Christmas?",
+    "Share Master's guidance on celebrating Christmas in a spiritual way.",
+    "What did Master teach about the relationship between Christmas and meditation?",
+    "How did Master describe the experience of peace and joy during Christmas?",
+    "What did Master say about the universal message of Christmas?",
+    "Share Master's teachings about the birth of divine qualities within us.",
+    "What did Master teach about the connection between Christmas and the spiritual eye?",
+    "How did Master describe the importance of devotion during the Christmas season?",
+    "What did Master say about the power of prayer and meditation during Christmas?",
+    "Share Master's guidance on experiencing the true spirit of Christmas.",
+    "What did Master teach about the relationship between Christmas and service to others?",
+    "How did Master describe the experience of divine love during Christmas?",
+    "What did Master say about the significance of Christmas for all spiritual seekers?",
+    "Share Master's teachings about celebrating the birth of Christ consciousness daily."
+  ],
+  "exampleQuestionCount": 3,
+  "ctaUrl": "{{baseUrl}}",
+  "ctaText": "Prepare for Christmas with Luca"
+}

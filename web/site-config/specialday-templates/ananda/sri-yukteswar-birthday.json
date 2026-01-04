@@ -1,0 +1,31 @@
+{
+  "specialDayId": "sri-yukteswar-birthday",
+  "subject": "Tomorrow is Sri Yukteswar's Birthday \u2013 Honor with Luca",
+  "greeting": "Dear {{firstName}},",
+  "body": "Tomorrow we honor the birthday of Sri Yukteswar, Master's guru and the great Jyotish (astrologer) and teacher who guided Master's spiritual development.\n\nSri Yukteswar was known for his scientific approach to spirituality and his profound understanding of the cosmic laws. He taught Master the importance of balancing the material and spiritual aspects of life, and his wisdom continues to inspire seekers today.\n\nAs we honor this great teacher, let us reflect on the guru-disciple relationship and the importance of spiritual guidance on the path.\n\nHere are some questions to explore with Luca:\n{{exampleQuestions}}\n\nMay this day deepen your appreciation for the guru-disciple relationship.\n\nIn divine friendship,\nThe Luca Team",
+  "exampleQuestionPool": [
+    "What did Master say about Sri Yukteswar and his teachings?",
+    "How did Master describe Sri Yukteswar's approach to spirituality?",
+    "What did Master teach about the importance of the guru-disciple relationship?",
+    "Share Master's stories about his time with Sri Yukteswar.",
+    "What did Master say about Sri Yukteswar's understanding of astrology and cosmic laws?",
+    "How did Master describe Sri Yukteswar's method of teaching?",
+    "What did Master teach about the role of the guru in spiritual development?",
+    "Share Master's guidance on finding and recognizing a true guru.",
+    "What did Master say about Sri Yukteswar's emphasis on scientific spirituality?",
+    "How did Master describe the balance between material and spiritual life that Sri Yukteswar taught?",
+    "What did Master teach about the importance of discipline in spiritual practice?",
+    "Share Master's teachings about the relationship between astrology and spiritual growth.",
+    "What did Master say about Sri Yukteswar's predictions and their accuracy?",
+    "How did Master describe the lessons he learned from Sri Yukteswar?",
+    "What did Master teach about the significance of the guru's blessings?",
+    "Share Master's guidance on honoring and respecting the guru.",
+    "What did Master say about Sri Yukteswar's understanding of the Yugas (cosmic ages)?",
+    "How did Master describe the spiritual transformation that occurred under Sri Yukteswar's guidance?",
+    "What did Master teach about the importance of humility in the guru-disciple relationship?",
+    "Share Master's teachings about the eternal connection between guru and disciple."
+  ],
+  "exampleQuestionCount": 3,
+  "ctaUrl": "{{baseUrl}}",
+  "ctaText": "Honor Sri Yukteswar's Birthday with Luca"
+}

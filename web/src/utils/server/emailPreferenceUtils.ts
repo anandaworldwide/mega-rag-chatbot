@@ -37,6 +37,7 @@ export function getDefaultEmailPreferences(): EmailPreferences {
     newsletters: true,
     onboarding: true,
     reengagement: true,
+    specialDay: true,
   };
 }
 
@@ -58,6 +59,7 @@ export function migrateEmailPreferences(user: User): User {
     newsletters: user.newsletterSubscribed !== false, // Default to true if not explicitly false
     onboarding: true, // New users get onboarding enabled by default
     reengagement: true, // New users get re-engagement enabled by default
+    specialDay: true, // New users get special day emails enabled by default
   };
 
   return {

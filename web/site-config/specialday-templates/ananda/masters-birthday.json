@@ -1,0 +1,31 @@
+{
+  "specialDayId": "masters-birthday",
+  "subject": "Tomorrow is Master's Birthday \u2013 Prepare with Luca",
+  "greeting": "Dear {{firstName}},",
+  "body": "Tomorrow is Master's birthday!\n\nThis is a special time to reflect on his teachings and his mission to spread the message of divine love and self-realization. As we honor his birth, we can deepen our understanding of his wisdom and draw inspiration from his life.\n\nHere are some questions to explore with Luca:\n{{exampleQuestions}}\n\nMay this day bring you closer to Master's teachings and the path of Kriya Yoga.\n\nIn divine friendship,\nThe Luca Team",
+  "exampleQuestionPool": [
+    "How did Master suggest we celebrate his birthday in a spiritual way?",
+    "What insights did Master share about the deeper meaning of birthdays?",
+    "Can you share a story about how Master celebrated his own birthday?",
+    "What did Master teach about the spiritual significance of birthdays?",
+    "How did Master view the importance of remembering the birthdays of spiritual teachers?",
+    "What lessons did Master impart about commemorating the birth of great souls?",
+    "How did Master describe the role of birthdays in spiritual growth?",
+    "What did Master say about the connection between birthdays and reincarnation?",
+    "How did Master's disciples traditionally celebrate his birthday?",
+    "What did Master teach about using birthdays as opportunities for spiritual reflection?",
+    "Can you share a story about a memorable birthday celebration with Master?",
+    "What did Master say about the significance of birth dates in spiritual life?",
+    "How did Master view the anniversary of his birth in relation to his mission?",
+    "What did Master teach about honoring the birthdays of gurus and saints?",
+    "How did Master suggest we reflect on his teachings during his birthday?",
+    "What did Master say about the role of divine love in celebrating birthdays?",
+    "How did Master view birthdays as a time for self-realization?",
+    "What did Master teach about the importance of spiritual anniversaries?",
+    "How did Master guide his disciples in celebrating spiritual milestones?",
+    "What did Master say about the significance of special days in spiritual practice?"
+  ],
+  "exampleQuestionCount": 3,
+  "ctaUrl": "{{baseUrl}}",
+  "ctaText": "Prepare for Master's Birthday with Luca"
+}

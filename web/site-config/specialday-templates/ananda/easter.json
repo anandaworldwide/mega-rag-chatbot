@@ -1,0 +1,31 @@
+{
+  "specialDayId": "easter",
+  "subject": "Tomorrow is Easter \u2013 Celebrate with Luca",
+  "greeting": "Dear {{firstName}},",
+  "body": "Tomorrow we celebrate Easter, the resurrection of Christ\u2014a powerful symbol of the soul's victory over death and the possibility of spiritual rebirth.\n\nMaster taught that Easter represents not just a historical event, but an inner experience available to all seekers. The resurrection symbolizes the awakening of Christ consciousness within us\u2014the realization of our divine nature.\n\nThis Easter, let us reflect on the deeper meaning of resurrection and how we can experience spiritual rebirth in our own lives.\n\nHere are some questions to explore with Luca:\n{{exampleQuestions}}\n\nMay this Easter bring you closer to the experience of Christ consciousness.\n\nIn divine friendship,\nThe Luca Team",
+  "exampleQuestionPool": [
+    "What did Master teach about the deeper meaning of Easter and the resurrection?",
+    "How did Master describe Christ consciousness and how to attain it?",
+    "What did Master say about the relationship between Jesus Christ and the path of Kriya Yoga?",
+    "Share Master's teachings about spiritual rebirth and transformation.",
+    "What did Master teach about the symbolism of the cross and resurrection?",
+    "How did Master describe the experience of awakening to one's divine nature?",
+    "What did Master say about the power of faith and devotion in spiritual growth?",
+    "Share Master's guidance on overcoming the 'death' of ego and limitation.",
+    "What did Master teach about the relationship between Easter and the spiritual eye?",
+    "How did Master describe the process of inner resurrection?",
+    "What did Master say about the importance of meditation in experiencing resurrection?",
+    "Share Master's teachings about the eternal life available through self-realization.",
+    "What did Master teach about the connection between Easter and the awakening of kundalini?",
+    "How did Master describe the experience of rising above material consciousness?",
+    "What did Master say about the significance of Easter for all spiritual seekers?",
+    "Share Master's guidance on celebrating Easter in a spiritual way.",
+    "What did Master teach about the relationship between Easter and the practice of Kriya Yoga?",
+    "How did Master describe the victory of spirit over matter?",
+    "What did Master say about the universal message of Easter?",
+    "Share Master's teachings about experiencing the resurrection consciousness daily."
+  ],
+  "exampleQuestionCount": 3,
+  "ctaUrl": "{{baseUrl}}",
+  "ctaText": "Celebrate Easter with Luca"
+}

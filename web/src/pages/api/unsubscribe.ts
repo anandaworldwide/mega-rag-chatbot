@@ -138,6 +138,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       newsletters: "newsletter updates",
       onboarding: "onboarding emails",
       reengagement: "re-engagement emails",
+      specialDay: "special day emails",
     };
     const categoryDisplayName = categoryNames[category] || "emails";
 

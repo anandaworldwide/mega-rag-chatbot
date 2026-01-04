@@ -23,6 +23,8 @@ describe("emailPreferenceUtils", () => {
         emailPreferences: {
           newsletters: true,
           onboarding: false,
+          reengagement: true,
+          specialDay: true,
         },
       };
 
@@ -35,6 +37,8 @@ describe("emailPreferenceUtils", () => {
         emailPreferences: {
           newsletters: false,
           onboarding: true,
+          reengagement: true,
+          specialDay: true,
         },
       };
 
@@ -47,6 +51,8 @@ describe("emailPreferenceUtils", () => {
         emailPreferences: {
           newsletters: false,
           onboarding: true,
+          reengagement: true,
+          specialDay: true,
         },
       };
 
@@ -59,6 +65,8 @@ describe("emailPreferenceUtils", () => {
         emailPreferences: {
           newsletters: true,
           onboarding: false,
+          reengagement: true,
+          specialDay: true,
         },
       };
 
@@ -106,6 +114,8 @@ describe("emailPreferenceUtils", () => {
         emailPreferences: {
           newsletters: false,
           onboarding: true,
+          reengagement: true,
+          specialDay: true,
         },
       };
 
@@ -121,6 +131,7 @@ describe("emailPreferenceUtils", () => {
         newsletters: true,
         onboarding: true,
         reengagement: true,
+        specialDay: true,
       });
     });
   });
@@ -132,6 +143,8 @@ describe("emailPreferenceUtils", () => {
         emailPreferences: {
           newsletters: true,
           onboarding: false,
+          reengagement: true,
+          specialDay: true,
         },
       };
 
@@ -141,6 +154,8 @@ describe("emailPreferenceUtils", () => {
       expect(migrated.emailPreferences).toEqual({
         newsletters: true,
         onboarding: false,
+        reengagement: true,
+        specialDay: true,
       });
     });
 
@@ -156,6 +171,7 @@ describe("emailPreferenceUtils", () => {
         newsletters: true,
         onboarding: true,
         reengagement: true,
+        specialDay: true,
       });
     });
 
@@ -171,6 +187,7 @@ describe("emailPreferenceUtils", () => {
         newsletters: false,
         onboarding: true,
         reengagement: true,
+        specialDay: true,
       });
     });
 
@@ -185,6 +202,7 @@ describe("emailPreferenceUtils", () => {
         newsletters: true,
         onboarding: true,
         reengagement: true,
+        specialDay: true,
       });
     });
 

@@ -1,0 +1,31 @@
+{
+  "specialDayId": "swamijis-birthday",
+  "subject": "Tomorrow is Swamiji's Birthday \u2013 Celebrate with Luca",
+  "greeting": "Dear {{firstName}},",
+  "body": "Tomorrow we celebrate the birthday of Swami Kriyananda (J. Donald Walters), the direct disciple of Paramhansa Yogananda who founded Ananda and dedicated his life to sharing Master's teachings.\n\nSwamiji was a prolific writer, composer, and teacher who helped make Master's teachings accessible to thousands. His vision of intentional communities and his emphasis on joy, service, and attunement continue to inspire the Ananda community worldwide.\n\nAs we honor Swamiji's birth, let us reflect on his teachings and the legacy he left for all seekers.\n\nHere are some questions to explore with Luca:\n{{exampleQuestions}}\n\nMay this day bring you closer to Swamiji's teachings and the path of joy.\n\nIn divine friendship,\nThe Luca Team",
+  "exampleQuestionPool": [
+    "What did Swamiji teach about finding joy in daily life?",
+    "How did Swamiji describe the importance of attunement with the guru?",
+    "What did Swamiji say about the vision of intentional communities?",
+    "Share Swamiji's teachings about the path of service and selfless action.",
+    "What did Swamiji teach about balancing spiritual practice with worldly responsibilities?",
+    "How did Swamiji describe the relationship between music and spirituality?",
+    "What did Swamiji say about the importance of community in spiritual growth?",
+    "Share Swamiji's guidance on developing a positive mental attitude.",
+    "What did Swamiji teach about the power of affirmations and positive thinking?",
+    "How did Swamiji describe the experience of living in attunement with Master?",
+    "What did Swamiji say about the role of creativity in spiritual development?",
+    "Share Swamiji's teachings about the importance of meditation in daily life.",
+    "What did Swamiji teach about overcoming challenges and obstacles?",
+    "How did Swamiji describe the path to finding one's life purpose?",
+    "What did Swamiji say about the relationship between individual growth and community service?",
+    "Share Swamiji's guidance on maintaining spiritual practices during busy times.",
+    "What did Swamiji teach about the power of chanting and devotional singing?",
+    "How did Swamiji describe the experience of living Master's teachings?",
+    "What did Swamiji say about the importance of joy in spiritual practice?",
+    "Share Swamiji's teachings about building a life of meaning and purpose."
+  ],
+  "exampleQuestionCount": 3,
+  "ctaUrl": "{{baseUrl}}",
+  "ctaText": "Celebrate Swamiji's Birthday with Luca"
+}

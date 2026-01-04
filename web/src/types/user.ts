@@ -2,14 +2,13 @@
  * User type definitions for the Ananda Library Chatbot
  */
 
-export type EmailCategory = "newsletters" | "onboarding" | "reengagement";
+export type EmailCategory = "newsletters" | "onboarding" | "reengagement" | "specialDay";
 
 export interface EmailPreferences {
   newsletters: boolean; // Admin-sent newsletters
   onboarding: boolean; // Onboarding drip emails
   reengagement: boolean; // Re-engagement emails (21-60 day inactivity)
-  // Future categories (add as implemented):
-  // specialDay?: boolean; // Special occasion emails (holidays, events, etc.)
+  specialDay: boolean; // Special occasion emails (holidays, events, etc.)
 }
 
 export interface User {
@@ -36,6 +35,10 @@ export interface User {
   reengagementEmailsSent?: string[]; // Array of campaign IDs sent
   lastReengagementSentAt?: any; // firebase.firestore.Timestamp
   pendingReengagementKeys?: string[]; // Idempotency keys for in-progress sends
+  // Special day tracking
+  specialDayEmailsSent?: string[]; // Array of campaign IDs (e.g., "masters-birthday-2026")
+  lastSpecialDaySentAt?: any; // firebase.firestore.Timestamp
+  pendingSpecialDayKeys?: string[]; // Idempotency keys for in-progress sends
   lastActivityAt?: any; // firebase.firestore.Timestamp - last chat or search activity
   createdAt?: any; // firebase.firestore.Timestamp - account creation time
   // Onboarding idempotency

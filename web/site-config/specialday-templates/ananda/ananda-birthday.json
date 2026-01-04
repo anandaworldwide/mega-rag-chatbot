@@ -1,0 +1,31 @@
+{
+  "specialDayId": "ananda-birthday",
+  "subject": "Tomorrow is Ananda's Birthday \u2013 Celebrate with Luca",
+  "greeting": "Dear {{firstName}},",
+  "body": "Tomorrow we celebrate the founding of Ananda on July 4, 1968, by Swami Kriyananda. This is also Sister Gyanamata's birthday, a great devotee of Master who demonstrated the highest levels of spiritual attainment.\n\nAnanda was founded as an intentional community dedicated to living Master's teachings in daily life. It represents a vision of spiritual living, service, and community that continues to inspire seekers around the world.\n\nAs we honor this special day, let us reflect on the principles of community living, service, and the practical application of Master's teachings.\n\nHere are some questions to explore with Luca:\n{{exampleQuestions}}\n\nMay this day deepen your connection to the Ananda community and its values.\n\nIn divine friendship,\nThe Luca Team",
+  "exampleQuestionPool": [
+    "What did Swamiji teach about the vision and purpose of Ananda communities?",
+    "How did Swamiji describe the principles of intentional community living?",
+    "What did Swamiji say about the importance of service in community life?",
+    "Share Swamiji's teachings about balancing individual growth with community harmony.",
+    "What did Swamiji teach about the role of cooperation and teamwork in spiritual communities?",
+    "How did Swamiji describe the experience of living Master's teachings in community?",
+    "What did Swamiji say about Sister Gyanamata and her spiritual example?",
+    "Share Swamiji's guidance on developing devotion and surrender.",
+    "What did Swamiji teach about the importance of shared spiritual practices in community?",
+    "How did Swamiji describe the relationship between personal meditation and community service?",
+    "What did Swamiji say about the challenges and rewards of community living?",
+    "Share Swamiji's teachings about the importance of harmony and cooperation.",
+    "What did Swamiji teach about finding one's place and purpose in community?",
+    "How did Swamiji describe the role of leadership and service in Ananda?",
+    "What did Swamiji say about the importance of joy and celebration in community life?",
+    "Share Swamiji's guidance on resolving conflicts and maintaining harmony.",
+    "What did Swamiji teach about the spiritual significance of working together?",
+    "How did Swamiji describe the experience of living in attunement with others?",
+    "What did Swamiji say about the importance of shared values and goals?",
+    "Share Swamiji's teachings about building a life of meaning through service and community."
+  ],
+  "exampleQuestionCount": 3,
+  "ctaUrl": "{{baseUrl}}",
+  "ctaText": "Celebrate Ananda's Birthday with Luca"
+}
