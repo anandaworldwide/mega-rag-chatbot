@@ -90,7 +90,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     if (isTestMode) {
       // In test mode, fetch only the specific user document
-      console.log(`🧪 TEST MODE: Fetching single user document for ${testEmail}`);
       const userDocRef = db.collection(usersCol).doc(testEmail);
       const userDoc = await firestoreGet(userDocRef, "get test user for special day email", "special day cron");
 
@@ -109,8 +108,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const userData = userDoc.data() as User;
       // Still check inviteStatus in test mode (but log if it fails)
       if (userData.inviteStatus !== "accepted") {
-        console.log(`🧪 TEST MODE: User ${testEmail} has inviteStatus "${userData.inviteStatus}" (not "accepted")`);
-        // Continue anyway in test mode, but log it
+        // Continue anyway in test mode
       }
 
       // Convert single doc to QuerySnapshot-like structure for compatibility
@@ -120,11 +118,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         size: 1,
         query: userDocRef as any,
       } as FirebaseFirestore.QuerySnapshot;
-      console.log(`🧪 TEST MODE: Created mock QuerySnapshot with ${allUsersSnapshot.docs.length} document(s)`);
 
       // Verify we only have the test user
       if (allUsersSnapshot.docs.length !== 1 || allUsersSnapshot.docs[0].id !== testEmail) {
-        console.error(`🧪 TEST MODE ERROR: Expected 1 document for ${testEmail}, got ${allUsersSnapshot.docs.length}`);
         return res.status(500).json({
           error: `Test mode error: Expected 1 document, got ${allUsersSnapshot.docs.length}`,
           testMode: true,
@@ -165,24 +161,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
       // In test mode, filter to only the test user BEFORE other checks
       if (isTestMode && testEmail) {
-        const beforeCount = docsToProcess.length;
         docsToProcess = docsToProcess.filter((doc: firebase.firestore.QueryDocumentSnapshot) => {
           const userEmail = doc.id;
-          if (userEmail !== testEmail) {
-            console.log(`🧪 TEST MODE: Skipping ${userEmail} (not test user ${testEmail})`);
-            return false;
-          }
-          return true;
+          return userEmail === testEmail;
         });
-        console.log(
-          `🧪 TEST MODE: Filtered from ${beforeCount} to ${docsToProcess.length} document(s) for test user ${testEmail}`
-        );
 
         // Double-check: in test mode, we should only have the test user
         if (docsToProcess.length !== 1 || (docsToProcess.length > 0 && docsToProcess[0].id !== testEmail)) {
-          console.error(
-            `🧪 TEST MODE ERROR: After filtering, expected 1 document for ${testEmail}, got ${docsToProcess.length}`
-          );
           continue; // Skip this special day in test mode if filtering failed
         }
       }
@@ -327,9 +312,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Log detailed results to console (for Vercel logs)
     console.log(`📊 Special day email processing complete:`);
-    console.log(
-      `   Total accepted users: ${allUsersSnapshot.docs.length}${testEmail ? ` (TEST MODE: should be 1)` : ""}`
-    );
+    console.log(`   Total accepted users: ${allUsersSnapshot.docs.length}`);
     console.log(`   Special days processed: ${specialDaysToSend.map((s) => s.name).join(", ")}`);
     console.log(`   Processed: ${totalProcessed}, Sent: ${totalSent}, Errors: ${totalErrors}`);
 

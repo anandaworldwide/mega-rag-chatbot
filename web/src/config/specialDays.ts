@@ -179,49 +179,22 @@ export async function getSpecialDaysForDate(siteId: string, date: Date = new Dat
   const year = normalizedDate.getUTCFullYear();
   const matching: SpecialDay[] = [];
 
-  // Get date string in Pacific Time for logging
-  const dateStr = normalizedDate.toLocaleDateString("en-US", {
-    timeZone: PACIFIC_TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
-  console.log(`🔍 Checking special days for date: ${dateStr} Pacific Time (year: ${year}, siteId: ${siteId})`);
-  console.log(`🔍 Loaded ${specialDays.length} special days`);
-
   for (const specialDay of specialDays) {
-    const eventDate = specialDay.getDate(year);
     const sendDate = getSendDate(specialDay, year);
 
     // Normalize send date to Pacific Time for comparison
     const normalizedSendDate = normalizeToDateOnly(sendDate);
-
-    // Get date strings in Pacific Time for logging
-    const eventDateStr = eventDate.toLocaleDateString("en-US", {
-      timeZone: PACIFIC_TIMEZONE,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
-    const sendDateStr = normalizedSendDate.toLocaleDateString("en-US", {
-      timeZone: PACIFIC_TIMEZONE,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    });
 
     // Compare dates using UTC components (both normalized to PT midnight = 8am UTC)
     const matches =
       normalizedSendDate.getUTCFullYear() === normalizedDate.getUTCFullYear() &&
       normalizedSendDate.getUTCMonth() === normalizedDate.getUTCMonth() &&
       normalizedSendDate.getUTCDate() === normalizedDate.getUTCDate();
-    console.log(`  ${specialDay.id}: event date ${eventDateStr}, send date ${sendDateStr}, matches: ${matches}`);
     if (matches) {
       matching.push(specialDay);
     }
   }
 
-  console.log(`🔍 Found ${matching.length} matching special days`);
   return matching;
 }
 
