@@ -31,7 +31,7 @@ interface SpecialDaysConfigFile {
  * This is a well-tested formula that works for all years in the Gregorian calendar
  *
  * @param year - The year to calculate Easter for
- * @returns Date object for Easter Sunday
+ * @returns Date object for Easter Sunday at Pacific Time midnight
  */
 function calculateEaster(year: number): Date {
   const a = year % 19;
@@ -49,7 +49,8 @@ function calculateEaster(year: number): Date {
   const month = Math.floor((h + l - 7 * m + 114) / 31);
   const day = ((h + l - 7 * m + 114) % 31) + 1;
 
-  return new Date(year, month - 1, day);
+  // Create date at Pacific Time midnight (8am UTC = midnight PST)
+  return new Date(Date.UTC(year, month - 1, day, 8, 0, 0));
 }
 
 /**
@@ -61,8 +62,8 @@ function configToSpecialDay(config: SpecialDayConfig): SpecialDay {
   if (config.type === "easter") {
     getDate = (year: number) => calculateEaster(year);
   } else if (config.month !== undefined && config.day !== undefined) {
-    // Fixed date: month is 1-12, convert to 0-11 for Date constructor
-    getDate = (year: number) => new Date(year, config.month! - 1, config.day!);
+    // Fixed date: month is 1-12, create at Pacific Time midnight (8am UTC = midnight PST)
+    getDate = (year: number) => new Date(Date.UTC(year, config.month! - 1, config.day!, 8, 0, 0));
   } else {
     throw new Error(`Invalid special day config for ${config.id}: must have either type="easter" or month/day`);
   }
@@ -130,13 +131,37 @@ export async function loadSpecialDays(siteId: string): Promise<SpecialDay[]> {
  *
  * @param specialDay - Special day configuration
  * @param year - Year to calculate for
- * @returns Date when emails should be sent
+ * @returns Date when emails should be sent (at Pacific Time midnight)
  */
 export function getSendDate(specialDay: SpecialDay, year: number): Date {
   const eventDate = specialDay.getDate(year);
+  // eventDate is already at PT midnight (8am UTC)
+  // Subtract calendar days by working with UTC components
   const sendDate = new Date(eventDate);
-  sendDate.setDate(sendDate.getDate() - specialDay.sendDaysBefore);
+  sendDate.setUTCDate(sendDate.getUTCDate() - specialDay.sendDaysBefore);
   return sendDate;
+}
+
+/**
+ * Pacific Time timezone offset (UTC-8 for PST, UTC-7 for PDT)
+ * We use Pacific Time for all date calculations since that's where development is done
+ */
+const PACIFIC_TIMEZONE = "America/Los_Angeles";
+
+/**
+ * Normalizes a date to Pacific Time midnight for consistent date-only comparison
+ */
+function normalizeToDateOnly(date: Date): Date {
+  // Get date components in Pacific Time
+  const ptDateStr = date.toLocaleDateString("en-US", {
+    timeZone: PACIFIC_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const [month, day, year] = ptDateStr.split("/").map(Number);
+  // Create a date representing midnight Pacific Time (8am UTC = midnight PST)
+  return new Date(Date.UTC(year, month - 1, day, 8, 0, 0));
 }
 
 /**
@@ -148,21 +173,55 @@ export function getSendDate(specialDay: SpecialDay, year: number): Date {
  */
 export async function getSpecialDaysForDate(siteId: string, date: Date = new Date()): Promise<SpecialDay[]> {
   const specialDays = await loadSpecialDays(siteId);
-  const year = date.getFullYear();
+
+  // Normalize input date to Pacific Time midnight for consistent comparison
+  const normalizedDate = normalizeToDateOnly(date);
+  const year = normalizedDate.getUTCFullYear();
   const matching: SpecialDay[] = [];
 
+  // Get date string in Pacific Time for logging
+  const dateStr = normalizedDate.toLocaleDateString("en-US", {
+    timeZone: PACIFIC_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  console.log(`🔍 Checking special days for date: ${dateStr} Pacific Time (year: ${year}, siteId: ${siteId})`);
+  console.log(`🔍 Loaded ${specialDays.length} special days`);
+
   for (const specialDay of specialDays) {
+    const eventDate = specialDay.getDate(year);
     const sendDate = getSendDate(specialDay, year);
-    // Compare dates ignoring time (only year, month, day)
-    if (
-      sendDate.getFullYear() === date.getFullYear() &&
-      sendDate.getMonth() === date.getMonth() &&
-      sendDate.getDate() === date.getDate()
-    ) {
+
+    // Normalize send date to Pacific Time for comparison
+    const normalizedSendDate = normalizeToDateOnly(sendDate);
+
+    // Get date strings in Pacific Time for logging
+    const eventDateStr = eventDate.toLocaleDateString("en-US", {
+      timeZone: PACIFIC_TIMEZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    const sendDateStr = normalizedSendDate.toLocaleDateString("en-US", {
+      timeZone: PACIFIC_TIMEZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+
+    // Compare dates using UTC components (both normalized to PT midnight = 8am UTC)
+    const matches =
+      normalizedSendDate.getUTCFullYear() === normalizedDate.getUTCFullYear() &&
+      normalizedSendDate.getUTCMonth() === normalizedDate.getUTCMonth() &&
+      normalizedSendDate.getUTCDate() === normalizedDate.getUTCDate();
+    console.log(`  ${specialDay.id}: event date ${eventDateStr}, send date ${sendDateStr}, matches: ${matches}`);
+    if (matches) {
       matching.push(specialDay);
     }
   }
 
+  console.log(`🔍 Found ${matching.length} matching special days`);
   return matching;
 }
 

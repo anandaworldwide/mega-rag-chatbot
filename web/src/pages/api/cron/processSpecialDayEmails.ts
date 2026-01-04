@@ -58,7 +58,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       });
     }
 
-    // Get today's date and find which special days should be sent today
+    // Get today's date in Pacific Time and find which special days should be sent today
+    // We use Pacific Time for all date calculations since that's where development is done
     const today = new Date();
     const specialDaysToSend = await getSpecialDaysForDate(siteId, today);
 
@@ -78,7 +79,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Check for test mode (single user testing)
     const testEmail = process.env.SPECIAL_DAY_TEST_EMAIL;
-    if (testEmail) {
+    const isTestMode = !!testEmail;
+    if (isTestMode) {
       console.log(`🧪 TEST MODE: Processing special day emails for test user: ${testEmail}`);
     }
 
@@ -86,8 +88,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const usersCol = getUsersCollectionName();
     let allUsersSnapshot: firebase.firestore.QuerySnapshot;
 
-    if (testEmail) {
+    if (isTestMode) {
       // In test mode, fetch only the specific user document
+      console.log(`🧪 TEST MODE: Fetching single user document for ${testEmail}`);
       const userDocRef = db.collection(usersCol).doc(testEmail);
       const userDoc = await firestoreGet(userDocRef, "get test user for special day email", "special day cron");
 
@@ -117,6 +120,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         size: 1,
         query: userDocRef as any,
       } as FirebaseFirestore.QuerySnapshot;
+      console.log(`🧪 TEST MODE: Created mock QuerySnapshot with ${allUsersSnapshot.docs.length} document(s)`);
+
+      // Verify we only have the test user
+      if (allUsersSnapshot.docs.length !== 1 || allUsersSnapshot.docs[0].id !== testEmail) {
+        console.error(`🧪 TEST MODE ERROR: Expected 1 document for ${testEmail}, got ${allUsersSnapshot.docs.length}`);
+        return res.status(500).json({
+          error: `Test mode error: Expected 1 document, got ${allUsersSnapshot.docs.length}`,
+          testMode: true,
+          testEmail,
+        });
+      }
     } else {
       // Normal mode: query all accepted users
       const usersQuery = db.collection(usersCol).where("inviteStatus", "==", "accepted");
@@ -146,7 +160,34 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Filter users based on eligibility criteria:
       // 1. Must be subscribed to special day emails
       // 2. Must not have already received this campaign
-      const eligibleDocs = allUsersSnapshot.docs.filter((doc: firebase.firestore.QueryDocumentSnapshot) => {
+      // 3. In test mode, must match the test email exactly
+      let docsToProcess = allUsersSnapshot.docs;
+
+      // In test mode, filter to only the test user BEFORE other checks
+      if (isTestMode && testEmail) {
+        const beforeCount = docsToProcess.length;
+        docsToProcess = docsToProcess.filter((doc: firebase.firestore.QueryDocumentSnapshot) => {
+          const userEmail = doc.id;
+          if (userEmail !== testEmail) {
+            console.log(`🧪 TEST MODE: Skipping ${userEmail} (not test user ${testEmail})`);
+            return false;
+          }
+          return true;
+        });
+        console.log(
+          `🧪 TEST MODE: Filtered from ${beforeCount} to ${docsToProcess.length} document(s) for test user ${testEmail}`
+        );
+
+        // Double-check: in test mode, we should only have the test user
+        if (docsToProcess.length !== 1 || (docsToProcess.length > 0 && docsToProcess[0].id !== testEmail)) {
+          console.error(
+            `🧪 TEST MODE ERROR: After filtering, expected 1 document for ${testEmail}, got ${docsToProcess.length}`
+          );
+          continue; // Skip this special day in test mode if filtering failed
+        }
+      }
+
+      const eligibleDocs = docsToProcess.filter((doc: firebase.firestore.QueryDocumentSnapshot) => {
         const data = doc.data() as User;
 
         // Check subscription preference
@@ -286,7 +327,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Log detailed results to console (for Vercel logs)
     console.log(`📊 Special day email processing complete:`);
-    console.log(`   Total accepted users: ${allUsersSnapshot.docs.length}`);
+    console.log(
+      `   Total accepted users: ${allUsersSnapshot.docs.length}${testEmail ? ` (TEST MODE: should be 1)` : ""}`
+    );
     console.log(`   Special days processed: ${specialDaysToSend.map((s) => s.name).join(", ")}`);
     console.log(`   Processed: ${totalProcessed}, Sent: ${totalSent}, Errors: ${totalErrors}`);
 
