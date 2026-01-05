@@ -14,6 +14,10 @@ import { sendOpsAlert } from "@/utils/server/emailOps";
 import { getSpecialDaysForDate, generateCampaignId } from "@/config/specialDays";
 import firebase from "firebase-admin";
 import crypto from "crypto";
+import pMap from "p-map";
+
+// Concurrency limit for parallel email sending (balance speed vs rate limits)
+const EMAIL_SEND_CONCURRENCY = 10;
 
 /**
  * Generates an idempotency key for email sending operations
@@ -194,119 +198,148 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         continue;
       }
 
-      console.log(`📬 Processing ${eligibleDocs.length} eligible users for ${specialDay.name} (${campaignId})`);
+      console.log(
+        `📬 Processing ${eligibleDocs.length} eligible users for ${specialDay.name} (${campaignId}) with concurrency ${EMAIL_SEND_CONCURRENCY}`
+      );
 
-      // Process each eligible user
-      for (const doc of eligibleDocs) {
-        totalProcessed++;
-        const userData = doc.data() as User;
-        const userEmail = doc.id; // Email is the document ID
-        userData.id = userEmail; // Set for email sending
+      // Process users in parallel with controlled concurrency
+      const results = await pMap(
+        eligibleDocs,
+        async (doc: firebase.firestore.QueryDocumentSnapshot) => {
+          const userData = doc.data() as User;
+          const userEmail = doc.id; // Email is the document ID
+          userData.id = userEmail; // Set for email sending
 
-        try {
-          // Double-check subscription (defensive)
-          if (!isSubscribedToCategory(userData, "specialDay")) {
-            skippedList.push({ email: userEmail, reason: `not subscribed to special day (${specialDay.id})` });
-            continue;
-          }
-
-          // Double-check idempotency (defensive)
-          const emailsSent = userData.specialDayEmailsSent || [];
-          if (emailsSent.includes(campaignId)) {
-            skippedList.push({ email: userEmail, reason: `already sent ${campaignId}` });
-            continue;
-          }
-
-          // Generate idempotency key to prevent duplicate sends
-          const idempotencyKey = generateIdempotencyKey(userEmail, campaignId);
-
-          // Use a transaction to atomically check and update the campaign sent status
-          // This prevents race conditions if cron runs overlap
-          const sendResult = await db.runTransaction(async (transaction) => {
-            // Re-read the user document to get fresh state
-            const freshDoc = await transaction.get(doc.ref);
-            if (!freshDoc.exists) {
-              return { sent: false, reason: "user_not_found" };
+          try {
+            // Double-check subscription (defensive)
+            if (!isSubscribedToCategory(userData, "specialDay")) {
+              return {
+                type: "skipped" as const,
+                email: userEmail,
+                reason: `not subscribed to special day (${specialDay.id})`,
+              };
             }
 
-            const freshData = freshDoc.data() as User;
-            const freshEmailsSent = freshData.specialDayEmailsSent || [];
-
-            // Check if already sent (another cron run may have sent it)
-            if (freshEmailsSent.includes(campaignId)) {
-              return { sent: false, reason: "already_sent" };
+            // Double-check idempotency (defensive)
+            const emailsSent = userData.specialDayEmailsSent || [];
+            if (emailsSent.includes(campaignId)) {
+              return { type: "skipped" as const, email: userEmail, reason: `already sent ${campaignId}` };
             }
 
-            // Check idempotency key (prevents same-day duplicate attempts)
-            const pendingKeys = freshData.pendingSpecialDayKeys || [];
-            if (pendingKeys.includes(idempotencyKey)) {
-              return { sent: false, reason: "pending_send" };
-            }
+            // Generate idempotency key to prevent duplicate sends
+            const idempotencyKey = generateIdempotencyKey(userEmail, campaignId);
 
-            // Mark as pending before sending (optimistic lock)
-            transaction.update(doc.ref, {
-              pendingSpecialDayKeys: firebase.firestore.FieldValue.arrayUnion(idempotencyKey),
+            // Use a transaction to atomically check and update the campaign sent status
+            // This prevents race conditions if cron runs overlap
+            const sendResult = await db!.runTransaction(async (transaction) => {
+              // Re-read the user document to get fresh state
+              const freshDoc = await transaction.get(doc.ref);
+              if (!freshDoc.exists) {
+                return { sent: false, reason: "user_not_found" };
+              }
+
+              const freshData = freshDoc.data() as User;
+              const freshEmailsSent = freshData.specialDayEmailsSent || [];
+
+              // Check if already sent (another cron run may have sent it)
+              if (freshEmailsSent.includes(campaignId)) {
+                return { sent: false, reason: "already_sent" };
+              }
+
+              // Check idempotency key (prevents same-day duplicate attempts)
+              const pendingKeys = freshData.pendingSpecialDayKeys || [];
+              if (pendingKeys.includes(idempotencyKey)) {
+                return { sent: false, reason: "pending_send" };
+              }
+
+              // Mark as pending before sending (optimistic lock)
+              transaction.update(doc.ref, {
+                pendingSpecialDayKeys: firebase.firestore.FieldValue.arrayUnion(idempotencyKey),
+              });
+
+              return { sent: true, reason: "proceed" };
             });
 
-            return { sent: true, reason: "proceed" };
-          });
-
-          if (!sendResult.sent) {
-            if (sendResult.reason === "already_sent") {
-              skippedList.push({ email: userEmail, reason: `already sent ${campaignId} (detected in transaction)` });
-            } else if (sendResult.reason === "pending_send") {
-              skippedList.push({ email: userEmail, reason: `pending send in progress for ${campaignId}` });
+            if (!sendResult.sent) {
+              if (sendResult.reason === "already_sent") {
+                return {
+                  type: "skipped" as const,
+                  email: userEmail,
+                  reason: `already sent ${campaignId} (detected in transaction)`,
+                };
+              } else if (sendResult.reason === "pending_send") {
+                return {
+                  type: "skipped" as const,
+                  email: userEmail,
+                  reason: `pending send in progress for ${campaignId}`,
+                };
+              }
+              return { type: "skipped" as const, email: userEmail, reason: sendResult.reason };
             }
-            continue;
-          }
 
-          // Now send the email (outside transaction to avoid long-running txn)
-          const success = await sendSpecialDayEmail(userData, specialDay.id, siteId, baseUrl, year);
+            // Now send the email (outside transaction to avoid long-running txn)
+            const success = await sendSpecialDayEmail(userData, specialDay.id, siteId, baseUrl, year);
 
-          // Update the final state based on send result
-          if (success) {
-            // Mark as sent and clean up pending key
-            await firestoreSet(
-              doc.ref,
-              {
-                specialDayEmailsSent: firebase.firestore.FieldValue.arrayUnion(campaignId),
-                lastSpecialDaySentAt: firebase.firestore.Timestamp.now(),
-                pendingSpecialDayKeys: firebase.firestore.FieldValue.arrayRemove(idempotencyKey),
-              },
-              { merge: true },
-              `mark special day campaign ${campaignId} sent`
-            );
-            totalSent++;
-            sentList.push({ email: userEmail, specialDayId: specialDay.id, campaignId });
-            console.log(`✅ Sent special day email (${campaignId}) to ${userEmail}`);
-          } else {
-            // Send failed - remove pending key so it can be retried
-            await firestoreSet(
-              doc.ref,
-              {
-                pendingSpecialDayKeys: firebase.firestore.FieldValue.arrayRemove(idempotencyKey),
-              },
-              { merge: true },
-              `remove pending key after failed special day send`
-            );
-            totalErrors++;
-            errorsList.push(`${userEmail}: Failed to send special day email (${campaignId})`);
-
-            // Alert ops if we have repeated failures
-            if (totalErrors >= 5) {
-              sendOpsAlert(
-                "Special Day Email Failures",
-                `Multiple special day email failures detected:\n${errorsList.slice(0, 5).join("\n")}`,
-                { context: { endpoint: "/api/cron/processSpecialDayEmails", errorCount: totalErrors } }
-              ).catch(() => {});
+            // Update the final state based on send result
+            if (success) {
+              // Mark as sent and clean up pending key
+              await firestoreSet(
+                doc.ref,
+                {
+                  specialDayEmailsSent: firebase.firestore.FieldValue.arrayUnion(campaignId),
+                  lastSpecialDaySentAt: firebase.firestore.Timestamp.now(),
+                  pendingSpecialDayKeys: firebase.firestore.FieldValue.arrayRemove(idempotencyKey),
+                },
+                { merge: true },
+                `mark special day campaign ${campaignId} sent`
+              );
+              console.log(`✅ Sent special day email (${campaignId}) to ${userEmail}`);
+              return { type: "sent" as const, email: userEmail, specialDayId: specialDay.id, campaignId };
+            } else {
+              // Send failed - remove pending key so it can be retried
+              await firestoreSet(
+                doc.ref,
+                {
+                  pendingSpecialDayKeys: firebase.firestore.FieldValue.arrayRemove(idempotencyKey),
+                },
+                { merge: true },
+                `remove pending key after failed special day send`
+              );
+              return {
+                type: "error" as const,
+                email: userEmail,
+                error: `Failed to send special day email (${campaignId})`,
+              };
             }
+          } catch (error: any) {
+            console.error(`Error processing user ${userEmail} for ${specialDay.id}:`, error);
+            return { type: "error" as const, email: userEmail, error: error.message || "Unknown error" };
           }
-        } catch (error: any) {
+        },
+        { concurrency: EMAIL_SEND_CONCURRENCY }
+      );
+
+      // Aggregate results from parallel processing
+      for (const result of results) {
+        totalProcessed++;
+        if (result.type === "sent") {
+          totalSent++;
+          sentList.push({ email: result.email, specialDayId: result.specialDayId, campaignId: result.campaignId });
+        } else if (result.type === "skipped") {
+          skippedList.push({ email: result.email, reason: result.reason });
+        } else if (result.type === "error") {
           totalErrors++;
-          const errorMsg = `${userEmail}: ${error.message || "Unknown error"}`;
-          errorsList.push(errorMsg);
-          console.error(`Error processing user ${userEmail} for ${specialDay.id}:`, error);
+          errorsList.push(`${result.email}: ${result.error}`);
         }
+      }
+
+      // Alert ops if we have repeated failures (check after each special day)
+      if (totalErrors >= 5) {
+        sendOpsAlert(
+          "Special Day Email Failures",
+          `Multiple special day email failures detected:\n${errorsList.slice(0, 5).join("\n")}`,
+          { context: { endpoint: "/api/cron/processSpecialDayEmails", errorCount: totalErrors } }
+        ).catch(() => {});
       }
     }
 

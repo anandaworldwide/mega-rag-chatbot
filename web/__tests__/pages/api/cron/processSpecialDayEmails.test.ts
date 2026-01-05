@@ -23,6 +23,18 @@ import { sendSpecialDayEmail, loadSpecialDayTemplate } from "@/utils/server/spec
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { getSpecialDaysForDate, generateCampaignId } from "@/config/specialDays";
 
+// Mock p-map (ES module) to avoid Jest transformation issues
+jest.mock("p-map", () => ({
+  __esModule: true,
+  default: jest.fn(async (iterable: any[], mapper: (item: any) => Promise<any>) => {
+    const results = [];
+    for (const item of iterable) {
+      results.push(await mapper(item));
+    }
+    return results;
+  }),
+}));
+
 // Mock dependencies
 jest.mock("@/services/firebase");
 jest.mock("@/utils/server/firestoreRetryUtils");
