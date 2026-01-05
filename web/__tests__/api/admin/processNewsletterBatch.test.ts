@@ -7,6 +7,18 @@ import * as genericRateLimiter from "@/utils/server/genericRateLimiter";
 import * as emailUtils from "@/utils/server/emailUtils";
 import * as loadSiteConfig from "@/utils/server/loadSiteConfig";
 
+// Mock p-map (ES module) to avoid Jest transformation issues
+jest.mock("p-map", () => ({
+  __esModule: true,
+  default: jest.fn(async (iterable: any[], mapper: (item: any) => Promise<any>) => {
+    const results = [];
+    for (const item of iterable) {
+      results.push(await mapper(item));
+    }
+    return results;
+  }),
+}));
+
 // Mock dependencies
 jest.mock("@/services/firebase", () => ({
   db: {

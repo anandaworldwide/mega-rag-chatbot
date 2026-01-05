@@ -415,7 +415,7 @@ export default function NewslettersPage({ siteConfig }: NewsletterPageProps) {
       <div className="bg-white rounded-lg border shadow-sm mb-8">
         <div className="p-6 border-b">
           <h2 className="text-lg font-semibold">Newsletter Queue Processor</h2>
-          <p className="text-sm text-gray-600 mt-1">Process queued newsletters in batches of 50 emails</p>
+          <p className="text-sm text-gray-600 mt-1">Process queued newsletters in batches of 500 emails</p>
         </div>
         <div className="p-6">
           <select
@@ -465,7 +465,7 @@ export default function NewslettersPage({ siteConfig }: NewsletterPageProps) {
               )}
               {isProcessingBatch
                 ? "Processing..."
-                : `Process Next ${Math.min(selectedNewsletterRemainingCount, 50)} Email${Math.min(selectedNewsletterRemainingCount, 50) === 1 ? "" : "s"}`}
+                : `Process Next ${Math.min(selectedNewsletterRemainingCount, 500)} Email${Math.min(selectedNewsletterRemainingCount, 500) === 1 ? "" : "s"}`}
             </button>
             <button
               onClick={handleDeleteQueue}

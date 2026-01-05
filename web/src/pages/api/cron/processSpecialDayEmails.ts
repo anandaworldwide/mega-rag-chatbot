@@ -17,7 +17,8 @@ import crypto from "crypto";
 import pMap from "p-map";
 
 // Concurrency limit for parallel email sending (balance speed vs rate limits)
-const EMAIL_SEND_CONCURRENCY = 10;
+// Set to 5 to stay under AWS SES rate limit of 14 requests/second
+const EMAIL_SEND_CONCURRENCY = 5;
 
 /**
  * Generates an idempotency key for email sending operations

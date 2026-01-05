@@ -14,6 +14,11 @@ import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
 import { formatFullName } from "@/utils/shared/nameUtils";
 import firebase from "firebase-admin";
+import pMap from "p-map";
+
+// Concurrency limit for parallel email sending (balance speed vs rate limits)
+// Set to 5 to stay under AWS SES rate limit of 14 requests/second
+const EMAIL_SEND_CONCURRENCY = 5;
 
 interface BatchRequest {
   newsletterId: string;
@@ -61,7 +66,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Verify superuser role from Firestore (source of truth)
     await requireSuperuserRoleFromFirestore(req);
 
-    const { newsletterId, batchSize = 50 }: BatchRequest = req.body;
+    const { newsletterId, batchSize = 500 }: BatchRequest = req.body;
     if (!newsletterId) {
       return res.status(400).json({ error: "newsletterId required" });
     }
@@ -76,10 +81,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const itemsSnapshot = await firestoreQueryGet(queueItemsQuery, "get queue batch", "newsletter process");
 
-    let sent = 0;
-    let failed = 0;
-    const errors: string[] = [];
-
     // Load site config once
     const siteConfig = await loadSiteConfig();
     const siteName = siteConfig?.name || "Ananda Library";
@@ -90,59 +91,81 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return res.status(500).json({ error: "Configuration missing" });
     }
 
-    for (const doc of itemsSnapshot.docs) {
-      const data = doc.data();
-      try {
-        // Generate unsubscribe token
-        const unsubscribeToken = jwt.sign({ email: data.email, purpose: "newsletter_unsubscribe" }, jwtSecret, {
-          expiresIn: "1y",
-          algorithm: "HS256",
-        });
-        const unsubscribeUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/api/unsubscribe?token=${unsubscribeToken}`;
+    console.log(
+      `📬 Processing ${itemsSnapshot.docs.length} newsletter queue items with concurrency ${EMAIL_SEND_CONCURRENCY}`
+    );
 
-        // Personalization
-        const firstName = data.firstName;
-        const lastName = data.lastName;
-        // Unescape any escaped quotes in names
-        const userName = formatFullName(firstName, lastName) || "Friend";
+    // Process queue items in parallel with controlled concurrency
+    const results = await pMap(
+      itemsSnapshot.docs,
+      async (doc: firebase.firestore.QueryDocumentSnapshot) => {
+        const data = doc.data();
+        try {
+          // Generate unsubscribe token
+          const unsubscribeToken = jwt.sign({ email: data.email, purpose: "newsletter_unsubscribe" }, jwtSecret, {
+            expiresIn: "1y",
+            algorithm: "HS256",
+          });
+          const unsubscribeUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/api/unsubscribe?token=${unsubscribeToken}`;
 
-        // Convert content
-        const htmlContent = await convertMarkdownToHtml(data.content);
+          // Personalization
+          const firstName = data.firstName;
+          const lastName = data.lastName;
+          // Unescape any escaped quotes in names
+          const userName = formatFullName(firstName, lastName) || "Friend";
 
-        const html = renderNewsletterHtml({
-          subject: data.subject,
-          siteName,
-          userName,
-          content: htmlContent,
-          ctaUrl: data.ctaUrl,
-          ctaText: data.ctaText,
-          unsubscribeUrl,
-        });
+          // Convert content
+          const htmlContent = await convertMarkdownToHtml(data.content);
 
-        // Send
-        const emailSent = await sendEmail({
-          to: data.email,
-          subject: data.subject,
-          html,
-          from: fromEmail,
-        });
+          const html = renderNewsletterHtml({
+            subject: data.subject,
+            siteName,
+            userName,
+            content: htmlContent,
+            ctaUrl: data.ctaUrl,
+            ctaText: data.ctaText,
+            unsubscribeUrl,
+          });
 
-        if (emailSent) {
-          await firestoreUpdate(doc.ref, { status: "sent", updatedAt: firebase.firestore.Timestamp.now() });
-          sent++;
-        } else {
-          throw new Error("Send failed");
+          // Send
+          const emailSent = await sendEmail({
+            to: data.email,
+            subject: data.subject,
+            html,
+            from: fromEmail,
+          });
+
+          if (emailSent) {
+            await firestoreUpdate(doc.ref, { status: "sent", updatedAt: firebase.firestore.Timestamp.now() });
+            return { type: "sent" as const, email: data.email };
+          } else {
+            throw new Error("Send failed");
+          }
+        } catch (error: any) {
+          const attempts = data.attempts + 1;
+          await firestoreUpdate(doc.ref, {
+            status: attempts < 3 ? "failed" : "permanently_failed",
+            error: error.message,
+            attempts,
+            updatedAt: firebase.firestore.Timestamp.now(),
+          });
+          return { type: "failed" as const, email: data.email, error: error.message };
         }
-      } catch (error: any) {
-        const attempts = data.attempts + 1;
-        await firestoreUpdate(doc.ref, {
-          status: attempts < 3 ? "failed" : "permanently_failed",
-          error: error.message,
-          attempts,
-          updatedAt: firebase.firestore.Timestamp.now(),
-        });
+      },
+      { concurrency: EMAIL_SEND_CONCURRENCY }
+    );
+
+    // Aggregate results from parallel processing
+    let sent = 0;
+    let failed = 0;
+    const errors: string[] = [];
+
+    for (const result of results) {
+      if (result.type === "sent") {
+        sent++;
+      } else {
         failed++;
-        errors.push(`${data.email}: ${error.message}`);
+        errors.push(`${result.email}: ${result.error}`);
       }
     }
 
