@@ -64,20 +64,59 @@ Click here to activate your account.
 This link expires in 14 days.`;
   }
 
-  const params = createEmailParams(
-    process.env.CONTACT_EMAIL || "noreply@ananda.org",
-    email,
-    `Activate your account with ${brand}`,
-    {
-      message,
-      baseUrl,
-      siteId: process.env.SITE_ID,
-      actionUrl: url,
-      actionText: "Click here to activate your account.",
-    }
-  );
+  const fromEmail = process.env.CONTACT_EMAIL || "noreply@ananda.org";
+  const params = createEmailParams(fromEmail, email, `Activate your account with ${brand}`, {
+    message,
+    baseUrl,
+    siteId: process.env.SITE_ID,
+    actionUrl: url,
+    actionText: "Click here to activate your account.",
+  });
 
-  await ses.send(new SendEmailCommand(params));
+  // Validate email content before sending
+  if (!params.Message.Body.Html?.Data || !params.Message.Body.Text?.Data) {
+    throw new Error("Email content is empty - HTML or Text body is missing");
+  }
+
+  try {
+    console.log(`📤 Sending activation email to: ${email}`);
+    console.log(`📤 From: ${fromEmail}`);
+    console.log(`📤 Subject: ${params.Message.Subject.Data}`);
+    await ses.send(new SendEmailCommand(params));
+    console.log(`✅ Activation email sent successfully to: ${email}`);
+  } catch (error: any) {
+    const errorDetails = {
+      error: error.message,
+      code: error.code || "UNKNOWN",
+      statusCode: error.$metadata?.httpStatusCode || "UNKNOWN",
+      requestId: error.$metadata?.requestId || "UNKNOWN",
+      name: error.name || "UNKNOWN",
+    };
+    console.error(`❌ Failed to send activation email to ${email}:`, errorDetails);
+    console.error(`❌ From: ${fromEmail}`);
+    console.error(`❌ Subject: ${params.Message.Subject.Data}`);
+    console.error(
+      `❌ Email params:`,
+      JSON.stringify(
+        {
+          Source: params.Source,
+          Destination: params.Destination,
+          Subject: params.Message.Subject.Data,
+          HasHtml: !!params.Message.Body.Html?.Data,
+          HasText: !!params.Message.Body.Text?.Data,
+          HtmlLength: params.Message.Body.Html?.Data?.length || 0,
+          TextLength: params.Message.Body.Text?.Data?.length || 0,
+        },
+        null,
+        2
+      )
+    );
+
+    // Re-throw with more context
+    throw new Error(
+      `Failed to send activation email: ${error.message} (Code: ${error.code || "UNKNOWN"}, Status: ${error.$metadata?.httpStatusCode || "UNKNOWN"})`
+    );
+  }
 }
 
 export async function sendWelcomeEmail(email: string, req?: any) {
@@ -108,7 +147,8 @@ Go to ${brand}
 
 We're excited to have you join our community!`;
 
-  const params = createEmailParams(process.env.CONTACT_EMAIL || "noreply@ananda.org", email, `Welcome to ${brand}!`, {
+  const fromEmail = process.env.CONTACT_EMAIL || "noreply@ananda.org";
+  const params = createEmailParams(fromEmail, email, `Welcome to ${brand}!`, {
     message,
     baseUrl,
     siteId: process.env.SITE_ID,
@@ -116,5 +156,26 @@ We're excited to have you join our community!`;
     actionText: `Go to ${brand}`,
   });
 
-  await ses.send(new SendEmailCommand(params));
+  // Validate email content before sending
+  if (!params.Message.Body.Html?.Data || !params.Message.Body.Text?.Data) {
+    throw new Error("Email content is empty - HTML or Text body is missing");
+  }
+
+  try {
+    console.log(`📤 Sending welcome email to: ${email}`);
+    console.log(`📤 From: ${fromEmail}`);
+    await ses.send(new SendEmailCommand(params));
+    console.log(`✅ Welcome email sent successfully to: ${email}`);
+  } catch (error: any) {
+    const errorDetails = {
+      error: error.message,
+      code: error.code || "UNKNOWN",
+      statusCode: error.$metadata?.httpStatusCode || "UNKNOWN",
+      requestId: error.$metadata?.requestId || "UNKNOWN",
+    };
+    console.error(`❌ Failed to send welcome email to ${email}:`, errorDetails);
+    throw new Error(
+      `Failed to send welcome email: ${error.message} (Code: ${error.code || "UNKNOWN"}, Status: ${error.$metadata?.httpStatusCode || "UNKNOWN"})`
+    );
+  }
 }
