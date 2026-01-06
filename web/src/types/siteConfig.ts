@@ -70,4 +70,7 @@ export interface SiteConfig {
   accessRequestNoteLabel?: string; // Label text for reference note field in access request form
   adminAccessGuidelines?: string; // Site-specific guidelines for who can access the chatbot (shown in admin panel)
   enableNpsSurveyEmail?: boolean; // Whether to send NPS survey emails to users (requires requireLogin: true)
+  enableOnboardingEmails?: boolean; // Whether to send onboarding drip emails (requires requireLogin: true)
+  enableReengagementEmails?: boolean; // Whether to send re-engagement emails (requires requireLogin: true)
+  enableSpecialDayEmails?: boolean; // Whether to send special day/holiday emails (requires requireLogin: true)
 }

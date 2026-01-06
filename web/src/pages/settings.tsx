@@ -9,12 +9,20 @@ import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 
 import { EmailChangeModal } from "@/components/EmailChangeModal";
 import { PasswordChangeModal } from "@/components/PasswordChangeModal";
+import type { EmailPreferences, EmailCategory } from "@/types/user";
 
 export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | null }) {
   const [email, setEmail] = useState<string | null>(null);
   const [firstName, setFirstName] = useState<string>("");
   const [lastName, setLastName] = useState<string>("");
-  const [newsletterSubscribed, setNewsletterSubscribed] = useState<boolean>(true);
+  const [emailPreferences, setEmailPreferences] = useState<EmailPreferences>({
+    newsletters: true,
+    onboarding: true,
+    reengagement: true,
+    specialDay: true,
+    nps: true,
+  });
+  const [enabledEmailTypes, setEnabledEmailTypes] = useState<EmailCategory[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
@@ -53,9 +61,18 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
             setRole(typeof profile?.role === "string" ? profile.role : "user");
             setFirstName(typeof profile?.firstName === "string" ? profile.firstName : "");
             setLastName(typeof profile?.lastName === "string" ? profile.lastName : "");
-            setNewsletterSubscribed(
-              typeof profile?.newsletterSubscribed === "boolean" ? profile.newsletterSubscribed : true
-            );
+            if (profile?.emailPreferences && typeof profile.emailPreferences === "object") {
+              setEmailPreferences({
+                newsletters: profile.emailPreferences.newsletters !== false,
+                onboarding: profile.emailPreferences.onboarding !== false,
+                reengagement: profile.emailPreferences.reengagement !== false,
+                specialDay: profile.emailPreferences.specialDay !== false,
+                nps: profile.emailPreferences.nps !== false,
+              });
+            }
+            if (Array.isArray(profile?.enabledEmailTypes)) {
+              setEnabledEmailTypes(profile.enabledEmailTypes);
+            }
             setPendingEmail(typeof profile?.pendingEmail === "string" ? profile.pendingEmail : null);
             setHasPassword(typeof profile?.hasPassword === "boolean" ? profile.hasPassword : false);
           } else {
@@ -85,18 +102,29 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
     }
   }
 
-  async function handleSaveProfile(e: React.FormEvent) {
-    e.preventDefault();
+  async function handleSaveProfile(e?: React.FormEvent | React.MouseEvent) {
+    if (e) {
+      e.preventDefault();
+    }
     try {
       setSavingProfile(true);
+      const body: {
+        firstName?: string;
+        lastName?: string;
+        emailPreferences?: EmailPreferences;
+      } = {};
+
+      // Only include fields that have been changed (for now, always send all)
+      body.firstName = firstName.trim();
+      body.lastName = lastName.trim();
+      if (enabledEmailTypes.length > 0) {
+        body.emailPreferences = emailPreferences;
+      }
+
       const res = await fetch("/api/profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          firstName: firstName.trim(),
-          lastName: lastName.trim(),
-          newsletterSubscribed: newsletterSubscribed,
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || "Failed to save profile");
@@ -107,6 +135,36 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
       setSavingProfile(false);
     }
   }
+
+  function handleEmailPreferenceChange(category: EmailCategory, value: boolean) {
+    setEmailPreferences((prev) => ({
+      ...prev,
+      [category]: value,
+    }));
+  }
+
+  const emailCategoryConfig: Record<EmailCategory, { label: string; description: string }> = {
+    newsletters: {
+      label: "Newsletter updates",
+      description: "Periodic newsletters with new content and updates",
+    },
+    onboarding: {
+      label: "Getting started tips",
+      description: "Helpful guidance emails when you first join",
+    },
+    reengagement: {
+      label: "Return reminders",
+      description: "Friendly reminder if you haven't visited in a while",
+    },
+    specialDay: {
+      label: "Special occasions",
+      description: "Emails for holidays and special events",
+    },
+    nps: {
+      label: "Feedback surveys",
+      description: "Occasional surveys to help us improve",
+    },
+  };
 
   function handleEmailChangeRequested(newEmail: string) {
     setPendingEmail(newEmail);
@@ -205,18 +263,6 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
                       />
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      id="newsletterSubscribed"
-                      type="checkbox"
-                      checked={newsletterSubscribed}
-                      onChange={(e) => setNewsletterSubscribed(e.target.checked)}
-                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <label htmlFor="newsletterSubscribed" className="text-sm font-medium">
-                      Subscribe to periodic newsletter updates
-                    </label>
-                  </div>
                   <button
                     type="submit"
                     disabled={savingProfile}
@@ -226,6 +272,44 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
                   </button>
                 </form>
               </section>
+
+              {enabledEmailTypes.length > 0 && (
+                <section className="mb-6">
+                  <h2 className="text-lg font-semibold mb-1">Email Preferences</h2>
+                  <div className="space-y-3">
+                    {enabledEmailTypes.map((category) => {
+                      const config = emailCategoryConfig[category];
+                      return (
+                        <div key={category} className="flex items-start gap-2">
+                          <input
+                            id={`emailPreference-${category}`}
+                            type="checkbox"
+                            checked={emailPreferences[category] !== false}
+                            onChange={(e) => handleEmailPreferenceChange(category, e.target.checked)}
+                            className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                          />
+                          <div className="flex-1">
+                            <label
+                              htmlFor={`emailPreference-${category}`}
+                              className="text-sm font-medium cursor-pointer"
+                            >
+                              {config.label}
+                            </label>
+                            <p className="text-xs text-gray-600 mt-0.5">{config.description}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <button
+                      onClick={handleSaveProfile}
+                      disabled={savingProfile}
+                      className="rounded bg-blue-600 px-3 py-2 text-white disabled:opacity-50 hover:bg-blue-700 text-sm"
+                    >
+                      {savingProfile ? "Saving…" : "Save Email Preferences"}
+                    </button>
+                  </div>
+                </section>
+              )}
 
               <section className="mb-6">
                 <h2 className="text-lg font-semibold mb-1">Security</h2>

@@ -9,8 +9,10 @@ import { firestoreGet } from "@/utils/server/firestoreRetryUtils";
 import { verifyToken } from "@/utils/server/jwtUtils";
 import { writeAuditLog } from "@/utils/server/auditLog";
 import { sendWelcomeEmail } from "@/utils/server/userInviteUtils";
-import { getDefaultEmailPreferences } from "@/utils/server/emailPreferenceUtils";
+import { getDefaultEmailPreferences, migrateEmailPreferences } from "@/utils/server/emailPreferenceUtils";
 import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
+import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
+import type { EmailCategory } from "@/types/user";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Rate limit
@@ -47,6 +49,33 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const roleFromDb = typeof data?.role === "string" ? data.role : undefined;
       const roleFromToken = typeof payload?.role === "string" ? payload.role : undefined;
       const role = roleFromDb || roleFromToken || "user";
+
+      // Migrate email preferences if needed
+      const migratedUser = migrateEmailPreferences(data);
+      const emailPreferences = migratedUser.emailPreferences || getDefaultEmailPreferences();
+
+      // Load site config to determine enabled email types
+      const siteConfig = await loadSiteConfig();
+      const enabledEmailTypes: EmailCategory[] = [];
+
+      // Newsletters are always available for login-required sites
+      if (siteConfig?.requireLogin) {
+        enabledEmailTypes.push("newsletters");
+
+        if (siteConfig?.enableOnboardingEmails) {
+          enabledEmailTypes.push("onboarding");
+        }
+        if (siteConfig?.enableReengagementEmails) {
+          enabledEmailTypes.push("reengagement");
+        }
+        if (siteConfig?.enableSpecialDayEmails) {
+          enabledEmailTypes.push("specialDay");
+        }
+        if (siteConfig?.enableNpsSurveyEmail) {
+          enabledEmailTypes.push("nps");
+        }
+      }
+
       return res.status(200).json({
         email,
         uuid: data?.uuid || null,
@@ -55,7 +84,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         lastName: typeof data?.lastName === "string" ? data.lastName : null,
         pendingEmail: typeof data?.pendingEmail === "string" ? data.pendingEmail : null,
         emailChangeExpiresAt: data?.emailChangeExpiresAt || null,
-        newsletterSubscribed: typeof data?.newsletterSubscribed === "boolean" ? data.newsletterSubscribed : true, // Default to true for existing users
+        newsletterSubscribed: typeof data?.newsletterSubscribed === "boolean" ? data.newsletterSubscribed : true, // Legacy field for backward compatibility
+        emailPreferences,
+        enabledEmailTypes,
         hasPassword: !!data?.passwordHash, // Boolean indicating if user has password set
         dismissedPasswordPromo: typeof data?.dismissedPasswordPromo === "boolean" ? data.dismissedPasswordPromo : false,
         verifiedAt: data?.verifiedAt?.toDate?.() ?? null, // When account was activated
@@ -68,6 +99,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         lastName?: string;
         cancelEmailChange?: boolean;
         newsletterSubscribed?: boolean;
+        emailPreferences?: {
+          newsletters?: boolean;
+          onboarding?: boolean;
+          reengagement?: boolean;
+          specialDay?: boolean;
+          nps?: boolean;
+        };
         dismissedPasswordPromo?: boolean;
       };
       const updates: Record<string, any> = {};
@@ -89,12 +127,64 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         updates.emailChangeTokenHash = firebase.firestore.FieldValue.delete();
         updates.emailChangeExpiresAt = firebase.firestore.FieldValue.delete();
       }
+
+      // Fetch user doc once if we need it for email preferences or activation check
+      // Always fetch for activation check
+      const userDoc = await firestoreGet(ref, "get user for profile update", email);
+      const userData = userDoc.exists ? (userDoc.data() as any) : null;
+
+      // Handle emailPreferences (new multi-category preferences)
+      if (body.emailPreferences !== undefined) {
+        if (typeof body.emailPreferences !== "object" || body.emailPreferences === null) {
+          return res.status(400).json({ error: "Invalid emailPreferences value" });
+        }
+
+        // Validate each category is boolean if provided
+        const validCategories: Array<keyof typeof body.emailPreferences> = [
+          "newsletters",
+          "onboarding",
+          "reengagement",
+          "specialDay",
+          "nps",
+        ];
+        for (const category of validCategories) {
+          if (body.emailPreferences[category] !== undefined && typeof body.emailPreferences[category] !== "boolean") {
+            return res.status(400).json({ error: `Invalid emailPreferences.${category} value` });
+          }
+        }
+
+        // Get current preferences to merge
+        const currentPreferences = userData?.emailPreferences || {};
+
+        // Merge new preferences with existing ones
+        const updatedPreferences = {
+          ...currentPreferences,
+          ...body.emailPreferences,
+        };
+
+        updates.emailPreferences = updatedPreferences;
+
+        // Also update legacy newsletterSubscribed for backward compatibility
+        if (body.emailPreferences.newsletters !== undefined) {
+          updates.newsletterSubscribed = body.emailPreferences.newsletters;
+        }
+      }
+
+      // Handle legacy newsletterSubscribed field (for backward compatibility)
       if (body.newsletterSubscribed !== undefined) {
         if (typeof body.newsletterSubscribed !== "boolean") {
           return res.status(400).json({ error: "Invalid newsletter subscription value" });
         }
         updates.newsletterSubscribed = body.newsletterSubscribed;
+
+        // Also update emailPreferences.newsletters
+        const currentPreferences = userData?.emailPreferences || getDefaultEmailPreferences();
+        updates.emailPreferences = {
+          ...currentPreferences,
+          newsletters: body.newsletterSubscribed,
+        };
       }
+
       if (body.dismissedPasswordPromo !== undefined) {
         if (typeof body.dismissedPasswordPromo !== "boolean") {
           return res.status(400).json({ error: "Invalid dismissedPasswordPromo value" });
@@ -105,10 +195,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (Object.keys(updates).length === 0) return res.status(400).json({ error: "No updates provided" });
 
       // Check if this is the first profile completion after activation
-      const userDoc = await firestoreGet(ref, "get user for profile update", email);
       let isCompletingActivation = false;
-      if (userDoc.exists) {
-        const userData = userDoc.data() as any;
+      if (userDoc?.exists && userData) {
         if (userData?.inviteStatus === "activated_pending_profile") {
           // Mark as fully accepted when they complete their profile
           updates.inviteStatus = "accepted";

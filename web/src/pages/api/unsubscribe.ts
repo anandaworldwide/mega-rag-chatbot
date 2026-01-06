@@ -267,6 +267,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             color: #721c24;
             border: 1px solid #f5c6cb;
         }
+        .settings-link {
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+            font-size: 13px;
+            color: #666;
+        }
+        .settings-link a {
+            color: #0092e3;
+            text-decoration: none;
+        }
+        .settings-link a:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
@@ -288,6 +302,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         </div>
         
         <div id="message" class="message" style="display: none;"></div>
+        
+        <div class="settings-link">
+            If you want to review all of your email settings, <a href="/settings">click here</a>.
+        </div>
     </div>
     
     <script>
