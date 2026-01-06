@@ -132,6 +132,7 @@ describe("emailPreferenceUtils", () => {
         onboarding: true,
         reengagement: true,
         specialDay: true,
+        nps: true,
       });
     });
   });
@@ -151,11 +152,13 @@ describe("emailPreferenceUtils", () => {
       const migrated = migrateEmailPreferences(user);
 
       expect(migrated).toBe(user);
+      // When emailPreferences already exists, it should remain unchanged (no migration)
       expect(migrated.emailPreferences).toEqual({
         newsletters: true,
         onboarding: false,
         reengagement: true,
         specialDay: true,
+        // Note: nps is not added if emailPreferences already exists
       });
     });
 
@@ -172,6 +175,7 @@ describe("emailPreferenceUtils", () => {
         onboarding: true,
         reengagement: true,
         specialDay: true,
+        nps: true,
       });
     });
 
@@ -188,6 +192,7 @@ describe("emailPreferenceUtils", () => {
         onboarding: true,
         reengagement: true,
         specialDay: true,
+        nps: true,
       });
     });
 
@@ -203,6 +208,7 @@ describe("emailPreferenceUtils", () => {
         onboarding: true,
         reengagement: true,
         specialDay: true,
+        nps: true,
       });
     });
 

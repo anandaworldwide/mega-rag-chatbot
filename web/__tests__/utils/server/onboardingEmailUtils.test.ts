@@ -9,8 +9,6 @@
  * 4. sendOnboardingEmail - sending onboarding emails
  */
 
-import * as fs from "fs";
-import * as path from "path";
 import jwt from "jsonwebtoken";
 import {
   loadOnboardingTemplate,
@@ -40,6 +38,30 @@ jest.mock("@/utils/server/emailTemplates", () => ({
       text: `${greeting}\n${options.message || ""}`,
     };
   }),
+  addTrackingPixel: jest.fn((html: string, trackingUrl: string) => {
+    // Insert tracking pixel before </body>
+    return html.replace("</body>", `<img src="${trackingUrl}" width="1" height="1" alt="" /></body>`);
+  }),
+}));
+jest.mock("@/utils/server/contentEmailTracker", () => ({
+  updateLastContentEmailSent: jest.fn().mockResolvedValue(undefined),
+}));
+jest.mock("@/services/firebase", () => ({
+  db: {
+    collection: jest.fn(() => ({
+      doc: jest.fn(() => ({})),
+    })),
+  },
+}));
+jest.mock("@/utils/server/firestoreUtils", () => ({
+  getUsersCollectionName: jest.fn(() => "users"),
+}));
+
+// Mock emailTemplateLoader to bypass caching issues
+jest.mock("@/utils/server/emailTemplateLoader", () => ({
+  isValidSiteId: jest.fn().mockResolvedValue(true),
+  loadTemplateFile: jest.fn(),
+  TemplateDirectoryConfig: {},
 }));
 
 // Mock fs module for testing file operations (including fs.promises for async ops)
@@ -53,14 +75,6 @@ jest.mock("fs", () => ({
     readdir: jest.fn(),
   },
 }));
-
-const mockFs = fs as jest.Mocked<typeof fs> & {
-  promises: {
-    access: jest.Mock;
-    readFile: jest.Mock;
-    readdir: jest.Mock;
-  };
-};
 const mockSendEmail = sendEmail as jest.MockedFunction<typeof sendEmail>;
 const mockLoadSiteConfig = loadSiteConfig as jest.MockedFunction<typeof loadSiteConfig>;
 
@@ -85,7 +99,7 @@ describe("onboardingEmailUtils", () => {
 
   describe("loadOnboardingTemplate", () => {
     it("should load site-specific template when it exists", async () => {
-      const templateContent = JSON.stringify({
+      const _templateContent = JSON.stringify({
         day: 1,
         subject: "Welcome",
         greeting: "Hi {{firstName}},",
@@ -93,24 +107,14 @@ describe("onboardingEmailUtils", () => {
         exampleQuestionPool: ["Question 1"],
       });
 
-      const templatesDir = path.join("/test/cwd", "site-config", "onboarding-templates");
-      const templatePath = path.join(templatesDir, "ananda", "day1.json");
-
-      // Mock fs.promises.access - resolve for existing paths
-      mockFs.promises.access.mockImplementation((filePath: string) => {
-        if (filePath === templatesDir || filePath === templatePath) {
-          return Promise.resolve();
-        }
-        return Promise.reject(new Error("ENOENT"));
+      const mockEmailTemplateLoader = jest.requireMock("@/utils/server/emailTemplateLoader");
+      mockEmailTemplateLoader.loadTemplateFile.mockResolvedValueOnce({
+        day: 1,
+        subject: "Welcome",
+        greeting: "Hi {{firstName}},",
+        body: "Welcome message",
+        exampleQuestionPool: ["Question 1"],
       });
-
-      // Mock fs.promises.readdir for getting valid site IDs
-      mockFs.promises.readdir.mockResolvedValue([
-        { name: "ananda", isDirectory: () => true, isFile: () => false } as fs.Dirent,
-      ]);
-
-      // Mock fs.promises.readFile for template content
-      mockFs.promises.readFile.mockResolvedValue(templateContent);
 
       const template = await loadOnboardingTemplate(1, "ananda");
 
@@ -120,51 +124,13 @@ describe("onboardingEmailUtils", () => {
     });
 
     it("should return null when template does not exist", async () => {
-      const templatesDir = path.join("/test/cwd", "site-config", "onboarding-templates");
-
-      // Mock fs.promises.access - templates dir exists, but template file doesn't
-      mockFs.promises.access.mockImplementation((filePath: string) => {
-        if (filePath === templatesDir) {
-          return Promise.resolve();
-        }
-        return Promise.reject(new Error("ENOENT"));
-      });
-
-      mockFs.promises.readdir.mockResolvedValue([
-        { name: "ananda", isDirectory: () => true, isFile: () => false } as fs.Dirent,
-      ]);
+      const mockEmailTemplateLoader = jest.mocked(await import("@/utils/server/emailTemplateLoader"));
+      mockEmailTemplateLoader.isValidSiteId.mockResolvedValueOnce(true);
+      mockEmailTemplateLoader.loadTemplateFile.mockResolvedValueOnce(null);
 
       const template = await loadOnboardingTemplate(1, "ananda");
 
       expect(template).toBeNull();
-    });
-
-    it("should handle file read errors gracefully", async () => {
-      const templatesDir = path.join("/test/cwd", "site-config", "onboarding-templates");
-      const templatePath = path.join(templatesDir, "ananda", "day1.json");
-
-      // Mock fs.promises.access - both paths exist
-      mockFs.promises.access.mockImplementation((filePath: string) => {
-        if (filePath === templatesDir || filePath === templatePath) {
-          return Promise.resolve();
-        }
-        return Promise.reject(new Error("ENOENT"));
-      });
-
-      mockFs.promises.readdir.mockResolvedValue([
-        { name: "ananda", isDirectory: () => true, isFile: () => false } as fs.Dirent,
-      ]);
-
-      mockFs.promises.readFile.mockRejectedValue(new Error("File read error"));
-
-      const consoleSpy = jest.spyOn(console, "error").mockImplementation();
-
-      const template = await loadOnboardingTemplate(1, "ananda");
-
-      expect(template).toBeNull();
-      expect(consoleSpy).toHaveBeenCalled();
-
-      consoleSpy.mockRestore();
     });
   });
 
@@ -320,31 +286,20 @@ describe("onboardingEmailUtils", () => {
       firstName: "John",
     };
 
-    beforeEach(() => {
-      const templatesDir = path.join("/test/cwd", "site-config", "onboarding-templates");
-      const templatePath = path.join(templatesDir, "ananda", "day1.json");
+    // Get the mocked emailTemplateLoader
+    const mockEmailTemplateLoader = jest.requireMock("@/utils/server/emailTemplateLoader");
 
-      // Mock fs.promises.access - both paths exist
-      mockFs.promises.access.mockImplementation((filePath: string) => {
-        if (filePath === templatesDir || filePath === templatePath) {
-          return Promise.resolve();
-        }
-        return Promise.reject(new Error("ENOENT"));
+    beforeEach(() => {
+      // Mock emailTemplateLoader to return a valid template
+      mockEmailTemplateLoader.isValidSiteId.mockResolvedValue(true);
+      mockEmailTemplateLoader.loadTemplateFile.mockResolvedValue({
+        day: 1,
+        subject: "Welcome",
+        greeting: "Hi {{firstName}},",
+        body: "Welcome message",
+        exampleQuestionPool: ["Question 1"],
       });
 
-      mockFs.promises.readdir.mockResolvedValue([
-        { name: "ananda", isDirectory: () => true, isFile: () => false } as fs.Dirent,
-      ]);
-
-      mockFs.promises.readFile.mockResolvedValue(
-        JSON.stringify({
-          day: 1,
-          subject: "Welcome",
-          greeting: "Hi {{firstName}},",
-          body: "Welcome message",
-          exampleQuestionPool: ["Question 1"],
-        })
-      );
       mockLoadSiteConfig.mockResolvedValue({
         siteId: "ananda",
         name: "Ananda",
@@ -368,14 +323,8 @@ describe("onboardingEmailUtils", () => {
     });
 
     it("should return false when template does not exist", async () => {
-      // Override the access mock to reject for template file
-      const templatesDir = path.join("/test/cwd", "site-config", "onboarding-templates");
-      mockFs.promises.access.mockImplementation((filePath: string) => {
-        if (filePath === templatesDir) {
-          return Promise.resolve();
-        }
-        return Promise.reject(new Error("ENOENT"));
-      });
+      // Mock template not found
+      mockEmailTemplateLoader.isValidSiteId.mockResolvedValueOnce(false);
 
       const consoleSpy = jest.spyOn(console, "error").mockImplementation();
 

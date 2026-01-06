@@ -56,12 +56,12 @@ export function addUtmParams(
 /**
  * Campaign type for email tracking
  */
-export type EmailCampaignType = "onboarding" | "newsletter" | "reengagement" | "specialDay";
+export type EmailCampaignType = "onboarding" | "newsletter" | "reengagement" | "specialDay" | "nps";
 
 /**
  * Link type for click tracking
  */
-export type EmailLinkType = "question" | "cta" | "unsubscribe" | "link";
+export type EmailLinkType = "question" | "cta" | "unsubscribe" | "link" | "score";
 
 /**
  * Generates a click tracking URL that logs the click before redirecting

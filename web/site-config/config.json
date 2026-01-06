@@ -52,6 +52,7 @@
     "enableAuthorSelection": true,
     "enableSearchPage": true,
     "requireLogin": true,
+    "enableNpsSurveyEmail": true,
     "allowTemporarySessions": true,
     "allowAllAnswersPage": true,
     "loginImage": "luca.png",
@@ -78,7 +79,6 @@
         }
       ]
     },
-    "npsSurveyFrequencyDays": 90,
     "queriesPerUserPerDay": 200,
     "enableModelComparison": true,
     "showSourceCountSelector": true,
@@ -167,7 +167,6 @@
         }
       ]
     },
-    "npsSurveyFrequencyDays": 0,
     "queriesPerUserPerDay": 100,
     "enableModelComparison": false,
     "showSourceCountSelector": false,
@@ -226,7 +225,6 @@
         }
       ]
     },
-    "npsSurveyFrequencyDays": 0,
     "queriesPerUserPerDay": 100,
     "enableModelComparison": true,
     "showSourceCountSelector": true,
@@ -284,7 +282,6 @@
         }
       ]
     },
-    "npsSurveyFrequencyDays": 0,
     "queriesPerUserPerDay": 40,
     "enableModelComparison": false,
     "showSourceCountSelector": false,
@@ -332,7 +329,6 @@
         }
       ]
     },
-    "npsSurveyFrequencyDays": 90,
     "queriesPerUserPerDay": 150,
     "enableModelComparison": true,
     "showSourceCountSelector": true,

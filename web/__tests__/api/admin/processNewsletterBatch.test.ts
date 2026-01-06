@@ -40,6 +40,7 @@ jest.mock("@/services/firebase", () => ({
       update: jest.fn(),
       commit: jest.fn().mockResolvedValue(undefined),
     })),
+    runTransaction: jest.fn(),
   },
 }));
 
@@ -127,7 +128,7 @@ describe("/api/admin/processNewsletterBatch", () => {
     await handler(req as any, res as any);
 
     expect(res._getStatusCode()).toBe(405);
-    expect(JSON.parse(res._getData())).toEqual({ error: "Method not allowed" });
+    expect(JSON.parse(res._getData())).toEqual({ error: "Method not allowed", code: "VALIDATION_ERROR" });
   });
 
   it("should validate superuser role", async () => {
@@ -143,6 +144,7 @@ describe("/api/admin/processNewsletterBatch", () => {
     expect(res._getStatusCode()).toBe(403);
     expect(JSON.parse(res._getData())).toEqual({
       error: "Forbidden: Superuser privileges required",
+      code: "FORBIDDEN",
     });
   });
 
@@ -155,7 +157,7 @@ describe("/api/admin/processNewsletterBatch", () => {
     await handler(req as any, res as any);
 
     expect(res._getStatusCode()).toBe(400);
-    expect(JSON.parse(res._getData())).toEqual({ error: "newsletterId required" });
+    expect(JSON.parse(res._getData())).toEqual({ error: "newsletterId required", code: "VALIDATION_ERROR" });
   });
 
   it("should handle database not available", async () => {
@@ -172,7 +174,7 @@ describe("/api/admin/processNewsletterBatch", () => {
     await handler(req as any, res as any);
 
     expect(res._getStatusCode()).toBe(503);
-    expect(JSON.parse(res._getData())).toEqual({ error: "Database not available" });
+    expect(JSON.parse(res._getData())).toEqual({ error: "Database not available", code: "DATABASE_ERROR" });
 
     // Restore db
     firebase.db = originalDb;
@@ -181,6 +183,8 @@ describe("/api/admin/processNewsletterBatch", () => {
   it("should handle missing environment configuration", async () => {
     // Remove environment variables to trigger configuration error
     delete process.env.CONTACT_EMAIL;
+
+    // db is already mocked at module level, so it should be available
 
     // Mock the query to return empty docs array
     mockFirestoreQueryGet.mockResolvedValue({
@@ -196,15 +200,28 @@ describe("/api/admin/processNewsletterBatch", () => {
     await handler(req as any, res as any);
 
     expect(res._getStatusCode()).toBe(500);
-    expect(JSON.parse(res._getData())).toEqual({ error: "Configuration missing" });
+    expect(JSON.parse(res._getData())).toEqual({ error: "Configuration missing", code: "CONFIGURATION_ERROR" });
   });
 
   it("should process newsletter batch successfully", async () => {
+    // Ensure db is available (it's mocked at module level)
+    const firebase = jest.requireMock("@/services/firebase");
+    // db is already mocked, so it should be available
+
     // Create mock document snapshots that match Firestore structure
     const mockDocs = [
       {
         id: "queue1",
-        ref: { update: jest.fn() },
+        ref: {
+          update: jest.fn(),
+          get: jest.fn().mockResolvedValue({
+            exists: true,
+            data: () => ({
+              email: "user1@example.com",
+              status: "pending",
+            }),
+          }),
+        },
         data: () => ({
           email: "user1@example.com",
           subject: "Test Newsletter",
@@ -214,11 +231,21 @@ describe("/api/admin/processNewsletterBatch", () => {
           firstName: "John",
           lastName: "Doe",
           attempts: 0,
+          status: "pending",
         }),
       },
       {
         id: "queue2",
-        ref: { update: jest.fn() },
+        ref: {
+          update: jest.fn(),
+          get: jest.fn().mockResolvedValue({
+            exists: true,
+            data: () => ({
+              email: "user2@example.com",
+              status: "pending",
+            }),
+          }),
+        },
         data: () => ({
           email: "user2@example.com",
           subject: "Test Newsletter",
@@ -226,9 +253,22 @@ describe("/api/admin/processNewsletterBatch", () => {
           firstName: "Jane",
           lastName: "Smith",
           attempts: 0,
+          status: "pending",
         }),
       },
     ];
+
+    // Mock db.runTransaction
+    firebase.db.runTransaction = jest.fn().mockImplementation(async (callback) => {
+      const mockTransaction = {
+        get: jest.fn().mockResolvedValue({
+          exists: true,
+          data: () => ({ status: "pending", attempts: 0 }),
+        }),
+        update: jest.fn(),
+      };
+      await callback(mockTransaction);
+    });
 
     mockFirestoreQueryGet
       .mockResolvedValueOnce({
@@ -239,6 +279,8 @@ describe("/api/admin/processNewsletterBatch", () => {
         docs: [],
         size: 0, // No remaining items
       });
+
+    mockSendEmail.mockResolvedValue(true);
 
     const { req, res } = createMocks({
       method: "POST",
@@ -267,6 +309,7 @@ describe("/api/admin/processNewsletterBatch", () => {
   // Core batch processing functionality is adequately tested above.
 
   it("should handle Firestore query errors", async () => {
+    // db is already mocked at module level, so it should be available
     mockFirestoreQueryGet.mockRejectedValue(new Error("Database connection failed"));
 
     const { req, res } = createMocks({
@@ -276,6 +319,8 @@ describe("/api/admin/processNewsletterBatch", () => {
 
     await handler(req as any, res as any);
 
+    // When firestoreQueryGet throws, it's caught and returns 500 (not 503)
+    // 503 is only returned when db is undefined/null
     expect(res._getStatusCode()).toBe(500);
     // Error response no longer includes details field - only sanitized error message
     const response = JSON.parse(res._getData());

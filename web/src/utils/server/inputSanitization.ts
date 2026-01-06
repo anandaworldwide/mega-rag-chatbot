@@ -10,6 +10,8 @@
  * - Log injection
  */
 
+import { EMAIL_REGEX } from "./emailValidation";
+
 /**
  * Sanitizes text input to prevent XSS and injection attacks
  * Removes or escapes potentially dangerous characters and patterns
@@ -45,8 +47,10 @@ export function sanitizeTextInput(
 
   // Remove null bytes and control characters (except newlines if allowed)
   if (allowNewlines) {
+    // eslint-disable-next-line no-control-regex
     sanitized = sanitized.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, "");
   } else {
+    // eslint-disable-next-line no-control-regex
     sanitized = sanitized.replace(/[\x00-\x1F\x7F]/g, "");
   }
 
@@ -105,6 +109,7 @@ export function sanitizeName(input: string, maxLength: number = 100): string {
   let sanitized = input.trim();
 
   // Remove null bytes and control characters (except spaces)
+  // eslint-disable-next-line no-control-regex
   sanitized = sanitized.replace(/[\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/g, "");
 
   // Remove potentially dangerous patterns
@@ -180,18 +185,19 @@ export function sanitizeEmail(email: string, maxLength: number = 254): string {
     throw new Error("Email contains invalid characters (newlines, tabs, or carriage returns)");
   }
 
-  // Basic email format validation (more strict validation should use validator.js)
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(trimmed)) {
+  // Basic email format validation using centralized regex
+  if (!EMAIL_REGEX.test(trimmed)) {
     throw new Error("Invalid email format");
   }
 
   // Additional validation: check for common injection patterns
+  /* eslint-disable no-control-regex */
   const injectionPatterns = [
     /\b(cc|bcc|to|from|subject|content-type):/i, // Email header injection
     /%0[a-d]/i, // URL-encoded newlines
     /\x00/, // Null bytes
   ];
+  /* eslint-enable no-control-regex */
 
   for (const pattern of injectionPatterns) {
     if (pattern.test(trimmed)) {
@@ -223,6 +229,7 @@ export function sanitizeForLogging(input: string, maxLength: number = 500): stri
   }
 
   // Remove all control characters including newlines
+  // eslint-disable-next-line no-control-regex
   sanitized = sanitized.replace(/[\x00-\x1F\x7F-\x9F]/g, "");
 
   // Replace multiple spaces with single space
@@ -269,4 +276,3 @@ export function validateAndSanitizeQuestion(question: string, maxLength: number 
   // Normalize newlines to spaces for AI processing (as done in current implementation)
   return sanitized.replace(/\n+/g, " ").trim();
 }
-

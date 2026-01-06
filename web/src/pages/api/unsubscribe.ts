@@ -129,9 +129,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     await firestoreSet(userRef, updates, { merge: true }, `unsubscribe from ${category}`);
 
-    // Load site configuration to get detailed site name
+    // Load site configuration to get site shortname
     const siteConfig = await loadSiteConfig();
-    const siteName = siteConfig?.name || "Newsletter";
+    const siteShortname = siteConfig?.shortname || "Newsletter";
 
     // Category display names
     const categoryNames: Record<EmailCategory, string> = {
@@ -139,14 +139,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       onboarding: "onboarding emails",
       reengagement: "re-engagement emails",
       specialDay: "special day emails",
+      nps: "survey emails",
     };
     const categoryDisplayName = categoryNames[category] || "emails";
 
     // Escape values for safe HTML/JS output (XSS prevention)
     const safeEmail = escapeHtml(email);
-    const safeSiteName = escapeHtml(siteName);
+    const safeSiteShortname = escapeHtml(siteShortname);
     const safeCategoryDisplayName = escapeHtml(categoryDisplayName);
     const safeToken = escapeJsString(token);
+
+    // Message text for "no longer receive" - special handling for NPS surveys
+    const noLongerReceiveText = category === "nps" ? "these periodic survey emails" : safeCategoryDisplayName;
+
+    // Format the unsubscribe message with blue bold styling for all categories
+    const unsubscribeMessage = `The email address <span class="email">${safeEmail}</span> has been unsubscribed from <span class="email">${safeSiteShortname}</span> <span class="email">${safeCategoryDisplayName}</span>.`;
 
     // Return success page
     const successHtml = `
@@ -266,8 +273,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     <div class="container">
         <div class="success-icon">✓</div>
         <h1>Successfully Unsubscribed</h1>
-        <p>The email address <span class="email">${safeEmail}</span> has been unsubscribed from <strong>${safeSiteName}</strong> ${safeCategoryDisplayName}.</p>
-        <p>You will no longer receive ${safeCategoryDisplayName} from us.</p>
+        <p>${unsubscribeMessage}</p>
+        <p>You will no longer receive ${noLongerReceiveText} from us.</p>
         
         <div class="note">
             Changed your mind? You can instantly re-subscribe below or log into your account to update your preferences.

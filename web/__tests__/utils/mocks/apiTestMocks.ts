@@ -5,55 +5,54 @@
  * Provides helpers for both Page Router and App Router API endpoints.
  */
 
-import type { NextApiRequest, NextApiResponse } from 'next';
-import { createMocks, RequestMethod } from 'node-mocks-http';
-import { SiteConfig } from '@/types/siteConfig';
+import type { NextApiRequest, NextApiResponse } from "next";
+import { createMocks, RequestMethod } from "node-mocks-http";
+import { SiteConfig } from "@/types/siteConfig";
 
 /**
  * Default mock site configuration for tests
  */
 export const mockSiteConfig: SiteConfig = {
-  siteId: 'test-site',
-  shortname: 'test',
-  name: 'Test Site',
-  tagline: 'Test Tagline',
-  greeting: 'Welcome to Test Site',
-  parent_site_url: 'https://example.com',
-  parent_site_name: 'Example',
-  help_url: 'https://example.com/help',
-  help_text: 'Need help?',
-  allowedFrontEndDomains: ['example.com', '*.example.com'],
+  siteId: "test-site",
+  shortname: "test",
+  name: "Test Site",
+  tagline: "Test Tagline",
+  greeting: "Welcome to Test Site",
+  parent_site_url: "https://example.com",
+  parent_site_name: "Example",
+  help_url: "https://example.com/help",
+  help_text: "Need help?",
+  allowedFrontEndDomains: ["example.com", "*.example.com"],
   collectionConfig: {
-    master_swami: 'Master and Swami Collection',
-    whole_library: 'Whole Library',
+    master_swami: "Master and Swami Collection",
+    whole_library: "Whole Library",
   },
   libraryMappings: {
-    'test-library': {
-      displayName: 'Test Library',
-      url: 'https://example.com/library',
+    "test-library": {
+      displayName: "Test Library",
+      url: "https://example.com/library",
     },
   },
   enableSuggestedQueries: true,
   enableMediaTypeSelection: true,
   enableAuthorSelection: true,
-  welcome_popup_heading: 'Welcome!',
-  other_visitors_reference: 'Other visitors also asked...',
+  welcome_popup_heading: "Welcome!",
+  other_visitors_reference: "Other visitors also asked...",
   loginImage: null,
-  chatPlaceholder: 'Ask a question...',
+  chatPlaceholder: "Ask a question...",
   header: {
-    logo: 'logo.png',
-    navItems: [{ label: 'Home', path: '/' }],
+    logo: "logo.png",
+    navItems: [{ label: "Home", path: "/" }],
   },
   footer: {
-    links: [{ label: 'About', url: '/about' }],
+    links: [{ label: "About", url: "/about" }],
   },
   requireLogin: false,
   allowTemporarySessions: true,
   allowAllAnswersPage: true,
-  npsSurveyFrequencyDays: 30,
   queriesPerUserPerDay: 100,
-  includedLibraries: ['test-library'],
-  enabledMediaTypes: ['text', 'audio', 'youtube'],
+  includedLibraries: ["test-library"],
+  enabledMediaTypes: ["text", "audio", "youtube"],
   enableModelComparison: true,
   showSourceCountSelector: true,
   hideSources: false,
@@ -67,9 +66,8 @@ export const mockSiteConfig: SiteConfig = {
  */
 export function setupApiTest() {
   // Mock global Request
-  if (typeof global.Request === 'undefined') {
+  if (typeof global.Request === "undefined") {
     global.Request = class MockRequest {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       constructor(_input: RequestInfo | URL, _init?: RequestInit) {
         // Simple implementation for testing
         return {} as any;
@@ -78,22 +76,15 @@ export function setupApiTest() {
   }
 
   // Mock Next server modules
-  jest.mock('next/server', () => ({
+  jest.mock("next/server", () => ({
     NextRequest: jest.fn().mockImplementation((url, init) => {
       return {
-        url:
-          typeof url === 'string'
-            ? url
-            : url?.toString() || 'http://localhost:3000',
-        method: init?.method || 'GET',
+        url: typeof url === "string" ? url : url?.toString() || "http://localhost:3000",
+        method: init?.method || "GET",
         headers: new Headers(init?.headers),
-        ip: '127.0.0.1',
+        ip: "127.0.0.1",
         json: jest.fn(),
-        nextUrl: new URL(
-          typeof url === 'string'
-            ? url
-            : url?.toString() || 'http://localhost:3000',
-        ),
+        nextUrl: new URL(typeof url === "string" ? url : url?.toString() || "http://localhost:3000"),
       };
     }),
     NextResponse: {
@@ -106,7 +97,7 @@ export function setupApiTest() {
   }));
 
   // Also mock genericRateLimiter to prevent import issues
-  jest.mock('@/utils/server/genericRateLimiter', () => ({
+  jest.mock("@/utils/server/genericRateLimiter", () => ({
     genericRateLimiter: jest.fn().mockResolvedValue(true),
     deleteRateLimitCounter: jest.fn().mockResolvedValue(undefined),
   }));
@@ -149,7 +140,7 @@ export function setupFirebaseMocks() {
   // comment above.
 
   // Directly mock the Firebase service to avoid initialization issues
-  jest.mock('@/services/firebase', () => {
+  jest.mock("@/services/firebase", () => {
     const mockWhere = jest.fn().mockReturnThis();
     const mockOrderBy = jest.fn().mockReturnThis();
     const mockLimit = jest.fn().mockReturnThis();
@@ -160,7 +151,7 @@ export function setupFirebaseMocks() {
       exists: false,
       data: () => null,
     });
-    const mockAdd = jest.fn().mockResolvedValue({ id: 'mock-doc-id' });
+    const mockAdd = jest.fn().mockResolvedValue({ id: "mock-doc-id" });
     const mockUpdate = jest.fn().mockResolvedValue({});
     const mockDelete = jest.fn().mockResolvedValue({});
 
@@ -199,11 +190,11 @@ export function setupFirebaseMocks() {
   });
 
   // Also mock firebase-admin to handle any direct imports
-  jest.mock('firebase-admin', () => {
+  jest.mock("firebase-admin", () => {
     const mockFirestore = {
       FieldValue: {
-        serverTimestamp: jest.fn().mockReturnValue('mock-timestamp'),
-        delete: jest.fn().mockReturnValue('mock-delete-field'),
+        serverTimestamp: jest.fn().mockReturnValue("mock-timestamp"),
+        delete: jest.fn().mockReturnValue("mock-delete-field"),
       },
     };
 
@@ -217,11 +208,11 @@ export function setupFirebaseMocks() {
     };
   });
 
-  jest.mock('firebase-admin/firestore', () => ({
+  jest.mock("firebase-admin/firestore", () => ({
     initializeFirestore: jest.fn(),
     FieldValue: {
-      serverTimestamp: jest.fn().mockReturnValue('mock-timestamp'),
-      delete: jest.fn().mockReturnValue('mock-delete-field'),
+      serverTimestamp: jest.fn().mockReturnValue("mock-timestamp"),
+      delete: jest.fn().mockReturnValue("mock-delete-field"),
     },
   }));
 }
@@ -281,9 +272,9 @@ export function setupFirebaseMocks() {
  * Setup mocks for environment utilities
  */
 export function setupEnvMocks(isDev = false) {
-  jest.mock('@/utils/env', () => ({
+  jest.mock("@/utils/env", () => ({
     isDevelopment: jest.fn().mockReturnValue(isDev),
-    getEnvName: jest.fn().mockReturnValue(isDev ? 'development' : 'production'),
+    getEnvName: jest.fn().mockReturnValue(isDev ? "development" : "production"),
   }));
 }
 
@@ -292,15 +283,15 @@ export function setupEnvMocks(isDev = false) {
  */
 export function setupRateLimitMocks(shouldAllowRequests = true) {
   if (shouldAllowRequests) {
-    jest.mock('@/utils/server/genericRateLimiter', () => ({
+    jest.mock("@/utils/server/genericRateLimiter", () => ({
       genericRateLimiter: jest.fn().mockResolvedValue(true),
       deleteRateLimitCounter: jest.fn().mockResolvedValue(undefined),
     }));
   } else {
-    jest.mock('@/utils/server/genericRateLimiter', () => ({
+    jest.mock("@/utils/server/genericRateLimiter", () => ({
       genericRateLimiter: jest.fn().mockImplementation((req, res) => {
         res.status(429).json({
-          message: 'Too many requests, please try again later.',
+          message: "Too many requests, please try again later.",
         });
         return Promise.resolve(false);
       }),
@@ -316,16 +307,14 @@ export function setupSiteConfigMocks(config: Partial<SiteConfig> = {}) {
   // Ensure a 'default' config is always available for tests, merging with mockSiteConfig
   const defaultTestConfig: SiteConfig = {
     ...mockSiteConfig, // Use mockSiteConfig as a base
-    siteId: 'default', // Explicitly set siteId to 'default'
-    name: 'Default Test Site', // Give it a distinct name for clarity if needed
+    siteId: "default", // Explicitly set siteId to 'default'
+    name: "Default Test Site", // Give it a distinct name for clarity if needed
     // You can override other properties from mockSiteConfig for 'default' if necessary
   };
 
   // Determine the primary config to be returned by direct mocks
   // If an explicit config with a siteId is passed, use that, otherwise use the defaultTestConfig.
-  const primaryMockedConfig = config.siteId
-    ? { ...mockSiteConfig, ...config }
-    : defaultTestConfig;
+  const primaryMockedConfig = config.siteId ? { ...mockSiteConfig, ...config } : defaultTestConfig;
 
   // Prepare the object that will be stringified into process.env.SITE_CONFIG
   // It should at least contain the 'default' config.
@@ -333,22 +322,22 @@ export function setupSiteConfigMocks(config: Partial<SiteConfig> = {}) {
   const envSiteConfigs: { [key: string]: SiteConfig } = {
     default: defaultTestConfig,
   };
-  if (primaryMockedConfig.siteId !== 'default') {
+  if (primaryMockedConfig.siteId !== "default") {
     envSiteConfigs[primaryMockedConfig.siteId] = primaryMockedConfig;
   }
   // Set mock value for SITE_CONFIG
   process.env.SITE_CONFIG = JSON.stringify(envSiteConfigs);
 
   // Mock both sync and async versions of loadSiteConfig
-  jest.mock('@/utils/server/loadSiteConfig', () => ({
+  jest.mock("@/utils/server/loadSiteConfig", () => ({
     loadSiteConfigSync: jest.fn((siteId?: string) => {
-      const idToLoad = siteId || 'default';
-      const configs = JSON.parse(process.env.SITE_CONFIG || '{}');
+      const idToLoad = siteId || "default";
+      const configs = JSON.parse(process.env.SITE_CONFIG || "{}");
       return configs[idToLoad] || null; // Simulate real loading logic against mocked env
     }),
     loadSiteConfig: jest.fn(async (siteId?: string) => {
-      const idToLoad = siteId || 'default';
-      const configs = JSON.parse(process.env.SITE_CONFIG || '{}');
+      const idToLoad = siteId || "default";
+      const configs = JSON.parse(process.env.SITE_CONFIG || "{}");
       return configs[idToLoad] || null; // Simulate real loading logic against mocked env
     }),
   }));
@@ -363,18 +352,16 @@ export function setupSiteConfigMocks(config: Partial<SiteConfig> = {}) {
  * Setup mocks for JWT authentication
  */
 export function setupAuthMocks() {
-  jest.mock('@/utils/server/jwtUtils', () => ({
+  jest.mock("@/utils/server/jwtUtils", () => ({
     withJwtAuth: jest.fn((handler) => handler),
   }));
 
-  jest.mock('@/utils/server/apiMiddleware', () => ({
+  jest.mock("@/utils/server/apiMiddleware", () => ({
     withApiMiddleware: jest.fn((handler) => handler),
   }));
 
-  jest.mock('@/utils/server/sudoCookieUtils', () => ({
-    getSudoCookie: jest
-      .fn()
-      .mockReturnValue({ sudoCookieValue: 'valid-sudo-token' }),
+  jest.mock("@/utils/server/sudoCookieUtils", () => ({
+    getSudoCookie: jest.fn().mockReturnValue({ sudoCookieValue: "valid-sudo-token" }),
   }));
 }
 
@@ -387,14 +374,14 @@ export function createPageApiMocks(options: {
   query?: Record<string, string>;
   headers?: Record<string, string>;
 }) {
-  const { method = 'GET', body = {}, query = {}, headers = {} } = options;
+  const { method = "GET", body = {}, query = {}, headers = {} } = options;
 
   return createMocks<NextApiRequest, NextApiResponse>({
     method,
     body,
     query,
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
       ...headers,
     },
   });
@@ -408,13 +395,9 @@ export function setupPageApiMocks(
     allowRateLimited?: boolean;
     isDevelopment?: boolean;
     siteConfig?: Partial<SiteConfig>;
-  } = {},
+  } = {}
 ) {
-  const {
-    allowRateLimited = true,
-    isDevelopment = false,
-    siteConfig = {},
-  } = options;
+  const { allowRateLimited = true, isDevelopment = false, siteConfig = {} } = options;
 
   // Setup Next.js API test environment
   setupApiTest();
@@ -431,8 +414,8 @@ export function setupPageApiMocks(
  * A simple test to make this file pass Jest's requirement
  * that all test files contain at least one test
  */
-describe('API Test Mocks', () => {
-  test('should export mock utilities', () => {
+describe("API Test Mocks", () => {
+  test("should export mock utilities", () => {
     expect(mockSiteConfig).toBeDefined();
     expect(setupFirebaseMocks).toBeDefined();
     expect(setupEnvMocks).toBeDefined();
@@ -506,7 +489,7 @@ export function setupTestFile() {
   // This function exists for documentation purposes only
   // The code in the function comment should be copied to test files
   console.warn(
-    'This function is for documentation only. Please copy the example code from ' +
-      'the function comment to your test file.',
+    "This function is for documentation only. Please copy the example code from " +
+      "the function comment to your test file."
   );
 }

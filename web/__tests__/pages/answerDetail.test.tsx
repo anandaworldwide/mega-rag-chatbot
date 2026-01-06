@@ -78,7 +78,6 @@ describe("SingleAnswer page", () => {
     },
     requireLogin: false,
     allowTemporarySessions: true,
-    npsSurveyFrequencyDays: 30,
     queriesPerUserPerDay: 100,
     collectionConfig: {},
     libraryMappings: {},

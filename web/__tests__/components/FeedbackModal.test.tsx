@@ -58,7 +58,6 @@ describe("FeedbackModal", () => {
     loginImage: "mascot.png",
     header: { logo: "ananda-logo.png", navItems: [] },
     footer: { links: [] },
-    npsSurveyFrequencyDays: 90,
     queriesPerUserPerDay: 200,
     showSourceContent: true,
     showVoting: true,

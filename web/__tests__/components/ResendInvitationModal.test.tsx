@@ -32,7 +32,6 @@ const mockSiteConfig: SiteConfig = {
   requireLogin: false,
   allowTemporarySessions: false,
   allowAllAnswersPage: false,
-  npsSurveyFrequencyDays: 0,
   queriesPerUserPerDay: 100,
   showSourceContent: true,
   showVoting: true,

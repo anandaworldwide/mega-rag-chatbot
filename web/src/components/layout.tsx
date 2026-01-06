@@ -7,7 +7,6 @@ import JairamHeader from "./Header/JairamHeader";
 import CrystalHeader from "./Header/CrystalHeader";
 import PhotoHeader from "./Header/PhotoHeader";
 import Footer from "./Footer";
-import NPSSurvey from "./NPSSurvey";
 import FeedbackButton from "./FeedbackButton";
 import FeedbackModal from "./FeedbackModal";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
@@ -97,7 +96,6 @@ export default function Layout({
         {renderHeader()}
         <div className="flex-grow overflow-auto main-content-wrap">
           <main className="flex flex-col h-full">{children}</main>
-          {siteConfig && <NPSSurvey siteConfig={siteConfig} />}
         </div>
       </div>
       <Footer siteConfig={siteConfig} />

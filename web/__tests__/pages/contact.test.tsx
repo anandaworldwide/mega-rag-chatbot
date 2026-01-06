@@ -70,7 +70,6 @@ const mockSiteConfig: SiteConfig = {
   loginImage: "mascot.png",
   header: { logo: "ananda-logo.png", navItems: [] },
   footer: { links: [] },
-  npsSurveyFrequencyDays: 90,
   queriesPerUserPerDay: 200,
   enableModelComparison: true,
   showSourceCountSelector: true,

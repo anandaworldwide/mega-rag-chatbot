@@ -9,8 +9,6 @@
  * 4. Campaign ID generation
  */
 
-import * as fs from "fs";
-import * as path from "path";
 import {
   loadSpecialDayTemplate,
   renderSpecialDayEmail,
@@ -38,12 +36,36 @@ jest.mock("@/utils/server/emailTemplates", () => ({
       text: `${greeting}\n${options.message || ""}`,
     };
   }),
+  addTrackingPixel: jest.fn((html: string, trackingUrl: string) => {
+    // Insert tracking pixel before </body>
+    return html.replace("</body>", `<img src="${trackingUrl}" width="1" height="1" alt="" /></body>`);
+  }),
 }));
 jest.mock("@/utils/server/onboardingEmailUtils", () => ({
   selectRandomExampleQuestions: jest.fn((questions: string[], count: number) => questions.slice(0, count)),
 }));
 jest.mock("@/utils/server/emailTokenUtils", () => ({
   generateUnsubscribeToken: jest.fn(() => "test-unsubscribe-token"),
+}));
+jest.mock("@/utils/server/contentEmailTracker", () => ({
+  updateLastContentEmailSent: jest.fn().mockResolvedValue(undefined),
+}));
+jest.mock("@/services/firebase", () => ({
+  db: {
+    collection: jest.fn(() => ({
+      doc: jest.fn(() => ({})),
+    })),
+  },
+}));
+jest.mock("@/utils/server/firestoreUtils", () => ({
+  getUsersCollectionName: jest.fn(() => "users"),
+}));
+
+// Mock emailTemplateLoader to bypass caching issues
+jest.mock("@/utils/server/emailTemplateLoader", () => ({
+  isValidSiteId: jest.fn().mockResolvedValue(true),
+  loadTemplateFile: jest.fn(),
+  TemplateDirectoryConfig: {},
 }));
 
 // Mock fs module for testing file operations
@@ -57,14 +79,6 @@ jest.mock("fs", () => ({
     readdir: jest.fn(),
   },
 }));
-
-const mockFs = fs as jest.Mocked<typeof fs> & {
-  promises: {
-    access: jest.Mock;
-    readFile: jest.Mock;
-    readdir: jest.Mock;
-  };
-};
 const mockSendEmail = sendEmail as jest.MockedFunction<typeof sendEmail>;
 const mockLoadSiteConfig = loadSiteConfig as jest.MockedFunction<typeof loadSiteConfig>;
 
@@ -89,7 +103,8 @@ describe("specialDayEmailUtils", () => {
 
   describe("loadSpecialDayTemplate", () => {
     it("should load site-specific template when it exists", async () => {
-      const templateContent = JSON.stringify({
+      const mockEmailTemplateLoader = jest.requireMock("@/utils/server/emailTemplateLoader");
+      mockEmailTemplateLoader.loadTemplateFile.mockResolvedValueOnce({
         specialDayId: "masters-birthday",
         subject: "Tomorrow is Master's Birthday",
         greeting: "Dear {{firstName}},",
@@ -97,23 +112,6 @@ describe("specialDayEmailUtils", () => {
         exampleQuestionPool: ["Question 1", "Question 2"],
         exampleQuestionCount: 3,
       });
-
-      const templatesDir = path.join("/test/cwd", "site-config", "specialday-templates");
-      const templatePath = path.join(templatesDir, "ananda", "masters-birthday.json");
-
-      // Mock directory exists
-      mockFs.promises.access.mockImplementation((filePath: string) => {
-        if (filePath === templatesDir || filePath === templatePath) {
-          return Promise.resolve();
-        }
-        return Promise.reject(new Error("File not found"));
-      });
-
-      // Mock readdir to return site directories
-      mockFs.promises.readdir.mockResolvedValue([{ name: "ananda", isDirectory: () => true }] as any);
-
-      // Mock readFile to return template content
-      mockFs.promises.readFile.mockResolvedValue(templateContent);
 
       const result = await loadSpecialDayTemplate("masters-birthday", "ananda");
 
@@ -123,7 +121,8 @@ describe("specialDayEmailUtils", () => {
     });
 
     it("should return null for invalid siteId", async () => {
-      mockFs.promises.readdir.mockResolvedValue([]);
+      const mockEmailTemplateLoader = jest.requireMock("@/utils/server/emailTemplateLoader");
+      mockEmailTemplateLoader.isValidSiteId.mockResolvedValueOnce(false);
 
       const result = await loadSpecialDayTemplate("masters-birthday", "invalid-site");
 
@@ -137,16 +136,9 @@ describe("specialDayEmailUtils", () => {
     });
 
     it("should return null when template file does not exist", async () => {
-      const templatesDir = path.join("/test/cwd", "site-config", "specialday-templates");
-
-      mockFs.promises.access.mockImplementation((filePath: string) => {
-        if (filePath === templatesDir) {
-          return Promise.resolve();
-        }
-        return Promise.reject(new Error("File not found"));
-      });
-
-      mockFs.promises.readdir.mockResolvedValue([{ name: "ananda", isDirectory: () => true }] as any);
+      const mockEmailTemplateLoader = jest.requireMock("@/utils/server/emailTemplateLoader");
+      mockEmailTemplateLoader.isValidSiteId.mockResolvedValueOnce(true);
+      mockEmailTemplateLoader.loadTemplateFile.mockResolvedValueOnce(null);
 
       const result = await loadSpecialDayTemplate("nonexistent-holyday", "ananda");
 
@@ -224,14 +216,18 @@ describe("specialDayEmailUtils", () => {
       },
     };
 
+    // Get the mocked emailTemplateLoader
+    const mockEmailTemplateLoader = jest.requireMock("@/utils/server/emailTemplateLoader");
+
     beforeEach(() => {
       mockLoadSiteConfig.mockResolvedValue({
         siteId: "ananda",
         name: "Ananda",
       } as any);
 
-      // Mock template loading
-      const templateContent = JSON.stringify({
+      // Mock emailTemplateLoader to return a valid template
+      mockEmailTemplateLoader.isValidSiteId.mockResolvedValue(true);
+      mockEmailTemplateLoader.loadTemplateFile.mockResolvedValue({
         specialDayId: "masters-birthday",
         subject: "Tomorrow is Master's Birthday",
         greeting: "Dear {{firstName}},",
@@ -239,16 +235,6 @@ describe("specialDayEmailUtils", () => {
         exampleQuestionPool: ["Question 1", "Question 2"],
         exampleQuestionCount: 3,
       });
-
-      const templatesDir = path.join("/test/cwd", "site-config", "specialday-templates");
-      mockFs.promises.access.mockImplementation((filePath: string) => {
-        if (filePath === templatesDir || filePath.includes("masters-birthday.json")) {
-          return Promise.resolve();
-        }
-        return Promise.reject(new Error("File not found"));
-      });
-      mockFs.promises.readdir.mockResolvedValue([{ name: "ananda", isDirectory: () => true }] as any);
-      mockFs.promises.readFile.mockResolvedValue(templateContent);
     });
 
     it("should send email successfully", async () => {
@@ -272,7 +258,8 @@ describe("specialDayEmailUtils", () => {
     });
 
     it("should return false when template not found", async () => {
-      mockFs.promises.readFile.mockRejectedValue(new Error("File not found"));
+      // Mock template not found
+      mockEmailTemplateLoader.isValidSiteId.mockResolvedValueOnce(false);
 
       const result = await sendSpecialDayEmail(mockUser, "nonexistent", "ananda", "https://test.example.com", 2026);
 

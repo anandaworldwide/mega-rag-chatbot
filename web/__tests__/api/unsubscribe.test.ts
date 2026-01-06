@@ -52,6 +52,7 @@ describe("/api/unsubscribe", () => {
     mockGetUsersCollectionName.mockReturnValue("test_users");
     mockLoadSiteConfig.mockResolvedValue({
       name: "Test Site Newsletter",
+      shortname: "Newsletter",
       siteId: "test",
     } as any);
   });
@@ -180,7 +181,7 @@ describe("/api/unsubscribe", () => {
     expect(res.getHeader("Content-Type")).toBe("text/html");
     expect(res._getData()).toContain("Unsubscribed Successfully");
     expect(res._getData()).toContain("test@example.com");
-    expect(res._getData()).toContain("Test Site Newsletter");
+    expect(res._getData()).toContain("Newsletter");
     expect(res._getData()).toContain("Resubscribe to newsletter updates");
     expect(res._getData()).toContain("Go to Home Page");
     expect(res._getData()).toContain('href="/"');

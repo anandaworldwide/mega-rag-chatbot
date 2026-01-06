@@ -250,7 +250,6 @@ describe("makeChain", () => {
     requireLogin: false,
     allowTemporarySessions: true,
     allowAllAnswersPage: true,
-    npsSurveyFrequencyDays: 30,
     queriesPerUserPerDay: 100,
     showSourceContent: true,
     showVoting: true,
@@ -807,6 +806,7 @@ describe("makeChain", () => {
     // Create a model mock that will throw errors
     const errorModel = {
       invoke: jest.fn().mockRejectedValue(new Error("Model API error")),
+      // eslint-disable-next-line require-yield
       stream: jest.fn().mockImplementation(async function* () {
         throw new Error("Streaming error");
       }),
@@ -1723,7 +1723,7 @@ describe("makeChain", () => {
           log: expect.stringContaining("Backend is using incorrect site ID"),
         })
       );
-    } catch (error) {
+    } catch (_error) {
       // Test may fail due to mocking complexity, but we verified the important part
       expect(sendData).toHaveBeenCalled();
     }
@@ -2234,7 +2234,7 @@ describe("makeChain", () => {
 
       // Should complete without errors
       expect(result).toBeDefined();
-    } catch (error) {
+    } catch (_error) {
       // Expected due to mocking complexity, but verify function structure
       expect(setupAndExecuteLanguageModelChain).toBeDefined();
     }
@@ -2296,7 +2296,7 @@ describe("makeChain", () => {
 
       expect(result).toBeDefined();
       expect(qualityMockChain.invoke).toHaveBeenCalled();
-    } catch (error) {
+    } catch (_error) {
       // Expected due to mocking complexity
       expect(setupAndExecuteLanguageModelChain).toBeDefined();
     } finally {
@@ -2898,7 +2898,7 @@ describe("makeChain", () => {
               callback.handleLLMNewToken({}); // Object token
               callback.handleLLMNewToken("normal token"); // Normal token
             }
-          } catch (error) {
+          } catch (_error) {
             // Should handle callback errors gracefully
           }
         }

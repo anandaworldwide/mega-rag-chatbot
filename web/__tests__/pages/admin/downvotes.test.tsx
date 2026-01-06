@@ -49,7 +49,6 @@ describe("DownvotesReview", () => {
     requireLogin: false,
     allowTemporarySessions: true,
     allowAllAnswersPage: true,
-    npsSurveyFrequencyDays: 30,
     queriesPerUserPerDay: 50,
     showSourceContent: true,
     showVoting: true,

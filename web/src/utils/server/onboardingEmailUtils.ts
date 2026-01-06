@@ -2,14 +2,19 @@
  * Onboarding email utilities for rendering and sending drip sequence emails
  */
 
-import * as fs from "fs";
 import * as path from "path";
 import { sendEmail } from "./emailUtils";
-import { generateEmailContent } from "./emailTemplates";
+import { generateEmailContent, addTrackingPixel } from "./emailTemplates";
 import { loadSiteConfig } from "./loadSiteConfig";
 import { User } from "@/types/user";
 import { addUtmParams, generateClickTrackingUrl, generateOpenTrackingUrl } from "./emailTrackingUtils";
 import { generateUnsubscribeToken } from "./emailTokenUtils";
+import { db } from "@/services/firebase";
+import { getUsersCollectionName } from "./firestoreUtils";
+import { updateLastContentEmailSent } from "./contentEmailTracker";
+import { renderTemplate } from "./templateUtils";
+import { validateUserEmail } from "./emailValidation";
+import { isValidSiteId, loadTemplateFile, TemplateDirectoryConfig } from "./emailTemplateLoader";
 
 export interface OnboardingTemplate {
   day: number;
@@ -23,62 +28,12 @@ export interface OnboardingTemplate {
   ctaText?: string;
 }
 
-// Cache for valid site IDs to avoid repeated file system reads
-let validSiteIdsCache: Set<string> | null = null;
-let validSiteIdsCacheTime: number = 0;
-const CACHE_TTL_MS = 60 * 1000; // 1 minute cache
-
-/**
- * Dynamically discovers site IDs that have onboarding templates by reading the directory
- * Uses caching to avoid repeated file system reads
- */
-async function getValidSiteIds(): Promise<Set<string>> {
-  const now = Date.now();
-  if (validSiteIdsCache && now - validSiteIdsCacheTime < CACHE_TTL_MS) {
-    return validSiteIdsCache;
-  }
-
-  const templatesDir = path.join(process.cwd(), "site-config", "onboarding-templates");
-  const siteIds = new Set<string>();
-
-  try {
-    // Use async file operations
-    const exists = await fs.promises
-      .access(templatesDir)
-      .then(() => true)
-      .catch(() => false);
-    if (exists) {
-      const entries = await fs.promises.readdir(templatesDir, { withFileTypes: true });
-      for (const entry of entries) {
-        // Only include directories with safe names (alphanumeric + hyphen)
-        if (entry.isDirectory() && /^[a-zA-Z0-9-]+$/.test(entry.name)) {
-          siteIds.add(entry.name);
-        }
-      }
-    }
-  } catch (error) {
-    console.error("Error reading onboarding templates directory:", error);
-  }
-
-  validSiteIdsCache = siteIds;
-  validSiteIdsCacheTime = now;
-  return siteIds;
-}
-
-/**
- * Validates a site ID to prevent path traversal attacks
- * Checks against dynamically discovered sites that have onboarding templates
- */
-async function isValidSiteId(siteId: string): Promise<boolean> {
-  // First check: strict pattern match (alphanumeric + hyphen only)
-  if (!/^[a-zA-Z0-9-]+$/.test(siteId)) {
-    return false;
-  }
-
-  // Second check: must have onboarding templates directory
-  const validSiteIds = await getValidSiteIds();
-  return validSiteIds.has(siteId);
-}
+// Template directory configuration for onboarding emails
+const ONBOARDING_TEMPLATE_CONFIG: TemplateDirectoryConfig = {
+  directoryName: "onboarding-templates",
+  isSubdirectoryBased: true,
+  fileExtension: ".json",
+};
 
 /**
  * Loads an onboarding email template for a specific day and site
@@ -89,52 +44,22 @@ async function isValidSiteId(siteId: string): Promise<boolean> {
  * @returns Template object or null if not found
  */
 export async function loadOnboardingTemplate(day: number, siteId: string): Promise<OnboardingTemplate | null> {
-  try {
-    // Validate siteId to prevent path traversal
-    if (!(await isValidSiteId(siteId))) {
-      console.error(`Invalid siteId: ${siteId}`);
-      return null;
-    }
-
-    // Load site-specific template only using async file operations
-    const templatePath = path.join(process.cwd(), "site-config", "onboarding-templates", siteId, `day${day}.json`);
-
-    const exists = await fs.promises
-      .access(templatePath)
-      .then(() => true)
-      .catch(() => false);
-    if (exists) {
-      const templateContent = await fs.promises.readFile(templatePath, "utf-8");
-      try {
-        return JSON.parse(templateContent) as OnboardingTemplate;
-      } catch (parseError) {
-        console.error(`Error parsing onboarding template JSON for day ${day}, site ${siteId}:`, parseError);
-        return null;
-      }
-    }
-
-    // No template found for this site
-    return null;
-  } catch (error) {
-    console.error(`Error loading onboarding template for day ${day}, site ${siteId}:`, error);
+  // Validate siteId to prevent path traversal
+  if (!(await isValidSiteId(siteId, ONBOARDING_TEMPLATE_CONFIG))) {
+    console.error(`Invalid siteId: ${siteId}`);
     return null;
   }
-}
 
-/**
- * Renders template variables in a string
- *
- * @param template - Template string with {{variable}} placeholders
- * @param variables - Object with variable values
- * @returns Rendered string
- */
-function renderTemplate(template: string, variables: Record<string, string>): string {
-  let rendered = template;
-  for (const [key, value] of Object.entries(variables)) {
-    const placeholder = new RegExp(`\\{\\{${key}\\}\\}`, "g");
-    rendered = rendered.replace(placeholder, value);
+  // Validate day parameter
+  if (!Number.isInteger(day) || day < 0) {
+    console.error(`Invalid day parameter: ${day}`);
+    return null;
   }
-  return rendered;
+
+  const templatePath = path.join(process.cwd(), "site-config", "onboarding-templates", siteId, `day${day}.json`);
+  const expectedDir = path.join(process.cwd(), "site-config", "onboarding-templates", siteId);
+
+  return loadTemplateFile<OnboardingTemplate>(templatePath, expectedDir, `${siteId}/day${day}`);
 }
 
 /**
@@ -247,9 +172,12 @@ export async function renderOnboardingEmail(
   };
 
   // Render subject and body (HTML and text versions)
-  const subject = renderTemplate(template.subject, variablesText);
-  const bodyHtml = renderTemplate(template.body, variablesHtml);
-  const bodyText = renderTemplate(template.body, variablesText);
+  // Subject is plain text, escape HTML
+  const subject = renderTemplate(template.subject, variablesText, true);
+  // Body HTML may contain HTML from exampleQuestions, so don't escape
+  const bodyHtml = renderTemplate(template.body, variablesHtml, false);
+  // Body text is plain text, escape HTML
+  const bodyText = renderTemplate(template.body, variablesText, true);
 
   // Generate unsubscribe URL with tracking
   const unsubscribeToken = generateUnsubscribeToken(userEmail, "onboarding");
@@ -295,11 +223,8 @@ export async function renderOnboardingEmail(
     unsubscribeUrl,
   });
 
-  // Add tracking pixel to HTML (insert before closing </body> tag)
-  const htmlWithTracking = emailContentHtml.html.replace(
-    "</body>",
-    `<img src="${openTrackingUrl}" width="1" height="1" style="display:none;" alt="" />\n</body>`
-  );
+  // Add tracking pixel to HTML using centralized utility
+  const htmlWithTracking = addTrackingPixel(emailContentHtml.html, openTrackingUrl);
 
   // Generate text version separately with plain text body
   // For text version, use the original CTA URL (no tracking needed for plain text)
@@ -324,14 +249,29 @@ export async function renderOnboardingEmail(
 /**
  * Sends an onboarding email to a user
  *
- * @param user - User object
- * @param day - Day number (1, 3, 7, or 14)
+ * @param user - User object with email stored in id field
+ * @param day - Day number (0, 3, 7, or 14)
  * @param siteId - Site ID
  * @param baseUrl - Base URL for links
- * @returns True if email was sent successfully
+ * @returns True if email was sent successfully, false otherwise
+ * @throws Never throws - all errors are caught and logged, returns false
  */
 export async function sendOnboardingEmail(user: User, day: number, siteId: string, baseUrl: string): Promise<boolean> {
   try {
+    // Validate user email before proceeding
+    const emailValidation = validateUserEmail(user);
+    if (!emailValidation.isValid) {
+      console.error(`User email validation failed: ${emailValidation.error}`);
+      return false;
+    }
+    const userEmail = emailValidation.email!;
+
+    // Validate baseUrl
+    if (!baseUrl || typeof baseUrl !== "string") {
+      console.error("Invalid baseUrl provided");
+      return false;
+    }
+
     // Load template
     const template = await loadOnboardingTemplate(day, siteId);
     if (!template) {
@@ -341,13 +281,6 @@ export async function sendOnboardingEmail(user: User, day: number, siteId: strin
 
     // Render email
     const emailContent = await renderOnboardingEmail(template, user, siteId, baseUrl);
-
-    // Get user email (it's the document ID stored in user.id)
-    const userEmail = user.id;
-    if (!userEmail || typeof userEmail !== "string") {
-      console.error("User email not found or invalid");
-      return false;
-    }
 
     // Send email
     const success = await sendEmail({
@@ -359,6 +292,12 @@ export async function sendOnboardingEmail(user: User, day: number, siteId: strin
 
     if (success) {
       console.log(`✅ Sent onboarding email (day ${day}) to ${userEmail}`);
+      // Update content email tracking (awaited to ensure completion before function returns)
+      if (db) {
+        const usersCol = getUsersCollectionName();
+        const userRef = db.collection(usersCol).doc(userEmail);
+        await updateLastContentEmailSent(userRef);
+      }
     } else {
       console.error(`❌ Failed to send onboarding email (day ${day}) to ${userEmail}`);
     }

@@ -136,7 +136,6 @@ describe("SourcesList", () => {
     requireLogin: true,
     allowTemporarySessions: false,
     allowAllAnswersPage: false,
-    npsSurveyFrequencyDays: 30,
     queriesPerUserPerDay: 100,
     showSourceContent: true,
     showVoting: true,

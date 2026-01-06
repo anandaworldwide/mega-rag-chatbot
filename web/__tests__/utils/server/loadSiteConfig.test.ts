@@ -39,7 +39,6 @@ describe("loadSiteConfig", () => {
           requireLogin: false,
           allowTemporarySessions: true,
           allowAllAnswersPage: true,
-          npsSurveyFrequencyDays: 30,
           queriesPerUserPerDay: 10,
           enableModelComparison: true,
           includedLibraries: ["lib1", "lib2"],
@@ -77,7 +76,6 @@ describe("loadSiteConfig", () => {
         requireLogin: false,
         allowTemporarySessions: true,
         allowAllAnswersPage: true,
-        npsSurveyFrequencyDays: 30,
         queriesPerUserPerDay: 10,
         enableModelComparison: true,
         includedLibraries: ["lib1", "lib2"],
@@ -115,7 +113,6 @@ describe("loadSiteConfig", () => {
           requireLogin: false,
           allowTemporarySessions: true,
           allowAllAnswersPage: true,
-          npsSurveyFrequencyDays: 30,
           queriesPerUserPerDay: 10,
           header: {
             logo: "logo.png",
@@ -157,7 +154,6 @@ describe("loadSiteConfig", () => {
           requireLogin: false,
           allowTemporarySessions: true,
           allowAllAnswersPage: true,
-          npsSurveyFrequencyDays: 30,
           queriesPerUserPerDay: 10,
           header: {
             logo: "logo.png",
@@ -229,7 +225,6 @@ describe("loadSiteConfig", () => {
           requireLogin: false,
           allowTemporarySessions: true,
           allowAllAnswersPage: true,
-          npsSurveyFrequencyDays: 30,
           queriesPerUserPerDay: 10,
           header: {
             logo: "logo.png",
@@ -270,7 +265,6 @@ describe("loadSiteConfig", () => {
           requireLogin: false,
           allowTemporarySessions: true,
           allowAllAnswersPage: true,
-          npsSurveyFrequencyDays: 30,
           queriesPerUserPerDay: 10,
           header: {
             logo: "logo.png",

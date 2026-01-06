@@ -5,119 +5,55 @@ import React, { useState, useEffect } from "react";
 import { SiteConfig } from "@/types/siteConfig";
 import { getOrCreateUUID } from "@/utils/client/uuid";
 import Toast from "@/components/Toast";
-import { motion, AnimatePresence } from "framer-motion";
 import { logEvent } from "@/utils/client/analytics";
 import validator from "validator";
 import { fetchWithAuth } from "@/utils/client/tokenManager";
 
 interface NPSSurveyProps {
   siteConfig: SiteConfig;
-  forceSurvey?: boolean;
+  initialScore?: number | null;
 }
 
-const NPSSurvey: React.FC<NPSSurveyProps> = ({ siteConfig, forceSurvey = false }) => {
+const NPSSurvey: React.FC<NPSSurveyProps> = ({ siteConfig, initialScore = null }) => {
   // State variables for managing survey display and user input
-  const [showSurvey, setShowSurvey] = useState(false);
-  const [score, setScore] = useState<number | null>(null);
+  const [score, setScore] = useState<number | null>(initialScore);
   const [feedback, setFeedback] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [additionalComments, setAdditionalComments] = useState("");
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [surveyAvailable, setSurveyAvailable] = useState<boolean | null>(null);
+  const [canSubmit, setCanSubmit] = useState<boolean | null>(null);
+  const [isCheckingEligibility, setIsCheckingEligibility] = useState(true);
+  const [lastSubmissionDate, setLastSubmissionDate] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Check if NPS survey is available (has required environment configuration)
+  // Check eligibility on component mount
   useEffect(() => {
-    const checkSurveyAvailability = async () => {
+    const checkEligibility = async () => {
       try {
-        const response = await fetch("/api/npsAvailable");
+        const uuid = getOrCreateUUID();
+        const response = await fetchWithAuth(`/api/submitNpsSurvey?uuid=${uuid}`, {
+          method: "GET",
+        });
 
-        if (!response.ok) {
-          console.error(`NPS availability check failed with status ${response.status}`);
-          setSurveyAvailable(false);
-          return;
+        if (response.ok) {
+          const data = await response.json();
+          setCanSubmit(data.canSubmit);
+          setLastSubmissionDate(data.lastSubmissionDate);
+        } else {
+          // If check fails, allow submission attempt (will fail gracefully)
+          setCanSubmit(true);
         }
-
-        const data = await response.json();
-        setSurveyAvailable(data.available);
       } catch (error) {
-        console.error("Error checking NPS survey availability:", error);
-        setSurveyAvailable(false);
+        console.error("Error checking survey eligibility:", error);
+        // If check fails, allow submission attempt (will fail gracefully)
+        setCanSubmit(true);
+      } finally {
+        setIsCheckingEligibility(false);
       }
     };
 
-    checkSurveyAvailability();
+    checkEligibility();
   }, []);
-
-  useEffect(() => {
-    // Don't show survey if it's not available (missing configuration)
-    if (surveyAvailable === false) {
-      return;
-    }
-
-    // Don't proceed if we haven't checked availability yet
-    if (surveyAvailable === null) {
-      return;
-    }
-
-    // Logic to determine when to show the survey based on user interaction history
-    if (forceSurvey) {
-      setShowSurvey(true);
-      return;
-    }
-
-    const surveyFrequency = siteConfig.npsSurveyFrequencyDays;
-    const lastCompleted = localStorage.getItem("npsSurveyCompleted");
-    const lastDismissed = localStorage.getItem("npsSurveyDismissed");
-    const currentTime = Date.now();
-    // visitCount is really a page view count.
-    const pageViewCount = parseInt(localStorage.getItem("visitCount") || "0");
-
-    // Show survey if conditions are met (frequency, visit count, time since last interaction)
-    if (surveyFrequency > 0 && pageViewCount >= 12) {
-      const timeSinceCompleted = lastCompleted ? currentTime - parseInt(lastCompleted) : Infinity;
-      const timeSinceDismissed = lastDismissed ? currentTime - parseInt(lastDismissed) : Infinity;
-      const frequencyInMs = surveyFrequency * 24 * 60 * 60 * 1000;
-
-      if (timeSinceCompleted >= frequencyInMs && timeSinceDismissed >= frequencyInMs) {
-        // Set a timer to show the survey after a delay
-        setTimeout(
-          () => {
-            setShowSurvey(true);
-            logEvent("Display", "NPS_Survey", "Automatic");
-          },
-          process.env.NODE_ENV === "production" ? 2 * 60 * 1000 : 15 * 1000
-        );
-      }
-    }
-  }, [siteConfig.npsSurveyFrequencyDays, forceSurvey, surveyAvailable]);
-
-  // Function to handle survey dismissal (close/click away)
-  const dismissSurvey = () => {
-    logEvent("Dismiss", "NPS_Survey", forceSurvey ? "Forced" : "Regular");
-    if (forceSurvey) {
-      // Redirect to homepage if survey is forced
-      window.location.href = "/";
-    } else {
-      setShowSurvey(false);
-      setErrorMessage(null);
-      localStorage.setItem("npsSurveyDismissed", Date.now().toString());
-    }
-  };
-
-  // Function to handle "Remind Me Later" button
-  const remindMeLater = () => {
-    logEvent("Remind_Later", "NPS_Survey", forceSurvey ? "Forced" : "Regular");
-    if (forceSurvey) {
-      // Redirect to homepage if survey is forced
-      window.location.href = "/";
-    } else {
-      setShowSurvey(false);
-      setErrorMessage(null);
-      // Set reminder for 3 days from now
-      const threeDaysFromNow = Date.now() + 3 * 24 * 60 * 60 * 1000;
-      localStorage.setItem("npsSurveyDismissed", threeDaysFromNow.toString());
-    }
-  };
 
   // Function to validate user input before submission
   const validateInput = () => {
@@ -142,9 +78,12 @@ const NPSSurvey: React.FC<NPSSurveyProps> = ({ siteConfig, forceSurvey = false }
 
   // Function to submit the survey data to the server
   const submitSurvey = async () => {
-    if (!validateInput()) {
+    if (!validateInput() || isSubmitting) {
       return;
     }
+
+    setIsSubmitting(true);
+    setErrorMessage(null);
 
     logEvent("Submit", "NPS_Survey", `Score: ${score}`, score ?? undefined);
     const uuid = getOrCreateUUID();
@@ -168,122 +107,158 @@ const NPSSurvey: React.FC<NPSSurveyProps> = ({ siteConfig, forceSurvey = false }
       if (response.ok) {
         // Update local storage and UI state on successful submission
         localStorage.setItem("npsSurveyCompleted", Date.now().toString());
-        localStorage.removeItem("npsSurveyDismissed");
-        setShowSurvey(false);
         setErrorMessage(null);
         setToastMessage("Thank you for your feedback!");
 
-        if (forceSurvey) {
-          // Redirect to homepage after a delay if survey was forced
-          setTimeout(() => {
-            window.location.href = "/";
-          }, 3000);
-        }
+        // Redirect to homepage after a delay
+        setTimeout(() => {
+          window.location.href = "/";
+        }, 3000);
       } else {
-        setErrorMessage(data.message);
+        // Handle 429 (rate limit) error specially
+        if (response.status === 429) {
+          setCanSubmit(false);
+          setErrorMessage(
+            "You have already submitted a survey recently. You can submit another survey in one month. Thank you for your feedback!"
+          );
+        } else {
+          setErrorMessage(data.error || "Error submitting survey. Please try again.");
+        }
+        setIsSubmitting(false);
       }
     } catch (error) {
       console.error(error);
       setErrorMessage("Error submitting survey: An unexpected error occurred");
+      setIsSubmitting(false);
+    }
+  };
+
+  // Format date for display
+  const formatSubmissionDate = (dateString: string | null) => {
+    if (!dateString) return "";
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+    } catch {
+      return dateString;
     }
   };
 
   // Render the survey component and toast message
+  // Show loading state while checking eligibility
+  if (isCheckingEligibility) {
+    return (
+      <div className="bg-white p-8 rounded-lg shadow-sm">
+        <div className="text-center py-8">
+          <p className="text-gray-600">Loading survey...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show thank you message if user has already submitted
+  if (canSubmit === false) {
+    return (
+      <div className="bg-white p-8 rounded-lg shadow-sm">
+        <div className="text-center py-8">
+          <h1 className="text-2xl font-bold mb-4">Thank You!</h1>
+          <p className="text-gray-600 mb-4">
+            We appreciate your feedback! You&apos;ve already submitted a survey recently.
+          </p>
+          {lastSubmissionDate && (
+            <p className="text-sm text-gray-500 mb-6">
+              Your last submission was on {formatSubmissionDate(lastSubmissionDate)}.
+            </p>
+          )}
+          <p className="text-gray-600 mb-6">
+            You can submit another survey in one month. We value your continued feedback!
+          </p>
+          <button
+            className="px-6 py-2 rounded bg-blue-500 text-white hover:bg-blue-600 transition-colors"
+            onClick={() => (window.location.href = "/")}
+          >
+            Return to Homepage
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
-      <AnimatePresence>
-        {showSurvey && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, transition: { duration: 0.1 } }}
-            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
-            onClick={forceSurvey ? undefined : dismissSurvey}
-          >
-            {/* Survey form content */}
-            <div className="bg-white p-6 rounded-xl max-w-md w-full relative" onClick={(e) => e.stopPropagation()}>
-              {/* Close button */}
+      <div className="bg-white p-8 rounded-lg shadow-sm">
+        {/* Survey questions and input fields */}
+        <h1 className="text-2xl font-bold mb-6">
+          How likely are you to recommend {siteConfig.shortname} to {siteConfig.other_visitors_reference}?
+        </h1>
+        {/* Score buttons */}
+        <div className="flex flex-col mb-6">
+          <div className="flex justify-between gap-2">
+            {[...Array(11)].map((_, i) => (
               <button
-                className="absolute top-2 right-2 text-gray-500 hover:text-gray-700"
-                onClick={dismissSurvey}
-                aria-label="Close"
+                key={i}
+                className={`flex-1 px-3 py-2 text-sm rounded transition-colors ${
+                  score === i ? "bg-blue-500 text-white" : "bg-gray-200 hover:bg-gray-300"
+                }`}
+                onClick={() => setScore(i)}
               >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  className="h-6 w-6"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
+                {i}
               </button>
-              {/* Survey questions and input fields */}
-              <h2 className="text-xl font-bold mb-4">
-                How likely are you to recommend {siteConfig.shortname} to {siteConfig.other_visitors_reference}?
-              </h2>
-              {/* Score buttons */}
-              <div className="flex flex-col mb-4">
-                <div className="flex justify-between">
-                  {[...Array(11)].map((_, i) => (
-                    <button
-                      key={i}
-                      className={`px-2 py-1 text-sm rounded ${score === i ? "bg-blue-500 text-white" : "bg-gray-200"}`}
-                      onClick={() => setScore(i)}
-                    >
-                      {i}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex justify-between text-xs text-gray-500 mt-1">
-                  <span>least</span>
-                  <span>most</span>
-                </div>
-              </div>
-              {/* Feedback textarea */}
-              <h3 className="text-base font-medium mb-2">What&apos;s the main reason for your score?</h3>
-              <textarea
-                className="w-full p-2 border rounded mb-4"
-                value={feedback}
-                onChange={(e) => setFeedback(e.target.value)}
-                maxLength={1000}
-              />
-              {/* Additional comments textarea */}
-              <h3 className="text-base font-medium mb-2">
-                What would make it even better? Or other comments (optional).
-              </h3>
-              <textarea
-                className="w-full p-2 border rounded mb-4"
-                value={additionalComments}
-                onChange={(e) => setAdditionalComments(e.target.value)}
-                maxLength={1000}
-              />
-              {/* Error message display */}
-              {errorMessage && <div className="text-red-500 mb-4">{errorMessage}</div>}
-              {/* Action buttons */}
-              <div className="flex justify-between">
-                <button
-                  className="px-4 py-2 rounded bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors"
-                  onClick={remindMeLater}
-                >
-                  Remind Me Later
-                </button>
-                <button
-                  className={`px-4 py-2 rounded ${score !== null ? "bg-blue-500 text-white hover:bg-blue-600" : "bg-gray-300 text-gray-500 cursor-not-allowed"} transition-colors`}
-                  onClick={submitSurvey}
-                  disabled={score === null}
-                >
-                  Submit
-                </button>
-              </div>
-              {/* Privacy notice */}
-              <p className="text-xs text-gray-500 mt-4">
-                This survey information is collected solely to improve our service.
-              </p>
-            </div>
-          </motion.div>
+            ))}
+          </div>
+          <div className="flex justify-between text-xs text-gray-500 mt-2">
+            <span>Not likely</span>
+            <span>Very likely</span>
+          </div>
+        </div>
+        {/* Feedback textarea */}
+        <h2 className="text-lg font-medium mb-2">What&apos;s the main reason for your score?</h2>
+        <textarea
+          className="w-full p-3 border rounded mb-6 min-h-[100px]"
+          value={feedback}
+          onChange={(e) => setFeedback(e.target.value)}
+          maxLength={1000}
+          placeholder="Please share your thoughts..."
+        />
+        {/* Additional comments textarea */}
+        <h2 className="text-lg font-medium mb-2">What would make it even better? Or other comments (optional).</h2>
+        <textarea
+          className="w-full p-3 border rounded mb-6 min-h-[100px]"
+          value={additionalComments}
+          onChange={(e) => setAdditionalComments(e.target.value)}
+          maxLength={1000}
+          placeholder="Any additional feedback..."
+        />
+        {/* Error message display */}
+        {errorMessage && (
+          <div className="text-red-500 mb-4 p-3 bg-red-50 border border-red-200 rounded">{errorMessage}</div>
         )}
-      </AnimatePresence>
+        {/* Action buttons */}
+        <div className="flex justify-end gap-3">
+          <button
+            className="px-6 py-2 rounded bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={() => (window.location.href = "/")}
+            disabled={isSubmitting}
+          >
+            Cancel
+          </button>
+          <button
+            className={`px-6 py-2 rounded transition-colors ${
+              score !== null && !isSubmitting
+                ? "bg-blue-500 text-white hover:bg-blue-600"
+                : "bg-gray-300 text-gray-500 cursor-not-allowed"
+            }`}
+            onClick={submitSurvey}
+            disabled={score === null || isSubmitting}
+          >
+            {isSubmitting ? "Submitting..." : "Submit"}
+          </button>
+        </div>
+        {/* Privacy notice */}
+        <p className="text-xs text-gray-500 mt-6">
+          This survey information is collected solely to improve our service.
+        </p>
+      </div>
 
       {/* Toast message */}
       {toastMessage && <Toast message={toastMessage} onClose={() => setToastMessage(null)} />}

@@ -44,7 +44,6 @@ describe("TipsModal", () => {
     requireLogin: true,
     allowTemporarySessions: true,
     allowAllAnswersPage: true,
-    npsSurveyFrequencyDays: 90,
     queriesPerUserPerDay: 200,
     showSourceContent: true,
     showVoting: true,

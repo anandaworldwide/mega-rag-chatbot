@@ -1,0 +1,6 @@
+{
+  "subject": "Quick question about {{shortname}}",
+  "greeting": "Hi {{firstName}},",
+  "body": "We'd love to hear your feedback! How likely are you to recommend {{name}} to {{other_visitors_reference}}?\n\nClick a number below to share your thoughts:",
+  "ctaText": "Complete Survey"
+}

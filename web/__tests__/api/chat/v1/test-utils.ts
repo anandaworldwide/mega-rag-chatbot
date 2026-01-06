@@ -54,7 +54,6 @@ export const mockSiteConfig: SiteConfig = {
   requireLogin: false,
   allowTemporarySessions: true,
   allowAllAnswersPage: true,
-  npsSurveyFrequencyDays: 30,
   queriesPerUserPerDay: 100,
   includedLibraries: ['test-library'],
   enabledMediaTypes: ['text', 'audio', 'youtube'],

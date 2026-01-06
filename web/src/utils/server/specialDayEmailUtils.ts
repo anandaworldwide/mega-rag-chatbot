@@ -2,16 +2,21 @@
  * Special day email utilities for rendering and sending holy day emails
  */
 
-import * as fs from "fs";
 import * as path from "path";
 import { sendEmail } from "./emailUtils";
-import { generateEmailContent } from "./emailTemplates";
+import { generateEmailContent, addTrackingPixel } from "./emailTemplates";
 import { loadSiteConfig } from "./loadSiteConfig";
 import { User } from "@/types/user";
 import { addUtmParams, generateClickTrackingUrl, generateOpenTrackingUrl } from "./emailTrackingUtils";
 import { generateUnsubscribeToken } from "./emailTokenUtils";
 import { selectRandomExampleQuestions } from "./onboardingEmailUtils";
 import { generateCampaignId } from "@/config/specialDays";
+import { db } from "@/services/firebase";
+import { getUsersCollectionName } from "./firestoreUtils";
+import { updateLastContentEmailSent } from "./contentEmailTracker";
+import { renderTemplate } from "./templateUtils";
+import { validateUserEmail } from "./emailValidation";
+import { isValidSiteId, loadTemplateFile, TemplateDirectoryConfig } from "./emailTemplateLoader";
 
 export interface SpecialDayTemplate {
   specialDayId: string;
@@ -24,62 +29,12 @@ export interface SpecialDayTemplate {
   ctaText?: string;
 }
 
-// Cache for valid site IDs to avoid repeated file system reads
-let validSiteIdsCache: Set<string> | null = null;
-let validSiteIdsCacheTime: number = 0;
-const CACHE_TTL_MS = 60 * 1000; // 1 minute cache
-
-/**
- * Dynamically discovers site IDs that have special day templates by reading the directory
- * Uses caching to avoid repeated file system reads
- */
-async function getValidSiteIds(): Promise<Set<string>> {
-  const now = Date.now();
-  if (validSiteIdsCache && now - validSiteIdsCacheTime < CACHE_TTL_MS) {
-    return validSiteIdsCache;
-  }
-
-  const templatesDir = path.join(process.cwd(), "site-config", "specialday-templates");
-  const siteIds = new Set<string>();
-
-  try {
-    // Use async file operations
-    const exists = await fs.promises
-      .access(templatesDir)
-      .then(() => true)
-      .catch(() => false);
-    if (exists) {
-      const entries = await fs.promises.readdir(templatesDir, { withFileTypes: true });
-      for (const entry of entries) {
-        // Only include directories with safe names (alphanumeric + hyphen)
-        if (entry.isDirectory() && /^[a-zA-Z0-9-]+$/.test(entry.name)) {
-          siteIds.add(entry.name);
-        }
-      }
-    }
-  } catch (error) {
-    console.error("Error reading special day templates directory:", error);
-  }
-
-  validSiteIdsCache = siteIds;
-  validSiteIdsCacheTime = now;
-  return siteIds;
-}
-
-/**
- * Validates a site ID to prevent path traversal attacks
- * Checks against dynamically discovered sites that have special day templates
- */
-async function isValidSiteId(siteId: string): Promise<boolean> {
-  // First check: strict pattern match (alphanumeric + hyphen only)
-  if (!/^[a-zA-Z0-9-]+$/.test(siteId)) {
-    return false;
-  }
-
-  // Second check: must have special day templates directory
-  const validSiteIds = await getValidSiteIds();
-  return validSiteIds.has(siteId);
-}
+// Template directory configuration for special day emails
+const SPECIAL_DAY_TEMPLATE_CONFIG: TemplateDirectoryConfig = {
+  directoryName: "specialday-templates",
+  isSubdirectoryBased: true,
+  fileExtension: ".json",
+};
 
 /**
  * Loads a special day email template for a specific special day and site
@@ -90,58 +45,22 @@ async function isValidSiteId(siteId: string): Promise<boolean> {
  * @returns Template object or null if not found
  */
 export async function loadSpecialDayTemplate(specialDay: string, siteId: string): Promise<SpecialDayTemplate | null> {
-  try {
-    // Validate siteId to prevent path traversal
-    if (!(await isValidSiteId(siteId))) {
-      console.error(`Invalid siteId: ${siteId}`);
-      return null;
-    }
-
-    // Validate specialDay to prevent path traversal
-    if (!/^[a-zA-Z0-9-]+$/.test(specialDay)) {
-      console.error(`Invalid specialDay: ${specialDay}`);
-      return null;
-    }
-
-    // Load site-specific template only using async file operations
-    const templatePath = path.join(process.cwd(), "site-config", "specialday-templates", siteId, `${specialDay}.json`);
-
-    const exists = await fs.promises
-      .access(templatePath)
-      .then(() => true)
-      .catch(() => false);
-    if (exists) {
-      const templateContent = await fs.promises.readFile(templatePath, "utf-8");
-      try {
-        return JSON.parse(templateContent) as SpecialDayTemplate;
-      } catch (parseError) {
-        console.error(`Error parsing special day template JSON for ${specialDay}, site ${siteId}:`, parseError);
-        return null;
-      }
-    }
-
-    // No template found for this site
-    return null;
-  } catch (error) {
-    console.error(`Error loading special day template for ${specialDay}, site ${siteId}:`, error);
+  // Validate siteId to prevent path traversal
+  if (!(await isValidSiteId(siteId, SPECIAL_DAY_TEMPLATE_CONFIG))) {
+    console.error(`Invalid siteId: ${siteId}`);
     return null;
   }
-}
 
-/**
- * Renders template variables in a string
- *
- * @param template - Template string with {{variable}} placeholders
- * @param variables - Object with variable values
- * @returns Rendered string
- */
-function renderTemplate(template: string, variables: Record<string, string>): string {
-  let rendered = template;
-  for (const [key, value] of Object.entries(variables)) {
-    const placeholder = new RegExp(`\\{\\{${key}\\}\\}`, "g");
-    rendered = rendered.replace(placeholder, value);
+  // Validate specialDay to prevent path traversal
+  if (!/^[a-zA-Z0-9-]+$/.test(specialDay)) {
+    console.error(`Invalid specialDay: ${specialDay}`);
+    return null;
   }
-  return rendered;
+
+  const templatePath = path.join(process.cwd(), "site-config", "specialday-templates", siteId, `${specialDay}.json`);
+  const expectedDir = path.join(process.cwd(), "site-config", "specialday-templates", siteId);
+
+  return loadTemplateFile<SpecialDayTemplate>(templatePath, expectedDir, `${siteId}/${specialDay}`);
 }
 
 /**
@@ -235,9 +154,12 @@ export async function renderSpecialDayEmail(
   };
 
   // Render subject and body (HTML and text versions)
-  const subject = renderTemplate(template.subject, variablesText);
-  const bodyHtml = renderTemplate(template.body, variablesHtml);
-  const bodyText = renderTemplate(template.body, variablesText);
+  // Subject is plain text, escape HTML
+  const subject = renderTemplate(template.subject, variablesText, true);
+  // Body HTML may contain HTML from exampleQuestions, so don't escape
+  const bodyHtml = renderTemplate(template.body, variablesHtml, false);
+  // Body text is plain text, escape HTML
+  const bodyText = renderTemplate(template.body, variablesText, true);
 
   // Generate unsubscribe URL with tracking
   const unsubscribeToken = generateUnsubscribeToken(userEmail, "specialDay");
@@ -282,11 +204,8 @@ export async function renderSpecialDayEmail(
     unsubscribeUrl,
   });
 
-  // Add tracking pixel to HTML (insert before closing </body> tag)
-  const htmlWithTracking = emailContentHtml.html.replace(
-    "</body>",
-    `<img src="${openTrackingUrl}" width="1" height="1" style="display:none;" alt="" />\n</body>`
-  );
+  // Add tracking pixel to HTML using centralized utility
+  const htmlWithTracking = addTrackingPixel(emailContentHtml.html, openTrackingUrl);
 
   // Generate text version separately with plain text body
   const textCtaUrl = template.ctaUrl ? renderTemplate(template.ctaUrl, variablesText) : undefined;
@@ -310,12 +229,13 @@ export async function renderSpecialDayEmail(
 /**
  * Sends a special day email to a user
  *
- * @param user - User object
+ * @param user - User object with email stored in id field
  * @param specialDay - Special day ID (e.g., "masters-birthday")
  * @param siteId - Site ID
  * @param baseUrl - Base URL for links
  * @param year - Year for campaign tracking
- * @returns True if email was sent successfully
+ * @returns True if email was sent successfully, false otherwise
+ * @throws Never throws - all errors are caught and logged, returns false
  */
 export async function sendSpecialDayEmail(
   user: User,
@@ -325,6 +245,20 @@ export async function sendSpecialDayEmail(
   year: number
 ): Promise<boolean> {
   try {
+    // Validate user email before proceeding
+    const emailValidation = validateUserEmail(user);
+    if (!emailValidation.isValid) {
+      console.error(`User email validation failed: ${emailValidation.error}`);
+      return false;
+    }
+    const userEmail = emailValidation.email!;
+
+    // Validate baseUrl
+    if (!baseUrl || typeof baseUrl !== "string") {
+      console.error("Invalid baseUrl provided");
+      return false;
+    }
+
     // Load template
     const template = await loadSpecialDayTemplate(specialDay, siteId);
     if (!template) {
@@ -334,13 +268,6 @@ export async function sendSpecialDayEmail(
 
     // Render email
     const emailContent = await renderSpecialDayEmail(template, user, siteId, baseUrl, year);
-
-    // Get user email (it's the document ID stored in user.id)
-    const userEmail = user.id;
-    if (!userEmail || typeof userEmail !== "string") {
-      console.error("User email not found or invalid");
-      return false;
-    }
 
     // Send email
     const success = await sendEmail({
@@ -352,6 +279,12 @@ export async function sendSpecialDayEmail(
 
     if (success) {
       console.log(`✅ Sent special day email (${specialDay}-${year}) to ${userEmail}`);
+      // Update content email tracking (awaited to ensure completion before function returns)
+      if (db) {
+        const usersCol = getUsersCollectionName();
+        const userRef = db.collection(usersCol).doc(userEmail);
+        await updateLastContentEmailSent(userRef);
+      }
     } else {
       console.error(`❌ Failed to send special day email (${specialDay}-${year}) to ${userEmail}`);
     }

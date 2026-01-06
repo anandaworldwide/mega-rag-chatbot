@@ -38,6 +38,7 @@ export function getDefaultEmailPreferences(): EmailPreferences {
     onboarding: true,
     reengagement: true,
     specialDay: true,
+    nps: true,
   };
 }
 
@@ -60,6 +61,7 @@ export function migrateEmailPreferences(user: User): User {
     onboarding: true, // New users get onboarding enabled by default
     reengagement: true, // New users get re-engagement enabled by default
     specialDay: true, // New users get special day emails enabled by default
+    nps: true, // New users get NPS survey emails enabled by default
   };
 
   return {

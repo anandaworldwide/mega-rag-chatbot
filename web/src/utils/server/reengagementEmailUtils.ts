@@ -2,14 +2,19 @@
  * Re-engagement email utilities for rendering and sending "We Miss You" emails
  */
 
-import * as fs from "fs";
 import * as path from "path";
 import { sendEmail } from "./emailUtils";
-import { generateEmailContent } from "./emailTemplates";
+import { generateEmailContent, addTrackingPixel } from "./emailTemplates";
 import { loadSiteConfig } from "./loadSiteConfig";
 import { User } from "@/types/user";
 import { addUtmParams, generateClickTrackingUrl, generateOpenTrackingUrl } from "./emailTrackingUtils";
 import { generateUnsubscribeToken } from "./emailTokenUtils";
+import { db } from "@/services/firebase";
+import { getUsersCollectionName } from "./firestoreUtils";
+import { updateLastContentEmailSent } from "./contentEmailTracker";
+import { renderTemplate } from "./templateUtils";
+import { validateUserEmail } from "./emailValidation";
+import { isValidSiteId, loadTemplateFile, TemplateDirectoryConfig } from "./emailTemplateLoader";
 
 export interface ReengagementTemplate {
   campaignId: string;
@@ -24,63 +29,12 @@ export interface ReengagementTemplate {
   };
 }
 
-// Cache for valid site IDs to avoid repeated file system reads
-let validSiteIdsCache: Set<string> | null = null;
-let validSiteIdsCacheTime: number = 0;
-const CACHE_TTL_MS = 60 * 1000; // 1 minute cache
-
-/**
- * Dynamically discovers site IDs that have re-engagement templates by reading the directory
- * Uses caching to avoid repeated file system reads
- */
-async function getValidSiteIds(): Promise<Set<string>> {
-  const now = Date.now();
-  if (validSiteIdsCache && now - validSiteIdsCacheTime < CACHE_TTL_MS) {
-    return validSiteIdsCache;
-  }
-
-  const templatesDir = path.join(process.cwd(), "site-config", "reengagement-templates");
-  const siteIds = new Set<string>();
-
-  try {
-    // Use async file operations
-    const exists = await fs.promises
-      .access(templatesDir)
-      .then(() => true)
-      .catch(() => false);
-    if (exists) {
-      const entries = await fs.promises.readdir(templatesDir, { withFileTypes: true });
-      for (const entry of entries) {
-        // Only include JSON files with safe names (alphanumeric + hyphen)
-        if (entry.isFile() && entry.name.endsWith(".json") && /^[a-zA-Z0-9-]+\.json$/.test(entry.name)) {
-          const siteId = entry.name.replace(".json", "");
-          siteIds.add(siteId);
-        }
-      }
-    }
-  } catch (error) {
-    console.error("Error reading re-engagement templates directory:", error);
-  }
-
-  validSiteIdsCache = siteIds;
-  validSiteIdsCacheTime = now;
-  return siteIds;
-}
-
-/**
- * Validates a site ID to prevent path traversal attacks
- * Checks against dynamically discovered sites that have re-engagement templates
- */
-async function isValidSiteId(siteId: string): Promise<boolean> {
-  // First check: strict pattern match (alphanumeric + hyphen only)
-  if (!/^[a-zA-Z0-9-]+$/.test(siteId)) {
-    return false;
-  }
-
-  // Second check: must have re-engagement template file
-  const validSiteIds = await getValidSiteIds();
-  return validSiteIds.has(siteId);
-}
+// Template directory configuration for re-engagement emails
+const REENGAGEMENT_TEMPLATE_CONFIG: TemplateDirectoryConfig = {
+  directoryName: "reengagement-templates",
+  isSubdirectoryBased: false,
+  fileExtension: ".json",
+};
 
 /**
  * Loads a re-engagement email template for a specific site
@@ -90,52 +44,16 @@ async function isValidSiteId(siteId: string): Promise<boolean> {
  * @returns Template object or null if not found
  */
 export async function loadReengagementTemplate(siteId: string): Promise<ReengagementTemplate | null> {
-  try {
-    // Validate siteId to prevent path traversal
-    if (!(await isValidSiteId(siteId))) {
-      console.error(`Invalid siteId: ${siteId}`);
-      return null;
-    }
-
-    // Load site-specific template only using async file operations
-    const templatePath = path.join(process.cwd(), "site-config", "reengagement-templates", `${siteId}.json`);
-
-    const exists = await fs.promises
-      .access(templatePath)
-      .then(() => true)
-      .catch(() => false);
-    if (exists) {
-      const templateContent = await fs.promises.readFile(templatePath, "utf-8");
-      try {
-        return JSON.parse(templateContent) as ReengagementTemplate;
-      } catch (parseError) {
-        console.error(`Error parsing re-engagement template JSON for site ${siteId}:`, parseError);
-        return null;
-      }
-    }
-
-    // No template found for this site
-    return null;
-  } catch (error) {
-    console.error(`Error loading re-engagement template for site ${siteId}:`, error);
+  // Validate siteId to prevent path traversal
+  if (!(await isValidSiteId(siteId, REENGAGEMENT_TEMPLATE_CONFIG))) {
+    console.error(`Invalid siteId: ${siteId}`);
     return null;
   }
-}
 
-/**
- * Renders template variables in a string
- *
- * @param template - Template string with {{variable}} placeholders
- * @param variables - Object with variable values
- * @returns Rendered string
- */
-function renderTemplate(template: string, variables: Record<string, string>): string {
-  let rendered = template;
-  for (const [key, value] of Object.entries(variables)) {
-    const placeholder = new RegExp(`\\{\\{${key}\\}\\}`, "g");
-    rendered = rendered.replace(placeholder, value);
-  }
-  return rendered;
+  const templatePath = path.join(process.cwd(), "site-config", "reengagement-templates", `${siteId}.json`);
+  const expectedDir = path.join(process.cwd(), "site-config", "reengagement-templates");
+
+  return loadTemplateFile<ReengagementTemplate>(templatePath, expectedDir, siteId);
 }
 
 /**
@@ -250,8 +168,9 @@ export async function renderReengagementEmail(
   };
 
   // Render greeting and subject
-  const greeting = renderTemplate(template.greeting, variables);
-  const subject = renderTemplate(template.subject, variables);
+  // Both are plain text, escape HTML
+  const greeting = renderTemplate(template.greeting, variables, true);
+  const subject = renderTemplate(template.subject, variables, true);
 
   // Format CTA categories with random prompts
   const ctaButtonsFormatted = formatCtaButtons(
@@ -322,11 +241,8 @@ ${template.secondaryCta.label}: ${secondaryCtaUrl}
     unsubscribeUrl,
   });
 
-  // Add tracking pixel to HTML (insert before closing </body> tag)
-  const htmlWithTracking = emailContentHtml.html.replace(
-    "</body>",
-    `<img src="${openTrackingUrl}" width="1" height="1" style="display:none;" alt="" />\n</body>`
-  );
+  // Add tracking pixel to HTML using centralized utility
+  const htmlWithTracking = addTrackingPixel(emailContentHtml.html, openTrackingUrl);
 
   // Generate text version separately
   const emailContentText = generateEmailContent({
@@ -347,13 +263,28 @@ ${template.secondaryCta.label}: ${secondaryCtaUrl}
 /**
  * Sends a re-engagement email to a user
  *
- * @param user - User object
+ * @param user - User object with email stored in id field
  * @param siteId - Site ID
  * @param baseUrl - Base URL for links
- * @returns True if email was sent successfully
+ * @returns True if email was sent successfully, false otherwise
+ * @throws Never throws - all errors are caught and logged, returns false
  */
 export async function sendReengagementEmail(user: User, siteId: string, baseUrl: string): Promise<boolean> {
   try {
+    // Validate user email before proceeding
+    const emailValidation = validateUserEmail(user);
+    if (!emailValidation.isValid) {
+      console.error(`User email validation failed: ${emailValidation.error}`);
+      return false;
+    }
+    const userEmail = emailValidation.email!;
+
+    // Validate baseUrl
+    if (!baseUrl || typeof baseUrl !== "string") {
+      console.error("Invalid baseUrl provided");
+      return false;
+    }
+
     // Load template
     const template = await loadReengagementTemplate(siteId);
     if (!template) {
@@ -363,13 +294,6 @@ export async function sendReengagementEmail(user: User, siteId: string, baseUrl:
 
     // Render email
     const emailContent = await renderReengagementEmail(template, user, siteId, baseUrl);
-
-    // Get user email (it's the document ID stored in user.id)
-    const userEmail = user.id;
-    if (!userEmail || typeof userEmail !== "string") {
-      console.error("User email not found or invalid");
-      return false;
-    }
 
     // Send email
     const success = await sendEmail({
@@ -381,6 +305,12 @@ export async function sendReengagementEmail(user: User, siteId: string, baseUrl:
 
     if (success) {
       console.log(`✅ Sent re-engagement email to ${userEmail}`);
+      // Update content email tracking (awaited to ensure completion before function returns)
+      if (db) {
+        const usersCol = getUsersCollectionName();
+        const userRef = db.collection(usersCol).doc(userEmail);
+        await updateLastContentEmailSent(userRef);
+      }
     } else {
       console.error(`❌ Failed to send re-engagement email to ${userEmail}`);
     }

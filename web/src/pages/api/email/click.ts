@@ -23,10 +23,10 @@ const EMAIL_TRACKING_TTL_DAYS = 180;
  * Query parameters:
  * - url: Target URL (encoded)
  * - email: User email address (encoded)
- * - campaign: Campaign type ("onboarding", "newsletter", "reengagement", "specialDay")
+ * - campaign: Campaign type ("onboarding", "newsletter", "reengagement", "specialDay", "nps")
  * - campaignId: Campaign identifier (e.g., day number for onboarding, newsletterId for newsletters)
- * - type: Link type ("question", "cta", "unsubscribe", "link")
- * - id: Optional link identifier (e.g., question text)
+ * - type: Link type ("question", "cta", "unsubscribe", "link", "score")
+ * - id: Optional link identifier (e.g., question text, score value)
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") {
@@ -78,7 +78,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Validate type is one of allowed values
-    const validTypes = ["question", "cta", "unsubscribe", "link"];
+    const validTypes = ["question", "cta", "unsubscribe", "link", "score"];
     if (!validTypes.includes(type)) {
       return res.status(400).json({ error: "Invalid 'type' parameter" });
     }
@@ -86,8 +86,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Decode URL and email
     const targetUrl = decodeURIComponent(url);
     const userEmail = decodeURIComponent(email).toLowerCase();
-    const campaignType = campaign as "onboarding" | "newsletter" | "reengagement" | "specialDay";
-    const linkType = type as "question" | "cta" | "unsubscribe" | "link";
+    const campaignType = campaign as "onboarding" | "newsletter" | "reengagement" | "specialDay" | "nps";
+    const linkType = type as "question" | "cta" | "unsubscribe" | "link" | "score";
     const linkId = id ? decodeURIComponent(id as string).substring(0, MAX_LINK_ID_LENGTH) : undefined;
 
     // Validate URL is safe (must be same origin or allowed external domain)

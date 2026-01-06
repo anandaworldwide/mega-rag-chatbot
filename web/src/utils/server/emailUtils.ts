@@ -4,6 +4,7 @@
  */
 
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
+import { validateEmail, EmailValidationLevel } from "./emailValidation";
 
 // Initialize SES client
 const ses = new SESClient({
@@ -44,11 +45,11 @@ export async function sendEmail(options: EmailOptions): Promise<boolean> {
     // Normalize recipients to array
     const recipients = Array.isArray(to) ? to : [to];
 
-    // Validate email addresses
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    // Validate email addresses using centralized validation
     for (const email of recipients) {
-      if (!emailRegex.test(email)) {
-        throw new Error(`Invalid email address: ${email}`);
+      const validation = validateEmail(email, EmailValidationLevel.BASIC);
+      if (!validation.isValid) {
+        throw new Error(`Invalid email address: ${email} - ${validation.error}`);
       }
     }
 

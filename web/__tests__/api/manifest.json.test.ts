@@ -57,7 +57,6 @@ describe("API Route: /api/manifest.json", () => {
     requireLogin: true,
     allowTemporarySessions: true,
     allowAllAnswersPage: true,
-    npsSurveyFrequencyDays: 90,
     queriesPerUserPerDay: 200,
     enableModelComparison: true,
     showSourceCountSelector: true,

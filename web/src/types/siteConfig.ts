@@ -45,7 +45,6 @@ export interface SiteConfig {
   requireLogin: boolean;
   allowTemporarySessions: boolean;
   allowAllAnswersPage: boolean;
-  npsSurveyFrequencyDays: number;
   queriesPerUserPerDay: number;
   showSourceContent: boolean;
   showVoting: boolean;
@@ -70,4 +69,5 @@ export interface SiteConfig {
   };
   accessRequestNoteLabel?: string; // Label text for reference note field in access request form
   adminAccessGuidelines?: string; // Site-specific guidelines for who can access the chatbot (shown in admin panel)
+  enableNpsSurveyEmail?: boolean; // Whether to send NPS survey emails to users (requires requireLogin: true)
 }

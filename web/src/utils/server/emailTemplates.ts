@@ -1,5 +1,6 @@
 // HTML email template utilities with login image and site branding support
 import { loadSiteConfigSync } from "./loadSiteConfig";
+import { escapeHtml } from "./templateUtils";
 
 interface EmailTemplateOptions {
   greeting?: string;
@@ -244,6 +245,28 @@ export function generateEmailContent(options: EmailTemplateOptions): {
     html: htmlContent,
     text: textContent,
   };
+}
+
+/**
+ * Adds an email open tracking pixel to HTML email content
+ * Safely injects a 1x1 tracking image before the closing </body> tag
+ *
+ * @param htmlContent - The HTML email content
+ * @param trackingUrl - The tracking pixel URL (will be HTML-escaped)
+ * @returns HTML content with tracking pixel injected
+ */
+export function addTrackingPixel(htmlContent: string, trackingUrl: string): string {
+  // Escape the tracking URL to prevent XSS
+  const escapedUrl = escapeHtml(trackingUrl);
+  const trackingPixel = `<img src="${escapedUrl}" width="1" height="1" style="display:none;" alt="" />\n`;
+
+  // Check if </body> tag exists before replacing to prevent malformed HTML
+  if (htmlContent.includes("</body>")) {
+    return htmlContent.replace("</body>", `${trackingPixel}</body>`);
+  }
+
+  // If no </body> tag, append tracking pixel at the end
+  return `${htmlContent}\n${trackingPixel}`;
 }
 
 /**

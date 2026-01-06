@@ -43,7 +43,6 @@ describe("SearchOptionsDropdown", () => {
     requireLogin: false,
     allowTemporarySessions: true,
     allowAllAnswersPage: false,
-    npsSurveyFrequencyDays: 30,
     queriesPerUserPerDay: 100,
     showSourceContent: true,
     showVoting: true,

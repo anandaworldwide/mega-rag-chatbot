@@ -2,13 +2,14 @@
  * User type definitions for the Ananda Library Chatbot
  */
 
-export type EmailCategory = "newsletters" | "onboarding" | "reengagement" | "specialDay";
+export type EmailCategory = "newsletters" | "onboarding" | "reengagement" | "specialDay" | "nps";
 
 export interface EmailPreferences {
   newsletters: boolean; // Admin-sent newsletters
   onboarding: boolean; // Onboarding drip emails
   reengagement: boolean; // Re-engagement emails (21-60 day inactivity)
   specialDay: boolean; // Special occasion emails (holidays, events, etc.)
+  nps?: boolean; // NPS survey emails (defaults to true if not set)
 }
 
 export interface User {
@@ -41,6 +42,13 @@ export interface User {
   pendingSpecialDayKeys?: string[]; // Idempotency keys for in-progress sends
   lastActivityAt?: any; // firebase.firestore.Timestamp - last chat or search activity
   createdAt?: any; // firebase.firestore.Timestamp - account creation time
+  // NPS survey tracking
+  lastNpsSurveySentAt?: any; // firebase.firestore.Timestamp - last NPS survey email sent
+  pendingNpsSurveyKeys?: string[]; // Idempotency keys for in-progress NPS survey sends
+  npsSendAttempts?: number; // Count of failed send attempts for retry logic
+  lastNpsSendFailedAt?: any; // firebase.firestore.Timestamp - last failed NPS send attempt
+  // Content email tracking (cross-email type)
+  lastContentEmailSentAt?: any; // firebase.firestore.Timestamp - last content email sent (newsletters, surveys, onboarding, reengagement, special days)
   // Onboarding idempotency
   pendingOnboardingKeys?: string[]; // Idempotency keys for in-progress onboarding sends
   // Password authentication fields

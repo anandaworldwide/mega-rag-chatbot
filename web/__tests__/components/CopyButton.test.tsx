@@ -93,7 +93,6 @@ describe("CopyButton", () => {
     requireLogin: true,
     allowTemporarySessions: false,
     allowAllAnswersPage: false,
-    npsSurveyFrequencyDays: 30,
     queriesPerUserPerDay: 100,
     showSourceContent: false,
     showVoting: false,

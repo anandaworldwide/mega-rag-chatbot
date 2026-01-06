@@ -59,7 +59,6 @@ describe("siteConfig utils", () => {
     requireLogin: false,
     allowTemporarySessions: true,
     allowAllAnswersPage: true,
-    npsSurveyFrequencyDays: 30,
     queriesPerUserPerDay: 100,
     enabledMediaTypes: ["text", "audio"],
   };

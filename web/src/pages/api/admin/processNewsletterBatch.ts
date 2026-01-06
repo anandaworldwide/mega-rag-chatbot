@@ -15,6 +15,9 @@ import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
 import { formatFullName } from "@/utils/shared/nameUtils";
 import firebase from "firebase-admin";
 import pMap from "p-map";
+import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
+import { updateLastContentEmailSent } from "@/utils/server/contentEmailTracker";
+import { createErrorResponse, ERROR_CODES } from "@/utils/server/apiErrorResponse";
 
 // Concurrency limit for parallel email sending (balance speed vs rate limits)
 // Set to 5 to stay under AWS SES rate limit of 14 requests/second
@@ -55,11 +58,11 @@ function renderNewsletterHtml(templateVars: {
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
-    return res.status(405).json({ error: "Method not allowed" });
+    return res.status(405).json(createErrorResponse("Method not allowed", ERROR_CODES.VALIDATION_ERROR));
   }
 
   if (!db) {
-    return res.status(503).json({ error: "Database not available" });
+    return res.status(503).json(createErrorResponse("Database not available", ERROR_CODES.DATABASE_ERROR));
   }
 
   try {
@@ -68,7 +71,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const { newsletterId, batchSize = 500 }: BatchRequest = req.body;
     if (!newsletterId) {
-      return res.status(400).json({ error: "newsletterId required" });
+      return res.status(400).json(createErrorResponse("newsletterId required", ERROR_CODES.VALIDATION_ERROR));
     }
 
     // Fetch pending/failed items (attempts < 3)
@@ -88,7 +91,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const fromEmail = process.env.CONTACT_EMAIL;
 
     if (!jwtSecret || !fromEmail) {
-      return res.status(500).json({ error: "Configuration missing" });
+      return res.status(500).json(createErrorResponse("Configuration missing", ERROR_CODES.CONFIGURATION_ERROR));
     }
 
     console.log(
@@ -96,10 +99,45 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     );
 
     // Process queue items in parallel with controlled concurrency
+    // Use transaction to prevent race conditions when multiple batches process same items
     const results = await pMap(
       itemsSnapshot.docs,
       async (doc: firebase.firestore.QueryDocumentSnapshot) => {
         const data = doc.data();
+
+        // Use transaction to atomically check status and mark as processing
+        // Prevents duplicate sends if multiple batch processes run simultaneously
+        let canProcess = false;
+        try {
+          await db!.runTransaction(async (transaction) => {
+            const freshDoc = await transaction.get(doc.ref);
+            if (!freshDoc.exists) {
+              return;
+            }
+
+            const freshData = freshDoc.data();
+            // Only process if still pending or failed (not already sent)
+            if (
+              freshData &&
+              (freshData.status === "pending" || (freshData.status === "failed" && freshData.attempts < 3))
+            ) {
+              // Mark as processing to prevent other batches from picking it up
+              transaction.update(doc.ref, {
+                status: "processing",
+                updatedAt: firebase.firestore.Timestamp.now(),
+              });
+              canProcess = true;
+            }
+          });
+        } catch (_txError: any) {
+          // Transaction failed - skip this item
+          return { type: "failed" as const, email: data.email, error: "Transaction failed" };
+        }
+
+        if (!canProcess) {
+          return { type: "failed" as const, email: data.email, error: "Item already processed" };
+        }
+
         try {
           // Generate unsubscribe token
           const unsubscribeToken = jwt.sign({ email: data.email, purpose: "newsletter_unsubscribe" }, jwtSecret, {
@@ -137,12 +175,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
           if (emailSent) {
             await firestoreUpdate(doc.ref, { status: "sent", updatedAt: firebase.firestore.Timestamp.now() });
+            // Update content email tracking (awaited to ensure completion before function returns)
+            const usersCol = getUsersCollectionName();
+            const userRef = db!.collection(usersCol).doc(data.email);
+            await updateLastContentEmailSent(userRef);
             return { type: "sent" as const, email: data.email };
           } else {
+            // Send failed - mark as failed for retry
+            await firestoreUpdate(doc.ref, {
+              status: "failed",
+              error: "Send failed",
+              attempts: (data.attempts || 0) + 1,
+              updatedAt: firebase.firestore.Timestamp.now(),
+            });
             throw new Error("Send failed");
           }
         } catch (error: any) {
-          const attempts = data.attempts + 1;
+          const attempts = (data.attempts || 0) + 1;
           await firestoreUpdate(doc.ref, {
             status: attempts < 3 ? "failed" : "permanently_failed",
             error: error.message,
@@ -191,14 +240,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Handle authorization errors separately
     if (error.message?.includes("Unauthorized") || error.message?.includes("Superuser")) {
-      return res.status(403).json({
-        error: "Forbidden: Superuser privileges required",
-      });
+      return res
+        .status(403)
+        .json(createErrorResponse("Forbidden: Superuser privileges required", ERROR_CODES.FORBIDDEN));
     }
 
     // Return safe error message (no sensitive details)
     const safeMessage = getSafeErrorMessage(error, "Batch processing failed");
-    return res.status(500).json({ error: safeMessage });
+    return res.status(500).json(createErrorResponse(safeMessage, ERROR_CODES.INTERNAL_ERROR));
   }
 }
 
