@@ -92,11 +92,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
 
     // Track user activity when loading conversations (especially saved conversations via convId)
-    // Fire-and-forget - don't block the response
+    // MUST await to prevent Vercel from terminating before completion
     if (uuid && typeof uuid === "string") {
-      updateUserActivity(uuid).catch(() => {
+      try {
+        // Await with 3s timeout to prevent Vercel from killing the operation
+        await Promise.race([
+          updateUserActivity(uuid, "chats-api"),
+          new Promise((resolve) => setTimeout(resolve, 3000)),
+        ]);
+      } catch {
         // Silently handle errors - activity tracking is non-critical
-      });
+      }
     }
 
     return res.status(200).json(chats);

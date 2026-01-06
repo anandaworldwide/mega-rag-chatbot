@@ -24,6 +24,10 @@ const EMAIL_TRACKING_TTL_DAYS = 90;
  * - token: Base64 encoded signed token containing email:campaign:campaignId:timestamp:signature
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  // Debug: Log entry point with unique request ID to correlate with any errors
+  const requestId = `open-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  console.log(`[EmailOpen] START ${requestId}`);
+
   if (req.method !== "GET") {
     return res.status(405).json({ error: "Method not allowed" });
   }
@@ -107,9 +111,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
+    console.log(`[EmailOpen] END ${requestId} - success`);
     return serveTrackingPixel(res);
   } catch (error: any) {
-    console.error("Error in email open tracking:", error);
+    console.error(`[EmailOpen] END ${requestId} - error:`, error);
     // Always serve the pixel even on error
     return serveTrackingPixel(res);
   }

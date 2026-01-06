@@ -1101,7 +1101,7 @@ async function handleChatRequest(req: NextRequest) {
               if (sanitizedInput.uuid) {
                 try {
                   await Promise.race([
-                    updateUserActivity(sanitizedInput.uuid),
+                    updateUserActivity(sanitizedInput.uuid, "chat-v1-api"),
                     new Promise((resolve) => setTimeout(resolve, 3000)), // 3s timeout
                   ]);
                 } catch (_activityError) {

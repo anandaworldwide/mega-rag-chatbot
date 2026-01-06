@@ -274,10 +274,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse<SearchResponse 
       console.warn("Failed to cache search results:", e);
     }
 
-    // Track user activity (fire-and-forget) before sending response
+    // Track user activity - MUST await to prevent Vercel from terminating before completion
+    // Use Promise.race with timeout to avoid blocking the response too long
+    let uuid: string | null = null;
     try {
       // Extract UUID - try JWT token first, then fall back to getSecureUUID
-      let uuid: string | null = null;
       const authHeader = req.headers.authorization;
       if (authHeader && authHeader.startsWith("Bearer ")) {
         try {
@@ -300,9 +301,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse<SearchResponse 
       }
 
       if (uuid) {
-        updateUserActivity(uuid).catch(() => {
-          // Silently handle errors - activity tracking is non-critical
-        });
+        // Await with 3s timeout to prevent Vercel from killing the operation
+        await Promise.race([
+          updateUserActivity(uuid, "search-api"),
+          new Promise((resolve) => setTimeout(resolve, 3000)),
+        ]);
       }
     } catch {
       // Silently handle errors - activity tracking is non-critical
