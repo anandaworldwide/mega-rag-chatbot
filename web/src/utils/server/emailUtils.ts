@@ -78,10 +78,6 @@ export async function sendEmail(options: EmailOptions): Promise<boolean> {
     };
 
     // Send email
-    console.log(`📤 Sending email via AWS SES to: ${recipients.join(", ")}`);
-    console.log(`📤 From: ${fromAddress}`);
-    console.log(`📤 Subject: ${subject}`);
-
     await ses.send(new SendEmailCommand(params));
     console.log(`✅ Email sent successfully to: ${recipients.join(", ")}`);
     return true;

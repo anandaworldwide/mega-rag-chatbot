@@ -402,7 +402,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           );
           sent++;
           sentList.push({ email: userEmail });
-          console.log(`✅ Sent NPS survey email to ${userEmail}`);
         } else {
           // Send failed - rollback timestamp, remove pending key, increment retry counter
           const currentAttempts = userData.npsSendAttempts || 0;
@@ -444,13 +443,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     console.log(`   Total accepted users: ${allUsersSnapshot.docs.length}`);
     console.log(`   Eligible: ${eligibleDocs.length}`);
     console.log(`   Processed: ${processed}, Sent: ${sent}, Errors: ${errors}`);
-
-    if (sentList.length > 0) {
-      console.log(`📬 Emails sent:`);
-      for (const item of sentList) {
-        console.log(`   ✅ ${item.email}`);
-      }
-    }
 
     if (skippedList.length > 0 && skippedList.length <= 50) {
       console.log(`⏭️ Skipped users:`);

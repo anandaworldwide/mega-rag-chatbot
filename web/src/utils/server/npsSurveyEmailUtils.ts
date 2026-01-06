@@ -248,7 +248,6 @@ export async function sendNpsSurveyEmail(user: User, siteId: string, baseUrl: st
     });
 
     if (success) {
-      console.log(`✅ Sent NPS survey email to ${userEmail}`);
       // Update content email tracking (awaited to ensure completion before function returns)
       if (db) {
         const usersCol = getUsersCollectionName();
