@@ -291,7 +291,6 @@ export async function sendOnboardingEmail(user: User, day: number, siteId: strin
     });
 
     if (success) {
-      console.log(`✅ Sent onboarding email (day ${day}) to ${userEmail}`);
       // Update content email tracking (awaited to ensure completion before function returns)
       if (db) {
         const usersCol = getUsersCollectionName();

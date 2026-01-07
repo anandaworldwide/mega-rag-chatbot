@@ -79,7 +79,6 @@ export async function sendEmail(options: EmailOptions): Promise<boolean> {
 
     // Send email
     await ses.send(new SendEmailCommand(params));
-    console.log(`✅ Email sent successfully to: ${recipients.join(", ")}`);
     return true;
   } catch (error: any) {
     const errorDetails = {

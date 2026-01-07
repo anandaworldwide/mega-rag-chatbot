@@ -184,9 +184,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
               );
               sent++;
               sentList.push({ email: userEmail, day: nextDay, daysSinceStart: daysSinceCreation });
-              console.log(
-                `✅ Sent onboarding email (day ${nextDay}) to ${userEmail} (existing user, ${daysSinceCreation} days since signup)`
-              );
             } else {
               errors++;
               errorsList.push(`${userEmail}: Failed to send day ${nextDay} email`);
@@ -290,7 +287,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           );
           sent++;
           sentList.push({ email: userEmail, day: nextDay, daysSinceStart });
-          console.log(`✅ Sent onboarding email (day ${nextDay}) to ${userEmail}`);
         } else {
           // Send failed - remove pending key so it can be retried
           await firestoreSet(
