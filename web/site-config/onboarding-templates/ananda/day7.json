@@ -2,7 +2,7 @@
   "day": 7,
   "subject": "One Week with Luca",
   "greeting": "Hi {{firstName}},",
-  "body": "It's been a week since you joined Luca! We hope you've been finding inspiration in Master's teachings.\n\nHere are some advanced questions that might interest you:\n{{exampleQuestions}}\n\nIf you have specific topics you'd like to explore, or if you've found particular teachings helpful, we'd love to hear about your experience.\n\nWe're glad you are part of the Ananda family.\n\nIn divine friendship,\nThe Luca Team",
+  "body": "It's been a week since you joined Luca! We hope you've been finding inspiration in Master's teachings.\n\nHere are some advanced questions that might interest you:\n\n{{exampleQuestions}}\n\nIf you have specific topics you'd like to explore, or if you've found particular teachings helpful, we'd love to hear about your experience.\n\nWe're glad you are part of the Ananda family.\n\nIn divine friendship,\nThe Luca Team",
   "exampleQuestionPool": [
     "How can one differentiate feeling from emotion?",
     "What has Swamiji said about the difference between feeling and emotion?",
