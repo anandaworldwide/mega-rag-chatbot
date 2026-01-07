@@ -504,6 +504,69 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
     );
   });
 
+  describe("Book-Specific Queries", () => {
+    // Test that when sources DO contain the requested book, the chatbot answers normally
+    // without falsely claiming the book wasn't found
+    test.concurrent("should NOT say 'did not find sources' when sources contain the requested book", async () => {
+      console.log(`Running test: should NOT say 'did not find sources' when sources contain the requested book`);
+
+      // Query for a book we know is in the library
+      const query = "Tell me a story from Gyandev's book, Hidden Story of the Mahabharata";
+      const actualResponse = await getLucaResponse(query);
+
+      console.log(`Query: "${query}"\nResponse: "${actualResponse}"`);
+
+      // Should NOT contain the "did not find" disclaimer since the book IS in the sources
+      const disclaimerPatterns = [
+        /I did not find any.*sources/i,
+        /I did not find.*in the materials available/i,
+        /I couldn't find.*sources from/i,
+        /no sources from.*available/i,
+      ];
+
+      for (const pattern of disclaimerPatterns) {
+        expect(actualResponse).not.toMatch(pattern);
+      }
+
+      // Should contain actual content about the Mahabharata
+      expect(actualResponse).toMatch(/Mahabharata|story|narrative|epic/i);
+    });
+
+    // Test that when sources DON'T contain the requested book, the chatbot acknowledges it
+    test.concurrent("should acknowledge when requested book is NOT found in sources", async () => {
+      console.log(`Running test: should acknowledge when requested book is NOT found in sources`);
+
+      // Query for a book that doesn't exist in the library
+      const query = "Tell me a story from the book 'The Fictional Nonexistent Book by Nobody'";
+      const actualResponse = await getLucaResponse(query);
+
+      console.log(`Query: "${query}"\nResponse: "${actualResponse}"`);
+
+      // Should either:
+      // 1. Acknowledge the specific book wasn't found, OR
+      // 2. Provide helpful information from available sources while being clear about what's available
+      // The response should NOT pretend to have content from a non-existent book
+
+      // Check that it doesn't fabricate content from the fake book
+      expect(actualResponse).not.toMatch(/from 'The Fictional Nonexistent Book'/i);
+      expect(actualResponse).not.toMatch(/Nobody wrote that/i);
+
+      // Should either acknowledge limitation or provide alternative help
+      const helpfulPatterns = [
+        /did not find/i,
+        /don't have/i,
+        /not available/i,
+        /chat options/i,
+        /available sources/i,
+        /based on.*sources I do have/i,
+        /Ananda Libraries/i,
+      ];
+
+      const hasHelpfulResponse = helpfulPatterns.some((pattern) => pattern.test(actualResponse));
+      expect(hasHelpfulResponse).toBe(true);
+    });
+  });
+
   describe("Related Questions", () => {
     const relatedTestCases = [
       {
