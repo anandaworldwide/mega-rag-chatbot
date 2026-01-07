@@ -100,13 +100,13 @@ export async function sendEmail(options: EmailOptions): Promise<boolean> {
  * Useful for newsletter sending to avoid SES rate limits
  *
  * @param emails - Array of email options
- * @param batchSize - Number of emails to send per batch (default: 10)
+ * @param batchSize - Number of emails to send per batch (default: 45)
  * @param delayMs - Delay between batches in milliseconds (default: 1000)
  * @returns Promise with success/error counts
  */
 export async function sendEmailBatch(
   emails: EmailOptions[],
-  batchSize: number = 10,
+  batchSize: number = 45,
   delayMs: number = 1000
 ): Promise<{ successCount: number; errorCount: number; errors: string[] }> {
   let successCount = 0;
