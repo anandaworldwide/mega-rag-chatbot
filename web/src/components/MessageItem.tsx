@@ -220,7 +220,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
               </div>
             ) : (
               // Normal mode: display message with edit button
-              <div className="relative group max-w-md bg-blue-100 rounded-xl px-4 py-2">
+              <div className="relative group max-w-md bg-blue-100 rounded-xl px-4 py-2 message-bubble-with-edit">
                 <ReactMarkdown
                   remarkPlugins={[gfm]}
                   components={components}

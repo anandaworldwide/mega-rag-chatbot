@@ -16,8 +16,14 @@
 @media (hover: none) {
   .edit-button-mobile {
     opacity: 1 !important;
-    /* Position inside message bubble on mobile instead of to the left */
+    /* Position at top-right corner of message bubble on mobile */
     left: auto !important;
     right: 0.5rem !important;
+    top: 0.5rem !important;
+  }
+  
+  /* Add padding to message bubble on mobile to prevent text collision with edit button */
+  .message-bubble-with-edit {
+    padding-right: 3rem !important;
   }
 }
