@@ -3394,5 +3394,137 @@ class TestChatbotFiltering(BaseWebsiteCrawlerTest):
         assert "chat sessions" in result
 
 
+class TestUrlNormalizationAndTracking(BaseWebsiteCrawlerTest):
+    """Tests for URL normalization and tracking parameter stripping."""
+
+    def setUp(self):
+        """Set up test environment."""
+        super().setUp()  # Set up environment variables
+        self.temp_dir = tempfile.mkdtemp()
+        self.site_id = "test-site"
+        self.site_config = {
+            "domain": "example.com",
+            "pinecone_namespace": "test-namespace",
+            "skip_patterns": [],
+            "crawl_frequency_days": 14,
+        }
+
+    def test_strip_tracking_params_google_analytics(self):
+        """Test stripping Google Analytics parameters."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        # URL with GA _gl parameter (the one causing the production error)
+        url_with_gl = "https://example.com/page?_gl=1*1xi41js*_ga*mtmyotc3mtezmi4xnjewndixnjmx*_ga_13rj4wzcdm*mtyymtayndq5my40os4xlje2mjewmjq1mjeuma..&pag=212"
+        result = crawler.strip_tracking_params(url_with_gl)
+        self.assertEqual(result, "https://example.com/page?pag=212")
+
+        # URL with _ga parameter
+        url_with_ga = "https://example.com/page?_ga=2.31550526.1423236733.1621024496-1329771132.1610421631"
+        result = crawler.strip_tracking_params(url_with_ga)
+        self.assertEqual(result, "https://example.com/page")
+
+    def test_strip_tracking_params_utm_parameters(self):
+        """Test stripping UTM tracking parameters."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        url_with_utm = "https://example.com/article?utm_source=newsletter&utm_medium=email&utm_campaign=spring&id=123"
+        result = crawler.strip_tracking_params(url_with_utm)
+        self.assertEqual(result, "https://example.com/article?id=123")
+
+    def test_strip_tracking_params_facebook_click_id(self):
+        """Test stripping Facebook click ID parameter."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        url_with_fbclid = "https://example.com/page?fbclid=ABC123&section=news"
+        result = crawler.strip_tracking_params(url_with_fbclid)
+        self.assertEqual(result, "https://example.com/page?section=news")
+
+    def test_strip_tracking_params_preserves_legitimate_params(self):
+        """Test that legitimate query parameters are preserved."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        url_with_legitimate = "https://example.com/search?q=meditation&page=2&sort=date"
+        result = crawler.strip_tracking_params(url_with_legitimate)
+        # Should preserve all params since none are tracking params
+        self.assertIn("q=meditation", result)
+        self.assertIn("page=2", result)
+        self.assertIn("sort=date", result)
+
+    def test_strip_tracking_params_all_tracking(self):
+        """Test URL where all params are tracking params."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        url_all_tracking = "https://example.com/page?utm_source=fb&_ga=123&fbclid=xyz"
+        result = crawler.strip_tracking_params(url_all_tracking)
+        self.assertEqual(result, "https://example.com/page")
+
+    def test_strip_tracking_params_no_query_string(self):
+        """Test URL without query string is unchanged."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        url_no_query = "https://example.com/page"
+        result = crawler.strip_tracking_params(url_no_query)
+        self.assertEqual(result, url_no_query)
+
+    def test_normalize_url_allows_double_dots_in_query(self):
+        """Test that '..' in query params doesn't trigger path traversal error.
+
+        This is the fix for the production error where Google Analytics _gl
+        parameter ending with '..' was incorrectly flagged as path traversal.
+        """
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        # This URL previously caused "Invalid URL query" error in production
+        # After strip_tracking_params, it should be clean
+        url_with_dots = "https://example.com/page?param=value.."
+        result = crawler.normalize_url(url_with_dots)
+        # Should normalize without throwing ValueError
+        self.assertIn("example.com/page", result)
+        self.assertIn("param=value..", result)
+
+    def test_normalize_url_still_blocks_null_bytes_in_query(self):
+        """Test that null bytes in query params still raise ValueError."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        url_with_null = "https://example.com/page?param=\x00evil"
+        with self.assertRaises(ValueError) as context:
+            crawler.normalize_url(url_with_null)
+        self.assertIn("Invalid URL query", str(context.exception))
+
+    def test_normalize_url_blocks_path_traversal_in_path(self):
+        """Test that '..' in URL path still raises ValueError."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        url_with_traversal = "https://example.com/../etc/passwd"
+        with self.assertRaises(ValueError) as context:
+            crawler.normalize_url(url_with_traversal)
+        self.assertIn("Invalid URL path", str(context.exception))
+
+    def test_add_url_to_queue_strips_tracking(self):
+        """Test that add_url_to_queue strips tracking params before storing."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        # Use a unique path that won't match pre-seeded URLs
+        url_with_tracking = "https://example.com/test-strip-tracking-unique-12345?utm_source=twitter&id=123"
+
+        # Add URL to queue
+        crawler.add_url_to_queue(url_with_tracking)
+
+        # Check what was actually stored - use unique path to avoid matching other URLs
+        assert crawler.cursor is not None
+        crawler.cursor.execute(
+            "SELECT url FROM crawl_queue WHERE url LIKE '%test-strip-tracking-unique-12345%'"
+        )
+        result = crawler.cursor.fetchone()
+
+        self.assertIsNotNone(result, "URL should have been added to queue")
+        stored_url = result[0]
+        # Should have stripped utm_source but kept id
+        self.assertNotIn("utm_source", stored_url)
+        self.assertIn("id=123", stored_url)
+
+        crawler.close()
+
+
 if __name__ == "__main__":
     unittest.main()

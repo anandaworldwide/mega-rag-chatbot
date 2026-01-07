@@ -36,7 +36,7 @@ import traceback
 from contextlib import suppress
 from datetime import datetime, timedelta
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 from urllib.robotparser import RobotFileParser
 
 # Third party imports
@@ -370,7 +370,9 @@ class WebsiteCrawler:
         """Add URL to crawl queue if not already present, or update priority if higher"""
         assert self.cursor is not None
         assert self.conn is not None
-        normalized_url = self.normalize_url(url)
+        # Strip tracking parameters before normalizing to avoid storing analytics cruft
+        clean_url = self.strip_tracking_params(url)
+        normalized_url = self.normalize_url(clean_url)
 
         try:
             # First check if URL already exists
@@ -977,6 +979,34 @@ class WebsiteCrawler:
             logging.error(f"Error getting failed URLs: {e}")
             return []
 
+    def strip_tracking_params(self, url: str) -> str:
+        """Remove tracking parameters from URL to normalize for storage.
+
+        Strips common tracking parameters like Google Analytics (_ga, _gl, utm_*),
+        Facebook (fbclid), etc. that don't affect page content.
+        """
+        parsed = urlparse(url)
+        if not parsed.query:
+            return url
+
+        # Parameters to strip (tracking/analytics that don't affect content)
+        tracking_prefixes = ("utm_", "_ga", "_gl", "fbclid", "gclid", "msclkid", "mc_")
+
+        params = parse_qs(parsed.query, keep_blank_values=True)
+        # Filter out tracking params
+        clean_params = {
+            k: v
+            for k, v in params.items()
+            if not k.lower().startswith(tracking_prefixes)
+        }
+
+        if clean_params:
+            clean_query = urlencode(clean_params, doseq=True)
+            return f"{parsed.scheme}://{parsed.netloc}{parsed.path}?{clean_query}"
+        else:
+            # All params were tracking params
+            return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+
     def normalize_url(self, url: str) -> str:
         """Normalize URL for comparison with path traversal protection."""
         parsed = urlparse(url)
@@ -984,16 +1014,20 @@ class WebsiteCrawler:
         netloc = parsed.netloc.replace("www.", "")
         path = parsed.path.rstrip("/")
 
-        # Prevent path traversal attacks
+        # Prevent path traversal attacks in path (e.g., /../, /.., ../)
         if ".." in path or "\x00" in path:
             logging.warning(f"Path traversal attempt detected in URL: {url}")
             raise ValueError(f"Invalid URL path: {path}")
 
         normalized = netloc + path
         if parsed.query:
-            # Also check query parameters for injection attempts
-            if ".." in parsed.query or "\x00" in parsed.query:
-                logging.warning(f"Path traversal attempt in query parameters: {url}")
+            # Check for null bytes in query (actual security risk)
+            # Note: ".." in query params is NOT a path traversal risk - it's commonly
+            # found in legitimate tracking params like Google Analytics _gl parameter
+            if "\x00" in parsed.query:
+                logging.warning(
+                    f"Null byte injection attempt in query parameters: {url}"
+                )
                 raise ValueError(f"Invalid URL query: {parsed.query}")
             normalized += "?" + parsed.query
         return normalized.lower()
