@@ -849,7 +849,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       }
 
       if (data.log) {
-        // eslint-disable-next-line no-console
         console.log("[BACKEND]", data.log);
       }
 
@@ -1905,7 +1904,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
                 if (data.token) {
                   accumulatedResponseRef.current += data.token;
-                  updateMessageState(accumulatedResponseRef.current, []);
+                  updateMessageState(accumulatedResponseRef.current, null);
                 }
 
                 if (data.sourceDocs) {
