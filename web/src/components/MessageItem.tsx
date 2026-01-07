@@ -84,6 +84,9 @@ const MessageItem: React.FC<MessageItemProps> = ({
   const { isSudoUser } = useSudo();
   const [localEditingText, setLocalEditingText] = React.useState(editingText);
 
+  // Feature flag for alternate AI comparison button (temporarily disabled)
+  const SHOW_ALTERNATE_AI_BUTTON = false;
+
   // Sync local editing text when editing state changes
   React.useEffect(() => {
     if (isEditing) {
@@ -172,10 +175,14 @@ const MessageItem: React.FC<MessageItemProps> = ({
   const handleEditKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      onSaveEdit && onSaveEdit(index, localEditingText);
+      if (onSaveEdit) {
+        onSaveEdit(index, localEditingText);
+      }
     } else if (e.key === "Escape") {
       e.preventDefault();
-      onCancelEdit && onCancelEdit(index);
+      if (onCancelEdit) {
+        onCancelEdit(index);
+      }
     }
   };
 
@@ -228,7 +235,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
                       setLocalEditingText(message.message);
                       onEditQuestion(index, message.message);
                     }}
-                    className="absolute -left-8 top-2 opacity-0 group-hover:opacity-100 hover:bg-gray-200 p-1 rounded-lg transition-opacity"
+                    className="edit-button-mobile absolute -left-8 top-2 opacity-0 group-hover:opacity-100 hover:bg-gray-200 p-1 rounded-lg transition-opacity"
                     title="Edit question"
                   >
                     <span className="material-icons text-gray-500 text-lg">edit</span>
@@ -350,7 +357,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
 
                     {/* Compare with Alternate AI button - only show on last answer if handler provided and not already regenerating */}
                     {/* Temporarily hidden - feature code kept intact for future use */}
-                    {false && !readOnly && onTryGPT41 && !isRegenerating && isLastMessage && (
+                    {SHOW_ALTERNATE_AI_BUTTON && !readOnly && onTryGPT41 && !isRegenerating && isLastMessage && (
                       <button
                         onClick={() => onTryGPT41!(index)}
                         className="flex items-center space-x-1 px-3 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-blue-500 text-white text-sm hover:from-purple-600 hover:to-blue-600 transition-all h-8"

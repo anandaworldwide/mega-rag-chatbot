@@ -11,3 +11,13 @@
 .app-container {
   width: 100%;
 }
+
+/* Mobile-friendly edit button: always visible on touch devices */
+@media (hover: none) {
+  .edit-button-mobile {
+    opacity: 1 !important;
+    /* Position inside message bubble on mobile instead of to the left */
+    left: auto !important;
+    right: 0.5rem !important;
+  }
+}
