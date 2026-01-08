@@ -1410,7 +1410,7 @@ export async function setupAndExecuteLanguageModelChain(
   modelOverride?: string, // Optional model override for testing/comparison
   selectedLibraries?: string[] // Selected libraries for filtering
 ): Promise<{ fullResponse: string; finalDocs: Document[]; restatedQuestion: string; suggestions: TypedSuggestion[] }> {
-  const TIMEOUT_MS = process.env.NODE_ENV === "test" ? 1000 : 30000;
+  const TIMEOUT_MS = process.env.NODE_ENV === "test" ? 1000 : 45000;
   const RETRY_DELAY_MS = process.env.NODE_ENV === "test" ? 10 : 1000;
   const MAX_RETRIES = 3;
 
@@ -1476,6 +1476,12 @@ export async function setupAndExecuteLanguageModelChain(
       let firstTokenTime: number | null = null;
       let firstByteTime: number | null = null;
 
+      // Buffer for detecting NO_SOURCES_USED marker at start of response
+      const NO_SOURCES_MARKER = "<<NO_SOURCES_USED>>";
+      let tokenBuffer = "";
+      let markerChecked = false;
+      let _suppressSources = false; // Prefixed with _ to indicate intentionally unused (actual suppression via sendData)
+
       // Create a promise that rejects after timeout
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => {
@@ -1492,6 +1498,55 @@ export async function setupAndExecuteLanguageModelChain(
           callbacks: [
             {
               handleLLMNewToken(token: string) {
+                // Buffer initial tokens to check for NO_SOURCES_USED marker
+                if (!markerChecked) {
+                  tokenBuffer += token;
+
+                  // Once we have enough characters to check for marker (or clearly don't have it)
+                  // Note: We check trimmed buffer has content before using startsWith,
+                  // because "".startsWith("") is true, which would cause infinite buffering
+                  const trimmed = tokenBuffer.trim();
+                  if (
+                    tokenBuffer.length >= NO_SOURCES_MARKER.length ||
+                    (trimmed.length > 0 && !NO_SOURCES_MARKER.startsWith(trimmed))
+                  ) {
+                    markerChecked = true;
+
+                    // Check if buffer starts with the marker
+                    const trimmedBuffer = tokenBuffer.trimStart();
+                    if (trimmedBuffer.startsWith(NO_SOURCES_MARKER)) {
+                      _suppressSources = true;
+                      // Strip marker and any following newline from buffer
+                      tokenBuffer = trimmedBuffer.slice(NO_SOURCES_MARKER.length).replace(/^\n+/, "");
+                      // Send empty sources with suppressSources flag to indicate intentional suppression
+                      sendData({ sourceDocs: [], suppressSources: true });
+                      console.log("🔇 Sources suppressed - AI indicated answer came from system prompt only");
+                    }
+
+                    // Now flush the buffer
+                    if (tokenBuffer.length > 0) {
+                      if (!firstTokenTime) {
+                        firstTokenTime = Date.now();
+                        firstByteTime = Date.now();
+                        sendData({
+                          token: tokenBuffer,
+                          timing: {
+                            firstTokenGenerated: firstTokenTime,
+                            ttfb: firstByteTime && startTime ? firstByteTime - startTime : undefined,
+                          },
+                        });
+                      } else {
+                        sendData({ token: tokenBuffer });
+                      }
+                      fullResponse += tokenBuffer;
+                      tokensStreamed += tokenBuffer.length;
+                    }
+                    tokenBuffer = "";
+                  }
+                  return; // Don't process further until marker check is complete
+                }
+
+                // Normal token streaming (after marker check)
                 if (!firstTokenTime) {
                   firstTokenTime = Date.now();
                   firstByteTime = Date.now();
@@ -1678,6 +1733,37 @@ export async function setupAndExecuteLanguageModelChain(
         finalTiming.firstTokenGenerated = firstTokenTime;
       }
 
+      // Flush any remaining buffer content (for very short responses)
+      if (tokenBuffer.length > 0) {
+        // Check for marker one final time
+        const trimmedBuffer = tokenBuffer.trimStart();
+        if (trimmedBuffer.startsWith(NO_SOURCES_MARKER)) {
+          _suppressSources = true;
+          tokenBuffer = trimmedBuffer.slice(NO_SOURCES_MARKER.length).replace(/^\n+/, "");
+          sendData({ sourceDocs: [], suppressSources: true });
+          console.log("🔇 Sources suppressed - AI indicated answer came from system prompt only");
+        }
+        if (tokenBuffer.length > 0) {
+          if (!firstTokenTime) {
+            firstTokenTime = Date.now();
+            firstByteTime = Date.now();
+            sendData({
+              token: tokenBuffer,
+              timing: {
+                firstTokenGenerated: firstTokenTime,
+                ttfb: firstByteTime && startTime ? firstByteTime - startTime : undefined,
+              },
+            });
+          } else {
+            sendData({ token: tokenBuffer });
+          }
+          fullResponse += tokenBuffer;
+          tokensStreamed += tokenBuffer.length;
+        }
+        tokenBuffer = "";
+        markerChecked = true;
+      }
+
       sendData({ done: true, timing: finalTiming });
 
       // Generate follow-up suggestions in parallel (non-blocking)
@@ -1717,6 +1803,14 @@ export async function setupAndExecuteLanguageModelChain(
     } catch (error) {
       // Don't retry NoSourcesError - it's a user-facing error that won't be fixed by retrying
       if (error instanceof NoSourcesError) {
+        throw error;
+      }
+
+      // Don't retry if we've already streamed tokens - we can't undo what's been sent
+      // Retrying would cause garbled/interleaved responses
+      if (tokensStreamed > 0) {
+        console.error("Operation failed after streaming began. Cannot retry without corrupting response.", error);
+        sendData({ error: "Operation timed out after partial response. Please try again." });
         throw error;
       }
 

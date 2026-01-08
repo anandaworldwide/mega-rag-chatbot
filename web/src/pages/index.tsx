@@ -676,6 +676,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   // Add a state variable to track the docId separately
   const [savedDocId, setSavedDocId] = useState<string | null>(null);
   const accumulatedResponseRef = useRef("");
+  // Track if sources were intentionally suppressed (answer came from system prompt only)
+  const sourcesSuppressedRef = useRef(false);
 
   // State for editing questions
   const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
@@ -883,10 +885,16 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             Array.isArray(data.sourceDocs)
           );
 
+          // Track if sources were intentionally suppressed
+          if (data.suppressSources) {
+            sourcesSuppressedRef.current = true;
+            console.log("🔇 FRONTEND: Sources intentionally suppressed - answer came from system prompt only");
+          }
+
           setTimeout(() => {
             const immutableSourceDocs = Array.isArray(data.sourceDocs) ? [...data.sourceDocs] : [];
 
-            if (immutableSourceDocs.length < sourceCount) {
+            if (immutableSourceDocs.length < sourceCount && !sourcesSuppressedRef.current) {
               console.error(
                 `❌ FRONTEND SOURCES ERROR: Received ${immutableSourceDocs.length} sources, but ${sourceCount} were requested.`
               );
@@ -1035,7 +1043,10 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
               const hasSourceDocs = lastMessage.sourceDocs && lastMessage.sourceDocs.length > 0;
               const expectedSourceCount = sourceCount;
 
-              if (!hasSourceDocs) {
+              // Skip bug reporting if sources were intentionally suppressed (answer from system prompt only)
+              if (sourcesSuppressedRef.current) {
+                console.log("✅ FRONTEND SOURCES VALIDATION: Sources intentionally suppressed - no bug report needed");
+              } else if (!hasSourceDocs) {
                 // Send signal to backend about missing sources
                 if (lastMessage.docId) {
                   reportMissingSourcesToBacked(lastMessage.docId, expectedSourceCount);
@@ -1217,6 +1228,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
     // Reset accumulated response at the start of each new query
     accumulatedResponseRef.current = "";
+    // Reset sources suppressed flag for new query
+    sourcesSuppressedRef.current = false;
 
     // Check if this is the second question or later (more than 2 messages = greeting + first Q&A)
     const isSecondQuestionOrLater = messageState.messages.length > 2;

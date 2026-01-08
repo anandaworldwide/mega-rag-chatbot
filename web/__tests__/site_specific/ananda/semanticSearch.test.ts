@@ -127,6 +127,85 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
     }
   };
 
+  // Extended helper that returns response text AND streaming metadata (sources, suppressSources flag)
+  interface StreamingResult {
+    text: string;
+    sourceDocs: any[];
+    suppressSources: boolean;
+    hasMarker: boolean; // Check if marker leaked through (should be false)
+  }
+
+  const getLucaResponseWithMetadata = async (query: string, history: any[] = []): Promise<StreamingResult> => {
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
+    const endpoint = `${baseUrl}/api/chat/v1`;
+
+    const uuid = uuidv4();
+    const requestBody = {
+      question: query,
+      collection: "whole_library",
+      history: history,
+      temporarySession: true,
+      mediaTypes: { text: true },
+      sourceCount: 3,
+      siteId: "ananda",
+      uuid: uuid,
+    };
+
+    const token = generateTestToken();
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Origin: baseUrl,
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      throw new Error(`API request failed with status ${response.status}: ${await response.text()}`);
+    }
+
+    const responseText = await response.text();
+    let extractedText = "";
+    let sourceDocs: any[] = [];
+    let suppressSources = false;
+
+    if (response.headers.get("content-type")?.includes("text/event-stream")) {
+      const lines = responseText.trim().split("\n");
+      for (const line of lines) {
+        if (line.startsWith("data: ")) {
+          try {
+            const data = JSON.parse(line.substring(6));
+            if (data.token) {
+              extractedText += data.token;
+            }
+            if (data.sourceDocs !== undefined) {
+              sourceDocs = data.sourceDocs;
+              // Check if suppressSources flag was sent with sourceDocs
+              if (data.suppressSources) {
+                suppressSources = true;
+              }
+            }
+          } catch (_err) {
+            // Skip malformed lines
+          }
+        }
+      }
+    }
+
+    const NO_SOURCES_MARKER = "<<NO_SOURCES_USED>>";
+    const hasMarker = extractedText.includes(NO_SOURCES_MARKER);
+
+    return {
+      text: extractedText.trim(),
+      sourceDocs,
+      suppressSources,
+      hasMarker,
+    };
+  };
+
   // Helper function to calculate max similarity against a list of embeddings
   const getMaxSimilarity = (targetEmbedding: number[], comparisonEmbeddings: number[][]): number => {
     let maxSimilarity = -1; // Cosine similarity ranges from -1 to 1
@@ -579,19 +658,19 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
         dissimilarityThreshold: 0.6,
       },
       {
+        query: "What did Master teach about meditation?",
+        canonical_responses: [
+          "Master taught meditation techniques including Kriya Yoga and concentration practices.",
+          "Paramhansa Yogananda emphasized the importance of regular meditation practice for spiritual growth.",
+        ],
+        similarityThreshold: 0.61,
+        dissimilarityThreshold: 0.6,
+      },
+      {
         query: "Tell me about Ananda Village",
         canonical_responses: [
           "Ananda Village is a spiritual community founded by Swami Kriyananda near Nevada City, California.",
           "It is one of the oldest intentional communities in the US, focusing on Kriya Yoga and cooperative living.",
-        ],
-        similarityThreshold: 0.7,
-        dissimilarityThreshold: 0.65,
-      },
-      {
-        query: "What is the Autobiography of a Yogi?",
-        canonical_responses: [
-          "The Autobiography of a Yogi is Paramhansa Yogananda's seminal work",
-          "It is Yogananda's spiritual autobiography describing his journey and teachings",
         ],
         similarityThreshold: 0.7,
         dissimilarityThreshold: 0.65,
@@ -625,6 +704,122 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
         expect(similarityToRejection).toBeLessThan(dissimilarityThreshold);
       }
     );
+  });
+
+  describe("Source Suppression Tests", () => {
+    // Test that system-prompt-only answers suppress sources
+    test.concurrent("should suppress sources when answering about Ananda Wiki (system prompt only)", async () => {
+      console.log(`Running test: should suppress sources when answering about Ananda Wiki`);
+      const query = "What is the Ananda Wiki?";
+      const result = await getLucaResponseWithMetadata(query);
+
+      console.log(`Query: "${query}"`);
+      console.log(`Response: "${result.text.substring(0, 200)}..."`);
+      console.log(`Sources count: ${result.sourceDocs.length}`);
+      console.log(`suppressSources flag: ${result.suppressSources}`);
+      console.log(`Marker leaked through: ${result.hasMarker}`);
+
+      // The marker should NOT appear in the response (backend should strip it)
+      expect(result.hasMarker).toBe(false);
+
+      // Sources should be suppressed (empty array with suppressSources flag)
+      expect(result.suppressSources).toBe(true);
+      expect(result.sourceDocs.length).toBe(0);
+
+      // Response should still contain valid content about the Wiki
+      expect(result.text).toMatch(/Ananda Wiki|Notion|collaboration|members/i);
+    });
+
+    test.concurrent(
+      "should suppress sources when answering about Ananda Music Library (system prompt only)",
+      async () => {
+        console.log(`Running test: should suppress sources when answering about Ananda Music Library`);
+        const query = "How do I access the Ananda Music Library?";
+        const result = await getLucaResponseWithMetadata(query);
+
+        console.log(`Query: "${query}"`);
+        console.log(`Response: "${result.text.substring(0, 200)}..."`);
+        console.log(`Sources count: ${result.sourceDocs.length}`);
+        console.log(`suppressSources flag: ${result.suppressSources}`);
+        console.log(`Marker leaked through: ${result.hasMarker}`);
+
+        // The marker should NOT appear in the response
+        expect(result.hasMarker).toBe(false);
+
+        // Sources should be suppressed
+        expect(result.suppressSources).toBe(true);
+        expect(result.sourceDocs.length).toBe(0);
+
+        // Response should contain valid content about the Music Library
+        expect(result.text).toMatch(/anandamusiclibrary\.org|anandamusicww@gmail\.com|Music Library/i);
+      }
+    );
+
+    test.concurrent("should suppress sources when answering about Luca identity (system prompt only)", async () => {
+      console.log(`Running test: should suppress sources when answering about Luca identity`);
+      const query = "What is your name and what can you do?";
+      const result = await getLucaResponseWithMetadata(query);
+
+      console.log(`Query: "${query}"`);
+      console.log(`Response: "${result.text.substring(0, 200)}..."`);
+      console.log(`Sources count: ${result.sourceDocs.length}`);
+      console.log(`suppressSources flag: ${result.suppressSources}`);
+      console.log(`Marker leaked through: ${result.hasMarker}`);
+
+      // The marker should NOT appear in the response
+      expect(result.hasMarker).toBe(false);
+
+      // Sources should be suppressed
+      expect(result.suppressSources).toBe(true);
+      expect(result.sourceDocs.length).toBe(0);
+
+      // Response should mention Luca
+      expect(result.text).toMatch(/Luca/i);
+    });
+
+    test.concurrent("should NOT suppress sources when answering from library content", async () => {
+      console.log(`Running test: should NOT suppress sources when answering from library content`);
+      const query = "What did Master teach about meditation?";
+      const result = await getLucaResponseWithMetadata(query);
+
+      console.log(`Query: "${query}"`);
+      console.log(`Response: "${result.text.substring(0, 200)}..."`);
+      console.log(`Sources count: ${result.sourceDocs.length}`);
+      console.log(`suppressSources flag: ${result.suppressSources}`);
+      console.log(`Marker leaked through: ${result.hasMarker}`);
+
+      // The marker should NOT appear in the response
+      expect(result.hasMarker).toBe(false);
+
+      // Sources should NOT be suppressed for library content
+      expect(result.suppressSources).toBe(false);
+      expect(result.sourceDocs.length).toBeGreaterThan(0);
+
+      // Response should contain meditation-related content
+      expect(result.text).toMatch(/meditation|practice|technique|concentration/i);
+    });
+
+    test.concurrent("should suppress sources when answering about Vivek chatbot (system prompt only)", async () => {
+      console.log(`Running test: should suppress sources when answering about Vivek chatbot`);
+      const query = "What is Vivek?";
+      const result = await getLucaResponseWithMetadata(query);
+
+      console.log(`Query: "${query}"`);
+      console.log(`Response: "${result.text.substring(0, 200)}..."`);
+      console.log(`Sources count: ${result.sourceDocs.length}`);
+      console.log(`suppressSources flag: ${result.suppressSources}`);
+      console.log(`Marker leaked through: ${result.hasMarker}`);
+
+      // The marker should NOT appear in the response
+      expect(result.hasMarker).toBe(false);
+
+      // Sources should be suppressed
+      expect(result.suppressSources).toBe(true);
+      expect(result.sourceDocs.length).toBe(0);
+
+      // Response should mention Vivek and ananda.org
+      expect(result.text).toMatch(/Vivek|ananda\.org|public|chatbot/i);
+    });
   });
 });
 

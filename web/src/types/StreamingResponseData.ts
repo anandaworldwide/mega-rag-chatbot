@@ -15,6 +15,7 @@ export interface StreamingResponseData {
   warning?: string;
   toolResponse?: boolean; // Flag to indicate this response came from tool execution
   isLocationQuery?: boolean; // Flag to indicate this is a location-based query using geo-awareness tools
+  suppressSources?: boolean; // Flag to indicate sources were intentionally suppressed (answer from system prompt only)
   type?: string; // Error type for specific error handling (e.g., "firestore_index_error")
   isBuilding?: boolean; // Flag to indicate if Firestore indexes are currently building
   timing?: {
