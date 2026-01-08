@@ -173,17 +173,25 @@ function hasLocationKeywordPatterns(query: string): boolean {
   // Exclude common English words that are also country codes to prevent false positives
   // Only exclude words that are actually country codes in the list below
   const commonEnglishWords = new Set([
-    "my", // Malaysia
-    "in", // India
-    "is", // Iceland
-    "it", // Italy
-    "at", // Austria
-    "be", // Belgium
-    "by", // Belarus
-    "do", // Dominican Republic
-    "no", // Norway
-    "so", // Somalia
-    "us", // United States
+    "my", // Malaysia - "my house", "my question"
+    "in", // India - "in the", "live in"
+    "is", // Iceland - "what is", "there is"
+    "it", // Italy - "it is", "do it"
+    "at", // Austria - "at home", "look at"
+    "be", // Belgium - "to be", "will be"
+    "by", // Belarus - "by the", "done by"
+    "do", // Dominican Republic - "do this", "can do"
+    "no", // Norway - "no way", "say no"
+    "so", // Somalia - "so much", "and so"
+    "us", // United States - "tell us", "for us"
+    "co", // Colombia - "co-worker", "co-author", "co-founder" (hyphen is word boundary in regex)
+    "la", // Laos - music note "la", Spanish article, "la la land"
+    "pa", // Panama - informal "pa" (father)
+    "ma", // Morocco - informal "ma" (mother)
+    "id", // Indonesia - "user id", "id card", Freudian "id"
+    "om", // Oman - "om" meditation mantra (critical for spiritual chatbot!)
+    "et", // Ethiopia - "et al.", "et cetera"
+    "si", // Slovenia - Spanish "sí" (yes), musical note
   ]);
 
   const countryCodes = [
