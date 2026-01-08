@@ -1,0 +1,31 @@
+{
+  "specialDayId": "swami-kriyananda-discipleship-event",
+  "subject": "Tomorrow's Discipleship Event - Dive Deep with Luca",
+  "greeting": "Dear {{firstName}},",
+  "body": "Tomorrow marks Swami Kriyananda's Discipleship Event!\n\nThis is a beautiful day to celebrate the sacred bond between guru and disciple. It's a relationship that transforms seekers into channels of divine grace. Swamiji often spoke of discipleship as the greatest adventure of the soul, a journey of deepening attunement, selfless service, and ever-expanding joy.\n\nLet this day inspire you to explore what it truly means to walk the path with an open heart.\n\nHere are some inspiring questions to explore with Luca:\n\n{{exampleQuestions}}\n\nMay this day fill you with renewed inspiration and a deeper sense of connection to the path.\n\nIn divine friendship,\nThe Luca Team",
+  "exampleQuestionPool": [
+    "What does Swamiji say makes discipleship such a thrilling adventure?",
+    "How did Swamiji describe the magical moments when a disciple truly attunes to the guru?",
+    "What surprising benefits did Swamiji say come from serving one's spiritual path with joy?",
+    "How can we turn everyday challenges into opportunities for deeper discipleship?",
+    "What did Swamiji say about the secret ingredient that accelerates spiritual growth in a disciple?",
+    "How did Swamiji describe the feeling of divine grace flowing through a receptive disciple?",
+    "What creative practices did Swamiji recommend for staying attuned throughout the day?",
+    "How does living in a spiritual community supercharge one's discipleship journey?",
+    "What did Swamiji say about the role of cheerfulness on the path of discipleship?",
+    "How can we transform our work into an offering that deepens our connection to the guru?",
+    "What did Swamiji teach about the surprising power of small acts of kindness in spiritual growth?",
+    "How did Swamiji's own journey as a disciple inspire his teachings on attunement?",
+    "What playful yet profound advice did Swamiji give for overcoming spiritual dry spells?",
+    "How does the guru-disciple relationship differ from other forms of teaching?",
+    "What did Swamiji say about the joy that comes from surrendering the ego to divine guidance?",
+    "How can music and chanting deepen our experience of discipleship?",
+    "What did Swamiji teach about finding our unique way to serve the guru's mission?",
+    "How does gratitude unlock hidden doorways on the path of discipleship?",
+    "What inspiring stories did Swamiji share about Master's disciples and their transformations?",
+    "How can we keep the flame of enthusiasm burning bright on our spiritual journey?"
+  ],
+  "exampleQuestionCount": 3,
+  "ctaUrl": "{{baseUrl}}",
+  "ctaText": "Explore Discipleship with Luca"
+}

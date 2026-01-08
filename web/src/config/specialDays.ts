@@ -76,21 +76,15 @@ function configToSpecialDay(config: SpecialDayConfig): SpecialDay {
   };
 }
 
-// Cache for loaded special days by site ID
-const specialDaysCache: Map<string, SpecialDay[]> = new Map();
-
 /**
  * Loads special days configuration for a specific site
+ * Note: No caching - cron runs once daily on cold Vercel instances,
+ * so caching provides no benefit and causes issues in development.
  *
  * @param siteId - Site ID (e.g., "ananda")
  * @returns Array of SpecialDay objects or empty array if not found
  */
 export async function loadSpecialDays(siteId: string): Promise<SpecialDay[]> {
-  // Check cache first
-  if (specialDaysCache.has(siteId)) {
-    return specialDaysCache.get(siteId)!;
-  }
-
   try {
     // Validate siteId to prevent path traversal
     if (!/^[a-zA-Z0-9-]+$/.test(siteId)) {
@@ -115,9 +109,6 @@ export async function loadSpecialDays(siteId: string): Promise<SpecialDay[]> {
 
     // Convert config to SpecialDay objects
     const specialDays = configFile.specialDays.map(configToSpecialDay);
-
-    // Cache the result
-    specialDaysCache.set(siteId, specialDays);
 
     return specialDays;
   } catch (error) {

@@ -42,6 +42,13 @@
       "sendDaysBefore": 1
     },
     {
+      "id": "swami-kriyananda-discipleship-event",
+      "name": "Swami Kriyananda Discipleship Event",
+      "month": 9,
+      "day": 12,
+      "sendDaysBefore": 1
+    },
+    {
       "id": "lahiri-mahasaya-birthday",
       "name": "Lahiri Mahasaya's Birthday",
       "month": 9,
