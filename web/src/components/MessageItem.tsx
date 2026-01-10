@@ -8,6 +8,7 @@ import styles from "@/styles/Home.module.css";
 import markdownStyles from "@/styles/MarkdownStyles.module.css";
 import SourcesList from "@/components/SourcesList";
 import CopyButton from "@/components/CopyButton";
+import ConceptGraphModal from "@/components/ConceptGraphModal";
 import { SiteConfig } from "@/types/siteConfig";
 import { ExtendedAIMessage } from "@/types/ExtendedAIMessage";
 import SuggestionPills from "@/components/SuggestionPills";
@@ -83,6 +84,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
 }) => {
   const { isSudoUser } = useSudo();
   const [localEditingText, setLocalEditingText] = React.useState(editingText);
+  const [showConceptGraph, setShowConceptGraph] = React.useState(false);
 
   // Feature flag for alternate AI comparison button (temporarily disabled)
   const SHOW_ALTERNATE_AI_BUTTON = false;
@@ -333,6 +335,17 @@ const MessageItem: React.FC<MessageItemProps> = ({
                       </span>
                     </button>
 
+                    {/* Concept Graph button - only show when sources exist */}
+                    {message.sourceDocs && message.sourceDocs.length > 0 && (
+                      <button
+                        onClick={() => setShowConceptGraph(true)}
+                        className="flex items-center hover:bg-gray-100 p-2 rounded-xl h-8 w-8 justify-center transition-colors"
+                        title="Explore related concepts"
+                      >
+                        <span className="material-icons text-gray-500">hub</span>
+                      </button>
+                    )}
+
                     {!readOnly &&
                       (message.docId ? (
                         renderVoteButtons(message.docId)
@@ -389,6 +402,16 @@ const MessageItem: React.FC<MessageItemProps> = ({
               />
             )}
           </div>
+        )}
+
+        {/* Concept Graph Modal */}
+        {showConceptGraph && message.sourceDocs && message.sourceDocs.length > 0 && (
+          <ConceptGraphModal
+            isOpen={showConceptGraph}
+            onClose={() => setShowConceptGraph(false)}
+            sourceDocs={message.sourceDocs}
+            query={previousMessage?.message || ""}
+          />
         )}
       </div>
     </Fragment>

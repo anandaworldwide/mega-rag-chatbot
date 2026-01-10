@@ -6,7 +6,10 @@ import { getMappedLibraryName, getLibraryUrl } from "@/utils/client/libraryMappi
 import { logEvent } from "@/utils/client/analytics";
 import { Modal } from "@/components/ui/Modal";
 import { AudioPlayer } from "@/components/AudioPlayer";
+import ConceptGraphModal from "@/components/ConceptGraphModal";
 import { transformYouTubeUrl } from "@/utils/client/youtubeUtils";
+import { Document } from "langchain/document";
+import { DocMetadata } from "@/types/DocMetadata";
 
 const WORD_LIMIT = 50;
 
@@ -19,6 +22,7 @@ export default function SearchResultItem({ result, query }: SearchResultItemProp
   const router = useRouter();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showMediaPlayer, setShowMediaPlayer] = useState(false);
+  const [showConceptGraph, setShowConceptGraph] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [isVideoPlaying, setIsVideoPlaying] = useState(false);
 
@@ -215,6 +219,16 @@ export default function SearchResultItem({ result, query }: SearchResultItemProp
           Summarize & Ask
         </button>
 
+        {/* Concept Graph button */}
+        <button
+          onClick={() => setShowConceptGraph(true)}
+          className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 transition-colors text-sm"
+          title="Explore related concepts"
+        >
+          <span className="material-icons text-sm">hub</span>
+          Concept Graph
+        </button>
+
         {/* Audio Player button */}
         {result.metadata.type === "audio" && result.metadata.filename && (
           <button
@@ -294,6 +308,21 @@ export default function SearchResultItem({ result, query }: SearchResultItemProp
           </div>
         )}
       </Modal>
+
+      {/* Concept Graph Modal */}
+      {showConceptGraph && (
+        <ConceptGraphModal
+          isOpen={showConceptGraph}
+          onClose={() => setShowConceptGraph(false)}
+          sourceDocs={[
+            {
+              pageContent: result.pageContent,
+              metadata: result.metadata,
+            } as Document<DocMetadata>,
+          ]}
+          query={query}
+        />
+      )}
     </div>
   );
 }

@@ -79,7 +79,12 @@ const nextConfig = {
     SITE_CONFIG: configData,
   },
   images: {
-    domains: ["www.crystalclarity.com"],
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "www.crystalclarity.com",
+      },
+    ],
   },
   experimental: {
     // This is the correct way to handle external packages for server components/actions

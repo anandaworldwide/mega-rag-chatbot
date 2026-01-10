@@ -101,6 +101,15 @@ export default [
     },
   },
   {
-    ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "dist/**", "coverage/**", "scripts/**"],
+    ignores: [
+      "node_modules/**",
+      ".next/**",
+      "out/**",
+      "build/**",
+      "dist/**",
+      "coverage/**",
+      "scripts/**",
+      "__mocks__/**",
+    ],
   },
 ];
