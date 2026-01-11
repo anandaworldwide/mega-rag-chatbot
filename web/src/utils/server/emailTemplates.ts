@@ -128,7 +128,10 @@ export function generateEmailContent(options: EmailTemplateOptions): {
   const messageContent = formatMessageContent(options.message, options.actionUrl, options.actionText);
 
   // Generate plain text version
-  const unsubscribeText = options.unsubscribeUrl ? `\n\nUnsubscribe: ${options.unsubscribeUrl}` : "";
+  const settingsUrl = `${baseUrl}/settings`;
+  const unsubscribeText = options.unsubscribeUrl
+    ? `\n\nOne-click unsubscribe: ${options.unsubscribeUrl}\n(or manage all email preferences: ${settingsUrl})`
+    : "";
   const textContent = [
     emailGreeting,
     "",
@@ -232,7 +235,8 @@ export function generateEmailContent(options: EmailTemplateOptions): {
       options.unsubscribeUrl
         ? `
     <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #999; text-align: center;">
-      <a href="${options.unsubscribeUrl}" style="color: #999; text-decoration: underline;">Unsubscribe</a>
+      <a href="${options.unsubscribeUrl}" style="color: #999; text-decoration: underline;">One-click unsubscribe</a>
+      <span style="color: #999;"> (or <a href="${settingsUrl}" style="color: #999; text-decoration: underline;">manage all email preferences</a>)</span>
     </div>
     `
         : ""

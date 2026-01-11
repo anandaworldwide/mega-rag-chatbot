@@ -51,6 +51,7 @@ function renderNewsletterHtml(templateVars: {
   ctaUrl?: string;
   ctaText?: string;
   unsubscribeUrl: string;
+  settingsUrl: string;
 }): string {
   const templatePath = path.join(process.cwd(), "emails", "newsletter.pug");
   const rawHtml = pug.renderFile(templatePath, templateVars);
@@ -156,6 +157,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           // Convert content
           const htmlContent = await convertMarkdownToHtml(data.content);
 
+          const settingsUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/settings`;
           const html = renderNewsletterHtml({
             subject: data.subject,
             siteName,
@@ -164,6 +166,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             ctaUrl: data.ctaUrl,
             ctaText: data.ctaText,
             unsubscribeUrl,
+            settingsUrl,
           });
 
           // Send
