@@ -16,7 +16,8 @@ export default [
         ecmaFeatures: {
           jsx: true,
         },
-        project: true,
+        // Note: `project: true` was removed to reduce memory usage in CI
+        // Type checking is already done via `tsc --noEmit`
       },
       globals: {
         // Node.js globals
