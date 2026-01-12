@@ -14,7 +14,7 @@
     "build-with-api-tests": "NODE_ENV=development jest && jest --selectProjects=server && node scripts/build.js ananda",
     "start": "next start",
     "type-check": "tsc --noEmit",
-    "lint": "eslint --ignore-path .gitignore \"**/*.+(ts|js|tsx)\"",
+    "lint": "eslint \"src/**/*.+(ts|js|tsx)\" \"__tests__/**/*.+(ts|js|tsx)\"",
     "format": "prettier --ignore-path .gitignore \"**/*.+(ts|js|tsx)\" --write",
     "test": "jest",
     "test:watch": "jest --watch",
