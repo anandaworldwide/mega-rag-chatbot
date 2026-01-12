@@ -111,7 +111,7 @@ def signal_handler(sig: int, frame: Any) -> None:
 
 def setup_signal_handlers(
     custom_handler: Callable[[int, Any], None] | None = None,
-    signals_to_handle: list[int] = None,
+    signals_to_handle: list[int] | None = None,
 ) -> None:
     """
     Set up signal handlers for graceful shutdown.
@@ -246,11 +246,14 @@ class ProgressTracker:
                     logger.error(f"Error during cleanup: {e}")
 
             # Close progress bar
-            if self.progress_bar:
-                if not self.state.interrupted:
-                    # Ensure progress bar shows completion
-                    if self.config.total and self.state.current < self.config.total:
-                        self.progress_bar.update(self.config.total - self.state.current)
+            if self.progress_bar is not None:
+                # Ensure progress bar shows completion if not interrupted
+                if (
+                    not self.state.interrupted
+                    and self.config.total
+                    and self.state.current < self.config.total
+                ):
+                    self.progress_bar.update(self.config.total - self.state.current)
                 self.progress_bar.close()
 
             # Log final statistics
@@ -287,7 +290,7 @@ class ProgressTracker:
         self.state.current += n
 
         # Update progress bar
-        if self.progress_bar:
+        if self.progress_bar is not None:
             self.progress_bar.update(n)
 
         # Check if checkpoint needed
@@ -313,14 +316,14 @@ class ProgressTracker:
         """Update the total number of items to process."""
         self.state.total = total
         self.config.total = total
-        if self.progress_bar:
+        if self.progress_bar is not None:
             self.progress_bar.total = total
             self.progress_bar.refresh()
 
     def set_description(self, description: str) -> None:
         """Update the progress bar description."""
         self.config.description = description
-        if self.progress_bar:
+        if self.progress_bar is not None:
             self.progress_bar.set_description(description)
 
     def _save_checkpoint(
@@ -338,7 +341,8 @@ class ProgressTracker:
                 **(additional_data or {}),
             }
 
-            self.checkpoint_callback(self.state.current, data)
+            if self.checkpoint_callback is not None:
+                self.checkpoint_callback(self.state.current, data)
             self.state.last_checkpoint = self.state.current
             self.state.last_checkpoint_time = time.time()
 
@@ -391,9 +395,12 @@ class AsyncProgressTracker(ProgressTracker):
 
     async def __aenter__(self) -> "AsyncProgressTracker":
         """Async enter method."""
-        return self.__enter__()
+        self.__enter__()
+        return self
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    async def __aexit__(  # noqa: C901
+        self, exc_type: Any, exc_val: Any, exc_tb: Any
+    ) -> None:
         """Async exit method."""
         try:
             # Handle different exit scenarios
@@ -424,11 +431,14 @@ class AsyncProgressTracker(ProgressTracker):
                     logger.error(f"Error during async cleanup: {e}")
 
             # Close progress bar
-            if self.progress_bar:
-                if not self.state.interrupted:
+            if self.progress_bar is not None:
+                if (
+                    not self.state.interrupted
+                    and self.config.total
+                    and self.state.current < self.config.total
+                ):
                     # Ensure progress bar shows completion
-                    if self.config.total and self.state.current < self.config.total:
-                        self.progress_bar.update(self.config.total - self.state.current)
+                    self.progress_bar.update(self.config.total - self.state.current)
                 self.progress_bar.close()
 
             # Log final statistics
@@ -456,10 +466,11 @@ class AsyncProgressTracker(ProgressTracker):
                 **(additional_data or {}),
             }
 
-            if asyncio.iscoroutinefunction(self.checkpoint_callback):
-                await self.checkpoint_callback(self.state.current, data)
-            else:
-                self.checkpoint_callback(self.state.current, data)
+            if self.checkpoint_callback is not None:
+                if asyncio.iscoroutinefunction(self.checkpoint_callback):
+                    await self.checkpoint_callback(self.state.current, data)
+                else:
+                    self.checkpoint_callback(self.state.current, data)
 
             self.state.last_checkpoint = self.state.current
             self.state.last_checkpoint_time = time.time()

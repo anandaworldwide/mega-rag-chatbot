@@ -106,6 +106,23 @@ Run comprehensive integration tests to validate chunking quality:
 python -m pytest tests/test_integration_chunk_quality.py --site test
 ```
 
+### Visualization Metadata Precomputation
+
+Precompute UMAP projections and HDBSCAN clusters for visualization:
+
+```bash
+# Install dependencies (use pre-built wheels to avoid CMake requirement)
+pip install --only-binary :all: umap-learn hdbscan
+
+# Run the script
+python data_ingestion/update_viz_metadata.py --site ananda
+```
+
+**Note**: If pre-built wheels fail, install CMake first:
+
+- macOS: `brew install cmake`
+- Linux: `apt-get install cmake` (or equivalent)
+
 ## Dependencies
 
 - **Python 3.10+**
@@ -114,3 +131,5 @@ python -m pytest tests/test_integration_chunk_quality.py --site test
 - **Pinecone**: Vector database operations
 - **AssemblyAI**: Audio transcription service
 - **pdfplumber**: PDF text extraction with superior layout preservation
+- **umap-learn**: UMAP dimensionality reduction (optional, for visualization)
+- **hdbscan**: HDBSCAN clustering (optional, for visualization)

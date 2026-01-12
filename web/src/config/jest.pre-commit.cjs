@@ -1,4 +1,5 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
+/* eslint-env node */
+/* global __dirname, process */
 /** @type {import('jest').Config} */
 
 const path = require("path");
@@ -39,11 +40,12 @@ if (isServerTest) {
       "^@/types/(.*)$": "<rootDir>/src/types/$1",
       "^@/services/(.*)$": "<rootDir>/src/services/$1",
       "^@/components/(.*)$": "<rootDir>/src/components/$1",
-      "\.(css|less|scss|sass)$": "identity-obj-proxy",
-      "\.module\.(css|less|scss|sass)$": "identity-obj-proxy",
+      "\\.(css|less|scss|sass)$": "identity-obj-proxy",
+      "\\.module\\.(css|less|scss|sass)$": "identity-obj-proxy",
       "^react-markdown$": "<rootDir>/__mocks__/react-markdown.js",
       "^remark-gfm$": "<rootDir>/__mocks__/remark-gfm.js",
       "^next/server$": "<rootDir>/__mocks__/next/server.js",
+      "^d3$": "<rootDir>/__mocks__/d3.js",
     },
     testMatch: ["**/__tests__/**/*.[jt]s?(x)", "**/?(*.)+(spec|test).[jt]s?(x)"],
     testPathIgnorePatterns: [
@@ -63,7 +65,7 @@ if (isServerTest) {
       "^.+\\.(js|jsx|ts|tsx)$": ["babel-jest", { presets: ["next/babel"] }],
     },
     transformIgnorePatterns: [
-      "/node_modules/(?!react-markdown|remark-*|rehype-*|unified|mdast-*|micromark|decode-named-character-reference|character-entities|property-information|hast-*|unist-*|bail|is-plain-obj|trough|vfile|escape-string-regexp|.+\\.mjs$)/",
+      "/node_modules/(?!react-markdown|remark-.*|rehype-.*|unified|mdast-.*|micromark|decode-named-character-reference|character-entities|property-information|hast-.*|unist-.*|bail|is-plain-obj|trough|vfile|escape-string-regexp|d3|d3-.*|internmap|delaunator|robust-predicates|.+\\.mjs$)/",
     ],
     maxWorkers: 4,
     rootDir: ".",

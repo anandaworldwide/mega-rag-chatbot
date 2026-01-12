@@ -177,6 +177,8 @@ h11==0.16.0
     #   httpcore
 h2==4.3.0
     # via httpx
+hdbscan==0.8.41
+    # via -r requirements.in
 hf-xet==1.1.4
     # via huggingface-hub
 hpack==4.1.0
@@ -228,7 +230,9 @@ jmespath==1.0.1
     #   botocore
 joblib==1.5.1
     # via
+    #   hdbscan
     #   nltk
+    #   pynndescent
     #   scikit-learn
 jsonpatch==1.33
     # via langchain-core
@@ -253,6 +257,10 @@ langsmith==0.3.45
     #   langchain-core
 language-data==1.3.0
     # via langcodes
+llvmlite==0.46.0
+    # via
+    #   numba
+    #   pynndescent
 lxml[html-clean]==5.4.0
     # via
     #   lxml-html-clean
@@ -297,14 +305,20 @@ networkx==3.4.2
     #   torch
 nltk==3.9
     # via -r requirements.in
+numba==0.63.1
+    # via
+    #   pynndescent
+    #   umap-learn
 numpy==1.26.4
     # via
     #   -r requirements.in
     #   blis
     #   contourpy
+    #   hdbscan
     #   imageio
     #   matplotlib
     #   moviepy
+    #   numba
     #   onnx
     #   onnxruntime
     #   optimum
@@ -315,6 +329,7 @@ numpy==1.26.4
     #   spacy
     #   thinc
     #   transformers
+    #   umap-learn
 onnx==1.18.0
     # via -r requirements.in
 onnxruntime==1.22.0
@@ -435,6 +450,8 @@ pyjwt[crypto]==2.10.1
     # via firebase-admin
 pymysql==1.1.1
     # via -r requirements.in
+pynndescent==0.6.0
+    # via umap-learn
 pyparsing==3.2.3
     # via matplotlib
 pypdfium2==4.30.1
@@ -508,9 +525,17 @@ s3transfer==0.13.0
 safetensors==0.5.3
     # via transformers
 scikit-learn==1.6.1
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   hdbscan
+    #   pynndescent
+    #   umap-learn
 scipy==1.15.3
-    # via scikit-learn
+    # via
+    #   hdbscan
+    #   pynndescent
+    #   scikit-learn
+    #   umap-learn
 seaborn==0.13.2
     # via -r requirements.in
 shellingham==1.5.4
@@ -570,6 +595,7 @@ tqdm==4.67.1
     #   proglog
     #   spacy
     #   transformers
+    #   umap-learn
 transformers==4.52.4
     # via
     #   -r requirements.in
@@ -602,6 +628,8 @@ typing-inspection==0.4.1
     # via pydantic
 tzdata==2025.2
     # via pandas
+umap-learn==0.5.9.post2
+    # via -r requirements.in
 urllib3==2.5.0
     # via
     #   -r requirements.in

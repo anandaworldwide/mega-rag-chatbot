@@ -33,6 +33,7 @@ import { getOrCreateUUID } from "@/utils/client/uuid";
 import { getToken } from "@/utils/client/tokenManager";
 import { generateSourceId, generateSourceDeepLink } from "@/utils/client/sourceUtils";
 import { transformYouTubeUrl } from "@/utils/client/youtubeUtils";
+import { ClusterVizModal } from "@/components/ClusterViz";
 
 // Helper function to extract the title from document metadata.
 const extractTitle = (metadata: DocMetadata): string => {
@@ -81,6 +82,8 @@ const SourcesList: React.FC<SourcesListProps> = ({
   const [showAccessInterstitial, setShowAccessInterstitial] = useState<boolean>(false);
   const [currentSourceUrl, setCurrentSourceUrl] = useState<string>("");
   const [currentSourceDoc, setCurrentSourceDoc] = useState<Document<DocMetadata> | null>(null);
+  const [clusterMapSourceDoc, setClusterMapSourceDoc] = useState<Document<DocMetadata> | null>(null);
+  const [showClusterMap, setShowClusterMap] = useState<boolean>(false);
 
   // Reset expanded sources state when sources change (e.g., new conversation loaded)
   React.useEffect(() => {
@@ -103,7 +106,6 @@ const SourcesList: React.FC<SourcesListProps> = ({
         }
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sources, onSourceExpanded]);
 
   // Handle Escape key to close interstitial modal
@@ -327,9 +329,9 @@ const SourcesList: React.FC<SourcesListProps> = ({
   };
 
   // Handle clicking on a source link
-  const handleSourceClick = (e: React.MouseEvent<HTMLAnchorElement> | any, source: string) => {
+  const handleSourceClick = (e: React.MouseEvent<HTMLAnchorElement>, source: string) => {
     try {
-      e.preventDefault && e.preventDefault(); // Prevent default link behavior if preventDefault exists
+      e.preventDefault?.(); // Prevent default link behavior if preventDefault exists
       logEvent("click_source", "UI", source);
 
       // Ensure the URL has a protocol to prevent relative path issues
@@ -688,7 +690,28 @@ const SourcesList: React.FC<SourcesListProps> = ({
                       </span>
                       <span className="material-icons text-sm ml-1 flex-shrink-0">{getSourceIcon(doc)}</span>
                       <div className="flex flex-col flex-1 min-w-0 ml-1">
-                        <div className="flex items-center">{renderSourceTitle(doc)}</div>
+                        <div className="flex items-center gap-2">
+                          {renderSourceTitle(doc)}
+                          {/* Cluster map button - only show if source has precomputed viz metadata */}
+                          {doc.metadata.viz_subset === true &&
+                            typeof doc.metadata.umap_x === "number" &&
+                            typeof doc.metadata.umap_y === "number" &&
+                            typeof doc.metadata.cluster_id === "number" && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setClusterMapSourceDoc(doc);
+                                  setShowClusterMap(true);
+                                  logEvent("cluster_map_button_clicked", "Engagement", doc.metadata.title || "unknown");
+                                }}
+                                className="text-gray-400 hover:text-blue-600 transition-colors"
+                                title="View in cluster map"
+                                aria-label="View in cluster map"
+                              >
+                                <span className="material-icons text-sm">account_tree</span>
+                              </button>
+                            )}
+                        </div>
                         {doc.metadata.library && doc.metadata.library !== "Default Library" && (
                           <div className="sm:hidden">{renderLibraryName(doc)}</div>
                         )}
@@ -873,6 +896,16 @@ const SourcesList: React.FC<SourcesListProps> = ({
           </div>
         </>
       )}
+
+      {/* Cluster Map Modal */}
+      <ClusterVizModal
+        isOpen={showClusterMap}
+        onClose={() => {
+          setShowClusterMap(false);
+          setClusterMapSourceDoc(null);
+        }}
+        sourceDoc={clusterMapSourceDoc}
+      />
     </div>
   );
 };

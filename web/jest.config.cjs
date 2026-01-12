@@ -31,6 +31,7 @@ const customJestConfig = {
     "^remark-gfm$": "<rootDir>/__mocks__/remark-gfm.js",
     "^next/server$": "<rootDir>/__mocks__/next/server.js",
     "^uuid$": "<rootDir>/__mocks__/uuid.js",
+    "^d3$": "<rootDir>/__mocks__/d3.js",
   },
   // Assuming tests are now within web/, e.g., web/__tests__ or web/src/**/__tests__
   testMatch: ["**/__tests__/**/*.[jt]s?(x)", "**/?(*.)+(spec|test).[jt]s?(x)"],
@@ -54,7 +55,7 @@ const customJestConfig = {
     "^.+\\.(js|jsx|ts|tsx)$": ["babel-jest", { presets: ["next/babel"] }],
   },
   transformIgnorePatterns: [
-    "/node_modules/(?!react-markdown|remark-*|rehype-*|unified|mdast-*|micromark|decode-named-character-reference|character-entities|property-information|hast-*|unist-*|bail|is-plain-obj|trough|vfile|escape-string-regexp|.+\\.mjs$)/",
+    "/node_modules/(?!react-markdown|remark-.*|rehype-.*|unified|mdast-.*|micromark|decode-named-character-reference|character-entities|property-information|hast-.*|unist-.*|bail|is-plain-obj|trough|vfile|escape-string-regexp|d3|d3-.*|internmap|delaunator|robust-predicates|.+\\.mjs$)/",
   ],
   maxWorkers: 4,
   // Explicitly set rootDir relative to this config file (which is in web/)

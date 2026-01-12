@@ -67,6 +67,8 @@ ruff==0.11.13
 s3transfer==0.13.0
 scikit-learn
 seaborn
+umap-learn
+hdbscan
 spacy==3.8.7
 tenacity==8.2.2
 tokenizers==0.21.1
