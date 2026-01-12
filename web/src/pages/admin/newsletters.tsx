@@ -742,7 +742,7 @@ For external images: ![Alt text](https://external-site.com/image.jpg)
                     <div className="text-xs text-gray-500 border-t pt-4">
                       <p>
                         You&apos;re receiving this newsletter because you&apos;re subscribed to{" "}
-                        {siteConfig?.name || "Ananda Library"} updates.
+                        {siteConfig?.shortname || siteConfig?.name || "Ananda Library"} updates.
                       </p>
                       <p>
                         If you no longer wish to receive these emails, you can{" "}

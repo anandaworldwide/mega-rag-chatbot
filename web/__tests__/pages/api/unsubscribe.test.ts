@@ -417,7 +417,7 @@ describe("/api/unsubscribe", () => {
       expect(res.statusCode).toBe(200);
       const html = res._getData();
       expect(html).toContain("Successfully Unsubscribed");
-      expect(html).toContain("onboarding emails");
+      expect(html).toContain("getting started tips");
       expect(html).toContain("test@example.com");
     });
 

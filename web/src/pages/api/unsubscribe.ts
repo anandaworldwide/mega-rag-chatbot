@@ -133,13 +133,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const siteConfig = await loadSiteConfig();
     const siteShortname = siteConfig?.shortname || "Newsletter";
 
-    // Category display names
+    // Category display names (must match emailTemplates.ts getSubscriptionReasonText)
     const categoryNames: Record<EmailCategory, string> = {
       newsletters: "newsletter updates",
-      onboarding: "onboarding emails",
-      reengagement: "re-engagement emails",
-      specialDay: "special day emails",
-      nps: "survey emails",
+      onboarding: "getting started tips",
+      reengagement: "activity reminders",
+      specialDay: "special occasion notifications",
+      nps: "feedback requests",
     };
     const categoryDisplayName = categoryNames[category] || "emails";
 
@@ -150,7 +150,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const safeToken = escapeJsString(token);
 
     // Message text for "no longer receive" - special handling for NPS surveys
-    const noLongerReceiveText = category === "nps" ? "these periodic survey emails" : safeCategoryDisplayName;
+    const noLongerReceiveText = category === "nps" ? "these periodic feedback requests" : safeCategoryDisplayName;
 
     // Format the unsubscribe message with blue bold styling for all categories
     const unsubscribeMessage = `The email address <span class="email">${safeEmail}</span> has been unsubscribed from <span class="email">${safeSiteShortname}</span> <span class="email">${safeCategoryDisplayName}</span>.`;

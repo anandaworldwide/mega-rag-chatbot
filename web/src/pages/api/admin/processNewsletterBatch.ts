@@ -46,6 +46,7 @@ async function convertMarkdownToHtml(markdownContent: string): Promise<string> {
 function renderNewsletterHtml(templateVars: {
   subject: string;
   siteName: string;
+  siteShortname: string;
   userName: string;
   content: string;
   ctaUrl?: string;
@@ -89,6 +90,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Load site config once
     const siteConfig = await loadSiteConfig();
     const siteName = siteConfig?.name || "Ananda Library";
+    const siteShortname = siteConfig?.shortname || siteName;
     const jwtSecret = process.env.SECURE_TOKEN;
     const fromEmail = process.env.CONTACT_EMAIL;
 
@@ -161,6 +163,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           const html = renderNewsletterHtml({
             subject: data.subject,
             siteName,
+            siteShortname,
             userName,
             content: htmlContent,
             ctaUrl: data.ctaUrl,

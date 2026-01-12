@@ -102,13 +102,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     await firestoreSet(userRef, updates, { merge: true }, `resubscribe to ${category}`);
 
-    // Category display names
+    // Category display names (must match emailTemplates.ts getSubscriptionReasonText)
     const categoryNames: Record<EmailCategory, string> = {
       newsletters: "newsletter updates",
-      onboarding: "onboarding emails",
-      reengagement: "re-engagement emails",
-      specialDay: "special day emails",
-      nps: "survey emails",
+      onboarding: "getting started tips",
+      reengagement: "activity reminders",
+      specialDay: "special occasion notifications",
+      nps: "feedback requests",
     };
     const categoryDisplayName = categoryNames[category] || "emails";
 

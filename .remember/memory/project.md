@@ -89,6 +89,16 @@ except ImportError:
 - **Environment**: Use `--site` argument with `pyutil.env_utils.load_env(site_name)`
 - **Example**: `parser.add_argument("--video", "-v", ...)` not `("-v", "--video", ...)`
 
+### Running Cron Jobs from Command Line
+
+- **Authentication**: Cron endpoints use `withJwtOrCronAuth` which checks User-Agent header
+- **Required Headers**: Must set `User-Agent: vercel-cron/1.0` AND `Authorization: Bearer $CRON_SECRET` to use
+  CRON_SECRET auth
+- **Pattern**: Without User-Agent header, request falls back to JWT authentication instead
+- **Example**:
+  `curl -X POST http://localhost:3000/api/cron/processOnboardingEmails -H "Authorization: Bearer $CRON_SECRET" -H "User-Agent: vercel-cron/1.0"`
+- **Location**: `web/src/utils/server/cronAuthUtils.ts` - checks `userAgent.startsWith("vercel-cron/")`
+
 ## Security and Deployment
 
 ### JWT Authentication
