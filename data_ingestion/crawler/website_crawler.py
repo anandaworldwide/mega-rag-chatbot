@@ -1403,19 +1403,34 @@ class WebsiteCrawler:
             logging.error(f"Failed to get response object from {url}")
             return False, Exception("No response object")
 
-        if response.status >= 400:
-            error_msg = f"HTTP {response.status}"
-            logging.error(f"{error_msg} error for {url}")
-            return False, Exception(error_msg)
+        try:
+            if response.status >= 400:
+                error_msg = f"HTTP {response.status}"
+                logging.error(f"{error_msg} error for {url}")
+                return False, Exception(error_msg)
+        except AttributeError as e:
+            logging.error(f"Response object missing status attribute for {url}: {e}")
+            return False, Exception(f"Invalid response object: {e}")
 
-        content_type = response.header_value("content-type")
-        if content_type and not content_type.lower().startswith("text/html"):
-            logging.info(f"Skipping non-HTML content ({content_type}) at {url}")
-            self.mark_url_status(url, "visited", content_hash="non_html")
-            return False, None  # None indicates successful skip, not error
+        try:
+            content_type = response.header_value("content-type")
+            if content_type and not content_type.lower().startswith("text/html"):
+                logging.info(f"Skipping non-HTML content ({content_type}) at {url}")
+                self.mark_url_status(url, "visited", content_hash="non_html")
+                return False, None  # None indicates successful skip, not error
+        except (AttributeError, TypeError) as e:
+            # Handle cases where header_value() fails (e.g., headers dict is None)
+            logging.warning(
+                f"Could not read content-type header for {url}: {e}. Assuming HTML and continuing."
+            )
+            # Continue as if it's HTML content
 
         # Additional check: if URL changed significantly (like to a media file), skip it
-        final_url = response.url
+        try:
+            final_url = response.url
+        except AttributeError as e:
+            logging.error(f"Response object missing url attribute for {url}: {e}")
+            return False, Exception(f"Invalid response object: {e}")
         if final_url != url:
             final_path = final_url.lower()
             media_extensions = [
@@ -1738,6 +1753,21 @@ class WebsiteCrawler:
                 page.set_default_timeout(30000)
 
                 response = page.goto(url, wait_until="commit")
+
+                # Handle None response (can happen when navigation fails or is aborted)
+                if response is None:
+                    logging.warning(
+                        f"page.goto() returned None for {url} - navigation may have failed or been aborted"
+                    )
+                    last_exception = Exception("Navigation failed - no response object")
+                    retries -= 1
+                    if retries > 0:
+                        logging.info(f"Retrying {url} after None response...")
+                        time.sleep(5)
+                        continue
+                    else:
+                        retries = 0
+                        continue
 
                 # Check if we were redirected to a WordPress login page
                 final_url = page.url
