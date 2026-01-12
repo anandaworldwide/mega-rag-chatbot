@@ -92,6 +92,8 @@ jobs:
           NEXT_PUBLIC_SITE: ananda-public
           SKIP_ENV_VALIDATION: true
           NODE_ENV: test
+          # Increase heap size for ESLint with TypeScript type checking
+          NODE_OPTIONS: "--max-old-space-size=4096"
         run: |
           echo "🔍 Running Node.js validation..."
 
