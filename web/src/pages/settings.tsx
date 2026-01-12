@@ -150,7 +150,7 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
     },
     onboarding: {
       label: "Getting started tips",
-      description: "Helpful guidance emails when you first join",
+      description: "Helpful guidance emails in the first two weeks after you join",
     },
     reengagement: {
       label: "Return reminders",
@@ -162,7 +162,7 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
     },
     nps: {
       label: "Feedback surveys",
-      description: "Occasional surveys to help us improve",
+      description: "Occasional surveys to help us improve (once every six months)",
     },
   };
 
