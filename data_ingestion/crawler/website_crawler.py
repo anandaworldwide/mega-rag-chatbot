@@ -1735,14 +1735,40 @@ class WebsiteCrawler:
         logging.error(traceback.format_exc())
         return False, False
 
+    def _handle_none_response(self, url: str, retries: int) -> tuple[int, Exception]:
+        """Handle None response from page.goto(). Returns (new_retries, exception)."""
+        logging.warning(
+            f"page.goto() returned None for {url} - navigation may have failed or been aborted"
+        )
+        exception = Exception("Navigation failed - no response object")
+        retries -= 1
+        if retries > 0:
+            logging.info(f"Retrying {url} after None response...")
+            time.sleep(5)
+        return retries, exception
+
+    def _create_wp_redirect_content(self, url: str, final_url: str) -> PageContent:
+        """Create PageContent for WordPress login redirect."""
+        logging.info(f"Ignoring WordPress login redirect: {url} -> {final_url}")
+        self.mark_url_status(url, "visited", content_hash=ContentHash.WP_LOGIN_REDIRECT)
+        return PageContent(
+            url=url,
+            title="WordPress Login Redirect",
+            content="",
+            metadata={
+                "type": "wp_login_redirect",
+                "source": url,
+                "final_url": final_url,
+            },
+        )
+
     def crawl_page(
         self, browser, page, url: str
     ) -> tuple[PageContent | None, list[str], bool]:
         """Crawl a single page and return content, links, and restart flag."""
         retries = 2
-        last_exception = None
+        last_exception: Exception | None = None
         restart_needed = False
-
         url = ensure_scheme(url)
 
         while retries > 0:
@@ -1751,49 +1777,19 @@ class WebsiteCrawler:
                     f"Attempting to navigate to {url} (Attempts left: {retries})"
                 )
                 page.set_default_timeout(30000)
-
                 response = page.goto(url, wait_until="commit")
 
-                # Handle None response (can happen when navigation fails or is aborted)
                 if response is None:
-                    logging.warning(
-                        f"page.goto() returned None for {url} - navigation may have failed or been aborted"
-                    )
-                    last_exception = Exception("Navigation failed - no response object")
-                    retries -= 1
-                    if retries > 0:
-                        logging.info(f"Retrying {url} after None response...")
-                        time.sleep(5)
-                        continue
-                    else:
-                        retries = 0
-                        continue
+                    retries, last_exception = self._handle_none_response(url, retries)
+                    continue
 
-                # Check if we were redirected to a WordPress login page
                 final_url = page.url
                 if self._is_wordpress_login_redirect(final_url, url):
-                    logging.info(
-                        f"Ignoring WordPress login redirect: {url} -> {final_url}"
-                    )
-                    self.mark_url_status(
-                        url, "visited", content_hash=ContentHash.WP_LOGIN_REDIRECT
-                    )
-                    # Create a special marker content to signal successful handling
-                    wp_redirect_content = PageContent(
-                        url=url,
-                        title="WordPress Login Redirect",
-                        content="",  # Empty content
-                        metadata={
-                            "type": "wp_login_redirect",
-                            "source": url,
-                            "final_url": final_url,
-                        },
-                    )
-                    return wp_redirect_content, [], False
+                    return self._create_wp_redirect_content(url, final_url), [], False
 
                 should_continue, exception = self._validate_response(response, url)
                 if not should_continue:
-                    if exception is None:  # Successful skip (non-HTML content)
+                    if exception is None:
                         return None, [], False
                     last_exception = exception
                     retries = 0
@@ -1805,37 +1801,43 @@ class WebsiteCrawler:
             except Exception as e:
                 restart_needed, should_retry = self._handle_crawl_exception(e, url)
                 last_exception = e
-
-                if restart_needed or not should_retry:
-                    retries = 0
-                elif retries > 1:
-                    retries -= 1
-                    logging.info(f"Waiting 5s before next retry for {url}...")
-                    time.sleep(5)
-                else:
-                    retries = 0
-
-                # Periodic cleanup of timeout tracking
-                self._session_operation_count += 1
-                if (
-                    self._session_operation_count % 50 == 0
-                ):  # Clean up every 50 operations
-                    self._cleanup_old_timeout_counts()
+                retries = self._update_retries_after_exception(
+                    retries, restart_needed, should_retry, url
+                )
 
         if not restart_needed:
-            error_message = (
-                str(last_exception)
-                if last_exception
-                else "Unknown error during crawl attempt"
-            )
-            logging.error(
-                f"Giving up on {url} after exhausting retries or encountering fatal error. Last error: {last_exception}"
-            )
-
-            # Mark as failed and let the retry logic in mark_url_status handle 404s
-            self.mark_url_status(url, "failed", error_message)
+            self._log_and_mark_failed(url, last_exception)
 
         return None, [], restart_needed
+
+    def _update_retries_after_exception(
+        self, retries: int, restart_needed: bool, should_retry: bool, url: str
+    ) -> int:
+        """Update retry count after an exception. Returns new retry count."""
+        self._session_operation_count += 1
+        if self._session_operation_count % 50 == 0:
+            self._cleanup_old_timeout_counts()
+
+        if restart_needed or not should_retry:
+            return 0
+        if retries > 1:
+            logging.info(f"Waiting 5s before next retry for {url}...")
+            time.sleep(5)
+            return retries - 1
+        return 0
+
+    def _log_and_mark_failed(self, url: str, last_exception: Exception | None) -> None:
+        """Log failure and mark URL as failed."""
+        error_message = (
+            str(last_exception)
+            if last_exception
+            else "Unknown error during crawl attempt"
+        )
+        logging.error(
+            f"Giving up on {url} after exhausting retries or encountering fatal error. "
+            f"Last error: {last_exception}"
+        )
+        self.mark_url_status(url, "failed", error_message)
 
     def create_embeddings(
         self, chunks: list[str], url: str, page_title: str
