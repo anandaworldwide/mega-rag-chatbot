@@ -202,6 +202,7 @@ export async function renderSpecialDayEmail(
     actionUrl: finalCtaUrl,
     actionText: template.ctaText,
     unsubscribeUrl,
+    emailCategory: "specialDay",
   });
 
   // Add tracking pixel to HTML using centralized utility
@@ -217,6 +218,7 @@ export async function renderSpecialDayEmail(
     actionUrl: textCtaUrl,
     actionText: template.ctaText,
     unsubscribeUrl: unsubscribeTargetUrl, // Use original URL for text version
+    emailCategory: "specialDay",
   });
 
   return {

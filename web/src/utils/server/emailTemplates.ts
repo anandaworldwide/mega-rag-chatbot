@@ -2,6 +2,32 @@
 import { loadSiteConfigSync } from "./loadSiteConfig";
 import { escapeHtml } from "./templateUtils";
 
+/**
+ * Gets the subscription reason text for an email category
+ * @param category - The email category
+ * @param siteName - The site name to include in the message
+ * @returns The subscription reason text
+ */
+function getSubscriptionReasonText(category: EmailCategory | undefined, siteName: string): string {
+  switch (category) {
+    case "onboarding":
+      return `You're receiving this because you're subscribed to ${siteName} getting started tips.`;
+    case "specialDay":
+      return `You're receiving this because you're subscribed to ${siteName} special occasion notifications.`;
+    case "reengagement":
+      return `You're receiving this because you're subscribed to ${siteName} activity reminders.`;
+    case "nps":
+      return `You're receiving this because you're subscribed to occasional ${siteName} feedback requests.`;
+    case "newsletters":
+      return `You're receiving this because you're subscribed to ${siteName} newsletter updates.`;
+    default:
+      return `You're receiving this because you're subscribed to ${siteName} updates.`;
+  }
+}
+
+// Email category types for subscription reason text
+export type EmailCategory = "onboarding" | "specialDay" | "reengagement" | "nps" | "newsletters";
+
 interface EmailTemplateOptions {
   greeting?: string;
   message: string;
@@ -12,6 +38,7 @@ interface EmailTemplateOptions {
   actionUrl?: string; // The main URL for the action (e.g., login, activation)
   actionText?: string; // The text for the action link (e.g., "Click here to sign in")
   unsubscribeUrl?: string; // Optional unsubscribe link URL
+  emailCategory?: EmailCategory; // Category for subscription reason text
 }
 
 /**
@@ -129,8 +156,9 @@ export function generateEmailContent(options: EmailTemplateOptions): {
 
   // Generate plain text version
   const settingsUrl = `${baseUrl}/settings`;
+  const subscriptionReason = getSubscriptionReasonText(options.emailCategory, shortName);
   const unsubscribeText = options.unsubscribeUrl
-    ? `\n\nOne-click unsubscribe: ${options.unsubscribeUrl}\n(or manage all email preferences: ${settingsUrl})`
+    ? `\n\n${subscriptionReason}\nOne-click unsubscribe: ${options.unsubscribeUrl}\n(or manage all email preferences: ${settingsUrl})`
     : "";
   const textContent = [
     emailGreeting,
@@ -235,6 +263,7 @@ export function generateEmailContent(options: EmailTemplateOptions): {
       options.unsubscribeUrl
         ? `
     <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #999; text-align: center;">
+      <p style="margin: 0 0 8px 0;">${subscriptionReason}</p>
       <a href="${options.unsubscribeUrl}" style="color: #999; text-decoration: underline;">One-click unsubscribe</a>
       <span style="color: #999;"> (or <a href="${settingsUrl}" style="color: #999; text-decoration: underline;">manage all email preferences</a>)</span>
     </div>

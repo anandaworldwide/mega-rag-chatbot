@@ -103,6 +103,60 @@ describe("emailTemplates", () => {
       expect(result.html).not.toContain("manage all email preferences");
       expect(result.text).not.toContain("One-click unsubscribe");
     });
+
+    it("should include subscription reason text for onboarding emails", () => {
+      const result = generateEmailContent({
+        message: "Test message",
+        unsubscribeUrl: "https://example.com/unsubscribe",
+        emailCategory: "onboarding",
+      });
+
+      expect(result.html).toContain("getting started tips");
+      expect(result.text).toContain("getting started tips");
+    });
+
+    it("should include subscription reason text for special day emails", () => {
+      const result = generateEmailContent({
+        message: "Test message",
+        unsubscribeUrl: "https://example.com/unsubscribe",
+        emailCategory: "specialDay",
+      });
+
+      expect(result.html).toContain("special occasion notifications");
+      expect(result.text).toContain("special occasion notifications");
+    });
+
+    it("should include subscription reason text for reengagement emails", () => {
+      const result = generateEmailContent({
+        message: "Test message",
+        unsubscribeUrl: "https://example.com/unsubscribe",
+        emailCategory: "reengagement",
+      });
+
+      expect(result.html).toContain("activity reminders");
+      expect(result.text).toContain("activity reminders");
+    });
+
+    it("should include subscription reason text for NPS survey emails", () => {
+      const result = generateEmailContent({
+        message: "Test message",
+        unsubscribeUrl: "https://example.com/unsubscribe",
+        emailCategory: "nps",
+      });
+
+      expect(result.html).toContain("feedback requests");
+      expect(result.text).toContain("feedback requests");
+    });
+
+    it("should include generic subscription reason text when no category specified", () => {
+      const result = generateEmailContent({
+        message: "Test message",
+        unsubscribeUrl: "https://example.com/unsubscribe",
+      });
+
+      expect(result.html).toContain("subscribed to TestSite updates");
+      expect(result.text).toContain("subscribed to TestSite updates");
+    });
   });
 
   describe("createEmailParams", () => {

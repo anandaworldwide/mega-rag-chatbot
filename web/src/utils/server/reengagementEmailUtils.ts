@@ -239,6 +239,7 @@ ${template.secondaryCta.label}: ${secondaryCtaUrl}
     greeting: greeting,
     message: bodyHtml,
     unsubscribeUrl,
+    emailCategory: "reengagement",
   });
 
   // Add tracking pixel to HTML using centralized utility
@@ -251,6 +252,7 @@ ${template.secondaryCta.label}: ${secondaryCtaUrl}
     greeting: greeting,
     message: bodyText,
     unsubscribeUrl: unsubscribeTargetUrl, // Use original URL for text version
+    emailCategory: "reengagement",
   });
 
   return {

@@ -182,6 +182,7 @@ export async function renderNpsSurveyEmail(
     greeting: greeting,
     message: bodyHtml,
     unsubscribeUrl,
+    emailCategory: "nps",
   });
 
   // Add tracking pixel to HTML using centralized utility
@@ -195,6 +196,7 @@ export async function renderNpsSurveyEmail(
     greeting: greeting,
     message: bodyTextPlain,
     unsubscribeUrl: unsubscribeTargetUrl,
+    emailCategory: "nps",
   });
 
   return {

@@ -221,6 +221,7 @@ export async function renderOnboardingEmail(
     actionUrl: finalCtaUrl,
     actionText: template.ctaText,
     unsubscribeUrl,
+    emailCategory: "onboarding",
   });
 
   // Add tracking pixel to HTML using centralized utility
@@ -237,6 +238,7 @@ export async function renderOnboardingEmail(
     actionUrl: textCtaUrl,
     actionText: template.ctaText,
     unsubscribeUrl: unsubscribeTargetUrl, // Use original URL for text version
+    emailCategory: "onboarding",
   });
 
   return {
