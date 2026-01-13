@@ -21,6 +21,7 @@ interface ChatHistorySidebarProps {
   currentConvId?: string | null;
   onGetSidebarFunctions?: (functions: SidebarFunctions, refetch: () => void) => void;
   onConversationDeleted?: (deletedConvId: string) => void;
+  onStarChange?: (convId: string, isStarred: boolean) => Promise<void>;
   enabled?: boolean; // Control whether to fetch chat history
 }
 
@@ -31,6 +32,7 @@ export default function ChatHistorySidebar({
   currentConvId,
   onGetSidebarFunctions,
   onConversationDeleted,
+  onStarChange,
   enabled = true,
 }: ChatHistorySidebarProps) {
   const {
@@ -365,13 +367,19 @@ export default function ChatHistorySidebar({
                           convId={conversation.convId}
                           isStarred={conversation.isStarred || false}
                           onStarChange={async (convId, isStarred) => {
+                            // Update sidebar's own state
                             if (isStarred) {
                               await starConversation(convId);
                             } else {
                               await unstarConversation(convId);
                             }
+                            // Also update main page's state if handler provided (don't await - it's instant)
+                            if (onStarChange) {
+                              onStarChange(convId, isStarred);
+                            }
                           }}
                           size="sm"
+                          location="sidebar"
                         />
                       </div>
 

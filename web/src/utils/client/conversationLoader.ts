@@ -17,6 +17,7 @@ export interface LoadedConversation {
   history: ChatMessage[];
   title?: string;
   convId?: string;
+  isStarred?: boolean;
 }
 
 /**
@@ -182,12 +183,16 @@ export async function loadConversationByConvId(
     const titleChat = sortedChats.find((c) => !!c.title) ?? sortedChats[0];
 
     const title = titleChat?.title;
+    
+    // Extract star state from the first chat item (all items in a conversation share the same star state)
+    const isStarred = sortedChats.length > 0 ? sortedChats[0].isStarred || false : false;
 
     return {
       messages,
       history,
       title,
       convId,
+      isStarred,
     };
   } catch (error) {
     console.error("Error loading conversation:", error);

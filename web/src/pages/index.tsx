@@ -21,12 +21,14 @@ import DownvoteFeedbackModal from "@/components/DownvoteFeedbackModal";
 import ChatHistorySidebar from "@/components/ChatHistorySidebar";
 import AnswerComparison from "@/components/AnswerComparison";
 import ModelComparisonFeedbackModal from "@/components/ModelComparisonFeedbackModal";
+import ConversationTitleBar from "@/components/ConversationTitleBar";
 
 // Hook imports
 import usePopup from "@/hooks/usePopup";
 import { useSuggestedQueries } from "@/hooks/useSuggestedQueries";
 import { useChat } from "@/hooks/useChat";
 import { useMultipleCollections } from "@/hooks/useMultipleCollections";
+import { useChatHistory } from "@/hooks/useChatHistory";
 
 // Utility imports
 import { logEvent } from "@/utils/client/analytics";
@@ -190,6 +192,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     messages: ExtendedAIMessage[];
   };
 
+  // Chat history hook for star/unstar functionality
+  const { starConversation, unstarConversation, conversations } = useChatHistory(20, !!siteConfig?.requireLogin);
+
   // Track current conversation ID for follow-up messages
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const currentConvIdRef = useRef<string | null>(null);
@@ -249,6 +254,41 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     sidebarRefetchRef.current = refetch;
   }, []);
 
+  // Track if star change is coming from sidebar (to avoid duplicate API calls)
+  const isStarChangeFromSidebarRef = useRef<boolean>(false);
+
+  // Handler for star/unstar conversation
+  const handleStarChange = useCallback(
+    async (convId: string, newStarState: boolean) => {
+      const isFromSidebar = isStarChangeFromSidebarRef.current;
+      isStarChangeFromSidebarRef.current = false; // Reset flag
+
+      try {
+        // Only call API if NOT from sidebar (sidebar already called it)
+        if (!isFromSidebar) {
+          if (newStarState) {
+            await starConversation(convId);
+          } else {
+            await unstarConversation(convId);
+          }
+        }
+
+        // Update local state immediately for title bar
+        setIsCurrentConversationStarred(newStarState);
+
+        // Refetch sidebar in background to sync star state (if action came from title bar)
+        // Don't await - useChatHistory already updated state optimistically
+        if (!isFromSidebar) {
+          sidebarRefetchRef.current();
+        }
+      } catch (error) {
+        console.error("Failed to update star status:", error);
+        toast.error("Failed to update star status. Please try again.");
+      }
+    },
+    [starConversation, unstarConversation]
+  );
+
   // (Removed pushedConvIdRef – no longer needed now that we update URL via
   // window.history.replaceState without triggering navigation.)
 
@@ -257,6 +297,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const [linkCopied, setLinkCopied] = useState<string | null>(null);
   const [sourceLinkCopied, setSourceLinkCopied] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
+  const [isCurrentConversationStarred, setIsCurrentConversationStarred] = useState<boolean>(false);
   const sourceExpandedRef = useRef<Set<number>>(new Set());
   const handledHashRef = useRef<string | null>(null);
 
@@ -347,6 +388,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           }
         }
 
+        // Set star state from loaded conversation
+        setIsCurrentConversationStarred(loadedConversation.isStarred || false);
+
         // Log analytics event
         logEvent("chat_history_conversation_loaded", "Chat History", convId, loadedConversation.messages.length);
 
@@ -409,6 +453,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setCurrentConvId(null);
         setCurrentQuestion("");
         setConversationTitle(null); // Clear conversation title
+        setIsCurrentConversationStarred(false); // Clear star state
         setMessageState({
           messages: [
             {
@@ -621,6 +666,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     setCurrentConvId(null);
     setCurrentQuestion("");
     setConversationTitle(null);
+    setIsCurrentConversationStarred(false);
     setMessageState({
       messages: [
         {
@@ -2357,6 +2403,17 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     }
   }, [currentConvId]);
 
+  // Sync star state when conversation or conversations list changes
+  useEffect(() => {
+    if (currentConvId) {
+      const currentConv = conversations.find((c) => c.convId === currentConvId);
+      const newStarState = currentConv?.isStarred || false;
+      setIsCurrentConversationStarred(newStarState);
+    } else {
+      setIsCurrentConversationStarred(false);
+    }
+  }, [currentConvId, conversations]);
+
   // Effect to set initial collection and focus input on component mount
   useEffect(() => {
     // Retrieve and set the collection from the cookie
@@ -2582,17 +2639,17 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
               }}
               onLoadConversation={handleLoadConversation}
               currentConvId={currentConvId}
-              onGetSidebarFunctions={(functions) => {
+              onGetSidebarFunctions={(functions, sidebarRefetch) => {
                 handleSidebarFunctions(functions, () => {
-                  // This refetch function is called when the sidebar needs to be reloaded
-                  // after a state change that might affect its data, e.g., clearing chat history
-                  // or changing collections.
-                  // For now, we'll just log the event, as the actual re-fetching logic
-                  // would involve fetching chat history from the backend.
+                  sidebarRefetch();
                   logEvent("chat_history_sidebar_refetch", "Chat History", "sidebar_refetch");
                 });
               }}
               onConversationDeleted={handleConversationDeleted}
+              onStarChange={async (convId: string, isStarred: boolean) => {
+                isStarChangeFromSidebarRef.current = true;
+                await handleStarChange(convId, isStarred);
+              }}
             />
           )}
 
@@ -2615,6 +2672,15 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                   <h1 className="text-lg font-semibold text-gray-900">Chat</h1>
                   <div className="w-10"></div> {/* Spacer for centering */}
                 </div>
+              )}
+              {/* Conversation Title Bar - Only show on sites that require login */}
+              {siteConfig?.requireLogin && (
+                <ConversationTitleBar
+                  convId={currentConvId}
+                  title={conversationTitle}
+                  isStarred={isCurrentConversationStarred}
+                  onStarChange={handleStarChange}
+                />
               )}
               {/* Temporary session banner */}
               {temporarySession && (

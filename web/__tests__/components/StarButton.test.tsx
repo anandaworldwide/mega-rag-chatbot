@@ -99,7 +99,25 @@ describe("StarButton", () => {
       fireEvent.click(button);
 
       await waitFor(() => {
-        expect(mockLogEvent).toHaveBeenCalledWith("star_conversation", "Conversation Management", "Star - md", 1);
+        expect(mockLogEvent).toHaveBeenCalledWith("star_conversation", "Conversation Management", "Star - other", 1);
+      });
+    });
+
+    it("should track analytics with location prop", async () => {
+      render(
+        <StarButton convId="test-conv-id" isStarred={false} onStarChange={mockOnStarChange} location="title_bar" />
+      );
+
+      const button = screen.getByRole("button");
+      fireEvent.click(button);
+
+      await waitFor(() => {
+        expect(mockLogEvent).toHaveBeenCalledWith(
+          "star_conversation",
+          "Conversation Management",
+          "Star - title_bar",
+          1
+        );
       });
     });
 
@@ -123,7 +141,7 @@ describe("StarButton", () => {
         expect(mockLogEvent).toHaveBeenCalledWith(
           "star_action_failed",
           "Conversation Management",
-          "Failed Star - md",
+          "Failed Star - other",
           1
         );
       });
