@@ -90,21 +90,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const linkType = type as "question" | "cta" | "unsubscribe" | "link" | "score";
     const linkId = id ? decodeURIComponent(id as string).substring(0, MAX_LINK_ID_LENGTH) : undefined;
 
-    // Validate URL is safe (must be same origin or allowed external domain)
-    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "";
+    // Validate URL is safe
+    // Newsletter CTAs can link to external URLs since content is admin-curated
     try {
       const urlObj = new URL(targetUrl);
-      const baseUrlObj = new URL(baseUrl);
 
-      // Allow same origin or specific external domains
-      const isSameOrigin = urlObj.origin === baseUrlObj.origin;
-      if (!isSameOrigin) {
-        // For now, only allow same-origin redirects for security
-        // Can be extended to allow specific external domains if needed
-        return res.status(400).json({ error: "Invalid redirect URL" });
+      // Only allow HTTPS URLs (or HTTP for localhost in development)
+      const isHttps = urlObj.protocol === "https:";
+      const isLocalDev = urlObj.protocol === "http:" && urlObj.hostname === "localhost";
+
+      if (!isHttps && !isLocalDev) {
+        return res.status(400).json({ error: "Invalid redirect URL: HTTPS required" });
       }
     } catch (_urlError) {
-      // Relative URLs are fine
+      // Relative URLs are fine (will resolve against current origin)
       if (!targetUrl.startsWith("/")) {
         return res.status(400).json({ error: "Invalid redirect URL format" });
       }

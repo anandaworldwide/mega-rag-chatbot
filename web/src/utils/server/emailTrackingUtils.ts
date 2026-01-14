@@ -87,14 +87,14 @@ export function generateClickTrackingUrl(
   const trackingBase = baseUrl || process.env.NEXT_PUBLIC_BASE_URL || "";
   const trackingUrl = new URL("/api/email/click", trackingBase);
 
-  // Encode the target URL
-  trackingUrl.searchParams.set("url", encodeURIComponent(targetUrl));
-  trackingUrl.searchParams.set("email", encodeURIComponent(email));
+  // URLSearchParams.set() automatically encodes values, so don't double-encode
+  trackingUrl.searchParams.set("url", targetUrl);
+  trackingUrl.searchParams.set("email", email);
   trackingUrl.searchParams.set("campaign", campaignType);
   trackingUrl.searchParams.set("campaignId", campaignId.toString());
   trackingUrl.searchParams.set("type", linkType);
   if (linkId) {
-    trackingUrl.searchParams.set("id", encodeURIComponent(linkId));
+    trackingUrl.searchParams.set("id", linkId);
   }
 
   return trackingUrl.toString();
