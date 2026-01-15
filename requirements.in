@@ -19,6 +19,7 @@ fpdf==1.7.2
 frozenlist==1.7.0
 fsspec==2024.6.1
 google-api-core==2.25.2
+google-analytics-data
 greenlet==3.2.3
 google-auth==2.40.3
 google-cloud-firestore==2.21.0

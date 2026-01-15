@@ -88,6 +88,21 @@ except ImportError:
 - **Preference**: Long-form arguments first in argparse
 - **Environment**: Use `--site` argument with `pyutil.env_utils.load_env(site_name)`
 - **Example**: `parser.add_argument("--video", "-v", ...)` not `("-v", "--video", ...)`
+- **Site and Environment Pattern**:
+  - Always add `--site` argument (required) for loading `.env.[site]` files
+  - Add `-e` or `--env` argument with `choices=['dev', 'prod']` and `default='prod'` (or 'dev' if appropriate)
+  - Call `load_env(args.site)` from `pyutil.env_utils` after parsing arguments
+  - Load environment variables from `.env.[site]` file (searches current directory and up to 3 levels up)
+  - Example:
+
+    ```python
+    from pyutil.env_utils import load_env
+
+    parser.add_argument("--site", required=True, help="Site ID for environment variables")
+    parser.add_argument("-e", "--env", choices=['dev', 'prod'], default='prod', help="Environment")
+    args = parser.parse_args()
+    load_env(args.site)  # Loads .env.[site] file
+    ```
 
 ### Running Cron Jobs from Command Line
 

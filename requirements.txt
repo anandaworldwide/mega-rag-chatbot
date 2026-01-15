@@ -123,16 +123,20 @@ fsspec==2024.6.1
     #   -r requirements.in
     #   huggingface-hub
     #   torch
+google-analytics-data==0.20.0
+    # via -r requirements.in
 google-api-core[grpc]==2.25.2
     # via
     #   -r requirements.in
     #   firebase-admin
+    #   google-analytics-data
     #   google-cloud-core
     #   google-cloud-firestore
     #   google-cloud-storage
 google-auth==2.40.3
     # via
     #   -r requirements.in
+    #   google-analytics-data
     #   google-api-core
     #   google-cloud-core
     #   google-cloud-firestore
@@ -165,6 +169,7 @@ greenlet==3.2.3
 grpcio==1.73.0
     # via
     #   -r requirements.in
+    #   google-analytics-data
     #   google-api-core
     #   grpcio-status
 grpcio-status==1.73.0
@@ -386,10 +391,12 @@ propcache==0.3.2
     #   yarl
 proto-plus==1.26.1
     # via
+    #   google-analytics-data
     #   google-api-core
     #   google-cloud-firestore
 protobuf==6.31.1
     # via
+    #   google-analytics-data
     #   google-api-core
     #   google-cloud-firestore
     #   googleapis-common-protos
