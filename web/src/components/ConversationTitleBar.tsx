@@ -16,7 +16,7 @@ export default function ConversationTitleBar({ convId, title, isStarred, onStarC
   };
 
   return (
-    <div className="bg-white border-b border-gray-200 py-2 mb-4 flex items-center gap-3">
+    <div className="lg:hidden bg-white border-b border-gray-200 py-2 mb-4 flex items-center gap-3">
       <StarButton
         convId={convId}
         isStarred={isStarred}
