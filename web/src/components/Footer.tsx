@@ -6,7 +6,7 @@ import { getFooterConfig } from "@/utils/client/siteConfig";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { useSudo } from "@/contexts/SudoContext";
-import { isAuthenticated } from "@/utils/client/tokenManager";
+import { initializeTokenManager, isAuthenticated } from "@/utils/client/tokenManager";
 
 interface FooterProps {
   siteConfig: SiteConfig | null;
@@ -28,7 +28,18 @@ const Footer: React.FC<FooterProps> = ({ siteConfig }) => {
         return;
       }
 
-      // Early return: Skip API call if user is not authenticated
+      // Wait for token manager to initialize before checking authentication
+      // This fixes a race condition where isAuthenticated() would return false
+      // because the token hadn't been fetched yet on initial page load
+      try {
+        await initializeTokenManager();
+      } catch {
+        // Token initialization failed (e.g., not logged in) - not an admin
+        if (mounted) setIsAdminRole(false);
+        return;
+      }
+
+      // Now check if user is authenticated (token should be ready)
       if (!isAuthenticated()) {
         if (mounted) setIsAdminRole(false);
         // Clear cache when user is not authenticated
