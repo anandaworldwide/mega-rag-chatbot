@@ -1,0 +1,6 @@
+{
+  "tasks": [
+    { "taskId": "class-planning", "file": "class-planning.json", "enabled": true },
+    { "taskId": "research", "file": "research.json", "enabled": true }
+  ]
+}

@@ -11,6 +11,7 @@ import CopyButton from "@/components/CopyButton";
 import { SiteConfig } from "@/types/siteConfig";
 import { ExtendedAIMessage } from "@/types/ExtendedAIMessage";
 import SuggestionPills from "@/components/SuggestionPills";
+import { TaskFollowupChips } from "@/components/TaskFollowupChips";
 import { TypedSuggestion } from "@/types/Suggestion";
 
 import { useSudo } from "@/contexts/SudoContext";
@@ -48,6 +49,9 @@ interface MessageItemProps {
   sourceLinkCopied?: string | null; // Source ID that was copied (for visual feedback)
   onSourceExpanded?: (index: number) => void; // Callback when source should be expanded (for deep linking)
   onSourceLinkCopied?: (sourceId: string) => void; // Callback when source link is copied
+  isTaskConversation?: boolean; // Whether current conversation started from a task
+  taskFollowups?: string[]; // Task-specific follow-up suggestions
+  onTaskFollowupClick?: (suggestion: string) => void; // Handler for task follow-up clicks
 }
 
 const MessageItem: React.FC<MessageItemProps> = ({
@@ -80,6 +84,9 @@ const MessageItem: React.FC<MessageItemProps> = ({
   sourceLinkCopied,
   onSourceExpanded,
   onSourceLinkCopied,
+  isTaskConversation = false,
+  taskFollowups = [],
+  onTaskFollowupClick,
 }) => {
   const { isSudoUser } = useSudo();
   const [localEditingText, setLocalEditingText] = React.useState(editingText);
@@ -380,14 +387,27 @@ const MessageItem: React.FC<MessageItemProps> = ({
               </div>
             )}
 
-            {/* Follow-up question suggestions - only for AI messages, below action buttons */}
-            {!readOnly && message.type === "apiMessage" && message.suggestions && message.suggestions.length > 0 && (
-              <SuggestionPills
-                suggestions={message.suggestions}
-                onSuggestionClick={onSuggestionClick || (() => {})}
-                loading={loading}
-              />
-            )}
+            {/* Follow-up suggestions - task followups replace regular suggestions when task is active */}
+            {!readOnly &&
+              message.type === "apiMessage" &&
+              isLastMessage &&
+              (isTaskConversation && taskFollowups.length > 0 ? (
+                <TaskFollowupChips
+                  suggestions={taskFollowups}
+                  onSelect={onTaskFollowupClick || (() => {})}
+                  visible={true}
+                  loading={loading}
+                />
+              ) : (
+                message.suggestions &&
+                message.suggestions.length > 0 && (
+                  <SuggestionPills
+                    suggestions={message.suggestions}
+                    onSuggestionClick={onSuggestionClick || (() => {})}
+                    loading={loading}
+                  />
+                )
+              ))}
           </div>
         )}
       </div>

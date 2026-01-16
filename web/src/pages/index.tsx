@@ -22,6 +22,8 @@ import ChatHistorySidebar from "@/components/ChatHistorySidebar";
 import AnswerComparison from "@/components/AnswerComparison";
 import ModelComparisonFeedbackModal from "@/components/ModelComparisonFeedbackModal";
 import ConversationTitleBar from "@/components/ConversationTitleBar";
+import { TaskSelector } from "@/components/TaskSelector";
+import { TaskWizardModal } from "@/components/TaskWizardModal";
 
 // Hook imports
 import usePopup from "@/hooks/usePopup";
@@ -257,6 +259,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const [, _setCurrentQuestion] = useState<string>("");
   const currentQuestionRef = useRef<string>("");
 
+  // Track if current submission is from task wizard
+  const isTaskSubmissionRef = useRef<boolean>(false);
+
   // Helper to update both ref + state
   const setCurrentQuestion = (q: string) => {
     currentQuestionRef.current = q;
@@ -408,6 +413,21 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
         // Set star state from loaded conversation
         setIsCurrentConversationStarred(loadedConversation.isStarred || false);
+
+        // Restore task state from loaded conversation (if it was a task conversation)
+        // Helper setters update both state and ref automatically
+        if (loadedConversation.taskMode) {
+          setIsTaskConversation(true);
+          setCurrentTaskMode(loadedConversation.taskMode);
+          setCurrentTaskFollowups(loadedConversation.taskFollowups || []);
+          setUsedTaskFollowups(loadedConversation.usedTaskFollowups || []);
+        } else {
+          // Clear task state for non-task conversations
+          setIsTaskConversation(false);
+          setCurrentTaskFollowups([]);
+          setUsedTaskFollowups([]);
+          setCurrentTaskMode(null);
+        }
 
         // Log analytics event
         logEvent("chat_history_conversation_loaded", "Chat History", convId, loadedConversation.messages.length);
@@ -638,6 +658,14 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       logEvent("end_temporary_session", "UI", "new_chat_button");
     }
 
+    // Clear task state (helper setters update both state and ref)
+    setIsTaskConversation(false);
+    setCurrentTaskFollowups([]);
+    setUsedTaskFollowups([]);
+    setCurrentTaskMode(null);
+    setShowTaskWizard(false);
+    setSelectedTaskId(null);
+
     // Push a new history entry for '/' without triggering a Next.js navigation.
     window.history.pushState(null, "", "/");
     pathRef.current = "/";
@@ -748,6 +776,36 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const [editingText, setEditingText] = useState<string>("");
 
   const [sourceCount, setSourceCount] = useState<number>(siteConfig?.defaultNumSources || 4);
+
+  // Task wizard state
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [showTaskWizard, setShowTaskWizard] = useState<boolean>(false);
+  const [currentTaskFollowups, _setCurrentTaskFollowups] = useState<string[]>([]);
+  const currentTaskFollowupsRef = useRef<string[]>([]); // Ref mirror for immediate access in async contexts
+  const [usedTaskFollowups, _setUsedTaskFollowups] = useState<string[]>([]); // Track used follow-ups to hide them
+  const usedTaskFollowupsRef = useRef<string[]>([]); // Ref mirror for immediate access in async contexts
+  const [isTaskConversation, _setIsTaskConversation] = useState<boolean>(false);
+  const isTaskConversationRef = useRef<boolean>(false); // Ref mirror for immediate access in async contexts
+  const [_currentTaskMode, _setCurrentTaskMode] = useState<string | null>(null);
+  const currentTaskModeRef = useRef<string | null>(null); // Ref mirror for immediate access in async contexts
+
+  // Helper setters that update both state and ref for task-related values
+  const setCurrentTaskFollowups = (followups: string[]) => {
+    currentTaskFollowupsRef.current = followups;
+    _setCurrentTaskFollowups(followups);
+  };
+  const setUsedTaskFollowups = (used: string[]) => {
+    usedTaskFollowupsRef.current = used;
+    _setUsedTaskFollowups(used);
+  };
+  const setIsTaskConversation = (isTask: boolean) => {
+    isTaskConversationRef.current = isTask;
+    _setIsTaskConversation(isTask);
+  };
+  const setCurrentTaskMode = (mode: string | null) => {
+    currentTaskModeRef.current = mode;
+    _setCurrentTaskMode(mode);
+  };
 
   // Load saved search preferences from localStorage
   useEffect(() => {
@@ -1262,6 +1320,17 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     e.preventDefault();
     if (submittedQuery.trim() === "") return;
 
+    // Clear task conversation state if this is a custom user message (not from task wizard)
+    // Use refs for reading task state since this function may be called from stale closures
+    if (!isTaskSubmissionRef.current && isTaskConversationRef.current) {
+      setIsTaskConversation(false);
+      setCurrentTaskFollowups([]);
+      setUsedTaskFollowups([]);
+      setCurrentTaskMode(null);
+    }
+    // Reset task submission flag
+    isTaskSubmissionRef.current = false;
+
     // Store the current question for sidebar updates
     setCurrentQuestion(submittedQuery);
 
@@ -1356,6 +1425,10 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           uuid: getOrCreateUUID(),
           convId: currentConvIdRef.current, // Pass current conversation ID for follow-ups
           modelOverride: selectedModelRef.current, // Always send the selected model
+          // Use refs for task state since this function may be called from stale closures
+          taskMode: currentTaskModeRef.current || undefined, // Pass task mode for persistence
+          taskFollowups: isTaskConversationRef.current ? currentTaskFollowupsRef.current : undefined, // Pass task follow-ups for persistence
+          usedTaskFollowups: isTaskConversationRef.current ? usedTaskFollowupsRef.current : undefined, // Use ref for immediate access
         }),
         signal: newAbortController.signal,
       });
@@ -1458,6 +1531,53 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     // Submit the suggestion as a new question
     handleSubmit(new Event("submit") as unknown as React.FormEvent, suggestion.text);
   };
+
+  // Handle task card selection
+  const handleTaskSelect = useCallback((taskId: string) => {
+    setSelectedTaskId(taskId);
+    setShowTaskWizard(true);
+  }, []);
+
+  // Handle task wizard submission
+  const handleTaskSubmit = useCallback(
+    (prompt: string, taskSourceCount: number, taskMode: string, followups: string[]) => {
+      // Set task conversation state
+      setIsTaskConversation(true);
+      setCurrentTaskFollowups(followups);
+      setCurrentTaskMode(taskMode);
+
+      // Override sourceCount for this task
+      setSourceCount(taskSourceCount);
+
+      // Mark as task submission
+      isTaskSubmissionRef.current = true;
+
+      // Inject prompt and submit
+      setQuery(prompt);
+      handleSubmit(new Event("submit") as unknown as React.FormEvent, prompt);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [] // handleSubmit has too many deps to memoize; callback only used on wizard submit
+  );
+
+  // Handle follow-up chip click
+  const handleFollowupSelect = useCallback(
+    (suggestion: string) => {
+      // Keep task conversation state - follow-ups are part of the task workflow
+      // Mark as task submission so we don't clear task state
+      isTaskSubmissionRef.current = true;
+
+      // Track this follow-up as used so we don't show it again
+      // Update ref immediately (sync) so handleSubmit can access it
+      usedTaskFollowupsRef.current = [...usedTaskFollowupsRef.current, suggestion];
+      setUsedTaskFollowups(usedTaskFollowupsRef.current);
+
+      // Submit the follow-up as a regular question (but keep task context)
+      handleSubmit(new Event("submit") as unknown as React.FormEvent, suggestion);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [] // handleSubmit has too many deps to memoize; callback only used on chip click
+  );
 
   // Handle URL query params for pre-filled query with auto-submit (e.g., from Search page "Explain This")
   const hasAutoSubmittedRef = useRef(false);
@@ -2763,6 +2883,13 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                           sourceLinkCopied={sourceLinkCopied}
                           onSourceExpanded={handleSourceExpanded}
                           onSourceLinkCopied={handleSourceLinkCopied}
+                          isTaskConversation={isTaskConversation && index === messages.length - 1}
+                          taskFollowups={
+                            isTaskConversation && index === messages.length - 1
+                              ? currentTaskFollowups.filter((f) => !usedTaskFollowups.includes(f))
+                              : []
+                          }
+                          onTaskFollowupClick={handleFollowupSelect}
                         />
                       </div>
 
@@ -2817,6 +2944,22 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                 </div>
               </div>
               <div className="mt-4 px-2 md:px-0">
+                {/* Render task selector when conversation is empty */}
+                {messages.length <= 1 && (
+                  <TaskSelector onTaskSelect={handleTaskSelect} visible={messages.length <= 1} />
+                )}
+
+                {/* Render task wizard modal */}
+                <TaskWizardModal
+                  taskId={selectedTaskId || ""}
+                  isOpen={showTaskWizard}
+                  onClose={() => {
+                    setShowTaskWizard(false);
+                    setSelectedTaskId(null);
+                  }}
+                  onSubmit={handleTaskSubmit}
+                />
+
                 {/* Render chat input component */}
                 {isLoadingQueries ? null : (
                   <ChatInput

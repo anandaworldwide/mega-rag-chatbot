@@ -133,6 +133,9 @@ interface ChatRequestBody {
   uuid: string; // required client UUID (persisted regardless of auth)
   convId?: string; // conversation ID for follow-up messages
   modelOverride?: string; // optional model override for testing/comparison
+  taskMode?: string; // optional task mode for analytics (e.g., "class-planning", "research")
+  taskFollowups?: string[]; // available task follow-up suggestions
+  usedTaskFollowups?: string[]; // follow-ups that have been used
 }
 
 interface ComparisonRequestBody extends ChatRequestBody {
@@ -373,7 +376,10 @@ async function saveOrUpdateDocument(
   convId?: string | undefined, // Accept convId from frontend
   suggestions?: Array<{ id: string; text: string; type: "deeper" | "broader"; sourceDocId?: string; score?: number }>, // Accept typed suggestions for saving
   model?: string | undefined, // Model used for this response
-  temperature?: number | undefined // Temperature used for this response
+  temperature?: number | undefined, // Temperature used for this response
+  taskMode?: string, // Task mode (e.g., "class-planning", "research")
+  taskFollowups?: string[], // Available task follow-up suggestions
+  usedTaskFollowups?: string[] // Follow-ups that have been used
 ): Promise<string | null> {
   if (!db) {
     return null;
@@ -406,7 +412,7 @@ async function saveOrUpdateDocument(
       })
     : [];
 
-  const dataToSave: any = {
+  const dataToSave: Record<string, any> = {
     question: sanitizedOriginalQuestion,
     answer: fullResponse,
     collection: collection,
@@ -428,6 +434,17 @@ async function saveOrUpdateDocument(
   }
   if (temperature !== undefined) {
     dataToSave.temperature = temperature;
+  }
+
+  // Add task state fields if present (for task wizard conversations)
+  if (taskMode) {
+    dataToSave.taskMode = taskMode;
+  }
+  if (taskFollowups && taskFollowups.length > 0) {
+    dataToSave.taskFollowups = taskFollowups;
+  }
+  if (usedTaskFollowups && usedTaskFollowups.length > 0) {
+    dataToSave.usedTaskFollowups = usedTaskFollowups;
   }
 
   try {
@@ -903,6 +920,11 @@ async function handleChatRequest(req: NextRequest) {
   const { sanitizedInput, originalQuestion } = validationResult;
   const effectiveModelName = sanitizedInput.modelOverride || modelName;
 
+  // Log task mode for analytics if present
+  if (sanitizedInput.taskMode) {
+    console.log(`Task mode: ${sanitizedInput.taskMode}`);
+  }
+
   // Check if this is a comparison request
   const isComparison = "modelA" in sanitizedInput;
 
@@ -1066,7 +1088,8 @@ async function handleChatRequest(req: NextRequest) {
           req, // Pass the request object for geo-awareness
           timingMetrics, // Pass timing metrics for detailed tracking
           sanitizedInput.modelOverride, // Pass model override if provided
-          sanitizedInput.selectedLibraries // Pass selected libraries for filtering
+          sanitizedInput.selectedLibraries, // Pass selected libraries for filtering
+          sanitizedInput.taskMode // Pass task mode to skip reformulation
         );
         // --- End of Encapsulated Call ---
         timingMetrics.answerStreamingComplete = Date.now();
@@ -1099,7 +1122,10 @@ async function handleChatRequest(req: NextRequest) {
               finalConversationId, // Use the final conversation ID
               suggestions, // Pass suggestions for saving
               model, // Pass the model used
-              temperature // Pass the temperature used
+              temperature, // Pass the temperature used
+              sanitizedInput.taskMode, // Pass task mode for persistence
+              sanitizedInput.taskFollowups, // Pass task follow-ups for persistence
+              sanitizedInput.usedTaskFollowups // Pass used task follow-ups for persistence
             );
 
             if (savedDocId) {

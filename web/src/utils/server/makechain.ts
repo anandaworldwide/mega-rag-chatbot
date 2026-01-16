@@ -399,7 +399,8 @@ export const makeChain = async (
   request?: NextRequest,
   siteConfig?: AppSiteConfig | null,
   originalQuestion?: string, // Add this parameter to pass the original question
-  selectedLibraries?: string[] // Selected libraries for filtering
+  selectedLibraries?: string[], // Selected libraries for filtering
+  taskMode?: string // Task mode (e.g., "class-planning", "research") - skips reformulation when set
 ) => {
   const { model, temperature, label } = modelConfig;
   let answerModel: BaseLanguageModel; // Renamed for clarity
@@ -1019,6 +1020,19 @@ Error details: ${errorString}`,
           if (sendData) sendData({ log: debugMsg });
         }
 
+        // Skip reformulation for task mode (class-planning, research, etc.)
+        // Task follow-ups are intentional directives that shouldn't be transformed into questions
+        // e.g., "Suggest a closing meditation" should NOT become "Would you like suggestions..."
+        if (taskMode) {
+          if (!temporarySession) {
+            const debugMsg = `🔍 TASK MODE (${taskMode}): Skipping reformulation`;
+            console.log(debugMsg);
+            if (sendData) sendData({ log: debugMsg });
+          }
+          capturedRestatedQuestion = input.question; // Store for later
+          return input.question; // Pass through unchanged
+        }
+
         // TODO: Possibly remove this. Simple social pattern code. There was a query where someone said,
         // "Thank you. Would you please add me to the mailing list?" And it just said, "You're welcome."
         // Check for social messages like "thanks" and bypass reformulation.
@@ -1408,7 +1422,8 @@ export async function setupAndExecuteLanguageModelChain(
   request?: NextRequest,
   timingMetrics?: any, // Accept timing metrics for detailed tracking
   modelOverride?: string, // Optional model override for testing/comparison
-  selectedLibraries?: string[] // Selected libraries for filtering
+  selectedLibraries?: string[], // Selected libraries for filtering
+  taskMode?: string // Task mode (e.g., "class-planning", "research") - skips reformulation when set
 ): Promise<{ fullResponse: string; finalDocs: Document[]; restatedQuestion: string; suggestions: TypedSuggestion[]; model: string; temperature: number }> {
   const TIMEOUT_MS = process.env.NODE_ENV === "test" ? 1000 : 45000;
   const RETRY_DELAY_MS = process.env.NODE_ENV === "test" ? 10 : 1000;
@@ -1466,7 +1481,8 @@ export async function setupAndExecuteLanguageModelChain(
         request,
         siteConfig,
         sanitizedQuestion, // Pass original question for intent detection
-        selectedLibraries // Pass selected libraries for filtering
+        selectedLibraries, // Pass selected libraries for filtering
+        taskMode // Pass task mode to skip reformulation
       );
 
       // Format chat history for the language model
