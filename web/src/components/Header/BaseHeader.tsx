@@ -122,10 +122,18 @@ export default function BaseHeader({
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
+    // Periodic token refresh to prevent expiration while page is open and idle
+    // JWT tokens expire after 15 minutes, so check every 10 minutes to refresh proactively
+    const TOKEN_REFRESH_INTERVAL = 10 * 60 * 1000; // 10 minutes
+    const refreshInterval = setInterval(() => {
+      updateAuthState();
+    }, TOKEN_REFRESH_INTERVAL);
+
     return () => {
       router.events.off("routeChangeComplete", handleRoute);
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      clearInterval(refreshInterval);
     };
   }, [router.events]);
 
