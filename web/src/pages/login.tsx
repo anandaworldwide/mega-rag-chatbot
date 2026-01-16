@@ -12,9 +12,16 @@ interface LoginProps {
   siteConfig: SiteConfig | null;
 }
 
+interface PendingRequestInfo {
+  adminName: string;
+  adminEmail: string;
+  adminLocation: string;
+  createdAt: string | null;
+}
+
 export default function Login({ siteConfig }: LoginProps) {
   const router = useRouter();
-  const [step, setStep] = useState<"email" | "password" | "request-approval">("email");
+  const [step, setStep] = useState<"email" | "password" | "request-approval" | "request-pending">("email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -25,6 +32,7 @@ export default function Login({ siteConfig }: LoginProps) {
   const [resendSeconds, setResendSeconds] = useState(0);
   const [lastSendType, setLastSendType] = useState<"login" | "activation" | null>(null);
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [pendingRequestInfo, setPendingRequestInfo] = useState<PendingRequestInfo | null>(null);
   const emailInputRef = useRef<HTMLInputElement | null>(null);
   const passwordInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -130,6 +138,12 @@ export default function Login({ siteConfig }: LoginProps) {
           setEmailSent(true);
           setResendSeconds(60);
           setLastSendType("activation");
+          setIsSubmitting(false);
+          return;
+        }
+        if (data.next === "request-pending" && data.pendingRequest) {
+          setPendingRequestInfo(data.pendingRequest);
+          setStep("request-pending");
           setIsSubmitting(false);
           return;
         }
@@ -402,6 +416,86 @@ export default function Login({ siteConfig }: LoginProps) {
                 </div>
               </div>
             </form>
+          )}
+
+          {step === "request-pending" && pendingRequestInfo && (
+            <div className="space-y-6">
+              <div className="p-6 bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-lg">
+                <div className="flex items-start gap-3">
+                  <svg
+                    className="w-6 h-6 text-amber-500 flex-shrink-0 mt-0.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  <div>
+                    <h3 className="font-semibold text-amber-800 text-lg">Request Pending</h3>
+                    <p className="text-amber-700 mt-2">
+                      You already have an account activation request pending. Please wait for{" "}
+                      <strong>{pendingRequestInfo.adminName}</strong> to review your request.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                <h4 className="font-medium text-gray-700 mb-2">Your request was sent to:</h4>
+                <div className="space-y-1 text-gray-600">
+                  <p>
+                    <strong>Name:</strong> {pendingRequestInfo.adminName}
+                  </p>
+                  <p>
+                    <strong>Location:</strong> {pendingRequestInfo.adminLocation}
+                  </p>
+                  <p>
+                    <strong>Email:</strong>{" "}
+                    <a
+                      href={`mailto:${pendingRequestInfo.adminEmail}`}
+                      className="text-blue-600 hover:text-blue-800 underline"
+                    >
+                      {pendingRequestInfo.adminEmail}
+                    </a>
+                  </p>
+                  {pendingRequestInfo.createdAt && (
+                    <p className="text-sm text-gray-500 mt-2">
+                      Submitted on{" "}
+                      {new Date(pendingRequestInfo.createdAt).toLocaleDateString(undefined, {
+                        year: "numeric",
+                        month: "long",
+                        day: "numeric",
+                      })}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <p className="text-sm text-gray-600">
+                If you haven&apos;t heard back within a few days, feel free to contact the admin directly or{" "}
+                <button
+                  type="button"
+                  onClick={() => setShowFeedbackModal(true)}
+                  className="text-blue-600 font-semibold hover:text-blue-800 underline transition-colors"
+                >
+                  contact us
+                </button>{" "}
+                for assistance.
+              </p>
+
+              <button
+                type="button"
+                onClick={handleBackToEmail}
+                className="w-full py-2 px-4 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                ← Back to login
+              </button>
+            </div>
           )}
 
           {step === "request-approval" && (

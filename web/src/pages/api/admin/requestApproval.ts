@@ -317,6 +317,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const collectionName = `${envPrefix}_admin_approval_requests`;
 
     // Check if there's already a pending request for this requesterEmail + adminEmail combination
+    // (This handles the case where someone tries to resubmit to the same admin)
     const existingRequestsQuery = await db
       .collection(collectionName)
       .where("requesterEmail", "==", sanitizedRequesterEmail.toLowerCase())
@@ -325,7 +326,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       .limit(1)
       .get();
 
-    // If pending request exists, resend the email reminder instead of creating a new entry
+    // If pending request exists for same admin, resend the email reminder instead of creating a new entry
     if (!existingRequestsQuery.empty) {
       const existingRequest = existingRequestsQuery.docs[0];
       const existingData = existingRequest.data() as ApprovalRequestData;
@@ -359,6 +360,34 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         message: "A pending request already exists. We've sent the administrator another reminder.",
         requestId: existingData.requestId,
         isReminder: true,
+      });
+    }
+
+    // Check if there's ANY pending request for this requesterEmail to a DIFFERENT administrator
+    const anyPendingRequestQuery = await db
+      .collection(collectionName)
+      .where("requesterEmail", "==", sanitizedRequesterEmail.toLowerCase())
+      .where("status", "==", "pending")
+      .limit(1)
+      .get();
+
+    // If there's already a pending request to a different administrator, reject the new submission
+    if (!anyPendingRequestQuery.empty) {
+      const existingRequest = anyPendingRequestQuery.docs[0];
+      const existingData = existingRequest.data() as ApprovalRequestData;
+
+      // Log audit event for blocked duplicate submission
+      await writeAuditLog(req, "admin_approval_request", sanitizedRequesterEmail.toLowerCase(), {
+        outcome: "blocked_duplicate_submission",
+        attemptedAdminEmail: sanitizedAdminEmail.toLowerCase(),
+        existingAdminEmail: existingData.adminEmail,
+        existingRequestId: existingData.requestId,
+      });
+
+      return res.status(400).json({
+        error:
+          "You already have a pending account activation request. Please wait for a response before submitting another request.",
+        existingRequestId: existingData.requestId,
       });
     }
 
