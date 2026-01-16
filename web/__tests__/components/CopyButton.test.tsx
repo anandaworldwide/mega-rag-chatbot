@@ -591,7 +591,7 @@ describe("CopyButton", () => {
     expect(logEvent).toHaveBeenCalledWith("copy_answer", "UI", "unknown");
   });
 
-  it("includes question and answer in copied content", async () => {
+  it("includes only answer content in copied content (no question or labels)", async () => {
     const { getByTitle } = render(<CopyButton {...mockProps} />);
     const button = getByTitle("Copy answer to clipboard");
 
@@ -599,9 +599,12 @@ describe("CopyButton", () => {
       fireEvent.click(button);
     });
 
-    expect(copyTextToClipboard).toHaveBeenCalledWith(expect.stringContaining('<h2 id="question">Question:</h2>'), true);
-    expect(copyTextToClipboard).toHaveBeenCalledWith(expect.stringContaining("<p>Test question</p>"), true);
-    expect(copyTextToClipboard).toHaveBeenCalledWith(expect.stringContaining('<h2 id="answer">Answer:</h2>'), true);
+    expect(copyTextToClipboard).toHaveBeenCalledWith(
+      expect.not.stringContaining('<h2 id="question">Question:</h2>'),
+      true
+    );
+    expect(copyTextToClipboard).toHaveBeenCalledWith(expect.not.stringContaining("<p>Test question</p>"), true);
+    expect(copyTextToClipboard).toHaveBeenCalledWith(expect.not.stringContaining('<h2 id="answer">Answer:</h2>'), true);
     expect(copyTextToClipboard).toHaveBeenCalledWith(expect.stringContaining("<p>Test markdown</p>"), true);
   });
 
