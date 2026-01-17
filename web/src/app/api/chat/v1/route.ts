@@ -745,9 +745,7 @@ async function handleComparisonRequest(req: NextRequest, requestBody: Comparison
                 callbacks: [
                   {
                     handleLLMNewToken(token: string) {
-                      if (token.trim()) {
-                        sendToClient({ token, model: "A" });
-                      }
+                      sendToClient({ token, model: "A" });
                     },
                   } as Partial<BaseCallbackHandler>,
                 ],
@@ -762,9 +760,7 @@ async function handleComparisonRequest(req: NextRequest, requestBody: Comparison
                 callbacks: [
                   {
                     handleLLMNewToken(token: string) {
-                      if (token.trim()) {
-                        sendToClient({ token, model: "B" });
-                      }
+                      sendToClient({ token, model: "B" });
                     },
                   } as Partial<BaseCallbackHandler>,
                 ],

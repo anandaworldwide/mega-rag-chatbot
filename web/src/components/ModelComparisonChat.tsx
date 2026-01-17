@@ -75,7 +75,8 @@ const ModelComparisonChat: React.FC<ModelComparisonChatProps> = ({ siteConfig, s
   const [sourceCount, setSourceCount] = useState<number>(savedState.sourceCount);
   const modelOptions = useMemo(
     () => [
-      { value: "gpt-4.1", label: "GPT-4.1" },
+      { value: "gpt-4.1-mini", label: "GPT-4.1 Mini" },
+      { value: "gpt-4.1-nano", label: "GPT-4.1 Nano" },
       { value: "gpt-4o", label: "GPT-4 Optimized" },
       { value: "gpt-4o-mini", label: "GPT-4 Optimized Mini" },
       { value: "gpt-4-turbo", label: "GPT-4 Turbo" },
