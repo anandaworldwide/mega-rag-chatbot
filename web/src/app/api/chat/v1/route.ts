@@ -75,6 +75,7 @@ import { v4 as uuidv4 } from "uuid";
 import { generateTitle } from "@/utils/server/titleGeneration";
 import { firestoreUpdate } from "@/utils/server/firestoreRetryUtils";
 import { updateUserActivity } from "@/utils/server/userActivityUtils";
+import { ModelPerformanceRecordContext, ModelPerformanceTracker } from "@/utils/server/modelPerformanceUtils";
 
 export const runtime = "nodejs";
 export const maxDuration = 240;
@@ -894,6 +895,7 @@ async function handleChatRequest(req: NextRequest) {
   }
 
   const { sanitizedInput, originalQuestion } = validationResult;
+  const effectiveModelName = sanitizedInput.modelOverride || modelName;
 
   // Check if this is a comparison request
   const isComparison = "modelA" in sanitizedInput;
@@ -914,6 +916,7 @@ async function handleChatRequest(req: NextRequest) {
       let firstTokenSent = false;
       let performanceLogged = false;
       let titleGenerationPromise: Promise<string | null> | undefined;
+      let requestStatus: "success" | "error" = "success";
 
       const sendData = (data: StreamingResponseData) => {
         if (!isControllerClosed) {
@@ -1140,6 +1143,7 @@ async function handleChatRequest(req: NextRequest) {
           }
         }
       } catch (error: unknown) {
+        requestStatus = "error";
         handleError(error, sendData);
       } finally {
         // Ensure title generation completes or is properly cleaned up
@@ -1154,8 +1158,34 @@ async function handleChatRequest(req: NextRequest) {
         // Mark total completion time
         timingMetrics.totalTime = Date.now() - timingMetrics.startTime;
 
+        if (timingMetrics.totalTokens === undefined) {
+          timingMetrics.totalTokens = tokensStreamed;
+        }
+        if (
+          timingMetrics.tokensPerSecond === undefined &&
+          timingMetrics.totalTokens &&
+          timingMetrics.firstByteTime &&
+          timingMetrics.totalTime
+        ) {
+          const streamingTime = timingMetrics.totalTime - (timingMetrics.firstByteTime - timingMetrics.startTime);
+          if (streamingTime > 0) {
+            timingMetrics.tokensPerSecond = Math.round((timingMetrics.totalTokens / streamingTime) * 1000);
+          }
+        }
+
+        const performanceContext: ModelPerformanceRecordContext = {
+          modelName: effectiveModelName,
+          siteId: siteConfig.siteId || "unknown",
+          collection: sanitizedInput.collection || "whole_library",
+          sourceCount,
+          requestType: "chat",
+          status: requestStatus,
+          totalTokens: timingMetrics.totalTokens || 0,
+          tokensPerSecond: timingMetrics.tokensPerSecond || 0,
+        };
+
         // Log comprehensive performance metrics
-        logPerformanceMetrics(timingMetrics, modelName);
+        await logPerformanceMetrics(timingMetrics, performanceContext);
 
         if (!isControllerClosed) {
           controller.close();
@@ -1176,44 +1206,10 @@ async function handleChatRequest(req: NextRequest) {
 }
 
 // Comprehensive performance logging function
-function logPerformanceMetrics(metrics: TimingMetrics, modelName: string = "unknown") {
-  // Use setTimeout to log metrics asynchronously
-  setTimeout(() => {
-    const {
-      startTime,
-      pineconeSetupComplete,
-      vectorStoreSetupComplete,
-      chainExecutionStart,
-      firstTokenGenerated,
-      firstByteTime,
-      answerStreamingComplete,
-      suggestionsGenerationStart,
-      suggestionsGenerationComplete,
-      documentSaveStart,
-      documentSaveComplete,
-      totalTime,
-      tokensPerSecond,
-      totalTokens,
-    } = metrics;
-
-    // Calculate detailed timing breakdown
-    const timings = {
-      pineconeSetup: pineconeSetupComplete ? pineconeSetupComplete - startTime : 0,
-      vectorStoreSetup:
-        vectorStoreSetupComplete && pineconeSetupComplete ? vectorStoreSetupComplete - pineconeSetupComplete : 0,
-      chainExecution:
-        chainExecutionStart && vectorStoreSetupComplete ? chainExecutionStart - vectorStoreSetupComplete : 0,
-      llmThinkTime: firstTokenGenerated && chainExecutionStart ? firstTokenGenerated - chainExecutionStart : 0,
-      tokenDelivery: firstByteTime && firstTokenGenerated ? firstByteTime - firstTokenGenerated : 0,
-      ttfb: firstByteTime ? firstByteTime - startTime : 0,
-      answerStreaming: answerStreamingComplete && firstByteTime ? answerStreamingComplete - firstByteTime : 0,
-      suggestionsGeneration:
-        suggestionsGenerationComplete && suggestionsGenerationStart
-          ? suggestionsGenerationComplete - suggestionsGenerationStart
-          : 0,
-      documentSave: documentSaveComplete && documentSaveStart ? documentSaveComplete - documentSaveStart : 0,
-      totalSessionTime: totalTime || 0,
-    };
+async function logPerformanceMetrics(metrics: TimingMetrics, context: ModelPerformanceRecordContext) {
+  try {
+    const performanceTracker = new ModelPerformanceTracker();
+    const timings = performanceTracker.buildTimingBreakdown(metrics);
 
     // Calculate what's unaccounted for in TTFB
     const accountedTTFB =
@@ -1250,7 +1246,7 @@ function logPerformanceMetrics(metrics: TimingMetrics, modelName: string = "unkn
 
     console.log(`
     ⚡️ Chat Performance Breakdown:
-      Model: ${modelName}
+      Model: ${context.modelName}
       
       ${
         setupPhaseLines.length > 0
@@ -1269,13 +1265,18 @@ ${aiProcessingLines.join("\n")}
       }
       
       📡 Streaming & Processing:
-        Answer streaming: ${(timings.answerStreaming / 1000).toFixed(2)}s (${tokensPerSecond || 0} chars/sec)
+        Answer streaming: ${(timings.answerStreaming / 1000).toFixed(2)}s (${context.tokensPerSecond || 0} chars/sec)
         ${timings.suggestionsGeneration > 0 ? `Suggestions generation: ${(timings.suggestionsGeneration / 1000).toFixed(2)}s` : "Suggestions: skipped"}
         Document save: ${(timings.documentSave / 1000).toFixed(2)}s
       
       📊 Summary:
-        Answer complete: ${answerStreamingComplete ? ((answerStreamingComplete - startTime) / 1000).toFixed(2) : "N/A"}s
-        Total session: ${(timings.totalSessionTime / 1000).toFixed(2)}s (${totalTokens || 0} tokens)
+        Answer complete: ${metrics.answerStreamingComplete ? ((metrics.answerStreamingComplete - metrics.startTime) / 1000).toFixed(2) : "N/A"}s
+        Total session: ${(timings.totalSessionTime / 1000).toFixed(2)}s (${context.totalTokens || 0} tokens)
       `);
-  }, 0);
+
+    const record = performanceTracker.buildRecord(metrics, context);
+    await performanceTracker.recordChatPerformance(record);
+  } catch (error) {
+    console.warn("Failed to record model performance metrics:", error);
+  }
 }

@@ -277,6 +277,17 @@ export function AdminLayout({ siteConfig, children, pageTitle }: AdminLayoutProp
               </Link>
             )}
             <Link
+              href="/admin/model-performance"
+              className={`flex items-center px-3 py-2 text-sm rounded-md ${
+                router.pathname === "/admin/model-performance"
+                  ? "bg-blue-100 text-blue-700 font-semibold"
+                  : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+              }`}
+            >
+              <span className="material-icons text-sm mr-2">speed</span>
+              Model Performance
+            </Link>
+            <Link
               href="/admin/model-stats"
               className={`flex items-center px-3 py-2 text-sm rounded-md ${
                 router.pathname === "/admin/model-stats"
