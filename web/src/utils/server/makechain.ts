@@ -283,6 +283,18 @@ of the following:
 
 DO NOT attempt to reformulate these into questions. Instead, return EXACTLY what the user said, word for word.
 
+SPECIAL HANDLING FOR DIRECTIVES AND COMMANDS: If the follow up input is an imperative/command (starts with verbs like "Suggest", "Create", "Write", "List", "Explain", "Summarize", "Go deeper", "Tell me more", "Turn this into", etc.), PRESERVE the command form. Add context from the conversation but keep it as a directive, not a question.
+
+Examples of directive reformulation:
+- Input: "Suggest a closing meditation" (after discussing willpower)
+  → Output: "Suggest a closing meditation related to willpower and spiritual growth"
+- Input: "Go deeper on the second theme" (after a research response about concentration)
+  → Output: "Go deeper on the theme of concentration and its relationship to willpower"
+- Input: "Turn this into a class outline" (after research on devotion)
+  → Output: "Turn this research on devotion into a class outline"
+- Input: "Create a summary I can share" (after discussing meditation techniques)
+  → Output: "Create a summary of meditation techniques that I can share with others"
+
 SPECIAL HANDLING FOR LOCATION CLARIFICATIONS: If the follow up input provides location information to clarify or correct a previous location-based query, combine the location information with the original question context. Look for:
 - Zip codes: "94705", "My zip code is 94705", "No, 94705"
 - Addresses: "123 Main St", "I'm at 123 Main Street"
@@ -400,7 +412,7 @@ export const makeChain = async (
   siteConfig?: AppSiteConfig | null,
   originalQuestion?: string, // Add this parameter to pass the original question
   selectedLibraries?: string[], // Selected libraries for filtering
-  taskMode?: string // Task mode (e.g., "class-planning", "research") - skips reformulation when set
+  _taskMode?: string // Task mode (e.g., "class-planning", "research") - passed for analytics, no longer affects reformulation
 ) => {
   const { model, temperature, label } = modelConfig;
   let answerModel: BaseLanguageModel; // Renamed for clarity
@@ -1018,19 +1030,6 @@ Error details: ${errorString}`,
           const debugMsg = `🔍 ORIGINAL QUESTION: "${input.question}"`;
           console.log(debugMsg);
           if (sendData) sendData({ log: debugMsg });
-        }
-
-        // Skip reformulation for task mode (class-planning, research, etc.)
-        // Task follow-ups are intentional directives that shouldn't be transformed into questions
-        // e.g., "Suggest a closing meditation" should NOT become "Would you like suggestions..."
-        if (taskMode) {
-          if (!temporarySession) {
-            const debugMsg = `🔍 TASK MODE (${taskMode}): Skipping reformulation`;
-            console.log(debugMsg);
-            if (sendData) sendData({ log: debugMsg });
-          }
-          capturedRestatedQuestion = input.question; // Store for later
-          return input.question; // Pass through unchanged
         }
 
         // TODO: Possibly remove this. Simple social pattern code. There was a query where someone said,

@@ -63,9 +63,8 @@ export const TaskSelector: React.FC<TaskSelectorProps> = ({ onTaskSelect, visibl
   };
 
   return (
-    <div className="w-full mb-4">
-      <div className="text-sm font-medium text-gray-700 mb-3">Try one of these:</div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+    <div className="w-full mb-3">
+      <div className="flex flex-wrap gap-2 justify-center">
         {tasks.map((task) => {
           const details = taskDetails[task.taskId];
           if (!details) {
@@ -76,13 +75,11 @@ export const TaskSelector: React.FC<TaskSelectorProps> = ({ onTaskSelect, visibl
             <button
               key={task.taskId}
               onClick={() => handleTaskClick(task.taskId)}
-              className="flex items-start p-4 bg-white border border-gray-200 rounded-xl hover:border-blue-300 hover:bg-blue-50 transition-colors text-left"
+              title={details.description}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 bg-gray-50 border border-gray-200 rounded-full hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700 transition-colors"
             >
-              <span className="material-icons text-blue-500 mr-3 mt-0.5">{details.icon}</span>
-              <div className="flex-1">
-                <div className="font-semibold text-gray-900 mb-1">{details.displayName}</div>
-                <div className="text-sm text-gray-600">{details.description}</div>
-              </div>
+              <span className="material-icons text-base">{details.icon}</span>
+              <span>{details.displayName}</span>
             </button>
           );
         })}

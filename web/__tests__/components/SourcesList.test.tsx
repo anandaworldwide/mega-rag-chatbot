@@ -604,4 +604,117 @@ describe("SourcesList", () => {
     expect(italicTrack).toBeInTheDocument();
     expect(italicTrack).toHaveClass("italic", "font-normal", "text-gray-700");
   });
+
+  describe("Show more sources feature", () => {
+    // Create helper function to generate multiple sources
+    const createTextSource = (index: number): Document<DocMetadata> => ({
+      pageContent: `Content for source ${index}`,
+      metadata: {
+        title: `Source ${index}`,
+        type: "text",
+        library: "Test Library",
+        source: `https://test.com/source${index}`,
+      },
+    });
+
+    it("shows all sources when there are 4 or fewer", () => {
+      const sources = [1, 2, 3, 4].map(createTextSource);
+      render(<SourcesList sources={sources} />);
+
+      // All 4 sources should be visible
+      expect(screen.getByText("Source 1")).toBeInTheDocument();
+      expect(screen.getByText("Source 2")).toBeInTheDocument();
+      expect(screen.getByText("Source 3")).toBeInTheDocument();
+      expect(screen.getByText("Source 4")).toBeInTheDocument();
+
+      // "Show more" button should not appear
+      expect(screen.queryByText(/Show \d+ more/)).not.toBeInTheDocument();
+    });
+
+    it("shows only first 4 sources when there are more than 4", () => {
+      const sources = [1, 2, 3, 4, 5, 6].map(createTextSource);
+      render(<SourcesList sources={sources} />);
+
+      // First 4 sources should be visible
+      expect(screen.getByText("Source 1")).toBeInTheDocument();
+      expect(screen.getByText("Source 2")).toBeInTheDocument();
+      expect(screen.getByText("Source 3")).toBeInTheDocument();
+      expect(screen.getByText("Source 4")).toBeInTheDocument();
+
+      // Sources 5 and 6 should NOT be visible initially
+      expect(screen.queryByText("Source 5")).not.toBeInTheDocument();
+      expect(screen.queryByText("Source 6")).not.toBeInTheDocument();
+    });
+
+    it('shows "Show X more" button when there are more than 4 sources', () => {
+      const sources = [1, 2, 3, 4, 5, 6].map(createTextSource);
+      render(<SourcesList sources={sources} />);
+
+      // Should show "Show 2 more sources" button
+      expect(screen.getByText("Show 2 more sources")).toBeInTheDocument();
+    });
+
+    it('shows "Show X more source" (singular) when there is exactly 1 more source', () => {
+      const sources = [1, 2, 3, 4, 5].map(createTextSource);
+      render(<SourcesList sources={sources} />);
+
+      // Should show "Show 1 more source" (singular)
+      expect(screen.getByText("Show 1 more source")).toBeInTheDocument();
+    });
+
+    it('clicking "Show more" reveals all sources', () => {
+      const sources = [1, 2, 3, 4, 5, 6].map(createTextSource);
+      render(<SourcesList sources={sources} />);
+
+      // Initially sources 5 and 6 should not be visible
+      expect(screen.queryByText("Source 5")).not.toBeInTheDocument();
+      expect(screen.queryByText("Source 6")).not.toBeInTheDocument();
+
+      // Click "Show more"
+      const showMoreButton = screen.getByText("Show 2 more sources");
+      fireEvent.click(showMoreButton);
+
+      // Now all sources should be visible
+      expect(screen.getByText("Source 5")).toBeInTheDocument();
+      expect(screen.getByText("Source 6")).toBeInTheDocument();
+
+      // "Show more" button should disappear
+      expect(screen.queryByText(/Show \d+ more/)).not.toBeInTheDocument();
+    });
+
+    it('"Expand all" reveals and expands all sources including hidden ones', () => {
+      const sources = [1, 2, 3, 4, 5, 6].map(createTextSource);
+      render(<SourcesList sources={sources} />);
+
+      // Initially sources 5 and 6 should not be visible
+      expect(screen.queryByText("Source 5")).not.toBeInTheDocument();
+      expect(screen.queryByText("Source 6")).not.toBeInTheDocument();
+
+      // Click "expand all"
+      const expandAllButton = screen.getByText("(expand all)");
+      fireEvent.click(expandAllButton);
+
+      // All sources should now be visible (revealed by expand all)
+      expect(screen.getByText("Source 5")).toBeInTheDocument();
+      expect(screen.getByText("Source 6")).toBeInTheDocument();
+
+      // "Show more" button should disappear
+      expect(screen.queryByText(/Show \d+ more/)).not.toBeInTheDocument();
+
+      // Analytics event should be logged
+      expect(analyticsModule.logEvent).toHaveBeenCalledWith("expand_all_sources", "UI", "accordion");
+    });
+
+    it('clicking "Show more" logs analytics event', () => {
+      const sources = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(createTextSource);
+      render(<SourcesList sources={sources} />);
+
+      // Click "Show more"
+      const showMoreButton = screen.getByText("Show 6 more sources");
+      fireEvent.click(showMoreButton);
+
+      // Should log analytics with number of revealed sources
+      expect(analyticsModule.logEvent).toHaveBeenCalledWith("show_more_sources", "UI", "revealed:6");
+    });
+  });
 });

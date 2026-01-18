@@ -775,7 +775,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
   const [editingText, setEditingText] = useState<string>("");
 
-  const [sourceCount, setSourceCount] = useState<number>(siteConfig?.defaultNumSources || 4);
+  const [sourceCount, _setSourceCount] = useState<number>(siteConfig?.defaultNumSources || 4);
+  const sourceCountRef = useRef<number>(siteConfig?.defaultNumSources || 4); // Ref mirror for immediate access in async contexts
 
   // Task wizard state
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -805,6 +806,10 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const setCurrentTaskMode = (mode: string | null) => {
     currentTaskModeRef.current = mode;
     _setCurrentTaskMode(mode);
+  };
+  const setSourceCount = (count: number) => {
+    sourceCountRef.current = count;
+    _setSourceCount(count);
   };
 
   // Load saved search preferences from localStorage
@@ -1320,6 +1325,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     e.preventDefault();
     if (submittedQuery.trim() === "") return;
 
+    // Capture if this is a task submission before resetting (needed to reset sourceCount after API call)
+    const wasTaskSubmission = isTaskSubmissionRef.current;
+
     // Clear task conversation state if this is a custom user message (not from task wizard)
     // Use refs for reading task state since this function may be called from stale closures
     if (!isTaskSubmissionRef.current && isTaskConversationRef.current) {
@@ -1421,7 +1429,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           temporarySession,
           mediaTypes,
           selectedLibraries: selectedLibrariesRef.current,
-          sourceCount: sourceCount,
+          sourceCount: sourceCountRef.current,
           uuid: getOrCreateUUID(),
           convId: currentConvIdRef.current, // Pass current conversation ID for follow-ups
           modelOverride: selectedModelRef.current, // Always send the selected model
@@ -1432,6 +1440,12 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         }),
         signal: newAbortController.signal,
       });
+
+      // Reset sourceCount to default after task submission (task sourceCount only applies to first query)
+      if (wasTaskSubmission) {
+        const defaultSources = siteConfig?.defaultNumSources || 4;
+        setSourceCount(defaultSources);
+      }
 
       if (!response.ok) {
         setLoading(false);
@@ -1843,7 +1857,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             collection: apiMessage.collection || collection,
             mediaTypes: mediaTypes,
             selectedLibraries: selectedLibrariesRef.current,
-            sourceCount: apiMessage.sourceDocs?.length || sourceCount,
+            sourceCount: apiMessage.sourceDocs?.length || sourceCountRef.current,
             temporarySession: temporarySession,
             uuid: getOrCreateUUID(),
             convId: currentConvIdRef.current,
@@ -1957,7 +1971,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       messages,
       collection,
       mediaTypes,
-      sourceCount,
       temporarySession,
       messageState.history,
       setLoading,
@@ -2206,7 +2219,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             collection: apiMessage.collection || collection,
             mediaTypes: mediaTypes,
             selectedLibraries: selectedLibrariesRef.current,
-            sourceCount: apiMessage.sourceDocs?.length || sourceCount,
+            sourceCount: apiMessage.sourceDocs?.length || sourceCountRef.current,
             temporarySession: temporarySession,
             uuid: getOrCreateUUID(),
             convId: currentConvIdRef.current,
@@ -2263,7 +2276,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setRegeneratedAnswer(null);
       }
     },
-    [isRegenerating, messages, collection, mediaTypes, sourceCount, temporarySession, messageState.history]
+    [isRegenerating, messages, collection, mediaTypes, temporarySession, messageState.history]
   );
 
   // Function to submit comparison feedback
