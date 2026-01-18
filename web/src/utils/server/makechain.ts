@@ -1409,7 +1409,7 @@ export async function setupAndExecuteLanguageModelChain(
   timingMetrics?: any, // Accept timing metrics for detailed tracking
   modelOverride?: string, // Optional model override for testing/comparison
   selectedLibraries?: string[] // Selected libraries for filtering
-): Promise<{ fullResponse: string; finalDocs: Document[]; restatedQuestion: string; suggestions: TypedSuggestion[] }> {
+): Promise<{ fullResponse: string; finalDocs: Document[]; restatedQuestion: string; suggestions: TypedSuggestion[]; model: string; temperature: number }> {
   const TIMEOUT_MS = process.env.NODE_ENV === "test" ? 1000 : 45000;
   const RETRY_DELAY_MS = process.env.NODE_ENV === "test" ? 10 : 1000;
   const MAX_RETRIES = 3;
@@ -1799,6 +1799,8 @@ export async function setupAndExecuteLanguageModelChain(
         finalDocs: result.sourceDocuments,
         restatedQuestion: result.question,
         suggestions: generatedSuggestions, // Include suggestions for saving
+        model: modelName, // Return the model used
+        temperature: temperature, // Return the temperature used
       };
     } catch (error) {
       // Don't retry NoSourcesError - it's a user-facing error that won't be fixed by retrying

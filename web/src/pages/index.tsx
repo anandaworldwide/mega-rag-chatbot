@@ -42,6 +42,7 @@ import {
   getEnableAuthorSelection,
   getEnabledMediaTypes,
 } from "@/utils/client/siteConfig";
+import { DEFAULT_MODEL } from "@/config/modelOptions";
 import { Document } from "langchain/document";
 
 // Third-party library imports
@@ -178,6 +179,23 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   useEffect(() => {
     selectedLibrariesRef.current = selectedLibraries;
   }, [selectedLibraries]);
+
+  // Model selection state - initialize from localStorage or default
+  const [selectedModel, setSelectedModel] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("selectedModel");
+      if (saved) return saved;
+    }
+    return DEFAULT_MODEL;
+  });
+  // Keep a ref in sync to avoid stale closures during rapid toggles/submit
+  const selectedModelRef = useRef<string>(selectedModel);
+  useEffect(() => {
+    selectedModelRef.current = selectedModel;
+    if (typeof window !== "undefined") {
+      localStorage.setItem("selectedModel", selectedModel);
+    }
+  }, [selectedModel]);
 
   // Chat state management using custom hook
   const {
@@ -1337,6 +1355,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           sourceCount: sourceCount,
           uuid: getOrCreateUUID(),
           convId: currentConvIdRef.current, // Pass current conversation ID for follow-ups
+          modelOverride: selectedModelRef.current, // Always send the selected model
         }),
         signal: newAbortController.signal,
       });
@@ -1708,6 +1727,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             temporarySession: temporarySession,
             uuid: getOrCreateUUID(),
             convId: currentConvIdRef.current,
+            modelOverride: selectedModelRef.current, // Always send the selected model
           }),
           signal: newAbortController.signal,
         });
@@ -1918,6 +1938,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             selectedLibraries: selectedLibrariesRef.current,
             uuid: getOrCreateUUID(),
             convId: currentConvIdRef.current,
+            modelOverride: selectedModelRef.current, // Always send the selected model
           }),
           signal: newAbortController.signal,
         });
@@ -2830,6 +2851,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                     onTemporarySessionChange={handleTemporarySessionChange}
                     categorizedQueries={categorizedQueries}
                     shouldShowSuggestions={shouldShowSuggestions}
+                    selectedModel={selectedModel}
+                    handleModelChange={setSelectedModel}
                   />
                 )}
               </div>

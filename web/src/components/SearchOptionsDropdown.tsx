@@ -21,6 +21,7 @@ import {
 } from "@/utils/client/siteConfig";
 import { logEvent } from "@/utils/client/analytics";
 import { useLibraryStats } from "@/hooks/useLibraryStats";
+import { MODEL_OPTIONS, DEFAULT_MODEL } from "@/config/modelOptions";
 
 interface SearchOptionsDropdownProps {
   siteConfig: SiteConfig | null;
@@ -32,6 +33,8 @@ interface SearchOptionsDropdownProps {
   handleLibraryChange: (library: string) => void;
   sourceCount: number;
   setSourceCount: (count: number) => void;
+  selectedModel: string;
+  handleModelChange: (model: string) => void;
 }
 
 export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
@@ -44,6 +47,8 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
   handleLibraryChange,
   sourceCount,
   setSourceCount,
+  selectedModel,
+  handleModelChange,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [showControlsInfo, setShowControlsInfo] = useState(false);
@@ -127,7 +132,10 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
       (selectedLibraries.length !== defaultLibraries.length ||
         !selectedLibraries.every((lib) => defaultLibraries.includes(lib)));
 
-    return mediaTypesChanged || collectionChanged || sourceCountChanged || librariesChanged;
+    // Check if model has been changed from default
+    const modelChanged = selectedModel !== DEFAULT_MODEL;
+
+    return mediaTypesChanged || collectionChanged || sourceCountChanged || librariesChanged || modelChanged;
   }, [
     showMediaTypeSelection,
     showAuthorSelection,
@@ -140,6 +148,7 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
     siteConfig,
     collectionsConfig,
     availableLibraries,
+    selectedModel,
   ]);
 
   // Helper function to format large numbers
@@ -173,10 +182,6 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
     return 0;
   };
 
-  // Check if any options are available
-  const hasAnyOptions =
-    showMediaTypeSelection || showAuthorSelection || showSourceCountSelector || showLibrarySelection;
-
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -207,19 +212,19 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
 
   // Close dropdown on Escape key
   useEffect(() => {
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        if (showControlsInfo) {
-          // If info modal is open, close it but keep dropdown open
-          setShowControlsInfo(false);
-          logEvent("dismiss_controls_info", "UI", "escape_key");
-        } else if (isOpen) {
-          // If only dropdown is open, close it
-          setIsOpen(false);
-          buttonRef.current?.focus();
+      const handleEscape = (event: KeyboardEvent) => {
+        if (event.key === "Escape") {
+          if (showControlsInfo) {
+            // If controls info modal is open, close it but keep dropdown open
+            setShowControlsInfo(false);
+            logEvent("dismiss_controls_info", "UI", "escape_key");
+          } else if (isOpen) {
+            // If only dropdown is open, close it
+            setIsOpen(false);
+            buttonRef.current?.focus();
+          }
         }
-      }
-    };
+      };
 
     if (isOpen) {
       document.addEventListener("keydown", handleEscape);
@@ -393,14 +398,17 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
       }
     }
 
+    // Reset model to default
+    if (selectedModel !== DEFAULT_MODEL) {
+      handleModelChange(DEFAULT_MODEL);
+      localStorage.removeItem("selectedModel");
+    } else {
+      localStorage.removeItem("selectedModel");
+    }
+
     // Log analytics event
     logEvent("reset_chat_options", "Settings", "reset_to_defaults");
   };
-
-  // Don't render if no options are available
-  if (!hasAnyOptions) {
-    return null;
-  }
 
   return (
     <div className="relative">
@@ -459,6 +467,29 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
                   <span className="material-icons text-base">info</span>
                 </button>
               </div>
+              {/* AI Model Selection Group */}
+              <div>
+                <h4 className="text-sm font-medium text-gray-900 mb-2">AI Model</h4>
+                <div className="space-y-2">
+                  {MODEL_OPTIONS.map((option) => (
+                    <label key={option.value} className="flex items-center">
+                      <input
+                        type="radio"
+                        name="model"
+                        value={option.value}
+                        checked={selectedModel === option.value}
+                        onChange={() => {
+                          handleModelChange(option.value);
+                          logEvent("change_model", "Settings", option.value);
+                        }}
+                        className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                      />
+                      <span className="text-sm text-gray-700">{option.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
               {/* Media Type Selection Group */}
               {showMediaTypeSelection && enabledMediaTypes.length > 0 && (
                 <div>
@@ -660,6 +691,33 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
             </div>
 
             <div className="space-y-4">
+              {/* AI Model Selection - Always shown first */}
+              <div>
+                <h4 className="font-medium mb-2">AI Model Selection</h4>
+                <p className="text-sm text-gray-600 mb-3">
+                  Different AI models have different strengths. You can choose which model generates responses to your questions.
+                </p>
+                <div className="mb-3">
+                  <h5 className="font-medium mb-1 text-sm">Why try different models?</h5>
+                  <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
+                    <li>Some models are faster, others are more thorough</li>
+                    <li>Different models may interpret questions differently</li>
+                    <li>Some models excel at creative responses, others at factual accuracy</li>
+                    <li>You can experiment to find which model works best for your needs</li>
+                  </ul>
+                </div>
+                <p className="text-sm text-gray-600">
+                  You are currently using: <strong>{MODEL_OPTIONS.find((m) => m.value === selectedModel)?.label || selectedModel}</strong>
+                </p>
+              </div>
+
+              {showAuthorSelection && (
+                <div>
+                  <h4 className="font-medium mb-1">Collection Selection</h4>
+                  <p className="text-sm text-gray-600">Select specific collections or authors to focus your search.</p>
+                </div>
+              )}
+
               {showMediaTypeSelection && (
                 <div>
                   <h4 className="font-medium mb-1">Media Type Selection</h4>
@@ -668,13 +726,6 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
                     {enabledMediaTypes.map((type) => (type === "youtube" ? "video" : type)).join(", ")}) to include for
                     your query.
                   </p>
-                </div>
-              )}
-
-              {showAuthorSelection && (
-                <div>
-                  <h4 className="font-medium mb-1">Collection Selection</h4>
-                  <p className="text-sm text-gray-600">Select specific collections or authors to focus your search.</p>
                 </div>
               )}
 
@@ -702,6 +753,7 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
           </div>
         </>
       )}
+
     </div>
   );
 };

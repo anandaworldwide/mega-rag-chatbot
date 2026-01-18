@@ -2,6 +2,7 @@ import React from "react";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { SearchOptionsDropdown } from "@/components/SearchOptionsDropdown";
 import { SiteConfig } from "@/types/siteConfig";
+import { DEFAULT_MODEL, MODEL_OPTIONS } from "@/config/modelOptions";
 
 // Mock analytics
 jest.mock("@/utils/client/analytics", () => ({
@@ -61,6 +62,8 @@ describe("SearchOptionsDropdown", () => {
     handleLibraryChange: jest.fn(),
     sourceCount: 4,
     setSourceCount: jest.fn(),
+    selectedModel: DEFAULT_MODEL,
+    handleModelChange: jest.fn(),
   };
 
   beforeEach(() => {
@@ -178,12 +181,13 @@ describe("SearchOptionsDropdown", () => {
     const button = screen.getByRole("button", { name: /chat options/i });
     fireEvent.click(button);
 
+    expect(screen.getByText("AI Model")).toBeInTheDocument();
     expect(screen.getByText("Media Types")).toBeInTheDocument();
     expect(screen.getByText("Authors")).toBeInTheDocument();
     expect(screen.getByText("Use Extra Sources")).toBeInTheDocument();
   });
 
-  it("does not render when no options are available", () => {
+  it("always renders because model selector is always available", () => {
     const siteConfigWithNoOptions: SiteConfig = {
       ...mockSiteConfig,
       enableMediaTypeSelection: false,
@@ -197,8 +201,9 @@ describe("SearchOptionsDropdown", () => {
       siteConfig: siteConfigWithNoOptions,
     };
 
-    const { container } = render(<SearchOptionsDropdown {...propsWithNoOptions} />);
-    expect(container.firstChild).toBeNull();
+    render(<SearchOptionsDropdown {...propsWithNoOptions} />);
+    // Should still render because model selector is always available
+    expect(screen.getByRole("button", { name: /chat options/i })).toBeInTheDocument();
   });
 
   it("handles different site config default values correctly", () => {
@@ -353,6 +358,156 @@ describe("SearchOptionsDropdown", () => {
       // Should show yellow background tune icon when libraries are modified
       const tuneIcon = button.querySelector(".material-icons");
       expect(tuneIcon).toHaveClass("text-gray-700");
+    });
+  });
+
+  describe("Model Selection", () => {
+    it("renders model selector with all model options", () => {
+      render(<SearchOptionsDropdown {...defaultProps} />);
+
+      // Open the dropdown
+      const button = screen.getByRole("button", { name: /chat options/i });
+      fireEvent.click(button);
+
+      // Check that AI Model section appears
+      expect(screen.getByText("AI Model")).toBeInTheDocument();
+
+      // Check that all model options are rendered
+      MODEL_OPTIONS.forEach((option) => {
+        expect(screen.getByLabelText(option.label)).toBeInTheDocument();
+      });
+    });
+
+    it("shows default model as selected", () => {
+      render(<SearchOptionsDropdown {...defaultProps} />);
+
+      // Open the dropdown
+      const button = screen.getByRole("button", { name: /chat options/i });
+      fireEvent.click(button);
+
+      // Check that default model is selected
+      const defaultModelOption = MODEL_OPTIONS.find((opt) => opt.value === DEFAULT_MODEL);
+      const defaultRadio = screen.getByLabelText(defaultModelOption!.label) as HTMLInputElement;
+      expect(defaultRadio.checked).toBe(true);
+    });
+
+    it("calls handleModelChange when model is selected", () => {
+      const mockHandleModelChange = jest.fn();
+      render(<SearchOptionsDropdown {...defaultProps} handleModelChange={mockHandleModelChange} />);
+
+      // Open the dropdown
+      const button = screen.getByRole("button", { name: /chat options/i });
+      fireEvent.click(button);
+
+      // Find a different model option
+      const otherModel = MODEL_OPTIONS.find((opt) => opt.value !== DEFAULT_MODEL);
+      const otherModelRadio = screen.getByLabelText(otherModel!.label);
+      fireEvent.click(otherModelRadio);
+
+      expect(mockHandleModelChange).toHaveBeenCalledWith(otherModel!.value);
+    });
+
+    it("shows modified indicator when model is changed from default", () => {
+      const nonDefaultModel = MODEL_OPTIONS.find((opt) => opt.value !== DEFAULT_MODEL)!.value;
+      const propsWithModifiedModel = {
+        ...defaultProps,
+        selectedModel: nonDefaultModel,
+      };
+
+      render(<SearchOptionsDropdown {...propsWithModifiedModel} />);
+
+      const button = screen.getByRole("button", { name: /chat options/i });
+
+      // Should show yellow background tune icon when model is modified
+      const tuneIcon = button.querySelector(".material-icons");
+      expect(tuneIcon).toHaveClass("text-gray-700");
+      const backgroundCircle = button.querySelector(".rounded-full");
+      expect(backgroundCircle).toBeInTheDocument();
+      expect(backgroundCircle).toHaveStyle("background-color: #fff1c2");
+    });
+
+    it("shows model info in Controls Info modal", () => {
+      render(<SearchOptionsDropdown {...defaultProps} />);
+
+      // Open the dropdown
+      const button = screen.getByRole("button", { name: /chat options/i });
+      fireEvent.click(button);
+
+      // Click the Controls Info button (top right corner)
+      const controlsInfoButton = screen.getByLabelText("Controls information");
+      fireEvent.click(controlsInfoButton);
+
+      // Check that AI Model Selection info appears first in the modal
+      expect(screen.getByText("AI Model Selection")).toBeInTheDocument();
+      expect(screen.getByText("Why try different models?")).toBeInTheDocument();
+    });
+
+    it("shows current model in Controls Info modal", () => {
+      const selectedModel = MODEL_OPTIONS[2].value;
+      const propsWithModel = {
+        ...defaultProps,
+        selectedModel,
+      };
+
+      render(<SearchOptionsDropdown {...propsWithModel} />);
+
+      // Open the dropdown
+      const button = screen.getByRole("button", { name: /chat options/i });
+      fireEvent.click(button);
+
+      // Open Controls Info modal
+      const controlsInfoButton = screen.getByLabelText("Controls information");
+      fireEvent.click(controlsInfoButton);
+
+      // Check that current model text is displayed (text is split across elements)
+      expect(screen.getByText("You are currently using:")).toBeInTheDocument();
+      const selectedModelLabel = MODEL_OPTIONS.find((opt) => opt.value === selectedModel)!.label;
+      // Model label appears in both dropdown and modal, so use getAllByText
+      const modelLabels = screen.getAllByText(selectedModelLabel);
+      expect(modelLabels.length).toBeGreaterThan(0);
+    });
+
+    it("shows Collection Selection info after AI Model info in Controls Info modal", () => {
+      render(<SearchOptionsDropdown {...defaultProps} />);
+
+      // Open the dropdown
+      const button = screen.getByRole("button", { name: /chat options/i });
+      fireEvent.click(button);
+
+      // Open Controls Info modal
+      const controlsInfoButton = screen.getByLabelText("Controls information");
+      fireEvent.click(controlsInfoButton);
+
+      // Check that AI Model Selection appears first
+      expect(screen.getByText("AI Model Selection")).toBeInTheDocument();
+      
+      // Check that Collection Selection appears after (if enabled)
+      if (defaultProps.siteConfig.enableAuthorSelection) {
+        expect(screen.getByText("Collection Selection")).toBeInTheDocument();
+      }
+    });
+
+    it("resets model to default when reset button is clicked", () => {
+      const nonDefaultModel = MODEL_OPTIONS.find((opt) => opt.value !== DEFAULT_MODEL)!.value;
+      const mockHandleModelChange = jest.fn();
+      const propsWithModifiedModel = {
+        ...defaultProps,
+        selectedModel: nonDefaultModel,
+        handleModelChange: mockHandleModelChange,
+      };
+
+      render(<SearchOptionsDropdown {...propsWithModifiedModel} />);
+
+      // Open the dropdown
+      const button = screen.getByRole("button", { name: /chat options/i });
+      fireEvent.click(button);
+
+      // Click reset button
+      const resetButton = screen.getByText("Reset to Defaults");
+      fireEvent.click(resetButton);
+
+      // Verify model was reset to default
+      expect(mockHandleModelChange).toHaveBeenCalledWith(DEFAULT_MODEL);
     });
   });
 });

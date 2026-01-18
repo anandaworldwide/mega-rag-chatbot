@@ -69,6 +69,8 @@ interface ChatInputProps {
   onTemporarySessionChange?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   categorizedQueries?: { general: string[]; location: string[]; resources: string[] } | null;
   shouldShowSuggestions?: boolean; // Hide suggestions after first question
+  selectedModel: string;
+  handleModelChange: (model: string) => void;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
@@ -101,6 +103,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   setSourceCount,
   categorizedQueries,
   shouldShowSuggestions = true,
+  selectedModel,
+  handleModelChange,
 }) => {
   // State variables for managing component behavior
   const [, setLocalQuery] = useState<string>("");
@@ -120,7 +124,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   useEffect(() => {
     try {
       getOrCreateUUID();
-    } catch {}
+    } catch {
+      // Silently ignore UUID creation errors - not critical for functionality
+    }
   }, []);
 
   // Effect to check if tips are available for this site
@@ -525,6 +531,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               handleLibraryChange={handleLibraryChange}
               sourceCount={sourceCount}
               setSourceCount={setSourceCount}
+              selectedModel={selectedModel}
+              handleModelChange={handleModelChange}
             />
 
             {/* Tips Button - only show if tips are available for this site */}

@@ -371,7 +371,9 @@ async function saveOrUpdateDocument(
   restatedQuestion: string,
   uuid?: string | undefined,
   convId?: string | undefined, // Accept convId from frontend
-  suggestions?: Array<{ id: string; text: string; type: "deeper" | "broader"; sourceDocId?: string; score?: number }> // Accept typed suggestions for saving
+  suggestions?: Array<{ id: string; text: string; type: "deeper" | "broader"; sourceDocId?: string; score?: number }>, // Accept typed suggestions for saving
+  model?: string | undefined, // Model used for this response
+  temperature?: number | undefined // Temperature used for this response
 ): Promise<string | null> {
   if (!db) {
     return null;
@@ -404,7 +406,7 @@ async function saveOrUpdateDocument(
       })
     : [];
 
-  const dataToSave = {
+  const dataToSave: any = {
     question: sanitizedOriginalQuestion,
     answer: fullResponse,
     collection: collection,
@@ -419,6 +421,14 @@ async function saveOrUpdateDocument(
     convId: finalConvId, // Add conversation ID for grouping
     suggestions: sanitizedSuggestions, // Save follow-up suggestions (typed, with undefined values removed)
   };
+
+  // Add model and temperature if provided
+  if (model !== undefined) {
+    dataToSave.model = model;
+  }
+  if (temperature !== undefined) {
+    dataToSave.temperature = temperature;
+  }
 
   try {
     const answerRef = db.collection(getAnswersCollectionName());
@@ -1043,7 +1053,7 @@ async function handleChatRequest(req: NextRequest) {
 
         // Execute the full chain
         timingMetrics.chainExecutionStart = Date.now();
-        const { fullResponse, finalDocs, restatedQuestion, suggestions } = await setupAndExecuteLanguageModelChain(
+        const { fullResponse, finalDocs, restatedQuestion, suggestions, model, temperature } = await setupAndExecuteLanguageModelChain(
           retriever,
           sanitizedInput.question, // Use sanitized question (whitespace normalized) for AI processing
           sanitizedInput.history || [],
@@ -1087,7 +1097,9 @@ async function handleChatRequest(req: NextRequest) {
               restatedQuestion, // Pass the restated question
               sanitizedInput.uuid, // Persist client UUID when provided
               finalConversationId, // Use the final conversation ID
-              suggestions // Pass suggestions for saving
+              suggestions, // Pass suggestions for saving
+              model, // Pass the model used
+              temperature // Pass the temperature used
             );
 
             if (savedDocId) {

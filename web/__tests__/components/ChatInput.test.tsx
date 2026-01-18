@@ -32,6 +32,7 @@ import React from "react";
 import { render, fireEvent, screen } from "@testing-library/react";
 import { ChatInput } from "@/components/ChatInput";
 import { SiteConfig } from "@/types/siteConfig";
+import { DEFAULT_MODEL } from "@/config/modelOptions";
 
 describe("ChatInput", () => {
   // Common mock props
@@ -92,6 +93,8 @@ describe("ChatInput", () => {
     sourceCount: 0,
     setSourceCount: jest.fn(),
     isChatEmpty: true,
+    selectedModel: DEFAULT_MODEL,
+    handleModelChange: jest.fn(),
   };
 
   beforeEach(() => {
@@ -247,5 +250,27 @@ describe("ChatInput", () => {
     // Verify that suggested queries are displayed
     expect(screen.getByText("How can I meditate?")).toBeInTheDocument();
     expect(screen.getByText("What is yoga?")).toBeInTheDocument();
+  });
+
+  it("passes model props to SearchOptionsDropdown", () => {
+    const mockHandleModelChange = jest.fn();
+    const props = {
+      ...defaultProps,
+      selectedModel: "gpt-4o",
+      handleModelChange: mockHandleModelChange,
+    };
+
+    render(<ChatInput {...props} />);
+
+    // Open the dropdown
+    const dropdownButton = screen.getByText("Chat Options");
+    fireEvent.click(dropdownButton);
+
+    // Verify model selector is present
+    expect(screen.getByText("AI Model")).toBeInTheDocument();
+
+    // Verify the selected model is shown
+    const selectedRadio = screen.getByLabelText("GPT-4 Optimized") as HTMLInputElement;
+    expect(selectedRadio.checked).toBe(true);
   });
 });
