@@ -189,36 +189,41 @@ export default function AdminPendingUsersPage({ siteConfig }: AdminPendingUsersP
       }
     }
     getToken();
+
+    // Periodic token refresh to prevent expiration while page is open and idle
+    // JWT tokens expire after 15 minutes, so refresh every 10 minutes
+    const TOKEN_REFRESH_INTERVAL = 10 * 60 * 1000; // 10 minutes
+    const refreshInterval = setInterval(() => {
+      getToken();
+    }, TOKEN_REFRESH_INTERVAL);
+
+    return () => clearInterval(refreshInterval);
   }, []);
 
   // Add window focus listener to refresh token when user returns to page
   useEffect(() => {
     async function handleWindowFocus() {
-      // Only refresh if we don't have a valid JWT
-      if (!jwt) {
-        try {
-          const res = await fetch("/api/web-token");
-          const data = await res.json();
-          if (res.ok && data?.token) {
-            setJwt(data.token);
-            setMessage(null);
-            // Refresh data with new token
-            fetchPending(currentPage);
-          } else if (res.status === 401) {
-            const fullPath = window.location.pathname + (window.location.search || "");
-            window.location.href = `/login?redirect=${encodeURIComponent(fullPath)}`;
-          }
-        } catch (e) {
-          console.error("Failed to refresh token on focus:", e);
+      // Always refresh token on focus to handle cases where:
+      // 1. Token expired while tab was inactive
+      // 2. Browser was suspended/resumed
+      try {
+        const res = await fetch("/api/web-token");
+        const data = await res.json();
+        if (res.ok && data?.token) {
+          setJwt(data.token);
+          setMessage(null);
+        } else if (res.status === 401) {
+          const fullPath = window.location.pathname + (window.location.search || "");
+          window.location.href = `/login?redirect=${encodeURIComponent(fullPath)}`;
         }
+      } catch (e) {
+        console.error("Failed to refresh token on focus:", e);
       }
     }
 
     window.addEventListener("focus", handleWindowFocus);
     return () => window.removeEventListener("focus", handleWindowFocus);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jwt, currentPage]);
-  // Note: fetchPending is not included to avoid infinite loops
+  }, []);
 
   // Fetch pending users once JWT is available
   useEffect(() => {

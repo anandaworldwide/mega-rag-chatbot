@@ -64,7 +64,7 @@ export default function AddUsersPage({ siteConfig }: AddUsersPageProps) {
     }
   }, [adminFirstName, siteConfig]);
 
-  // Initialize JWT
+  // Initialize JWT with periodic refresh
   useEffect(() => {
     async function initJwt() {
       try {
@@ -72,6 +72,9 @@ export default function AddUsersPage({ siteConfig }: AddUsersPageProps) {
         if (res.ok) {
           const data = await res.json();
           setJwt(data.token);
+        } else if (res.status === 401) {
+          const fullPath = window.location.pathname + (window.location.search || "");
+          window.location.href = `/login?redirect=${encodeURIComponent(fullPath)}`;
         }
       } catch (error) {
         console.error("Failed to initialize JWT:", error);
@@ -79,6 +82,24 @@ export default function AddUsersPage({ siteConfig }: AddUsersPageProps) {
     }
 
     initJwt();
+
+    // Periodic token refresh to prevent expiration while page is open and idle
+    // JWT tokens expire after 15 minutes, so refresh every 10 minutes
+    const TOKEN_REFRESH_INTERVAL = 10 * 60 * 1000; // 10 minutes
+    const refreshInterval = setInterval(() => {
+      initJwt();
+    }, TOKEN_REFRESH_INTERVAL);
+
+    // Window focus handler to refresh token
+    const handleWindowFocus = () => {
+      initJwt();
+    };
+    window.addEventListener("focus", handleWindowFocus);
+
+    return () => {
+      clearInterval(refreshInterval);
+      window.removeEventListener("focus", handleWindowFocus);
+    };
   }, []);
 
   // Save custom message to local storage when it changes

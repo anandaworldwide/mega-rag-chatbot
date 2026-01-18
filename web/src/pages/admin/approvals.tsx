@@ -47,7 +47,7 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
   const [dataLoaded, setDataLoaded] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
 
-  // Initialize JWT and get user role and email
+  // Initialize JWT and get user role and email with periodic refresh
   useEffect(() => {
     const initJwt = async () => {
       const tokenRes = await fetch("/api/web-token");
@@ -68,6 +68,24 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
       }
     };
     initJwt();
+
+    // Periodic token refresh to prevent expiration while page is open and idle
+    // JWT tokens expire after 15 minutes, so refresh every 10 minutes
+    const TOKEN_REFRESH_INTERVAL = 10 * 60 * 1000; // 10 minutes
+    const refreshInterval = setInterval(() => {
+      initJwt();
+    }, TOKEN_REFRESH_INTERVAL);
+
+    // Window focus handler to refresh token
+    const handleWindowFocus = () => {
+      initJwt();
+    };
+    window.addEventListener("focus", handleWindowFocus);
+
+    return () => {
+      clearInterval(refreshInterval);
+      window.removeEventListener("focus", handleWindowFocus);
+    };
   }, []);
 
   // Fetch requests (pending by default; also fetch recently approved)
@@ -93,7 +111,7 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
         let data;
         try {
           data = await res.json();
-        } catch (jsonError) {
+        } catch (_jsonError) {
           // If response isn't valid JSON, show a server error message
           setMessage("Server returned an invalid response. Please try again.");
           setMessageType("error");
@@ -141,7 +159,7 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
           } else {
             approvedList = approvedData.requests || [];
           }
-        } catch (e) {
+        } catch (_e) {
           // non-fatal
         }
 

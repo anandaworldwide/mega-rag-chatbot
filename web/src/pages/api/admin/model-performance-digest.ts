@@ -18,6 +18,19 @@ function formatNumber(value: number) {
   return Number.isFinite(value) ? value.toFixed(2) : "0.00";
 }
 
+function getTtfbIndicator(ttfbMs: number): string {
+  // TTFB values are in milliseconds
+  // Green indicator: < 3000ms (3 seconds) - good performance
+  // Yellow indicator: >= 3000ms (3 seconds) - warning
+  // Red indicator: >= 6000ms (6 seconds) - critical
+  if (ttfbMs >= 6000) {
+    return "🔴 [CRITICAL] ";
+  } else if (ttfbMs >= 3000) {
+    return "⚠️ [WARNING] ";
+  }
+  return "✅ [GOOD] ";
+}
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST" && req.method !== "GET") {
     return res.status(405).json({ error: "Method not allowed" });
@@ -79,6 +92,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       `- Total records: ${totals.totalRecords}`,
       `- Error records: ${totals.errorRecords}`,
       ``,
+      ``,
     ].join("\n");
 
     const modelSections =
@@ -87,9 +101,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         : summaries
             .map((summary) => {
               const metrics = summary.metrics;
+              const ttfbIndicator = getTtfbIndicator(metrics.ttfbMs.mean);
               const lines = [
                 `MODEL: ${summary.model} (n=${summary.count})`,
-                `- TTFB avg: ${formatSeconds(metrics.ttfbMs.mean)} (stdev ${formatSeconds(metrics.ttfbMs.stdDev)}, n=${metrics.ttfbMs.count})`,
+                `- TTFB avg: ${ttfbIndicator}${formatSeconds(metrics.ttfbMs.mean)} (stdev ${formatSeconds(metrics.ttfbMs.stdDev)}, n=${metrics.ttfbMs.count})`,
                 `- Answer streaming avg: ${formatSeconds(metrics.answerStreamingMs.mean)} (stdev ${formatSeconds(metrics.answerStreamingMs.stdDev)}, n=${metrics.answerStreamingMs.count})`,
                 `- Total session avg: ${formatSeconds(metrics.totalSessionMs.mean)} (stdev ${formatSeconds(metrics.totalSessionMs.stdDev)}, n=${metrics.totalSessionMs.count})`,
                 `- Tokens/sec avg: ${formatNumber(metrics.tokensPerSecond.mean)} (stdev ${formatNumber(metrics.tokensPerSecond.stdDev)}, n=${metrics.tokensPerSecond.count})`,
@@ -100,7 +115,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             })
             .join("\n");
 
-    const body = `${header}${modelSections}`;
+    const footer = [
+      ``,
+      `---`,
+      `TTFB Thresholds:`,
+      `- ✅ [GOOD] < 3.00s (3000ms)`,
+      `- ⚠️ [WARNING] >= 3.00s (3000ms)`,
+      `- 🔴 [CRITICAL] >= 6.00s (6000ms)`,
+    ].join("\n");
+
+    const body = `${header}${modelSections}${footer}`;
     const subject = `Model performance digest: ${totals.totalRecords} records, ${totals.errorRecords} errors`;
 
     if (totals.totalRecords > 0 || totals.errorRecords > 0) {

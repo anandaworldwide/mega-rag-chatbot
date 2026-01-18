@@ -49,6 +49,24 @@ function formatNumber(value: number) {
   return Number.isFinite(value) ? value.toFixed(2) : "0.00"
 }
 
+function getTtfbColorClass(ttfbMs: number | undefined): string {
+  // Handle undefined/null values
+  if (!ttfbMs || !Number.isFinite(ttfbMs)) {
+    return "text-gray-700"
+  }
+  
+  // TTFB values are in milliseconds
+  // Green highlight: < 3000ms (3 seconds) - good performance
+  // Yellow highlight: >= 3000ms (3 seconds) - warning
+  // Red highlight: >= 6000ms (6 seconds) - critical
+  if (ttfbMs >= 6000) {
+    return "bg-red-100 text-red-800 font-semibold"
+  } else if (ttfbMs >= 3000) {
+    return "bg-yellow-100 text-yellow-800 font-semibold"
+  }
+  return "bg-green-100 text-green-800 font-semibold"
+}
+
 export const getServerSideProps: GetServerSideProps = async ({ req }) => {
   const siteConfig = await loadSiteConfig()
   const isAllowed = await isAdminPageAllowed(req as NextApiRequest, undefined, siteConfig)
@@ -148,7 +166,7 @@ export default function ModelPerformance({ siteConfig }: ModelPerformanceProps) 
                   <tr key={model.model} className="hover:bg-gray-50">
                     <td className="px-4 py-2 border font-medium text-gray-900">{model.model}</td>
                     <td className="px-4 py-2 border text-gray-700">{model.count}</td>
-                    <td className="px-4 py-2 border text-gray-700">
+                    <td className={`px-4 py-2 border ${getTtfbColorClass(model.metrics.ttfbMs.mean)}`}>
                       <div>
                         {formatSeconds(model.metrics.ttfbMs.mean)} +/- {formatSeconds(model.metrics.ttfbMs.stdDev)}
                       </div>
@@ -186,6 +204,14 @@ export default function ModelPerformance({ siteConfig }: ModelPerformanceProps) 
                 ))}
               </tbody>
             </table>
+          </div>
+
+          <div className="mt-6 pt-4 border-t border-gray-200">
+            <p className="text-xs text-gray-500">
+              TTFB threshold: <span className="bg-green-100 text-green-800 px-1 rounded">&lt;3s (green)</span>,{" "}
+              <span className="bg-yellow-100 text-yellow-800 px-1 rounded">≥3s (yellow)</span>,{" "}
+              <span className="bg-red-100 text-red-800 px-1 rounded">≥6s (red)</span>
+            </p>
           </div>
         </>
       )}
