@@ -14,6 +14,7 @@ export default function JairamHeader({ siteConfig, onNewChat }: JairamHeaderProp
   return (
       <BaseHeader
         config={siteConfig.header}
+        siteConfig={siteConfig}
         parentSiteUrl={parentSiteUrl}
         parentSiteName={parentSiteName}
         requireLogin={siteConfig.requireLogin}

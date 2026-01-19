@@ -1,0 +1,21 @@
+{
+  "version": 3,
+  "wikiUrl": "https://anandafamily.notion.site/What-s-new-with-Luca-2ed7781078bc80c79438c02ea27ec710",
+  "entries": [
+    {
+      "date": "2026-01-19",
+      "title": "Task Wizard",
+      "description": "New structured task wizards help you create comprehensive research queries and class plans. Click the task buttons above the chat input to get started."
+    },
+    {
+      "date": "2026-01-19",
+      "title": "What's New Feature",
+      "description": "Stay updated with the latest features and improvements. Click the bell icon to see recent updates."
+    },
+    {
+      "date": "2026-01-18",
+      "title": "AI Model Selection",
+      "description": "You can now choose the underlying AI model that generates the answers. Different models have different strengths - some are faster, others more thorough. Experiment to find which works best for your needs."
+    }
+  ]
+}

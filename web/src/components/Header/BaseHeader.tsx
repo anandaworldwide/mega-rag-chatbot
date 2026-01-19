@@ -3,12 +3,15 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useState, useEffect } from "react";
 import { logEvent } from "@/utils/client/analytics";
-import { HeaderConfig } from "@/types/siteConfig";
+import { HeaderConfig, SiteConfig } from "@/types/siteConfig";
 import { isDevelopment } from "@/utils/env";
 import { initializeTokenManager, isAuthenticated } from "@/utils/client/tokenManager";
+import WhatsNewDropdown from "@/components/WhatsNewDropdown";
+import { isWhatsNewAvailable } from "@/utils/client/loadWhatsNew";
 
 interface BaseHeaderProps {
   config: HeaderConfig;
+  siteConfig?: SiteConfig | null;
   parentSiteUrl?: string;
   parentSiteName?: string;
   className?: string;
@@ -26,6 +29,7 @@ interface BaseHeaderProps {
 
 export default function BaseHeader({
   config,
+  siteConfig,
   parentSiteUrl,
   parentSiteName,
   logoComponent,
@@ -51,7 +55,14 @@ export default function BaseHeader({
     );
   });
   const [authReady, setAuthReady] = useState(false);
+  const [whatsNewAvailable, setWhatsNewAvailable] = useState(false);
   const isActive = (pathname: string) => router.pathname === pathname;
+
+  useEffect(() => {
+    if (siteConfig) {
+      isWhatsNewAvailable(siteConfig).then(setWhatsNewAvailable);
+    }
+  }, [siteConfig]);
 
   // Keep auth state in sync without extra network calls
   useEffect(() => {
@@ -243,6 +254,9 @@ export default function BaseHeader({
               >
                 <span className="material-icons text-xl">search</span>
               </Link>
+            )}
+            {whatsNewAvailable && siteConfig && (
+              <WhatsNewDropdown siteConfig={siteConfig} requireLogin={requireLogin} />
             )}
             {helpUrl && (
               <a

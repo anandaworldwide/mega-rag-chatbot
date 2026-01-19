@@ -37,6 +37,7 @@ export default function AnandaHeader({
     <>
       <BaseHeader
         config={siteConfig.header}
+        siteConfig={siteConfig}
         parentSiteUrl={parentSiteUrl}
         parentSiteName={parentSiteName}
         requireLogin={siteConfig.requireLogin}
