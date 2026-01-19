@@ -11,7 +11,7 @@
  * - Proportional document retrieval across knowledge bases
  * - Model comparison capabilities for A/B testing different LLMs
  * - Streaming support for real-time responses
- * - Performance optimization: Uses faster model (gpt-3.5-turbo) for question rephrasing
+ * - Performance optimization: Uses efficient model (gpt-4.1-mini) for question rephrasing
  *
  * The system uses a multi-stage pipeline:
  * 1. Question processing - Converts follow-ups into standalone questions
@@ -274,7 +274,7 @@ const getFullTemplate = async (siteId: string) => {
 // This helps maintain context while allowing effective vector store querying
 const CONDENSE_TEMPLATE = `Given the following conversation and a follow up question, rephrase the follow up question to be a standalone question.
 
-IMPORTANT: NEVER reformulate social messages or conversation closers. If the follow up input includes ANY 
+IMPORTANT: NEVER reformulate social messages or conversation closers. If the follow up input includes ANY
 of the following:
 1. Expressions of gratitude: "thanks", "thank you", "gracias", "merci", "danke", etc.
 2. Conversation closers: "that's all", "I'm all set", "got it", "that's what I needed", "okay then", etc.
@@ -283,7 +283,9 @@ of the following:
 
 DO NOT attempt to reformulate these into questions. Instead, return EXACTLY what the user said, word for word.
 
-SPECIAL HANDLING FOR DIRECTIVES AND COMMANDS: If the follow up input is an imperative/command (starts with verbs like "Suggest", "Create", "Write", "List", "Explain", "Summarize", "Go deeper", "Tell me more", "Turn this into", etc.), PRESERVE the command form. Add context from the conversation but keep it as a directive, not a question.
+SPECIAL HANDLING FOR DIRECTIVES AND COMMANDS: If the follow up input is a command or directive that starts with action verbs (like "Suggest", "Create", "Write", "List", "Explain", "Summarize", "Go deeper", "Tell me more", "Turn this into", "Generate", "Add", "Compile", etc.), PRESERVE the exact command structure but ADD SPECIFIC CONTEXT from the conversation history about what the command refers to.
+
+For example, if someone says "Create an email for this class" after discussing a "Karma workshop", reformulate to "Create an email for the Karma workshop".
 
 Examples of directive reformulation:
 - Input: "Suggest a closing meditation" (after discussing willpower)
@@ -294,6 +296,10 @@ Examples of directive reformulation:
   → Output: "Turn this research on devotion into a class outline"
 - Input: "Create a summary I can share" (after discussing meditation techniques)
   → Output: "Create a summary of meditation techniques that I can share with others"
+- Input: "Create an email announcement for this class" (after planning an "Intro to Karma" class for newcomers)
+  → Output: "Create an email announcement for the Intro to Karma class for newcomers"
+- Input: "Generate a handout for students" (after planning a meditation workshop)
+  → Output: "Generate a handout for students in the meditation workshop"
 
 SPECIAL HANDLING FOR LOCATION CLARIFICATIONS: If the follow up input provides location information to clarify or correct a previous location-based query, combine the location information with the original question context. Look for:
 - Zip codes: "94705", "My zip code is 94705", "No, 94705"
@@ -403,7 +409,7 @@ export const makeChain = async (
   sendData?: (data: StreamingResponseData) => void,
   resolveDocs?: (docs: Document[]) => void,
   rephraseModelConfig: ModelConfig = {
-    model: "gpt-3.5-turbo",
+    model: "gpt-4.1-mini",
     temperature: 0.1,
   },
   temporarySession: boolean = false,
@@ -412,7 +418,7 @@ export const makeChain = async (
   siteConfig?: AppSiteConfig | null,
   originalQuestion?: string, // Add this parameter to pass the original question
   selectedLibraries?: string[], // Selected libraries for filtering
-  _taskMode?: string // Task mode (e.g., "class-planning", "research") - passed for analytics, no longer affects reformulation
+  taskMode?: string // Task mode (e.g., "class-planning", "research") - skips reformulation when set
 ) => {
   const { model, temperature, label } = modelConfig;
   let answerModel: BaseLanguageModel; // Renamed for clarity
@@ -869,8 +875,8 @@ Error details: ${errorString}`,
 
   // Get model context limit (default to 8192 for safety, but newer models have higher limits)
   const getModelContextLimit = (modelName: string): number => {
-    // GPT-4.1 has 128k context (up to 1M in some deployments, but 128k is standard)
-    if (modelName.includes("gpt-4.1") || modelName === "gpt-4.1") {
+    // GPT-4.1 models (including mini, nano variants) have 128k context
+    if (modelName.includes("gpt-4.1")) {
       return 128000;
     }
     // GPT-4o and GPT-4 Turbo have 128k context
@@ -1038,24 +1044,65 @@ Error details: ${errorString}`,
         // This is a fallback to catch the basic cases in case the CONDENSE_TEMPLATE does not handle it correctly.
         const simpleSocialPattern =
           /^(thanks|thank you|gracias|merci|danke|thank|thx|ty|thank u|muchas gracias|vielen dank|great|awesome|perfect|good|nice|ok|okay|got it|perfect|clear)[\s!.]*$/i;
-        if (simpleSocialPattern.test(input.question.trim())) {
+        const socialMatch = simpleSocialPattern.test(input.question.trim());
+        if (socialMatch) {
           capturedRestatedQuestion = input.question; // Store for later
           return input.question; // Don't reformulate social messages
         }
 
         if (input.chat_history.length === 0) {
+          // Skip reformulation for first question (no history to incorporate)
+          // For task wizard prompts, log that we're preserving the carefully constructed prompt
+          if (taskMode && !temporarySession && sendData) {
+            sendData({ log: `🎯 Task mode (${taskMode}): preserving original prompt (first question)` });
+          }
           capturedRestatedQuestion = input.question; // Store for later
           return input.question;
         }
 
+        // TEMPORARY DEBUG: Show context being provided to reformulation BEFORE calling
+        if (!temporarySession) {
+          console.log(`🔍 REFORMULATION INPUT:`, {
+            originalQuestion: input.question,
+            chatHistoryLength: input.chat_history?.length || 0,
+            chatHistoryPreview: input.chat_history?.substring(0, 500),
+          });
+
+          if (sendData) {
+            sendData({ log: `🔍 ORIGINAL: "${input.question}"` });
+            sendData({ log: `🔍 HISTORY LENGTH: ${input.chat_history?.length || 0} characters` });
+            if (input.chat_history && input.chat_history.length > 0) {
+              // Show a truncated version of the chat history
+              const truncatedHistory = input.chat_history.length > 300
+                ? input.chat_history.substring(0, 300) + "..."
+                : input.chat_history;
+              sendData({ log: `🔍 CHAT HISTORY PREVIEW: ${truncatedHistory}` });
+            }
+          }
+        }
+
         // Get the reformulated standalone question
-        const standaloneQuestion = await standaloneQuestionChain.invoke(input);
+        let standaloneQuestion: string;
+        try {
+          standaloneQuestion = await standaloneQuestionChain.invoke(input);
+        } catch (invokeError) {
+          console.error('Error in standaloneQuestionChain.invoke:', invokeError);
+          // Fallback to original question on error
+          standaloneQuestion = input.question;
+        }
 
         // Debug: Show the result of reformulation only if not in temporary mode
         if (!temporarySession) {
           const debugMsg = `🔍 REFORMULATED TO: "${standaloneQuestion}"`;
           console.log(debugMsg);
           if (sendData) sendData({ log: debugMsg });
+
+          // Additional debug: Check if reformulation actually changed anything
+          if (standaloneQuestion === input.question) {
+            const warnMsg = `⚠️ REFORMULATION WARNING: Question unchanged - this may indicate missing context in history`;
+            console.warn(warnMsg);
+            if (sendData) sendData({ log: warnMsg });
+          }
         }
 
         capturedRestatedQuestion = standaloneQuestion; // Store for later
@@ -1083,7 +1130,7 @@ export const makeComparisonChains = async (
   modelA: ModelConfig,
   modelB: ModelConfig,
   rephraseModelConfig: ModelConfig = {
-    model: "gpt-3.5-turbo",
+    model: "gpt-4.1-mini",
     temperature: 0.1,
   },
   temporarySession: boolean = false,
@@ -1322,7 +1369,7 @@ async function generateFollowUpSuggestions(
   try {
     // Create a lightweight model for suggestions
     const suggestionModel = new ChatOpenAI({
-      modelName: "gpt-3.5-turbo",
+      modelName: "gpt-4.1-mini",
       temperature: 0.7,
       maxTokens: 200,
     });
@@ -1436,7 +1483,7 @@ export async function setupAndExecuteLanguageModelChain(
     try {
       const modelName = modelOverride || siteConfig?.modelName || "gpt-4o";
       const temperature = siteConfig?.temperature || 0.3;
-      const rephraseModelName = "gpt-3.5-turbo";
+      const rephraseModelName = "gpt-4.1-mini";
       const rephraseTemperature = 0.1;
 
       // Send site ID immediately

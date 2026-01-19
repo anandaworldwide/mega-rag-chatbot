@@ -212,6 +212,13 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     messages: ExtendedAIMessage[];
   };
 
+  // Keep a ref in sync with history to avoid stale closures in callbacks
+  // This is critical for the API call to send the correct history for question reformulation
+  const historyRef = useRef(messageState.history);
+  useEffect(() => {
+    historyRef.current = messageState.history;
+  }, [messageState.history]);
+
   // Chat history hook for star/unstar functionality
   const { starConversation, unstarConversation, conversations } = useChatHistory(20, !!siteConfig?.requireLogin);
 
@@ -421,12 +428,15 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           setCurrentTaskMode(loadedConversation.taskMode);
           setCurrentTaskFollowups(loadedConversation.taskFollowups || []);
           setUsedTaskFollowups(loadedConversation.usedTaskFollowups || []);
+          // Clear dynamic follow-ups when loading - they'll be generated fresh if user asks a new question
+          setDynamicFollowups([]);
         } else {
           // Clear task state for non-task conversations
           setIsTaskConversation(false);
           setCurrentTaskFollowups([]);
           setUsedTaskFollowups([]);
           setCurrentTaskMode(null);
+          setDynamicFollowups([]);
         }
 
         // Log analytics event
@@ -664,6 +674,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     setUsedTaskFollowups([]);
     setCurrentTaskMode(null);
     setShowTaskWizard(false);
+    setDynamicFollowups([]);
     setSelectedTaskId(null);
 
     // Push a new history entry for '/' without triggering a Next.js navigation.
@@ -789,6 +800,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const isTaskConversationRef = useRef<boolean>(false); // Ref mirror for immediate access in async contexts
   const [_currentTaskMode, _setCurrentTaskMode] = useState<string | null>(null);
   const currentTaskModeRef = useRef<string | null>(null); // Ref mirror for immediate access in async contexts
+  const [dynamicFollowups, setDynamicFollowups] = useState<string[]>([]); // AI-generated context-specific follow-ups
+  const [isLoadingDynamicFollowups, setIsLoadingDynamicFollowups] = useState<boolean>(false);
 
   // Helper setters that update both state and ref for task-related values
   const setCurrentTaskFollowups = (followups: string[]) => {
@@ -1160,6 +1173,36 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         // Reset accumulated response when done
         accumulatedResponseRef.current = "";
 
+        // Generate dynamic follow-ups for task conversations
+        // Use a small delay to ensure message state is fully updated
+        if (isTaskConversationRef.current) {
+          setTimeout(() => {
+            setMessageState((prevState) => {
+              // Find the last Q&A pair
+              const messages = prevState.messages;
+              let lastQuestion = "";
+              let lastAnswer = "";
+
+              for (let i = messages.length - 1; i >= 0; i--) {
+                const msg = messages[i];
+                if (msg.type === "apiMessage" && !lastAnswer) {
+                  lastAnswer = msg.message || "";
+                } else if (msg.type === "userMessage" && lastAnswer && !lastQuestion) {
+                  lastQuestion = msg.message || "";
+                  break;
+                }
+              }
+
+              if (lastQuestion && lastAnswer) {
+                // Fire-and-forget the API call (don't block state update)
+                generateDynamicFollowups(lastQuestion, lastAnswer);
+              }
+
+              return prevState; // No state change
+            });
+          }, 100);
+        }
+
         // SOURCES DEBUGGING: Check if sources are missing after streaming completes
         setTimeout(() => {
           // Check the current state of sources for the last message
@@ -1199,6 +1242,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         }, 200); // Small delay to ensure all SSE messages have been processed
 
         // Force a state update to ensure UI re-renders immediately with buttons and correct docId
+        // Also update history with the actual assistant response content (critical for reformulation)
         setMessageState((prevState) => {
           // Check all messages to find the API message we need to update
           let apiMessageIndex = prevState.messages.length - 1;
@@ -1210,6 +1254,19 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
               if (prevState.messages[i].type === "apiMessage") {
                 apiMessageIndex = i;
                 apiMessage = prevState.messages[i];
+                break;
+              }
+            }
+          }
+
+          // Update the history's last assistant content with the actual response
+          // This is critical for question reformulation to have proper context
+          const updatedHistory = [...prevState.history];
+          if (updatedHistory.length > 0 && apiMessage.type === "apiMessage" && apiMessage.message) {
+            // Find the last assistant entry in history and update it
+            for (let i = updatedHistory.length - 1; i >= 0; i--) {
+              if (updatedHistory[i].role === "assistant" && updatedHistory[i].content === "") {
+                updatedHistory[i] = { ...updatedHistory[i], content: apiMessage.message };
                 break;
               }
             }
@@ -1227,10 +1284,11 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             return {
               ...prevState,
               messages: updatedMessages,
+              history: updatedHistory,
             };
           }
 
-          return { ...prevState };
+          return { ...prevState, history: updatedHistory };
         });
       }
 
@@ -1335,6 +1393,11 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       setCurrentTaskFollowups([]);
       setUsedTaskFollowups([]);
       setCurrentTaskMode(null);
+      setDynamicFollowups([]);
+    } else if (isTaskConversationRef.current) {
+      // Clear dynamic follow-ups when submitting a new question in task mode
+      // They'll be regenerated after the response completes
+      setDynamicFollowups([]);
     }
     // Reset task submission flag
     isTaskSubmissionRef.current = false;
@@ -1377,20 +1440,22 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     const newUserMessageIndex = messageState.messages.length;
 
     // Add user message to the state
-    setMessageState((prevState) => ({
-      ...prevState,
-      messages: [
-        ...prevState.messages,
-        { type: "userMessage", message: submittedQuery } as ExtendedAIMessage,
-        // Add an empty API message immediately so it's ready for the docId
-        {
-          type: "apiMessage",
-          message: "",
-          sourceDocs: [],
-        } as ExtendedAIMessage,
-      ],
-      history: [...prevState.history, { role: "user", content: submittedQuery }, { role: "assistant", content: "" }],
-    }));
+    setMessageState((prevState) => {
+      return {
+        ...prevState,
+        messages: [
+          ...prevState.messages,
+          { type: "userMessage", message: submittedQuery } as ExtendedAIMessage,
+          // Add an empty API message immediately so it's ready for the docId
+          {
+            type: "apiMessage",
+            message: "",
+            sourceDocs: [],
+          } as ExtendedAIMessage,
+        ],
+        history: [...prevState.history, { role: "user", content: submittedQuery }, { role: "assistant", content: "" }],
+      };
+    });
 
     // Scroll to the new user message if it's the second question or later
     if (isSecondQuestionOrLater) {
@@ -1424,7 +1489,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         },
         body: JSON.stringify({
           question: submittedQuery,
-          history: messageState.history,
+          history: historyRef.current,
           collection,
           temporarySession,
           mediaTypes,
@@ -1572,6 +1637,43 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [] // handleSubmit has too many deps to memoize; callback only used on wizard submit
+  );
+
+  // Generate dynamic (AI-generated) follow-ups after streaming completes
+  const generateDynamicFollowups = useCallback(
+    async (question: string, answer: string) => {
+      // Only generate for task conversations
+      if (!isTaskConversationRef.current) {
+        return;
+      }
+
+      setIsLoadingDynamicFollowups(true);
+      try {
+        const response = await fetchWithAuth("/api/generateFollowups", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question,
+            answer,
+            taskMode: currentTaskModeRef.current || undefined,
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.followups && Array.isArray(data.followups) && data.followups.length > 0) {
+            setDynamicFollowups(data.followups);
+          }
+        } else {
+          console.warn("Failed to generate dynamic follow-ups:", response.status);
+        }
+      } catch (error) {
+        console.error("Error generating dynamic follow-ups:", error);
+      } finally {
+        setIsLoadingDynamicFollowups(false);
+      }
+    },
+    [] // No deps needed - uses refs for task state
   );
 
   // Handle follow-up chip click
@@ -1853,7 +1955,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             question: userMessage.message,
-            history: messageState.history.slice(0, messageIndex - 1), // Include conversation history before this Q&A pair
+            history: historyRef.current.slice(0, messageIndex - 1), // Include conversation history before this Q&A pair
             collection: apiMessage.collection || collection,
             mediaTypes: mediaTypes,
             selectedLibraries: selectedLibrariesRef.current,
@@ -1948,6 +2050,27 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                 }
 
                 if (data.done) {
+                  // Update history with the regenerated response at the correct index
+                  // messageIndex is the API message index, history index is messageIndex - 1
+                  // (because history doesn't include the greeting message at index 0)
+                  setMessageState((prevState) => {
+                    const regeneratedMessage = prevState.messages[messageIndex];
+                    const historyIndex = messageIndex - 1;
+                    if (
+                      historyIndex >= 0 &&
+                      historyIndex < prevState.history.length &&
+                      prevState.history[historyIndex]?.role === "assistant" &&
+                      regeneratedMessage?.message
+                    ) {
+                      const updatedHistory = [...prevState.history];
+                      updatedHistory[historyIndex] = {
+                        ...updatedHistory[historyIndex],
+                        content: regeneratedMessage.message,
+                      };
+                      return { ...prevState, history: updatedHistory };
+                    }
+                    return prevState;
+                  });
                   setLoading(false);
                   accumulatedResponseRef.current = "";
                 }
@@ -1972,7 +2095,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       collection,
       mediaTypes,
       temporarySession,
-      messageState.history,
       setLoading,
       setError,
       setMessageState,
@@ -2149,6 +2271,21 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                 }
 
                 if (data.done) {
+                  // Update history with actual assistant response content (critical for reformulation)
+                  setMessageState((prevState) => {
+                    const lastMessage = prevState.messages[prevState.messages.length - 1];
+                    const updatedHistory = [...prevState.history];
+                    if (updatedHistory.length > 0 && lastMessage?.type === "apiMessage" && lastMessage.message) {
+                      // Find the last assistant entry in history and update it
+                      for (let i = updatedHistory.length - 1; i >= 0; i--) {
+                        if (updatedHistory[i].role === "assistant" && updatedHistory[i].content === "") {
+                          updatedHistory[i] = { ...updatedHistory[i], content: lastMessage.message };
+                          break;
+                        }
+                      }
+                    }
+                    return { ...prevState, history: updatedHistory };
+                  });
                   setLoading(false);
                   accumulatedResponseRef.current = "";
                 }
@@ -2215,7 +2352,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             question: userMessage.message,
-            history: messageState.history.slice(0, messageIndex), // Include conversation history up to this point
+            history: historyRef.current.slice(0, messageIndex), // Include conversation history up to this point
             collection: apiMessage.collection || collection,
             mediaTypes: mediaTypes,
             selectedLibraries: selectedLibrariesRef.current,
@@ -2276,7 +2413,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setRegeneratedAnswer(null);
       }
     },
-    [isRegenerating, messages, collection, mediaTypes, temporarySession, messageState.history]
+    [isRegenerating, messages, collection, mediaTypes, temporarySession]
   );
 
   // Function to submit comparison feedback
@@ -2902,6 +3039,12 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                               ? currentTaskFollowups.filter((f) => !usedTaskFollowups.includes(f))
                               : []
                           }
+                          dynamicFollowups={
+                            isTaskConversation && index === messages.length - 1 ? dynamicFollowups : []
+                          }
+                          isLoadingDynamicFollowups={
+                            isTaskConversation && index === messages.length - 1 && isLoadingDynamicFollowups
+                          }
                           onTaskFollowupClick={handleFollowupSelect}
                         />
                       </div>
@@ -2959,7 +3102,11 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
               <div className="mt-4 px-2 md:px-0">
                 {/* Render task selector when conversation is empty */}
                 {messages.length <= 1 && (
-                  <TaskSelector onTaskSelect={handleTaskSelect} visible={messages.length <= 1} />
+                  <TaskSelector
+                    onTaskSelect={handleTaskSelect}
+                    visible={messages.length <= 1}
+                    siteConfig={siteConfig}
+                  />
                 )}
 
                 {/* Render task wizard modal */}

@@ -48,10 +48,8 @@
   ],
   "suggestedFollowups": [
     "Create an email announcement for this class",
-    "Generate a one-page handout summarizing the key points",
-    "Create discussion questions for group engagement",
-    "Suggest a closing meditation or exercise",
-    "Adapt this outline for a different time format"
+    "Generate a one-page handout for students",
+    "Add discussion questions for group engagement"
   ],
   "promptTemplate": "I'm preparing a class on \"{{topic}}\" for {{audience}}. The class duration is {{duration}}. {{#includeQuotes}}Please include direct quotes from Master and Swamiji.{{/includeQuotes}} {{#includeStories}}Include illustrative stories where appropriate.{{/includeStories}} {{#additionalNotes}}Additional context: {{additionalNotes}}{{/additionalNotes}}\n\nPlease create a structured class outline with:\n1. Opening (with suggested timing)\n2. Main teaching points with source citations\n3. Discussion questions or exercises\n4. Closing/meditation suggestion\n\nInclude timing suggestions for each section that add up to {{duration}}."
 }

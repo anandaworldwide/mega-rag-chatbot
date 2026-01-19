@@ -53,15 +53,21 @@ export async function loadTaskDefinition(taskId: string): Promise<TaskDefinition
 }
 
 /**
- * Gets enabled tasks from the registry
- * @param siteId - Optional site ID to filter tasks (future use)
+ * Gets enabled tasks from the registry, filtered by site configuration
+ * @param enabledTaskIds - Array of task IDs enabled for the current site (from siteConfig.enabledTasks)
  * @returns Promise resolving to array of enabled task entries
  */
-export async function getEnabledTasks(_siteId?: string): Promise<TaskRegistryEntry[]> {
+export async function getEnabledTasks(enabledTaskIds?: string[]): Promise<TaskRegistryEntry[]> {
+  // If no tasks are enabled for this site, return empty array
+  if (!enabledTaskIds || enabledTaskIds.length === 0) {
+    return [];
+  }
+
   const registry = await loadTaskRegistry();
   if (!registry) {
     return [];
   }
 
-  return registry.tasks.filter((task) => task.enabled);
+  // Filter tasks that are both enabled in registry AND enabled for this site
+  return registry.tasks.filter((task) => task.enabled && enabledTaskIds.includes(task.taskId));
 }

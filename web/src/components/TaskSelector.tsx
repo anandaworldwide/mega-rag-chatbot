@@ -2,13 +2,15 @@ import React, { useState, useEffect } from "react";
 import { TaskRegistryEntry } from "@/types/taskDefinition";
 import { getEnabledTasks, loadTaskDefinition } from "@/utils/client/taskLoader";
 import { logEvent } from "@/utils/client/analytics";
+import { SiteConfig } from "@/types/siteConfig";
 
 interface TaskSelectorProps {
   onTaskSelect: (taskId: string) => void;
   visible: boolean;
+  siteConfig: SiteConfig | null;
 }
 
-export const TaskSelector: React.FC<TaskSelectorProps> = ({ onTaskSelect, visible }) => {
+export const TaskSelector: React.FC<TaskSelectorProps> = ({ onTaskSelect, visible, siteConfig }) => {
   const [tasks, setTasks] = useState<TaskRegistryEntry[]>([]);
   const [taskDetails, setTaskDetails] = useState<
     Record<string, { displayName: string; icon: string; description: string }>
@@ -23,7 +25,7 @@ export const TaskSelector: React.FC<TaskSelectorProps> = ({ onTaskSelect, visibl
     const loadTasks = async () => {
       setIsLoading(true);
       try {
-        const enabledTasks = await getEnabledTasks();
+        const enabledTasks = await getEnabledTasks(siteConfig?.enabledTasks);
         setTasks(enabledTasks);
 
         // Load details for each task
@@ -47,7 +49,7 @@ export const TaskSelector: React.FC<TaskSelectorProps> = ({ onTaskSelect, visibl
     };
 
     loadTasks();
-  }, [visible]);
+  }, [visible, siteConfig?.enabledTasks]);
 
   if (!visible) {
     return null;

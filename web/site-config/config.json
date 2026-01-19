@@ -97,7 +97,8 @@
       }
     },
     "accessRequestNoteLabel": "Please let us know the name and location of an Ananda leader who knows you.",
-    "adminAccessGuidelines": "Any Ananda devotee can use Luca if they are a regular participant, meaning they've at least come to a Sunday service or a meditation group several times, or has had other recurring participation. This is at the discretion of the center leaders. They are **not** required to have taken discipleship in order to use Luca."
+    "adminAccessGuidelines": "Any Ananda devotee can use Luca if they are a regular participant, meaning they've at least come to a Sunday service or a meditation group several times, or has had other recurring participation. This is at the discretion of the center leaders. They are **not** required to have taken discipleship in order to use Luca.",
+    "enabledTasks": ["research", "class-planning"]
   },
   "ananda-public": {
     "name": "Vivek, The Ananda.org Chatbot",
@@ -213,7 +214,7 @@
     "loginImage": null,
     "header": {
       "logo": "jairam-logo.png",
-      "navItems": []
+      "navItems": [{ "label": "Home", "path": "/" }]
     },
     "footer": {
       "links": [
@@ -234,7 +235,8 @@
     "temperature": 0.2,
     "modelName": "gpt-4o",
     "feedbackIcon": "michael.jpeg",
-    "accessRequestNoteLabel": "Please let us know the name of someone on the Free Joe Hunt team who knows you."
+    "accessRequestNoteLabel": "Please let us know the name of someone on the Free Joe Hunt team who knows you.",
+    "enabledTasks": ["research"]
   },
   "crystal": {
     "name": "Crystal Clarity Library Magic",
@@ -338,6 +340,7 @@
     "temperature": 0.4,
     "modelName": "gpt-4o",
     "enableGeoAwareness": false,
-    "feedbackIcon": "michael.jpeg"
+    "feedbackIcon": "michael.jpeg",
+    "enabledTasks": ["research", "class-planning"]
   }
 }

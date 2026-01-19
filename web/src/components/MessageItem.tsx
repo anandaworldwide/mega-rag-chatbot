@@ -50,7 +50,9 @@ interface MessageItemProps {
   onSourceExpanded?: (index: number) => void; // Callback when source should be expanded (for deep linking)
   onSourceLinkCopied?: (sourceId: string) => void; // Callback when source link is copied
   isTaskConversation?: boolean; // Whether current conversation started from a task
-  taskFollowups?: string[]; // Task-specific follow-up suggestions
+  taskFollowups?: string[]; // Static task follow-up suggestions (from task definition)
+  dynamicFollowups?: string[]; // AI-generated context-specific follow-ups
+  isLoadingDynamicFollowups?: boolean; // Loading state for dynamic follow-ups
   onTaskFollowupClick?: (suggestion: string) => void; // Handler for task follow-up clicks
 }
 
@@ -86,6 +88,8 @@ const MessageItem: React.FC<MessageItemProps> = ({
   onSourceLinkCopied,
   isTaskConversation = false,
   taskFollowups = [],
+  dynamicFollowups = [],
+  isLoadingDynamicFollowups = false,
   onTaskFollowupClick,
 }) => {
   const { isSudoUser } = useSudo();
@@ -391,12 +395,14 @@ const MessageItem: React.FC<MessageItemProps> = ({
             {!readOnly &&
               message.type === "apiMessage" &&
               isLastMessage &&
-              (isTaskConversation && taskFollowups.length > 0 ? (
+              (isTaskConversation && (taskFollowups.length > 0 || dynamicFollowups.length > 0 || isLoadingDynamicFollowups) ? (
                 <TaskFollowupChips
-                  suggestions={taskFollowups}
+                  dynamicSuggestions={dynamicFollowups}
+                  staticSuggestions={taskFollowups}
                   onSelect={onTaskFollowupClick || (() => {})}
                   visible={true}
                   loading={loading}
+                  isLoadingDynamic={isLoadingDynamicFollowups}
                 />
               ) : (
                 message.suggestions &&

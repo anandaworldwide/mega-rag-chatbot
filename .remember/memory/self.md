@@ -1525,7 +1525,63 @@ try {
 
 **Applied To**: Fixed chat route to properly await title generation updates and user activity tracking.
 
-### 40. Paired Endpoints Must Use Consistent Token Validation
+### 40. Chat History Must Be Updated With Actual Assistant Responses
+
+**Problem**: Question reformulation fails when history contains empty assistant content strings, causing follow-up questions to lose context and generate irrelevant responses.
+
+**Root Cause**: When a new message is submitted, the history is initialized with `{ role: "assistant", content: "" }`, but this empty content is never updated with the actual streamed response. Subsequent questions send this broken history to the API, and the reformulation model can't incorporate proper context.
+
+**Wrong**: Adding empty assistant content to history and never updating it.
+
+```typescript
+// When submitting a question
+setMessageState((prevState) => ({
+  ...prevState,
+  messages: [...prevState.messages, userMsg, emptyApiMsg],
+  history: [...prevState.history, { role: "user", content: query }, { role: "assistant", content: "" }], // Empty!
+}));
+
+// When streaming completes - history never updated
+if (data.done) {
+  setLoading(false);
+  // Missing: history update with actual response
+}
+```
+
+**Correct**: Update history with actual assistant content when streaming completes.
+
+```typescript
+if (data.done) {
+  // Update history with actual assistant response content (critical for reformulation)
+  setMessageState((prevState) => {
+    const lastMessage = prevState.messages[prevState.messages.length - 1];
+    const updatedHistory = [...prevState.history];
+    if (updatedHistory.length > 0 && lastMessage?.type === "apiMessage" && lastMessage.message) {
+      // Find the last assistant entry in history and update it
+      for (let i = updatedHistory.length - 1; i >= 0; i--) {
+        if (updatedHistory[i].role === "assistant" && updatedHistory[i].content === "") {
+          updatedHistory[i] = { ...updatedHistory[i], content: lastMessage.message };
+          break;
+        }
+      }
+    }
+    return { ...prevState, history: updatedHistory };
+  });
+  setLoading(false);
+}
+```
+
+**Pattern**: In any chat interface with conversation history used for context/reformulation:
+
+1. History must be kept in sync with actual message content
+2. Update history when streaming completes, not just when message is submitted
+3. Applies to all flows: main submit, edit message, and regenerate answer
+
+**Symptom**: Reformulation shows unchanged question like `"Create X" → "Create X."` (only adds punctuation) because the model has no conversation context to incorporate.
+
+**Applied To**: Fixed `index.tsx` in three locations: main handleSubmit, handleSaveEditedQuestion, and handleRegenerateAnswer.
+
+### 41. Paired Endpoints Must Use Consistent Token Validation
 
 **Problem**: When implementing paired operations (subscribe/unsubscribe, enable/disable), endpoints must use the same
 token validation logic. If one endpoint is updated to support new token formats, the paired endpoint must be updated
