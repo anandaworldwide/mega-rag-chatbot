@@ -35,7 +35,7 @@ export const TaskFollowupChips: React.FC<TaskFollowupChipsProps> = ({
     transition-all duration-150 ease-in-out
     disabled:opacity-50 disabled:cursor-not-allowed
     focus:outline-none focus:ring-2 focus:ring-offset-1
-    whitespace-nowrap
+    text-left
   `;
 
   const dynamicChipClasses = `
