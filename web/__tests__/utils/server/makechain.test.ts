@@ -419,7 +419,7 @@ describe("makeChain", () => {
     // Verify that ChatOpenAI was initialized for rephrasing
     expect(ChatOpenAI).toHaveBeenCalledWith({
       temperature: 0.1,
-      modelName: "gpt-3.5-turbo",
+      modelName: "gpt-4.1-mini",
       streaming: false,
     });
   });
@@ -537,7 +537,7 @@ describe("makeChain", () => {
     // in the chain, but we can verify that ChatOpenAI was called with the correct parameters
     expect(ChatOpenAI).toHaveBeenCalledWith({
       temperature: 0.1,
-      modelName: "gpt-3.5-turbo",
+      modelName: "gpt-4.1-mini",
       streaming: false,
     });
   });
@@ -1055,7 +1055,7 @@ describe("makeChain", () => {
     // Verify that ChatOpenAI was called with streaming: false for rephrasing (this is correct)
     expect(ChatOpenAI).toHaveBeenCalledWith({
       temperature: 0.1,
-      modelName: "gpt-3.5-turbo",
+      modelName: "gpt-4.1-mini",
       streaming: false, // Rephrasing doesn't need streaming
     });
 
