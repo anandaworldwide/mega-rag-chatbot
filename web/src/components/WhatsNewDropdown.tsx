@@ -14,6 +14,7 @@ export default function WhatsNewDropdown({ siteConfig, requireLogin }: WhatsNewD
   const [whatsNewData, setWhatsNewData] = useState<WhatsNewData | null>(null);
   const [hasNewUpdates, setHasNewUpdates] = useState(false);
   const [currentVersion, setCurrentVersion] = useState<number | null>(null);
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
   const dropdownRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -115,6 +116,65 @@ export default function WhatsNewDropdown({ siteConfig, requireLogin }: WhatsNewD
     }
   }, [isOpen]);
 
+  const calculateDropdownPosition = () => {
+    if (!buttonRef.current) return;
+
+    const rect = buttonRef.current.getBoundingClientRect();
+    const gap = 8;
+    const dropdownWidth = 320; // w-80
+    const isMobile = window.innerWidth < 768;
+
+    let top = rect.bottom + gap;
+    let left: number;
+
+    if (isMobile) {
+      // Center horizontally on mobile
+      left = (window.innerWidth - dropdownWidth) / 2;
+    } else {
+      // Align with button on desktop
+      left = rect.right - dropdownWidth;
+    }
+
+    // Ensure dropdown doesn't go off left edge
+    if (left < 10) {
+      left = 10;
+    }
+
+    // Ensure dropdown doesn't go off right edge
+    if (left + dropdownWidth > window.innerWidth - 10) {
+      left = window.innerWidth - dropdownWidth - 10;
+    }
+
+    setDropdownPosition({ top: Math.max(10, top), left: Math.max(10, left) });
+
+    // After first paint, check if dropdown height causes overflow and move above if needed
+    requestAnimationFrame(() => {
+      const height = dropdownRef.current?.offsetHeight || 0;
+      const bottom = top + height;
+      if (bottom > window.innerHeight - 10) {
+        top = Math.max(10, rect.top - height - gap);
+        setDropdownPosition({ top, left: Math.max(10, left) });
+      }
+    });
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      calculateDropdownPosition();
+
+      const handleResize = () => calculateDropdownPosition();
+      const handleScroll = () => calculateDropdownPosition();
+
+      window.addEventListener("resize", handleResize);
+      window.addEventListener("scroll", handleScroll, true);
+
+      return () => {
+        window.removeEventListener("resize", handleResize);
+        window.removeEventListener("scroll", handleScroll, true);
+      };
+    }
+  }, [isOpen]);
+
   const handleOpen = () => {
     setIsOpen(true);
     logEvent("whats_new_dropdown_open", "What's New", "bell_click");
@@ -186,8 +246,12 @@ export default function WhatsNewDropdown({ siteConfig, requireLogin }: WhatsNewD
       {isOpen && (
         <div
           ref={dropdownRef}
-          className="absolute right-0 top-full mt-2 w-80 bg-white rounded-lg shadow-xl z-50 border border-gray-200"
-          style={{ maxHeight: "calc(100vh - 100px)" }}
+          className="fixed w-80 bg-white rounded-lg shadow-xl z-50 border border-gray-200 overflow-y-auto"
+          style={{
+            top: `${dropdownPosition.top}px`,
+            left: `${dropdownPosition.left}px`,
+            maxHeight: "calc(100vh - 20px)",
+          }}
         >
           <div className="p-4">
             <div className="flex items-center justify-between mb-3">
