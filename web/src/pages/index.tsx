@@ -428,8 +428,31 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           setCurrentTaskMode(loadedConversation.taskMode);
           setCurrentTaskFollowups(loadedConversation.taskFollowups || []);
           setUsedTaskFollowups(loadedConversation.usedTaskFollowups || []);
-          // Clear dynamic follow-ups when loading - they'll be generated fresh if user asks a new question
+          // Clear dynamic follow-ups initially, then regenerate from last Q&A
           setDynamicFollowups([]);
+
+          // Regenerate dynamic follow-ups from the last Q&A pair
+          // Extract last question and answer from loaded messages
+          const messages = loadedConversation.messages;
+          let lastQuestion = "";
+          let lastAnswer = "";
+          for (let i = messages.length - 1; i >= 0; i--) {
+            const msg = messages[i];
+            if (msg.type === "apiMessage" && !lastAnswer) {
+              lastAnswer = msg.message || "";
+            } else if (msg.type === "userMessage" && lastAnswer && !lastQuestion) {
+              lastQuestion = msg.message || "";
+              break;
+            }
+          }
+
+          // Generate follow-ups if we have a Q&A pair
+          if (lastQuestion && lastAnswer) {
+            // Use setTimeout to ensure refs are fully set and component is stable
+            setTimeout(() => {
+              generateDynamicFollowups(lastQuestion, lastAnswer);
+            }, 100);
+          }
         } else {
           // Clear task state for non-task conversations
           setIsTaskConversation(false);
@@ -466,7 +489,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setLoading(false);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [siteConfig, setLoading, setError, setMessageState, setCurrentConvId]
+    // Note: generateDynamicFollowups is defined later but is stable (no deps, uses refs)
   );
 
   // Function to load a conversation from chat history
@@ -1386,15 +1411,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     // Capture if this is a task submission before resetting (needed to reset sourceCount after API call)
     const wasTaskSubmission = isTaskSubmissionRef.current;
 
-    // Clear task conversation state if this is a custom user message (not from task wizard)
-    // Use refs for reading task state since this function may be called from stale closures
-    if (!isTaskSubmissionRef.current && isTaskConversationRef.current) {
-      setIsTaskConversation(false);
-      setCurrentTaskFollowups([]);
-      setUsedTaskFollowups([]);
-      setCurrentTaskMode(null);
-      setDynamicFollowups([]);
-    } else if (isTaskConversationRef.current) {
+    // Keep task mode active for any submission while in a task conversation
+    // (whether from follow-up chip or custom text input)
+    if (isTaskConversationRef.current) {
       // Clear dynamic follow-ups when submitting a new question in task mode
       // They'll be regenerated after the response completes
       setDynamicFollowups([]);

@@ -432,8 +432,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
-  // Static placeholder text
-  const placeholderText = "Ask a question...";
+  // Dynamic placeholder text based on conversation state
+  const placeholderText = shouldShowSuggestions ? "Ask a question..." : "Ask a follow-up question...";
 
   // Function to adjust textarea height
   const adjustTextAreaHeight = () => {

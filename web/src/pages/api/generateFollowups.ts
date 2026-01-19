@@ -60,7 +60,7 @@ ${taskContext}
 REQUIREMENTS:
 - Generate exactly 3 follow-up suggestions
 - Each suggestion should be specific to the content discussed (reference actual themes, quotes, or topics mentioned)
-- Keep each suggestion under 60 characters
+- Keep each suggestion under 80 characters
 - Start each with an action verb
 - Make them progressively deeper: first explores a theme, second finds more content, third transforms/applies
 - DO NOT use generic phrases like "explore further" or "learn more about the topic"
@@ -86,11 +86,19 @@ Return ONLY the 3 suggestions, one per line, no numbering or bullets:`;
       return [];
     }
 
-    // Parse the response - split by newlines and filter empty lines
+    // Parse the response - split by newlines, clean formatting, and filter
     const suggestions = content
       .split("\n")
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0 && line.length < 100) // Sanity check on length
+      .map((line) => {
+        let cleaned = line.trim();
+        // Remove leading bullets, dashes, asterisks, or numbers (e.g., "- ", "* ", "1. ", "1) ")
+        cleaned = cleaned.replace(/^[-*•]\s*/, "");
+        cleaned = cleaned.replace(/^\d+[.)]\s*/, "");
+        // Remove surrounding quotes (single or double)
+        cleaned = cleaned.replace(/^["'](.*)["']$/, "$1");
+        return cleaned.trim();
+      })
+      .filter((line) => line.length > 0 && line.length < 150) // Sanity check on length
       .slice(0, 3); // Take at most 3
 
     // Validate we got reasonable suggestions
