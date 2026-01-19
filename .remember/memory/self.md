@@ -1662,6 +1662,7 @@ const handleSubmit = async () => {
 ```
 
 **Pattern**: When state is needed in callbacks that may execute after re-renders:
+
 1. Create a ref mirroring the state value
 2. Use `useEffect` to keep the ref in sync
 3. Read from `ref.current` in callbacks instead of state directly
