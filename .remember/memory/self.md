@@ -1623,3 +1623,50 @@ other.
 
 **Applied To**: Fixed resubscribe endpoint to match unsubscribe endpoint's token validation, supporting both legacy and
 category-specific tokens.
+
+### 42. React Stale Closure Issue - Use Refs for Values Needed in Callbacks
+
+**Problem**: State values captured in callback closures become stale when the callback is invoked later, after the state has changed. This causes API calls to send outdated data.
+
+**Wrong**: Using state directly in async callbacks/API calls.
+
+```typescript
+const [messageState, setMessageState] = useState({ history: [] });
+
+const handleSubmit = async () => {
+  // This captures the CURRENT value of messageState.history at render time
+  // When user clicks submit, this may be stale (old empty array)
+  const response = await fetch("/api/chat", {
+    body: JSON.stringify({ history: messageState.history }), // STALE!
+  });
+};
+```
+
+**Correct**: Use a ref that stays in sync with state, and read from the ref in callbacks.
+
+```typescript
+const [messageState, setMessageState] = useState({ history: [] });
+
+// Keep ref in sync with state
+const historyRef = useRef(messageState.history);
+useEffect(() => {
+  historyRef.current = messageState.history;
+}, [messageState.history]);
+
+const handleSubmit = async () => {
+  // Ref always has the latest value
+  const response = await fetch("/api/chat", {
+    body: JSON.stringify({ history: historyRef.current }), // FRESH!
+  });
+};
+```
+
+**Pattern**: When state is needed in callbacks that may execute after re-renders:
+1. Create a ref mirroring the state value
+2. Use `useEffect` to keep the ref in sync
+3. Read from `ref.current` in callbacks instead of state directly
+4. Remove the state from useCallback dependency arrays (refs are stable)
+
+**Symptom**: API calls send empty/stale data even though React DevTools shows state is correct. The callback closure captured the old value.
+
+**Applied To**: Fixed `index.tsx` history management - created `historyRef` to ensure API calls always send current chat history for question reformulation.
