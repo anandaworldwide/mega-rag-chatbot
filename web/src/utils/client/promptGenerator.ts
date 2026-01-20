@@ -2,7 +2,8 @@
  * Simple Mustache-style template engine for generating prompts from templates
  * Supports:
  * - {{variable}} replacement
- * - {{#variable}}conditional content{{/variable}} blocks
+ * - {{#variable}}conditional content{{/variable}} blocks (render if truthy)
+ * - {{^variable}}fallback content{{/variable}} blocks (render if falsy)
  */
 
 /**
@@ -24,6 +25,17 @@ export function generatePrompt(template: string, values: Record<string, any>): s
       return value ? content : "";
     }
     return value ? content : "";
+  });
+
+  // Handle inverse blocks: {{^variable}}content{{/variable}}
+  // These render content only if variable is falsy (empty, null, undefined, false)
+  result = result.replace(/\{\{\^(\w+)\}\}(.*?)\{\{\/\1\}\}/gs, (match, key, content) => {
+    const value = values[key];
+    // Render if falsy: undefined, null, empty string, or false
+    if (value === undefined || value === null || value === "" || value === false) {
+      return content;
+    }
+    return "";
   });
 
   // Handle variable replacement: {{variable}}

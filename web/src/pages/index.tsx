@@ -635,6 +635,15 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           handleStop();
         }
 
+        // Clear task state
+        setIsTaskConversation(false);
+        setCurrentTaskFollowups([]);
+        setUsedTaskFollowups([]);
+        setCurrentTaskMode(null);
+        setShowTaskWizard(false);
+        setDynamicFollowups([]);
+        setSelectedTaskId(null);
+
         // Back to home: reset chat
         setMessageState({
           messages: [
@@ -646,6 +655,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           history: [],
         });
         setCurrentConvId(null);
+        setConversationTitle(null);
         setViewOnlyMode(false);
         setQuery("");
         setError(null);
@@ -709,6 +719,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     // handleUrlBasedLoading. This guarantees the New-Chat button and the
     // "Ask" nav item always start from a blank conversation.
     setCurrentConvId(null);
+    setConversationTitle(null);
     setCurrentQuestion("");
     setMessageState({
       messages: [
@@ -1638,7 +1649,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
   // Handle task wizard submission
   const handleTaskSubmit = useCallback(
-    (prompt: string, taskSourceCount: number, taskMode: string, followups: string[]) => {
+    (prompt: string, taskSourceCount: number, taskMode: string, followups: string[], authorFilter?: string) => {
       // Set task conversation state
       setIsTaskConversation(true);
       setCurrentTaskFollowups(followups);
@@ -1646,6 +1657,12 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
       // Override sourceCount for this task
       setSourceCount(taskSourceCount);
+
+      // Override collection/author filter if specified by the task
+      if (authorFilter) {
+        const collectionValue = authorFilter === "master-swami" ? "master_swami" : "whole_library";
+        setCollection(collectionValue);
+      }
 
       // Mark as task submission
       isTaskSubmissionRef.current = true;
@@ -2108,16 +2125,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setError(error instanceof Error ? error.message : "An error occurred while regenerating the answer.");
       }
     },
-    [
-      loading,
-      messages,
-      collection,
-      mediaTypes,
-      temporarySession,
-      setLoading,
-      setError,
-      setMessageState,
-    ]
+    [loading, messages, collection, mediaTypes, temporarySession, setLoading, setError, setMessageState]
   );
 
   // Function to handle starting question edit
@@ -3058,9 +3066,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                               ? currentTaskFollowups.filter((f) => !usedTaskFollowups.includes(f))
                               : []
                           }
-                          dynamicFollowups={
-                            isTaskConversation && index === messages.length - 1 ? dynamicFollowups : []
-                          }
+                          dynamicFollowups={isTaskConversation && index === messages.length - 1 ? dynamicFollowups : []}
                           isLoadingDynamicFollowups={
                             isTaskConversation && index === messages.length - 1 && isLoadingDynamicFollowups
                           }

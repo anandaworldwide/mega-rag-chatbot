@@ -1,6 +1,11 @@
 {
   "tasks": [
     { "taskId": "class-planning", "file": "class-planning.json", "enabled": true },
-    { "taskId": "research", "file": "research.json", "enabled": true }
+    { "taskId": "research", "file": "research.json", "enabled": true },
+    { "taskId": "find-quotes", "file": "find-quotes.json", "enabled": true },
+    { "taskId": "prepare-talk", "file": "prepare-talk.json", "enabled": true },
+    { "taskId": "guided-meditation", "file": "guided-meditation.json", "enabled": true },
+    { "taskId": "social-media", "file": "social-media.json", "enabled": true },
+    { "taskId": "find-stories", "file": "find-stories.json", "enabled": true }
   ]
 }

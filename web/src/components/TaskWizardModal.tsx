@@ -8,7 +8,13 @@ interface TaskWizardModalProps {
   taskId: string;
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (prompt: string, sourceCount: number, taskMode: string, suggestedFollowups: string[]) => void;
+  onSubmit: (
+    prompt: string,
+    sourceCount: number,
+    taskMode: string,
+    suggestedFollowups: string[],
+    authorFilter?: string
+  ) => void;
 }
 
 export const TaskWizardModal: React.FC<TaskWizardModalProps> = ({ taskId, isOpen, onClose, onSubmit }) => {
@@ -121,8 +127,17 @@ export const TaskWizardModal: React.FC<TaskWizardModalProps> = ({ taskId, isOpen
       // Generate prompt from template
       const prompt = generatePrompt(taskDefinition.promptTemplate, formValues);
 
+      // Extract author filter if present (for Find Quotes and similar tasks)
+      const authorFilter = formValues.author as string | undefined;
+
       // Submit
-      onSubmit(prompt, taskDefinition.sourceCount, taskDefinition.taskId, taskDefinition.suggestedFollowups);
+      onSubmit(
+        prompt,
+        taskDefinition.sourceCount,
+        taskDefinition.taskId,
+        taskDefinition.suggestedFollowups,
+        authorFilter
+      );
 
       logEvent("task_wizard_submit", "Tasks", taskId);
       onClose();
@@ -178,6 +193,23 @@ export const TaskWizardModal: React.FC<TaskWizardModalProps> = ({ taskId, isOpen
             />
             <span className="text-sm text-gray-700">{step.label}</span>
           </label>
+        );
+
+      case "select":
+        return (
+          <select
+            id={step.id}
+            value={value}
+            onChange={(e) => handleFieldChange(step.id, e.target.value)}
+            required={step.required}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+          >
+            {step.options?.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         );
 
       default:

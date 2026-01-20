@@ -1,11 +1,17 @@
+export interface TaskStepOption {
+  value: string;
+  label: string;
+}
+
 export interface TaskStep {
   id: string;
-  type: "text" | "textarea" | "checkbox";
+  type: "text" | "textarea" | "checkbox" | "select";
   label: string;
   placeholder?: string;
   required?: boolean;
   helpText?: string;
   default?: string | boolean;
+  options?: TaskStepOption[]; // For select type
 }
 
 export interface TaskDefinition {
