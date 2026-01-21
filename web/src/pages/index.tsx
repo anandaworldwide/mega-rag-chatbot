@@ -3004,158 +3004,215 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                   </span>
                 </div>
               )}
-              {/* Messages container - scrollable area */}
-              <div className="flex-1 min-h-0 overflow-hidden answers-container">
-                <div ref={messageListRef} className="h-full overflow-y-auto">
-                  {/* Render chat messages */}
-                  {messages.map((message, index) => (
-                    <React.Fragment key={`chatMessage-${index}`}>
-                      <div
-                        ref={(el) => {
-                          // Store ref for user messages to enable scrolling/highlighting
-                          if (el && message.type === "userMessage") {
-                            userMessageRefs.current.set(index, el);
-                          } else if (message.type !== "userMessage") {
-                            userMessageRefs.current.delete(index);
-                          }
-                        }}
-                      >
-                        <MessageItem
-                          messageKey={`chatMessage-${index}`}
-                          message={message}
-                          previousMessage={index > 0 ? messages[index - 1] : undefined}
-                          index={index}
-                          isLastMessage={index === messages.length - 1}
-                          loading={loading}
-                          temporarySession={temporarySession}
-                          collectionChanged={collectionChanged}
-                          hasMultipleCollections={hasMultipleCollections}
-                          linkCopied={linkCopied}
-                          votes={votes}
-                          siteConfig={siteConfig}
-                          handleCopyLink={handleCopyLink}
-                          handleVote={handleVote}
-                          lastMessageRef={lastMessageRef}
-                          voteError={voteError}
-                          allowAllAnswersPage={siteConfig?.allowAllAnswersPage ?? false}
-                          onSuggestionClick={handleSuggestionClick}
-                          onTryGPT41={handleTryGPT41}
-                          isRegenerating={isRegenerating && regeneratingMessageIndex === index}
-                          onRegenerateAnswer={handleRegenerateAnswer}
-                          onEditQuestion={handleEditQuestion}
-                          isEditing={editingMessageIndex === index}
-                          editingText={editingText}
-                          onSaveEdit={handleSaveEdit}
-                          onCancelEdit={handleCancelEdit}
-                          sourceLinkCopied={sourceLinkCopied}
-                          onSourceExpanded={handleSourceExpanded}
-                          onSourceLinkCopied={handleSourceLinkCopied}
-                          isTaskConversation={isTaskConversation && index === messages.length - 1}
-                          taskFollowups={
-                            isTaskConversation && index === messages.length - 1
-                              ? currentTaskFollowups.filter((f) => !usedTaskFollowups.includes(f))
-                              : []
-                          }
-                          dynamicFollowups={isTaskConversation && index === messages.length - 1 ? dynamicFollowups : []}
-                          isLoadingDynamicFollowups={
-                            isTaskConversation && index === messages.length - 1 && isLoadingDynamicFollowups
-                          }
-                          onTaskFollowupClick={handleFollowupSelect}
-                        />
-                      </div>
-
-                      {/* Show comparison UI if this message is being regenerated */}
-                      {regeneratingMessageIndex === index && regeneratedAnswer && (
-                        <div className="px-4 pb-4">
-                          <AnswerComparison
-                            originalAnswer={message}
-                            newAnswer={regeneratedAnswer}
-                            originalModel={siteConfig?.modelName || "GPT-4"}
-                            newModel="GPT-4.1"
-                            isStreaming={isRegenerating}
-                          />
-                          {/* Feedback button - only show after streaming completes */}
-                          {!isRegenerating && (
-                            <div className="mt-4 flex justify-center">
-                              <button
-                                onClick={() => setShowComparisonFeedbackModal(true)}
-                                className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow-md transition-colors"
-                              >
-                                Which answer was better?
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </React.Fragment>
-                  ))}
-                  {/* Display timing metrics for sudo users */}
-                  {isSudoUser && timingMetrics && !loading && messages.length > 0 && (
-                    <div className="text-xs text-gray-500 p-2 bg-gray-50 rounded m-2">{formatTimingMetrics()}</div>
-                  )}
-                  <div ref={bottomOfListRef} style={{ height: "1px" }} />
-                </div>
-
-                {/* Container to anchor the scroll button at the right edge of the content */}
-                <div ref={scrollButtonContainerRef} className="relative w-full">
-                  {/* Animated Scroll Down Button */}
-                  <div
-                    className={`fixed z-50 right-52 bottom-6 transition-all duration-300 ease-out transform 
-                  ${showScrollDownButton ? "translate-y-0 opacity-100 pointer-events-auto" : "translate-y-8 opacity-0 pointer-events-none"}`}
-                    style={{ willChange: "transform, opacity" }}
-                  >
-                    <button
-                      onClick={handleScrollDownClick}
-                      aria-label="Scroll to bottom"
-                      className="bg-white text-gray-600 rounded-full shadow-sm hover:shadow-md p-2 border border-gray-200 focus:outline-none"
-                    >
-                      <span className="material-icons text-xl">expand_more</span>
-                    </button>
+              {/* Conditional layout: centered for initial state, scrollable for conversation */}
+              {shouldShowSuggestions ? (
+                /* Initial centered layout - greeting and input centered on page */
+                <div className="flex-1 flex flex-col items-center justify-center px-4">
+                  {/* Greeting message */}
+                  <div className="text-center mb-8">
+                    <h1 className="text-xl md:text-2xl font-semibold text-gray-800">
+                      {messages[0]?.message}
+                    </h1>
+                  </div>
+                  {/* ChatInput with suggestions - centered */}
+                  <div className="w-full max-w-2xl">
+                    {isLoadingQueries ? null : (
+                      <ChatInput
+                        loading={loading}
+                        disabled={viewOnlyMode}
+                        handleSubmit={handleSubmit}
+                        handleEnter={handleEnter}
+                        handleClick={handleClick}
+                        handleCollectionChange={handleCollectionChange}
+                        collection={collection}
+                        temporarySession={temporarySession}
+                        error={chatError}
+                        setError={setError}
+                        suggestedQueries={suggestedQueries}
+                        shuffleQueries={shuffleQueries}
+                        textAreaRef={textAreaRef}
+                        mediaTypes={mediaTypes}
+                        handleMediaTypeChange={handleMediaTypeChange}
+                        selectedLibraries={selectedLibraries}
+                        handleLibraryChange={handleLibraryChange}
+                        siteConfig={siteConfig}
+                        input={query}
+                        handleInputChange={handleInputChange}
+                        setQuery={setQuery}
+                        setShouldAutoScroll={setIsNearBottom}
+                        handleStop={handleStop}
+                        isNearBottom={isNearBottom}
+                        setIsNearBottom={setIsNearBottom}
+                        isLoadingQueries={isLoadingQueries}
+                        sourceCount={sourceCount}
+                        setSourceCount={setSourceCount}
+                        onTemporarySessionChange={handleTemporarySessionChange}
+                        categorizedQueries={categorizedQueries}
+                        shouldShowSuggestions={shouldShowSuggestions}
+                        selectedModel={selectedModel}
+                        handleModelChange={setSelectedModel}
+                        onTaskSubmit={handleTaskSubmit}
+                      />
+                    )}
                   </div>
                 </div>
-              </div>
-              {/* Input area - pinned to bottom when conversation is active */}
-              <div className="flex-shrink-0 mt-4 px-2 md:px-0 pb-4 bg-white">
-                {/* Render chat input component */}
-                {isLoadingQueries ? null : (
-                  <ChatInput
-                    loading={loading}
-                    disabled={viewOnlyMode}
-                    handleSubmit={handleSubmit}
-                    handleEnter={handleEnter}
-                    handleClick={handleClick}
-                    handleCollectionChange={handleCollectionChange}
-                    collection={collection}
-                    temporarySession={temporarySession}
-                    error={chatError}
-                    setError={setError}
-                    suggestedQueries={suggestedQueries}
-                    shuffleQueries={shuffleQueries}
-                    textAreaRef={textAreaRef}
-                    mediaTypes={mediaTypes}
-                    handleMediaTypeChange={handleMediaTypeChange}
-                    selectedLibraries={selectedLibraries}
-                    handleLibraryChange={handleLibraryChange}
-                    siteConfig={siteConfig}
-                    input={query}
-                    handleInputChange={handleInputChange}
-                    setQuery={setQuery}
-                    setShouldAutoScroll={setIsNearBottom}
-                    handleStop={handleStop}
-                    isNearBottom={isNearBottom}
-                    setIsNearBottom={setIsNearBottom}
-                    isLoadingQueries={isLoadingQueries}
-                    sourceCount={sourceCount}
-                    setSourceCount={setSourceCount}
-                    onTemporarySessionChange={handleTemporarySessionChange}
-                    categorizedQueries={categorizedQueries}
-                    shouldShowSuggestions={shouldShowSuggestions}
-                    selectedModel={selectedModel}
-                    handleModelChange={setSelectedModel}
-                    onTaskSubmit={handleTaskSubmit}
-                  />
-                )}
-              </div>
+              ) : (
+                /* Conversation layout - messages scrollable, input at bottom */
+                <>
+                  {/* Messages container - scrollable area */}
+                  <div className="flex-1 min-h-0 overflow-hidden answers-container">
+                    <div ref={messageListRef} className="h-full overflow-y-auto">
+                      {/* Render chat messages */}
+                      {messages.map((message, index) => (
+                        <React.Fragment key={`chatMessage-${index}`}>
+                          <div
+                            ref={(el) => {
+                              // Store ref for user messages to enable scrolling/highlighting
+                              if (el && message.type === "userMessage") {
+                                userMessageRefs.current.set(index, el);
+                              } else if (message.type !== "userMessage") {
+                                userMessageRefs.current.delete(index);
+                              }
+                            }}
+                          >
+                            <MessageItem
+                              messageKey={`chatMessage-${index}`}
+                              message={message}
+                              previousMessage={index > 0 ? messages[index - 1] : undefined}
+                              index={index}
+                              isLastMessage={index === messages.length - 1}
+                              loading={loading}
+                              temporarySession={temporarySession}
+                              collectionChanged={collectionChanged}
+                              hasMultipleCollections={hasMultipleCollections}
+                              linkCopied={linkCopied}
+                              votes={votes}
+                              siteConfig={siteConfig}
+                              handleCopyLink={handleCopyLink}
+                              handleVote={handleVote}
+                              lastMessageRef={lastMessageRef}
+                              voteError={voteError}
+                              allowAllAnswersPage={siteConfig?.allowAllAnswersPage ?? false}
+                              onSuggestionClick={handleSuggestionClick}
+                              onTryGPT41={handleTryGPT41}
+                              isRegenerating={isRegenerating && regeneratingMessageIndex === index}
+                              onRegenerateAnswer={handleRegenerateAnswer}
+                              onEditQuestion={handleEditQuestion}
+                              isEditing={editingMessageIndex === index}
+                              editingText={editingText}
+                              onSaveEdit={handleSaveEdit}
+                              onCancelEdit={handleCancelEdit}
+                              sourceLinkCopied={sourceLinkCopied}
+                              onSourceExpanded={handleSourceExpanded}
+                              onSourceLinkCopied={handleSourceLinkCopied}
+                              isTaskConversation={isTaskConversation && index === messages.length - 1}
+                              taskFollowups={
+                                isTaskConversation && index === messages.length - 1
+                                  ? currentTaskFollowups.filter((f) => !usedTaskFollowups.includes(f))
+                                  : []
+                              }
+                              dynamicFollowups={isTaskConversation && index === messages.length - 1 ? dynamicFollowups : []}
+                              isLoadingDynamicFollowups={
+                                isTaskConversation && index === messages.length - 1 && isLoadingDynamicFollowups
+                              }
+                              onTaskFollowupClick={handleFollowupSelect}
+                            />
+                          </div>
+
+                          {/* Show comparison UI if this message is being regenerated */}
+                          {regeneratingMessageIndex === index && regeneratedAnswer && (
+                            <div className="px-4 pb-4">
+                              <AnswerComparison
+                                originalAnswer={message}
+                                newAnswer={regeneratedAnswer}
+                                originalModel={siteConfig?.modelName || "GPT-4"}
+                                newModel="GPT-4.1"
+                                isStreaming={isRegenerating}
+                              />
+                              {/* Feedback button - only show after streaming completes */}
+                              {!isRegenerating && (
+                                <div className="mt-4 flex justify-center">
+                                  <button
+                                    onClick={() => setShowComparisonFeedbackModal(true)}
+                                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow-md transition-colors"
+                                  >
+                                    Which answer was better?
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </React.Fragment>
+                      ))}
+                      {/* Display timing metrics for sudo users */}
+                      {isSudoUser && timingMetrics && !loading && messages.length > 0 && (
+                        <div className="text-xs text-gray-500 p-2 bg-gray-50 rounded m-2">{formatTimingMetrics()}</div>
+                      )}
+                      <div ref={bottomOfListRef} style={{ height: "1px" }} />
+                    </div>
+
+                    {/* Container to anchor the scroll button at the right edge of the content */}
+                    <div ref={scrollButtonContainerRef} className="relative w-full">
+                      {/* Animated Scroll Down Button */}
+                      <div
+                        className={`fixed z-50 right-52 bottom-6 transition-all duration-300 ease-out transform 
+                      ${showScrollDownButton ? "translate-y-0 opacity-100 pointer-events-auto" : "translate-y-8 opacity-0 pointer-events-none"}`}
+                        style={{ willChange: "transform, opacity" }}
+                      >
+                        <button
+                          onClick={handleScrollDownClick}
+                          aria-label="Scroll to bottom"
+                          className="bg-white text-gray-600 rounded-full shadow-sm hover:shadow-md p-2 border border-gray-200 focus:outline-none"
+                        >
+                          <span className="material-icons text-xl">expand_more</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Input area - pinned to bottom when conversation is active */}
+                  <div className="flex-shrink-0 mt-4 px-2 md:px-0 pb-4 bg-white">
+                    {/* Render chat input component */}
+                    {isLoadingQueries ? null : (
+                      <ChatInput
+                        loading={loading}
+                        disabled={viewOnlyMode}
+                        handleSubmit={handleSubmit}
+                        handleEnter={handleEnter}
+                        handleClick={handleClick}
+                        handleCollectionChange={handleCollectionChange}
+                        collection={collection}
+                        temporarySession={temporarySession}
+                        error={chatError}
+                        setError={setError}
+                        suggestedQueries={suggestedQueries}
+                        shuffleQueries={shuffleQueries}
+                        textAreaRef={textAreaRef}
+                        mediaTypes={mediaTypes}
+                        handleMediaTypeChange={handleMediaTypeChange}
+                        selectedLibraries={selectedLibraries}
+                        handleLibraryChange={handleLibraryChange}
+                        siteConfig={siteConfig}
+                        input={query}
+                        handleInputChange={handleInputChange}
+                        setQuery={setQuery}
+                        setShouldAutoScroll={setIsNearBottom}
+                        handleStop={handleStop}
+                        isNearBottom={isNearBottom}
+                        setIsNearBottom={setIsNearBottom}
+                        isLoadingQueries={isLoadingQueries}
+                        sourceCount={sourceCount}
+                        setSourceCount={setSourceCount}
+                        onTemporarySessionChange={handleTemporarySessionChange}
+                        categorizedQueries={categorizedQueries}
+                        shouldShowSuggestions={shouldShowSuggestions}
+                        selectedModel={selectedModel}
+                        handleModelChange={setSelectedModel}
+                        onTaskSubmit={handleTaskSubmit}
+                      />
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

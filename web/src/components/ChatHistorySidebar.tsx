@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { useChatHistory, ConversationGroup } from "@/hooks/useChatHistory";
 import { useRouter } from "next/router";
 import { logEvent } from "@/utils/client/analytics";
@@ -6,6 +7,7 @@ import ConversationMenu from "./ConversationMenu";
 import RenameConversationModal from "./RenameConversationModal";
 import DeleteConversationModal from "./DeleteConversationModal";
 import StarButton from "./StarButton";
+import { initializeTokenManager, isAuthenticated } from "@/utils/client/tokenManager";
 
 export type SidebarRefetch = () => void;
 
@@ -59,6 +61,9 @@ export default function ChatHistorySidebar({
 
   // Filter state
   const [filterMode, setFilterMode] = useState<"all" | "starred">("all");
+
+  // Admin role state for showing admin dashboard link
+  const [isAdminRole, setIsAdminRole] = useState(false);
 
   // Track whether we've attempted to load starred conversations
   const [starredAttempted, setStarredAttempted] = useState<boolean>(false);
@@ -135,6 +140,79 @@ export default function ChatHistorySidebar({
   const displayHasMore = isStarredMode ? starredHasMore : hasMore;
   const displayLoading = isStarredMode ? starredLoading : loading;
   const displayLoadMore = isStarredMode ? loadMoreStarred : loadMore;
+
+  // Check if user is admin/superuser for showing admin dashboard link
+  useEffect(() => {
+    let mounted = true;
+
+    async function checkRole() {
+      // Wait for token manager to initialize before checking authentication
+      try {
+        await initializeTokenManager();
+      } catch {
+        if (mounted) setIsAdminRole(false);
+        return;
+      }
+
+      // Check if user is authenticated
+      if (!isAuthenticated()) {
+        if (mounted) setIsAdminRole(false);
+        return;
+      }
+
+      // Check sessionStorage cache first (1-minute TTL)
+      try {
+        const cached = sessionStorage.getItem("userRole");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          const isExpired = Date.now() - parsed.timestamp > 60 * 1000;
+          if (!isExpired && parsed.role) {
+            const isAdmin = parsed.role === "admin" || parsed.role === "superuser";
+            if (mounted) setIsAdminRole(isAdmin);
+            return;
+          }
+        }
+      } catch {
+        // Invalid cache, continue to API call
+      }
+
+      // Make API call only when necessary
+      try {
+        const res = await fetch("/api/profile", { credentials: "include" });
+        if (!res.ok) {
+          if (mounted) setIsAdminRole(false);
+          return;
+        }
+
+        const data = await res.json();
+        const role = (data?.role as string) || "user";
+        const isAdmin = role === "admin" || role === "superuser";
+
+        // Cache the result
+        try {
+          sessionStorage.setItem(
+            "userRole",
+            JSON.stringify({
+              role,
+              timestamp: Date.now(),
+            })
+          );
+        } catch {
+          // sessionStorage failed, continue without caching
+        }
+
+        if (mounted) setIsAdminRole(isAdmin);
+      } catch {
+        if (mounted) setIsAdminRole(false);
+      }
+    }
+
+    checkRole();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // Modal states
   const [renameModal, setRenameModal] = useState<{
@@ -288,6 +366,19 @@ export default function ChatHistorySidebar({
       `}
         style={{ backgroundColor: "#fffbee" }}
       >
+        {/* Admin Dashboard Link - Only show for admins/superusers */}
+        {isAdminRole && (
+          <div className="px-[35px] pt-4 pb-2">
+            <Link
+              href="/admin"
+              className="flex items-center px-3 py-2 text-sm font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors"
+            >
+              <span className="material-icons text-lg mr-2">dashboard</span>
+              Admin Dashboard
+            </Link>
+          </div>
+        )}
+
         {/* Header */}
         <div className="relative px-[35px] pt-4 pb-2">
           <div className="flex items-center justify-between">
