@@ -22,6 +22,8 @@ interface LayoutProps {
   temporarySession?: boolean;
   onTemporarySessionChange?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   isChatEmpty?: boolean;
+  // When true, pins the footer at the bottom and makes children scrollable
+  hasConversation?: boolean;
 }
 
 export default function Layout({
@@ -32,6 +34,7 @@ export default function Layout({
   temporarySession = false,
   onTemporarySessionChange,
   isChatEmpty = true,
+  hasConversation = false,
 }: LayoutProps) {
   const [isClient, setIsClient] = useState(false);
   const [, setVisitCount] = useLocalStorage("visitCount", 0);
@@ -91,14 +94,16 @@ export default function Layout({
   return (
     <div className={`h-screen flex flex-col ${useWideLayout ? "w-full" : "app-container-wrap"}`}>
       <div
-        className={`flex-grow flex flex-col ${useWideLayout ? "max-w-none w-full" : "max-w-[800px] mx-auto"} app-container`}
+        className={`${hasConversation ? "flex-1 min-h-0" : "flex-grow"} flex flex-col ${useWideLayout ? "max-w-none w-full" : "max-w-[800px] mx-auto"} app-container ${hasConversation ? "overflow-hidden" : ""}`}
       >
         {renderHeader()}
-        <div className="flex-grow overflow-auto main-content-wrap">
+        <div className={`flex-grow ${hasConversation ? "min-h-0 overflow-hidden" : "overflow-auto"} main-content-wrap`}>
           <main className="flex flex-col h-full">{children}</main>
         </div>
       </div>
-      <Footer siteConfig={siteConfig} />
+      <div className={hasConversation ? "flex-shrink-0" : ""}>
+        <Footer siteConfig={siteConfig} />
+      </div>
       {/* Feedback button */}
       {siteConfig && <FeedbackButton siteConfig={siteConfig} onClick={() => setIsFeedbackModalOpen(true)} />}
       {/* Feedback modal */}

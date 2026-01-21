@@ -2929,6 +2929,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         temporarySession={temporarySession}
         onTemporarySessionChange={handleTemporarySessionChange}
         isChatEmpty={shouldShowSuggestions}
+        hasConversation={messages.length > 1}
       >
         {showPopup && popupMessage && <Popup message={popupMessage} onClose={closePopup} siteConfig={siteConfig} />}
 
@@ -2958,11 +2959,11 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           )}
 
           {/* Main Content Area */}
-          <div className="flex flex-col flex-1 min-w-0 lg:ml-0">
-            <div className="mx-auto w-full max-w-4xl px-4">
+          <div className="flex flex-col flex-1 min-w-0 lg:ml-0 overflow-hidden">
+            <div className="mx-auto w-full max-w-4xl px-4 flex flex-col h-full">
               {/* Hamburger Menu Button - Only show on sites that require login */}
               {siteConfig?.requireLogin && (
-                <div className="lg:hidden flex items-center justify-between p-4 border-b border-gray-200">
+                <div className="flex-shrink-0 lg:hidden flex items-center justify-between p-4 border-b border-gray-200">
                   <button
                     onClick={() => {
                       logEvent("chat_history_sidebar_open", "Chat History", "hamburger_menu");
@@ -2979,16 +2980,18 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
               )}
               {/* Conversation Title Bar - Only show on sites that require login */}
               {siteConfig?.requireLogin && (
-                <ConversationTitleBar
-                  convId={currentConvId}
-                  title={conversationTitle}
-                  isStarred={isCurrentConversationStarred}
-                  onStarChange={handleStarChange}
-                />
+                <div className="flex-shrink-0">
+                  <ConversationTitleBar
+                    convId={currentConvId}
+                    title={conversationTitle}
+                    isStarred={isCurrentConversationStarred}
+                    onStarChange={handleStarChange}
+                  />
+                </div>
               )}
               {/* Temporary session banner */}
               {temporarySession && (
-                <div className="flex items-center justify-center mb-3 px-3 py-2 bg-purple-100 border border-purple-300 rounded-lg">
+                <div className="flex-shrink-0 flex items-center justify-center mb-3 px-3 py-2 bg-purple-100 border border-purple-300 rounded-lg">
                   <span className="material-icons text-purple-600 text-lg mr-2">lock</span>
                   <span className="text-purple-800 text-sm font-medium">
                     Temporary Session Active. It will not be logged, saved, or shareable.
@@ -3001,7 +3004,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                   </span>
                 </div>
               )}
-              <div className="flex-grow overflow-hidden answers-container">
+              {/* Messages container - scrollable area */}
+              <div className="flex-1 min-h-0 overflow-hidden answers-container">
                 <div ref={messageListRef} className="h-full overflow-y-auto">
                   {/* Render chat messages */}
                   {messages.map((message, index) => (
@@ -3110,7 +3114,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                   </div>
                 </div>
               </div>
-              <div className="mt-4 px-2 md:px-0">
+              {/* Input area - pinned to bottom when conversation is active */}
+              <div className="flex-shrink-0 mt-4 px-2 md:px-0 pb-4 bg-white">
                 {/* Render chat input component */}
                 {isLoadingQueries ? null : (
                   <ChatInput
