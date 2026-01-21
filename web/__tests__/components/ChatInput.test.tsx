@@ -81,6 +81,8 @@ describe("ChatInput", () => {
     textAreaRef: { current: null } as React.RefObject<HTMLTextAreaElement>,
     mediaTypes: { text: true, audio: false, youtube: false },
     handleMediaTypeChange: jest.fn(),
+    selectedLibraries: [],
+    handleLibraryChange: jest.fn(),
     siteConfig: mockSiteConfig,
     input: "",
     handleInputChange: jest.fn(),
@@ -173,9 +175,11 @@ describe("ChatInput", () => {
   it("shows chat options dropdown when options are available", () => {
     render(<ChatInput {...defaultProps} />);
 
-    // Check if the chat options dropdown button is present
-    const dropdownButton = screen.getByText("Chat Options");
-    expect(dropdownButton).toBeInTheDocument();
+    // Check if the AI settings and filter buttons are present
+    const aiSettingsButton = screen.getByRole("button", { name: /ai settings/i });
+    const filterButton = screen.getByRole("button", { name: /content filters/i });
+    expect(aiSettingsButton).toBeInTheDocument();
+    expect(filterButton).toBeInTheDocument();
   });
 
   it("handles query shuffling", () => {
@@ -200,9 +204,9 @@ describe("ChatInput", () => {
   it("opens dropdown and shows media type options", () => {
     render(<ChatInput {...defaultProps} />);
 
-    // Click the dropdown button to open it
-    const dropdownButton = screen.getByText("Chat Options");
-    fireEvent.click(dropdownButton);
+    // Click the filter button to open it (media types are in FilterDropdown)
+    const filterButton = screen.getByRole("button", { name: /content filters/i });
+    fireEvent.click(filterButton);
 
     // Check if media type options are visible in the dropdown
     expect(screen.getByText("Media Types")).toBeInTheDocument();
@@ -212,9 +216,9 @@ describe("ChatInput", () => {
   it("closes dropdown when clicking outside", () => {
     render(<ChatInput {...defaultProps} />);
 
-    // Open the dropdown
-    const dropdownButton = screen.getByText("Chat Options");
-    fireEvent.click(dropdownButton);
+    // Open the filter dropdown
+    const filterButton = screen.getByRole("button", { name: /content filters/i });
+    fireEvent.click(filterButton);
 
     // Verify dropdown is open
     expect(screen.getByText("Media Types")).toBeInTheDocument();
@@ -252,7 +256,7 @@ describe("ChatInput", () => {
     expect(screen.getByText("What is yoga?")).toBeInTheDocument();
   });
 
-  it("passes model props to SearchOptionsDropdown", () => {
+  it("passes model props to AISettingsDropdown", () => {
     const mockHandleModelChange = jest.fn();
     const props = {
       ...defaultProps,
@@ -262,9 +266,9 @@ describe("ChatInput", () => {
 
     render(<ChatInput {...props} />);
 
-    // Open the dropdown
-    const dropdownButton = screen.getByText("Chat Options");
-    fireEvent.click(dropdownButton);
+    // Open the AI settings dropdown (model selection is in AISettingsDropdown)
+    const aiSettingsButton = screen.getByRole("button", { name: /ai settings/i });
+    fireEvent.click(aiSettingsButton);
 
     // Verify model selector is present
     expect(screen.getByText("AI Model")).toBeInTheDocument();

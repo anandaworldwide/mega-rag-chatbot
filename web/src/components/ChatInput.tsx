@@ -24,7 +24,9 @@ import DOMPurify from "dompurify";
 import validator from "validator";
 import styles from "@/styles/Home.module.css";
 import SuggestedQueries from "@/components/SuggestedQueries";
-import { SearchOptionsDropdown } from "@/components/SearchOptionsDropdown";
+import { AISettingsDropdown } from "@/components/AISettingsDropdown";
+import { FilterDropdown } from "@/components/FilterDropdown";
+import { TaskPopover } from "@/components/TaskPopover";
 import { TipsModal } from "@/components/TipsModal";
 import { SiteConfig } from "@/types/siteConfig";
 import { getEnableSuggestedQueries } from "@/utils/client/siteConfig";
@@ -71,6 +73,13 @@ interface ChatInputProps {
   shouldShowSuggestions?: boolean; // Hide suggestions after first question
   selectedModel: string;
   handleModelChange: (model: string) => void;
+  onTaskSubmit?: (
+    prompt: string,
+    sourceCount: number,
+    taskMode: string,
+    suggestedFollowups: string[],
+    authorFilter?: string
+  ) => void;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
@@ -105,6 +114,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   shouldShowSuggestions = true,
   selectedModel,
   handleModelChange,
+  onTaskSubmit,
 }) => {
   // State variables for managing component behavior
   const [, setLocalQuery] = useState<string>("");
@@ -467,44 +477,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             </div>
           )}
 
-          {/* Input textarea and submit button */}
-          <div className="relative mb-4">
-            <textarea
-              onKeyDown={onEnter}
-              onChange={(e) => {
-                handleInputChange(e);
-                adjustTextAreaHeight();
-              }}
-              value={input}
-              ref={textAreaRef}
-              autoFocus={false}
-              rows={1}
-              maxLength={4000}
-              id="userInput"
-              name="userInput"
-              placeholder={disabled ? "View-only mode" : hasInteracted ? "" : placeholderText}
-              disabled={disabled}
-              className={`w-full p-3 pr-12 border border-gray-300 rounded-xl resize-none focus:outline-none min-h-[48px] overflow-hidden ${
-                disabled ? "bg-gray-100 cursor-not-allowed" : ""
-              }`}
-              style={{ height: "auto" }}
-            />
-            <button
-              type="submit"
-              disabled={disabled}
-              className={`absolute right-3 top-1/2 transform -translate-y-1/2 p-2 rounded-xl flex items-center justify-center w-8 h-8 ${
-                disabled ? "bg-gray-400 text-gray-600 cursor-not-allowed" : "bg-blue-500 text-white hover:bg-blue-600"
-              }`}
-            >
-              {loading ? (
-                <span className="material-icons text-lg leading-none">stop</span>
-              ) : (
-                <span className="material-icons text-lg leading-none">arrow_upward</span>
-              )}
-            </button>
-          </div>
-
-          {/* Suggested queries section */}
+          {/* Suggested queries section - above input */}
           {!isLoadingQueries && showSuggestedQueries && (suggestedQueries.length > 0 || categorizedQueries) && (
             <div className="w-full mb-4">
               <SuggestedQueries
@@ -519,38 +492,86 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             </div>
           )}
 
-          {/* Chat Options and Tips */}
-          <div className="mb-4 flex gap-2 items-start">
-            <SearchOptionsDropdown
-              siteConfig={siteConfig}
-              mediaTypes={mediaTypes}
-              handleMediaTypeChange={handleMediaTypeChange}
-              collection={collection}
-              handleCollectionChange={handleCollectionChange}
-              selectedLibraries={selectedLibraries}
-              handleLibraryChange={handleLibraryChange}
-              sourceCount={sourceCount}
-              setSourceCount={setSourceCount}
-              selectedModel={selectedModel}
-              handleModelChange={handleModelChange}
-            />
-
-            {/* Tips Button - only show if tips are available for this site */}
-            {tipsAvailable && (
+          {/* Input container with textarea and options row */}
+          <div className="mb-4 border border-gray-300 rounded-xl overflow-hidden">
+            {/* Input textarea and submit button */}
+            <div className="relative">
+              <textarea
+                onKeyDown={onEnter}
+                onChange={(e) => {
+                  handleInputChange(e);
+                  adjustTextAreaHeight();
+                }}
+                value={input}
+                ref={textAreaRef}
+                autoFocus={false}
+                rows={1}
+                maxLength={4000}
+                id="userInput"
+                name="userInput"
+                placeholder={disabled ? "View-only mode" : hasInteracted ? "" : placeholderText}
+                disabled={disabled}
+                className={`w-full p-3 pr-12 resize-none focus:outline-none min-h-[48px] overflow-hidden border-0 ${
+                  disabled ? "bg-gray-100 cursor-not-allowed" : ""
+                }`}
+                style={{ height: "auto" }}
+              />
               <button
-                type="button"
-                onClick={handleTipsClick}
-                className="relative flex items-center px-3 py-2 text-sm bg-white text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                aria-label="View tips and tricks"
+                type="submit"
+                disabled={disabled}
+                className={`absolute right-3 top-1/2 transform -translate-y-1/2 p-2 rounded-xl flex items-center justify-center w-8 h-8 ${
+                  disabled ? "bg-gray-400 text-gray-600 cursor-not-allowed" : "bg-blue-500 text-white hover:bg-blue-600"
+                }`}
               >
-                <span className="material-icons text-base mr-2">lightbulb</span>
-                Tips
-                {/* Blue dot indicator when there are new tips */}
-                {hasNewTips && (
-                  <span className="absolute -top-2 -right-2 h-4 w-4 rounded-full bg-blue-500 border-2 border-white" />
+                {loading ? (
+                  <span className="material-icons text-lg leading-none">stop</span>
+                ) : (
+                  <span className="material-icons text-lg leading-none">arrow_upward</span>
                 )}
               </button>
-            )}
+            </div>
+
+            {/* Options row inside input box */}
+            <div className="flex gap-2 items-center px-3 py-2">
+              {/* AI Settings - model selection, extra sources, compare models */}
+              <AISettingsDropdown
+                siteConfig={siteConfig}
+                sourceCount={sourceCount}
+                setSourceCount={setSourceCount}
+                selectedModel={selectedModel}
+                handleModelChange={handleModelChange}
+              />
+
+              {/* Content Filters - media types, authors, libraries */}
+              <FilterDropdown
+                siteConfig={siteConfig}
+                mediaTypes={mediaTypes}
+                handleMediaTypeChange={handleMediaTypeChange}
+                collection={collection}
+                handleCollectionChange={handleCollectionChange}
+                selectedLibraries={selectedLibraries}
+                handleLibraryChange={handleLibraryChange}
+              />
+
+              {/* Task Popover - only show if tasks are enabled and handler provided */}
+              {onTaskSubmit && <TaskPopover siteConfig={siteConfig} onTaskSubmit={onTaskSubmit} />}
+
+              {/* Tips Button - only show if tips are available for this site */}
+              {tipsAvailable && (
+                <button
+                  type="button"
+                  onClick={handleTipsClick}
+                  className="relative flex items-center justify-center p-2 text-sm bg-white text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  aria-label="View tips and tricks"
+                >
+                  <span className="material-icons text-base">lightbulb</span>
+                  {/* Blue dot indicator when there are new tips */}
+                  {hasNewTips && (
+                    <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-blue-500 border-2 border-white" />
+                  )}
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Error display */}

@@ -73,14 +73,14 @@ describe("SearchOptionsDropdown", () => {
   it("renders the dropdown button", () => {
     render(<SearchOptionsDropdown {...defaultProps} />);
 
-    expect(screen.getByRole("button", { name: /chat options/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /options/i })).toBeInTheDocument();
     expect(screen.getByText("tune")).toBeInTheDocument(); // Material icon
   });
 
   it("shows default styling when options are not modified", () => {
     render(<SearchOptionsDropdown {...defaultProps} />);
 
-    const button = screen.getByRole("button", { name: /chat options/i });
+    const button = screen.getByRole("button", { name: /options/i });
     expect(button).toHaveClass("bg-white", "text-gray-700", "border-gray-300");
 
     // Should show gray tune icon in default state
@@ -96,7 +96,7 @@ describe("SearchOptionsDropdown", () => {
 
     render(<SearchOptionsDropdown {...modifiedProps} />);
 
-    const button = screen.getByRole("button", { name: /chat options/i });
+    const button = screen.getByRole("button", { name: /options/i });
     expect(button).toHaveClass("bg-white", "text-gray-700", "border-gray-300");
 
     // Should show yellow background tune icon in modified state
@@ -116,7 +116,7 @@ describe("SearchOptionsDropdown", () => {
 
     render(<SearchOptionsDropdown {...modifiedProps} />);
 
-    const button = screen.getByRole("button", { name: /chat options/i });
+    const button = screen.getByRole("button", { name: /options/i });
     expect(button).toHaveClass("bg-white", "text-gray-700", "border-gray-300");
 
     // Should show yellow background tune icon in modified state
@@ -136,7 +136,7 @@ describe("SearchOptionsDropdown", () => {
 
     render(<SearchOptionsDropdown {...modifiedProps} />);
 
-    const button = screen.getByRole("button", { name: /chat options/i });
+    const button = screen.getByRole("button", { name: /options/i });
     expect(button).toHaveClass("bg-white", "text-gray-700", "border-gray-300");
 
     // Should show yellow background tune icon in modified state
@@ -167,7 +167,7 @@ describe("SearchOptionsDropdown", () => {
 
     render(<SearchOptionsDropdown {...modifiedProps} />);
 
-    const button = screen.getByRole("button", { name: /chat options/i });
+    const button = screen.getByRole("button", { name: /options/i });
     expect(button).toHaveClass("bg-white", "text-gray-700", "border-gray-300");
 
     // Should show gray tune icon in default state
@@ -178,7 +178,7 @@ describe("SearchOptionsDropdown", () => {
   it("opens dropdown when button is clicked", () => {
     render(<SearchOptionsDropdown {...defaultProps} />);
 
-    const button = screen.getByRole("button", { name: /chat options/i });
+    const button = screen.getByRole("button", { name: /options/i });
     fireEvent.click(button);
 
     expect(screen.getByText("AI Model")).toBeInTheDocument();
@@ -203,7 +203,7 @@ describe("SearchOptionsDropdown", () => {
 
     render(<SearchOptionsDropdown {...propsWithNoOptions} />);
     // Should still render because model selector is always available
-    expect(screen.getByRole("button", { name: /chat options/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /options/i })).toBeInTheDocument();
   });
 
   it("handles different site config default values correctly", () => {
@@ -222,7 +222,7 @@ describe("SearchOptionsDropdown", () => {
 
     render(<SearchOptionsDropdown {...propsWithCustomDefaults} />);
 
-    const button = screen.getByRole("button", { name: /chat options/i });
+    const button = screen.getByRole("button", { name: /options/i });
     expect(button).toHaveClass("bg-white", "text-gray-700", "border-gray-300");
 
     // Should show gray tune icon in default state
@@ -244,7 +244,7 @@ describe("SearchOptionsDropdown", () => {
 
     render(<SearchOptionsDropdown {...propsWithYouTubeEnabled} />);
 
-    const button = screen.getByRole("button", { name: /chat options/i });
+    const button = screen.getByRole("button", { name: /options/i });
     expect(button).toHaveClass("bg-white", "text-gray-700", "border-gray-300");
 
     // Should show yellow background tune icon in modified state
@@ -264,7 +264,7 @@ describe("SearchOptionsDropdown", () => {
 
     render(<SearchOptionsDropdown {...propsWithNoMediaTypes} />);
 
-    const button = screen.getByRole("button", { name: /chat options/i });
+    const button = screen.getByRole("button", { name: /options/i });
     // Should show default styling because no types checked = all types checked (default behavior)
     expect(button).toHaveClass("bg-white", "text-gray-700", "border-gray-300");
 
@@ -287,7 +287,7 @@ describe("SearchOptionsDropdown", () => {
 
     render(<SearchOptionsDropdown {...propsWithNoDefaults} />);
 
-    const button = screen.getByRole("button", { name: /chat options/i });
+    const button = screen.getByRole("button", { name: /options/i });
     // Both default and current are "none checked" so they're equivalent
     expect(button).toHaveClass("bg-white", "text-gray-700", "border-gray-300");
 
@@ -301,7 +301,7 @@ describe("SearchOptionsDropdown", () => {
       render(<SearchOptionsDropdown {...defaultProps} />);
 
       // Open the dropdown
-      const button = screen.getByRole("button", { name: /chat options/i });
+      const button = screen.getByRole("button", { name: /options/i });
       fireEvent.click(button);
 
       // Check that both libraries appear as checkboxes
@@ -314,7 +314,7 @@ describe("SearchOptionsDropdown", () => {
       render(<SearchOptionsDropdown {...defaultProps} handleLibraryChange={mockHandleLibraryChange} />);
 
       // Open the dropdown
-      const button = screen.getByRole("button", { name: /chat options/i });
+      const button = screen.getByRole("button", { name: /options/i });
       fireEvent.click(button);
 
       // Click on a library checkbox
@@ -332,7 +332,7 @@ describe("SearchOptionsDropdown", () => {
       render(<SearchOptionsDropdown {...propsWithOneLibrary} />);
 
       // Open the dropdown
-      const button = screen.getByRole("button", { name: /chat options/i });
+      const button = screen.getByRole("button", { name: /options/i });
       fireEvent.click(button);
 
       // The selected library should be disabled
@@ -353,7 +353,7 @@ describe("SearchOptionsDropdown", () => {
       };
       render(<SearchOptionsDropdown {...propsWithModifiedLibraries} />);
 
-      const button = screen.getByRole("button", { name: /chat options/i });
+      const button = screen.getByRole("button", { name: /options/i });
 
       // Should show yellow background tune icon when libraries are modified
       const tuneIcon = button.querySelector(".material-icons");
@@ -366,7 +366,7 @@ describe("SearchOptionsDropdown", () => {
       render(<SearchOptionsDropdown {...defaultProps} />);
 
       // Open the dropdown
-      const button = screen.getByRole("button", { name: /chat options/i });
+      const button = screen.getByRole("button", { name: /options/i });
       fireEvent.click(button);
 
       // Check that AI Model section appears
@@ -382,7 +382,7 @@ describe("SearchOptionsDropdown", () => {
       render(<SearchOptionsDropdown {...defaultProps} />);
 
       // Open the dropdown
-      const button = screen.getByRole("button", { name: /chat options/i });
+      const button = screen.getByRole("button", { name: /options/i });
       fireEvent.click(button);
 
       // Check that default model is selected
@@ -396,7 +396,7 @@ describe("SearchOptionsDropdown", () => {
       render(<SearchOptionsDropdown {...defaultProps} handleModelChange={mockHandleModelChange} />);
 
       // Open the dropdown
-      const button = screen.getByRole("button", { name: /chat options/i });
+      const button = screen.getByRole("button", { name: /options/i });
       fireEvent.click(button);
 
       // Find a different model option
@@ -416,7 +416,7 @@ describe("SearchOptionsDropdown", () => {
 
       render(<SearchOptionsDropdown {...propsWithModifiedModel} />);
 
-      const button = screen.getByRole("button", { name: /chat options/i });
+      const button = screen.getByRole("button", { name: /options/i });
 
       // Should show yellow background tune icon when model is modified
       const tuneIcon = button.querySelector(".material-icons");
@@ -430,7 +430,7 @@ describe("SearchOptionsDropdown", () => {
       render(<SearchOptionsDropdown {...defaultProps} />);
 
       // Open the dropdown
-      const button = screen.getByRole("button", { name: /chat options/i });
+      const button = screen.getByRole("button", { name: /options/i });
       fireEvent.click(button);
 
       // Click the Controls Info button (top right corner)
@@ -452,7 +452,7 @@ describe("SearchOptionsDropdown", () => {
       render(<SearchOptionsDropdown {...propsWithModel} />);
 
       // Open the dropdown
-      const button = screen.getByRole("button", { name: /chat options/i });
+      const button = screen.getByRole("button", { name: /options/i });
       fireEvent.click(button);
 
       // Open Controls Info modal
@@ -471,7 +471,7 @@ describe("SearchOptionsDropdown", () => {
       render(<SearchOptionsDropdown {...defaultProps} />);
 
       // Open the dropdown
-      const button = screen.getByRole("button", { name: /chat options/i });
+      const button = screen.getByRole("button", { name: /options/i });
       fireEvent.click(button);
 
       // Open Controls Info modal
@@ -499,7 +499,7 @@ describe("SearchOptionsDropdown", () => {
       render(<SearchOptionsDropdown {...propsWithModifiedModel} />);
 
       // Open the dropdown
-      const button = screen.getByRole("button", { name: /chat options/i });
+      const button = screen.getByRole("button", { name: /options/i });
       fireEvent.click(button);
 
       // Click reset button

@@ -66,16 +66,6 @@
     "footer": {
       "links": [
         {
-          "label": "Contact",
-          "url": "/contact",
-          "icon": "mail_outline"
-        },
-        {
-          "label": "Compare AI Models",
-          "url": "/compare-models",
-          "icon": "compare"
-        },
-        {
           "label": "Open Source",
           "url": "https://github.com/anandaworldwide/mega-rag-chatbot",
           "icon": "code"
@@ -98,7 +88,15 @@
     },
     "accessRequestNoteLabel": "Please let us know the name and location of an Ananda leader who knows you.",
     "adminAccessGuidelines": "Any Ananda devotee can use Luca if they are a regular participant, meaning they've at least come to a Sunday service or a meditation group several times, or has had other recurring participation. This is at the discretion of the center leaders. They are **not** required to have taken discipleship in order to use Luca.",
-    "enabledTasks": ["research", "class-planning", "find-quotes", "prepare-talk", "guided-meditation", "social-media", "find-stories"]
+    "enabledTasks": [
+      "research",
+      "class-planning",
+      "find-quotes",
+      "prepare-talk",
+      "guided-meditation",
+      "social-media",
+      "find-stories"
+    ]
   },
   "ananda-public": {
     "name": "Vivek, The Ananda.org Chatbot",
@@ -221,11 +219,6 @@
         {
           "label": "Copyright © 2025 Joe Hunt",
           "url": null
-        },
-        {
-          "label": "Contact",
-          "url": "/contact",
-          "icon": "mail_outline"
         }
       ]
     },
@@ -322,11 +315,6 @@
     },
     "footer": {
       "links": [
-        {
-          "label": "Contact",
-          "url": "/contact",
-          "icon": "mail_outline"
-        },
         {
           "label": "Open Source",
           "url": "https://github.com/anandaworldwide/mega-rag-chatbot",

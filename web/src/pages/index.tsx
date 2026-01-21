@@ -22,8 +22,6 @@ import ChatHistorySidebar from "@/components/ChatHistorySidebar";
 import AnswerComparison from "@/components/AnswerComparison";
 import ModelComparisonFeedbackModal from "@/components/ModelComparisonFeedbackModal";
 import ConversationTitleBar from "@/components/ConversationTitleBar";
-import { TaskSelector } from "@/components/TaskSelector";
-import { TaskWizardModal } from "@/components/TaskWizardModal";
 
 // Hook imports
 import usePopup from "@/hooks/usePopup";
@@ -640,9 +638,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setCurrentTaskFollowups([]);
         setUsedTaskFollowups([]);
         setCurrentTaskMode(null);
-        setShowTaskWizard(false);
         setDynamicFollowups([]);
-        setSelectedTaskId(null);
 
         // Back to home: reset chat
         setMessageState({
@@ -708,9 +704,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     setCurrentTaskFollowups([]);
     setUsedTaskFollowups([]);
     setCurrentTaskMode(null);
-    setShowTaskWizard(false);
     setDynamicFollowups([]);
-    setSelectedTaskId(null);
 
     // Push a new history entry for '/' without triggering a Next.js navigation.
     window.history.pushState(null, "", "/");
@@ -825,9 +819,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const [sourceCount, _setSourceCount] = useState<number>(siteConfig?.defaultNumSources || 4);
   const sourceCountRef = useRef<number>(siteConfig?.defaultNumSources || 4); // Ref mirror for immediate access in async contexts
 
-  // Task wizard state
-  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
-  const [showTaskWizard, setShowTaskWizard] = useState<boolean>(false);
+  // Task state
   const [currentTaskFollowups, _setCurrentTaskFollowups] = useState<string[]>([]);
   const currentTaskFollowupsRef = useRef<string[]>([]); // Ref mirror for immediate access in async contexts
   const [usedTaskFollowups, _setUsedTaskFollowups] = useState<string[]>([]); // Track used follow-ups to hide them
@@ -1640,12 +1632,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     // Submit the suggestion as a new question
     handleSubmit(new Event("submit") as unknown as React.FormEvent, suggestion.text);
   };
-
-  // Handle task card selection
-  const handleTaskSelect = useCallback((taskId: string) => {
-    setSelectedTaskId(taskId);
-    setShowTaskWizard(true);
-  }, []);
 
   // Handle task wizard submission
   const handleTaskSubmit = useCallback(
@@ -3125,26 +3111,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                 </div>
               </div>
               <div className="mt-4 px-2 md:px-0">
-                {/* Render task selector when conversation is empty */}
-                {messages.length <= 1 && (
-                  <TaskSelector
-                    onTaskSelect={handleTaskSelect}
-                    visible={messages.length <= 1}
-                    siteConfig={siteConfig}
-                  />
-                )}
-
-                {/* Render task wizard modal */}
-                <TaskWizardModal
-                  taskId={selectedTaskId || ""}
-                  isOpen={showTaskWizard}
-                  onClose={() => {
-                    setShowTaskWizard(false);
-                    setSelectedTaskId(null);
-                  }}
-                  onSubmit={handleTaskSubmit}
-                />
-
                 {/* Render chat input component */}
                 {isLoadingQueries ? null : (
                   <ChatInput
@@ -3181,6 +3147,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                     shouldShowSuggestions={shouldShowSuggestions}
                     selectedModel={selectedModel}
                     handleModelChange={setSelectedModel}
+                    onTaskSubmit={handleTaskSubmit}
                   />
                 )}
               </div>
