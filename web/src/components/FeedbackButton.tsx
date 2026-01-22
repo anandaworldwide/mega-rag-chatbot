@@ -17,7 +17,8 @@ const FeedbackButton: React.FC<FeedbackButtonProps> = ({ siteConfig, onClick }) 
   const feedbackIcon = getFeedbackIcon(siteConfig);
 
   return (
-    <div className="fixed bottom-6 right-6 z-40">
+    // Hidden on mobile, shown on desktop (md and up)
+    <div className="hidden md:block fixed bottom-6 right-6 z-40">
       <button
         onClick={onClick}
         className="flex items-center bg-white rounded-full shadow-lg hover:shadow-xl transition-all duration-300 ease-in-out px-4 py-2 space-x-3 cursor-pointer"

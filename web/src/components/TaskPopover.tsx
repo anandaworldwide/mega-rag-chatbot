@@ -213,9 +213,17 @@ export const TaskPopover: React.FC<TaskPopoverProps> = ({ siteConfig, onTaskSubm
       left = 10;
     }
 
-    // If not enough space above, position below
+    // If not enough space above, try positioning below
     if (top < 10) {
-      top = rect.bottom + gap;
+      const belowTop = rect.bottom + gap;
+      const wouldClipBelow = belowTop + popoverHeight > window.innerHeight - 10;
+
+      if (wouldClipBelow) {
+        // Neither above nor below fits - center vertically in viewport
+        top = Math.max(10, (window.innerHeight - popoverHeight) / 2);
+      } else {
+        top = belowTop;
+      }
     }
 
     setPopoverPosition({ top: Math.max(10, top), left });
@@ -228,10 +236,18 @@ export const TaskPopover: React.FC<TaskPopoverProps> = ({ siteConfig, onTaskSubm
       if (isOpen) calculatePopoverPosition();
     };
 
-    if (isOpen) {
-      // Use requestAnimationFrame to ensure the DOM has updated before calculating position
+    // Only calculate position when content is ready (not during loading states)
+    const contentReady =
+      isOpen && !isLoadingTasks && (!selectedTaskId || (!isLoadingWizard && taskDefinition !== null));
+
+
+    if (contentReady) {
+      // Use double requestAnimationFrame to ensure the DOM has fully updated
+      // First RAF waits for React to flush updates, second RAF waits for browser paint
       requestAnimationFrame(() => {
-        calculatePopoverPosition();
+        requestAnimationFrame(() => {
+          calculatePopoverPosition();
+        });
       });
       window.addEventListener("resize", handleUpdate);
       window.addEventListener("scroll", handleUpdate, true);
@@ -241,7 +257,7 @@ export const TaskPopover: React.FC<TaskPopoverProps> = ({ siteConfig, onTaskSubm
       window.removeEventListener("resize", handleUpdate);
       window.removeEventListener("scroll", handleUpdate, true);
     };
-  }, [isOpen, selectedTaskId, taskDefinition]);
+  }, [isOpen, selectedTaskId, taskDefinition, isLoadingTasks, isLoadingWizard]);
 
   const togglePopover = () => {
     if (isOpen) {
@@ -259,6 +275,7 @@ export const TaskPopover: React.FC<TaskPopoverProps> = ({ siteConfig, onTaskSubm
 
   const handleBack = () => {
     logEvent("task_wizard_back", "Tasks", selectedTaskId || "");
+    setIsPositioned(false); // Hide popover while task list loads and position recalculates
     setSelectedTaskId(null);
     setTaskDefinition(null);
     setFormValues({});

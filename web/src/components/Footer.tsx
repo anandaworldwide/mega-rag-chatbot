@@ -6,10 +6,18 @@ import { getFooterConfig } from "@/utils/client/siteConfig";
 
 interface FooterProps {
   siteConfig: SiteConfig | null;
+  onFeedbackClick?: () => void;
 }
 
-const Footer: React.FC<FooterProps> = ({ siteConfig }) => {
+// Get feedback icon based on site configuration
+const getFeedbackIcon = (siteConfig: SiteConfig | null): string => {
+  if (!siteConfig?.feedbackIcon) return "/bot-image.png"; // Default fallback
+  return `/${siteConfig.feedbackIcon}`;
+};
+
+const Footer: React.FC<FooterProps> = ({ siteConfig, onFeedbackClick }) => {
   const footerConfig = getFooterConfig(siteConfig);
+  const feedbackIcon = getFeedbackIcon(siteConfig);
 
   return (
     <>
@@ -80,11 +88,30 @@ const Footer: React.FC<FooterProps> = ({ siteConfig }) => {
                 );
               }
             })}
+            {/* Mobile-only feedback button - inline with other footer links */}
+            {onFeedbackClick && (
+              <button
+                onClick={onFeedbackClick}
+                className="md:hidden text-sm hover:text-slate-600 cursor-pointer mx-2 my-1 inline-flex items-center"
+                aria-label="Give feedback"
+              >
+                <img
+                  src={feedbackIcon}
+                  alt=""
+                  className="w-5 h-5 rounded-full object-cover mr-1"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    if (target.src !== "/bot-image.png") {
+                      target.src = "/bot-image.png";
+                    }
+                  }}
+                />
+                Feedback
+              </button>
+            )}
           </div>
         </div>
       </footer>
-      {/* Mobile spacing for feedback button - minimal to maximize content space */}
-      <div className="pb-2 md:pb-0" />
     </>
   );
 };

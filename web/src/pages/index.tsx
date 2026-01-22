@@ -3251,10 +3251,10 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                       </div>
                     </div>
 
-                    {/* Animated Scroll Down Button - positioned inside on mobile, outside scrollbar on desktop */}
+                    {/* Animated Scroll Down Button - centered at bottom of scroll area */}
                     <div
                       ref={scrollButtonContainerRef}
-                      className={`absolute z-50 bottom-4 right-2 md:-right-12 transition-all duration-300 ease-out transform 
+                      className={`absolute z-50 bottom-4 left-1/2 -translate-x-1/2 transition-all duration-300 ease-out transform 
                       ${showScrollDownButton ? "translate-y-0 opacity-100 pointer-events-auto" : "translate-y-8 opacity-0 pointer-events-none"}`}
                       style={{ willChange: "transform, opacity" }}
                     >
@@ -3262,9 +3262,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                         onClick={handleScrollDownClick}
                         onAnimationEnd={() => setShimmerScrollButton(false)}
                         aria-label="Scroll to bottom"
-                        className={`bg-white text-gray-600 rounded-full shadow-sm hover:shadow-md p-2 border border-gray-200 focus:outline-none ${shimmerScrollButton ? "scroll-button-shimmer" : ""}`}
+                        className={`bg-white text-gray-600 rounded-full shadow-lg hover:shadow-xl p-2 border border-gray-200 focus:outline-none ${shimmerScrollButton ? "scroll-button-shimmer" : ""}`}
                       >
-                        <span className="material-icons text-xl">expand_more</span>
+                        <span className="material-icons text-xl">arrow_downward</span>
                       </button>
                     </div>
                   </div>
