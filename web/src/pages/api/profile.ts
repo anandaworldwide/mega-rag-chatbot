@@ -90,6 +90,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         hasPassword: !!data?.passwordHash, // Boolean indicating if user has password set
         dismissedPasswordPromo: typeof data?.dismissedPasswordPromo === "boolean" ? data.dismissedPasswordPromo : false,
         verifiedAt: data?.verifiedAt?.toDate?.() ?? null, // When account was activated
+        preferredModel: typeof data?.preferredModel === "string" ? data.preferredModel : null,
       });
     }
 
@@ -107,6 +108,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           nps?: boolean;
         };
         dismissedPasswordPromo?: boolean;
+        preferredModel?: string;
       };
       const updates: Record<string, any> = {};
 
@@ -190,6 +192,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           return res.status(400).json({ error: "Invalid dismissedPasswordPromo value" });
         }
         updates.dismissedPasswordPromo = body.dismissedPasswordPromo;
+      }
+
+      if (body.preferredModel !== undefined) {
+        if (typeof body.preferredModel !== "string" || body.preferredModel.length > 50) {
+          return res.status(400).json({ error: "Invalid preferredModel value" });
+        }
+        updates.preferredModel = body.preferredModel;
       }
 
       if (Object.keys(updates).length === 0) return res.status(400).json({ error: "No updates provided" });

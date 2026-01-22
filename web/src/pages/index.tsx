@@ -197,6 +197,28 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     }
   }, [selectedModel]);
 
+  // Load model preference from user profile for logged-in sites
+  useEffect(() => {
+    if (!siteConfig?.requireLogin) return;
+
+    const loadModelPreference = async () => {
+      try {
+        const res = await fetch("/api/profile", { credentials: "include" });
+        if (res.ok) {
+          const profile = await res.json();
+          if (profile?.preferredModel) {
+            setSelectedModel(profile.preferredModel);
+            localStorage.setItem("selectedModel", profile.preferredModel);
+          }
+        }
+      } catch {
+        // Silently fail - use localStorage/default
+      }
+    };
+
+    loadModelPreference();
+  }, [siteConfig?.requireLogin]);
+
   // Chat state management using custom hook
   const {
     messageState,
@@ -216,6 +238,13 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   useEffect(() => {
     historyRef.current = messageState.history;
   }, [messageState.history]);
+
+  // Keep a ref in sync with loading to avoid stale closures in setTimeout callbacks
+  // This is critical for updateMessageState to not hide the scroll button during streaming
+  const loadingRef = useRef(loading);
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
 
   // Chat history hook for star/unstar functionality
   const { starConversation, unstarConversation, conversations } = useChatHistory(20, !!siteConfig?.requireLogin);
@@ -337,7 +366,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const scrollButtonContainerRef = useRef<HTMLDivElement>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [showScrollDownButton, setShowScrollDownButton] = useState(false);
-  const [scrollClickState, setScrollClickState] = useState(0); // 0: initial, 1: scrolled to content
+  const [_scrollClickState, setScrollClickState] = useState(0); // 0: initial, 1: scrolled to content
   // Track which user message to highlight when clicked from suggested queries
   const [highlightMessageIndex, setHighlightMessageIndex] = useState<number | null>(null);
   const userMessageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -993,23 +1022,29 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
           const isNearContentBottom = scrollHeight > clientHeight && distanceFromBottom <= 20;
 
-          if (!isNearContentBottom || scrollClickState === 1) {
+          if (!isNearContentBottom) {
             setShowScrollDownButton(true);
           } else {
             // Content overflows, but we are scrolled to the bottom of it,
             // and haven't clicked the button yet (state 0). Hide it for now.
             // Clicking will make it reappear via handleScrollDownClick.
             // Scrolling up will make it reappear via handleScroll.
-            setShowScrollDownButton(false);
+            // Don't hide during streaming - use ref to get current value (not stale closure)
+            if (!loadingRef.current) {
+              setShowScrollDownButton(false);
+            }
           }
         } else {
           // Hide button if content doesn't overflow viewport
-          setShowScrollDownButton(false);
+          // Don't hide during streaming - use ref to get current value (not stale closure)
+          if (!loadingRef.current) {
+            setShowScrollDownButton(false);
+          }
           setScrollClickState(0); // Reset click state if content fits
         }
       }, 50);
     },
-    [setMessageState, scrollClickState]
+    [setMessageState]
   );
 
   const handleStreamingResponse = useCallback(
@@ -1036,10 +1071,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         // will always scroll to content bottom first
         setScrollClickState(0);
 
-        // Force scroll button to show when streaming content
-        if (!showScrollDownButton) {
-          setShowScrollDownButton(true);
-        }
+        // Force scroll button to show when streaming content - always visible during streaming
+        setShowScrollDownButton(true);
       }
 
       if (data.sourceDocs) {
@@ -1200,6 +1233,20 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
         // Reset accumulated response when done
         accumulatedResponseRef.current = "";
+
+        // After streaming ends, check scroll position and keep button visible if user is not at bottom
+        setTimeout(() => {
+          const messageList = messageListRef.current;
+          if (messageList) {
+            const { scrollTop, scrollHeight, clientHeight } = messageList;
+            const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+            const threshold = 50;
+            // Keep button visible if user has scrolled away from bottom
+            if (scrollHeight > clientHeight && distanceFromBottom > threshold) {
+              setShowScrollDownButton(true);
+            }
+          }
+        }, 100);
 
         // Generate dynamic follow-ups for task conversations
         // Use a small delay to ensure message state is fully updated
@@ -1573,8 +1620,13 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
       setLoading(false);
     } catch (error) {
-      console.error("Error in handleSubmit:", error);
-      setError(error instanceof Error ? error.message : "An error occurred while streaming the response.");
+      // Don't show error if user intentionally stopped the request
+      const isAbortError =
+        error instanceof DOMException && error.name === "AbortError";
+      if (!isAbortError) {
+        console.error("Error in handleSubmit:", error);
+        setError(error instanceof Error ? error.message : "An error occurred while streaming the response.");
+      }
       setLoading(false);
     }
   };
@@ -2105,10 +2157,15 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
         setLoading(false);
       } catch (error) {
-        console.error("Error regenerating answer:", error);
-        toast.error("Failed to regenerate answer. Please try again.");
+        // Don't show error if user intentionally stopped the request
+        const isAbortError =
+          error instanceof DOMException && error.name === "AbortError";
+        if (!isAbortError) {
+          console.error("Error regenerating answer:", error);
+          toast.error("Failed to regenerate answer. Please try again.");
+          setError(error instanceof Error ? error.message : "An error occurred while regenerating the answer.");
+        }
         setLoading(false);
-        setError(error instanceof Error ? error.message : "An error occurred while regenerating the answer.");
       }
     },
     [loading, messages, collection, mediaTypes, temporarySession, setLoading, setError, setMessageState]
@@ -2311,10 +2368,15 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
         setLoading(false);
       } catch (error) {
-        console.error("Error saving edited question:", error);
-        toast.error("Failed to save edited question. Please try again.");
+        // Don't show error if user intentionally stopped the request
+        const isAbortError =
+          error instanceof DOMException && error.name === "AbortError";
+        if (!isAbortError) {
+          console.error("Error saving edited question:", error);
+          toast.error("Failed to save edited question. Please try again.");
+          setError(error instanceof Error ? error.message : "An error occurred while saving the edited question.");
+        }
         setLoading(false);
-        setError(error instanceof Error ? error.message : "An error occurred while saving the edited question.");
       }
     },
     [
@@ -2826,37 +2888,51 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     const messageList = messageListRef.current;
     if (!messageList) return;
 
+    // Note: We don't force-show the button when loading starts.
+    // The updateMessageState callback will show it when content actually overflows.
+    // The key fix is preventing HIDING during streaming (via loadingRef.current check).
+
     // Function to check scroll position and update button visibility
     const handleScroll = () => {
+      // Don't update button visibility during streaming - it's always shown
+      if (loading) {
+        return;
+      }
+
       const { scrollTop, scrollHeight, clientHeight } = messageList;
       const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
       const hasScrollbar = scrollHeight > clientHeight;
+      const threshold = 50; // Increased threshold to prevent flickering
 
-      // Check if we've scrolled up away from the bottom
-      if (hasScrollbar && distanceFromBottom > 20) {
-        // Only show if content is actually overflowing the viewport
-        const containerRect = messageList.getBoundingClientRect();
-        const vh = window.innerHeight;
-        if (containerRect.bottom > vh) {
-          setShowScrollDownButton(true);
-        }
+      // Show button if user has scrolled away from bottom
+      if (hasScrollbar && distanceFromBottom > threshold) {
+        setShowScrollDownButton(true);
+      } else if (hasScrollbar && distanceFromBottom <= threshold) {
+        // Hide if we're at the bottom
+        setShowScrollDownButton(false);
+      } else {
+        // No scrollbar - hide button
+        setShowScrollDownButton(false);
       }
-      // REMOVED: Logic that unconditionally hid the button when near the bottom
     };
 
-    // New: Window scroll handler to show button if user scrolls up from page bottom
+    // Window scroll handler - only used for page-level scrolling, not content scrolling
     const handleWindowScroll = () => {
-      const threshold = 20;
-      const atPageBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - threshold;
+      // Don't update during streaming
+      if (loading) {
+        return;
+      }
+
       const messageList = messageListRef.current;
       if (!messageList) return;
-      const containerRect = messageList.getBoundingClientRect();
-      const vh = window.innerHeight;
-      const overflowsViewport = containerRect.bottom > vh;
-      if (overflowsViewport && !atPageBottom) {
+
+      const { scrollTop, scrollHeight, clientHeight } = messageList;
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+      const threshold = 50;
+
+      // Only update if content area has scrolled away from bottom
+      if (scrollHeight > clientHeight && distanceFromBottom > threshold) {
         setShowScrollDownButton(true);
-      } else if (atPageBottom && scrollClickState === 0) {
-        setShowScrollDownButton(false);
       }
     };
 
@@ -2872,37 +2948,21 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       messageList.removeEventListener("scroll", handleScroll);
       window.removeEventListener("scroll", handleWindowScroll);
     };
-  }, [loading, scrollClickState]);
+  }, [loading]);
 
   // Function to scroll to bottom when button clicked
   const handleScrollDownClick = () => {
-    if (scrollClickState === 0) {
-      // First click: Scroll to bottom of content but keep button visible
-      bottomOfListRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "end",
-      });
-      setScrollClickState(1);
-      // Explicitly ensure the button stays visible after the first click
-      setShowScrollDownButton(true);
+    // Scroll to bottom of content and hide button
+    bottomOfListRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "end",
+    });
+    setShowScrollDownButton(false);
+    setScrollClickState(0);
 
-      // Focus on the input field if not on mobile
-      if (window.innerWidth >= 768 && textAreaRef.current) {
-        textAreaRef.current.focus();
-      }
-    } else {
-      // Second click: Scroll to very bottom of page and hide button
-      window.scrollTo({
-        top: document.body.scrollHeight,
-        behavior: "smooth",
-      });
-      setShowScrollDownButton(false);
-      setScrollClickState(0);
-
-      // Focus on the input field if not on mobile
-      if (window.innerWidth >= 768 && textAreaRef.current) {
-        textAreaRef.current.focus();
-      }
+    // Focus on the input field if not on mobile
+    if (window.innerWidth >= 768 && textAreaRef.current) {
+      textAreaRef.current.focus();
     }
   };
 
@@ -3049,8 +3109,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                         onTemporarySessionChange={handleTemporarySessionChange}
                         categorizedQueries={categorizedQueries}
                         shouldShowSuggestions={shouldShowSuggestions}
-                        selectedModel={selectedModel}
-                        handleModelChange={setSelectedModel}
                         onTaskSubmit={handleTaskSubmit}
                       />
                     )}
@@ -3059,9 +3117,11 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
               ) : (
                 /* Conversation layout - messages scrollable, input at bottom */
                 <>
-                  {/* Messages container - scrollable area */}
-                  <div className="flex-1 min-h-0 overflow-hidden answers-container">
-                    <div ref={messageListRef} className="h-full overflow-y-auto">
+                  {/* Wrapper for scrollable area and scroll button */}
+                  <div className="flex-1 min-h-0 relative">
+                    {/* Messages container - scrollable area */}
+                    <div className="h-full overflow-hidden answers-container">
+                      <div ref={messageListRef} className="h-full overflow-y-auto">
                       {/* Render chat messages */}
                       {messages.map((message, index) => (
                         <React.Fragment key={`chatMessage-${index}`}>
@@ -3144,33 +3204,33 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                           )}
                         </React.Fragment>
                       ))}
-                      {/* Display timing metrics for sudo users */}
-                      {isSudoUser && timingMetrics && !loading && messages.length > 0 && (
-                        <div className="text-xs text-gray-500 p-2 bg-gray-50 rounded m-2">{formatTimingMetrics()}</div>
-                      )}
-                      <div ref={bottomOfListRef} style={{ height: "1px" }} />
+                        {/* Display timing metrics for sudo users */}
+                        {isSudoUser && timingMetrics && !loading && messages.length > 0 && (
+                          <div className="text-xs text-gray-500 p-2 bg-gray-50 rounded m-2">{formatTimingMetrics()}</div>
+                        )}
+                        {/* Bottom spacer to allow scrolling past last content item */}
+                        <div ref={bottomOfListRef} className="h-4 md:h-1" />
+                      </div>
                     </div>
 
-                    {/* Container to anchor the scroll button at the right edge of the content */}
-                    <div ref={scrollButtonContainerRef} className="relative w-full">
-                      {/* Animated Scroll Down Button */}
-                      <div
-                        className={`fixed z-50 right-52 bottom-6 transition-all duration-300 ease-out transform 
+                    {/* Animated Scroll Down Button - positioned inside on mobile, outside scrollbar on desktop */}
+                    <div
+                      ref={scrollButtonContainerRef}
+                      className={`absolute z-50 bottom-4 right-2 md:-right-12 transition-all duration-300 ease-out transform 
                       ${showScrollDownButton ? "translate-y-0 opacity-100 pointer-events-auto" : "translate-y-8 opacity-0 pointer-events-none"}`}
-                        style={{ willChange: "transform, opacity" }}
+                      style={{ willChange: "transform, opacity" }}
+                    >
+                      <button
+                        onClick={handleScrollDownClick}
+                        aria-label="Scroll to bottom"
+                        className="bg-white text-gray-600 rounded-full shadow-sm hover:shadow-md p-2 border border-gray-200 focus:outline-none"
                       >
-                        <button
-                          onClick={handleScrollDownClick}
-                          aria-label="Scroll to bottom"
-                          className="bg-white text-gray-600 rounded-full shadow-sm hover:shadow-md p-2 border border-gray-200 focus:outline-none"
-                        >
-                          <span className="material-icons text-xl">expand_more</span>
-                        </button>
-                      </div>
+                        <span className="material-icons text-xl">expand_more</span>
+                      </button>
                     </div>
                   </div>
                   {/* Input area - pinned to bottom when conversation is active */}
-                  <div className="flex-shrink-0 mt-4 px-2 md:px-0 pb-4 bg-white">
+                  <div className="flex-shrink-0 px-2 md:px-0 pb-2 bg-white relative z-10">
                     {/* Render chat input component */}
                     {isLoadingQueries ? null : (
                       <ChatInput
@@ -3205,8 +3265,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                         onTemporarySessionChange={handleTemporarySessionChange}
                         categorizedQueries={categorizedQueries}
                         shouldShowSuggestions={shouldShowSuggestions}
-                        selectedModel={selectedModel}
-                        handleModelChange={setSelectedModel}
                         onTaskSubmit={handleTaskSubmit}
                       />
                     )}

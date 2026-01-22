@@ -32,7 +32,6 @@ import React from "react";
 import { render, fireEvent, screen } from "@testing-library/react";
 import { ChatInput } from "@/components/ChatInput";
 import { SiteConfig } from "@/types/siteConfig";
-import { DEFAULT_MODEL } from "@/config/modelOptions";
 
 describe("ChatInput", () => {
   // Common mock props
@@ -95,8 +94,6 @@ describe("ChatInput", () => {
     sourceCount: 0,
     setSourceCount: jest.fn(),
     isChatEmpty: true,
-    selectedModel: DEFAULT_MODEL,
-    handleModelChange: jest.fn(),
   };
 
   beforeEach(() => {
@@ -175,10 +172,8 @@ describe("ChatInput", () => {
   it("shows chat options dropdown when options are available", () => {
     render(<ChatInput {...defaultProps} />);
 
-    // Check if the AI settings and filter buttons are present
-    const aiSettingsButton = screen.getByRole("button", { name: /ai settings/i });
+    // Check if the filter button is present
     const filterButton = screen.getByRole("button", { name: /content filters/i });
-    expect(aiSettingsButton).toBeInTheDocument();
     expect(filterButton).toBeInTheDocument();
   });
 
@@ -256,25 +251,26 @@ describe("ChatInput", () => {
     expect(screen.getByText("What is yoga?")).toBeInTheDocument();
   });
 
-  it("passes model props to AISettingsDropdown", () => {
-    const mockHandleModelChange = jest.fn();
+  it("passes sourceCount props to FilterDropdown", () => {
+    const mockSetSourceCount = jest.fn();
     const props = {
       ...defaultProps,
-      selectedModel: "gpt-4o",
-      handleModelChange: mockHandleModelChange,
+      sourceCount: 10,
+      setSourceCount: mockSetSourceCount,
+      siteConfig: {
+        ...mockSiteConfig,
+        showSourceCountSelector: true,
+      },
     };
 
     render(<ChatInput {...props} />);
 
-    // Open the AI settings dropdown (model selection is in AISettingsDropdown)
-    const aiSettingsButton = screen.getByRole("button", { name: /ai settings/i });
-    fireEvent.click(aiSettingsButton);
+    // Open the filter dropdown (extra sources option is now in FilterDropdown)
+    const filterButton = screen.getByRole("button", { name: /content filters/i });
+    fireEvent.click(filterButton);
 
-    // Verify model selector is present
-    expect(screen.getByText("AI Model")).toBeInTheDocument();
-
-    // Verify the selected model is shown
-    const selectedRadio = screen.getByLabelText("GPT-4 Optimized") as HTMLInputElement;
-    expect(selectedRadio.checked).toBe(true);
+    // Verify response depth option is present
+    expect(screen.getByText("Response Depth")).toBeInTheDocument();
+    expect(screen.getByText(/Use 10 sources/)).toBeInTheDocument();
   });
 });

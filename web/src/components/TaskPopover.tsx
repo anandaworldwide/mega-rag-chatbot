@@ -27,6 +27,7 @@ interface TaskPopoverProps {
 export const TaskPopover: React.FC<TaskPopoverProps> = ({ siteConfig, onTaskSubmit }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [popoverPosition, setPopoverPosition] = useState({ top: 0, left: 0 });
+  const [isPositioned, setIsPositioned] = useState(false);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
@@ -203,6 +204,7 @@ export const TaskPopover: React.FC<TaskPopoverProps> = ({ siteConfig, onTaskSubm
     }
 
     setPopoverPosition({ top: Math.max(10, top), left });
+    setIsPositioned(true);
   };
 
   // Recalculate position on open/resize/scroll
@@ -212,7 +214,10 @@ export const TaskPopover: React.FC<TaskPopoverProps> = ({ siteConfig, onTaskSubm
     };
 
     if (isOpen) {
-      calculatePopoverPosition();
+      // Use requestAnimationFrame to ensure the DOM has updated before calculating position
+      requestAnimationFrame(() => {
+        calculatePopoverPosition();
+      });
       window.addEventListener("resize", handleUpdate);
       window.addEventListener("scroll", handleUpdate, true);
     }
@@ -225,6 +230,7 @@ export const TaskPopover: React.FC<TaskPopoverProps> = ({ siteConfig, onTaskSubm
 
   const handleClose = () => {
     setIsOpen(false);
+    setIsPositioned(false);
     setSelectedTaskId(null);
     setTaskDefinition(null);
     setFormValues({});
@@ -383,6 +389,7 @@ export const TaskPopover: React.FC<TaskPopoverProps> = ({ siteConfig, onTaskSubm
         className={`relative flex items-center justify-center p-2 text-sm bg-white text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors ${
           isOpen ? "bg-gray-100 border-blue-500" : ""
         }`}
+        title="Task wizard"
         aria-label="Open task wizard"
         aria-expanded={isOpen}
         aria-haspopup="dialog"
@@ -396,8 +403,12 @@ export const TaskPopover: React.FC<TaskPopoverProps> = ({ siteConfig, onTaskSubm
         createPortal(
           <div
             ref={popoverRef}
-            className="fixed w-[400px] max-w-[calc(100vw-20px)] bg-white border border-gray-200 rounded-xl shadow-lg z-[90] max-h-[70vh] overflow-hidden flex flex-col"
-            style={{ top: `${popoverPosition.top}px`, left: `${popoverPosition.left}px` }}
+            className="fixed w-[400px] max-w-[calc(100vw-20px)] bg-white border border-gray-200 rounded-xl shadow-lg z-[90] max-h-[70vh] overflow-hidden flex flex-col transition-opacity duration-75"
+            style={{
+              top: `${popoverPosition.top}px`,
+              left: `${popoverPosition.left}px`,
+              opacity: isPositioned ? 1 : 0,
+            }}
           >
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">

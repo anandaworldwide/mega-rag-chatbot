@@ -29,6 +29,8 @@ interface FilterDropdownProps {
   handleCollectionChange: (newCollection: string) => void;
   selectedLibraries: string[];
   handleLibraryChange: (library: string) => void;
+  sourceCount: number;
+  setSourceCount: (count: number) => void;
 }
 
 export const FilterDropdown: React.FC<FilterDropdownProps> = ({
@@ -39,9 +41,13 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
   handleCollectionChange,
   selectedLibraries = [],
   handleLibraryChange,
+  sourceCount,
+  setSourceCount,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
+  const [isPositioned, setIsPositioned] = useState(false);
+  const [showControlsInfo, setShowControlsInfo] = useState(false);
   const dropdownMenuRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
@@ -62,8 +68,11 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
   });
   const showLibrarySelection = availableLibraries.length > 1;
 
+  // Check if extra sources option should be shown
+  const showSourceCountSelector = siteConfig?.showSourceCountSelector ?? false;
+
   // Check if any filter options are available
-  const hasAnyFilters = showMediaTypeSelection || showAuthorSelection || showLibrarySelection;
+  const hasAnyFilters = showMediaTypeSelection || showAuthorSelection || showLibrarySelection || showSourceCountSelector;
 
   // Determine if options have been changed from defaults
   const isModified = useMemo((): boolean => {
@@ -110,14 +119,20 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
       (selectedLibraries.length !== defaultLibraries.length ||
         !selectedLibraries.every((lib) => defaultLibraries.includes(lib)));
 
-    return mediaTypesChanged || collectionChanged || librariesChanged;
+    // Check if source count has been changed from default
+    const defaultSourceCount = siteConfig?.defaultNumSources || 4;
+    const sourceCountChanged = showSourceCountSelector && sourceCount !== defaultSourceCount;
+
+    return mediaTypesChanged || collectionChanged || librariesChanged || sourceCountChanged;
   }, [
     showMediaTypeSelection,
     showAuthorSelection,
     showLibrarySelection,
+    showSourceCountSelector,
     mediaTypes,
     collection,
     selectedLibraries,
+    sourceCount,
     siteConfig,
     collectionsConfig,
     availableLibraries,
@@ -160,6 +175,7 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
 
       if (!isClickOnButton && !isClickInDropdown) {
         setIsOpen(false);
+        setIsPositioned(false);
       }
     };
 
@@ -175,20 +191,28 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
   // Close dropdown on Escape key
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && isOpen) {
-        setIsOpen(false);
-        buttonRef.current?.focus();
+      if (event.key === "Escape") {
+        if (showControlsInfo) {
+          event.stopPropagation();
+          setShowControlsInfo(false);
+          return;
+        }
+        if (isOpen) {
+          setIsOpen(false);
+          setIsPositioned(false);
+          buttonRef.current?.focus();
+        }
       }
     };
 
-    if (isOpen) {
+    if (isOpen || showControlsInfo) {
       document.addEventListener("keydown", handleEscape);
     }
 
     return () => {
       document.removeEventListener("keydown", handleEscape);
     };
-  }, [isOpen]);
+  }, [isOpen, showControlsInfo]);
 
   // Calculate dropdown position
   const calculateDropdownPosition = () => {
@@ -210,6 +234,7 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
         top = Math.max(10, rect.top - height - gap);
         setDropdownPosition({ top, left });
       }
+      setIsPositioned(true);
     });
   };
 
@@ -232,6 +257,9 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
   }, [isOpen]);
 
   const toggleDropdown = () => {
+    if (isOpen) {
+      setIsPositioned(false);
+    }
     setIsOpen(!isOpen);
     logEvent(isOpen ? "close_filter_options" : "open_filter_options", "UI", "dropdown_toggle");
   };
@@ -262,6 +290,16 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
       const status = isCurrentlySelected ? "disabled" : "enabled";
       logEvent("toggle_library", "Settings", `${library}:${status}`, newSelection.length);
     }
+  };
+
+  const handleSourceCountToggle = (checked: boolean) => {
+    const defaultSources = siteConfig?.defaultNumSources || 4;
+    const extraSources = 10;
+    const newSourceCount = checked ? extraSources : defaultSources;
+
+    setSourceCount(newSourceCount);
+    localStorage.setItem("useExtraSources", checked.toString());
+    logEvent("toggle_extra_sources", "Settings", checked ? "enabled" : "disabled");
   };
 
   const handleResetOptions = () => {
@@ -298,6 +336,13 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
       librariesToDeselect.forEach((lib) => handleLibraryChange(lib));
       localStorage.removeItem("selectedLibraries");
     }
+
+    // Reset source count
+    const defaultSourceCount = siteConfig?.defaultNumSources || 4;
+    if (showSourceCountSelector && sourceCount !== defaultSourceCount) {
+      handleSourceCountToggle(false);
+    }
+    localStorage.removeItem("useExtraSources");
 
     logEvent("reset_filter_options", "Settings", "reset_to_defaults");
   };
@@ -343,13 +388,29 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
         createPortal(
           <div
             ref={dropdownMenuRef}
-            className="fixed bg-white border border-gray-200 rounded-xl shadow-lg z-[90] max-h-[calc(100vh-8rem)] overflow-y-auto"
-            style={{ top: `${dropdownPosition.top}px`, left: `${dropdownPosition.left}px`, width: "300px" }}
+            className="fixed bg-white border border-gray-200 rounded-xl shadow-lg z-[90] max-h-[calc(100vh-8rem)] overflow-y-auto transition-opacity duration-75"
+            style={{
+              top: `${dropdownPosition.top}px`,
+              left: `${dropdownPosition.left}px`,
+              width: "300px",
+              opacity: isPositioned ? 1 : 0,
+            }}
           >
             <div className="p-4 space-y-4">
-              {/* Header */}
+              {/* Header with info button */}
               <div className="flex justify-between items-center mb-2">
                 <h3 className="text-sm font-medium text-gray-900">Content Filters</h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowControlsInfo(true);
+                    logEvent("show_controls_info", "UI", "info_button");
+                  }}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                  aria-label="Filter options information"
+                >
+                  <span className="material-icons text-lg">info_outline</span>
+                </button>
               </div>
 
               {/* Media Type Selection */}
@@ -467,6 +528,24 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
                 </div>
               )}
 
+              {/* Extra Sources Option */}
+              {showSourceCountSelector && (
+                <div>
+                  <h4 className="text-sm font-medium text-gray-900 mb-2">Response Depth</h4>
+                  <label className="flex items-start">
+                    <input
+                      type="checkbox"
+                      checked={sourceCount === 10}
+                      onChange={(e) => handleSourceCountToggle(e.target.checked)}
+                      className="mr-2 mt-0.5 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                    <span className="text-sm text-gray-700">
+                      Use 10 sources instead of 4 for more comprehensive responses
+                    </span>
+                  </label>
+                </div>
+              )}
+
               {/* Reset Button */}
               {isModified && (
                 <div className="pt-3 mt-3 border-t border-gray-200">
@@ -505,6 +584,80 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
               )}
             </div>
           </div>,
+          document.body
+        )}
+
+      {/* Controls Info Modal */}
+      {showControlsInfo &&
+        typeof window !== "undefined" &&
+        createPortal(
+          <>
+            <div
+              className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[100]"
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                setShowControlsInfo(false);
+                logEvent("dismiss_controls_info", "UI", "backdrop_click");
+              }}
+              aria-hidden="true"
+            />
+            <div className="fixed z-[101] top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white p-6 rounded-xl shadow-lg max-w-md w-full mx-4">
+              <div className="flex justify-between items-start mb-4">
+                <h3 className="text-lg font-semibold">Available Controls</h3>
+                <button
+                  onClick={() => {
+                    setShowControlsInfo(false);
+                    logEvent("dismiss_controls_info", "UI", "close_button");
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                  aria-label="Close"
+                >
+                  <span className="material-icons">close</span>
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {showAuthorSelection && (
+                  <div>
+                    <h4 className="font-medium mb-1">Collection Selection</h4>
+                    <p className="text-sm text-gray-600">Select specific collections or authors to focus your search.</p>
+                  </div>
+                )}
+
+                {showMediaTypeSelection && (
+                  <div>
+                    <h4 className="font-medium mb-1">Media Type Selection</h4>
+                    <p className="text-sm text-gray-600">
+                      Choose which media types (
+                      {enabledMediaTypes.map((type) => (type === "youtube" ? "video" : type)).join(", ")}) to include for
+                      your query.
+                    </p>
+                  </div>
+                )}
+
+                {showLibrarySelection && (
+                  <div>
+                    <h4 className="font-medium mb-1">Library Selection</h4>
+                    <p className="text-sm text-gray-600">
+                      Choose which content collections to search. You can select one or more libraries to narrow your
+                      search to specific sources. At least one library must remain selected.
+                    </p>
+                  </div>
+                )}
+
+                {showSourceCountSelector && (
+                  <div>
+                    <h4 className="font-medium mb-1">Use Extra Sources</h4>
+                    <p className="text-sm text-gray-600">
+                      Enable to use more sources (10 instead of {siteConfig?.defaultNumSources || 4}) for potentially more
+                      comprehensive responses. Relevant text passages are retrieved based on similarity to your query and
+                      used as context for generating answers.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>,
           document.body
         )}
     </div>

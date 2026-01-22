@@ -24,7 +24,6 @@ import DOMPurify from "dompurify";
 import validator from "validator";
 import styles from "@/styles/Home.module.css";
 import SuggestedQueries from "@/components/SuggestedQueries";
-import { AISettingsDropdown } from "@/components/AISettingsDropdown";
 import { FilterDropdown } from "@/components/FilterDropdown";
 import { TaskPopover } from "@/components/TaskPopover";
 import { TipsModal } from "@/components/TipsModal";
@@ -71,8 +70,6 @@ interface ChatInputProps {
   onTemporarySessionChange?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   categorizedQueries?: { general: string[]; location: string[]; resources: string[] } | null;
   shouldShowSuggestions?: boolean; // Hide suggestions after first question
-  selectedModel: string;
-  handleModelChange: (model: string) => void;
   onTaskSubmit?: (
     prompt: string,
     sourceCount: number,
@@ -112,8 +109,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   setSourceCount,
   categorizedQueries,
   shouldShowSuggestions = true,
-  selectedModel,
-  handleModelChange,
   onTaskSubmit,
 }) => {
   // State variables for managing component behavior
@@ -457,7 +452,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   // Render the chat input interface
   return (
-    <div className={`${styles.center} w-full mt-4 px-2 md:px-0`}>
+    <div className={`${styles.center} w-full mt-2 md:mt-4 px-2 md:px-0`}>
       <div className="w-full">
         <form onSubmit={onSubmit}>
           {/* Temporary session indicator - now handled in navigation */}
@@ -533,16 +528,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
             {/* Options row inside input box */}
             <div className="flex gap-2 items-center px-3 py-2">
-              {/* AI Settings - model selection, extra sources, compare models */}
-              <AISettingsDropdown
-                siteConfig={siteConfig}
-                sourceCount={sourceCount}
-                setSourceCount={setSourceCount}
-                selectedModel={selectedModel}
-                handleModelChange={handleModelChange}
-              />
+              {/* Task Popover - only show if tasks are enabled and handler provided */}
+              {onTaskSubmit && <TaskPopover siteConfig={siteConfig} onTaskSubmit={onTaskSubmit} />}
 
-              {/* Content Filters - media types, authors, libraries */}
+              {/* Content Filters - media types, authors, libraries, extra sources */}
               <FilterDropdown
                 siteConfig={siteConfig}
                 mediaTypes={mediaTypes}
@@ -551,10 +540,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 handleCollectionChange={handleCollectionChange}
                 selectedLibraries={selectedLibraries}
                 handleLibraryChange={handleLibraryChange}
+                sourceCount={sourceCount}
+                setSourceCount={setSourceCount}
               />
-
-              {/* Task Popover - only show if tasks are enabled and handler provided */}
-              {onTaskSubmit && <TaskPopover siteConfig={siteConfig} onTaskSubmit={onTaskSubmit} />}
 
               {/* Tips Button - only show if tips are available for this site */}
               {tipsAvailable && (
@@ -562,6 +550,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                   type="button"
                   onClick={handleTipsClick}
                   className="relative flex items-center justify-center p-2 text-sm bg-white text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                  title="Tips and tricks"
                   aria-label="View tips and tricks"
                 >
                   <span className="material-icons text-base">lightbulb</span>

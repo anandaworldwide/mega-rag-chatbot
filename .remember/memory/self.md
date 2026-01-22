@@ -1671,3 +1671,68 @@ const handleSubmit = async () => {
 **Symptom**: API calls send empty/stale data even though React DevTools shows state is correct. The callback closure captured the old value.
 
 **Applied To**: Fixed `index.tsx` history management - created `historyRef` to ensure API calls always send current chat history for question reformulation.
+
+### 43. React Portal Positioning Flicker
+
+**Problem**: Portaled popovers/modals flicker in the top-left corner before appearing in the correct position because they render before position is calculated.
+
+**Wrong**: Rendering portal immediately with position calculated in useEffect.
+
+```typescript
+const [position, setPosition] = useState({ top: 0, left: 0 });
+
+useEffect(() => {
+  if (isOpen) calculatePosition(); // Runs AFTER first render
+}, [isOpen]);
+
+return isOpen && createPortal(
+  <div style={{ top: position.top, left: position.left }}>  {/* Flickers at 0,0 first */}
+    ...
+  </div>,
+  document.body
+);
+```
+
+**Correct**: Use `isPositioned` state and opacity to hide until position is calculated.
+
+```typescript
+const [position, setPosition] = useState({ top: 0, left: 0 });
+const [isPositioned, setIsPositioned] = useState(false);
+
+const calculatePosition = () => {
+  // ... calculate position
+  setPosition({ top, left });
+  setIsPositioned(true);
+};
+
+useEffect(() => {
+  if (isOpen) {
+    requestAnimationFrame(() => calculatePosition());
+  }
+}, [isOpen]);
+
+const handleClose = () => {
+  setIsOpen(false);
+  setIsPositioned(false); // Reset for next open
+};
+
+return isOpen && createPortal(
+  <div style={{ 
+    top: position.top, 
+    left: position.left, 
+    opacity: isPositioned ? 1 : 0 
+  }}>
+    ...
+  </div>,
+  document.body
+);
+```
+
+**Pattern**: For portaled elements that need dynamic positioning:
+1. Add `isPositioned` state starting as false
+2. Set `isPositioned = true` after position is calculated
+3. Use `opacity: 0` until positioned (not `display: none` - element needs to be in DOM for size calculation)
+4. Reset `isPositioned` when closing
+5. Use `requestAnimationFrame` to ensure DOM has updated before calculating position
+
+**Applied To**: Fixed `TaskPopover.tsx` flickering on open.
