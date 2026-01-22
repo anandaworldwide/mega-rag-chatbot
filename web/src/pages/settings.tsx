@@ -11,6 +11,7 @@ import { EmailChangeModal } from "@/components/EmailChangeModal";
 import { PasswordChangeModal } from "@/components/PasswordChangeModal";
 import type { EmailPreferences, EmailCategory } from "@/types/user";
 import { MODEL_OPTIONS, DEFAULT_MODEL } from "@/config/modelOptions";
+import { logEvent } from "@/utils/client/analytics";
 
 export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | null }) {
   const [email, setEmail] = useState<string | null>(null);
@@ -203,6 +204,9 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
       // Also save to localStorage for immediate use
       localStorage.setItem("selectedModel", preferredModel);
       setMessage("Chat preferences saved");
+
+      // Track AI model change in Google Analytics
+      logEvent("settings_model_changed", "Settings", preferredModel);
     } catch (e: any) {
       setMessage(e?.message || "Failed to save chat preferences");
     } finally {

@@ -5,7 +5,7 @@
  * The popover stays connected to the trigger button for a cohesive UI experience.
  */
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { TaskRegistryEntry, TaskDefinition, TaskStep } from "@/types/taskDefinition";
 import { getEnabledTasks, loadTaskDefinition } from "@/utils/client/taskLoader";
@@ -115,6 +115,21 @@ export const TaskPopover: React.FC<TaskPopoverProps> = ({ siteConfig, onTaskSubm
       });
   }, [selectedTaskId]);
 
+  const handleClose = useCallback(() => {
+    // Track close event - differentiate between closing from task list vs wizard
+    if (selectedTaskId) {
+      logEvent("task_wizard_close", "Tasks", selectedTaskId);
+    } else {
+      logEvent("task_popover_close", "Tasks", "task_list");
+    }
+    setIsOpen(false);
+    setIsPositioned(false);
+    setSelectedTaskId(null);
+    setTaskDefinition(null);
+    setFormValues({});
+    setFormError(null);
+  }, [selectedTaskId]);
+
   // Close popover when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -135,7 +150,7 @@ export const TaskPopover: React.FC<TaskPopoverProps> = ({ siteConfig, onTaskSubm
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [isOpen]);
+  }, [isOpen, handleClose]);
 
   // Close popover on Escape key
   useEffect(() => {
@@ -160,7 +175,7 @@ export const TaskPopover: React.FC<TaskPopoverProps> = ({ siteConfig, onTaskSubm
     return () => {
       document.removeEventListener("keydown", handleEscape);
     };
-  }, [isOpen, selectedTaskId]);
+  }, [isOpen, selectedTaskId, handleClose]);
 
   // Close popover on browser navigation (back/forward button)
   useEffect(() => {
@@ -175,7 +190,7 @@ export const TaskPopover: React.FC<TaskPopoverProps> = ({ siteConfig, onTaskSubm
     return () => {
       window.removeEventListener("popstate", handlePopState);
     };
-  }, [isOpen]);
+  }, [isOpen, handleClose]);
 
   // Calculate popover position
   const calculatePopoverPosition = () => {
@@ -228,15 +243,6 @@ export const TaskPopover: React.FC<TaskPopoverProps> = ({ siteConfig, onTaskSubm
     };
   }, [isOpen, selectedTaskId, taskDefinition]);
 
-  const handleClose = () => {
-    setIsOpen(false);
-    setIsPositioned(false);
-    setSelectedTaskId(null);
-    setTaskDefinition(null);
-    setFormValues({});
-    setFormError(null);
-  };
-
   const togglePopover = () => {
     if (isOpen) {
       handleClose();
@@ -252,6 +258,7 @@ export const TaskPopover: React.FC<TaskPopoverProps> = ({ siteConfig, onTaskSubm
   };
 
   const handleBack = () => {
+    logEvent("task_wizard_back", "Tasks", selectedTaskId || "");
     setSelectedTaskId(null);
     setTaskDefinition(null);
     setFormValues({});
@@ -279,6 +286,7 @@ export const TaskPopover: React.FC<TaskPopoverProps> = ({ siteConfig, onTaskSubm
 
     if (missingFields.length > 0) {
       setFormError(`Please fill in: ${missingFields.join(", ")}`);
+      logEvent("task_wizard_validation_error", "Tasks", selectedTaskId || "", missingFields.length);
       return;
     }
 

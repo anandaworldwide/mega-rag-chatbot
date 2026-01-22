@@ -366,6 +366,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const scrollButtonContainerRef = useRef<HTMLDivElement>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [showScrollDownButton, setShowScrollDownButton] = useState(false);
+  const [shimmerScrollButton, setShimmerScrollButton] = useState(false); // Shimmer animation when new content arrives
   const [_scrollClickState, setScrollClickState] = useState(0); // 0: initial, 1: scrolled to content
   // Track which user message to highlight when clicked from suggested queries
   const [highlightMessageIndex, setHighlightMessageIndex] = useState<number | null>(null);
@@ -2950,6 +2951,43 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     };
   }, [loading]);
 
+  // Re-check scroll position when follow-up suggestions are added after streaming ends
+  // This fixes the bug where user scrolls to bottom before suggestions arrive, then suggestions render
+  // but the scroll button doesn't appear even though there's new content below
+  // Handles both:
+  // 1. Regular suggestions (Go deeper/Go broader chips) - from lastMessageSuggestions
+  // 2. Task dynamic follow-ups (AI-generated task-specific chips) - from dynamicFollowups
+  const lastMessageSuggestions = messages[messages.length - 1]?.suggestions;
+  useEffect(() => {
+    // Only run when not loading (suggestions arrive after streaming ends)
+    if (loading) return;
+
+    // Skip if no suggestions (initial render or cleared state)
+    const hasSuggestions =
+      (lastMessageSuggestions && lastMessageSuggestions.length > 0) ||
+      (dynamicFollowups && dynamicFollowups.length > 0);
+    if (!hasSuggestions) return;
+
+    // Check scroll position after DOM updates with new suggestions
+    const timeoutId = setTimeout(() => {
+      const messageList = messageListRef.current;
+      if (!messageList) return;
+
+      const { scrollTop, scrollHeight, clientHeight } = messageList;
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+      const threshold = 50;
+
+      // Show button if there's content below current scroll position
+      if (scrollHeight > clientHeight && distanceFromBottom > threshold) {
+        setShowScrollDownButton(true);
+        // Trigger shimmer animation to draw attention to the button
+        setShimmerScrollButton(true);
+      }
+    }, 50); // Small delay to allow DOM to update
+
+    return () => clearTimeout(timeoutId);
+  }, [lastMessageSuggestions, dynamicFollowups, loading]);
+
   // Function to scroll to bottom when button clicked
   const handleScrollDownClick = () => {
     // Scroll to bottom of content and hide button
@@ -3222,8 +3260,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                     >
                       <button
                         onClick={handleScrollDownClick}
+                        onAnimationEnd={() => setShimmerScrollButton(false)}
                         aria-label="Scroll to bottom"
-                        className="bg-white text-gray-600 rounded-full shadow-sm hover:shadow-md p-2 border border-gray-200 focus:outline-none"
+                        className={`bg-white text-gray-600 rounded-full shadow-sm hover:shadow-md p-2 border border-gray-200 focus:outline-none ${shimmerScrollButton ? "scroll-button-shimmer" : ""}`}
                       >
                         <span className="material-icons text-xl">expand_more</span>
                       </button>
