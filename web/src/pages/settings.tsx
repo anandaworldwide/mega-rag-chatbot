@@ -61,15 +61,15 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
   const [hasPassword, setHasPassword] = useState<boolean>(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
 
-  // Account activation date (for hiding onboarding after 15 days)
+  // Account activation date (for hiding onboarding after 30 days)
   const [verifiedAt, setVerifiedAt] = useState<Date | null>(null);
 
-  // Filter out onboarding email preference after 15 days since activation
+  // Filter out onboarding email preference after 30 days since activation
   const visibleEmailTypes = useMemo(() => {
     if (!verifiedAt) return enabledEmailTypes;
 
     const daysSinceActivation = Math.floor((Date.now() - verifiedAt.getTime()) / (1000 * 60 * 60 * 24));
-    if (daysSinceActivation > 15) {
+    if (daysSinceActivation > 30) {
       return enabledEmailTypes.filter((type) => type !== "onboarding");
     }
     return enabledEmailTypes;
@@ -344,6 +344,25 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
                 </form>
               </section>
 
+              <section className="mb-6">
+                <h2 className="text-lg font-semibold mb-1">Security</h2>
+                <div className="text-sm text-gray-700 mb-3">
+                  {hasPassword ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-green-600">✓ Password is set</span>
+                    </div>
+                  ) : (
+                    <div className="text-gray-600">No password set - using login link authentication</div>
+                  )}
+                </div>
+                <button
+                  onClick={() => setIsPasswordModalOpen(true)}
+                  className="rounded bg-blue-600 px-3 py-2 text-white hover:bg-blue-700"
+                >
+                  {hasPassword ? "Change Password" : "Set Password"}
+                </button>
+              </section>
+
               {visibleEmailTypes.length > 0 && (
                 <section className="mb-6">
                   <h2 className="text-lg font-semibold mb-1">Email Preferences</h2>
@@ -416,25 +435,6 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
                   className="rounded bg-blue-600 px-3 py-2 text-white disabled:opacity-50 hover:bg-blue-700 text-sm"
                 >
                   {savingChatPrefs ? "Saving…" : "Save Chat Preferences"}
-                </button>
-              </section>
-
-              <section className="mb-6">
-                <h2 className="text-lg font-semibold mb-1">Security</h2>
-                <div className="text-sm text-gray-700 mb-3">
-                  {hasPassword ? (
-                    <div className="flex items-center gap-2">
-                      <span className="text-green-600">✓ Password is set</span>
-                    </div>
-                  ) : (
-                    <div className="text-gray-600">No password set - using login link authentication</div>
-                  )}
-                </div>
-                <button
-                  onClick={() => setIsPasswordModalOpen(true)}
-                  className="rounded bg-blue-600 px-3 py-2 text-white hover:bg-blue-700"
-                >
-                  {hasPassword ? "Change Password" : "Set Password"}
                 </button>
               </section>
 

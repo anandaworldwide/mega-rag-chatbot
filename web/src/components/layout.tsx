@@ -102,7 +102,7 @@ export default function Layout({
         </div>
       </div>
       <div className={hasConversation ? "flex-shrink-0" : ""}>
-        <Footer siteConfig={siteConfig} />
+        <Footer siteConfig={siteConfig} onFeedbackClick={() => setIsFeedbackModalOpen(true)} />
       </div>
       {/* Feedback button */}
       {siteConfig && <FeedbackButton siteConfig={siteConfig} onClick={() => setIsFeedbackModalOpen(true)} />}
