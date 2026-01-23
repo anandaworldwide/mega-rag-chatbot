@@ -214,6 +214,15 @@ except ImportError:
 - **State**: Uses existing `loading` state to prevent concurrent regenerations
 - **Analytics**: Logs "regenerate_answer_clicked" event with message index
 
+## Data Files and Versioning
+
+### What's New JSON Files
+
+- **Location**: `web/public/data/[site]/whats-new.json`
+- **Critical Rule**: Always bump the `version` field when updating entries in whats-new.json files
+- **Pattern**: Increment version number (e.g., 3 → 4) whenever adding, removing, or modifying entries
+- **Purpose**: Version tracking helps detect when clients need to refresh their cached content
+
 ## Never Do Again
 
 1. Cross-evaluate between different embedding model generations
@@ -221,3 +230,4 @@ except ImportError:
 3. Add platform-specific packages to root package-lock.json
 4. Hardcode model names in evaluation scripts (use parameters)
 5. Move modules without updating ALL @patch decorator paths
+6. Update whats-new.json files without bumping the version number
