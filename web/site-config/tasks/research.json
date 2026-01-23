@@ -41,5 +41,5 @@
     "Suggest related topics to explore",
     "Turn this research into a class outline"
   ],
-  "promptTemplate": "I'm researching \"{{topic}}\" for {{purpose}}. I'd like a {{depth}} treatment. {{#focusAreas}}Pay special attention to: {{focusAreas}}{{/focusAreas}}\n\nPlease provide:\n1. Overview - A summary of what the teachings say about this topic\n2. Key Themes - Organize the main ideas into themes or categories\n3. Notable Quotes - Direct quotes from Master and Swamiji with source citations\n4. Different Perspectives - Any varying viewpoints or nuances in the teachings\n5. Practical Applications - How this applies to daily life/practice"
+  "promptTemplate": "I'm researching \"{{topic}}\" for {{purpose}}. I'd like a {{depth}} treatment.{{#focusAreas}}\n\nPay special attention to: {{focusAreas}}{{/focusAreas}}\n\nPlease provide:\n\n1. Overview - A summary of what the teachings say about this topic\n2. Key Themes - Organize the main ideas into themes or categories\n3. Notable Quotes - Direct quotes from Master and Swamiji with source citations\n4. Different Perspectives - Any varying viewpoints or nuances in the teachings\n5. Practical Applications - How this applies to daily life/practice"
 }

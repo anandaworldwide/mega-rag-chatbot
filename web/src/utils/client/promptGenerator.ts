@@ -47,8 +47,23 @@ export function generatePrompt(template: string, values: Record<string, any>): s
     return String(value);
   });
 
-  // Clean up extra whitespace
-  result = result.replace(/\n{3,}/g, "\n\n").trim();
-
-  return result;
+  // Clean up spacing issues for better readability:
+  // 1. Fix periods followed immediately by capital letters (from removed conditionals) - add newline
+  result = result.replace(/\.([A-Z])/g, ".\n\n$1");
+  // 2. Fix periods followed immediately by lowercase letters (should have space, not newline)
+  result = result.replace(/\.([a-z])/g, ". $1");
+  // 3. Fix multiple consecutive spaces (but preserve single spaces)
+  result = result.replace(/  +/g, " ");
+  // 4. Clean up extra newlines (more than 2 consecutive become 2)
+  result = result.replace(/\n{3,}/g, "\n\n");
+  // 5. Ensure proper spacing after periods that aren't followed by whitespace or newline
+  result = result.replace(/\.([^\s\n.])/g, ". $1");
+  // 6. Remove spaces before periods (clean up formatting)
+  result = result.replace(/ +\./g, ".");
+  // 7. Ensure numbered list items have proper spacing (e.g., "1.Content" -> "1. Content")
+  result = result.replace(/(\d+)\.([^\s\n])/g, "$1. $2");
+  // 8. Final cleanup: remove any remaining double spaces
+  result = result.replace(/  +/g, " ");
+  
+  return result.trim();
 }

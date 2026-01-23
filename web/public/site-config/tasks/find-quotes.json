@@ -52,5 +52,5 @@
     "Suggest which quote would work best for my purpose",
     "Translate these quotes into another language"
   ],
-  "promptTemplate": "I need direct quotes on the topic of \"{{topic}}\".{{#purpose}} I'll be using these for {{purpose}}.{{/purpose}} {{#quantity}}Please provide {{quantity}} quotes.{{/quantity}}{{^quantity}}Please provide 5-7 quotes.{{/quantity}}{{#style}}\n\nI prefer quotes that are {{style}}.{{/style}}\n\nIMPORTANT: Please provide:\n\n1. The exact quote (do not paraphrase or summarize)\n2. The source (book title, chapter, or talk name)\n3. Brief context if helpful\n\nI need actual quotations that I can cite, not summaries of what they said."
+  "promptTemplate": "I need direct quotes on the topic of \"{{topic}}\".{{#purpose}}\n\nI'll be using these for {{purpose}}.{{/purpose}}{{#quantity}}\n\nPlease provide {{quantity}} quotes.{{/quantity}}{{^quantity}}\n\nPlease provide 5-7 quotes.{{/quantity}}{{#style}}\n\nI prefer quotes that are {{style}}.{{/style}}\n\nIMPORTANT: Please provide:\n\n1. The exact quote (do not paraphrase or summarize)\n2. The source (book title, chapter, or talk name)\n3. Brief context if helpful\n\nI need actual quotations that I can cite, not summaries of what they said."
 }
