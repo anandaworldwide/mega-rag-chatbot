@@ -126,13 +126,17 @@ export default function SearchPage({ siteConfig }: SearchPageProps) {
   const hasQuery = query.trim().length > 0;
   const hasResults = results.length > 0;
 
+  const handleNewChat = () => {
+    router.push("/");
+  };
+
   return (
     <>
       <Head>
         <title>Search Passages - {siteName}</title>
         <meta name="description" content="Search passages in the library" />
       </Head>
-      <Layout siteConfig={siteConfig}>
+      <Layout siteConfig={siteConfig} onNewChat={handleNewChat}>
         <div className="mx-auto max-w-screen-2xl px-4 sm:px-6 lg:px-8 py-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-6">Search Passages</h1>
 

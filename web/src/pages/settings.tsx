@@ -1,6 +1,7 @@
 // Settings page: shows user email and a logout button
 import React, { useEffect, useState, useMemo } from "react";
 import Head from "next/head";
+import { useRouter } from "next/router";
 import Layout from "@/components/layout";
 import type { GetServerSideProps } from "next";
 import type { SiteConfig } from "@/types/siteConfig";
@@ -14,6 +15,7 @@ import { MODEL_OPTIONS, DEFAULT_MODEL } from "@/config/modelOptions";
 import { logEvent } from "@/utils/client/analytics";
 
 export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | null }) {
+  const router = useRouter();
   const [email, setEmail] = useState<string | null>(null);
   const [firstName, setFirstName] = useState<string>("");
   const [lastName, setLastName] = useState<string>("");
@@ -252,12 +254,16 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
     setMessage(successMessage);
   }
 
+  const handleNewChat = () => {
+    router.push("/");
+  };
+
   return (
     <>
       <Head>
         <title>Settings</title>
       </Head>
-      <Layout siteConfig={siteConfig}>
+      <Layout siteConfig={siteConfig} onNewChat={handleNewChat}>
         <main className="mx-auto max-w-3xl p-6 w-full">
           <h1 className="text-2xl font-semibold mb-4">Settings</h1>
           {message && <div className="mb-4 rounded border border-yellow-300 bg-yellow-50 p-3 text-sm">{message}</div>}
@@ -414,20 +420,18 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
                   </button>
                 </div>
                 <p className="text-sm text-gray-600 mb-3">Choose your preferred AI model for chat responses.</p>
-                <div className="space-y-2 mb-3">
-                  {MODEL_OPTIONS.map((option) => (
-                    <label key={option.value} className="flex items-center cursor-pointer">
-                      <input
-                        type="radio"
-                        name="preferredModel"
-                        value={option.value}
-                        checked={preferredModel === option.value}
-                        onChange={(e) => setPreferredModel(e.target.value)}
-                        className="mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
-                      />
-                      <span className="text-sm text-gray-700">{option.label}</span>
-                    </label>
-                  ))}
+                <div className="mb-3">
+                  <select
+                    value={preferredModel}
+                    onChange={(e) => setPreferredModel(e.target.value)}
+                    className="block w-full max-w-xs rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    {MODEL_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <button
                   onClick={handleSaveChatPreferences}

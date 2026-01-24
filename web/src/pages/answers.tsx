@@ -234,9 +234,13 @@ const AllAnswers = ({ siteConfig, authorizationError, errorMessage }: AllAnswers
     }
   }, [checkSudoStatus, siteConfig]);
 
+  const handleNewChat = () => {
+    router.push("/");
+  };
+
   return (
     <SudoProvider disableChecks={!!siteConfig && !!siteConfig.requireLogin}>
-      <Layout siteConfig={siteConfig}>
+      <Layout siteConfig={siteConfig} onNewChat={handleNewChat}>
         {/* Authorization error display */}
         {authorizationError && (
           <div className="mx-auto max-w-full sm:max-w-4xl px-2 sm:px-6 lg:px-8">

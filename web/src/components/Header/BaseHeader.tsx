@@ -231,17 +231,27 @@ export default function BaseHeader({
                 <span className="material-icons text-xl">cloud_off</span>
               </button>
             )}
-            {/* Show new chat button when chat is not empty OR when temporary session is active */}
-            {(!isChatEmpty || temporarySession) && onNewChat && (
-              <button
-                onClick={onNewChat}
-                aria-label="New Chat"
-                className="text-white hover:text-gray-200 p-1 rounded-xl hover:bg-white/10 transition-colors"
-                title="Start New Chat"
-              >
-                <span className="material-icons text-xl">edit_square</span>
-              </button>
-            )}
+            {/* Show new chat button:
+                - Always for non-logged-in users (any page, any site)
+                - For logged-in users on login-required sites:
+                  - On home page: only when chat is not empty or temporary session (preserve original behavior)
+                  - On other pages (settings, answers, search): always show
+                - For logged-in users on non-login-required sites: only when chat is not empty or temporary session is active
+            */}
+            {onNewChat &&
+              (!isLoggedIn ||
+                (isLoggedIn && requireLogin && router.pathname !== "/") ||
+                !isChatEmpty ||
+                temporarySession) && (
+                <button
+                  onClick={onNewChat}
+                  aria-label="New Chat"
+                  className="text-white hover:text-gray-200 p-1 rounded-xl hover:bg-white/10 transition-colors"
+                  title="Start New Chat"
+                >
+                  <span className="material-icons text-xl">edit_square</span>
+                </button>
+              )}
             {enableSearchPage && (
               <Link
                 href="/search"
