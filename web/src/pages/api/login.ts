@@ -133,6 +133,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         sameSite: "lax",
         path: "/",
       });
+      // Set client-readable session indicator (allows JS to detect auth cookies exist)
+      cookies.set("hasSession", "1", {
+        httpOnly: false,
+        secure: isSecure,
+        maxAge: 180 * 24 * 60 * 60 * 1000, // 180 days
+        sameSite: "lax",
+        path: "/",
+      });
 
       // Delete the rate limit counter after successful login
       await deleteRateLimitCounter(req, "login");

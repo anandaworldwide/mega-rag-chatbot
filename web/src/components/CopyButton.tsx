@@ -49,7 +49,25 @@ const CopyButton: React.FC<CopyButtonProps> = ({
   const [copied, setCopied] = React.useState(false);
 
   const convertMarkdownToHtml = (markdown: string): string => {
-    const converter = new Converter();
+    const converter = new Converter({
+      // Table support
+      tables: true,                      // Convert markdown tables to HTML <table> elements
+      tablesHeaderId: false,             // Don't add IDs to header cells
+      
+      // Text formatting
+      strikethrough: true,               // Enable ~~strikethrough~~ syntax
+      literalMidWordUnderscores: true,   // Don't italicize underscores in words like some_variable_name
+      
+      // Links
+      simplifiedAutoLink: true,          // Auto-link URLs without needing markdown syntax
+      openLinksInNewWindow: true,        // Add target="_blank" to links (good for copied content)
+      
+      // Code blocks  
+      ghCodeBlocks: true,                // GitHub-style fenced code blocks (```code```)
+      
+      // Lists
+      tasklists: true,                   // GitHub-style task lists [ ] and [x]
+    });
     return converter.makeHtml(markdown);
   };
 

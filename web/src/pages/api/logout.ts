@@ -37,6 +37,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       expires: new Date(0),
       path: "/",
     });
+    // Clear client-readable session indicator
+    cookies.set("hasSession", "", {
+      expires: new Date(0),
+      path: "/",
+    });
     res.status(200).json({ message: "Logged out" });
   } else {
     res.status(405).json({ message: "Method not allowed" });

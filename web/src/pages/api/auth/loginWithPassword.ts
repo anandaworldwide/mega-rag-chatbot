@@ -164,46 +164,50 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
     );
 
-    try {
-      cookies.set("auth", authToken, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: isSecure,
-        maxAge: 180 * 24 * 60 * 60 * 1000,
-        path: "/",
-      });
+    cookies.set("auth", authToken, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: isSecure,
+      maxAge: 180 * 24 * 60 * 60 * 1000,
+      path: "/",
+    });
 
-      // Set signed UUID cookie to prevent spoofing
-      // TODO: Remove migration bridge after June 2026 - only signed cookies supported
-      cookies.set("uuid", createSignedUUIDCookie(finalUuid as string), {
-        httpOnly: false,
-        sameSite: "lax",
-        secure: isSecure,
-        maxAge: 180 * 24 * 60 * 60 * 1000,
-        path: "/",
-      });
+    // Set signed UUID cookie to prevent spoofing
+    // TODO: Remove migration bridge after June 2026 - only signed cookies supported
+    cookies.set("uuid", createSignedUUIDCookie(finalUuid as string), {
+      httpOnly: false,
+      sameSite: "lax",
+      secure: isSecure,
+      maxAge: 180 * 24 * 60 * 60 * 1000,
+      path: "/",
+    });
 
-      // TODO: Remove migration bridge after June 2026 - only set authToken
-      // Set both auth and authToken cookies during migration period
-      // auth: legacy cookie for backward compatibility
-      cookies.set("auth", authToken, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: isSecure,
-        maxAge: 180 * 24 * 60 * 60 * 1000,
-        path: "/",
-      });
-      // authToken: new cookie name
-      cookies.set("authToken", authToken, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: isSecure,
-        maxAge: 180 * 24 * 60 * 60 * 1000,
-        path: "/",
-      });
-    } catch (cookieError) {
-      throw cookieError;
-    }
+    // TODO: Remove migration bridge after June 2026 - only set authToken
+    // Set both auth and authToken cookies during migration period
+    // auth: legacy cookie for backward compatibility
+    cookies.set("auth", authToken, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: isSecure,
+      maxAge: 180 * 24 * 60 * 60 * 1000,
+      path: "/",
+    });
+    // authToken: new cookie name
+    cookies.set("authToken", authToken, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: isSecure,
+      maxAge: 180 * 24 * 60 * 60 * 1000,
+      path: "/",
+    });
+    // Set client-readable session indicator (allows JS to detect auth cookies exist)
+    cookies.set("hasSession", "1", {
+      httpOnly: false,
+      sameSite: "lax",
+      secure: isSecure,
+      maxAge: 180 * 24 * 60 * 60 * 1000,
+      path: "/",
+    });
 
     // Audit log successful login
     await writeAuditLog(req, "user_login_success", emailLower, {

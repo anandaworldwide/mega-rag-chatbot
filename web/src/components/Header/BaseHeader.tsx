@@ -44,14 +44,12 @@ export default function BaseHeader({
 }: BaseHeaderProps) {
   const router = useRouter();
   // Fast initial state from cookie presence to avoid flicker; will be reconciled after init
-  // TODO: Remove migration bridge after June 2026 - during bridge, check legacy isLoggedIn for pre-migration sessions
-  // Check for authToken (new), auth (legacy HttpOnly), or isLoggedIn (old non-HttpOnly) during migration
+  // Check for hasSession (client-readable indicator) or legacy isLoggedIn during migration until June 2026.
+  // Note: authToken and auth cookies are HttpOnly and cannot be read from JavaScript
   const [isLoggedIn, setIsLoggedIn] = useState(() => {
     if (typeof document === "undefined") return false;
     return (
-      document.cookie.includes("authToken=") ||
-      document.cookie.includes("auth=") ||
-      document.cookie.includes("isLoggedIn=true")
+      document.cookie.includes("hasSession=") || document.cookie.includes("isLoggedIn=true") // Legacy fallback during migration
     );
   });
   const [authReady, setAuthReady] = useState(false);
@@ -66,14 +64,12 @@ export default function BaseHeader({
 
   // Keep auth state in sync without extra network calls
   useEffect(() => {
-    // TODO: Remove migration bridge after June 2026 - during bridge, check legacy isLoggedIn for pre-migration sessions
-    // Check for authToken (new), auth (legacy HttpOnly), or isLoggedIn (old non-HttpOnly) during migration
+    // Check for hasSession (client-readable indicator) or legacy isLoggedIn during migration until June 2026.
+    // Note: authToken and auth cookies are HttpOnly and cannot be read from JavaScript
     const hasAuthCookie = (): boolean => {
       return (
         typeof document !== "undefined" &&
-        (document.cookie.includes("authToken=") ||
-          document.cookie.includes("auth=") ||
-          document.cookie.includes("isLoggedIn=true"))
+        (document.cookie.includes("hasSession=") || document.cookie.includes("isLoggedIn=true")) // Legacy fallback during migration until June 2026.
       );
     };
 
@@ -103,13 +99,13 @@ export default function BaseHeader({
 
     // Trigger (deduped) auth initialization so we can reflect JWT state
     initializeTokenManager()
-      .then(() => {
-        updateAuthState();
+      .then(async () => {
+        await updateAuthState();
         setAuthReady(true);
       })
-      .catch(() => {
+      .catch(async () => {
         // Even if token initialization fails, check cookie state
-        updateAuthState();
+        await updateAuthState();
         setAuthReady(true);
       });
 

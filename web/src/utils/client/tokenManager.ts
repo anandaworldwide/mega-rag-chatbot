@@ -94,12 +94,11 @@ export class AuthenticationError extends Error {
  * AuthGuard to implement retry logic before deciding to redirect.
  */
 async function fetchNewToken(): Promise<string> {
-  // Helper function to detect any auth cookie presence for migration bridge
+  // Helper function to detect any auth cookie presence
+  // Note: authToken and auth are HttpOnly, so we check hasSession (client-readable indicator)
   function hasAnyAuthCookie(): boolean {
     return (
-      document.cookie.includes("authToken=") ||
-      document.cookie.includes("auth=") ||
-      document.cookie.includes("isLoggedIn=true")
+      document.cookie.includes("hasSession=") || document.cookie.includes("isLoggedIn=true") // Legacy fallback during migration until June 2026.
     );
   }
 
@@ -190,7 +189,7 @@ async function fetchNewToken(): Promise<string> {
   }
 }
 
-// TODO: Post-bridge (June 2026), simplify hasAnyAuthCookie() to check only authToken presence (drop legacy ORs for auth and isLoggedIn)
+// TODO: Post-bridge (June 2026), simplify hasAnyAuthCookie() to check only hasSession presence (drop legacy isLoggedIn)
 
 /**
  * Initialize the token manager and fetch the first token
@@ -209,13 +208,11 @@ export async function initializeTokenManager(): Promise<string> {
 
   // For browser session restoration scenarios (mobile or desktop reboot), always force a fresh token fetch
   // if we detect that we might be in a restored session (no in-memory token but auth cookies exist)
-  // TODO: Remove migration bridge after June 2026 - during bridge, check legacy isLoggedIn for pre-migration sessions
-  // Check for authToken (new), auth (legacy HttpOnly), or isLoggedIn (old non-HttpOnly) during migration
+  // Check for hasSession (client-readable indicator) or legacy isLoggedIn during migration
+  // Note: authToken and auth cookies are HttpOnly and cannot be read from JavaScript
   const hasAuthCookies =
     typeof document !== "undefined" &&
-    (document.cookie.includes("authToken=") ||
-      document.cookie.includes("auth=") ||
-      document.cookie.includes("isLoggedIn=true"));
+    (document.cookie.includes("hasSession=") || document.cookie.includes("isLoggedIn=true")); // Legacy fallback during migration
 
   if (!tokenData && hasAuthCookies) {
     console.log("Browser session restoration detected - forcing fresh token fetch");

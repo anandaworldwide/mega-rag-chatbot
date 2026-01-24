@@ -1394,54 +1394,71 @@ higher-level component (AuthGuard) should decide when to redirect after exhausti
 **Related Fix**: Also ensure all login endpoints use consistent JWT expiry. Legacy `login.ts` used 24h while newer
 endpoints used 180d, causing premature session expiration for users who logged in via the legacy endpoint.
 
-### 38. Header Authentication State Bug - Expired Token with Valid Session Cookie
+### 38. HttpOnly Cookies Cannot Be Detected by JavaScript - Use Client-Readable Session Indicator
 
 **Problem**: After leaving a page open for hours, the settings icon changes to "login" even though the user is still
-logged in. Navigation still works because the session cookie is valid, but the UI shows incorrect state.
+logged in. The original fix attempted to detect auth cookies and refresh the token, but it failed because the auth
+cookies (`authToken`, `auth`) are set with `httpOnly: true`, meaning JavaScript cannot read them via `document.cookie`.
 
-**Root Cause**: The `BaseHeader` component's `updateAuthState()` function checks `isAuthenticated()` which relies on
-in-memory JWT token. When the token expires (typically after 15 minutes), `isAuthenticated()` returns false even though
-the session cookie (`authToken`) is still valid (may last 24 hours or 180 days). The component was using cookies as a
-fallback but not refreshing the expired token.
+**Root Cause**: The authentication cookies are HttpOnly for security, but the client-side code was attempting to detect
+them with `document.cookie.includes("authToken=")` which always returns false for HttpOnly cookies.
 
-**Wrong**: Only checking token state and using cookies as fallback without refreshing expired tokens.
-
-```typescript
-const updateAuthState = () => {
-  const hasAuthCookie = document.cookie.includes("authToken=");
-  const tokenAuthenticated = isAuthenticated();
-  setIsLoggedIn(tokenAuthenticated || hasAuthCookie); // Falls back to cookie but doesn't refresh token
-};
-```
-
-**Correct**: When cookies exist but token is expired, refresh the token instead of just using cookie fallback.
+**Wrong**: Attempting to detect HttpOnly cookies from JavaScript.
 
 ```typescript
-const updateAuthState = async () => {
-  const tokenAuthenticated = isAuthenticated();
-  const cookiesExist = hasAuthCookie();
-
-  // If we have cookies but token is expired/invalid, refresh the token
-  if (cookiesExist && !tokenAuthenticated) {
-    try {
-      await initializeTokenManager(); // Refresh the expired token
-      const refreshedAuth = isAuthenticated();
-      setIsLoggedIn(refreshedAuth || cookiesExist);
-    } catch (error) {
-      setIsLoggedIn(cookiesExist); // Fallback to cookie state
-    }
-  } else {
-    setIsLoggedIn(tokenAuthenticated || cookiesExist);
-  }
-};
+// This ALWAYS returns false for HttpOnly cookies!
+const hasAuthCookie = document.cookie.includes("authToken=") || document.cookie.includes("auth=");
 ```
 
-**Pattern**: When authentication state depends on both in-memory tokens and session cookies, always refresh expired
-tokens when cookies indicate a valid session. Also add `visibilitychange` event listener to refresh tokens when tabs
-become visible after being hidden.
+**Correct**: Set a separate non-HttpOnly cookie (`hasSession=1`) alongside auth cookies during login. This cookie
+contains no sensitive data but allows JavaScript to detect when auth cookies exist.
 
-**Applied To**: `BaseHeader.tsx` - updated `updateAuthState()` to refresh tokens when expired, added `visibilitychange`
-event listener for tab visibility changes.
+```typescript
+// In login endpoints - set alongside auth cookies:
+cookies.set("hasSession", "1", {
+  httpOnly: false, // Client-readable!
+  secure: isSecure,
+  maxAge: 180 * 24 * 60 * 60 * 1000, // Same as auth cookies
+  sameSite: "lax",
+  path: "/",
+});
+
+// In client-side detection:
+const hasAuthCookie = document.cookie.includes("hasSession=");
+```
+
+**Additional Fix**: The `updateAuthState()` function was async but not awaited, causing a timing issue where
+`setAuthReady(true)` ran before auth state was updated.
+
+```typescript
+// Wrong: async function not awaited
+initializeTokenManager().then(() => {
+  updateAuthState(); // NOT awaited!
+  setAuthReady(true); // Runs before updateAuthState completes
+});
+
+// Correct: await the async function
+initializeTokenManager().then(async () => {
+  await updateAuthState();
+  setAuthReady(true);
+});
+```
+
+**Pattern**: When using HttpOnly cookies for authentication:
+
+1. Add a non-HttpOnly session indicator cookie (e.g., `hasSession=1`) for client-side detection
+2. Set it during all login flows and clear it during logout
+3. **Clear it whenever auth cookies are cleared due to invalid/expired tokens** (e.g., in `web-token.ts` when JWT
+   verification fails)
+4. Use it in place of trying to detect HttpOnly cookies from JavaScript
+
+**Critical**: The `hasSession` cookie must be cleared in ALL places where `authToken`/`auth` cookies are cleared,
+including error handlers that detect invalid cookies. Otherwise, clients will see `hasSession=1` and believe the user is
+logged in, while the server has no valid session.
+
+**Applied To**: All login endpoints (`login.ts`, `loginWithPassword.ts`, `magicLogin.ts`, `verifyMagicLink.ts`,
+`web-token.ts` migration), `logout.ts`, `web-token.ts` (error handlers), `BaseHeader.tsx`, `tokenManager.ts`,
+`AuthGuard.tsx`.
 
 ### ECS Manual Task Runs Require Public IP for Secrets Manager Access
 
@@ -1527,9 +1544,12 @@ try {
 
 ### 40. Chat History Must Be Updated With Actual Assistant Responses
 
-**Problem**: Question reformulation fails when history contains empty assistant content strings, causing follow-up questions to lose context and generate irrelevant responses.
+**Problem**: Question reformulation fails when history contains empty assistant content strings, causing follow-up
+questions to lose context and generate irrelevant responses.
 
-**Root Cause**: When a new message is submitted, the history is initialized with `{ role: "assistant", content: "" }`, but this empty content is never updated with the actual streamed response. Subsequent questions send this broken history to the API, and the reformulation model can't incorporate proper context.
+**Root Cause**: When a new message is submitted, the history is initialized with `{ role: "assistant", content: "" }`,
+but this empty content is never updated with the actual streamed response. Subsequent questions send this broken history
+to the API, and the reformulation model can't incorporate proper context.
 
 **Wrong**: Adding empty assistant content to history and never updating it.
 
@@ -1577,9 +1597,11 @@ if (data.done) {
 2. Update history when streaming completes, not just when message is submitted
 3. Applies to all flows: main submit, edit message, and regenerate answer
 
-**Symptom**: Reformulation shows unchanged question like `"Create X" → "Create X."` (only adds punctuation) because the model has no conversation context to incorporate.
+**Symptom**: Reformulation shows unchanged question like `"Create X" → "Create X."` (only adds punctuation) because the
+model has no conversation context to incorporate.
 
-**Applied To**: Fixed `index.tsx` in three locations: main handleSubmit, handleSaveEditedQuestion, and handleRegenerateAnswer.
+**Applied To**: Fixed `index.tsx` in three locations: main handleSubmit, handleSaveEditedQuestion, and
+handleRegenerateAnswer.
 
 ### 41. Paired Endpoints Must Use Consistent Token Validation
 
@@ -1626,7 +1648,8 @@ category-specific tokens.
 
 ### 42. React Stale Closure Issue - Use Refs for Values Needed in Callbacks
 
-**Problem**: State values captured in callback closures become stale when the callback is invoked later, after the state has changed. This causes API calls to send outdated data.
+**Problem**: State values captured in callback closures become stale when the callback is invoked later, after the state
+has changed. This causes API calls to send outdated data.
 
 **Wrong**: Using state directly in async callbacks/API calls.
 
@@ -1668,13 +1691,16 @@ const handleSubmit = async () => {
 3. Read from `ref.current` in callbacks instead of state directly
 4. Remove the state from useCallback dependency arrays (refs are stable)
 
-**Symptom**: API calls send empty/stale data even though React DevTools shows state is correct. The callback closure captured the old value.
+**Symptom**: API calls send empty/stale data even though React DevTools shows state is correct. The callback closure
+captured the old value.
 
-**Applied To**: Fixed `index.tsx` history management - created `historyRef` to ensure API calls always send current chat history for question reformulation.
+**Applied To**: Fixed `index.tsx` history management - created `historyRef` to ensure API calls always send current chat
+history for question reformulation.
 
 ### 43. React Portal Positioning Flicker
 
-**Problem**: Portaled popovers/modals flicker in the top-left corner before appearing in the correct position because they render before position is calculated.
+**Problem**: Portaled popovers/modals flicker in the top-left corner before appearing in the correct position because
+they render before position is calculated.
 
 **Wrong**: Rendering portal immediately with position calculated in useEffect.
 
@@ -1717,10 +1743,10 @@ const handleClose = () => {
 };
 
 return isOpen && createPortal(
-  <div style={{ 
-    top: position.top, 
-    left: position.left, 
-    opacity: isPositioned ? 1 : 0 
+  <div style={{
+    top: position.top,
+    left: position.left,
+    opacity: isPositioned ? 1 : 0
   }}>
     ...
   </div>,
@@ -1729,6 +1755,7 @@ return isOpen && createPortal(
 ```
 
 **Pattern**: For portaled elements that need dynamic positioning:
+
 1. Add `isPositioned` state starting as false
 2. Set `isPositioned = true` after position is calculated
 3. Use `opacity: 0` until positioned (not `display: none` - element needs to be in DOM for size calculation)
