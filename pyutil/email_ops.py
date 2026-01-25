@@ -26,6 +26,7 @@ import os
 import traceback
 from datetime import datetime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 try:
     import boto3
@@ -84,8 +85,11 @@ def _build_email_body(message: str, error_details: dict[str, Any] | None) -> str
             email_body += f"Context: {json.dumps(error_details['context'], indent=2)}\n"
 
     # Add timestamp and environment info
+    # Use Pacific time for consistency across all reports
+    pacific_tz = ZoneInfo("America/Los_Angeles")
+    pacific_time = datetime.now(pacific_tz)
     email_body += "\n\n--- System Info ---\n"
-    email_body += f"Timestamp: {datetime.now().isoformat()}\n"
+    email_body += f"Timestamp: {pacific_time.strftime('%Y-%m-%d %I:%M:%S %p %Z')}\n"
     email_body += f"Environment: {os.getenv('NODE_ENV', 'unknown')}\n"
     email_body += f"Site ID: {os.getenv('SITE_ID', 'unknown')}\n"
     email_body += f"Python Version: {os.sys.version}\n"
