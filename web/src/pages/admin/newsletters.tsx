@@ -372,7 +372,7 @@ export default function NewslettersPage({ siteConfig }: NewsletterPageProps) {
 
     try {
       // Configure marked for safe HTML generation
-      marked.setOptions({
+      marked.use({
         breaks: true, // Convert line breaks to <br>
         gfm: true, // Enable GitHub Flavored Markdown
       });

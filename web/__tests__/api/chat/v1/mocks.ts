@@ -1,5 +1,5 @@
 // Mock implementations for streaming tests
-import { Document } from 'langchain/document';
+import { Document } from '@langchain/core/documents';
 
 // Mock document for testing
 export const mockDocs = [

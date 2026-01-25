@@ -6,7 +6,7 @@ import { getAnswersCollectionName } from "@/utils/server/firestoreUtils";
 import { getEnvName } from "@/utils/env";
 import { getFromCache, setInCache, CACHE_EXPIRATION } from "@/utils/server/redisUtils";
 import { Answer } from "@/types/answer";
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import { DocMetadata } from "@/types/DocMetadata";
 import { firestoreQueryGet } from "@/utils/server/firestoreRetryUtils";
 
@@ -123,13 +123,12 @@ export async function getTotalDocuments(): Promise<number> {
     await setInCache(cacheKey, count.toString(), CACHE_EXPIRATION);
 
     return count;
-  } catch (error) {
+  } catch (_error) {
     // Fall back to the streaming method with timeout protection only if direct count fails
     let count = 0;
     try {
       const stream = db.collection(getAnswersCollectionName()).stream();
       // Count documents using a stream to handle large collections efficiently
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       for await (const _ of stream) {
         count++;
       }

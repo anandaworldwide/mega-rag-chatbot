@@ -3,7 +3,7 @@ import { render, fireEvent, waitFor, act } from "@testing-library/react";
 import CopyButton from "../../src/components/CopyButton";
 import { copyTextToClipboard } from "../../src/utils/client/clipboard";
 import { logEvent } from "../../src/utils/client/analytics";
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import { DocMetadata } from "../../src/types/DocMetadata";
 import { SiteConfig } from "../../src/types/siteConfig";
 

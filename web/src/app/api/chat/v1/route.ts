@@ -43,7 +43,7 @@
 // TODO: wrap this in apiMiddleware
 //
 import { NextRequest, NextResponse } from "next/server";
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { PineconeStore } from "@langchain/pinecone";
 import { makeChain, setupAndExecuteLanguageModelChain, NoSourcesError } from "@/utils/server/makechain";

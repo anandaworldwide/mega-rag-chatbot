@@ -7,7 +7,7 @@
  * - Getting total document count with caching
  */
 
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import { DocMetadata } from "@/types/DocMetadata";
 
 // Store original env

@@ -1,4 +1,4 @@
-import { Document } from 'langchain/document';
+import { Document } from '@langchain/core/documents';
 import { PineconeStore } from '@langchain/pinecone';
 import path from 'path';
 import fs from 'fs';
@@ -218,7 +218,7 @@ export async function applyReranking(
       const retrievalStartTime = Date.now();
       const originalK = retriever.k;
       retriever.k = expandedSourceCount;
-      documentsToRerank = await retriever.getRelevantDocuments(query);
+      documentsToRerank = await retriever.invoke(query);
       retriever.k = originalK;
       console.log(
         `Fallback retrieval took ${Date.now() - retrievalStartTime}ms`,
@@ -246,7 +246,7 @@ export async function applyReranking(
     // Use the originally requested finalSourceCount for fallback
     const originalK = retriever.k;
     retriever.k = finalSourceCount;
-    const fallbackDocs = await retriever.getRelevantDocuments(query);
+    const fallbackDocs = await retriever.invoke(query);
     retriever.k = originalK;
     return fallbackDocs;
   }

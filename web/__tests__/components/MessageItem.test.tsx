@@ -2,7 +2,7 @@ import React from "react";
 import { render, fireEvent, screen } from "@testing-library/react";
 import MessageItem from "@/components/MessageItem";
 import { ExtendedAIMessage } from "@/types/ExtendedAIMessage";
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import { DocMetadata } from "@/types/DocMetadata";
 import { SiteConfig } from "@/types/siteConfig";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";

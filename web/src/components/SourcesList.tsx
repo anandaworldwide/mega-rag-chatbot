@@ -19,7 +19,7 @@
  */
 
 import React, { useState, useCallback } from "react";
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import ReactMarkdown from "react-markdown";
 import gfm from "remark-gfm";
 import styles from "@/styles/Home.module.css";

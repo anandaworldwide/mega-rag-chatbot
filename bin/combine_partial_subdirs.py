@@ -48,7 +48,7 @@ def combine_hierarchies(input_dir, output_dir):
             if not os.path.isdir(top_dir_path):
                 continue
 
-            for root, dirs, files in os.walk(top_dir_path):
+            for root, _dirs, files in os.walk(top_dir_path):
                 rel_path = os.path.relpath(root, top_dir_path)
                 target_dir = os.path.join(output_dir, rel_path)
 

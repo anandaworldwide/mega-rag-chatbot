@@ -38,4 +38,12 @@ line-ending = "auto"
 max-complexity = 10
 
 [tool.ruff.lint.isort]
-known-first-party = ["data_ingestion", "pyutil"] 
+known-first-party = ["data_ingestion", "pyutil"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+addopts = [
+    "--strict-markers",
+    "--disable-warnings",
+    "--tb=short"
+] 

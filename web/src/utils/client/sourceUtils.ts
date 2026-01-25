@@ -3,7 +3,7 @@
  * Used for deep linking to specific sources in shared conversations
  */
 
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import { DocMetadata } from "@/types/DocMetadata";
 
 /**
@@ -49,7 +49,7 @@ export function generateSourceId(doc: Document<DocMetadata>): string {
         const startTime = metadata.start_time ? `-${Math.floor(metadata.start_time)}` : "";
         return `source-youtube-${videoId}${startTime}`;
       }
-    } catch (e) {
+    } catch (_e) {
       // Invalid URL, fall through to generic ID
     }
   }

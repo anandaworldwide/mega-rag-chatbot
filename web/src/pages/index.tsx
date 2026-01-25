@@ -43,7 +43,7 @@ import {
   getEnabledMediaTypes,
 } from "@/utils/client/siteConfig";
 import { DEFAULT_MODEL } from "@/config/modelOptions";
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 
 // Third-party library imports
 import Cookies from "js-cookie";

@@ -30,7 +30,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { RunnableSequence, RunnablePassthrough } from "@langchain/core/runnables";
 import { StringOutputParser } from "@langchain/core/output_parsers";
-import type { Document } from "langchain/document";
+import type { Document } from "@langchain/core/documents";
 import { VectorStoreRetriever } from "@langchain/core/vectorstores";
 import fs from "fs/promises";
 import path from "path";
@@ -460,7 +460,7 @@ export const makeChain = async (
     // Initialize the answer generation model
     const baseAnswerModel = new ChatOpenAI({
       temperature,
-      modelName: model,
+      model: model,
       streaming: true,
     });
 
@@ -505,10 +505,7 @@ export const makeChain = async (
 
     if (shouldUseGeoTools && geoTools.length > 0 && request) {
       // Bind tools to the model - LangChain will handle tool execution automatically
-      answerModel = baseAnswerModel.bind({
-        tools: geoTools,
-        tool_choice: "auto", // Let AI decide when to use tools
-      }) as BaseLanguageModel;
+      answerModel = baseAnswerModel.bindTools(geoTools) as BaseLanguageModel;
 
       console.log(
         "✅ Geo-awareness tools conditionally bound to OpenAI model for location query:",
@@ -530,7 +527,7 @@ export const makeChain = async (
     // Initialize the rephrasing model (faster, lighter)
     rephraseModel = new ChatOpenAI({
       temperature: rephraseModelConfig.temperature,
-      modelName: rephraseModelConfig.model,
+      model: rephraseModelConfig.model,
       streaming: false, // No need for streaming here
     }) as BaseLanguageModel;
   } catch (error) {
@@ -1062,20 +1059,13 @@ Error details: ${errorString}`,
 
         // TEMPORARY DEBUG: Show context being provided to reformulation BEFORE calling
         if (!temporarySession) {
-          console.log(`🔍 REFORMULATION INPUT:`, {
-            originalQuestion: input.question,
-            chatHistoryLength: input.chat_history?.length || 0,
-            chatHistoryPreview: input.chat_history?.substring(0, 500),
-          });
-
           if (sendData) {
             sendData({ log: `🔍 ORIGINAL: "${input.question}"` });
             sendData({ log: `🔍 HISTORY LENGTH: ${input.chat_history?.length || 0} characters` });
             if (input.chat_history && input.chat_history.length > 0) {
               // Show a truncated version of the chat history
-              const truncatedHistory = input.chat_history.length > 300
-                ? input.chat_history.substring(0, 300) + "..."
-                : input.chat_history;
+              const truncatedHistory =
+                input.chat_history.length > 300 ? input.chat_history.substring(0, 300) + "..." : input.chat_history;
               sendData({ log: `🔍 CHAT HISTORY PREVIEW: ${truncatedHistory}` });
             }
           }
@@ -1086,7 +1076,7 @@ Error details: ${errorString}`,
         try {
           standaloneQuestion = await standaloneQuestionChain.invoke(input);
         } catch (invokeError) {
-          console.error('Error in standaloneQuestionChain.invoke:', invokeError);
+          console.error("Error in standaloneQuestionChain.invoke:", invokeError);
           // Fallback to original question on error
           standaloneQuestion = input.question;
         }
@@ -1369,7 +1359,7 @@ async function generateFollowUpSuggestions(
   try {
     // Create a lightweight model for suggestions
     const suggestionModel = new ChatOpenAI({
-      modelName: "gpt-4.1-mini",
+      model: "gpt-4.1-mini",
       temperature: 0.7,
       maxTokens: 200,
     });
@@ -1470,7 +1460,14 @@ export async function setupAndExecuteLanguageModelChain(
   modelOverride?: string, // Optional model override for testing/comparison
   selectedLibraries?: string[], // Selected libraries for filtering
   taskMode?: string // Task mode (e.g., "class-planning", "research") - skips reformulation when set
-): Promise<{ fullResponse: string; finalDocs: Document[]; restatedQuestion: string; suggestions: TypedSuggestion[]; model: string; temperature: number }> {
+): Promise<{
+  fullResponse: string;
+  finalDocs: Document[];
+  restatedQuestion: string;
+  suggestions: TypedSuggestion[];
+  model: string;
+  temperature: number;
+}> {
   const TIMEOUT_MS = process.env.NODE_ENV === "test" ? 1000 : 45000;
   const RETRY_DELAY_MS = process.env.NODE_ENV === "test" ? 10 : 1000;
   const MAX_RETRIES = 3;
@@ -1710,7 +1707,7 @@ export async function setupAndExecuteLanguageModelChain(
           const { ChatOpenAI } = await import("@langchain/openai");
           const toolFreeModel = new ChatOpenAI({
             temperature: temperature,
-            modelName: modelName,
+            model: modelName,
             streaming: true,
           });
 

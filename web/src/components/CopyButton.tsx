@@ -2,7 +2,7 @@ import React from "react";
 import { copyTextToClipboard } from "../utils/client/clipboard";
 import { logEvent } from "@/utils/client/analytics";
 import { Converter } from "showdown";
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import { DocMetadata } from "@/types/DocMetadata";
 import { getSiteName } from "@/utils/client/siteConfig";
 import { SiteConfig } from "@/types/siteConfig";

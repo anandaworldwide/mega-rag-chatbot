@@ -1,7 +1,7 @@
 import React from "react";
 import { render, fireEvent, screen } from "@testing-library/react";
 import SourcesList from "@/components/SourcesList";
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import { DocMetadata } from "@/types/DocMetadata";
 import { SiteConfig } from "@/types/siteConfig";
 import * as analyticsModule from "@/utils/client/analytics";

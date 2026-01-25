@@ -467,7 +467,9 @@ def _process_and_store_transcription(
 
         if not dryrun:
             try:
-                embeddings = create_embeddings(chunks, client)
+                # create_embeddings returns (embeddings, valid_chunks) to ensure
+                # proper alignment - some chunks may be skipped during validation
+                embeddings, valid_chunks = create_embeddings(chunks, client)
                 logger.debug(f"{len(embeddings)} embeddings created for {file_name}")
 
                 # Use youtube_data for metadata if it's a YouTube video
@@ -500,9 +502,11 @@ def _process_and_store_transcription(
                     f"Determined access_level='{access_level}' for file: {file_path}"
                 )
 
+                # Use valid_chunks (not original chunks) to ensure proper alignment
+                # with embeddings - some chunks may have been skipped during validation
                 store_in_pinecone(
                     pinecone_index,
-                    chunks,
+                    valid_chunks,
                     embeddings,
                     author,
                     library_name,

@@ -97,7 +97,7 @@ import { makeChain } from "@/utils/server/makechain";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { getClientIp } from "@/utils/server/ipUtils";
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import { getPineconeIndexName } from "@/utils/server/pinecone-config";
 import { PineconeStore } from "@langchain/pinecone";
 import { BaseCallbackHandler } from "@langchain/core/callbacks/base";

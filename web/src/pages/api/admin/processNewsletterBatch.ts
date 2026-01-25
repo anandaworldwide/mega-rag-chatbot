@@ -33,7 +33,7 @@ interface BatchRequest {
 
 async function convertMarkdownToHtml(markdownContent: string): Promise<string> {
   try {
-    marked.setOptions({
+    marked.use({
       breaks: true,
       gfm: true,
     });

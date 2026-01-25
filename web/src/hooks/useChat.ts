@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Message } from "@/types/chat";
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import { logEvent } from "@/utils/client/analytics";
 import { getGreeting } from "@/utils/client/siteConfig";
 import { SiteConfig } from "@/types/siteConfig";

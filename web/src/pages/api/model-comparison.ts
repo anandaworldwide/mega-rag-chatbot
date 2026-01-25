@@ -7,7 +7,7 @@ import { PineconeStore } from "@langchain/pinecone";
 import { getPineconeClient } from "@/utils/server/pinecone-client";
 import { makeChain } from "@/utils/server/makechain";
 import { StreamingResponseData } from "@/types/StreamingResponseData";
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
