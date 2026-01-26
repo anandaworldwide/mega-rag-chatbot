@@ -26,7 +26,7 @@ jest.mock("@langchain/openai", () => ({
 
 // Now import ChatOpenAI - it will be the mocked version
 import { VectorStoreRetriever } from "@langchain/core/vectorstores";
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import { makeChain } from "../../../src/utils/server/makechain";
 import fs from "fs/promises";
 import path from "path";
@@ -272,7 +272,7 @@ describe("makeChain", () => {
           [mockDocuments[1], 0.85],
         ]),
       },
-      getRelevantDocuments: jest.fn().mockResolvedValue(mockDocuments),
+      invoke: jest.fn().mockResolvedValue(mockDocuments),
     } as unknown as jest.Mocked<VectorStoreRetriever>;
 
     // Reset callback mocks
@@ -412,21 +412,21 @@ describe("makeChain", () => {
     // Verify that ChatOpenAI was initialized for answer generation
     expect(ChatOpenAI).toHaveBeenCalledWith({
       temperature: 0.7,
-      modelName: "gpt-4o-mini",
+      model: "gpt-4o-mini",
       streaming: true,
     });
 
     // Verify that ChatOpenAI was initialized for rephrasing
     expect(ChatOpenAI).toHaveBeenCalledWith({
       temperature: 0.1,
-      modelName: "gpt-4.1-mini",
+      model: "gpt-4.1-mini",
       streaming: false,
     });
   });
 
   test("should fail if no documents are retrieved", async () => {
     // Override the mock to return empty documents
-    mockRetriever.getRelevantDocuments.mockResolvedValueOnce([]);
+    mockRetriever.invoke.mockResolvedValueOnce([]);
 
     // Mock sendData function
     const sendData = jest.fn();
@@ -537,7 +537,7 @@ describe("makeChain", () => {
     // in the chain, but we can verify that ChatOpenAI was called with the correct parameters
     expect(ChatOpenAI).toHaveBeenCalledWith({
       temperature: 0.1,
-      modelName: "gpt-4.1-mini",
+      model: "gpt-4.1-mini",
       streaming: false,
     });
   });
@@ -878,22 +878,22 @@ describe("makeChain", () => {
     // Check that ChatOpenAI was initialized with custom params for answer generation
     expect(ChatOpenAI).toHaveBeenCalledWith({
       temperature: 0.3,
-      modelName: "gpt-4-turbo",
+      model: "gpt-4-turbo",
       streaming: true,
     });
 
     // Check that ChatOpenAI was initialized with custom params for rephrasing
     expect(ChatOpenAI).toHaveBeenCalledWith({
       temperature: 0.2,
-      modelName: "gpt-3.5-turbo-16k",
+      model: "gpt-3.5-turbo-16k",
       streaming: false,
     });
   });
 
   test("should apply baseFilter when retrieving documents", async () => {
-    // Reset getRelevantDocuments mock
-    mockRetriever.getRelevantDocuments.mockReset();
-    mockRetriever.getRelevantDocuments.mockResolvedValue(mockDocuments);
+    // Reset invoke mock
+    mockRetriever.invoke.mockReset();
+    mockRetriever.invoke.mockResolvedValue(mockDocuments);
 
     const sendData = jest.fn();
     const resolveDocs = jest.fn();
@@ -919,11 +919,11 @@ describe("makeChain", () => {
       mockSiteConfig // siteConfig
     );
 
-    // Manually trigger getRelevantDocuments
-    await mockRetriever.getRelevantDocuments("test query");
+    // Manually trigger invoke
+    await mockRetriever.invoke("test query");
 
-    // Check that getRelevantDocuments was called
-    expect(mockRetriever.getRelevantDocuments).toHaveBeenCalled();
+    // Check that invoke was called
+    expect(mockRetriever.invoke).toHaveBeenCalled();
   });
 
   test("should resolve documents when resolveDocs callback is provided", async () => {
@@ -1048,14 +1048,14 @@ describe("makeChain", () => {
     // Critical assertion: Verify that ChatOpenAI was called with streaming: true for answer generation
     expect(ChatOpenAI).toHaveBeenCalledWith({
       temperature: 0.3,
-      modelName: "gpt-4o",
+      model: "gpt-4o",
       streaming: true, // This must be true for streaming to work
     });
 
     // Verify that ChatOpenAI was called with streaming: false for rephrasing (this is correct)
     expect(ChatOpenAI).toHaveBeenCalledWith({
       temperature: 0.1,
-      modelName: "gpt-4.1-mini",
+      model: "gpt-4.1-mini",
       streaming: false, // Rephrasing doesn't need streaming
     });
 
@@ -1067,7 +1067,7 @@ describe("makeChain", () => {
     expect(streamingCall[0].streaming).toBe(true);
 
     // Verify that the streaming model has the correct configuration
-    expect(streamingCall[0].modelName).toBe("gpt-4o");
+    expect(streamingCall[0].model).toBe("gpt-4o");
     expect(streamingCall[0].temperature).toBe(0.3);
   });
 
@@ -1345,6 +1345,18 @@ describe("makeChain", () => {
   });
 
   test("should handle geo-awareness with location intent detection", async () => {
+    // Reset and configure the mocked ChatOpenAI
+    (ChatOpenAI as unknown as jest.Mock).mockReset();
+    (ChatOpenAI as unknown as jest.Mock).mockImplementation(() => ({
+      invoke: jest.fn().mockResolvedValue("Test response"),
+      stream: jest.fn().mockImplementation(async function* () {
+        yield { text: "First token" };
+        yield { text: "Second token" };
+        yield { text: "Final token" };
+      }),
+      bindTools: jest.fn().mockReturnThis(),
+    }));
+
     // Mock location intent detector
     jest.mock("../../../src/utils/server/locationIntentDetector", () => ({
       initializeLocationIntentDetector: jest.fn().mockResolvedValue(undefined),
@@ -1801,6 +1813,18 @@ describe("makeChain", () => {
   });
 
   test("should handle location query with early return", async () => {
+    // Reset and configure the mocked ChatOpenAI
+    (ChatOpenAI as unknown as jest.Mock).mockReset();
+    (ChatOpenAI as unknown as jest.Mock).mockImplementation(() => ({
+      invoke: jest.fn().mockResolvedValue("Test response"),
+      stream: jest.fn().mockImplementation(async function* () {
+        yield { text: "First token" };
+        yield { text: "Second token" };
+        yield { text: "Final token" };
+      }),
+      bindTools: jest.fn().mockReturnThis(),
+    }));
+
     // Mock location intent detector to return true
     const mockLocationIntentDetector = {
       initializeLocationIntentDetector: jest.fn().mockResolvedValue(undefined),
@@ -2306,6 +2330,18 @@ describe("makeChain", () => {
   });
 
   test("should handle location intent detection errors", async () => {
+    // Reset and configure the mocked ChatOpenAI
+    (ChatOpenAI as unknown as jest.Mock).mockReset();
+    (ChatOpenAI as unknown as jest.Mock).mockImplementation(() => ({
+      invoke: jest.fn().mockResolvedValue("Test response"),
+      stream: jest.fn().mockImplementation(async function* () {
+        yield { text: "First token" };
+        yield { text: "Second token" };
+        yield { text: "Final token" };
+      }),
+      bindTools: jest.fn().mockReturnThis(),
+    }));
+
     // Mock location intent detector to throw an error
     const errorLocationIntentDetector = {
       initializeLocationIntentDetector: jest.fn().mockRejectedValue(new Error("Location detector failed")),

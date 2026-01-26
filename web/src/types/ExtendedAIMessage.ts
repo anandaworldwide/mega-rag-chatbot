@@ -1,4 +1,4 @@
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import { DocMetadata } from "./DocMetadata";
 import { TypedSuggestion } from "./Suggestion";
 

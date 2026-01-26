@@ -9,7 +9,7 @@ import { getOrCreateUUID } from "@/utils/client/uuid";
 import { Message } from "@/types/chat";
 import { ChatMessage, createChatMessages } from "@/utils/shared/chatHistory";
 import { ChatHistoryItem } from "@/hooks/useChatHistory";
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import { TypedSuggestion } from "@/types/Suggestion";
 
 export interface LoadedConversation {

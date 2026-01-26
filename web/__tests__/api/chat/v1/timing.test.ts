@@ -17,7 +17,7 @@
 jest.setTimeout(10000);
 
 // Import only what's needed
-import { Document } from 'langchain/document';
+import { Document } from '@langchain/core/documents';
 
 // Define minimal types needed for our tests
 interface TimingMetrics {

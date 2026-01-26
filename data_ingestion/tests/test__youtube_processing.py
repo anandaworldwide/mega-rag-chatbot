@@ -75,6 +75,7 @@ class TestYouTubeProcessing(TestCase):
 
         # Verify results
         self.assertIsNotNone(result)
+        assert isinstance(result, dict)  # Type assertion for type checker
         self.assertEqual(result["youtube_id"], self.test_video_id)
         self.assertIn("audio_path", result)
         self.assertEqual(result["title"], self.mock_video_info["title"])
@@ -145,6 +146,7 @@ class TestYouTubeProcessing(TestCase):
                 }
 
                 # Call transcribe_media
+                assert isinstance(youtube_data, dict)  # Type assertion for type checker
                 transcription = mock_transcribe(
                     youtube_data["audio_path"],
                     is_youtube_video=True,
@@ -185,7 +187,9 @@ class TestYouTubeProcessing(TestCase):
         mock_ytdl_instance.extract_info.return_value = self.mock_video_info
         mock_exists.return_value = True
         mock_getsize.return_value = 1024
-        mock_embeddings.return_value = [[0.1, 0.2, 0.3]]
+        # create_embeddings now returns (embeddings, valid_chunks) tuple
+        mock_chunks = [{"text": "test chunk", "words": [], "start": 0, "end": 10}]
+        mock_embeddings.return_value = ([[0.1, 0.2, 0.3]], mock_chunks)
 
         # Generate test data
         youtube_data = download_youtube_audio(self.test_video_url)
@@ -206,6 +210,7 @@ class TestYouTubeProcessing(TestCase):
             mock_store_function.return_value = True
 
             # Call through our mock
+            assert isinstance(youtube_data, dict)  # Type assertion for type checker
             result = mock_store_function(
                 mock_pinecone_index,
                 chunks,
@@ -272,6 +277,7 @@ class TestYouTubeProcessing(TestCase):
 
         # Verify results
         self.assertIsNotNone(youtube_data)
+        assert isinstance(youtube_data, dict)  # Type assertion for type checker
         self.assertIn("audio_path", youtube_data)
 
         # Test S3 upload
@@ -313,6 +319,7 @@ class TestYouTubeProcessing(TestCase):
 
         # Verify results
         self.assertIsNotNone(youtube_data)
+        assert isinstance(youtube_data, dict)  # Type assertion for type checker
         self.assertIn("audio_path", youtube_data)
         self.assertEqual(youtube_data["title"], self.mock_video_info["title"])
         self.assertEqual(youtube_data["author"], self.mock_video_info["uploader"])

@@ -8,7 +8,7 @@
  * 3. Base filters should be properly applied in conjunction with library filters
  */
 
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import fs from "fs/promises";
 import path from "path";
 

@@ -847,7 +847,7 @@ Setup Instructions:
     config_file = "config.json"
     if os.path.exists(config_file):
         try:
-            with open(config_file, 'r') as f:
+            with open(config_file) as f:
                 config = json.load(f)
             
             # Use config values if command line arguments not provided
@@ -933,7 +933,7 @@ Setup Instructions:
 
         # Suggestion click rate
         suggestion_rate = feature_summary.get("suggestion_click_rate_percent", 0)
-        print(f"\n💡 SUGGESTION ENGAGEMENT")
+        print("\n💡 SUGGESTION ENGAGEMENT")
         print(f"   Suggestion Click Rate: {suggestion_rate:.2f}% of questions")
 
         # Insights

@@ -10,7 +10,7 @@ For project overview, see [AGENTS.md](mdc:AGENTS.md) in the repo root.
 
 ## Key File Paths (IDE Navigation)
 
-### Frontend ([web/](mdc:web))
+### Frontend
 
 - **[web/src/app/](mdc:web/src/app)** - Next.js App Router pages and API routes
 - **[web/src/pages/](mdc:web/src/pages)** - Next.js Pages Router (legacy endpoints)
@@ -20,8 +20,9 @@ For project overview, see [AGENTS.md](mdc:AGENTS.md) in the repo root.
 - **[web/src/utils/server/](mdc:web/src/utils/server)** - Server-side utilities
 - **[web/src/services/](mdc:web/src/services)** - Firebase and external services
 - **[web/__tests__/](mdc:web/__tests__)** - Jest/React Testing Library tests
+- **[web/src/utils/](mdc:web/src/utils)** - Client and server utilities
 
-### Data Ingestion ([data_ingestion/](mdc:data_ingestion))
+### Data Ingestion
 
 - **[data_ingestion/pdf_to_vector_db.py](mdc:data_ingestion/pdf_to_vector_db.py)** - PDF processing
 - **[data_ingestion/crawler/](mdc:data_ingestion/crawler)** - Web crawling system

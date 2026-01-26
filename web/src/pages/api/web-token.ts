@@ -97,6 +97,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
               maxAge: 180 * 24 * 60 * 60 * 1000, // 180 days
               path: "/",
             });
+            // Set client-readable session indicator during migration
+            cookies.set("hasSession", "1", {
+              httpOnly: false,
+              secure: isSecure,
+              sameSite: "lax",
+              maxAge: 180 * 24 * 60 * 60 * 1000, // 180 days
+              path: "/",
+            });
           }
         } catch (migrationError) {
           // Silently fail migration - user can still use auth cookie
@@ -121,6 +129,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             expires: new Date(0),
             path: "/",
           });
+          // Clear client-readable session indicator to prevent stale state
+          cookies.set("hasSession", "", {
+            expires: new Date(0),
+            path: "/",
+          });
           return res.status(401).json({ error: "Authentication required" });
         } else {
           // Site doesn't require login - clear bad cookies and continue with anonymous token
@@ -132,6 +145,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             path: "/",
           });
           cookies.set("auth", "", {
+            expires: new Date(0),
+            path: "/",
+          });
+          // Clear client-readable session indicator to prevent stale state
+          cookies.set("hasSession", "", {
             expires: new Date(0),
             path: "/",
           });
@@ -174,7 +192,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             payload.uuid = userData?.uuid; // Include UUID in JWT payload
           }
         }
-      } catch (error) {
+      } catch (_error) {
         // If auth cookie is invalid (e.g., expired, wrong issuer), handle based on site config
         // Note: Signature errors are already handled in the first check above
         const siteConfig = loadSiteConfigSync();
@@ -194,6 +212,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             expires: new Date(0),
             path: "/",
           });
+          // Clear client-readable session indicator to prevent stale state
+          cookies.set("hasSession", "", {
+            expires: new Date(0),
+            path: "/",
+          });
           return res.status(401).json({ error: "Authentication required" });
         } else {
           // Site doesn't require login - clear bad cookies and continue with anonymous token
@@ -205,6 +228,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             path: "/",
           });
           cookies.set("auth", "", {
+            expires: new Date(0),
+            path: "/",
+          });
+          // Clear client-readable session indicator to prevent stale state
+          cookies.set("hasSession", "", {
             expires: new Date(0),
             path: "/",
           });

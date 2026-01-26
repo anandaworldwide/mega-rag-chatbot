@@ -12,7 +12,7 @@ import { useMultipleCollections } from "@/hooks/useMultipleCollections";
 import { SiteConfig } from "@/types/siteConfig";
 import markdownStyles from "@/styles/MarkdownStyles.module.css";
 import { DocMetadata } from "@/types/DocMetadata";
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 
 import { formatAnswerTimestamp } from "@/utils/client/dateUtils";
 

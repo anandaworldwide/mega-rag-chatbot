@@ -7,7 +7,7 @@ import { useAudioContext } from "@/contexts/AudioContext";
 import { logEvent } from "@/utils/client/analytics";
 import { getCachedSecureAudioUrl } from "@/utils/client/getSecureAudioUrl";
 import { generateSourceDeepLink, generateSourceId } from "@/utils/client/sourceUtils";
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import { DocMetadata } from "@/types/DocMetadata";
 
 interface AudioPlayerProps {

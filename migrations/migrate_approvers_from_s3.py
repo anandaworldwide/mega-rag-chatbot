@@ -18,7 +18,6 @@ import argparse
 import json
 import os
 import sys
-from typing import Dict, List, Optional
 
 import boto3
 from botocore.exceptions import ClientError
@@ -63,7 +62,7 @@ def get_s3_client():
     )
 
 
-def download_approvers_json_from_s3(s3_client, bucket_name: str, s3_key: str) -> Dict:
+def download_approvers_json_from_s3(s3_client, bucket_name: str, s3_key: str) -> dict:
     """Download and parse the approvers JSON file from S3."""
     try:
         response = s3_client.get_object(Bucket=bucket_name, Key=s3_key)
@@ -77,7 +76,7 @@ def download_approvers_json_from_s3(s3_client, bucket_name: str, s3_key: str) ->
         raise ValueError(f"Error parsing JSON from S3: {e}") from e
 
 
-def find_user_by_uuid(db: firestore.Client, users_col: str, uuid: str) -> Optional[str]:
+def find_user_by_uuid(db: firestore.Client, users_col: str, uuid: str) -> str | None:
     """
     Find user email by UUID.
     
@@ -105,10 +104,10 @@ def find_user_by_uuid(db: firestore.Client, users_col: str, uuid: str) -> Option
 
 def migrate_approvers(
     db: firestore.Client,
-    approvers_data: Dict,
+    approvers_data: dict,
     env_prefix: str,
     dry_run: bool = False,
-) -> Dict[str, int]:
+) -> dict[str, int]:
     """
     Migrate approver data from JSON to Firestore.
     
@@ -233,7 +232,7 @@ def main():
     s3_env_prefix = "dev-" if args.env == "dev" else ""
     s3_key = f"site-config/admin-approvers/{s3_env_prefix}{args.site}-admin-approvers.json"
     
-    print(f"\nDownloading approvers JSON from S3...")
+    print("\nDownloading approvers JSON from S3...")
     print(f"  Bucket: {bucket_name}")
     print(f"  Key: {s3_key}")
     

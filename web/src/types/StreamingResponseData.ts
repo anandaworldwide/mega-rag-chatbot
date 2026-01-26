@@ -1,4 +1,4 @@
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import { TypedSuggestion } from "./Suggestion";
 
 // Force TypeScript cache invalidation

@@ -16,7 +16,7 @@ import { logEvent } from "@/utils/client/analytics";
 import { getGreeting, getSiteName } from "@/utils/client/siteConfig";
 import { ExtendedAIMessage } from "@/types/ExtendedAIMessage";
 import { DocMetadata } from "@/types/DocMetadata";
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import { fetchWithAuth, isAuthenticated, initializeTokenManager } from "@/utils/client/tokenManager";
 import { getOrCreateUUID } from "@/utils/client/uuid";
 import { generateSourceId } from "@/utils/client/sourceUtils";

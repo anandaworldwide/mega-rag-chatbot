@@ -66,11 +66,9 @@ export default function AuthGuard({ children, siteConfig }: AuthGuardProps) {
           }
 
           // Not authenticated but no error thrown - check for cookies indicating possible session restoration
-          // TODO: Remove migration bridge after June 2026 - during bridge, check legacy isLoggedIn for pre-migration sessions
-          const hasAuthCookie =
-            document.cookie.includes("authToken=") ||
-            document.cookie.includes("auth=") ||
-            document.cookie.includes("isLoggedIn=true");
+          // Check for hasSession (client-readable indicator) or legacy isLoggedIn during migration
+          // Note: authToken and auth cookies are HttpOnly and cannot be read from JavaScript
+          const hasAuthCookie = document.cookie.includes("hasSession=") || document.cookie.includes("isLoggedIn=true"); // Legacy fallback during migration until June 2026.
 
           if (hasAuthCookie && attempt < MAX_AUTH_ATTEMPTS) {
             // Has cookies but not authenticated - might be stale state, retry
@@ -143,7 +141,8 @@ export default function AuthGuard({ children, siteConfig }: AuthGuardProps) {
     const handleWindowFocus = async () => {
       // Only attempt refresh if we're not authenticated but should be
       if (!userAuthenticated && authChecked && siteConfig?.requireLogin) {
-        const hasAuthCookie = document.cookie.includes("authToken=") || document.cookie.includes("auth=");
+        // Check for hasSession (client-readable indicator) - authToken/auth are HttpOnly
+        const hasAuthCookie = document.cookie.includes("hasSession=");
 
         if (hasAuthCookie) {
           console.log("Window focus detected with auth cookies - refreshing token");

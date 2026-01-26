@@ -41,8 +41,17 @@ export default function AdminApproverSelector({
   const [selectedAdmin, setSelectedAdmin] = useState<AdminApprover | null>(null);
   const [name, setName] = useState(initialName || "");
   const [referenceNote, setReferenceNote] = useState("");
+  const [knowsAdmin, setKnowsAdmin] = useState<boolean | null>(null); // null = no selection
+  const [nearestCenter, setNearestCenter] = useState("");
+  const [connectionHistory, setConnectionHistory] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+
+  // Get config - prefer accessRequestConfig over deprecated accessRequestNoteLabel
+  const accessConfig = siteConfig?.accessRequestConfig;
+  const noteLabel = accessConfig?.noteLabel || siteConfig?.accessRequestNoteLabel;
+  const showKnowsAdminQuestion = accessConfig?.showKnowsAdminQuestion ?? false;
+  const unknownAdminFields = accessConfig?.unknownAdminFields;
 
   useEffect(() => {
     async function fetchApprovers() {
@@ -94,9 +103,28 @@ export default function AdminApproverSelector({
       return;
     }
 
-    if (siteConfig?.accessRequestNoteLabel && !referenceNote.trim()) {
+    // Only require reference note when it's visible (showKnowsAdminQuestion is false OR knowsAdmin is false)
+    if (noteLabel && (!showKnowsAdminQuestion || knowsAdmin === false) && !referenceNote.trim()) {
       setError("Please provide a reference");
       return;
+    }
+
+    // Validate "Does this admin know you?" is answered
+    if (showKnowsAdminQuestion && knowsAdmin === null) {
+      setError("Please indicate whether this admin knows you");
+      return;
+    }
+
+    // Validate additional fields when user doesn't know the admin
+    if (showKnowsAdminQuestion && knowsAdmin === false && unknownAdminFields) {
+      if (unknownAdminFields.nearestCenter?.required && !nearestCenter.trim()) {
+        setError("Please select or enter your nearest center");
+        return;
+      }
+      if (unknownAdminFields.connectionHistory?.required && !connectionHistory.trim()) {
+        setError("Please describe your connection");
+        return;
+      }
     }
 
     setSubmitting(true);
@@ -114,7 +142,20 @@ export default function AdminApproverSelector({
           adminEmail: selectedAdmin.email,
           adminName: selectedAdmin.name,
           adminLocation: selectedAdmin.location,
-          referenceNote: referenceNote.trim() || undefined,
+          // Only include referenceNote when it was shown (showKnowsAdminQuestion is false OR knowsAdmin is false)
+          ...((!showKnowsAdminQuestion || knowsAdmin === false) &&
+            referenceNote.trim() && {
+              referenceNote: referenceNote.trim(),
+            }),
+          // Include additional context when "Does this admin know you?" is answered
+          ...(showKnowsAdminQuestion &&
+            knowsAdmin !== null && {
+              knowsAdmin,
+              ...(knowsAdmin === false && {
+                nearestCenter: nearestCenter.trim() || undefined,
+                connectionHistory: connectionHistory.trim() || undefined,
+              }),
+            }),
         }),
       });
 
@@ -247,17 +288,137 @@ export default function AdminApproverSelector({
           </select>
         </div>
 
-        {siteConfig?.accessRequestNoteLabel && (
+        {/* "Does this admin know you?" radio buttons - only show when enabled and admin is selected */}
+        {showKnowsAdminQuestion && selectedAdmin && (
+          <div className="space-y-4">
+            <fieldset>
+              <legend className="block text-sm font-medium text-gray-700 mb-2">Does this admin know you?</legend>
+              <div className="flex gap-6">
+                <div className="flex items-center">
+                  <input
+                    id="knows-admin-yes"
+                    name="knows-admin"
+                    type="radio"
+                    checked={knowsAdmin === true}
+                    onChange={() => setKnowsAdmin(true)}
+                    className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                    disabled={submitting}
+                  />
+                  <label htmlFor="knows-admin-yes" className="ml-2 text-sm text-gray-700">
+                    Yes
+                  </label>
+                </div>
+                <div className="flex items-center">
+                  <input
+                    id="knows-admin-no"
+                    name="knows-admin"
+                    type="radio"
+                    checked={knowsAdmin === false}
+                    onChange={() => setKnowsAdmin(false)}
+                    className="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500"
+                    disabled={submitting}
+                  />
+                  <label htmlFor="knows-admin-no" className="ml-2 text-sm text-gray-700">
+                    No
+                  </label>
+                </div>
+              </div>
+            </fieldset>
+
+            {/* Additional fields when admin doesn't know the user */}
+            {knowsAdmin === false && unknownAdminFields && (
+              <div className="pl-7 space-y-4 border-l-2 border-blue-200">
+                {/* Nearest Center field */}
+                {unknownAdminFields.nearestCenter && (
+                  <div>
+                    <label htmlFor="nearest-center" className="block text-sm font-medium text-gray-700 mb-2">
+                      {unknownAdminFields.nearestCenter.label}
+                    </label>
+                    {unknownAdminFields.nearestCenter.type === "select" && unknownAdminFields.nearestCenter.options ? (
+                      <select
+                        id="nearest-center"
+                        value={nearestCenter}
+                        onChange={(e) => setNearestCenter(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        disabled={submitting}
+                        required={unknownAdminFields.nearestCenter.required}
+                      >
+                        <option value="">-- Select --</option>
+                        {unknownAdminFields.nearestCenter.options.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        id="nearest-center"
+                        type="text"
+                        value={nearestCenter}
+                        onChange={(e) => setNearestCenter(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        placeholder={unknownAdminFields.nearestCenter.placeholder || "Enter your nearest center"}
+                        disabled={submitting}
+                        required={unknownAdminFields.nearestCenter.required}
+                      />
+                    )}
+                  </div>
+                )}
+
+                {/* Connection History field */}
+                {unknownAdminFields.connectionHistory && (
+                  <div>
+                    <label htmlFor="connection-history" className="block text-sm font-medium text-gray-700 mb-2">
+                      {unknownAdminFields.connectionHistory.label}
+                    </label>
+                    <textarea
+                      id="connection-history"
+                      value={connectionHistory}
+                      onChange={(e) => setConnectionHistory(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                      placeholder={unknownAdminFields.connectionHistory.placeholder || ""}
+                      rows={3}
+                      disabled={submitting}
+                      required={unknownAdminFields.connectionHistory.required}
+                    />
+                  </div>
+                )}
+
+                {/* Reference note - inside the indented section for "No" answers */}
+                {noteLabel && (
+                  <div>
+                    <label htmlFor="reference-note" className="block text-sm font-medium text-gray-700 mb-2">
+                      {noteLabel}
+                    </label>
+                    <textarea
+                      id="reference-note"
+                      value={referenceNote}
+                      onChange={(e) => setReferenceNote(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                      placeholder="Enter the name and location of someone who knows you"
+                      rows={3}
+                      disabled={submitting}
+                      required
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Reference note - only show outside the indented section when showKnowsAdminQuestion is disabled (old behavior) */}
+        {noteLabel && !showKnowsAdminQuestion && (
           <div>
             <label htmlFor="reference-note" className="block text-sm font-medium text-gray-700 mb-2">
-              {siteConfig.accessRequestNoteLabel}
+              {noteLabel}
             </label>
             <textarea
               id="reference-note"
               value={referenceNote}
               onChange={(e) => setReferenceNote(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              placeholder="Enter the name of someone who knows you"
+              placeholder="Enter the name and location of someone who knows you"
               rows={3}
               disabled={submitting}
               required
@@ -292,7 +453,16 @@ export default function AdminApproverSelector({
             disabled={
               !name.trim() ||
               !selectedAdmin ||
-              (siteConfig?.accessRequestNoteLabel && !referenceNote.trim()) ||
+              (noteLabel && (!showKnowsAdminQuestion || knowsAdmin === false) && !referenceNote.trim()) ||
+              (showKnowsAdminQuestion && knowsAdmin === null) ||
+              (showKnowsAdminQuestion &&
+                knowsAdmin === false &&
+                unknownAdminFields?.nearestCenter?.required &&
+                !nearestCenter.trim()) ||
+              (showKnowsAdminQuestion &&
+                knowsAdmin === false &&
+                unknownAdminFields?.connectionHistory?.required &&
+                !connectionHistory.trim()) ||
               submitting
             }
             className="flex-1 bg-blue-500 text-white font-medium py-2 px-4 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"

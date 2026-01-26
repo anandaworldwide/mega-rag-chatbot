@@ -508,20 +508,6 @@ export default function Login({ siteConfig }: LoginProps) {
                 onBack={handleBackToEmail}
               />
 
-              <div className="mt-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg text-sm text-gray-700">
-                <p>
-                  Don&apos;t see an admin for your area? Please{" "}
-                  <button
-                    type="button"
-                    onClick={() => setShowFeedbackModal(true)}
-                    className="text-blue-600 font-semibold hover:text-blue-800 underline transition-colors"
-                  >
-                    click here
-                  </button>{" "}
-                  to contact us directly and request an account.
-                </p>
-              </div>
-
               {error && (
                 <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
                   <p className="text-red-600 text-sm">{error}</p>
