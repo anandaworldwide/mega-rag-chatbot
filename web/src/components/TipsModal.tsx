@@ -14,6 +14,7 @@
  */
 
 import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { SiteConfig } from "@/types/siteConfig";
 import { loadSiteTips, parseTipsContent, Tip, TipsData } from "@/utils/client/loadTips";
 import { TipsCarousel } from "@/components/TipsCarousel";
@@ -91,22 +92,23 @@ export const TipsModal: React.FC<TipsModalProps> = ({ isOpen, onClose, siteConfi
     onClose();
   };
 
-  // Don't render if not open
-  if (!isOpen) {
+  // Don't render if not open or if we're on the server
+  if (!isOpen || typeof document === "undefined") {
     return null;
   }
 
-  return (
+  // Use portal to render at document body level, escaping any parent stacking contexts
+  return createPortal(
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[100]"
+        className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[1000]"
         onClick={handleBackdropClick}
         aria-hidden="true"
       />
 
       {/* Modal */}
-      <div className="fixed z-[101] top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white p-6 rounded-xl shadow-lg max-w-lg w-full mx-4 max-h-[80vh] overflow-y-auto">
+      <div className="fixed z-[1001] top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white p-6 rounded-xl shadow-lg max-w-lg w-full mx-4 max-h-[80vh] overflow-y-auto">
         {/* Header */}
         <div className="flex justify-between items-start mb-4">
           <h3 className="text-lg font-semibold text-gray-900 flex items-center">
@@ -156,6 +158,7 @@ export const TipsModal: React.FC<TipsModalProps> = ({ isOpen, onClose, siteConfi
           </div>
         )}
       </div>
-    </>
+    </>,
+    document.body
   );
 };

@@ -87,6 +87,23 @@
       }
     },
     "accessRequestNoteLabel": "Please let us know the name and location of an Ananda leader who knows you.",
+    "accessRequestConfig": {
+      "noteLabel": "Please let us know the name and location of an Ananda leader who knows you.",
+      "showKnowsAdminQuestion": true,
+      "unknownAdminFields": {
+        "nearestCenter": {
+          "label": "What Ananda center or group do you live nearest to?",
+          "type": "text",
+          "placeholder": "Ananda Los Angeles",
+          "required": true
+        },
+        "connectionHistory": {
+          "label": "Please share a few sentences about your connection to Ananda.",
+          "placeholder": "e.g., I've attended Sunday services at..., I discovered Ananda through..., I've been practicing Kriya for...",
+          "required": true
+        }
+      }
+    },
     "adminAccessGuidelines": "Any Ananda devotee can use Luca if they are a regular participant, meaning they've at least come to a Sunday service or a meditation group several times, or has had other recurring participation. This is at the discretion of the center leaders. They are **not** required to have taken discipleship in order to use Luca.",
     "enabledTasks": [
       "research",
@@ -229,6 +246,17 @@
     "modelName": "gpt-4o",
     "feedbackIcon": "michael.jpeg",
     "accessRequestNoteLabel": "Please let us know the name of someone on the Free Joe Hunt team who knows you.",
+    "accessRequestConfig": {
+      "noteLabel": "Please let us know the name of someone on the Free Joe Hunt team who knows you.",
+      "showKnowsAdminQuestion": true,
+      "unknownAdminFields": {
+        "connectionHistory": {
+          "label": "Please tell us how you learned about Joe Hunt's case and why you're interested in access.",
+          "placeholder": "e.g., I learned about the case through..., I'm interested because...",
+          "required": true
+        }
+      }
+    },
     "enabledTasks": ["research"]
   },
   "crystal": {

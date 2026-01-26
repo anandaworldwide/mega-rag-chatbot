@@ -18,6 +18,9 @@ interface ApprovalRequest {
   adminName: string;
   adminLocation: string;
   referenceNote?: string;
+  knowsAdmin?: boolean;
+  nearestCenter?: string;
+  connectionHistory?: string;
   status: "pending" | "approved" | "denied";
   createdAt: string;
   updatedAt: string;
@@ -327,10 +330,40 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
                   </div>
                 </div>
 
-                {request.referenceNote && (
-                  <div className="mb-4 p-3 bg-gray-50 rounded-md text-sm">
-                    <span className="text-gray-700 font-medium">Reference: </span>
-                    <span className="text-gray-900">{request.referenceNote}</span>
+                {/* Additional context fields */}
+                {(request.knowsAdmin !== undefined ||
+                  request.nearestCenter ||
+                  request.connectionHistory ||
+                  request.referenceNote) && (
+                  <div className="mb-4 p-3 bg-gray-50 rounded-md text-sm space-y-2">
+                    {request.knowsAdmin !== undefined && (
+                      <div>
+                        <span className="text-gray-700 font-medium">Admin knows requester: </span>
+                        <span
+                          className={`${request.knowsAdmin ? "text-green-700" : "text-amber-700"} font-medium`}
+                        >
+                          {request.knowsAdmin ? "Yes" : "No"}
+                        </span>
+                      </div>
+                    )}
+                    {request.nearestCenter && (
+                      <div>
+                        <span className="text-gray-700 font-medium">Nearest center: </span>
+                        <span className="text-gray-900">{request.nearestCenter}</span>
+                      </div>
+                    )}
+                    {request.connectionHistory && (
+                      <div>
+                        <span className="text-gray-700 font-medium">Connection to organization: </span>
+                        <span className="text-gray-900">{request.connectionHistory}</span>
+                      </div>
+                    )}
+                    {request.referenceNote && (
+                      <div>
+                        <span className="text-gray-700 font-medium">Someone who knows them: </span>
+                        <span className="text-gray-900">{request.referenceNote}</span>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -430,17 +463,41 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
       >
         {selectedRequest && (
           <div className="space-y-4">
-            <div className="bg-gray-50 rounded-lg p-4">
-              <p className="text-sm text-gray-600 mb-1">Requester</p>
-              <p className="font-semibold">{selectedRequest.requesterName}</p>
-              <p className="text-sm text-gray-600">
-                {isDemoModeEnabled() ? maskEmail(selectedRequest.requesterEmail) : selectedRequest.requesterEmail}
-              </p>
+            <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+              <div>
+                <p className="text-sm text-gray-600 mb-1">Requester</p>
+                <p className="font-semibold">{selectedRequest.requesterName}</p>
+                <p className="text-sm text-gray-600">
+                  {isDemoModeEnabled() ? maskEmail(selectedRequest.requesterEmail) : selectedRequest.requesterEmail}
+                </p>
+              </div>
+              {selectedRequest.knowsAdmin !== undefined && (
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">Admin knows requester</p>
+                  <p
+                    className={`text-sm font-medium ${selectedRequest.knowsAdmin ? "text-green-700" : "text-amber-700"}`}
+                  >
+                    {selectedRequest.knowsAdmin ? "Yes" : "No"}
+                  </p>
+                </div>
+              )}
+              {selectedRequest.nearestCenter && (
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">Nearest center</p>
+                  <p className="text-sm text-gray-900">{selectedRequest.nearestCenter}</p>
+                </div>
+              )}
+              {selectedRequest.connectionHistory && (
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">Connection to organization</p>
+                  <p className="text-sm text-gray-900">{selectedRequest.connectionHistory}</p>
+                </div>
+              )}
               {selectedRequest.referenceNote && (
-                <>
-                  <p className="text-sm text-gray-600 mt-3 mb-1">Reference</p>
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">Someone who knows them</p>
                   <p className="text-sm text-gray-900">{selectedRequest.referenceNote}</p>
-                </>
+                </div>
               )}
             </div>
 
