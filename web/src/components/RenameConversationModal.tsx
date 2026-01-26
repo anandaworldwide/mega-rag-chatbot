@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 
 interface RenameConversationModalProps {
   isOpen: boolean;
@@ -32,37 +32,40 @@ export default function RenameConversationModal({
     }
   }, [isOpen, currentTitle]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
 
-    const trimmedTitle = title.trim();
+      const trimmedTitle = title.trim();
 
-    // Validation
-    if (!trimmedTitle) {
-      setError("Title cannot be empty");
-      return;
-    }
+      // Validation
+      if (!trimmedTitle) {
+        setError("Title cannot be empty");
+        return;
+      }
 
-    if (trimmedTitle.length > 100) {
-      setError("Title must be 100 characters or less");
-      return;
-    }
+      if (trimmedTitle.length > 100) {
+        setError("Title must be 100 characters or less");
+        return;
+      }
 
-    if (trimmedTitle === currentTitle.trim()) {
-      // No change, just close
-      onClose();
-      return;
-    }
+      if (trimmedTitle === currentTitle.trim()) {
+        // No change, just close
+        onClose();
+        return;
+      }
 
-    setError(null);
+      setError(null);
 
-    try {
-      await onSave(trimmedTitle);
-      onClose();
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Failed to rename conversation");
-    }
-  };
+      try {
+        await onSave(trimmedTitle);
+        onClose();
+      } catch (error) {
+        setError(error instanceof Error ? error.message : "Failed to rename conversation");
+      }
+    },
+    [title, currentTitle, onClose, onSave]
+  );
 
   // Handle escape and enter keys
   useEffect(() => {
