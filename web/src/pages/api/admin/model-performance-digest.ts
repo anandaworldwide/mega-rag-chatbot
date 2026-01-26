@@ -49,7 +49,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   try {
     const now = new Date();
-    const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const since = new Date(now.getTime() - 72 * 60 * 60 * 1000);
     const sinceTimestamp = fbadmin.firestore.Timestamp.fromDate(since);
     const collectionName = getModelPerformanceCollectionName();
 
@@ -85,7 +85,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const header = [
       `Model performance digest for ${siteId} (${environment})`,
-      `Window: last 24 hours`,
+      `Window: last 72 hours`,
       `Since: ${since.toISOString()}`,
       ``,
       `SUMMARY:`,
@@ -97,7 +97,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const modelSections =
       summaries.length === 0
-        ? "No model performance records in the last 24 hours."
+        ? "No model performance records in the last 72 hours."
         : summaries
             .map((summary) => {
               const metrics = summary.metrics;
