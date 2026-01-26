@@ -5,7 +5,7 @@
 
 pytest==8.4.0
 pytest-asyncio==0.26.0
-aiohttp==3.12.14
+aiohttp>=3.13.3  # CVE-2025-69223, CVE-2025-69227, CVE-2025-69228, CVE-2025-69229: Zip bomb and DoS fixes
 beautifulsoup4==4.12.2
 boto3>=1.38.44
 botocore>=1.38.44
@@ -13,7 +13,7 @@ click==8.2.1
 colorama==0.4.6
 cryptography>=46.0.3
 dill==0.4.0
-filelock==3.18.0
+filelock>=3.20.1  # CVE-2025-68146: TOCTOU symlink attack fix
 firebase-admin==7.1.0
 fpdf==1.7.2
 frozenlist==1.7.0
@@ -70,9 +70,10 @@ seaborn
 spacy>=3.8.11
 tenacity==8.2.2
 tokenizers==0.21.1
-torch>=2.2.0  # TODO: Upgrade to 2.6.0+ when Python 3.12 support available (CVE-2024-XXXXX)
+torch>=2.2.0  # CVE-2025-32434: Fix requires 2.6.0+ but PyTorch 2.6.0+ doesn't support Python 3.12 (only 3.13+). 
+              # Workaround: Avoid torch.load() with untrusted data until Python upgrade or PyTorch adds 3.12 support.
 tqdm==4.67.1
-transformers==4.52.4
+transformers>=4.53.0  # CVE-2025-5197, CVE-2025-3933: ReDoS fixes
 typer==0.16.0
 typing_extensions==4.14.0
 urllib3>=2.6.3
