@@ -2,7 +2,6 @@
  * Tests for /api/user/whats-new endpoint
  */
 
-/* eslint-disable @typescript-eslint/no-require-imports */
 import { createMocks } from "node-mocks-http";
 import type { NextApiRequest, NextApiResponse } from "next";
 import handler from "@/pages/api/user/whats-new";
@@ -49,8 +48,8 @@ jest.mock("@/utils/server/networkErrorUtils", () => ({
 }));
 
 describe("/api/user/whats-new", () => {
-  const firestoreRetryUtils = require("@/utils/server/firestoreRetryUtils");
-  const jwtUtils = require("@/utils/server/jwtUtils");
+  const firestoreRetryUtils = jest.requireMock("@/utils/server/firestoreRetryUtils");
+  const jwtUtils = jest.requireMock("@/utils/server/jwtUtils");
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -161,9 +160,9 @@ describe("/api/user/whats-new", () => {
 
     it("should return 503 when database is not available", async () => {
       // Temporarily mock db as null
-      const { db } = require("@/services/firebase");
-      const originalDb = db;
-      (require("@/services/firebase") as any).db = null;
+      const firebaseModule = jest.requireMock("@/services/firebase");
+      const originalDb = firebaseModule.db;
+      firebaseModule.db = null;
 
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "GET",
@@ -180,7 +179,7 @@ describe("/api/user/whats-new", () => {
       });
 
       // Restore db
-      (require("@/services/firebase") as any).db = originalDb;
+      firebaseModule.db = originalDb;
     });
   });
 

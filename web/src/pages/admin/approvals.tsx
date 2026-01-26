@@ -26,6 +26,7 @@ interface ApprovalRequest {
   updatedAt: string;
   adminMessage?: string;
   processedBy?: string;
+  processedByName?: string;
 }
 
 interface AdminApprovalsPageProps {
@@ -439,7 +440,12 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
                     <div>
                       <span className="text-gray-500">Approved by:</span>
                       <span className="ml-2 text-gray-900">
-                        {request.adminName} ({isDemoModeEnabled() ? maskEmail(request.adminEmail) : request.adminEmail})
+                        {/* Use processedByName/processedBy (actual approver) if available, fall back to adminName/adminEmail (assigned admin) for legacy records */}
+                        {request.processedByName || request.adminName} (
+                        {isDemoModeEnabled()
+                          ? maskEmail(request.processedBy || request.adminEmail)
+                          : request.processedBy || request.adminEmail}
+                        )
                       </span>
                     </div>
                   </div>

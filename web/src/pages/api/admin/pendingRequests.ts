@@ -41,6 +41,7 @@ interface ApprovalRequest {
   updatedAt: firebase.firestore.Timestamp;
   adminMessage?: string;
   processedBy?: string;
+  processedByName?: string;
 }
 
 async function sendDenialEmail(
@@ -104,10 +105,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     return res.status(503).json({ error: "Database not available" });
   }
 
-  // Get admin email from JWT token
+  // Get email of user processing this request (could be admin or superuser)
   const token = getTokenFromRequest(req);
-  const adminEmail = token.email?.toLowerCase();
-  if (!adminEmail) {
+  const processorEmail = token.email?.toLowerCase();
+  if (!processorEmail) {
     return res.status(401).json({ error: "Admin email not found" });
   }
 
@@ -135,9 +136,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Regular admins: pending → filter by adminEmail; processed → filter by processedBy
       if (token.role !== "superuser") {
         if (status === "pending") {
-          query = query.where("adminEmail", "==", adminEmail);
+          query = query.where("adminEmail", "==", processorEmail);
         } else {
-          query = query.where("processedBy", "==", adminEmail);
+          query = query.where("processedBy", "==", processorEmail);
         }
       }
 
@@ -224,7 +225,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const request = requestDoc.data() as ApprovalRequest;
 
       // Verify this admin is the assigned approver (or is a superuser)
-      if (token.role !== "superuser" && request.adminEmail.toLowerCase() !== adminEmail) {
+      if (token.role !== "superuser" && request.adminEmail.toLowerCase() !== processorEmail) {
         return res.status(403).json({ error: "You are not authorized to process this request" });
       }
 
@@ -255,12 +256,25 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           throw new Error(`Request already ${txRequest.status}`);
         }
 
+        // Look up the name of who is processing this request
+        const usersCol = getUsersCollectionName();
+        const processorDocRef = db!.collection(usersCol).doc(processorEmail);
+        const processorDoc = await transaction.get(processorDocRef);
+        let processedByName = processorEmail; // Fallback to email if name not found
+        if (processorDoc.exists) {
+          const processorData = processorDoc.data();
+          const firstName = processorData?.firstName || "";
+          const lastName = processorData?.lastName || "";
+          if (firstName || lastName) {
+            processedByName = `${firstName} ${lastName}`.trim();
+          }
+        }
+
         // If approving, read user document now (before any writes)
         let existingUser: firebase.firestore.DocumentSnapshot | null = null;
         let userDocRef: firebase.firestore.DocumentReference | null = null;
 
         if (action === "approve" && db) {
-          const usersCol = getUsersCollectionName();
           userDocRef = db.collection(usersCol).doc(txRequest.requesterEmail.toLowerCase());
           existingUser = await transaction.get(userDocRef);
         }
@@ -271,7 +285,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         const updates: Partial<ApprovalRequest> = {
           status: action === "approve" ? "approved" : "denied",
           updatedAt: now,
-          processedBy: adminEmail,
+          processedBy: processorEmail,
+          processedByName: processedByName,
         };
 
         if (message) {
@@ -294,14 +309,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             const firstName = nameParts[0] || "";
             const lastName = nameParts.slice(1).join(" ") || "";
 
+            // Use actual approver info, not the originally assigned admin
             const userData = {
               role: "user",
               entitlements: { basic: true },
               inviteStatus: "pending",
               inviteTokenHash: tokenHash,
               inviteExpiresAt,
-              invitedByEmail: txRequest.adminEmail?.toLowerCase(),
-              invitedByName: txRequest.adminName,
+              invitedByEmail: processorEmail, // Who actually approved
+              invitedByName: processedByName, // Who actually approved
               newsletterSubscribed: true, // Legacy field for backward compatibility
               emailPreferences: getDefaultEmailPreferences(), // New multi-category preferences
               firstName,

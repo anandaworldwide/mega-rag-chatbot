@@ -86,14 +86,12 @@ jest.mock("@/utils/server/firestoreUtils", () => ({
 }));
 
 describe("/api/admin/pendingRequests", () => {
-  /* eslint-disable @typescript-eslint/no-var-requires */
-  const { db } = require("@/services/firebase");
-  const { genericRateLimiter } = require("@/utils/server/genericRateLimiter");
-  const { getTokenFromRequest } = require("@/utils/server/jwtUtils");
-  const { writeAuditLog } = require("@/utils/server/auditLog");
-  const loadSiteConfig = require("@/utils/server/loadSiteConfig");
-  const { mockSend } = require("@aws-sdk/client-ses");
-  /* eslint-enable @typescript-eslint/no-var-requires */
+  const { db } = jest.requireMock("@/services/firebase");
+  const { genericRateLimiter } = jest.requireMock("@/utils/server/genericRateLimiter");
+  const { getTokenFromRequest } = jest.requireMock("@/utils/server/jwtUtils");
+  const { writeAuditLog } = jest.requireMock("@/utils/server/auditLog");
+  const loadSiteConfig = jest.requireMock("@/utils/server/loadSiteConfig");
+  const { mockSend } = jest.requireMock("@aws-sdk/client-ses");
 
   const originalEnv = process.env;
 
@@ -248,6 +246,12 @@ describe("/api/admin/pendingRequests", () => {
         updatedAt: { seconds: 1234567890, nanoseconds: 0 },
       };
 
+      const mockAdminUser = {
+        firstName: "Admin",
+        lastName: "User",
+        email: "admin@example.com",
+      };
+
       genericRateLimiter.mockResolvedValue(true);
       getTokenFromRequest.mockReturnValue({ email: "admin@example.com", role: "admin" });
       loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
@@ -256,10 +260,17 @@ describe("/api/admin/pendingRequests", () => {
       const mockSet = jest.fn();
       const mockTransactionGet = jest
         .fn()
+        // First call: request document
         .mockResolvedValueOnce({
           exists: true,
           data: () => mockRequest,
         })
+        // Second call: admin user document (for processedByName lookup)
+        .mockResolvedValueOnce({
+          exists: true,
+          data: () => mockAdminUser,
+        })
+        // Third call: requester user document
         .mockResolvedValueOnce({
           exists: false,
         });
@@ -310,6 +321,7 @@ describe("/api/admin/pendingRequests", () => {
         expect.objectContaining({
           status: "approved",
           processedBy: "admin@example.com",
+          processedByName: "Admin User",
           adminMessage: "Welcome to the community!",
         })
       );
@@ -320,6 +332,7 @@ describe("/api/admin/pendingRequests", () => {
           role: "user",
           inviteStatus: "pending",
           invitedByEmail: "admin@example.com",
+          invitedByName: "Admin User",
         })
       );
     });
@@ -337,15 +350,29 @@ describe("/api/admin/pendingRequests", () => {
         updatedAt: { seconds: 1234567890, nanoseconds: 0 },
       };
 
+      const mockAdminUser = {
+        firstName: "Admin",
+        lastName: "User",
+        email: "admin@example.com",
+      };
+
       genericRateLimiter.mockResolvedValue(true);
       getTokenFromRequest.mockReturnValue({ email: "admin@example.com", role: "admin" });
       loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
 
       const mockUpdate = jest.fn();
-      const mockTransactionGet = jest.fn().mockResolvedValue({
-        exists: true,
-        data: () => mockRequest,
-      });
+      const mockTransactionGet = jest
+        .fn()
+        // First call: request document
+        .mockResolvedValueOnce({
+          exists: true,
+          data: () => mockRequest,
+        })
+        // Second call: admin user document (for processedByName lookup)
+        .mockResolvedValueOnce({
+          exists: true,
+          data: () => mockAdminUser,
+        });
 
       const mockTransaction = {
         get: mockTransactionGet,
@@ -389,6 +416,7 @@ describe("/api/admin/pendingRequests", () => {
         expect.objectContaining({
           status: "denied",
           processedBy: "admin@example.com",
+          processedByName: "Admin User",
         })
       );
     });
@@ -462,6 +490,107 @@ describe("/api/admin/pendingRequests", () => {
 
       expect(res.statusCode).toBe(403);
       expect(res._getJSONData()).toEqual({ error: "You are not authorized to process this request" });
+    });
+
+    it("should allow superuser to approve request assigned to another admin", async () => {
+      const mockRequest = {
+        requestId: "req_super",
+        requesterEmail: "user@example.com",
+        requesterName: "Test User",
+        adminEmail: "other-admin@example.com", // Assigned to different admin
+        adminName: "Other Admin",
+        adminLocation: "Test City, CA",
+        status: "pending",
+        createdAt: { seconds: 1234567890, nanoseconds: 0 },
+        updatedAt: { seconds: 1234567890, nanoseconds: 0 },
+      };
+
+      const mockSuperuserData = {
+        firstName: "Super",
+        lastName: "User",
+        email: "superuser@example.com",
+      };
+
+      genericRateLimiter.mockResolvedValue(true);
+      // Superuser can approve any request
+      getTokenFromRequest.mockReturnValue({ email: "superuser@example.com", role: "superuser" });
+      loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+
+      const mockUpdate = jest.fn();
+      const mockSet = jest.fn();
+      const mockTransactionGet = jest
+        .fn()
+        // First call: request document
+        .mockResolvedValueOnce({
+          exists: true,
+          data: () => mockRequest,
+        })
+        // Second call: superuser document (for processedByName lookup)
+        .mockResolvedValueOnce({
+          exists: true,
+          data: () => mockSuperuserData,
+        })
+        // Third call: requester user document
+        .mockResolvedValueOnce({
+          exists: false,
+        });
+
+      const mockTransaction = {
+        get: mockTransactionGet,
+        update: mockUpdate,
+        set: mockSet,
+      };
+
+      const mockGet = jest.fn().mockResolvedValue({
+        exists: true,
+        data: () => mockRequest,
+      });
+
+      db.collection.mockReturnValue({
+        doc: jest.fn().mockReturnValue({
+          get: mockGet,
+        }),
+      });
+
+      db.runTransaction.mockImplementation(async (callback: any) => {
+        return callback(mockTransaction);
+      });
+
+      writeAuditLog.mockResolvedValue(undefined);
+      mockSend.mockResolvedValue({});
+
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "POST",
+        body: {
+          requestId: "req_super",
+          action: "approve",
+        },
+      });
+
+      await handler(req, res);
+
+      expect(res.statusCode).toBe(200);
+      const response = res._getJSONData();
+      expect(response.message).toBe("Request approved successfully");
+
+      // Verify the superuser's info is stored, NOT the originally assigned admin
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          status: "approved",
+          processedBy: "superuser@example.com", // Actual approver
+          processedByName: "Super User", // Actual approver's name
+        })
+      );
+
+      // User record should show who actually approved them
+      expect(mockSet).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          invitedByEmail: "superuser@example.com", // Actual approver
+          invitedByName: "Super User", // Actual approver's name
+        })
+      );
     });
 
     it("should return 400 if request already processed", async () => {

@@ -1005,20 +1005,14 @@ chains.
 2. Mock factories run before variables are initialized (hoisting issues)
 3. Need to dynamically change mocks per test case
 
-**Wrong**: Trying to reassign const imports or using variables in mock factories.
+**Wrong**: Using `require()` which triggers ESLint `@typescript-eslint/no-require-imports` error.
 
 ```typescript
-import { db } from "@/services/firebase";
-
-jest.mock("@/services/firebase", () => ({
-  db: mockDb, // ReferenceError: mockDb not initialized
-}));
-
-// Later in test
-(db as any) = null; // Error: Assignment to constant variable
+// ESLint error: A `require()` style import is forbidden
+const { db } = require("@/services/firebase");
 ```
 
-**Correct**: Create mock, then use require() to get reference to module object for dynamic reassignment.
+**Correct**: Use `jest.requireMock()` to get reference to mocked modules without linter errors.
 
 ```typescript
 // Mock Firebase module
@@ -1029,33 +1023,24 @@ jest.mock("@/services/firebase", () => ({
   },
 }));
 
-// Get reference to mocked module for dynamic reassignment
-const mockFirebase = require("@/services/firebase");
+// Get reference to mocked module - NO eslint-disable needed
+const { db } = jest.requireMock("@/services/firebase");
+const { genericRateLimiter } = jest.requireMock("@/utils/server/genericRateLimiter");
+const loadSiteConfig = jest.requireMock("@/utils/server/loadSiteConfig");
 
-// In beforeEach, reset to default
-beforeEach(() => {
-  mockFirebase.db = {
-    collection: jest.fn(),
-    batch: jest.fn(),
-  };
-});
-
-// In specific tests, reassign as needed
-it("should handle missing database", async () => {
-  mockFirebase.db = null; // Can reassign module object property
-  // ... test code
-});
+// For dynamic reassignment per test
+const mockFirebase = jest.requireMock("@/services/firebase");
+mockFirebase.db = null; // Can reassign module object property
 ```
 
-**Pattern**: For tests that need dynamic mock reassignment:
+**Pattern**: For tests that need access to mocked modules:
 
-1. Create mock with basic structure in jest.mock()
-2. Use `require()` to get reference to mocked module object
-3. Reassign properties of the module object (`mockFirebase.db = ...`)
-4. Reset in beforeEach for isolation
+1. Create mock with basic structure in `jest.mock()`
+2. Use `jest.requireMock()` (not `require()`) to get reference to mocked module
+3. This avoids ESLint `@typescript-eslint/no-require-imports` errors
+4. For dynamic reassignment, get the module object and reassign properties
 
-**Applied To**: Fixed clone-conversation tests that needed to mock `db` as null or with different implementations per
-test.
+**Applied To**: Fixed `pendingRequests.test.ts` and other test files.
 
 ### 31. Jest Mock Constant Hoisting Issue
 
@@ -1763,3 +1748,46 @@ return isOpen && createPortal(
 5. Use `requestAnimationFrame` to ensure DOM has updated before calculating position
 
 **Applied To**: Fixed `TaskPopover.tsx` flickering on open.
+
+### 44. Approval Workflows Must Track Actual Approver, Not Just Assigned Approver
+
+**Problem**: When a request is routed to an admin but a Super User (or different admin) approves it, the UI shows the originally assigned admin as the approver instead of the person who actually approved.
+
+**Root Cause**: The system stored `adminEmail` and `adminName` (the originally assigned approver) but only stored `processedBy` (email) without the name. The UI then displayed the assigned admin's info because that's all it had.
+
+**Wrong**: Only storing the email of who processed the request.
+
+```typescript
+const updates = {
+  status: "approved",
+  processedBy: adminEmail, // Just the email, no name
+};
+// UI shows: request.adminName (assigned admin) - WRONG!
+```
+
+**Correct**: Store both email and name of the actual approver.
+
+```typescript
+// Look up the approver's name from Firestore
+const adminDoc = await transaction.get(adminDocRef);
+const firstName = adminDoc.data()?.firstName || "";
+const lastName = adminDoc.data()?.lastName || "";
+const processedByName = `${firstName} ${lastName}`.trim() || adminEmail;
+
+const updates = {
+  status: "approved",
+  processedBy: adminEmail,
+  processedByName: processedByName, // Store the actual approver's name
+};
+
+// UI shows: request.processedByName || request.adminName (fallback for legacy)
+```
+
+**Pattern**: For approval/action workflows where multiple people can process requests:
+
+1. Always store both `processedBy` (email) and `processedByName` (display name)
+2. Look up the actor's name from Firestore if not in JWT
+3. Update related records (e.g., `invitedByEmail`, `invitedByName`) to reflect actual approver
+4. UI should display `processedByName` with fallback to `adminName` for legacy records
+
+**Applied To**: Fixed Admin Approvals page (`pendingRequests.ts`, `approvals.tsx`) to show correct approver when Super User approves requests assigned to other admins.
