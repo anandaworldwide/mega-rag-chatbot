@@ -505,7 +505,7 @@ s3transfer==0.13.0
     #   boto3
 safetensors==0.7.0
     # via transformers
-scikit-learn==1.8.0
+scikit-learn==1.7.2
     # via -r requirements.in
 scipy==1.17.0
     # via scikit-learn
