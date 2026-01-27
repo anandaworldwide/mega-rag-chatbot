@@ -8,6 +8,7 @@ import { isDevelopment } from "@/utils/env";
 import { initializeTokenManager, isAuthenticated } from "@/utils/client/tokenManager";
 import WhatsNewDropdown from "@/components/WhatsNewDropdown";
 import { isWhatsNewAvailable } from "@/utils/client/loadWhatsNew";
+import HelpDropdown from "@/components/HelpDropdown";
 
 interface BaseHeaderProps {
   config: HeaderConfig;
@@ -264,15 +265,7 @@ export default function BaseHeader({
             {whatsNewAvailable && siteConfig && (
               <WhatsNewDropdown siteConfig={siteConfig} requireLogin={requireLogin} />
             )}
-            {helpUrl && (
-              <a
-                href={helpUrl}
-                className="text-white hover:text-gray-200 p-1 rounded-xl hover:bg-white/10 transition-colors flex items-center"
-                title="Help"
-              >
-                <span className="material-icons text-xl">help_outline</span>
-              </a>
-            )}
+            <HelpDropdown siteConfig={siteConfig || null} helpUrl={helpUrl} requireLogin={requireLogin} />
             {requireLogin && authReady && (
               <nav className="flex space-x-4">
                 {isLoggedIn ? (

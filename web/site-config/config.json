@@ -64,13 +64,7 @@
       "navItems": []
     },
     "footer": {
-      "links": [
-        {
-          "label": "Open Source",
-          "url": "https://github.com/anandaworldwide/mega-rag-chatbot",
-          "icon": "code"
-        }
-      ]
+      "links": []
     },
     "queriesPerUserPerDay": 200,
     "enableModelComparison": true,
@@ -178,11 +172,6 @@
           "label": "Contact",
           "url": "https://www.ananda.org/contact-us/",
           "icon": "mail_outline"
-        },
-        {
-          "label": "Open Source",
-          "url": "https://github.com/anandaworldwide/mega-rag-chatbot",
-          "icon": "code"
         }
       ]
     },
@@ -300,11 +289,6 @@
         {
           "label": "Copyright © Crystal Clarity Publishers, 2025",
           "url": null
-        },
-        {
-          "label": "Back to main site",
-          "url": "https://crystalclarity.com",
-          "icon": "chevron_right"
         }
       ]
     },
@@ -342,13 +326,7 @@
       "navItems": [{ "label": "Home", "path": "/" }]
     },
     "footer": {
-      "links": [
-        {
-          "label": "Open Source",
-          "url": "https://github.com/anandaworldwide/mega-rag-chatbot",
-          "icon": "code"
-        }
-      ]
+      "links": []
     },
     "queriesPerUserPerDay": 150,
     "enableModelComparison": true,

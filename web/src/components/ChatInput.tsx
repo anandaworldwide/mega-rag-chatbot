@@ -26,15 +26,11 @@ import styles from "@/styles/Home.module.css";
 import SuggestedQueries from "@/components/SuggestedQueries";
 import { FilterDropdown } from "@/components/FilterDropdown";
 import { TaskPopover } from "@/components/TaskPopover";
-import { TipsModal } from "@/components/TipsModal";
 import { SiteConfig } from "@/types/siteConfig";
 import { getEnableSuggestedQueries } from "@/utils/client/siteConfig";
 import { logEvent } from "@/utils/client/analytics";
 import { getOrCreateUUID } from "@/utils/client/uuid";
 import { FirestoreIndexError, useFirestoreIndexError } from "@/components/FirestoreIndexError";
-import { areTipsAvailable } from "@/utils/client/loadTips";
-import { loadSiteTips, TipsData } from "@/utils/client/loadTips";
-import { isAuthenticated, getToken } from "@/utils/client/tokenManager";
 
 // Define the props interface for the ChatInput component
 interface ChatInputProps {
@@ -116,10 +112,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const [hasInteracted, setHasInteracted] = useState<boolean>(false);
   const [isFirstQuery, setIsFirstQuery] = useState<boolean>(true);
   const [isMobile, setIsMobile] = useState<boolean>(false);
-  const [showTipsModal, setShowTipsModal] = useState(false);
-  const [tipsAvailable, setTipsAvailable] = useState(false);
-  const [hasNewTips, setHasNewTips] = useState(false);
-  const [currentTipsVersion, setCurrentTipsVersion] = useState<number | null>(null);
   //const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Analyze error to determine if it's a Firestore index error
@@ -133,125 +125,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       // Silently ignore UUID creation errors - not critical for functionality
     }
   }, []);
-
-  // Effect to check if tips are available for this site
-  useEffect(() => {
-    if (siteConfig) {
-      areTipsAvailable(siteConfig).then(setTipsAvailable);
-    }
-  }, [siteConfig]);
-
-  // Effect to check if there are new tips the user hasn't seen
-  useEffect(() => {
-    // Only check if tips are available and we know the current version
-    if (!tipsAvailable || currentTipsVersion === null) {
-      setHasNewTips(false);
-      return;
-    }
-
-    let timeoutId: NodeJS.Timeout | null = null;
-
-    const checkTipsStatus = async () => {
-      // For login-required sites, check authentication status
-      if (siteConfig?.requireLogin) {
-        const authStatus = isAuthenticated();
-
-        if (authStatus) {
-          try {
-            // Get JWT token and make authenticated API call
-            const token = await getToken();
-            const response = await fetch("/api/user/tips", {
-              method: "GET",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
-              },
-            });
-
-            if (response.ok) {
-              const data = await response.json();
-              const lastSeenVersion = data.lastSeenTipVersion || 0;
-              setHasNewTips(lastSeenVersion < currentTipsVersion);
-            } else {
-              throw new Error(`API returned ${response.status}`);
-            }
-          } catch {
-            // Fallback to localStorage if API fails
-            const localLastSeenVersion = parseInt(localStorage.getItem("lastSeenTipVersion") || "0", 10);
-            setHasNewTips(localLastSeenVersion < currentTipsVersion);
-          }
-        } else {
-          // User not authenticated yet - try to wait a bit for auth to load, then check again
-          // This handles the case where token hasn't loaded yet on initial render
-          timeoutId = setTimeout(() => {
-            if (isAuthenticated()) {
-              // Retry the API call now that we're authenticated
-              getToken()
-                .then((token) => {
-                  return fetch("/api/user/tips", {
-                    method: "GET",
-                    headers: {
-                      "Content-Type": "application/json",
-                      Authorization: `Bearer ${token}`,
-                    },
-                  });
-                })
-                .then((response) => {
-                  if (response.ok) {
-                    return response.json();
-                  } else {
-                    throw new Error(`API returned ${response.status}`);
-                  }
-                })
-                .then((data) => {
-                  const lastSeenVersion = data.lastSeenTipVersion || 0;
-                  setHasNewTips(lastSeenVersion < currentTipsVersion);
-                })
-                .catch(() => {
-                  // Fallback to localStorage if API fails
-                  const localLastSeenVersion = parseInt(localStorage.getItem("lastSeenTipVersion") || "0", 10);
-                  setHasNewTips(localLastSeenVersion < currentTipsVersion);
-                });
-            } else {
-              // Still not authenticated - use localStorage as fallback
-              // For new accounts, localStorage will be empty (0), so if currentTipsVersion > 0, show dot
-              const localLastSeenVersion = parseInt(localStorage.getItem("lastSeenTipVersion") || "0", 10);
-              setHasNewTips(localLastSeenVersion < currentTipsVersion);
-            }
-          }, 500); // Wait 500ms for auth to potentially load
-
-          // Also set initial state based on localStorage
-          const localLastSeenVersion = parseInt(localStorage.getItem("lastSeenTipVersion") || "0", 10);
-          setHasNewTips(localLastSeenVersion < currentTipsVersion);
-        }
-      } else {
-        // Use localStorage for non-login sites
-        const localLastSeenVersion = parseInt(localStorage.getItem("lastSeenTipVersion") || "0", 10);
-        setHasNewTips(localLastSeenVersion < currentTipsVersion);
-      }
-    };
-
-    checkTipsStatus();
-
-    return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    };
-  }, [tipsAvailable, currentTipsVersion, siteConfig]);
-
-  // Effect to fetch current site tips version once we know tips exist
-  useEffect(() => {
-    if (tipsAvailable && currentTipsVersion === null && siteConfig) {
-      loadSiteTips(siteConfig)
-        .then((data: TipsData | null) => {
-          if (data) setCurrentTipsVersion(data.version);
-        })
-        .catch(() => {
-          /* ignore */
-        });
-    }
-  }, [tipsAvailable, currentTipsVersion, siteConfig]);
 
   // Effect to reset input after submission
   useEffect(() => {
@@ -385,57 +258,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     handleClick(q);
   };
 
-  // Function to handle tips button click
-  const handleTipsClick = () => {
-    setShowTipsModal(true);
-    logEvent("tips_modal_open", "Tips", "button_click");
-  };
-
-  // Function to handle tips modal close
-  const handleTipsClose = () => {
-    setShowTipsModal(false);
-    logEvent("tips_modal_close", "Tips", "modal_close");
-
-    // Mark tips as seen by updating the user's lastSeenTipVersion
-    if (currentTipsVersion && hasNewTips && siteConfig?.requireLogin) {
-      const authStatus = isAuthenticated();
-
-      if (authStatus) {
-        // Get JWT token and make authenticated API call
-        getToken()
-          .then((token) => {
-            return fetch("/api/user/tips", {
-              method: "PATCH",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
-              },
-              body: JSON.stringify({
-                lastSeenTipVersion: currentTipsVersion,
-              }),
-            });
-          })
-          .then(() => {
-            setHasNewTips(false);
-            logEvent("tips_version_updated", "Tips", "api_success");
-          })
-          .catch(() => {
-            // Don't show error to user, just log it
-          });
-      } else {
-        // Use localStorage for non-authenticated users
-        localStorage.setItem("lastSeenTipVersion", currentTipsVersion.toString());
-        setHasNewTips(false);
-        logEvent("tips_version_updated", "Tips", "localStorage");
-      }
-    }
-
-    // Always save to localStorage as backup
-    if (currentTipsVersion && hasNewTips) {
-      localStorage.setItem("lastSeenTipVersion", currentTipsVersion.toString());
-      setHasNewTips(false);
-    }
-  };
 
   // Dynamic placeholder text based on conversation state
   const placeholderText = shouldShowSuggestions ? "Ask a question..." : "Ask a follow-up question...";
@@ -543,23 +365,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 sourceCount={sourceCount}
                 setSourceCount={setSourceCount}
               />
-
-              {/* Tips Button - only show if tips are available for this site */}
-              {tipsAvailable && (
-                <button
-                  type="button"
-                  onClick={handleTipsClick}
-                  className="relative flex items-center justify-center p-2 text-sm bg-white text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                  title="Tips and tricks"
-                  aria-label="View tips and tricks"
-                >
-                  <span className="material-icons text-base">lightbulb</span>
-                  {/* Blue dot indicator when there are new tips */}
-                  {hasNewTips && (
-                    <span className="absolute -top-1 -right-1 h-3 w-3 rounded-full bg-blue-500 border-2 border-white" />
-                  )}
-                </button>
-              )}
             </div>
           </div>
 
@@ -574,14 +379,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               </div>
             ))}
         </form>
-
-        {/* Tips Modal */}
-        <TipsModal
-          isOpen={showTipsModal}
-          onClose={handleTipsClose}
-          siteConfig={siteConfig}
-          onVersionLoaded={setCurrentTipsVersion}
-        />
       </div>
     </div>
   );

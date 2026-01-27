@@ -54,6 +54,7 @@ interface MessageItemProps {
   dynamicFollowups?: string[]; // AI-generated context-specific follow-ups
   isLoadingDynamicFollowups?: boolean; // Loading state for dynamic follow-ups
   onTaskFollowupClick?: (suggestion: string) => void; // Handler for task follow-up clicks
+  timingMetricsDisplay?: React.ReactNode; // Timing metrics to display before suggestions
 }
 
 const MessageItem: React.FC<MessageItemProps> = ({
@@ -91,6 +92,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
   dynamicFollowups = [],
   isLoadingDynamicFollowups = false,
   onTaskFollowupClick,
+  timingMetricsDisplay,
 }) => {
   const { isSudoUser } = useSudo();
   const [localEditingText, setLocalEditingText] = React.useState(editingText);
@@ -391,11 +393,17 @@ const MessageItem: React.FC<MessageItemProps> = ({
               </div>
             )}
 
+            {/* Timing metrics - display before suggestions */}
+            {timingMetricsDisplay && isLastMessage && message.type === "apiMessage" && (
+              <div className="mt-2">{timingMetricsDisplay}</div>
+            )}
+
             {/* Follow-up suggestions - task followups replace regular suggestions when task is active */}
             {!readOnly &&
               message.type === "apiMessage" &&
               isLastMessage &&
-              (isTaskConversation && (taskFollowups.length > 0 || dynamicFollowups.length > 0 || isLoadingDynamicFollowups) ? (
+              (isTaskConversation &&
+              (taskFollowups.length > 0 || dynamicFollowups.length > 0 || isLoadingDynamicFollowups) ? (
                 <TaskFollowupChips
                   dynamicSuggestions={dynamicFollowups}
                   staticSuggestions={taskFollowups}
