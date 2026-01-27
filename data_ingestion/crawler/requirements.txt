@@ -221,8 +221,9 @@ typing-extensions==4.15.0
     #   typing-inspection
 typing-inspection==0.4.2
     # via pydantic
-urllib3==2.6.1
+urllib3==2.6.3
     # via
+    #   -r data_ingestion/crawler/requirements.in
     #   botocore
     #   pinecone
     #   requests
