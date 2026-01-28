@@ -10,13 +10,9 @@ export interface MediaTypes {
 // Helper function to determine active media types based on input and config
 export function determineActiveMediaTypes(
   mediaTypes: Partial<MediaTypes> | undefined,
-  configuredEnabledTypes: string[] | undefined,
+  configuredEnabledTypes: string[] | undefined
 ): string[] {
-  const enabledMediaTypes = configuredEnabledTypes || [
-    'text',
-    'audio',
-    'youtube',
-  ];
+  const enabledMediaTypes = configuredEnabledTypes || ["text", "audio", "youtube"];
   let activeTypes: string[] = [];
 
   if (mediaTypes) {
@@ -29,11 +25,7 @@ export function determineActiveMediaTypes(
 
   // If no valid types were explicitly selected or provided, default to all enabled types
   if (activeTypes.length === 0) {
-    // eslint-disable-next-line no-console
-    console.log(
-      'No valid media types selected, defaulting to all enabled types:',
-      enabledMediaTypes,
-    );
+    console.log("No valid media types selected, defaulting to all enabled types:", enabledMediaTypes);
     activeTypes = enabledMediaTypes;
   }
 

@@ -25,7 +25,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!email) {
       return res.status(400).json({ message: "Malformed session" });
     }
-  } catch (error) {
+  } catch (_error) {
     return res.status(401).json({ message: "Authentication required" });
   }
 

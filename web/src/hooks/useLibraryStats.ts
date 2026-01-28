@@ -24,10 +24,6 @@ export function useLibraryStats(siteConfig: SiteConfig | null) {
         setStats(null);
         setLoading(false);
       });
-    // siteConfig is static at runtime (set at build time via SITE env var), but we need
-    // this effect to run when siteConfig becomes available. Including siteConfig in deps
-    // to trigger on mount when it goes from null -> defined.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [siteConfig]);
 
   return { stats, loading };

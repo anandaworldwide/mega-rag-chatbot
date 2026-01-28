@@ -44,7 +44,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!userPayload || token.includes("placeholder")) {
       throw new Error("Invalid token");
     }
-  } catch (error) {
+  } catch (_error) {
     return res.status(401).json({ error: "Invalid or expired token" });
   }
 
@@ -79,7 +79,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       try {
         const cursorTimestamp = new Date(cursor);
         starredQuery = starredQuery.startAfter(cursorTimestamp);
-      } catch (error) {
+      } catch (_error) {
         return res.status(400).json({ error: "Invalid cursor format" });
       }
     }

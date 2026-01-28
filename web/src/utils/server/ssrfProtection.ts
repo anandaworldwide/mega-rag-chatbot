@@ -78,7 +78,7 @@ export function validateUrlForSSRF(
   let parsedUrl: URL;
   try {
     parsedUrl = new URL(url);
-  } catch (error) {
+  } catch (_error) {
     return { isValid: false, error: "Invalid URL format" };
   }
 

@@ -17,8 +17,7 @@ export default function CrystalHeader({ siteConfig, onNewChat }: CrystalHeaderPr
       <div
         className="bg-[#0092e3] relative h-[68px]"
         style={{
-          backgroundImage:
-            "url('data:image/svg+xml;utf8,<svg viewBox=\\\'0 0 1512 68\\\' xmlns=\\\'http://www.w3.org/2000/svg\\\' preserveAspectRatio=\\\'none\\\'><rect x=\\\'0\\\' y=\\\'0\\\' height=\\\'100%\\\' width=\\\'100%\\\' fill=\\\'url(%23grad)\\\' opacity=\\\'0.20000000298023224\\\'/><defs><radialGradient id=\\\'grad\\\' gradientUnits=\\\'userSpaceOnUse\\\' cx=\\\'0\\\' cy=\\\'0\\\' r=\\\'10\\\' gradientTransform=\\\'matrix(62.9 2.8609e-7 -7.2655e-8 15.974 756 34)\\\'><stop stop-color=\\\'rgba(255,255,255,0.2)\\\' offset=\\\'0\\\'/><stop stop-color=\\\'rgba(128,201,241,0.2)\\\' offset=\\\'0.5\\\'/><stop stop-color=\\\'rgba(64,173,234,0.2)\\\' offset=\\\'0.75\\\'/><stop stop-color=\\\'rgba(0,146,227,0.2)\\\' offset=\\\'1\\\'/></radialGradient></defs></svg>')",
+          backgroundImage: `url("data:image/svg+xml;utf8,<svg viewBox='0 0 1512 68' xmlns='http://www.w3.org/2000/svg' preserveAspectRatio='none'><rect x='0' y='0' height='100%' width='100%' fill='url(%23grad)' opacity='0.20000000298023224'/><defs><radialGradient id='grad' gradientUnits='userSpaceOnUse' cx='0' cy='0' r='10' gradientTransform='matrix(62.9 2.8609e-7 -7.2655e-8 15.974 756 34)'><stop stop-color='rgba(255,255,255,0.2)' offset='0'/><stop stop-color='rgba(128,201,241,0.2)' offset='0.5'/><stop stop-color='rgba(64,173,234,0.2)' offset='0.75'/><stop stop-color='rgba(0,146,227,0.2)' offset='1'/></radialGradient></defs></svg>")`,
         }}
       >
         <div className="flex justify-between items-center h-full px-[35px]">

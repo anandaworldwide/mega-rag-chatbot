@@ -89,10 +89,8 @@ const nextConfig = {
       },
     ],
   },
-  experimental: {
-    // This is the correct way to handle external packages for server components/actions
-    serverComponentsExternalPackages: ["onnxruntime-node"],
-  },
+  // External packages for server components (moved from experimental in Next.js 15)
+  serverExternalPackages: ["onnxruntime-node"],
 };
 
 export default nextConfig;

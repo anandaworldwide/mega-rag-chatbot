@@ -81,7 +81,7 @@ export function ResendInvitationModal({
       setCustomMessage(buildDefaultMessage());
       resetMessageState();
       onClose();
-    } catch (error) {
+    } catch (_error) {
       // Error handling is done by the parent component
     }
   };

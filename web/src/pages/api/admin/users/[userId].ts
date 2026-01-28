@@ -42,7 +42,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Prevents stale JWT admin roles from granting access after revocation
       try {
         await requireAdminRoleFromFirestore(req);
-      } catch (error) {
+      } catch (_error) {
         return res.status(403).json({ error: "Unauthorized: Admin privileges required" });
       }
 
@@ -147,7 +147,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Prevents stale JWT admin roles from granting access after revocation
       try {
         await requireAdminRoleFromFirestore(req);
-      } catch (error) {
+      } catch (_error) {
         return res.status(403).json({ error: "Unauthorized: Admin privileges required" });
       }
 
@@ -516,7 +516,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Prevents stale JWT admin roles from granting access after revocation
       try {
         await requireAdminRoleFromFirestore(req);
-      } catch (error) {
+      } catch (_error) {
         return res.status(403).json({ error: "Unauthorized: Admin privileges required" });
       }
 

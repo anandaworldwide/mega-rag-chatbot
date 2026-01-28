@@ -36,7 +36,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     await requireAdminRoleFromFirestore(req);
   } catch (error: any) {
     if (error.message?.includes("Unauthorized") || error.message?.includes("Admin")) {
-    return res.status(403).json({ error: "Forbidden" });
+      return res.status(403).json({ error: "Forbidden" });
     }
     throw error;
   }
@@ -80,7 +80,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         const full = `${first} ${last}`.trim();
         inviterName = full || undefined;
       }
-    } catch {}
+    } catch {
+      // Ignore inviter lookup errors - non-critical
+    }
 
     const existing = await firestoreGet(userDocRef, "get user", sanitizedEmail);
     if (!existing.exists) return res.status(404).json({ error: "User not found" });

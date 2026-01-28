@@ -79,7 +79,7 @@ export async function loadSiteTips(siteConfig: SiteConfig | null): Promise<TipsD
       if (configResponse.ok) {
         config = await configResponse.json();
       }
-    } catch (configError) {
+    } catch (_configError) {
       // Config file is optional, so we don't fail if it doesn't exist
       console.debug(`No tips config found for site ${siteConfig.siteId}, using defaults`);
     }
@@ -162,7 +162,7 @@ export async function areTipsAvailable(siteConfig: SiteConfig | null): Promise<b
   try {
     const response = await fetch(`/data/${siteConfig.siteId}/tips.txt`, { method: "HEAD" });
     return response.ok;
-  } catch (error) {
+  } catch (_error) {
     return false;
   }
 }
