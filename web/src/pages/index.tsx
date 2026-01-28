@@ -3287,6 +3287,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                                   isTaskConversation && index === messages.length - 1 && isLoadingDynamicFollowups
                                 }
                                 onTaskFollowupClick={handleFollowupSelect}
+                                isAdminOrSuperuser={isAdminOrSuperuser}
                                 timingMetricsDisplay={
                                   (isSudoUser || isAdminOrSuperuser) &&
                                   timingMetrics &&

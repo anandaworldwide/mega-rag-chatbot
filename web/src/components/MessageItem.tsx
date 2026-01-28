@@ -55,6 +55,7 @@ interface MessageItemProps {
   isLoadingDynamicFollowups?: boolean; // Loading state for dynamic follow-ups
   onTaskFollowupClick?: (suggestion: string) => void; // Handler for task follow-up clicks
   timingMetricsDisplay?: React.ReactNode; // Timing metrics to display before suggestions
+  isAdminOrSuperuser?: boolean; // For login-required sites: whether user is admin/superuser
 }
 
 const MessageItem: React.FC<MessageItemProps> = ({
@@ -93,8 +94,11 @@ const MessageItem: React.FC<MessageItemProps> = ({
   isLoadingDynamicFollowups = false,
   onTaskFollowupClick,
   timingMetricsDisplay,
+  isAdminOrSuperuser = false,
 }) => {
   const { isSudoUser } = useSudo();
+  // Combine sudo user status with admin/superuser status for privileged access
+  const isPrivilegedUser = isSudoUser || isAdminOrSuperuser;
   const [localEditingText, setLocalEditingText] = React.useState(editingText);
 
   // Feature flag for alternate AI comparison button (temporarily disabled)
@@ -115,7 +119,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
             sources={message.sourceDocs}
             collectionName={collectionChanged && hasMultipleCollections ? message.collection : null}
             siteConfig={siteConfig}
-            isSudoAdmin={isSudoUser}
+            isSudoAdmin={isPrivilegedUser}
             docId={message.docId}
             sourceLinkCopied={sourceLinkCopied}
             onSourceExpanded={onSourceExpanded}
