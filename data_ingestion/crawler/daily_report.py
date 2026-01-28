@@ -53,16 +53,16 @@ PACIFIC_TZ = ZoneInfo("America/Los_Angeles")
 
 def format_timestamp_pacific(timestamp_str: str | None) -> str:
     """Convert a timestamp string to Pacific time format.
-    
+
     Args:
         timestamp_str: Timestamp string in ISO format or SQLite format (YYYY-MM-DD HH:MM:SS)
-        
+
     Returns:
         Formatted timestamp string in Pacific time, or original if parsing fails
     """
     if not timestamp_str:
         return "Never (or database error)"
-    
+
     try:
         # Parse the timestamp - handle both ISO format and SQLite format
         if "T" in timestamp_str:
@@ -71,16 +71,22 @@ def format_timestamp_pacific(timestamp_str: str | None) -> str:
         else:
             # SQLite format: 2026-01-20 00:22:25
             dt = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
-        
+
         # If naive datetime, assume UTC
         if dt.tzinfo is None:
             dt = dt.replace(tzinfo=ZoneInfo("UTC"))
-        
+
         # Convert to Pacific time
         pacific_dt = dt.astimezone(PACIFIC_TZ)
-        
-        # Format with timezone abbreviation
-        return pacific_dt.strftime("%Y-%m-%d %I:%M:%S %p %Z")
+
+        month_name = pacific_dt.strftime("%B")
+        day = pacific_dt.day
+        hour_12 = pacific_dt.hour % 12 or 12
+        minute = pacific_dt.strftime("%M")
+        am_pm = pacific_dt.strftime("%p")
+        tz_abbr = pacific_dt.strftime("%Z")
+
+        return f"{month_name} {day}, {hour_12}:{minute} {am_pm} {tz_abbr}."
     except (ValueError, TypeError) as e:
         logger.warning(f"Could not parse timestamp '{timestamp_str}': {e}")
         return timestamp_str
@@ -359,6 +365,11 @@ def format_report(
 
     report_lines.append("")
 
+    # Activity
+    report_lines.append("=== Activity (Last 24h) ===")
+    report_lines.append(f"- URLs processed: {processed_count}")
+    report_lines.append("")
+
     # Queue status
     report_lines.append("=== Queue Status ===")
     report_lines.append(f"- Ready to process: {queue_stats.get('ready_to_process', 0)}")
@@ -367,11 +378,6 @@ def format_report(
     report_lines.append(f"- Completed: {queue_stats.get('visited', 0)}")
     report_lines.append(f"- Failed: {queue_stats.get('failed', 0)}")
     report_lines.append(f"- Deleted: {queue_stats.get('deleted', 0)}")
-    report_lines.append("")
-
-    # Activity
-    report_lines.append("=== Activity (Last 24h) ===")
-    report_lines.append(f"- URLs processed: {processed_count}")
     report_lines.append("")
 
     # CloudWatch errors
@@ -459,20 +465,17 @@ def main():
 
     # Send email
     logger.info(f"Sending daily report email with subject: {subject}")
-    
-    # Only include error_details if there are actual CloudWatch errors
-    # This prevents the "Error Details" section from showing when everything is healthy
+
     error_details = None
     if errors:
         error_details = {
             "context": {
                 "site_id": site_id,
                 "report_type": "daily_operations",
-                "timestamp": datetime.now(PACIFIC_TZ).strftime("%Y-%m-%d %I:%M:%S %p %Z"),
                 "cloudwatch_error_count": error_count,
             }
         }
-    
+
     success = send_ops_alert_sync(
         subject=subject,
         message=report_body,

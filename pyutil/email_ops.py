@@ -26,7 +26,6 @@ import os
 import traceback
 from datetime import datetime
 from typing import Any
-from zoneinfo import ZoneInfo
 
 try:
     import boto3
@@ -35,6 +34,10 @@ try:
     AWS_AVAILABLE = True
 except ImportError:
     AWS_AVAILABLE = False
+    # Define these to avoid type checker errors
+    boto3 = None  # type: ignore[assignment]
+    BotoCoreError = Exception  # type: ignore[assignment, misc]
+    ClientError = Exception  # type: ignore[assignment, misc]
 
 logger = logging.getLogger(__name__)
 
@@ -83,16 +86,6 @@ def _build_email_body(message: str, error_details: dict[str, Any] | None) -> str
 
         if error_details.get("context"):
             email_body += f"Context: {json.dumps(error_details['context'], indent=2)}\n"
-
-    # Add timestamp and environment info
-    # Use Pacific time for consistency across all reports
-    pacific_tz = ZoneInfo("America/Los_Angeles")
-    pacific_time = datetime.now(pacific_tz)
-    email_body += "\n\n--- System Info ---\n"
-    email_body += f"Timestamp: {pacific_time.strftime('%Y-%m-%d %I:%M:%S %p %Z')}\n"
-    email_body += f"Environment: {os.getenv('NODE_ENV', 'unknown')}\n"
-    email_body += f"Site ID: {os.getenv('SITE_ID', 'unknown')}\n"
-    email_body += f"Python Version: {os.sys.version}\n"
 
     return email_body
 
@@ -144,6 +137,7 @@ async def send_ops_alert(
         formatted_subject = _format_subject_line(subject)
 
         # Create SES client
+        assert boto3 is not None  # Type guard: AWS_AVAILABLE ensures boto3 is imported
         ses_client = boto3.client(
             "ses",
             region_name=os.getenv("AWS_REGION", "us-east-1"),
@@ -167,12 +161,14 @@ async def send_ops_alert(
 
         return True
 
-    except (BotoCoreError, ClientError) as aws_error:
-        logger.error(f"AWS SES error sending ops alert: {aws_error}")
-        return False
     except Exception as e:
-        logger.error(f"Unexpected error sending ops alert: {e}")
-        logger.error(f"Stack trace: {traceback.format_exc()}")
+        # Check if this is an AWS error (only possible when AWS is available)
+        error_type_name = type(e).__name__
+        if AWS_AVAILABLE and error_type_name in ("BotoCoreError", "ClientError"):
+            logger.error(f"AWS SES error sending ops alert: {e}")
+        else:
+            logger.error(f"Unexpected error sending ops alert: {e}")
+            logger.error(f"Stack trace: {traceback.format_exc()}")
         return False
 
 

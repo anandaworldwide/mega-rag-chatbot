@@ -61,7 +61,7 @@
     "micromark-util-symbol": "^2.0.1",
     "mongodb": "^6.16.0",
     "natural": "^8.1.0",
-    "next": "^14.2.35",
+    "next": "^15.5.10",
     "nextjs-google-analytics": "^2.3.7",
     "node-cache": "^5.1.2",
     "node-rake": "^1.0.1",
