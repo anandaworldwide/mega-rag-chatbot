@@ -154,7 +154,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             path: "/",
           });
           // Log warning but continue with anonymous token
-          console.warn("Invalid auth cookie in web-token request (cleared):", jwtError);
+          const errorMsg = jwtError instanceof Error ? jwtError.message : String(jwtError);
+          console.warn(`Invalid auth cookie in web-token request (cleared): ${errorMsg}`);
         }
       }
     }
