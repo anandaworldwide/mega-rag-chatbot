@@ -180,7 +180,7 @@
     "showSourceCountSelector": false,
     "hideSources": true,
     "temperature": 0.3,
-    "modelName": "gpt-4o-mini",
+    "modelName": "gpt-4.1-mini",
     "showRelatedQuestions": false,
     "enableGeoAwareness": true,
     "feedbackIcon": "michael.jpeg"
