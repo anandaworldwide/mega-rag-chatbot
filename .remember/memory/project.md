@@ -134,6 +134,15 @@ except ImportError:
 - For the crawler, prefer **one-shot scheduled ECS tasks** with `--max-runtime-minutes` over an always-on ECS service +
   supervisor loop when you want strict “only run in this window” behavior.
 
+
+### SQLite on EFS (Network Filesystems)
+
+- **Always use WAL mode** for SQLite on EFS/NFS to prevent "database is locked" and "database disk image is malformed"
+  errors
+- DELETE journal mode is not robust enough for network filesystems with latency
+- Required PRAGMAs: `journal_mode=WAL`, `busy_timeout=60000`, `synchronous=NORMAL`
+- Use longer connection timeouts (60s+) to handle EFS latency spikes
+
 ### AWS Cost Reporting
 
 - Cost Explorer should be queried via `--region us-east-1`, then filtered to the workload region via the `REGION`

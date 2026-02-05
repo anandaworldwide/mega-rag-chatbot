@@ -456,13 +456,19 @@ def _handle_no_url_processing(
             if hasattr(crawler, "conn") and crawler.conn:
                 crawler.conn.close()
 
-            # Recreate the connection with same timeout
+            # Recreate the connection with same settings as _init_database
             crawler.conn = sqlite3.connect(
-                str(crawler.db_file), timeout=30.0, check_same_thread=False
+                str(crawler.db_file), timeout=60.0, check_same_thread=False
             )
             crawler.conn.row_factory = sqlite3.Row
             crawler.cursor = crawler.conn.cursor()
-            logging.info("Database connection refreshed successfully")
+
+            # Re-enable WAL mode and other PRAGMA settings after reconnect
+            crawler.cursor.execute("PRAGMA journal_mode=WAL")
+            crawler.cursor.execute("PRAGMA busy_timeout=60000")
+            crawler.cursor.execute("PRAGMA synchronous=NORMAL")
+
+            logging.info("Database connection refreshed successfully with WAL mode")
         except Exception as refresh_error:
             logging.error(f"Failed to refresh database connection: {refresh_error}")
 

@@ -209,10 +209,28 @@ class WebsiteCrawler:
         db_dir.mkdir(parents=True, exist_ok=True)
         self.db_file = db_dir / f"crawler_queue_{self.site_id}.db"
         self.conn = sqlite3.connect(
-            str(self.db_file), timeout=30.0, check_same_thread=False
-        )  # 30s busy timeout for EFS, allow cross-thread access
+            str(self.db_file), timeout=60.0, check_same_thread=False
+        )  # 60s busy timeout for EFS latency spikes, allow cross-thread access
         self.conn.row_factory = sqlite3.Row  # Allow dictionary-like access to rows
         self.cursor = self.conn.cursor()
+
+        # Enable WAL mode for better EFS compatibility and crash recovery
+        # WAL mode is more resilient on network filesystems and prevents
+        # "database is locked" and "database disk image is malformed" errors
+        self.cursor.execute("PRAGMA journal_mode=WAL")
+        journal_result = self.cursor.fetchone()
+        if journal_result and journal_result[0] != "wal":
+            logging.warning(
+                f"Could not enable WAL mode, journal_mode is: {journal_result[0]}"
+            )
+        else:
+            logging.debug("WAL mode enabled for database")
+
+        # Set busy timeout at PRAGMA level as backup to connection timeout
+        self.cursor.execute("PRAGMA busy_timeout=60000")  # 60 seconds
+
+        # NORMAL synchronous is safe with WAL and faster on network filesystems
+        self.cursor.execute("PRAGMA synchronous=NORMAL")
 
         # Create crawl_queue table if it doesn't exist
         self.cursor.execute("""
