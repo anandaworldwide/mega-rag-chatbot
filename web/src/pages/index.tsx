@@ -2336,6 +2336,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             temporarySession,
             mediaTypes,
             selectedLibraries: selectedLibrariesRef.current,
+            sourceCount: sourceCountRef.current,
             uuid: getOrCreateUUID(),
             convId: currentConvIdRef.current,
             modelOverride: selectedModelRef.current, // Always send the selected model
