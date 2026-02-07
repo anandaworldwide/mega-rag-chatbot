@@ -277,9 +277,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     <div className={`${styles.center} w-full mt-2 md:mt-4 px-2 md:px-0`}>
       <div className="w-full">
         <form onSubmit={onSubmit}>
-          {/* Temporary session indicator - now handled in navigation */}
+          {/* Temporary session indicator - hidden on mobile to save screen real estate (primary banner is in index.tsx) */}
           {temporarySession && (
-            <div className="flex items-center justify-center mb-3 px-3 py-2 bg-purple-100 border border-purple-300 rounded-lg">
+            <div className="hidden md:flex items-center justify-center mb-3 px-3 py-2 bg-purple-100 border border-purple-300 rounded-lg">
               <span className="material-icons text-purple-600 text-lg mr-2">lock</span>
               <span className="text-purple-800 text-sm font-medium">
                 Temporary Session Active
