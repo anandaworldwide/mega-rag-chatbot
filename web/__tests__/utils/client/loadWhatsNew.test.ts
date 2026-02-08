@@ -35,6 +35,7 @@ describe("loadWhatsNew", () => {
     queriesPerUserPerDay: 200,
     showSourceContent: true,
     showVoting: true,
+    enableWhatsNew: true,
   };
 
   beforeEach(() => {
@@ -88,6 +89,22 @@ describe("loadWhatsNew", () => {
     it("should return null when siteId is missing", async () => {
       const configWithoutSiteId = { ...mockSiteConfig, siteId: "" };
       const result = await loadSiteWhatsNew(configWithoutSiteId);
+
+      expect(fetch).not.toHaveBeenCalled();
+      expect(result).toBeNull();
+    });
+
+    it("should return null when enableWhatsNew is false", async () => {
+      const configWithoutWhatsNew = { ...mockSiteConfig, enableWhatsNew: false };
+      const result = await loadSiteWhatsNew(configWithoutWhatsNew);
+
+      expect(fetch).not.toHaveBeenCalled();
+      expect(result).toBeNull();
+    });
+
+    it("should return null when enableWhatsNew is undefined", async () => {
+      const configWithoutFlag = { ...mockSiteConfig, enableWhatsNew: undefined };
+      const result = await loadSiteWhatsNew(configWithoutFlag);
 
       expect(fetch).not.toHaveBeenCalled();
       expect(result).toBeNull();
@@ -266,6 +283,14 @@ describe("loadWhatsNew", () => {
     it("should return false when siteId is missing", async () => {
       const configWithoutSiteId = { ...mockSiteConfig, siteId: "" };
       const result = await isWhatsNewAvailable(configWithoutSiteId);
+
+      expect(fetch).not.toHaveBeenCalled();
+      expect(result).toBe(false);
+    });
+
+    it("should return false when enableWhatsNew is false", async () => {
+      const configWithoutWhatsNew = { ...mockSiteConfig, enableWhatsNew: false };
+      const result = await isWhatsNewAvailable(configWithoutWhatsNew);
 
       expect(fetch).not.toHaveBeenCalled();
       expect(result).toBe(false);

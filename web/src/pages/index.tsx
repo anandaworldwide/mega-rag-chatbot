@@ -2857,16 +2857,18 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
   // Effect to set initial collection and focus input on component mount
   useEffect(() => {
-    // Retrieve and set the collection from the cookie
-    // TODO: This is a hack for jairam site test
-    const savedCollection =
-      Cookies.get("selectedCollection") || (process.env.SITE_ID === "jairam" ? "whole_library" : "master_swami");
-    setCollection(savedCollection);
+    // Retrieve collection from cookie, falling back to first collection in site config
+    const collections = siteConfig?.collectionConfig ? Object.keys(siteConfig.collectionConfig) : [];
+    const defaultCollection = collections[0] || "whole_library";
+    const savedCollection = Cookies.get("selectedCollection") || defaultCollection;
+    // Validate the saved collection exists in the current site's config
+    const validCollection = collections.includes(savedCollection) ? savedCollection : defaultCollection;
+    setCollection(validCollection);
 
     if (!isLoadingQueries && window.innerWidth > 768) {
       textAreaRef.current?.focus();
     }
-  }, [isLoadingQueries]);
+  }, [isLoadingQueries, siteConfig?.collectionConfig]);
 
   // Custom hook to check if multiple collections are available
   const hasMultipleCollections = useMultipleCollections(siteConfig || undefined);
