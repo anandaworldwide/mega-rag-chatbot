@@ -36,7 +36,7 @@ interface AdminApprovalsPageProps {
 export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPageProps) {
   const router = useRouter();
   const { request: requestId } = router.query;
-  const [jwt, setJwt] = useState<string | null>(null);
+  const [jwtReady, setJwtReady] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [requests, setRequests] = useState<ApprovalRequest[]>([]);
@@ -51,13 +51,17 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
   const [dataLoaded, setDataLoaded] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
 
+  // Use a ref for the JWT so token refreshes don't trigger data re-fetches
+  const jwtRef = React.useRef<string | null>(null);
+
   // Initialize JWT and get user role and email with periodic refresh
+  // Token is stored in jwtRef to avoid triggering data re-fetches on refresh
   useEffect(() => {
-    const initJwt = async () => {
+    const refreshToken = async () => {
       const tokenRes = await fetch("/api/web-token");
       if (tokenRes.ok) {
         const data = await tokenRes.json();
-        setJwt(data.token);
+        jwtRef.current = data.token;
         // Decode token to get role and email
         try {
           const payload = JSON.parse(atob(data.token.split(".")[1]));
@@ -66,23 +70,26 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
         } catch (error) {
           console.error("Error decoding token:", error);
         }
+        // Only trigger data fetch on first token acquisition
+        if (!jwtReady) {
+          setJwtReady(true);
+        }
       } else {
         const fullPath = window.location.pathname + (window.location.search || "");
         window.location.href = `/login?redirect=${encodeURIComponent(fullPath)}`;
       }
     };
-    initJwt();
+    refreshToken();
 
     // Periodic token refresh to prevent expiration while page is open and idle
     // JWT tokens expire after 15 minutes, so refresh every 10 minutes
+    // This only updates the ref - does NOT trigger data re-fetches
     const TOKEN_REFRESH_INTERVAL = 10 * 60 * 1000; // 10 minutes
-    const refreshInterval = setInterval(() => {
-      initJwt();
-    }, TOKEN_REFRESH_INTERVAL);
+    const refreshInterval = setInterval(refreshToken, TOKEN_REFRESH_INTERVAL);
 
-    // Window focus handler to refresh token
+    // Also refresh token when user returns to the page
     const handleWindowFocus = () => {
-      initJwt();
+      refreshToken();
     };
     window.addEventListener("focus", handleWindowFocus);
 
@@ -90,11 +97,12 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
       clearInterval(refreshInterval);
       window.removeEventListener("focus", handleWindowFocus);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Fetch requests (pending by default; also fetch recently approved)
   useEffect(() => {
-    if (!jwt) return;
+    if (!jwtReady) return;
 
     const fetchRequests = async () => {
       setLoading(true);
@@ -106,9 +114,10 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
       }, 2000);
 
       try {
+        const currentJwt = jwtRef.current;
         const res = await fetch("/api/admin/pendingRequests", {
           headers: {
-            Authorization: `Bearer ${jwt}`,
+            ...(currentJwt ? { Authorization: `Bearer ${currentJwt}` } : {}),
           },
         });
 
@@ -148,13 +157,14 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
         // Additionally fetch recent decisions (both approved and denied) for the "Recent Decisions" section
         let decisionsList: ApprovalRequest[] = [];
         try {
+          const latestJwt = jwtRef.current;
           // Fetch both approved and denied requests in parallel
           const [approvedRes, deniedRes] = await Promise.all([
             fetch("/api/admin/pendingRequests?status=approved&limit=10", {
-              headers: { Authorization: `Bearer ${jwt}` },
+              headers: { ...(latestJwt ? { Authorization: `Bearer ${latestJwt}` } : {}) },
             }),
             fetch("/api/admin/pendingRequests?status=denied&limit=10", {
-              headers: { Authorization: `Bearer ${jwt}` },
+              headers: { ...(latestJwt ? { Authorization: `Bearer ${latestJwt}` } : {}) },
             }),
           ]);
 
@@ -206,7 +216,7 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
     };
 
     fetchRequests();
-  }, [jwt, requestId]);
+  }, [jwtReady, requestId]);
 
   const handleOpenActionModal = (request: ApprovalRequest, action: "approve" | "deny") => {
     setSelectedRequest(request);
@@ -216,7 +226,8 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
   };
 
   const handleProcessRequest = async () => {
-    if (!selectedRequest || !actionType || !jwt) return;
+    const currentJwt = jwtRef.current;
+    if (!selectedRequest || !actionType || !currentJwt) return;
 
     setProcessing(true);
     setMessage(null);
@@ -225,7 +236,7 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
       const res = await fetch("/api/admin/pendingRequests", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${jwt}`,
+          Authorization: `Bearer ${currentJwt}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({

@@ -1751,9 +1751,11 @@ return isOpen && createPortal(
 
 ### 44. Approval Workflows Must Track Actual Approver, Not Just Assigned Approver
 
-**Problem**: When a request is routed to an admin but a Super User (or different admin) approves it, the UI shows the originally assigned admin as the approver instead of the person who actually approved.
+**Problem**: When a request is routed to an admin but a Super User (or different admin) approves it, the UI shows the
+originally assigned admin as the approver instead of the person who actually approved.
 
-**Root Cause**: The system stored `adminEmail` and `adminName` (the originally assigned approver) but only stored `processedBy` (email) without the name. The UI then displayed the assigned admin's info because that's all it had.
+**Root Cause**: The system stored `adminEmail` and `adminName` (the originally assigned approver) but only stored
+`processedBy` (email) without the name. The UI then displayed the assigned admin's info because that's all it had.
 
 **Wrong**: Only storing the email of who processed the request.
 
@@ -1790,4 +1792,64 @@ const updates = {
 3. Update related records (e.g., `invitedByEmail`, `invitedByName`) to reflect actual approver
 4. UI should display `processedByName` with fallback to `adminName` for legacy records
 
-**Applied To**: Fixed Admin Approvals page (`pendingRequests.ts`, `approvals.tsx`) to show correct approver when Super User approves requests assigned to other admins.
+**Applied To**: Fixed Admin Approvals page (`pendingRequests.ts`, `approvals.tsx`) to show correct approver when Super
+User approves requests assigned to other admins.
+
+### 45. JWT Token Refresh Must Not Trigger Data Re-fetches
+
+**Problem**: Admin pages that refresh JWT tokens periodically (every 10 minutes via `setInterval`) inadvertently trigger
+full data re-fetches because the JWT is stored in React state and the data-fetching `useEffect` depends on that state.
+
+**Root Cause**: `setJwt(newToken)` updates state -> `useEffect([jwt, ...])` fires -> data re-fetched. This fills up
+server logs with unnecessary API calls every 10 minutes per idle admin tab.
+
+**Wrong**: Storing JWT in state that data-fetching effects depend on.
+
+```typescript
+const [jwt, setJwt] = useState<string | null>(null);
+
+// Token refresh updates state every 10 minutes
+setInterval(() => {
+  setJwt(newToken); // Triggers re-render + data fetch
+}, TOKEN_REFRESH_INTERVAL);
+
+// Data fetch depends on jwt state
+useEffect(() => {
+  if (!jwt) return;
+  fetchData(); // Re-runs every time jwt changes!
+}, [jwt, ...otherDeps]);
+```
+
+**Correct**: Store JWT in a ref, use a one-time boolean state for initial readiness.
+
+```typescript
+const jwtRef = React.useRef<string | null>(null);
+const [jwtReady, setJwtReady] = useState(false);
+
+// Token refresh only updates ref (no re-render)
+setInterval(() => {
+  jwtRef.current = newToken; // Silent update
+}, TOKEN_REFRESH_INTERVAL);
+
+// Initial token sets jwtReady once
+if (!jwtReady) setJwtReady(true);
+
+// Data fetch only runs once on initial token + when filters change
+useEffect(() => {
+  if (!jwtReady) return;
+  fetchData();
+}, [jwtReady, ...otherDeps]);
+
+// API calls read from ref for latest token
+const currentJwt = jwtRef.current;
+```
+
+**Pattern**: For pages with periodic token refresh + data fetching:
+
+1. Store JWT in `useRef` instead of `useState`
+2. Use a `jwtReady` boolean state that flips once on first token acquisition
+3. Data-fetching `useEffect` depends on `jwtReady` (not the token value)
+4. API calls read `jwtRef.current` for the latest token
+5. `fetchWithTokenRefresh` handles stale tokens by retrying with fresh ones
+
+**Applied To**: Fixed all admin pages (`index.tsx`, `pending.tsx`, `approvals.tsx`, `add.tsx`).
