@@ -26,6 +26,9 @@ export async function sendOpsAlert(
     error?: Error;
     context?: Record<string, any>;
     stack?: string;
+  },
+  options?: {
+    alertLabel?: string;
   }
 ): Promise<boolean> {
   try {
@@ -81,6 +84,8 @@ export async function sendOpsAlert(
     // Determine environment and site for subject line
     const environment = process.env.NODE_ENV === "production" ? "prod" : "dev";
     const siteName = process.env.SITE_ID || "unknown";
+    const alertLabel = options?.alertLabel ?? "OPS ALERT";
+    const subjectPrefix = alertLabel ? `[${siteName} chatbot ${environment} ${alertLabel}]` : `[${siteName} chatbot ${environment}]`;
 
     const params = {
       Source: process.env.CONTACT_EMAIL || "noreply@ananda.org",
@@ -89,7 +94,7 @@ export async function sendOpsAlert(
       },
       Message: {
         Subject: {
-          Data: `[${siteName} chatbot ${environment} OPS ALERT] ${subject}`,
+          Data: `${subjectPrefix} ${subject}`,
         },
         Body: {
           Text: {
