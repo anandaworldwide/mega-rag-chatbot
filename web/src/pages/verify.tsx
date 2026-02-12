@@ -2,6 +2,7 @@
 import React, { useEffect, useState } from "react";
 import Head from "next/head";
 import { useRouter } from "next/router";
+import type { EmailCategory, EmailPreferences } from "@/types/user";
 
 export default function VerifyPage() {
   const router = useRouter();
@@ -13,6 +14,37 @@ export default function VerifyPage() {
   const [, setErrorCode] = useState<string>("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
+  const [enabledEmailTypes, setEnabledEmailTypes] = useState<EmailCategory[]>([]);
+  const [emailPreferences, setEmailPreferences] = useState<EmailPreferences>({
+    newsletters: true,
+    onboarding: true,
+    reengagement: true,
+    specialDay: true,
+    nps: true,
+  });
+
+  const emailCategoryConfig: Record<EmailCategory, { label: string; description: string }> = {
+    newsletters: {
+      label: "Newsletter updates",
+      description: "Stay inspired with curated updates and the newest content worth your attention.",
+    },
+    onboarding: {
+      label: "Getting started tips",
+      description: "Get short guidance emails that help you quickly get more value from the chatbot.",
+    },
+    reengagement: {
+      label: "Return reminders",
+      description: "Receive a gentle nudge with fresh highlights whenever you have been away for a while.",
+    },
+    specialDay: {
+      label: "Special occasions",
+      description: "Get special-day messages with meaningful content tied to important Ananda dates and events.",
+    },
+    nps: {
+      label: "Feedback surveys",
+      description: "Share quick feedback once every six months so we can keep improving what you receive.",
+    },
+  };
 
   useEffect(() => {
     if (!token || !email || status !== "idle") return;
@@ -42,6 +74,9 @@ export default function VerifyPage() {
           }
           if (data?.lastName) {
             setLastName(data.lastName);
+          }
+          if (Array.isArray(data?.enabledEmailTypes)) {
+            setEnabledEmailTypes(data.enabledEmailTypes as EmailCategory[]);
           }
           setStatus("collecting");
           setMessage("");
@@ -74,7 +109,14 @@ export default function VerifyPage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ firstName: firstName.trim(), lastName: lastName.trim() }),
+        body: JSON.stringify({
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          emailPreferences: enabledEmailTypes.reduce((acc, category) => {
+            acc[category] = emailPreferences[category] !== false;
+            return acc;
+          }, {} as Partial<EmailPreferences>),
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || "Failed to save profile");
@@ -84,6 +126,35 @@ export default function VerifyPage() {
       setStatus("error");
       setMessage(e?.message || "Failed to save profile");
     }
+  }
+
+  function handleEmailPreferenceChange(category: EmailCategory, value: boolean) {
+    setEmailPreferences((prev) => ({
+      ...prev,
+      [category]: value,
+    }));
+  }
+
+  function handleUncheckAll() {
+    if (enabledEmailTypes.length === 0) return;
+    setEmailPreferences((prev) => {
+      const updated = { ...prev };
+      enabledEmailTypes.forEach((category) => {
+        updated[category] = false;
+      });
+      return updated;
+    });
+  }
+
+  function handleCheckAll() {
+    if (enabledEmailTypes.length === 0) return;
+    setEmailPreferences((prev) => {
+      const updated = { ...prev };
+      enabledEmailTypes.forEach((category) => {
+        updated[category] = true;
+      });
+      return updated;
+    });
   }
 
   return (
@@ -125,6 +196,58 @@ export default function VerifyPage() {
                 required
               />
             </div>
+            {enabledEmailTypes.length > 0 ? (
+              <section className="rounded border border-gray-200 p-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <p className="text-sm font-medium">Email preferences</p>
+                  <div className="flex items-center gap-2 text-xs">
+                    <button
+                      type="button"
+                      onClick={handleUncheckAll}
+                      className="text-gray-600 hover:text-gray-800 underline"
+                    >
+                      Uncheck all
+                    </button>
+                    <span className="text-gray-400">|</span>
+                    <button
+                      type="button"
+                      onClick={handleCheckAll}
+                      className="text-gray-600 hover:text-gray-800 underline"
+                    >
+                      Check all
+                    </button>
+                  </div>
+                </div>
+                <p className="mb-3 text-xs text-gray-600">
+                  Pick the updates you want. You can change these anytime in Settings.
+                </p>
+                <div className="space-y-3">
+                  {enabledEmailTypes.map((category) => {
+                    const config = emailCategoryConfig[category];
+                    return (
+                      <div key={category} className="flex items-start gap-2">
+                        <input
+                          id={`activation-emailPreference-${category}`}
+                          type="checkbox"
+                          checked={emailPreferences[category] !== false}
+                          onChange={(e) => handleEmailPreferenceChange(category, e.target.checked)}
+                          className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <div className="flex-1">
+                          <label
+                            htmlFor={`activation-emailPreference-${category}`}
+                            className="text-sm font-medium cursor-pointer"
+                          >
+                            {config.label}
+                          </label>
+                          <p className="text-xs text-gray-600 mt-0.5">{config.description}</p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            ) : null}
             <button
               type="submit"
               className="inline-flex items-center rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-50"

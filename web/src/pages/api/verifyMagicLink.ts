@@ -11,6 +11,8 @@ import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
 import { isDevelopment } from "@/utils/env";
 import { createSignedUUIDCookie } from "@/utils/server/uuidUtils";
+import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
+import type { EmailCategory } from "@/types/user";
 
 async function compareToken(token: string, hash: string): Promise<boolean> {
   try {
@@ -208,11 +210,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     });
 
     // Return existing name data if available for pre-population
+    const siteConfig = await loadSiteConfig();
+    const enabledEmailTypes: EmailCategory[] = [];
+    if (siteConfig?.requireLogin) {
+      enabledEmailTypes.push("newsletters");
+      if (siteConfig?.enableOnboardingEmails) enabledEmailTypes.push("onboarding");
+      if (siteConfig?.enableReengagementEmails) enabledEmailTypes.push("reengagement");
+      if (siteConfig?.enableSpecialDayEmails) enabledEmailTypes.push("specialDay");
+      if (siteConfig?.enableNpsSurveyEmail) enabledEmailTypes.push("nps");
+    }
+
     return res.status(200).json({
       message: "ok",
       uuid: finalUuid,
       firstName: data?.firstName || undefined,
       lastName: data?.lastName || undefined,
+      enabledEmailTypes,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
