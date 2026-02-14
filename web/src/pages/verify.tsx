@@ -2,9 +2,16 @@
 import React, { useEffect, useState } from "react";
 import Head from "next/head";
 import { useRouter } from "next/router";
+import type { GetServerSideProps } from "next";
 import type { EmailCategory, EmailPreferences } from "@/types/user";
+import type { SiteConfig } from "@/types/siteConfig";
+import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 
-export default function VerifyPage() {
+interface VerifyPageProps {
+  siteConfig: SiteConfig | null;
+}
+
+export default function VerifyPage({ siteConfig }: VerifyPageProps) {
   const router = useRouter();
   const { token, email } = router.query as { token?: string; email?: string };
   const [status, setStatus] = useState<
@@ -157,13 +164,17 @@ export default function VerifyPage() {
     });
   }
 
+  const verificationHeadline = siteConfig?.name
+    ? `Account verification for ${siteConfig.name}.`
+    : "Account verification";
+
   return (
     <>
       <Head>
         <title>Verify Account</title>
       </Head>
       <main className="mx-auto max-w-xl p-6">
-        <h1 className="text-2xl font-semibold mb-4">Account Verification</h1>
+        <h1 className="text-2xl font-semibold mb-4">{verificationHeadline}</h1>
         {status === "idle" || status === "activating" ? (
           <div className="text-sm text-gray-700">Verifying your link…</div>
         ) : null}
@@ -285,3 +296,12 @@ export default function VerifyPage() {
     </>
   );
 }
+
+export const getServerSideProps: GetServerSideProps = async () => {
+  const siteConfig = await loadSiteConfig();
+  return {
+    props: {
+      siteConfig,
+    },
+  };
+};

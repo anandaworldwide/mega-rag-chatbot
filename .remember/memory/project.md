@@ -134,7 +134,6 @@ except ImportError:
 - For the crawler, prefer **one-shot scheduled ECS tasks** with `--max-runtime-minutes` over an always-on ECS service +
   supervisor loop when you want strict “only run in this window” behavior.
 
-
 ### SQLite on EFS (Network Filesystems)
 
 - **Always use WAL mode** for SQLite on EFS/NFS to prevent "database is locked" and "database disk image is malformed"
@@ -192,6 +191,7 @@ except ImportError:
 
 - Use shadcn/ui for admin UI (forms, lists, buttons)
 - Start with SES email templates; consider SendGrid later for richer templates/analytics
+- Activation page headline should use site-config long name directly (`siteConfig.name`), not site-specific hardcoded text
 
 ## Entitlements (Interim)
 
