@@ -742,6 +742,127 @@ https://example.com/page2,2025-07-13 09:30:00,Test Page 2
 
         crawler.close()
 
+    def test_trash_then_republish_requeues_url(self):
+        """Test that a URL trashed then re-published gets re-added to queue.
+
+        Simulates the WordPress scenario where a page is trashed (remove)
+        and then re-published (add/update) shortly after. Both rows appear
+        in the same CSV. The URL must end up with status='pending' so it
+        gets re-crawled.
+        """
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        now = datetime.now()
+        trash_date = now - timedelta(minutes=2)
+        republish_date = now - timedelta(minutes=1)
+
+        # Pre-populate: URL was previously crawled
+        test_url = "https://example.com/another-test-page/"
+        normalized_url = crawler.normalize_url(test_url)
+        assert crawler.cursor is not None
+        assert crawler.conn is not None
+        crawler.cursor.execute(
+            """INSERT INTO crawl_queue 
+            (url, status, priority, last_crawl, next_crawl, crawl_frequency)
+            VALUES (?, 'visited', 5, ?, datetime('now', '+7 days'), 14)""",
+            (normalized_url, (now - timedelta(hours=1)).isoformat()),
+        )
+        crawler.conn.commit()
+
+        csv_data = [
+            {
+                "URL": test_url,
+                "Modified Date": trash_date.strftime("%m/%d/%y %H:%M"),
+                "Post Title": "Another Test",
+                "Required Action": "remove",
+            },
+            {
+                "URL": test_url,
+                "Modified Date": republish_date.strftime("%m/%d/%y %H:%M"),
+                "Post Title": "Another Test",
+                "Required Action": "Add/Update",
+            },
+        ]
+
+        mock_index = Mock()
+        mock_index.query.return_value = Mock(matches=[])
+
+        crawler.process_csv_data(csv_data, pinecone_index=mock_index)
+
+        # URL must be pending so it gets re-crawled
+        crawler.cursor.execute(
+            "SELECT status, priority FROM crawl_queue WHERE url = ?",
+            (normalized_url,),
+        )
+        result = crawler.cursor.fetchone()
+        self.assertIsNotNone(result, "URL should still exist in crawl_queue")
+        self.assertEqual(result[0], "pending", "Status should be 'pending' after re-publish")
+        self.assertEqual(result[1], 10, "Priority should be 10 (CSV high priority)")
+
+        crawler.close()
+
+    def test_add_url_to_queue_reactivates_deleted_url(self):
+        """Test that add_url_to_queue resets a deleted URL back to pending."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        test_url = "https://example.com/deleted-page/"
+        normalized_url = crawler.normalize_url(test_url)
+        assert crawler.cursor is not None
+        assert crawler.conn is not None
+
+        # Insert a deleted URL with same priority that CSV would use
+        crawler.cursor.execute(
+            """INSERT INTO crawl_queue 
+            (url, status, priority, last_crawl, next_crawl, crawl_frequency)
+            VALUES (?, 'deleted', 10, datetime('now'), datetime('now', '+7 days'), 14)""",
+            (normalized_url,),
+        )
+        crawler.conn.commit()
+
+        result = crawler.add_url_to_queue(test_url, priority=10)
+        self.assertEqual(result, "updated_priority")
+
+        crawler.cursor.execute(
+            "SELECT status FROM crawl_queue WHERE url = ?",
+            (normalized_url,),
+        )
+        row = crawler.cursor.fetchone()
+        self.assertEqual(row[0], "pending")
+
+        crawler.close()
+
+    def test_should_process_csv_url_allows_deleted_urls(self):
+        """Test that _should_process_csv_url doesn't skip deleted URLs
+        even when last_crawl is recent."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        test_url = "https://example.com/deleted-page/"
+        normalized_url = crawler.normalize_url(test_url)
+        now = datetime.now()
+        assert crawler.cursor is not None
+        assert crawler.conn is not None
+
+        # Insert a deleted URL with a very recent last_crawl
+        crawler.cursor.execute(
+            """INSERT INTO crawl_queue 
+            (url, status, priority, last_crawl, next_crawl, crawl_frequency)
+            VALUES (?, 'deleted', 5, ?, datetime('now', '+7 days'), 14)""",
+            (normalized_url, now.isoformat()),
+        )
+        crawler.conn.commit()
+
+        # Modified date older than last_crawl — would normally be skipped
+        modified_date = now - timedelta(hours=1)
+        cutoff_date = now - timedelta(days=1)
+
+        should_process, reason = crawler._should_process_csv_url(
+            test_url, modified_date, cutoff_date
+        )
+        self.assertTrue(should_process, "Deleted URLs should always be re-processed")
+        self.assertEqual(reason, "")
+
+        crawler.close()
+
 
 class TestChangeDetection(BaseWebsiteCrawlerTest):
     """Test cases for content change detection."""

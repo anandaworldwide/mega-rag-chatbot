@@ -417,8 +417,21 @@ class WebsiteCrawler:
                 logging.debug(f"  - Existing modified date: {existing_modified_date}")
                 logging.debug(f"  - New modified date: {modified_date}")
 
+                # Re-activate deleted URLs regardless of priority/modified_date
+                if existing_status == "deleted":
+                    self.cursor.execute(
+                        """
+                        UPDATE crawl_queue 
+                        SET priority = ?, next_crawl = datetime('now'), status = 'pending',
+                            modified_date = ?, last_crawl = NULL
+                        WHERE url = ?
+                        """,
+                        (priority, modified_date, normalized_url),
+                    )
+                    logging.debug("  - Decision: reactivated (was deleted)")
+                    return "updated_priority"
                 # If new priority is higher, update it and reset next_crawl for immediate processing
-                if priority > existing_priority:
+                elif priority > existing_priority:
                     self.cursor.execute(
                         """
                         UPDATE crawl_queue 
@@ -2390,7 +2403,7 @@ class WebsiteCrawler:
         normalized_url = self.normalize_url(full_url)
         self.cursor.execute(
             """
-            SELECT last_crawl, modified_date 
+            SELECT last_crawl, modified_date, status 
             FROM crawl_queue 
             WHERE url = ?
             """,
@@ -2399,7 +2412,11 @@ class WebsiteCrawler:
         existing = self.cursor.fetchone()
 
         if existing:
-            last_crawl, existing_modified_date = existing
+            last_crawl, existing_modified_date, status = existing
+
+            # Always re-process deleted URLs (e.g. trashed then re-published)
+            if status == "deleted":
+                return True, ""
 
             # If we have a last crawl date, check if it's more recent than the modified date
             if last_crawl:
