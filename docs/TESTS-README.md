@@ -252,6 +252,21 @@ python -m pytest tests/test_spacy_text_splitter.py
 python -m pytest -v
 ```
 
+### Python Dependency Security Audit
+
+Run the repository-wide Python dependency security check from the project root:
+
+```bash
+./bin/run-pip-audit.sh
+```
+
+This audits all maintained Python requirements files:
+
+- `requirements.txt`
+- `reranking/requirements.txt`
+- `data_ingestion/crawler/requirements.txt`
+- `wordpress/analytics/requirements.txt`
+
 ### Key Test Areas
 
 #### Text Chunking Tests

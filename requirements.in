@@ -11,7 +11,7 @@ boto3>=1.38.44
 botocore>=1.38.44
 click==8.2.1
 colorama==0.4.6
-cryptography>=46.0.3
+cryptography>=46.0.5
 dill==0.4.0
 filelock>=3.20.1  # CVE-2025-68146: TOCTOU symlink attack fix
 firebase-admin==7.1.0
@@ -30,9 +30,9 @@ h11==0.16.0
 httpcore==1.0.9
 httpx==0.28.1
 huggingface-hub==0.33.0
-langchain-core>=0.3.72
-langchain-openai>=0.3.22
-langchain-text-splitters>=0.3.9
+langchain-core>=1.2.11
+langchain-openai>=1.1.1
+langchain-text-splitters>=1.0.0
 langsmith==0.3.45
 matplotlib
 moviepy==1.0.3
@@ -44,11 +44,12 @@ nltk==3.9
 numpy<2.0
 onnx==1.18.0
 onnxruntime==1.22.0
-openai==1.86.0
+openai>=2.20.0
 openpyxl==3.1.5
 optimum==1.25.3
 pandas==2.3.0
-pdfplumber==0.11.6
+pdfminer-six>=20251230
+pdfplumber>=0.11.8
 pipdeptree==2.26.1
 pinecone>=8.0.0
 reportlab==4.2.5
@@ -70,8 +71,9 @@ seaborn
 spacy>=3.8.11
 tenacity==8.2.2
 tokenizers==0.21.1
-torch>=2.2.0  # CVE-2025-32434: Fix requires 2.6.0+ but PyTorch 2.6.0+ doesn't support Python 3.12 (only 3.13+). 
-              # Workaround: Avoid torch.load() with untrusted data until Python upgrade or PyTorch adds 3.12 support.
+torch>=2.2.0  # Pinned to 2.2.x: PyTorch >=2.6.0 doesn't publish wheels for Python 3.12.
+              # Known CVEs (PYSEC-2025-41, PYSEC-2024-259, CVE-2025-2953, CVE-2025-3730) accepted
+              # until Python upgrade. Mitigation: never call torch.load() on untrusted data.
 tqdm==4.67.1
 transformers>=4.53.0  # CVE-2025-5197, CVE-2025-3933: ReDoS fixes
 typer==0.16.0
@@ -82,3 +84,4 @@ yarl==1.20.1
 yt-dlp==2025.12.8
 psutil
 cohere>=5.0.0
+protobuf>=6.33.5

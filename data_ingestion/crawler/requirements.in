@@ -11,7 +11,7 @@ python-dotenv
 
 # OpenAI embeddings
 langchain-openai
-langchain-core>=1.2.5  # CVE-2025-68664: Serialization injection fix (langchain-openai 1.1.7 pulls in 1.1.3, so pin directly)
+langchain-core>=1.2.11  # Includes latest langchain-core security fixes.
 
 # Vector database
 pinecone

@@ -4,10 +4,10 @@
 
 transformers>=4.53.0  # CVE-2025-5197, CVE-2025-3933: ReDoS fixes
 optimum[onnxruntime]>=1.26.1  # Required for transformers 4.53+ compatibility
-torch>=2.2.0,<3.0  # CVE-2025-32434: Fix requires 2.6.0+ but PyTorch 2.6.0+ doesn't support Python 3.12 (only 3.13+).
-                   # Workaround: Avoid torch.load() with untrusted data until Python upgrade or PyTorch adds 3.12 support.
+torch>=2.2.0,<3.0  # Pinned to 2.2.x: PyTorch >=2.6.0 doesn't publish wheels for Python 3.12.
+                   # Known CVEs accepted until Python upgrade. Reranking not actively used.
 filelock>=3.20.1  # CVE-2025-68146: TOCTOU symlink attack fix (transitive dependency needs pinning)
 urllib3>=2.6.3  # CVE-2025-66418, CVE-2025-66471, CVE-2026-21441: Decompression bomb fixes (transitive dependency needs pinning)
 scikit-learn
 numpy
-protobuf>=6.31.1  # CVE-2025-4565: JSON recursion depth bypass fix (already satisfied by 6.33.4+)
+protobuf>=6.33.5  # Includes latest protobuf security fixes.

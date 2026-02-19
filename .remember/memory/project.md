@@ -81,6 +81,9 @@ except ImportError:
 
 - **Frontend**: `cd web && npm run test:all`
 - **Python**: `cd data_ingestion && python -m pytest`
+- **Python dependency security audit**: Run `./bin/run-pip-audit.sh` from repo root to audit all maintained requirements
+  files (`requirements.txt`, `reranking/requirements.txt`, `data_ingestion/crawler/requirements.txt`,
+  `wordpress/analytics/requirements.txt`)
 - **Pattern**: Write tests first, add to existing test files when logical
 
 ### CLI Argument Patterns
