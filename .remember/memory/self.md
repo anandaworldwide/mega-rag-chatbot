@@ -1853,3 +1853,37 @@ const currentJwt = jwtRef.current;
 5. `fetchWithTokenRefresh` handles stale tokens by retrying with fresh ones
 
 **Applied To**: Fixed all admin pages (`index.tsx`, `pending.tsx`, `approvals.tsx`, `add.tsx`).
+
+### 46. SQLite Locking Protocol Recovery on EFS
+
+**Problem**: On EFS-backed SQLite, transient `sqlite3.OperationalError: locking protocol` can appear even with a single
+crawler instance, and then cascade into follow-up DB read/write failures.
+
+**Wrong**: Logging the error and returning fallback data (e.g., zero stats) without reconnection/retry.
+
+```python
+try:
+    cursor.execute("SELECT ...")
+except Exception as e:
+    logging.error(f"Error getting queue stats: {e}")
+    return {"pending": 0, "visited": 0, "failed": 0, "total": 0}  # Misleading
+```
+
+**Correct**: Detect lock protocol errors, reconnect SQLite, re-apply PRAGMAs, retry once, and mark session as fatal if
+recovery fails.
+
+```python
+if "locking protocol" in str(error).lower():
+    if recover_database_connection():
+        return retry_operation_once()
+    mark_db_recovery_failed("...")  # Trigger graceful session exit
+```
+
+**Pattern**:
+
+1. Add centralized lock-protocol recovery in DB wrapper/decorator.
+2. Reconnect with `timeout=60`, `check_same_thread=False`, then re-apply:
+   `journal_mode=WAL`, `busy_timeout=60000`, `synchronous=NORMAL`.
+3. Retry the failed DB operation once only.
+4. If retry still fails, mark DB as unrecoverable and exit the crawler loop cleanly.
+5. Never log fake zero stats when DB is unavailable; mark stats as unavailable instead.

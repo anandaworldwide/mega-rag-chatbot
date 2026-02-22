@@ -42,6 +42,33 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
+_SITE_SHORTNAME_FALLBACKS = {
+    "ananda": "Luca",
+    "ananda-public": "Vivek",
+    "crystal": "Crystal",
+    "jairam": "FJH",
+    "photo": "PhotoWise",
+}
+
+
+def get_site_shortname(site_id: str | None = None) -> str:
+    """Resolve the short public-facing site name for email subjects."""
+    resolved_site_id = site_id or os.getenv("SITE_ID") or "unknown"
+
+    site_config_json = os.getenv("SITE_CONFIG")
+    if site_config_json:
+        try:
+            all_configs = json.loads(site_config_json)
+            site_config = all_configs.get(resolved_site_id, {})
+            shortname = site_config.get("shortname")
+            if isinstance(shortname, str) and shortname.strip():
+                return shortname.strip()
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.warning(f"Failed to parse SITE_CONFIG for site shortname: {e}")
+
+    return _SITE_SHORTNAME_FALLBACKS.get(resolved_site_id, resolved_site_id)
+
+
 def _validate_email_config() -> list[str] | None:
     """Validate email configuration and return recipient list."""
     ops_email = os.getenv("OPS_ALERT_EMAIL")
@@ -97,7 +124,7 @@ def _format_subject_line(subject: str) -> str:
         return subject
 
     environment = "prod" if os.getenv("NODE_ENV") == "production" else "dev"
-    site_name = os.getenv("SITE_ID", "unknown")
+    site_name = get_site_shortname()
     return f"[{environment.upper()}-{site_name}] {subject}"
 
 

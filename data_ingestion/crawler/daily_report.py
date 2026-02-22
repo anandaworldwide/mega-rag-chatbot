@@ -32,6 +32,7 @@ except ImportError:
 # Import email utilities
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pyutil.email_ops import send_ops_alert_sync
+from pyutil.email_ops import get_site_shortname
 
 # Optional AWS imports
 try:
@@ -396,10 +397,14 @@ def format_report(
 
 def generate_subject_line(site_id: str, ready: int, processed: int, errors: int) -> str:
     """Generate email subject line with key metrics."""
-    # Format subject with metrics: "[ananda-public] Daily Crawler: 142 ready | 87 processed | 3 errors"
+    site_shortname = get_site_shortname(site_id)
+    # Format subject with metrics: "[Vivek] Daily Crawler: 3 errors | 142 ready | 87 processed"
     # Note: We format with site prefix here, and email_ops.py will skip adding dev/prod prefix
     # since it detects the subject already starts with '['
-    subject = f"[{site_id}] Daily Crawler: {ready} ready | {processed} processed | {errors} errors"
+    subject = (
+        f"[{site_shortname}] Daily Crawler: "
+        f"{errors} errors | {ready} ready | {processed} processed"
+    )
     return subject
 
 

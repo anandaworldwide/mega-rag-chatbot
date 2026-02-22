@@ -252,12 +252,17 @@ def _initialize_crawl_loop(
         logging.info(f"Will stop crawling after processing {stop_after} pages")
 
     stats = crawler.get_queue_stats()
-    pending_ready = stats["pending"] - stats.get("pending_retry", 0)
-    logging.info(
-        f"Queue breakdown: {stats['pending']} pending URLs "
-        f"({pending_ready} ready now, {stats.get('pending_retry', 0)} scheduled for retry), "
-        f"{stats['visited']} previously visited, {stats['failed']} permanently failed"
-    )
+    if stats.get("available", True):
+        pending_ready = stats["pending"] - stats.get("pending_retry", 0)
+        logging.info(
+            f"Queue breakdown: {stats['pending']} pending URLs "
+            f"({pending_ready} ready now, {stats.get('pending_retry', 0)} scheduled for retry), "
+            f"{stats['visited']} previously visited, {stats['failed']} permanently failed"
+        )
+    else:
+        logging.warning(
+            "Queue stats unavailable due to database access error; skipping breakdown log"
+        )
 
     return (
         index_name,
@@ -278,19 +283,24 @@ def _handle_initial_crawl_completion(crawler: "WebsiteCrawler") -> None:
     """
     if crawler.csv_mode_enabled and not crawler.is_initial_crawl_completed():
         stats = crawler.get_queue_stats()
+        if not stats.get("available", True):
+            logging.warning(
+                "Skipping initial crawl completion check because queue stats are unavailable"
+            )
+            return
 
         if stats["pending"] == 0:
             # No more pending URLs
-            crawler.mark_initial_crawl_completed()
-            logging.info(
-                "Initial crawl completed (no pending URLs) - CSV mode now active"
-            )
+            if crawler.mark_initial_crawl_completed():
+                logging.info(
+                    "Initial crawl completed (no pending URLs) - CSV mode now active"
+                )
         elif crawler.all_pending_urls_have_failed():
             # All pending URLs have been tried at least once
-            crawler.mark_initial_crawl_completed()
-            logging.info(
-                f"Initial crawl completed ({stats['pending']} pending URLs all have retries) - CSV mode now active"
-            )
+            if crawler.mark_initial_crawl_completed():
+                logging.info(
+                    f"Initial crawl completed ({stats['pending']} pending URLs all have retries) - CSV mode now active"
+                )
 
 
 def _process_pinecone_deletions(crawler: "WebsiteCrawler", pinecone_index) -> int:
@@ -764,6 +774,12 @@ def _check_loop_exit_conditions(
     crawler, start_time, max_runtime_seconds, args, pages_processed
 ) -> bool:
     """Check if main loop should exit. Returns True if should exit."""
+    if crawler.is_db_recovery_failed():
+        failure_reason = crawler.get_db_recovery_failure_reason() or "unknown reason"
+        logging.critical(
+            f"Exiting crawler due to unrecoverable database failure: {failure_reason}"
+        )
+        return True
     if crawler.health_monitor.is_shutdown_requested():
         logging.warning("Health monitor requested shutdown - exiting gracefully")
         return True

@@ -234,19 +234,28 @@ def _handle_browser_restart(
     )
 
     stats = crawler.get_queue_stats()
-    completion_pct = round(
-        stats["visited"] / stats["total"] * 100 if stats["total"] > 0 else 0
-    )
-    stats_message = (
-        f"\n--- Stats at {pages_since_restart} page boundary ---\n"
-        f"- Processing {pages_per_minute:.1f} pages/minute (last {pages_since_restart} pages)\n"
-        f"- Database: {stats['visited']} visited, {stats['pending']} pending, {stats['failed']} failed ({stats['total']} total URLs)\n"
-        f"- Crawl completion: {completion_pct}% of all URLs processed\n"
-        f"- Session success rate: {round(batch_success_rate)}% (last {batch_attempts} attempts)\n"
-        f"- Queue: {stats['pending_retry']} awaiting retry, {stats['high_priority']} high priority\n"
-        f"- Average retries per URL with retries: {stats['avg_retry_count']}\n"
-        f"--- End Stats ---"
-    )
+    if stats.get("available", True):
+        completion_pct = round(
+            stats["visited"] / stats["total"] * 100 if stats["total"] > 0 else 0
+        )
+        stats_message = (
+            f"\n--- Stats at {pages_since_restart} page boundary ---\n"
+            f"- Processing {pages_per_minute:.1f} pages/minute (last {pages_since_restart} pages)\n"
+            f"- Database: {stats['visited']} visited, {stats['pending']} pending, {stats['failed']} failed ({stats['total']} total URLs)\n"
+            f"- Crawl completion: {completion_pct}% of all URLs processed\n"
+            f"- Session success rate: {round(batch_success_rate)}% (last {batch_attempts} attempts)\n"
+            f"- Queue: {stats['pending_retry']} awaiting retry, {stats['high_priority']} high priority\n"
+            f"- Average retries per URL with retries: {stats['avg_retry_count']}\n"
+            f"--- End Stats ---"
+        )
+    else:
+        stats_message = (
+            f"\n--- Stats at {pages_since_restart} page boundary ---\n"
+            f"- Processing {pages_per_minute:.1f} pages/minute (last {pages_since_restart} pages)\n"
+            "- Database stats unavailable due to database access error\n"
+            f"- Session success rate: {round(batch_success_rate)}% (last {batch_attempts} attempts)\n"
+            f"--- End Stats ---"
+        )
     for line in stats_message.split("\n"):
         logging.info(line)
 

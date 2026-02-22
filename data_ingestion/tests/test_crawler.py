@@ -383,6 +383,131 @@ class TestSQLiteIntegration(BaseWebsiteCrawlerTest):
         crawler.close()
 
 
+class TestDatabaseRecovery(BaseWebsiteCrawlerTest):
+    """Test database recovery behavior for SQLite locking protocol faults."""
+
+    def setUp(self):
+        """Set up test environment."""
+        super().setUp()
+        self.temp_dir = tempfile.mkdtemp()
+        self.site_id = "test-site"
+        self.site_config = {
+            "domain": "example.com",
+            "skip_patterns": [],
+            "crawl_frequency_days": 7,
+        }
+
+        self.path_patcher = patch("crawler.website_crawler.Path")
+        mock_path_constructor = self.path_patcher.start()
+        mock_path_constructor.return_value.parent.return_value = Path(self.temp_dir)
+
+        self.original_sqlite_connect = sqlite3.connect
+        self.connect_patcher = patch("sqlite3.connect")
+        mock_sqlite_connect = self.connect_patcher.start()
+        mock_sqlite_connect.side_effect = (
+            lambda db_path_arg, **kwargs: self.original_sqlite_connect(":memory:")
+        )
+
+    def tearDown(self):
+        """Clean up after tests."""
+        self.path_patcher.stop()
+        self.connect_patcher.stop()
+        shutil.rmtree(self.temp_dir)
+        super().tearDown()
+
+    def test_recover_database_connection_success_resets_failure_flags(self):
+        """Recovering the DB connection clears fatal recovery state."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+        crawler.mark_db_recovery_failed("test failure")
+        self.assertTrue(crawler.is_db_recovery_failed())
+
+        self.assertTrue(crawler.recover_database_connection())
+        self.assertFalse(crawler.is_db_recovery_failed())
+        self.assertIsNone(crawler.get_db_recovery_failure_reason())
+
+        assert crawler.cursor is not None
+        crawler.cursor.execute("SELECT 1")
+        self.assertEqual(crawler.cursor.fetchone()[0], 1)
+        crawler.close()
+
+    def test_recover_database_connection_returns_false_when_db_file_missing(self):
+        """Recovery should fail cleanly when db_file is not available."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+        crawler.db_file = None
+
+        self.assertFalse(crawler.recover_database_connection())
+        crawler.close()
+
+    def test_requires_db_retries_once_on_locking_protocol(self):
+        """Decorator retries once when a locking protocol error occurs."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        mock_cursor = MagicMock()
+        mock_cursor.execute.side_effect = [
+            sqlite3.OperationalError("locking protocol"),
+            None,
+        ]
+        mock_cursor.fetchone.return_value = ("https://example.com/retry",)
+        crawler.cursor = mock_cursor
+
+        with patch.object(crawler, "recover_database_connection", return_value=True) as recover_mock:
+            result = crawler.is_url_in_database("https://example.com/retry")
+
+        self.assertTrue(result)
+        self.assertEqual(mock_cursor.execute.call_count, 2)
+        recover_mock.assert_called_once()
+        crawler.close()
+
+    def test_requires_db_marks_failure_when_recovery_fails(self):
+        """Decorator should raise and mark fatal state when recovery cannot reconnect."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+        mock_cursor = MagicMock()
+        mock_cursor.execute.side_effect = sqlite3.OperationalError("locking protocol")
+        crawler.cursor = mock_cursor
+
+        with patch.object(crawler, "recover_database_connection", return_value=False), patch.object(
+            crawler, "mark_db_recovery_failed"
+        ) as mark_failed_mock, self.assertRaises(sqlite3.OperationalError):
+            crawler.is_url_in_database("https://example.com/fail")
+
+        mark_failed_mock.assert_called_once()
+        crawler.close()
+
+    def test_get_queue_stats_marks_unavailable_when_recovery_fails(self):
+        """Queue stats should be marked unavailable after unrecoverable lock error."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+        mock_cursor = MagicMock()
+        mock_cursor.execute.side_effect = sqlite3.OperationalError("locking protocol")
+        crawler.cursor = mock_cursor
+
+        with patch.object(crawler, "recover_database_connection", return_value=False):
+            stats = crawler.get_queue_stats()
+
+        self.assertFalse(stats["available"])
+        self.assertTrue(crawler.is_db_recovery_failed())
+        crawler.close()
+
+    def test_check_loop_exit_conditions_exits_on_db_recovery_failure(self):
+        """Crawler loop should exit immediately when DB recovery is marked failed."""
+        from crawler.crawl_loop import _check_loop_exit_conditions
+
+        crawler = MagicMock()
+        crawler.is_db_recovery_failed.return_value = True
+        crawler.get_db_recovery_failure_reason.return_value = "test failure"
+        crawler.health_monitor.is_shutdown_requested.return_value = False
+
+        args = MagicMock()
+        result = _check_loop_exit_conditions(
+            crawler=crawler,
+            start_time=0.0,
+            max_runtime_seconds=9999.0,
+            args=args,
+            pages_processed=0,
+        )
+
+        self.assertTrue(result)
+
+
 class TestCSVFunctionality(BaseWebsiteCrawlerTest):
     """Test cases for CSV functionality."""
 

@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import sqlite3
 from dataclasses import dataclass
 from functools import wraps
 from pathlib import Path
@@ -134,7 +135,30 @@ def requires_db(method):
     @wraps(method)
     def wrapper(self, *args, **kwargs):
         self._ensure_db_initialized()
-        return method(self, *args, **kwargs)
+        try:
+            return method(self, *args, **kwargs)
+        except sqlite3.OperationalError as error:
+            error_text = str(error).lower()
+            if "locking protocol" not in error_text:
+                raise
+
+            logging.error(
+                f"SQLite locking protocol error in {method.__name__}: {error}"
+            )
+
+            recover_fn = getattr(self, "recover_database_connection", None)
+            if callable(recover_fn) and recover_fn():
+                logging.warning(
+                    f"Retrying {method.__name__} after database reconnection"
+                )
+                return method(self, *args, **kwargs)
+
+            mark_failure_fn = getattr(self, "mark_db_recovery_failed", None)
+            if callable(mark_failure_fn):
+                mark_failure_fn(
+                    f"SQLite locking protocol recovery failed in {method.__name__}: {error}"
+                )
+            raise
 
     return wrapper
 
