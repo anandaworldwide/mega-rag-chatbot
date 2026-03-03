@@ -40,7 +40,7 @@ multidict==6.4.4
 multiprocess==0.70.18
 mutagen==1.47.0
 networkx==3.4.2
-nltk==3.9
+nltk==3.9.3
 numpy<2.0
 onnx==1.18.0
 onnxruntime==1.22.0
@@ -81,7 +81,7 @@ typing_extensions==4.14.0
 urllib3>=2.6.3  # CVE-2025-66418, CVE-2025-66471, CVE-2026-21441: Decompression bomb fixes
 websockets==15.0.1
 yarl==1.20.1
-yt-dlp==2025.12.8
+yt-dlp==2026.2.21
 psutil
 cohere>=5.0.0
 protobuf>=6.33.5
