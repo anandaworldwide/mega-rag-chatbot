@@ -10,6 +10,10 @@ charset-normalizer==3.4.2
     # via requests
 coloredlogs==15.0.1
     # via onnxruntime
+cuda-bindings==12.9.4
+    # via torch
+cuda-pathfinder==1.4.0
+    # via cuda-bindings
 filelock==3.24.3
     # via
     #   -r requirements.in
@@ -77,7 +81,7 @@ nvidia-cusparse-cu12==12.5.8.93
     #   torch
 nvidia-cusparselt-cu12==0.7.1
     # via torch
-nvidia-nccl-cu12==2.27.3
+nvidia-nccl-cu12==2.27.5
     # via torch
 nvidia-nvjitlink-cu12==12.8.93
     # via
@@ -85,6 +89,8 @@ nvidia-nvjitlink-cu12==12.8.93
     #   nvidia-cusolver-cu12
     #   nvidia-cusparse-cu12
     #   torch
+nvidia-nvshmem-cu12==3.4.5
+    # via torch
 nvidia-nvtx-cu12==12.8.90
     # via torch
 onnx==1.17.0
@@ -132,7 +138,7 @@ threadpoolctl==3.6.0
     # via scikit-learn
 tokenizers==0.21.1
     # via transformers
-torch==2.8.0
+torch==2.10.0
     # via
     #   -r requirements.in
     #   optimum
@@ -145,7 +151,7 @@ transformers==4.53.3
     #   -r requirements.in
     #   optimum
     #   optimum-onnx
-triton==3.4.0
+triton==3.6.0
     # via torch
 typing-extensions==4.13.2
     # via

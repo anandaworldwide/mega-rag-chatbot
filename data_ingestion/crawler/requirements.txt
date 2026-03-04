@@ -85,7 +85,7 @@ langchain-core==1.2.14
     #   langchain-openai
 langchain-openai==1.1.9
     # via -r requirements.in
-langsmith==0.4.58
+langsmith==0.6.3
     # via langchain-core
 lxml[html-clean]==6.0.2
     # via

@@ -33,7 +33,7 @@ huggingface-hub==0.33.0
 langchain-core>=1.2.11
 langchain-openai>=1.1.1
 langchain-text-splitters>=1.0.0
-langsmith==0.3.45
+langsmith==0.7.11
 matplotlib
 moviepy==1.0.3
 multidict==6.4.4
