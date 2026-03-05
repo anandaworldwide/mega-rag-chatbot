@@ -5,8 +5,8 @@
     "dockerfile": "Dockerfile"
   },
   "user": "ubuntu",
-  "install": "python3 -m venv venv && . venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt && playwright install && touch .env.ananda",
-  "start": "echo hi",
+  "install": "python3 -m pip install --user --upgrade pip-tools pip-audit && python3 -m venv venv && . venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt && playwright install && touch .env.ananda && echo 'export PATH=\"$HOME/.local/bin:$PATH\"' >> ~/.bashrc",
+  "start": "export PATH=\"$HOME/.local/bin:$PATH\" && echo environment-ready",
   "terminals": [],
   "repositoryDependencies": []
 }
