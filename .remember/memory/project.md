@@ -84,6 +84,7 @@ except ImportError:
 - **Python dependency security audit**: Run `./bin/run-pip-audit.sh` from repo root to audit all maintained requirements
   files (`requirements.txt`, `reranking/requirements.txt`, `data_ingestion/crawler/requirements.txt`,
   `wordpress/analytics/requirements.txt`)
+- **If pip-audit is not found locally**: run with `PATH="$HOME/.local/bin:$PATH" ./bin/run-pip-audit.sh`
 - **Pattern**: Write tests first, add to existing test files when logical
 
 ### CLI Argument Patterns

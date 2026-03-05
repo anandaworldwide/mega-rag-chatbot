@@ -1887,3 +1887,24 @@ if "locking protocol" in str(error).lower():
 3. Retry the failed DB operation once only.
 4. If retry still fails, mark DB as unrecoverable and exit the crawler loop cleanly.
 5. Never log fake zero stats when DB is unavailable; mark stats as unavailable instead.
+
+### 47. Local CLI Scripts Should Not Assume User Bin Path Is on PATH
+
+**Problem**: Scripts that install Python CLIs with `pip install --user` can fail in local validation when invoking commands directly because `~/.local/bin` is not on `PATH` in some environments.
+
+**Wrong**: Calling installed CLI command directly after install.
+
+```bash
+./bin/run-pip-audit.sh
+# ... pip-audit: command not found
+```
+
+**Correct**: Either prepend user bin to `PATH` when running scripts or invoke via `python -m`.
+
+```bash
+PATH="$HOME/.local/bin:$PATH" ./bin/run-pip-audit.sh
+# or
+python -m pip_audit ...
+```
+
+**Pattern**: In CI scripts, prefer robust command invocation that does not depend on shell-specific user PATH setup.
