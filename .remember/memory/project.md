@@ -76,6 +76,8 @@ except ImportError:
 - **Always read** `@self.md` and `@project.md` first
 - **Always update** memory after fixing mistakes
 - **Only store** general, reusable lessons (not request-specific details)
+- **Cursor env build config**: Use `.cursor/Dockerfile` explicitly in `.cursor/environment.json` (avoid ambiguous `Dockerfile`
+  path)
 
 ### Testing Requirements
 

@@ -1908,3 +1908,27 @@ python -m pip_audit ...
 ```
 
 **Pattern**: In CI scripts, prefer robust command invocation that does not depend on shell-specific user PATH setup.
+
+### 48. Cursor Environment Dockerfile Path Must Be Explicit
+
+**Problem**: `.cursor/environment.json` using `"dockerfile": "Dockerfile"` can point to a missing/wrong file in this repo, causing the cloud environment to fall back to a base image with incompatible Python (e.g., <3.11).
+
+**Wrong**:
+
+```json
+"build": {
+  "context": ".",
+  "dockerfile": "Dockerfile"
+}
+```
+
+**Correct**:
+
+```json
+"build": {
+  "context": ".",
+  "dockerfile": ".cursor/Dockerfile"
+}
+```
+
+**Pattern**: In this repository, always point Cursor build config to `.cursor/Dockerfile` and add an install-time Python version guard when requirements need Python 3.11+.
