@@ -85,6 +85,8 @@ except ImportError:
   files (`requirements.txt`, `reranking/requirements.txt`, `data_ingestion/crawler/requirements.txt`,
   `wordpress/analytics/requirements.txt`)
 - **If pip-audit is not found locally**: run with `PATH="$HOME/.local/bin:$PATH" ./bin/run-pip-audit.sh`
+- **Cloud env preference**: Ensure startup environment exports `~/.local/bin` in PATH and preinstalls `pip-tools` +
+  `pip-audit`
 - **Pattern**: Write tests first, add to existing test files when logical
 
 ### CLI Argument Patterns
