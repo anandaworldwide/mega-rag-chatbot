@@ -83,6 +83,7 @@ except ImportError:
 
 - **Frontend**: `cd web && npm run test:all`
 - **Python**: `cd data_ingestion && python -m pytest`
+- **CI Python support**: Monorepo PR matrix targets Python 3.11 and 3.12 (3.10 dropped due current dependency baseline)
 - **Python dependency security audit**: Run `./bin/run-pip-audit.sh` from repo root to audit all maintained requirements
   files (`requirements.txt`, `reranking/requirements.txt`, `data_ingestion/crawler/requirements.txt`,
   `wordpress/analytics/requirements.txt`)
