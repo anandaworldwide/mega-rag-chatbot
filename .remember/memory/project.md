@@ -89,6 +89,8 @@ except ImportError:
 - **If pip-audit is not found locally**: run with `PATH="$HOME/.local/bin:$PATH" ./bin/run-pip-audit.sh`
 - **Cloud env preference**: Ensure startup environment exports `~/.local/bin` in PATH and preinstalls `pip-tools` +
   `pip-audit`
+- **Dependency lockfile validation**: after lockfile pin edits, run `python3 -m pip install --dry-run -r requirements.txt`
+  to verify all pinned versions exist on PyPI
 - **Pattern**: Write tests first, add to existing test files when logical
 
 ### CLI Argument Patterns

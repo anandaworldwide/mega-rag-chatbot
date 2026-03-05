@@ -1932,3 +1932,21 @@ python -m pip_audit ...
 ```
 
 **Pattern**: In this repository, always point Cursor build config to `.cursor/Dockerfile` and add an install-time Python version guard when requirements need Python 3.11+.
+
+### 49. Lockfiles Must Use Published Package Versions
+
+**Problem**: A pinned dependency version in a compiled requirements file can be invalid (not published on PyPI), causing startup/install failure with `No matching distribution found`.
+
+**Wrong**:
+
+```text
+scikit-learn==1.8.0
+```
+
+**Correct**:
+
+```text
+scikit-learn==1.7.2
+```
+
+**Pattern**: After changing a pinned dependency version in lockfiles, run `python3 -m pip install --dry-run -r requirements.txt` to verify all pins resolve.
