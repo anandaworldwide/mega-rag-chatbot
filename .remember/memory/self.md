@@ -1887,3 +1887,66 @@ if "locking protocol" in str(error).lower():
 3. Retry the failed DB operation once only.
 4. If retry still fails, mark DB as unrecoverable and exit the crawler loop cleanly.
 5. Never log fake zero stats when DB is unavailable; mark stats as unavailable instead.
+
+### 47. Local CLI Scripts Should Not Assume User Bin Path Is on PATH
+
+**Problem**: Scripts that install Python CLIs with `pip install --user` can fail in local validation when invoking commands directly because `~/.local/bin` is not on `PATH` in some environments.
+
+**Wrong**: Calling installed CLI command directly after install.
+
+```bash
+./bin/run-pip-audit.sh
+# ... pip-audit: command not found
+```
+
+**Correct**: Either prepend user bin to `PATH` when running scripts or invoke via `python -m`.
+
+```bash
+PATH="$HOME/.local/bin:$PATH" ./bin/run-pip-audit.sh
+# or
+python -m pip_audit ...
+```
+
+**Pattern**: In CI scripts, prefer robust command invocation that does not depend on shell-specific user PATH setup.
+
+### 48. Cursor Environment Dockerfile Path Must Be Explicit
+
+**Problem**: `.cursor/environment.json` using `"dockerfile": "Dockerfile"` can point to a missing/wrong file in this repo, causing the cloud environment to fall back to a base image with incompatible Python (e.g., <3.11).
+
+**Wrong**:
+
+```json
+"build": {
+  "context": ".",
+  "dockerfile": "Dockerfile"
+}
+```
+
+**Correct**:
+
+```json
+"build": {
+  "context": ".",
+  "dockerfile": ".cursor/Dockerfile"
+}
+```
+
+**Pattern**: In this repository, always point Cursor build config to `.cursor/Dockerfile` and add an install-time Python version guard when requirements need Python 3.11+.
+
+### 49. Lockfiles Must Use Published Package Versions
+
+**Problem**: A pinned dependency version in a compiled requirements file can be invalid (not published on PyPI), causing startup/install failure with `No matching distribution found`.
+
+**Wrong**:
+
+```text
+scikit-learn==1.8.0
+```
+
+**Correct**:
+
+```text
+scikit-learn==1.7.2
+```
+
+**Pattern**: After changing a pinned dependency version in lockfiles, run `python3 -m pip install --dry-run -r requirements.txt` to verify all pins resolve.

@@ -76,14 +76,22 @@ except ImportError:
 - **Always read** `@self.md` and `@project.md` first
 - **Always update** memory after fixing mistakes
 - **Only store** general, reusable lessons (not request-specific details)
+- **Cursor env build config**: Use `.cursor/Dockerfile` explicitly in `.cursor/environment.json` (avoid ambiguous `Dockerfile`
+  path)
 
 ### Testing Requirements
 
 - **Frontend**: `cd web && npm run test:all`
 - **Python**: `cd data_ingestion && python -m pytest`
+- **CI Python support**: Monorepo PR matrix targets Python 3.11 and 3.12 (3.10 dropped due current dependency baseline)
 - **Python dependency security audit**: Run `./bin/run-pip-audit.sh` from repo root to audit all maintained requirements
   files (`requirements.txt`, `reranking/requirements.txt`, `data_ingestion/crawler/requirements.txt`,
   `wordpress/analytics/requirements.txt`)
+- **If pip-audit is not found locally**: run with `PATH="$HOME/.local/bin:$PATH" ./bin/run-pip-audit.sh`
+- **Cloud env preference**: Ensure startup environment exports `~/.local/bin` in PATH and preinstalls `pip-tools` +
+  `pip-audit`
+- **Dependency lockfile validation**: after lockfile pin edits, run `python3 -m pip install --dry-run -r requirements.txt`
+  to verify all pinned versions exist on PyPI
 - **Pattern**: Write tests first, add to existing test files when logical
 
 ### CLI Argument Patterns
