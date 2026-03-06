@@ -12,7 +12,7 @@ import { useMultipleCollections } from "@/hooks/useMultipleCollections";
 import { SiteConfig } from "@/types/siteConfig";
 import markdownStyles from "@/styles/MarkdownStyles.module.css";
 import { DocMetadata } from "@/types/DocMetadata";
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 
 import { formatAnswerTimestamp } from "@/utils/client/dateUtils";
 
@@ -22,6 +22,7 @@ export interface AnswerItemProps {
   handleDelete?: (answerId: string) => void;
   linkCopied: string | null;
   isSudoUser: boolean;
+  isAdminOrSuperuser?: boolean; // For login-required sites: whether user is admin/superuser
   isFullPage?: boolean;
   siteConfig: SiteConfig | null;
 }
@@ -62,11 +63,14 @@ const AnswerItem: React.FC<AnswerItemProps> = ({
   handleDelete,
   linkCopied,
   isSudoUser,
+  isAdminOrSuperuser = false,
   isFullPage = false,
   siteConfig,
 }) => {
   const hasMultipleCollections = useMultipleCollections(siteConfig || undefined);
   const [expanded, setExpanded] = useState(isFullPage);
+  // Combine sudo user status with admin/superuser status for privileged access
+  const isPrivilegedUser = isSudoUser || isAdminOrSuperuser;
 
   const [isCommentModalOpen, setIsCommentModalOpen] = useState(false);
 
@@ -172,7 +176,7 @@ const AnswerItem: React.FC<AnswerItemProps> = ({
               sources={answer.sources as Document<DocMetadata>[]}
               collectionName={hasMultipleCollections ? answer.collection : null}
               siteConfig={siteConfig}
-              isSudoAdmin={isSudoUser}
+              isSudoAdmin={isPrivilegedUser}
             />
           )}
 
@@ -197,7 +201,7 @@ const AnswerItem: React.FC<AnswerItemProps> = ({
               </button>
             )}
             {/* Delete Button */}
-            {handleDelete && isSudoUser && (
+            {handleDelete && isPrivilegedUser && (
               <button
                 onClick={() => handleDelete(answer.id)}
                 className="text-red-600 hover:text-red-800 hover:bg-red-50 flex items-center px-3 py-2 rounded-xl text-sm transition-colors h-8"
@@ -208,11 +212,11 @@ const AnswerItem: React.FC<AnswerItemProps> = ({
               </button>
             )}
             {/* IP Address (Aligned Right) */}
-            {isSudoUser && answer.ip && <span className="text-base text-gray-400 ml-auto">IP: {answer.ip}</span>}
+            {isPrivilegedUser && answer.ip && <span className="text-base text-gray-400 ml-auto">IP: {answer.ip}</span>}
           </div>
 
           {/* Sudo Feedback Display Section */}
-          {isSudoUser && answer.vote === -1 && answer.feedbackReason && (
+          {isPrivilegedUser && answer.vote === -1 && answer.feedbackReason && (
             <div className="mt-3 pt-3 border-t border-gray-200 flex items-center space-x-2 text-sm text-gray-600 bg-yellow-50 p-2 rounded">
               <span className="material-icons text-red-600 text-base">thumb_down</span>
               <span className="font-medium">Reason:</span>

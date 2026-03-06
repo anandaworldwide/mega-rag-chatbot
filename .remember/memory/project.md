@@ -76,11 +76,22 @@ except ImportError:
 - **Always read** `@self.md` and `@project.md` first
 - **Always update** memory after fixing mistakes
 - **Only store** general, reusable lessons (not request-specific details)
+- **Cursor env build config**: Use `.cursor/Dockerfile` explicitly in `.cursor/environment.json` (avoid ambiguous `Dockerfile`
+  path)
 
 ### Testing Requirements
 
 - **Frontend**: `cd web && npm run test:all`
 - **Python**: `cd data_ingestion && python -m pytest`
+- **CI Python support**: Monorepo PR matrix targets Python 3.11 and 3.12 (3.10 dropped due current dependency baseline)
+- **Python dependency security audit**: Run `./bin/run-pip-audit.sh` from repo root to audit all maintained requirements
+  files (`requirements.txt`, `reranking/requirements.txt`, `data_ingestion/crawler/requirements.txt`,
+  `wordpress/analytics/requirements.txt`)
+- **If pip-audit is not found locally**: run with `PATH="$HOME/.local/bin:$PATH" ./bin/run-pip-audit.sh`
+- **Cloud env preference**: Ensure startup environment exports `~/.local/bin` in PATH and preinstalls `pip-tools` +
+  `pip-audit`
+- **Dependency lockfile validation**: after lockfile pin edits, run `python3 -m pip install --dry-run -r requirements.txt`
+  to verify all pinned versions exist on PyPI
 - **Pattern**: Write tests first, add to existing test files when logical
 
 ### CLI Argument Patterns
@@ -88,6 +99,21 @@ except ImportError:
 - **Preference**: Long-form arguments first in argparse
 - **Environment**: Use `--site` argument with `pyutil.env_utils.load_env(site_name)`
 - **Example**: `parser.add_argument("--video", "-v", ...)` not `("-v", "--video", ...)`
+- **Site and Environment Pattern**:
+  - Always add `--site` argument (required) for loading `.env.[site]` files
+  - Add `-e` or `--env` argument with `choices=['dev', 'prod']` and `default='prod'` (or 'dev' if appropriate)
+  - Call `load_env(args.site)` from `pyutil.env_utils` after parsing arguments
+  - Load environment variables from `.env.[site]` file (searches current directory and up to 3 levels up)
+  - Example:
+
+    ```python
+    from pyutil.env_utils import load_env
+
+    parser.add_argument("--site", required=True, help="Site ID for environment variables")
+    parser.add_argument("-e", "--env", choices=['dev', 'prod'], default='prod', help="Environment")
+    args = parser.parse_args()
+    load_env(args.site)  # Loads .env.[site] file
+    ```
 
 ### Running Cron Jobs from Command Line
 
@@ -119,6 +145,23 @@ except ImportError:
 - For the crawler, prefer **one-shot scheduled ECS tasks** with `--max-runtime-minutes` over an always-on ECS service +
   supervisor loop when you want strict “only run in this window” behavior.
 
+### Crawler Deployment ("build and push to production")
+
+- When the user says "build and push to production" for the crawler, this means **deploy to AWS ECS**, not git push.
+- **Step 1**: `bash data_ingestion/crawler/bin/build-and-push.sh latest` — builds Docker image for linux/amd64 and
+  pushes to ECR (`ananda-crawler` repo in us-west-1)
+- **Step 2**: `bash data_ingestion/crawler/bin/register-task-definition.sh latest` — registers new ECS task definition
+  revision and updates the EventBridge schedule to use it
+- The next hourly scheduled run automatically picks up the new image
+
+### SQLite on EFS (Network Filesystems)
+
+- **Always use WAL mode** for SQLite on EFS/NFS to prevent "database is locked" and "database disk image is malformed"
+  errors
+- DELETE journal mode is not robust enough for network filesystems with latency
+- Required PRAGMAs: `journal_mode=WAL`, `busy_timeout=60000`, `synchronous=NORMAL`
+- Use longer connection timeouts (60s+) to handle EFS latency spikes
+
 ### AWS Cost Reporting
 
 - Cost Explorer should be queried via `--region us-east-1`, then filtered to the workload region via the `REGION`
@@ -132,6 +175,8 @@ except ImportError:
 - **OOP over functional** - user preference
 - **Testing approach**: TDD with failing → passing pattern
 - **Documentation**: Update relevant docs with changes
+- **Ops email subject naming**: Use site shortname (e.g., Luca, Vivek), not long site name/site ID
+- **Crawler daily digest subject order**: Put error count first so inbox preview surfaces errors immediately
 
 ### Dependencies
 
@@ -168,6 +213,8 @@ except ImportError:
 
 - Use shadcn/ui for admin UI (forms, lists, buttons)
 - Start with SES email templates; consider SendGrid later for richer templates/analytics
+- Activation page headline should use site-config long name directly (`siteConfig.name`), not site-specific hardcoded
+  text
 
 ## Entitlements (Interim)
 
@@ -199,6 +246,15 @@ except ImportError:
 - **State**: Uses existing `loading` state to prevent concurrent regenerations
 - **Analytics**: Logs "regenerate_answer_clicked" event with message index
 
+## Data Files and Versioning
+
+### What's New JSON Files
+
+- **Location**: `web/public/data/[site]/whats-new.json`
+- **Critical Rule**: Always bump the `version` field when updating entries in whats-new.json files
+- **Pattern**: Increment version number (e.g., 3 → 4) whenever adding, removing, or modifying entries
+- **Purpose**: Version tracking helps detect when clients need to refresh their cached content
+
 ## Never Do Again
 
 1. Cross-evaluate between different embedding model generations
@@ -206,3 +262,4 @@ except ImportError:
 3. Add platform-specific packages to root package-lock.json
 4. Hardcode model names in evaluation scripts (use parameters)
 5. Move modules without updating ALL @patch decorator paths
+6. Update whats-new.json files without bumping the version number

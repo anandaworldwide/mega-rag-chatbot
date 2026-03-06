@@ -11,6 +11,7 @@ python-dotenv
 
 # OpenAI embeddings
 langchain-openai
+langchain-core>=1.2.11  # Includes latest langchain-core security fixes.
 
 # Vector database
 pinecone
@@ -29,3 +30,6 @@ psutil
 
 # AWS SDK for CloudWatch logs access
 boto3
+
+# Security fixes
+urllib3>=2.6.3  # CVE-2025-66418, CVE-2025-66471, CVE-2026-21441: Decompression bomb fixes

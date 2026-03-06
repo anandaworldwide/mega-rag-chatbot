@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { toast } from "react-toastify";
 import { logEvent } from "@/utils/client/analytics";
 
@@ -7,12 +7,25 @@ export interface StarButtonProps {
   isStarred: boolean;
   onStarChange: (convId: string, isStarred: boolean) => Promise<void>;
   size?: "sm" | "md" | "lg";
+  location?: "title_bar" | "sidebar" | "other";
   className?: string;
 }
 
-const StarButton: React.FC<StarButtonProps> = ({ convId, isStarred, onStarChange, size = "md", className = "" }) => {
+const StarButton: React.FC<StarButtonProps> = ({
+  convId,
+  isStarred,
+  onStarChange,
+  size = "md",
+  location = "other",
+  className = "",
+}) => {
   const [isLoading, setIsLoading] = useState(false);
   const [optimisticStarred, setOptimisticStarred] = useState(isStarred);
+
+  // Sync internal state when prop changes from external updates (e.g., refetch)
+  useEffect(() => {
+    setOptimisticStarred(isStarred);
+  }, [isStarred]);
 
   // Use optimistic state for immediate visual feedback
   const displayStarred = optimisticStarred;
@@ -36,10 +49,10 @@ const StarButton: React.FC<StarButtonProps> = ({ convId, isStarred, onStarChange
       logEvent(
         newStarState ? "star_conversation" : "unstar_conversation",
         "Conversation Management",
-        `${newStarState ? "Star" : "Unstar"} - ${size}`,
+        `${newStarState ? "Star" : "Unstar"} - ${location}`,
         1
       );
-    } catch (error) {
+    } catch (_error) {
       // Rollback on error
       setOptimisticStarred(!newStarState);
       toast.error("Failed to update star status. Please try again.");
@@ -48,7 +61,7 @@ const StarButton: React.FC<StarButtonProps> = ({ convId, isStarred, onStarChange
       logEvent(
         "star_action_failed",
         "Conversation Management",
-        `Failed ${newStarState ? "Star" : "Unstar"} - ${size}`,
+        `Failed ${newStarState ? "Star" : "Unstar"} - ${location}`,
         1
       );
     } finally {

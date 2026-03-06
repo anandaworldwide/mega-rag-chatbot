@@ -106,7 +106,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const categoryNames: Record<EmailCategory, string> = {
       newsletters: "newsletter updates",
       onboarding: "getting started tips",
-      reengagement: "activity reminders",
+      reengagement: "return reminders",
       specialDay: "special occasion notifications",
       nps: "feedback requests",
     };

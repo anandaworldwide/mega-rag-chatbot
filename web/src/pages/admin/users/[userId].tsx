@@ -87,7 +87,9 @@ export default function EditUserPage({ siteConfig }: PageProps) {
           const profileData = await profileRes.json();
           setCurrentUserRole(profileData?.role || "user");
         }
-      } catch (e) {}
+      } catch (_e) {
+        // Ignore profile fetch errors - non-critical
+      }
     }
     getTokenAndRole();
   }, []);
@@ -293,7 +295,7 @@ export default function EditUserPage({ siteConfig }: PageProps) {
               setApproversPreview(previewData);
             }
           }
-        } catch (e) {
+        } catch (_e) {
           // Silently fail - preview is optional
         }
       } else if (!updatedUser.isApprover) {

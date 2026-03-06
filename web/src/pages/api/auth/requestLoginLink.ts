@@ -1,4 +1,5 @@
 // API: Email-first login request. If user exists: send login magic link. If pending: resend activation.
+// If pending approval request exists: return pending request info with admin details.
 // If not found: return { next: "request-approval" } to trigger admin approval flow.
 import type { NextApiRequest, NextApiResponse } from "next";
 import firebase from "firebase-admin";
@@ -21,6 +22,7 @@ import {
 } from "@/utils/server/userLoginMagicUtils";
 import { isEmailDomainWhitelisted } from "@/utils/server/domainWhitelistUtils";
 import { writeAuditLog } from "@/utils/server/auditLog";
+import { isDevelopment } from "@/utils/env";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -105,7 +107,32 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return res.status(200).json({ message: "activation-sent", isWhitelisted: true });
     }
 
-    // Not whitelisted → ask frontend to go to request-approval (admin approval)
+    // Not whitelisted → check if there's already a pending approval request
+    const envPrefix = isDevelopment() ? "dev" : "prod";
+    const approvalRequestsCollection = `${envPrefix}_admin_approval_requests`;
+
+    const pendingRequestQuery = await db
+      .collection(approvalRequestsCollection)
+      .where("requesterEmail", "==", email.toLowerCase())
+      .where("status", "==", "pending")
+      .limit(1)
+      .get();
+
+    if (!pendingRequestQuery.empty) {
+      // There's already a pending request - return info about it
+      const pendingRequest = pendingRequestQuery.docs[0].data();
+      return res.status(200).json({
+        next: "request-pending",
+        pendingRequest: {
+          adminName: pendingRequest.adminName,
+          adminEmail: pendingRequest.adminEmail,
+          adminLocation: pendingRequest.adminLocation,
+          createdAt: pendingRequest.createdAt?.toDate?.()?.toISOString() || null,
+        },
+      });
+    }
+
+    // No pending request → ask frontend to show approval request form
     return res.status(200).json({ next: "request-approval", isWhitelisted: false });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

@@ -43,7 +43,7 @@
 // TODO: wrap this in apiMiddleware
 //
 import { NextRequest, NextResponse } from "next/server";
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { PineconeStore } from "@langchain/pinecone";
 import { makeChain, setupAndExecuteLanguageModelChain, NoSourcesError } from "@/utils/server/makechain";
@@ -75,6 +75,7 @@ import { v4 as uuidv4 } from "uuid";
 import { generateTitle } from "@/utils/server/titleGeneration";
 import { firestoreUpdate } from "@/utils/server/firestoreRetryUtils";
 import { updateUserActivity } from "@/utils/server/userActivityUtils";
+import { ModelPerformanceRecordContext, ModelPerformanceTracker } from "@/utils/server/modelPerformanceUtils";
 
 export const runtime = "nodejs";
 export const maxDuration = 240;
@@ -132,6 +133,9 @@ interface ChatRequestBody {
   uuid: string; // required client UUID (persisted regardless of auth)
   convId?: string; // conversation ID for follow-up messages
   modelOverride?: string; // optional model override for testing/comparison
+  taskMode?: string; // optional task mode for analytics (e.g., "class-planning", "research")
+  taskFollowups?: string[]; // available task follow-up suggestions
+  usedTaskFollowups?: string[]; // follow-ups that have been used
 }
 
 interface ComparisonRequestBody extends ChatRequestBody {
@@ -246,7 +250,7 @@ async function applyRateLimiting(req: NextRequest, siteConfig: SiteConfig): Prom
       max: isDevelopment() ? siteConfig.queriesPerUserPerDay * 10 : siteConfig.queriesPerUserPerDay,
       name: "query",
     },
-    req.ip
+    getClientIp(req)
   );
 
   if (!isAllowed) {
@@ -370,7 +374,12 @@ async function saveOrUpdateDocument(
   restatedQuestion: string,
   uuid?: string | undefined,
   convId?: string | undefined, // Accept convId from frontend
-  suggestions?: Array<{ id: string; text: string; type: "deeper" | "broader"; sourceDocId?: string; score?: number }> // Accept typed suggestions for saving
+  suggestions?: Array<{ id: string; text: string; type: "deeper" | "broader"; sourceDocId?: string; score?: number }>, // Accept typed suggestions for saving
+  model?: string | undefined, // Model used for this response
+  temperature?: number | undefined, // Temperature used for this response
+  taskMode?: string, // Task mode (e.g., "class-planning", "research")
+  taskFollowups?: string[], // Available task follow-up suggestions
+  usedTaskFollowups?: string[] // Follow-ups that have been used
 ): Promise<string | null> {
   if (!db) {
     return null;
@@ -403,7 +412,7 @@ async function saveOrUpdateDocument(
       })
     : [];
 
-  const dataToSave = {
+  const dataToSave: Record<string, any> = {
     question: sanitizedOriginalQuestion,
     answer: fullResponse,
     collection: collection,
@@ -418,6 +427,25 @@ async function saveOrUpdateDocument(
     convId: finalConvId, // Add conversation ID for grouping
     suggestions: sanitizedSuggestions, // Save follow-up suggestions (typed, with undefined values removed)
   };
+
+  // Add model and temperature if provided
+  if (model !== undefined) {
+    dataToSave.model = model;
+  }
+  if (temperature !== undefined) {
+    dataToSave.temperature = temperature;
+  }
+
+  // Add task state fields if present (for task wizard conversations)
+  if (taskMode) {
+    dataToSave.taskMode = taskMode;
+  }
+  if (taskFollowups && taskFollowups.length > 0) {
+    dataToSave.taskFollowups = taskFollowups;
+  }
+  if (usedTaskFollowups && usedTaskFollowups.length > 0) {
+    dataToSave.usedTaskFollowups = usedTaskFollowups;
+  }
 
   try {
     const answerRef = db.collection(getAnswersCollectionName());
@@ -744,9 +772,7 @@ async function handleComparisonRequest(req: NextRequest, requestBody: Comparison
                 callbacks: [
                   {
                     handleLLMNewToken(token: string) {
-                      if (token.trim()) {
-                        sendToClient({ token, model: "A" });
-                      }
+                      sendToClient({ token, model: "A" });
                     },
                   } as Partial<BaseCallbackHandler>,
                 ],
@@ -761,9 +787,7 @@ async function handleComparisonRequest(req: NextRequest, requestBody: Comparison
                 callbacks: [
                   {
                     handleLLMNewToken(token: string) {
-                      if (token.trim()) {
-                        sendToClient({ token, model: "B" });
-                      }
+                      sendToClient({ token, model: "B" });
                     },
                   } as Partial<BaseCallbackHandler>,
                 ],
@@ -894,6 +918,12 @@ async function handleChatRequest(req: NextRequest) {
   }
 
   const { sanitizedInput, originalQuestion } = validationResult;
+  const effectiveModelName = sanitizedInput.modelOverride || modelName;
+
+  // Log task mode for analytics if present
+  if (sanitizedInput.taskMode) {
+    console.log(`Task mode: ${sanitizedInput.taskMode}`);
+  }
 
   // Check if this is a comparison request
   const isComparison = "modelA" in sanitizedInput;
@@ -914,6 +944,7 @@ async function handleChatRequest(req: NextRequest) {
       let firstTokenSent = false;
       let performanceLogged = false;
       let titleGenerationPromise: Promise<string | null> | undefined;
+      let requestStatus: "success" | "error" = "success";
 
       const sendData = (data: StreamingResponseData) => {
         if (!isControllerClosed) {
@@ -1044,21 +1075,23 @@ async function handleChatRequest(req: NextRequest) {
 
         // Execute the full chain
         timingMetrics.chainExecutionStart = Date.now();
-        const { fullResponse, finalDocs, restatedQuestion, suggestions } = await setupAndExecuteLanguageModelChain(
-          retriever,
-          sanitizedInput.question, // Use sanitized question (whitespace normalized) for AI processing
-          sanitizedInput.history || [],
-          sendData,
-          sourceCount,
-          filter,
-          siteConfig,
-          timingMetrics.startTime,
-          sanitizedInput.temporarySession || false,
-          req, // Pass the request object for geo-awareness
-          timingMetrics, // Pass timing metrics for detailed tracking
-          sanitizedInput.modelOverride, // Pass model override if provided
-          sanitizedInput.selectedLibraries // Pass selected libraries for filtering
-        );
+        const { fullResponse, finalDocs, restatedQuestion, suggestions, model, temperature } =
+          await setupAndExecuteLanguageModelChain(
+            retriever,
+            sanitizedInput.question, // Use sanitized question (whitespace normalized) for AI processing
+            sanitizedInput.history || [],
+            sendData,
+            sourceCount,
+            filter,
+            siteConfig,
+            timingMetrics.startTime,
+            sanitizedInput.temporarySession || false,
+            req,
+            timingMetrics,
+            sanitizedInput.modelOverride,
+            sanitizedInput.selectedLibraries,
+            sanitizedInput.taskMode
+          );
         // --- End of Encapsulated Call ---
         timingMetrics.answerStreamingComplete = Date.now();
 
@@ -1088,7 +1121,12 @@ async function handleChatRequest(req: NextRequest) {
               restatedQuestion, // Pass the restated question
               sanitizedInput.uuid, // Persist client UUID when provided
               finalConversationId, // Use the final conversation ID
-              suggestions // Pass suggestions for saving
+              suggestions, // Pass suggestions for saving
+              model, // Pass the model used
+              temperature, // Pass the temperature used
+              sanitizedInput.taskMode, // Pass task mode for persistence
+              sanitizedInput.taskFollowups, // Pass task follow-ups for persistence
+              sanitizedInput.usedTaskFollowups // Pass used task follow-ups for persistence
             );
 
             if (savedDocId) {
@@ -1140,6 +1178,7 @@ async function handleChatRequest(req: NextRequest) {
           }
         }
       } catch (error: unknown) {
+        requestStatus = "error";
         handleError(error, sendData);
       } finally {
         // Ensure title generation completes or is properly cleaned up
@@ -1154,8 +1193,34 @@ async function handleChatRequest(req: NextRequest) {
         // Mark total completion time
         timingMetrics.totalTime = Date.now() - timingMetrics.startTime;
 
+        if (timingMetrics.totalTokens === undefined) {
+          timingMetrics.totalTokens = tokensStreamed;
+        }
+        if (
+          timingMetrics.tokensPerSecond === undefined &&
+          timingMetrics.totalTokens &&
+          timingMetrics.firstByteTime &&
+          timingMetrics.totalTime
+        ) {
+          const streamingTime = timingMetrics.totalTime - (timingMetrics.firstByteTime - timingMetrics.startTime);
+          if (streamingTime > 0) {
+            timingMetrics.tokensPerSecond = Math.round((timingMetrics.totalTokens / streamingTime) * 1000);
+          }
+        }
+
+        const performanceContext: ModelPerformanceRecordContext = {
+          modelName: effectiveModelName,
+          siteId: siteConfig.siteId || "unknown",
+          collection: sanitizedInput.collection || "whole_library",
+          sourceCount,
+          requestType: "chat",
+          status: requestStatus,
+          totalTokens: timingMetrics.totalTokens || 0,
+          tokensPerSecond: timingMetrics.tokensPerSecond || 0,
+        };
+
         // Log comprehensive performance metrics
-        logPerformanceMetrics(timingMetrics, modelName);
+        await logPerformanceMetrics(timingMetrics, performanceContext);
 
         if (!isControllerClosed) {
           controller.close();
@@ -1176,44 +1241,10 @@ async function handleChatRequest(req: NextRequest) {
 }
 
 // Comprehensive performance logging function
-function logPerformanceMetrics(metrics: TimingMetrics, modelName: string = "unknown") {
-  // Use setTimeout to log metrics asynchronously
-  setTimeout(() => {
-    const {
-      startTime,
-      pineconeSetupComplete,
-      vectorStoreSetupComplete,
-      chainExecutionStart,
-      firstTokenGenerated,
-      firstByteTime,
-      answerStreamingComplete,
-      suggestionsGenerationStart,
-      suggestionsGenerationComplete,
-      documentSaveStart,
-      documentSaveComplete,
-      totalTime,
-      tokensPerSecond,
-      totalTokens,
-    } = metrics;
-
-    // Calculate detailed timing breakdown
-    const timings = {
-      pineconeSetup: pineconeSetupComplete ? pineconeSetupComplete - startTime : 0,
-      vectorStoreSetup:
-        vectorStoreSetupComplete && pineconeSetupComplete ? vectorStoreSetupComplete - pineconeSetupComplete : 0,
-      chainExecution:
-        chainExecutionStart && vectorStoreSetupComplete ? chainExecutionStart - vectorStoreSetupComplete : 0,
-      llmThinkTime: firstTokenGenerated && chainExecutionStart ? firstTokenGenerated - chainExecutionStart : 0,
-      tokenDelivery: firstByteTime && firstTokenGenerated ? firstByteTime - firstTokenGenerated : 0,
-      ttfb: firstByteTime ? firstByteTime - startTime : 0,
-      answerStreaming: answerStreamingComplete && firstByteTime ? answerStreamingComplete - firstByteTime : 0,
-      suggestionsGeneration:
-        suggestionsGenerationComplete && suggestionsGenerationStart
-          ? suggestionsGenerationComplete - suggestionsGenerationStart
-          : 0,
-      documentSave: documentSaveComplete && documentSaveStart ? documentSaveComplete - documentSaveStart : 0,
-      totalSessionTime: totalTime || 0,
-    };
+async function logPerformanceMetrics(metrics: TimingMetrics, context: ModelPerformanceRecordContext) {
+  try {
+    const performanceTracker = new ModelPerformanceTracker();
+    const timings = performanceTracker.buildTimingBreakdown(metrics);
 
     // Calculate what's unaccounted for in TTFB
     const accountedTTFB =
@@ -1250,7 +1281,7 @@ function logPerformanceMetrics(metrics: TimingMetrics, modelName: string = "unkn
 
     console.log(`
     ⚡️ Chat Performance Breakdown:
-      Model: ${modelName}
+      Model: ${context.modelName}
       
       ${
         setupPhaseLines.length > 0
@@ -1269,13 +1300,18 @@ ${aiProcessingLines.join("\n")}
       }
       
       📡 Streaming & Processing:
-        Answer streaming: ${(timings.answerStreaming / 1000).toFixed(2)}s (${tokensPerSecond || 0} chars/sec)
+        Answer streaming: ${(timings.answerStreaming / 1000).toFixed(2)}s (${context.tokensPerSecond || 0} chars/sec)
         ${timings.suggestionsGeneration > 0 ? `Suggestions generation: ${(timings.suggestionsGeneration / 1000).toFixed(2)}s` : "Suggestions: skipped"}
         Document save: ${(timings.documentSave / 1000).toFixed(2)}s
       
       📊 Summary:
-        Answer complete: ${answerStreamingComplete ? ((answerStreamingComplete - startTime) / 1000).toFixed(2) : "N/A"}s
-        Total session: ${(timings.totalSessionTime / 1000).toFixed(2)}s (${totalTokens || 0} tokens)
+        Answer complete: ${metrics.answerStreamingComplete ? ((metrics.answerStreamingComplete - metrics.startTime) / 1000).toFixed(2) : "N/A"}s
+        Total session: ${(timings.totalSessionTime / 1000).toFixed(2)}s (${context.totalTokens || 0} tokens)
       `);
-  }, 0);
+
+    const record = performanceTracker.buildRecord(metrics, context);
+    await performanceTracker.recordChatPerformance(record);
+  } catch (error) {
+    console.warn("Failed to record model performance metrics:", error);
+  }
 }

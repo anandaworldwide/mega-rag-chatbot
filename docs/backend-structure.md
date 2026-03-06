@@ -275,6 +275,14 @@ API endpoints are defined in `pages/api/` and `app/api/`. Most endpoints are pro
   - **Purpose:** Daily digest of user activation attempts and completions.
   - **Auth:** Requires Cron Secret or JWT authentication.
   - **Schedule:** Daily at 1:00 PM UTC (configured in `vercel.json`).
+- **`GET /api/admin/model-performance`** (`pages/api/admin/model-performance.ts`)
+  - **Purpose:** Returns model performance averages for the last 7 days.
+  - **Auth:** Requires admin privileges (JWT or sudo based on site config).
+  - **Response:** Per-model averages and standard deviations for TTFB, streaming, total time, and tokens.
+- **`POST /api/admin/model-performance-digest`** (`pages/api/admin/model-performance-digest.ts`)
+  - **Purpose:** Daily email digest of model performance for the last 24 hours.
+  - **Auth:** Requires Cron Secret or JWT authentication.
+  - **Schedule:** Daily at 2:15 PM UTC (configured in `vercel.json`).
 - **`POST /api/admin/cleanupExpiredInvitations`** (`pages/api/admin/cleanupExpiredInvitations.ts`)
   - **Purpose:** Daily cleanup of expired pending account invitations (older than 14 days).
   - **Auth:** Requires Cron Secret or JWT authentication.
@@ -337,6 +345,9 @@ Data is stored across multiple services:
 
   - **`modelComparisons`, `modelComparisonVotes` (Collections):** Data related to A/B testing or comparing different LLM
     responses.
+  - **`modelPerformance` (Collection):** Environment-prefixed
+    (`dev_model_performance`, `prod_model_performance`) records of per-request performance metrics (timings, tokens,
+    model name, site ID, and status).
   - **`ingestQueue` (Collection - Inferred):** Used by Python scripts to manage the data ingestion pipeline for sources
     like websites, PDFs, audio, video, and SQL databases.
 

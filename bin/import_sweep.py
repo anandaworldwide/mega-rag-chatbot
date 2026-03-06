@@ -47,8 +47,6 @@ PACKAGE_IMPORT_MAP = {
     "spacy-legacy": "spacy_legacy",
     "spacy-loggers": "spacy_loggers",
     "pinecone-client": "pinecone",
-    "pinecone-plugin-interface": "pinecone_plugin_interface",
-    "pinecone-plugin-inference": "pinecone_plugin_inference",
     "langchain-core": "langchain_core",
     "langchain-openai": "langchain_openai",
     "langchain-text-splitters": "langchain_text_splitters",

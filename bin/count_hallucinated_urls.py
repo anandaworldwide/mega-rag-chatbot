@@ -30,10 +30,11 @@ from urllib.parse import urlparse
 import requests
 from firestore_utils import initialize_firestore
 from google.cloud.firestore_v1.base_query import FieldFilter
-from pyutil.env_utils import load_env
 from tqdm import tqdm
 
- 
+from pyutil.env_utils import load_env
+
+
 def extract_urls(text):
     """Extract URLs from text content."""
     if not text:

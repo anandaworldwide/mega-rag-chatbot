@@ -1,0 +1,59 @@
+{
+  "taskId": "find-stories",
+  "displayName": "Find Stories",
+  "icon": "auto_stories",
+  "description": "Find stories from Master and Swamiji that illustrate a theme or teaching",
+  "sourceCount": 15,
+  "steps": [
+    {
+      "id": "theme",
+      "type": "text",
+      "label": "What theme should the story illustrate?",
+      "placeholder": "e.g., faith, perseverance, divine protection, karma, humor",
+      "required": true
+    },
+    {
+      "id": "description",
+      "type": "textarea",
+      "label": "Do you have a specific story in mind? Describe it here.",
+      "placeholder": "e.g., the story where Master brought a dead bird back to life, or where Swamiji met a saint in the Himalayas",
+      "required": false
+    },
+    {
+      "id": "source",
+      "type": "text",
+      "label": "Any preferred source?",
+      "placeholder": "e.g., Autobiography of a Yogi, The New Path, Swamiji's talks, any",
+      "required": false
+    },
+    {
+      "id": "purpose",
+      "type": "text",
+      "label": "What will you use this story for?",
+      "placeholder": "e.g., share in a talk, teach a class, personal inspiration",
+      "required": false
+    },
+    {
+      "id": "storyType",
+      "type": "text",
+      "label": "Any preference for story type?",
+      "placeholder": "e.g., humorous, touching, miraculous, practical",
+      "required": false
+    },
+    {
+      "id": "quantity",
+      "type": "text",
+      "label": "How many stories would you like?",
+      "placeholder": "e.g., 1-2, several options",
+      "required": false
+    }
+  ],
+  "suggestedFollowups": [
+    "Tell me more details about one of these stories",
+    "Find a different story on the same theme",
+    "What lesson or moral does this story teach?",
+    "Find quotes that relate to this story",
+    "How can I retell this story effectively?"
+  ],
+  "promptTemplate": "I'm looking for stories that illustrate the theme of \"{{theme}}\".{{#description}}\n\nI'm thinking of a specific story: {{description}}.{{/description}}{{#source}}\n\nPlease focus on {{source}}.{{/source}}{{#quantity}}\n\nPlease find {{quantity}} stories.{{/quantity}}{{^quantity}}\n\nPlease find 2-3 stories.{{/quantity}}{{#purpose}}\n\nI'll be using these to {{purpose}}.{{/purpose}}{{#storyType}}\n\nI prefer stories that are {{storyType}}.{{/storyType}}\n\nFor each story, please provide:\n\n1. A brief summary of the story\n2. The source (book, chapter, or talk)\n3. The key lesson or moral it illustrates\n4. Any memorable quotes from the story\n\nInclude enough detail that I could retell the story to others."
+}

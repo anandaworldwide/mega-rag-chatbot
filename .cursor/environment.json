@@ -2,11 +2,11 @@
   "name": "Ananda Chatbot Development",
   "build": {
     "context": ".",
-    "dockerfile": "Dockerfile"
+    "dockerfile": ".cursor/Dockerfile"
   },
   "user": "ubuntu",
-  "install": "python3 -m venv venv && . venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt && playwright install && touch .env.ananda",
-  "start": "echo hi",
+  "install": "PYTHON_BIN=$(command -v python3.11 || command -v python3) && \"$PYTHON_BIN\" -c 'import sys; assert sys.version_info >= (3, 11), \"Python 3.11+ required\"' && \"$PYTHON_BIN\" -m pip install --user --upgrade pip-tools pip-audit && \"$PYTHON_BIN\" -m venv venv && . venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt && playwright install && touch .env.ananda && (grep -qxF 'export PATH=\"$HOME/.local/bin:$PATH\"' ~/.bashrc || echo 'export PATH=\"$HOME/.local/bin:$PATH\"' >> ~/.bashrc)",
+  "start": "export PATH=\"$HOME/.local/bin:$PATH\" && echo environment-ready",
   "terminals": [],
   "repositoryDependencies": []
 }

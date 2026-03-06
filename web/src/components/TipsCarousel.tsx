@@ -5,7 +5,7 @@
  * Each tip is shown on a separate slide with previous/next navigation.
  */
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { logEvent } from "@/utils/client/analytics";
 import { Tip } from "@/utils/client/loadTips";
 
@@ -18,17 +18,23 @@ export const TipsCarousel: React.FC<TipsCarouselProps> = ({ tips }) => {
   const touchStartX = useRef<number>(0);
   const touchEndX = useRef<number>(0);
 
-  const goToNext = (method = "unknown") => {
-    const newIndex = (currentIndex + 1) % tips.length;
-    setCurrentIndex(newIndex);
-    logEvent("tips_navigate_next", "Tips", method, newIndex + 1);
-  };
+  const goToNext = useCallback(
+    (method = "unknown") => {
+      const newIndex = (currentIndex + 1) % tips.length;
+      setCurrentIndex(newIndex);
+      logEvent("tips_navigate_next", "Tips", method, newIndex + 1);
+    },
+    [currentIndex, tips.length]
+  );
 
-  const goToPrevious = (method = "unknown") => {
-    const newIndex = (currentIndex - 1 + tips.length) % tips.length;
-    setCurrentIndex(newIndex);
-    logEvent("tips_navigate_previous", "Tips", method, newIndex + 1);
-  };
+  const goToPrevious = useCallback(
+    (method = "unknown") => {
+      const newIndex = (currentIndex - 1 + tips.length) % tips.length;
+      setCurrentIndex(newIndex);
+      logEvent("tips_navigate_previous", "Tips", method, newIndex + 1);
+    },
+    [currentIndex, tips.length]
+  );
 
   const goToIndex = (index: number, method = "unknown") => {
     if (index === currentIndex) return;

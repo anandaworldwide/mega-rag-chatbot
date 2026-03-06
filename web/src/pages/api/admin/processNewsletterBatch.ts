@@ -18,6 +18,8 @@ import pMap from "p-map";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { updateLastContentEmailSent } from "@/utils/server/contentEmailTracker";
 import { createErrorResponse, ERROR_CODES } from "@/utils/server/apiErrorResponse";
+import { generateOpenTrackingUrl, generateClickTrackingUrl } from "@/utils/server/emailTrackingUtils";
+import { addTrackingPixel } from "@/utils/server/emailTemplates";
 
 // Concurrency limit for parallel email sending (balance speed vs rate limits)
 // Set to 15 to target ~45 requests/second (3x previous rate of 5 concurrency → 14 req/s)
@@ -31,7 +33,7 @@ interface BatchRequest {
 
 async function convertMarkdownToHtml(markdownContent: string): Promise<string> {
   try {
-    marked.setOptions({
+    marked.use({
       breaks: true,
       gfm: true,
     });
@@ -76,6 +78,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!newsletterId) {
       return res.status(400).json(createErrorResponse("newsletterId required", ERROR_CODES.VALIDATION_ERROR));
     }
+
+    // Fetch newsletter metadata (content is stored here, not in queue items)
+    const newsletterRef = db.collection(getNewslettersCollectionName()).doc(newsletterId);
+    const newsletterDoc = await newsletterRef.get();
+    if (!newsletterDoc.exists) {
+      return res.status(404).json(createErrorResponse("Newsletter not found", ERROR_CODES.NOT_FOUND));
+    }
+    const newsletterData = newsletterDoc.data()!;
+    const { subject, content, ctaUrl, ctaText } = newsletterData;
 
     // Fetch pending/failed items (attempts < 3)
     const queueItemsQuery = db
@@ -143,39 +154,69 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         }
 
         try {
+          const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "";
+
           // Generate unsubscribe token
           const unsubscribeToken = jwt.sign({ email: data.email, purpose: "newsletter_unsubscribe" }, jwtSecret, {
             expiresIn: "1y",
             algorithm: "HS256",
           });
-          const unsubscribeUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/api/unsubscribe?token=${unsubscribeToken}`;
+          const rawUnsubscribeUrl = `${baseUrl}/api/unsubscribe?token=${unsubscribeToken}`;
 
-          // Personalization
+          // Wrap unsubscribe URL with click tracking
+          const unsubscribeUrl = generateClickTrackingUrl(
+            rawUnsubscribeUrl,
+            data.email,
+            "newsletter",
+            newsletterId,
+            "unsubscribe",
+            undefined,
+            baseUrl
+          );
+
+          // Personalization (from queue item - per-user data)
           const firstName = data.firstName;
           const lastName = data.lastName;
-          // Unescape any escaped quotes in names
           const userName = formatFullName(firstName, lastName) || "Friend";
 
-          // Convert content
-          const htmlContent = await convertMarkdownToHtml(data.content);
+          // Convert content (from newsletter metadata - shared across all recipients)
+          const htmlContent = await convertMarkdownToHtml(content);
 
-          const settingsUrl = `${process.env.NEXT_PUBLIC_BASE_URL}/settings`;
-          const html = renderNewsletterHtml({
-            subject: data.subject,
+          // Wrap CTA URL with click tracking if present
+          let trackedCtaUrl: string | undefined;
+          if (ctaUrl) {
+            trackedCtaUrl = generateClickTrackingUrl(
+              ctaUrl,
+              data.email,
+              "newsletter",
+              newsletterId,
+              "cta",
+              ctaText || "cta-button",
+              baseUrl
+            );
+          }
+
+          const settingsUrl = `${baseUrl}/settings`;
+          let html = renderNewsletterHtml({
+            subject,
             siteName,
             siteShortname,
             userName,
             content: htmlContent,
-            ctaUrl: data.ctaUrl,
-            ctaText: data.ctaText,
+            ctaUrl: trackedCtaUrl,
+            ctaText,
             unsubscribeUrl,
             settingsUrl,
           });
 
+          // Add open tracking pixel
+          const openTrackingUrl = generateOpenTrackingUrl(data.email, "newsletter", newsletterId, baseUrl);
+          html = addTrackingPixel(html, openTrackingUrl);
+
           // Send
           const emailSent = await sendEmail({
             to: data.email,
-            subject: data.subject,
+            subject,
             html,
             from: fromEmail,
           });

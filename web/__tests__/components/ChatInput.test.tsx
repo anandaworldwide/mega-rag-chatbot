@@ -80,6 +80,8 @@ describe("ChatInput", () => {
     textAreaRef: { current: null } as React.RefObject<HTMLTextAreaElement>,
     mediaTypes: { text: true, audio: false, youtube: false },
     handleMediaTypeChange: jest.fn(),
+    selectedLibraries: [],
+    handleLibraryChange: jest.fn(),
     siteConfig: mockSiteConfig,
     input: "",
     handleInputChange: jest.fn(),
@@ -170,9 +172,9 @@ describe("ChatInput", () => {
   it("shows chat options dropdown when options are available", () => {
     render(<ChatInput {...defaultProps} />);
 
-    // Check if the chat options dropdown button is present
-    const dropdownButton = screen.getByText("Chat Options");
-    expect(dropdownButton).toBeInTheDocument();
+    // Check if the filter button is present
+    const filterButton = screen.getByRole("button", { name: /content filters/i });
+    expect(filterButton).toBeInTheDocument();
   });
 
   it("handles query shuffling", () => {
@@ -197,9 +199,9 @@ describe("ChatInput", () => {
   it("opens dropdown and shows media type options", () => {
     render(<ChatInput {...defaultProps} />);
 
-    // Click the dropdown button to open it
-    const dropdownButton = screen.getByText("Chat Options");
-    fireEvent.click(dropdownButton);
+    // Click the filter button to open it (media types are in FilterDropdown)
+    const filterButton = screen.getByRole("button", { name: /content filters/i });
+    fireEvent.click(filterButton);
 
     // Check if media type options are visible in the dropdown
     expect(screen.getByText("Media Types")).toBeInTheDocument();
@@ -209,9 +211,9 @@ describe("ChatInput", () => {
   it("closes dropdown when clicking outside", () => {
     render(<ChatInput {...defaultProps} />);
 
-    // Open the dropdown
-    const dropdownButton = screen.getByText("Chat Options");
-    fireEvent.click(dropdownButton);
+    // Open the filter dropdown
+    const filterButton = screen.getByRole("button", { name: /content filters/i });
+    fireEvent.click(filterButton);
 
     // Verify dropdown is open
     expect(screen.getByText("Media Types")).toBeInTheDocument();
@@ -247,5 +249,28 @@ describe("ChatInput", () => {
     // Verify that suggested queries are displayed
     expect(screen.getByText("How can I meditate?")).toBeInTheDocument();
     expect(screen.getByText("What is yoga?")).toBeInTheDocument();
+  });
+
+  it("passes sourceCount props to FilterDropdown", () => {
+    const mockSetSourceCount = jest.fn();
+    const props = {
+      ...defaultProps,
+      sourceCount: 10,
+      setSourceCount: mockSetSourceCount,
+      siteConfig: {
+        ...mockSiteConfig,
+        showSourceCountSelector: true,
+      },
+    };
+
+    render(<ChatInput {...props} />);
+
+    // Open the filter dropdown (extra sources option is now in FilterDropdown)
+    const filterButton = screen.getByRole("button", { name: /content filters/i });
+    fireEvent.click(filterButton);
+
+    // Verify response depth option is present
+    expect(screen.getByText("Response Depth")).toBeInTheDocument();
+    expect(screen.getByText(/Use 10 sources/)).toBeInTheDocument();
   });
 });

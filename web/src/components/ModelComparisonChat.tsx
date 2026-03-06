@@ -7,6 +7,7 @@ import { getOrCreateUUID } from "@/utils/client/uuid";
 import Link from "next/link";
 import { logEvent } from "@/utils/client/analytics";
 import { fetchWithAuth } from "@/utils/client/tokenManager";
+import { MODEL_OPTIONS, DEFAULT_MODEL } from "@/config/modelOptions";
 
 export interface SavedState {
   modelA: string;
@@ -73,17 +74,7 @@ const ModelComparisonChat: React.FC<ModelComparisonChatProps> = ({ siteConfig, s
   const [showThankYouMessage, setShowThankYouMessage] = useState(false);
   const [hasVoted, setHasVoted] = useState(false);
   const [sourceCount, setSourceCount] = useState<number>(savedState.sourceCount);
-  const modelOptions = useMemo(
-    () => [
-      { value: "gpt-4.1", label: "GPT-4.1" },
-      { value: "gpt-4o", label: "GPT-4 Optimized" },
-      { value: "gpt-4o-mini", label: "GPT-4 Optimized Mini" },
-      { value: "gpt-4-turbo", label: "GPT-4 Turbo" },
-      { value: "gpt-4", label: "GPT-4" },
-      { value: "gpt-3.5-turbo", label: "GPT-3.5 Turbo" },
-    ],
-    []
-  );
+  const modelOptions = useMemo(() => MODEL_OPTIONS, []);
 
   const handleModelChange = useCallback((modelKey: "A" | "B", value: string) => {
     if (modelKey === "A") {
@@ -630,6 +621,8 @@ const ModelComparisonChat: React.FC<ModelComparisonChatProps> = ({ siteConfig, s
     useExtraSources: false,
     onExtraSourcesChange: () => {},
     isChatEmpty: true, // Required property for ChatInput component
+    selectedModel: DEFAULT_MODEL, // ModelComparison doesn't use the model selector
+    handleModelChange: () => {}, // No-op since ModelComparison has its own model selection
   };
 
   const handleCompareAnotherClick = () => {

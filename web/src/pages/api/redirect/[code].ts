@@ -92,7 +92,7 @@ function generateAnonymizedSessionId(req: NextApiRequest): string {
 
     // Return first 8 characters for brevity
     return hash.substring(0, 8);
-  } catch (error) {
+  } catch (_error) {
     // Fallback to timestamp-based ID if hashing fails
     return Date.now().toString(36).substring(0, 8);
   }

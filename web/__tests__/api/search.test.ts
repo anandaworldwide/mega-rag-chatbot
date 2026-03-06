@@ -93,8 +93,7 @@ describe("Search API", () => {
   });
 
   it("should return 403 if search page is not enabled", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { loadSiteConfigSync } = require("@/utils/server/loadSiteConfig");
+    const { loadSiteConfigSync } = jest.requireMock("@/utils/server/loadSiteConfig");
     loadSiteConfigSync.mockReturnValueOnce({
       enableSearchPage: false,
     });
@@ -145,8 +144,7 @@ describe("Search API", () => {
   });
 
   it("should perform search with valid query", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { PineconeStore } = require("@langchain/pinecone");
+    const { PineconeStore } = jest.requireMock("@langchain/pinecone");
     const mockSimilaritySearch = jest.fn().mockResolvedValue([
       [
         {
@@ -184,8 +182,7 @@ describe("Search API", () => {
   });
 
   it("should apply filters correctly", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { PineconeStore } = require("@langchain/pinecone");
+    const { PineconeStore } = jest.requireMock("@langchain/pinecone");
     const mockSimilaritySearch = jest.fn().mockResolvedValue([]);
 
     PineconeStore.fromExistingIndex.mockResolvedValueOnce({
@@ -212,8 +209,7 @@ describe("Search API", () => {
   });
 
   it("should respect rate limiting", async () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { genericRateLimiter } = require("@/utils/server/genericRateLimiter");
+    const { genericRateLimiter } = jest.requireMock("@/utils/server/genericRateLimiter");
     genericRateLimiter.mockResolvedValueOnce(false);
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({

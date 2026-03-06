@@ -14,10 +14,11 @@ This directory contains automated CI/CD workflows for the Ananda Library Chatbot
 
 **What it does:**
 
-- Runs on Python 3.10, 3.11, and 3.12 in parallel
+- Runs on Python 3.11 and 3.12 in parallel
 - Executes the complete **Validation Checklist** from `PYTHON_UPGRADE_TODO.md`:
   - Import sweep testing
   - Dependency integrity checks
+  - Python dependency security audit with `pip-audit` across all repo requirement files
   - Static analysis with Ruff
   - PDF processing dry-run
   - Node.js linting and type checking
@@ -51,9 +52,8 @@ To configure required status checks in GitHub:
 2. Add/edit branch protection rule for `main`
 3. Enable "Require status checks to pass before merging"
 4. Add required checks:
-   - `Python CI (Python 3.10)`
-   - `Python CI (Python 3.11)`
-   - `Python CI (Python 3.12)`
+   - `Monorepo CI (Python 3.11)`
+   - `Monorepo CI (Python 3.12)`
 
 ## Environment Variables
 
@@ -97,6 +97,7 @@ Test the validation checklist locally:
 # Python validation
 python bin/import_sweep.py
 python -m pip check
+./bin/run-pip-audit.sh
 python -m pytest -q tests/
 python -m ruff check data_ingestion/ bin/ pyutil/ evaluation/
 
@@ -110,7 +111,7 @@ npx tsc --noEmit
 
 When Dependabot or similar tools create dependency update PRs, these workflows will automatically:
 
-1. Test the new dependencies across all Python versions
+1. Test the new dependencies across supported Python versions
 2. Validate compatibility with the existing codebase
 3. Ensure no breaking changes are introduced
 4. Provide confidence before merging dependency updates

@@ -36,7 +36,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!userPayload || token.includes("placeholder")) {
       throw new Error("Invalid token");
     }
-  } catch (error) {
+  } catch (_error) {
     return res.status(401).json({ error: "Invalid or expired token" });
   }
 
@@ -151,13 +151,7 @@ async function handleDeleteConversation(
       return res.status(404).json({ error: "Conversation not found or access denied" });
     }
 
-    // Get the document IDs that will be deleted
-    const deletedDocIds = conversationDocs.docs.map((doc: firebase.firestore.QueryDocumentSnapshot) => doc.id);
-
-    // Step 1: Clean up related questions references
-    await cleanupRelatedQuestionsReferences(deletedDocIds, collectionName);
-
-    // Step 2: Delete all documents in the conversation
+    // Delete all documents in the conversation
     const batch = db.batch();
 
     conversationDocs.docs.forEach((doc: firebase.firestore.QueryDocumentSnapshot) => {
@@ -176,64 +170,5 @@ async function handleDeleteConversation(
   } catch (error) {
     console.error("Error deleting conversation:", error);
     return res.status(500).json({ error: "Internal server error" });
-  }
-}
-
-/**
- * Removes references to deleted document IDs from other documents' relatedQuestionsV2 arrays
- */
-async function cleanupRelatedQuestionsReferences(deletedDocIds: string[], collectionName: string) {
-  try {
-    // Find all documents that have relatedQuestionsV2 field containing any of the deleted IDs
-    // We'll need to query in batches since Firestore has limitations on array-contains-any
-    const batchSize = 10; // Firestore limit for array-contains-any
-    const cleanupPromises: Promise<void>[] = [];
-
-    for (let i = 0; i < deletedDocIds.length; i += batchSize) {
-      const batch = deletedDocIds.slice(i, i + batchSize);
-
-      // Query for documents that reference any of these deleted IDs
-      const query = db!.collection(collectionName).where("relatedQuestionsV2", "!=", null);
-
-      const querySnapshot = await firestoreQueryGet(
-        query,
-        "related questions cleanup query",
-        `deletedIds batch: ${batch.join(", ")}`
-      );
-
-      if (!querySnapshot.empty) {
-        const updateBatch = db!.batch();
-        let hasUpdates = false;
-
-        querySnapshot.docs.forEach((doc: firebase.firestore.QueryDocumentSnapshot) => {
-          const data = doc.data();
-          const relatedQuestions = data.relatedQuestionsV2 || [];
-
-          // Filter out any references to deleted documents
-          const filteredRelatedQuestions = relatedQuestions.filter(
-            (rq: { id: string; title: string; similarity: number }) => !deletedDocIds.includes(rq.id)
-          );
-
-          // Only update if there were changes
-          if (filteredRelatedQuestions.length !== relatedQuestions.length) {
-            updateBatch.update(doc.ref, {
-              relatedQuestionsV2: filteredRelatedQuestions,
-              updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-            });
-            hasUpdates = true;
-          }
-        });
-
-        if (hasUpdates) {
-          cleanupPromises.push(updateBatch.commit().then(() => {}));
-        }
-      }
-    }
-
-    await Promise.all(cleanupPromises);
-    console.log(`Cleaned up related questions references for ${deletedDocIds.length} deleted documents`);
-  } catch (error) {
-    console.error("Error cleaning up related questions references:", error);
-    // Don't throw - we want the main deletion to proceed even if cleanup fails
   }
 }

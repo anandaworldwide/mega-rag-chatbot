@@ -116,6 +116,13 @@ function aichatbot_register_options() {
         'default' => '',
         'sanitize_callback' => 'aichatbot_sanitize_ga_id',
     ));
+    
+    // Register setting for admin error notification emails
+    register_setting('aichatbot_settings_group', 'aichatbot_admin_emails', array(
+        'type' => 'string',
+        'default' => '',
+        'sanitize_callback' => 'aichatbot_sanitize_admin_emails',
+    ));
 }
 add_action('admin_init', 'aichatbot_register_options');
 
@@ -151,6 +158,27 @@ function aichatbot_sanitize_ga_id($input) {
     
     // If it doesn't match the expected format, return empty string
     return '';
+}
+
+// Sanitize admin email addresses
+function aichatbot_sanitize_admin_emails($input) {
+    if (empty($input)) {
+        return '';
+    }
+    
+    // Split by newlines or commas
+    $emails = preg_split('/[\n\r,]+/', $input);
+    $valid_emails = array();
+    
+    foreach ($emails as $email) {
+        $email = trim($email);
+        if (!empty($email) && is_email($email)) {
+            $valid_emails[] = sanitize_email($email);
+        }
+    }
+    
+    // Return newline-separated string of valid emails (empty string if none)
+    return implode("\n", $valid_emails);
 }
 
 // Sanitize the base URL by removing trailing slashes and paths
@@ -317,10 +345,70 @@ function aichatbot_settings_page() {
                     </td>
                 </tr>
                 
+                <!-- Error Notification Settings -->
+                <tr>
+                    <th colspan="2"><h2 class="title">Error Notifications</h2></th>
+                </tr>
+                
+                <tr>
+                    <th><label for="aichatbot_admin_emails">Admin Email Addresses</label></th>
+                    <td>
+                        <textarea id="aichatbot_admin_emails" name="aichatbot_admin_emails" rows="3" cols="50"><?php echo esc_textarea(get_option('aichatbot_admin_emails', '')); ?></textarea>
+                        <p class="description">
+                            Enter email addresses (one per line or comma-separated) that should receive error notifications from the chatbot.
+                            <strong>Required:</strong> Error emails will not be sent if no addresses are configured.
+                        </p>
+                    </td>
+                </tr>
+                
+                <tr>
+                    <th>Test Email</th>
+                    <td>
+                        <button type="button" id="aichatbot_test_email" class="button button-secondary">Send Test Error Email</button>
+                        <span id="aichatbot_test_email_status" style="margin-left: 10px;"></span>
+                        <p class="description">
+                            Send a test error email to verify your email configuration is working. <strong>Save settings first</strong> if you've made changes.
+                        </p>
+                    </td>
+                </tr>
+                
             </table>
             <?php submit_button(); ?>
         </form>
     </div>
+    
+    <script type="text/javascript">
+    jQuery(document).ready(function($) {
+        $('#aichatbot_test_email').on('click', function() {
+            var $button = $(this);
+            var $status = $('#aichatbot_test_email_status');
+            
+            $button.prop('disabled', true);
+            $status.html('<span style="color: #666;">Sending test email...</span>');
+            
+            $.ajax({
+                url: ajaxurl,
+                type: 'POST',
+                data: {
+                    action: 'aichatbot_send_test_email'
+                },
+                success: function(response) {
+                    if (response.success) {
+                        $status.html('<span style="color: green;">✓ ' + response.data.message + '</span>');
+                    } else {
+                        $status.html('<span style="color: red;">✗ ' + (response.data.message || 'Failed to send test email') + '</span>');
+                    }
+                },
+                error: function() {
+                    $status.html('<span style="color: red;">✗ Request failed. Check your connection.</span>');
+                },
+                complete: function() {
+                    $button.prop('disabled', false);
+                }
+            });
+        });
+    });
+    </script>
     <?php
 }
 
@@ -711,7 +799,6 @@ add_action('wp_ajax_nopriv_aichatbot_send_error_email', 'aichatbot_ajax_send_err
 
 /**
  * AJAX handler for sending error emails to administrators
- * This handler sends error reports to mo@baac.net and vayu@ananda.org
  */
 function aichatbot_ajax_send_error_email() {
     // Get the error data from the request
@@ -750,8 +837,31 @@ function aichatbot_ajax_send_error_email() {
         'Reply-To: noreply@' . parse_url(get_site_url(), PHP_URL_HOST)
     );
 
-    // Send email to both administrators
-    $admin_emails = array('mo@baac.net', 'vayu@ananda.org');
+    // Get admin emails from settings (one per line or comma-separated)
+    $admin_emails_raw = get_option('aichatbot_admin_emails', '');
+    $admin_emails = array();
+    
+    // Parse emails from newline or comma-separated string
+    if (!empty($admin_emails_raw)) {
+        $email_lines = preg_split('/[\n\r,]+/', $admin_emails_raw);
+        foreach ($email_lines as $email) {
+            $email = trim($email);
+            if (!empty($email) && is_email($email)) {
+                $admin_emails[] = sanitize_email($email);
+            }
+        }
+    }
+    
+    // If no admin emails configured, log and return error
+    if (empty($admin_emails)) {
+        error_log("Ananda AI Chatbot: No admin emails configured for error notifications");
+        wp_send_json_error(array(
+            'message' => 'No admin email addresses configured in plugin settings',
+            'code' => 'no_admin_emails'
+        ));
+        return;
+    }
+    
     $emails_sent = 0;
     $email_errors = array();
 
@@ -776,6 +886,74 @@ function aichatbot_ajax_send_error_email() {
         wp_send_json_error(array(
             'message' => 'Failed to send error emails to any administrators',
             'failed_emails' => $admin_emails
+        ));
+    }
+}
+
+// Add AJAX handler for sending test emails from admin settings
+add_action('wp_ajax_aichatbot_send_test_email', 'aichatbot_ajax_send_test_email');
+
+/**
+ * AJAX handler for sending test error emails from admin settings page
+ */
+function aichatbot_ajax_send_test_email() {
+    // Security check - only allow admin users
+    if (!current_user_can('manage_options')) {
+        wp_send_json_error(array(
+            'message' => 'Unauthorized access'
+        ));
+        return;
+    }
+    
+    // Get admin emails from settings
+    $admin_emails_raw = get_option('aichatbot_admin_emails', '');
+    $admin_emails = array();
+    
+    if (!empty($admin_emails_raw)) {
+        $email_lines = preg_split('/[\n\r,]+/', $admin_emails_raw);
+        foreach ($email_lines as $email) {
+            $email = trim($email);
+            if (!empty($email) && is_email($email)) {
+                $admin_emails[] = sanitize_email($email);
+            }
+        }
+    }
+    
+    if (empty($admin_emails)) {
+        wp_send_json_error(array(
+            'message' => 'No admin email addresses configured. Please add email addresses and save settings first.'
+        ));
+        return;
+    }
+    
+    // Prepare test email content
+    $subject = "[TEST] Ananda AI Chatbot Error Notification Test";
+    
+    $current_user = wp_get_current_user();
+    $message_body = "This is a TEST error notification from the Ananda AI Chatbot WordPress plugin.\n\n";
+    $message_body .= "If you received this email, your error notification settings are working correctly.\n\n";
+    $message_body .= "Test Details:\n";
+    $message_body .= "- Sent by: " . $current_user->display_name . " (" . $current_user->user_email . ")\n";
+    $message_body .= "- Timestamp: " . date('Y-m-d H:i:s') . "\n";
+    $message_body .= "- WordPress Site: " . get_site_url() . "\n";
+    $message_body .= "- Plugin Version: " . AICHATBOT_VERSION . "\n";
+    $message_body .= "- Recipients: " . implode(', ', $admin_emails) . "\n\n";
+    $message_body .= "No action is required. This was a manual test from the plugin settings page.\n";
+    
+    $headers = array(
+        'Content-Type: text/plain; charset=UTF-8',
+        'From: Ananda AI Chatbot <noreply@' . parse_url(get_site_url(), PHP_URL_HOST) . '>',
+    );
+    
+    $result = wp_mail($admin_emails, $subject, $message_body, $headers);
+    
+    if ($result) {
+        wp_send_json_success(array(
+            'message' => 'Test email sent to ' . count($admin_emails) . ' recipient(s): ' . implode(', ', $admin_emails)
+        ));
+    } else {
+        wp_send_json_error(array(
+            'message' => 'Failed to send test email. Check your WordPress mail configuration.'
         ));
     }
 }

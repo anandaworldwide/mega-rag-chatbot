@@ -79,9 +79,14 @@ jest.mock("@/utils/server/jwtUtils", () => ({
 const mockFirestoreQueryGet = firestoreRetryUtils.firestoreQueryGet as jest.MockedFunction<
   typeof firestoreRetryUtils.firestoreQueryGet
 >;
-// Removed unused mockFirestoreUpdate
+const mockFirestoreUpdate = firestoreRetryUtils.firestoreUpdate as jest.MockedFunction<
+  typeof firestoreRetryUtils.firestoreUpdate
+>;
 const mockGetNewslettersCollectionName = firestoreUtils.getNewslettersCollectionName as jest.MockedFunction<
   typeof firestoreUtils.getNewslettersCollectionName
+>;
+const mockGetUsersCollectionName = firestoreUtils.getUsersCollectionName as jest.MockedFunction<
+  typeof firestoreUtils.getUsersCollectionName
 >;
 const mockRequireSuperuserRoleFromFirestore = authz.requireSuperuserRoleFromFirestore as jest.MockedFunction<
   typeof authz.requireSuperuserRoleFromFirestore
@@ -107,8 +112,10 @@ describe("/api/admin/processNewsletterBatch", () => {
     (mockGenericRateLimiter as jest.Mock).mockResolvedValue(true);
     mockRequireSuperuserRoleFromFirestore.mockResolvedValue(undefined);
     mockGetNewslettersCollectionName.mockReturnValue("test_newsletters");
+    mockGetUsersCollectionName.mockReturnValue("test_users");
     mockLoadSiteConfig.mockResolvedValue({ name: "Test Site" } as any);
     mockSendEmail.mockResolvedValue(true);
+    mockFirestoreUpdate.mockResolvedValue(undefined);
 
     // Mock marked function
     const { marked } = jest.requireMock("marked");
@@ -184,7 +191,24 @@ describe("/api/admin/processNewsletterBatch", () => {
     // Remove environment variables to trigger configuration error
     delete process.env.CONTACT_EMAIL;
 
-    // db is already mocked at module level, so it should be available
+    const firebase = jest.requireMock("@/services/firebase");
+
+    // Mock newsletter document fetch
+    firebase.db.collection = jest.fn().mockReturnValue({
+      doc: jest.fn().mockReturnValue({
+        get: jest.fn().mockResolvedValue({
+          exists: true,
+          data: () => ({ subject: "Test", content: "Test content" }),
+        }),
+      }),
+      where: jest.fn(() => ({
+        where: jest.fn(() => ({
+          orderBy: jest.fn(() => ({
+            limit: jest.fn(() => ({})),
+          })),
+        })),
+      })),
+    });
 
     // Mock the query to return empty docs array
     mockFirestoreQueryGet.mockResolvedValue({
@@ -206,9 +230,20 @@ describe("/api/admin/processNewsletterBatch", () => {
   it("should process newsletter batch successfully", async () => {
     // Ensure db is available (it's mocked at module level)
     const firebase = jest.requireMock("@/services/firebase");
-    // db is already mocked, so it should be available
+
+    // Mock newsletter document (content is stored here, not in queue items)
+    const mockNewsletterDoc = {
+      exists: true,
+      data: () => ({
+        subject: "Test Newsletter",
+        content: "Test content",
+        ctaUrl: "https://example.com",
+        ctaText: "Click here",
+      }),
+    };
 
     // Create mock document snapshots that match Firestore structure
+    // Note: Queue items only contain per-user data, not content
     const mockDocs = [
       {
         id: "queue1",
@@ -224,10 +259,6 @@ describe("/api/admin/processNewsletterBatch", () => {
         },
         data: () => ({
           email: "user1@example.com",
-          subject: "Test Newsletter",
-          content: "Test content",
-          ctaUrl: "https://example.com",
-          ctaText: "Click here",
           firstName: "John",
           lastName: "Doe",
           attempts: 0,
@@ -248,8 +279,6 @@ describe("/api/admin/processNewsletterBatch", () => {
         },
         data: () => ({
           email: "user2@example.com",
-          subject: "Test Newsletter",
-          content: "Test content",
           firstName: "Jane",
           lastName: "Smith",
           attempts: 0,
@@ -257,6 +286,25 @@ describe("/api/admin/processNewsletterBatch", () => {
         }),
       },
     ];
+
+    // Mock db.collection() for all collection accesses
+    const mockNewsletterDocRef = {
+      get: jest.fn().mockResolvedValue(mockNewsletterDoc),
+      update: jest.fn().mockResolvedValue(undefined),
+    };
+
+    firebase.db.collection = jest.fn().mockImplementation((_collectionName: string) => {
+      return {
+        doc: jest.fn().mockReturnValue(mockNewsletterDocRef),
+        where: jest.fn(() => ({
+          where: jest.fn(() => ({
+            orderBy: jest.fn(() => ({
+              limit: jest.fn(() => ({})),
+            })),
+          })),
+        })),
+      };
+    });
 
     // Mock db.runTransaction
     firebase.db.runTransaction = jest.fn().mockImplementation(async (callback) => {
@@ -308,8 +356,52 @@ describe("/api/admin/processNewsletterBatch", () => {
   // Additional edge case tests removed due to complex mocking requirements.
   // Core batch processing functionality is adequately tested above.
 
+  it("should return 404 when newsletter not found", async () => {
+    const firebase = jest.requireMock("@/services/firebase");
+
+    // Mock newsletter document not found
+    firebase.db.collection = jest.fn().mockReturnValue({
+      doc: jest.fn().mockReturnValue({
+        get: jest.fn().mockResolvedValue({
+          exists: false,
+        }),
+      }),
+    });
+
+    const { req, res } = createMocks({
+      method: "POST",
+      body: { newsletterId: "nonexistent-newsletter" },
+    });
+
+    await handler(req as any, res as any);
+
+    expect(res._getStatusCode()).toBe(404);
+    expect(JSON.parse(res._getData())).toEqual({ error: "Newsletter not found", code: "NOT_FOUND" });
+  });
+
   it("should handle Firestore query errors", async () => {
-    // db is already mocked at module level, so it should be available
+    const firebase = jest.requireMock("@/services/firebase");
+
+    // Mock newsletter document fetch to succeed
+    firebase.db.collection = jest.fn().mockReturnValue({
+      doc: jest.fn().mockReturnValue({
+        get: jest.fn().mockResolvedValue({
+          exists: true,
+          data: () => ({ subject: "Test", content: "Test content" }),
+        }),
+        update: jest.fn().mockResolvedValue(undefined),
+      }),
+      where: jest.fn(() => ({
+        where: jest.fn(() => ({
+          orderBy: jest.fn(() => ({
+            limit: jest.fn(() => ({})),
+          })),
+        })),
+      })),
+    });
+
+    // Mock queue items query to fail
+    mockFirestoreQueryGet.mockReset();
     mockFirestoreQueryGet.mockRejectedValue(new Error("Database connection failed"));
 
     const { req, res } = createMocks({

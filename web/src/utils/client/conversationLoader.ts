@@ -9,7 +9,7 @@ import { getOrCreateUUID } from "@/utils/client/uuid";
 import { Message } from "@/types/chat";
 import { ChatMessage, createChatMessages } from "@/utils/shared/chatHistory";
 import { ChatHistoryItem } from "@/hooks/useChatHistory";
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import { TypedSuggestion } from "@/types/Suggestion";
 
 export interface LoadedConversation {
@@ -17,6 +17,11 @@ export interface LoadedConversation {
   history: ChatMessage[];
   title?: string;
   convId?: string;
+  isStarred?: boolean;
+  // Task wizard state (for persisting structured task conversations)
+  taskMode?: string;
+  taskFollowups?: string[];
+  usedTaskFollowups?: string[];
 }
 
 /**
@@ -182,12 +187,25 @@ export async function loadConversationByConvId(
     const titleChat = sortedChats.find((c) => !!c.title) ?? sortedChats[0];
 
     const title = titleChat?.title;
+    
+    // Extract star state from the first chat item (all items in a conversation share the same star state)
+    const isStarred = sortedChats.length > 0 ? sortedChats[0].isStarred || false : false;
+
+    // Extract task state from the latest chat (it has the most recent state)
+    const lastChat = sortedChats[sortedChats.length - 1];
+    const taskMode = lastChat?.taskMode;
+    const taskFollowups = lastChat?.taskFollowups;
+    const usedTaskFollowups = lastChat?.usedTaskFollowups;
 
     return {
       messages,
       history,
       title,
       convId,
+      isStarred,
+      taskMode,
+      taskFollowups,
+      usedTaskFollowups,
     };
   } catch (error) {
     console.error("Error loading conversation:", error);

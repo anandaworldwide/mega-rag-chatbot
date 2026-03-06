@@ -95,7 +95,7 @@ describe("/api/cron/processNpsSurveyEmails", () => {
   const seventyThreeHoursAgo = now - 73 * 60 * 60 * 1000; // Not active in last 72h
   const sevenMonthsAgo = now - 7 * 30 * 24 * 60 * 60 * 1000; // > 6 months ago
   const fiveMonthsAgo = now - 5 * 30 * 24 * 60 * 60 * 1000; // < 6 months ago
-  const fourDaysAgo = now - 4 * 24 * 60 * 60 * 1000; // > 3 days ago (verified)
+  const fifteenDaysAgo = now - 15 * 24 * 60 * 60 * 1000; // > 14 days ago (verified)
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -223,7 +223,7 @@ describe("/api/cron/processNpsSurveyEmails", () => {
         emailPreferences: { nps: true },
         lastActivityAt: createMockTimestampFromMillis(oneHourAgo),
         lastNpsSurveySentAt: createMockTimestampFromMillis(sevenMonthsAgo),
-        verifiedAt: createMockTimestampFromMillis(fourDaysAgo),
+        verifiedAt: createMockTimestampFromMillis(fifteenDaysAgo),
         npsSendAttempts: 0,
       }),
       ref: { id: "test@example.com" },
@@ -266,7 +266,7 @@ describe("/api/cron/processNpsSurveyEmails", () => {
         emailPreferences: { nps: true },
         lastActivityAt: createMockTimestampFromMillis(seventyThreeHoursAgo),
         lastNpsSurveySentAt: createMockTimestampFromMillis(sevenMonthsAgo),
-        verifiedAt: createMockTimestampFromMillis(fourDaysAgo),
+        verifiedAt: createMockTimestampFromMillis(fifteenDaysAgo),
         npsSendAttempts: 0,
       }),
       ref: { id: "test@example.com" },
@@ -298,7 +298,7 @@ describe("/api/cron/processNpsSurveyEmails", () => {
         emailPreferences: { nps: true },
         lastActivityAt: createMockTimestampFromMillis(oneHourAgo),
         lastNpsSurveySentAt: createMockTimestampFromMillis(fiveMonthsAgo),
-        verifiedAt: createMockTimestampFromMillis(fourDaysAgo),
+        verifiedAt: createMockTimestampFromMillis(fifteenDaysAgo),
         npsSendAttempts: 0,
       }),
       ref: { id: "test@example.com" },
@@ -332,7 +332,7 @@ describe("/api/cron/processNpsSurveyEmails", () => {
         emailPreferences: { nps: false },
         lastActivityAt: createMockTimestampFromMillis(oneHourAgo),
         lastNpsSurveySentAt: createMockTimestampFromMillis(sevenMonthsAgo),
-        verifiedAt: createMockTimestampFromMillis(fourDaysAgo),
+        verifiedAt: createMockTimestampFromMillis(fifteenDaysAgo),
         npsSendAttempts: 0,
       }),
       ref: { id: "test@example.com" },
@@ -367,7 +367,7 @@ describe("/api/cron/processNpsSurveyEmails", () => {
         emailPreferences: { nps: true },
         lastActivityAt: createMockTimestampFromMillis(oneHourAgo),
         lastNpsSurveySentAt: createMockTimestampFromMillis(sevenMonthsAgo),
-        verifiedAt: createMockTimestampFromMillis(fourDaysAgo),
+        verifiedAt: createMockTimestampFromMillis(fifteenDaysAgo),
         npsSendAttempts: 0,
       }),
       ref: { id: "test@example.com" },
@@ -417,7 +417,7 @@ describe("/api/cron/processNpsSurveyEmails", () => {
         emailPreferences: { nps: true },
         lastActivityAt: createMockTimestampFromMillis(oneHourAgo),
         lastNpsSurveySentAt: createMockTimestampFromMillis(sevenMonthsAgo),
-        verifiedAt: createMockTimestampFromMillis(fourDaysAgo),
+        verifiedAt: createMockTimestampFromMillis(fifteenDaysAgo),
         npsSendAttempts: 0,
         pendingNpsSurveyKeys: [],
       }),

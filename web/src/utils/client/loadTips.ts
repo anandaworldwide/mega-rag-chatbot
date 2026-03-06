@@ -72,16 +72,18 @@ export async function loadSiteTips(siteConfig: SiteConfig | null): Promise<TipsD
 
     const contentWithoutVersion = lines.slice(contentStartIndex).join("\n").trim();
 
-    // Try to load the optional config file
+    // Try to load the optional config file (only if site has enableTipsConfig set)
     let config: TipsConfig | undefined;
-    try {
-      const configResponse = await fetch(`/data/${siteConfig.siteId}/tips-config.json`);
-      if (configResponse.ok) {
-        config = await configResponse.json();
+    if (siteConfig.enableTipsConfig) {
+      try {
+        const configResponse = await fetch(`/data/${siteConfig.siteId}/tips-config.json`);
+        if (configResponse.ok) {
+          config = await configResponse.json();
+        }
+      } catch (_configError) {
+        // Config file is optional, so we don't fail if it doesn't exist
+        console.debug(`No tips config found for site ${siteConfig.siteId}, using defaults`);
       }
-    } catch (configError) {
-      // Config file is optional, so we don't fail if it doesn't exist
-      console.debug(`No tips config found for site ${siteConfig.siteId}, using defaults`);
     }
 
     return {
@@ -162,7 +164,7 @@ export async function areTipsAvailable(siteConfig: SiteConfig | null): Promise<b
   try {
     const response = await fetch(`/data/${siteConfig.siteId}/tips.txt`, { method: "HEAD" });
     return response.ok;
-  } catch (error) {
+  } catch (_error) {
     return false;
   }
 }

@@ -1,4 +1,4 @@
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import { DocMetadata } from "@/types/DocMetadata";
 import { generateSourceId, generateSourceDeepLink } from "@/utils/client/sourceUtils";
 

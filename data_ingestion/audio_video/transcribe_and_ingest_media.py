@@ -82,6 +82,7 @@ from data_ingestion.audio_video.processing_time_estimates import (  # noqa: E402
 from data_ingestion.audio_video.transcription_utils import (  # noqa: E402
     RateLimitError,
     UnsupportedAudioFormatError,
+    apply_transcription_corrections,
     chunk_transcription,
     get_saved_transcription,
     init_db,
@@ -453,6 +454,8 @@ def _process_and_store_transcription(
             )
 
         logger.info(f"Processing transcripts for {file_name}")
+        # Apply site-specific corrections before chunking
+        transcription = apply_transcription_corrections(transcription, site)
         chunks = chunk_transcription(transcription)
         if isinstance(chunks, dict) and "error" in chunks:
             error_msg = (
@@ -467,7 +470,9 @@ def _process_and_store_transcription(
 
         if not dryrun:
             try:
-                embeddings = create_embeddings(chunks, client)
+                # create_embeddings returns (embeddings, valid_chunks) to ensure
+                # proper alignment - some chunks may be skipped during validation
+                embeddings, valid_chunks = create_embeddings(chunks, client)
                 logger.debug(f"{len(embeddings)} embeddings created for {file_name}")
 
                 # Use youtube_data for metadata if it's a YouTube video
@@ -500,9 +505,11 @@ def _process_and_store_transcription(
                     f"Determined access_level='{access_level}' for file: {file_path}"
                 )
 
+                # Use valid_chunks (not original chunks) to ensure proper alignment
+                # with embeddings - some chunks may have been skipped during validation
                 store_in_pinecone(
                     pinecone_index,
-                    chunks,
+                    valid_chunks,
                     embeddings,
                     author,
                     library_name,

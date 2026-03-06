@@ -61,7 +61,7 @@ export async function queryFetch(url: string, options: RequestInit = {}): Promis
       } else {
         response = retryResponse; // Use retry response for error handling below
       }
-    } catch (retryError) {
+    } catch (_retryError) {
       // Continue with original response for error handling
     }
   }

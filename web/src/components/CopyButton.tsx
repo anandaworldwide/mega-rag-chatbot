@@ -2,7 +2,7 @@ import React from "react";
 import { copyTextToClipboard } from "../utils/client/clipboard";
 import { logEvent } from "@/utils/client/analytics";
 import { Converter } from "showdown";
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import { DocMetadata } from "@/types/DocMetadata";
 import { getSiteName } from "@/utils/client/siteConfig";
 import { SiteConfig } from "@/types/siteConfig";
@@ -49,7 +49,25 @@ const CopyButton: React.FC<CopyButtonProps> = ({
   const [copied, setCopied] = React.useState(false);
 
   const convertMarkdownToHtml = (markdown: string): string => {
-    const converter = new Converter();
+    const converter = new Converter({
+      // Table support
+      tables: true,                      // Convert markdown tables to HTML <table> elements
+      tablesHeaderId: false,             // Don't add IDs to header cells
+      
+      // Text formatting
+      strikethrough: true,               // Enable ~~strikethrough~~ syntax
+      literalMidWordUnderscores: true,   // Don't italicize underscores in words like some_variable_name
+      
+      // Links
+      simplifiedAutoLink: true,          // Auto-link URLs without needing markdown syntax
+      openLinksInNewWindow: true,        // Add target="_blank" to links (good for copied content)
+      
+      // Code blocks  
+      ghCodeBlocks: true,                // GitHub-style fenced code blocks (```code```)
+      
+      // Lists
+      tasklists: true,                   // GitHub-style task lists [ ] and [x]
+    });
     return converter.makeHtml(markdown);
   };
 
@@ -89,7 +107,7 @@ const CopyButton: React.FC<CopyButtonProps> = ({
               const urlObj = new URL(markdownUrl);
               urlObj.searchParams.set("t", String(Math.floor(startTime)));
               markdownUrl = urlObj.toString();
-            } catch (e) {
+            } catch (_e) {
               // console.warn(`Invalid YouTube URL, cannot append time: ${markdownUrl}`);
               // If URL is invalid, markdownUrl remains the original youtubeUrlProp
             }
@@ -136,7 +154,7 @@ const CopyButton: React.FC<CopyButtonProps> = ({
   };
 
   const handleCopy = async () => {
-    let contentToCopy = `## Question:\n\n${question}\n\n## Answer:\n\n${markdown}`;
+    let contentToCopy = markdown;
 
     if (sources && sources.length > 0 && !siteConfig?.hideSources) {
       contentToCopy += "\n\n### Sources\n" + (await formatSources(sources));

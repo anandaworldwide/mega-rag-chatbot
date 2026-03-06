@@ -67,10 +67,31 @@ export interface SiteConfig {
       description: string;
     };
   };
-  accessRequestNoteLabel?: string; // Label text for reference note field in access request form
+  accessRequestNoteLabel?: string; // Label text for reference note field in access request form (deprecated, use accessRequestConfig.noteLabel)
+  accessRequestConfig?: {
+    noteLabel?: string; // Label text for reference note field
+    showKnowsAdminQuestion?: boolean; // Show "Does this admin know you?" checkbox
+    unknownAdminFields?: {
+      nearestCenter?: {
+        label: string;
+        type: "select" | "text";
+        options?: string[]; // For select type
+        placeholder?: string; // For text type
+        required?: boolean;
+      };
+      connectionHistory?: {
+        label: string;
+        placeholder?: string;
+        required?: boolean;
+      };
+    };
+  };
   adminAccessGuidelines?: string; // Site-specific guidelines for who can access the chatbot (shown in admin panel)
   enableNpsSurveyEmail?: boolean; // Whether to send NPS survey emails to users (requires requireLogin: true)
   enableOnboardingEmails?: boolean; // Whether to send onboarding drip emails (requires requireLogin: true)
   enableReengagementEmails?: boolean; // Whether to send re-engagement emails (requires requireLogin: true)
   enableSpecialDayEmails?: boolean; // Whether to send special day/holiday emails (requires requireLogin: true)
+  enableWhatsNew?: boolean; // Whether this site has a whats-new.json data file
+  enableTipsConfig?: boolean; // Whether this site has a tips-config.json data file
+  enabledTasks?: string[]; // Array of task IDs enabled for this site (e.g., ["research", "class-planning"])
 }

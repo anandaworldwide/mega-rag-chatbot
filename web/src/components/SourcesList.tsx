@@ -19,7 +19,7 @@
  */
 
 import React, { useState, useCallback } from "react";
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import ReactMarkdown from "react-markdown";
 import gfm from "remark-gfm";
 import styles from "@/styles/Home.module.css";
@@ -77,14 +77,19 @@ const SourcesList: React.FC<SourcesListProps> = ({
 
   // State hooks
   const [expandedSources, setExpandedSources] = useState<Set<number>>(new Set());
+  const [showAllSources, setShowAllSources] = useState<boolean>(false);
   const [showSourcesPopover, setShowSourcesPopover] = useState<boolean>(false);
   const [showAccessInterstitial, setShowAccessInterstitial] = useState<boolean>(false);
   const [currentSourceUrl, setCurrentSourceUrl] = useState<string>("");
   const [currentSourceDoc, setCurrentSourceDoc] = useState<Document<DocMetadata> | null>(null);
 
-  // Reset expanded sources state when sources change (e.g., new conversation loaded)
+  // Constants for source display
+  const INITIAL_SOURCES_COUNT = 4;
+
+  // Reset expanded sources and show all state when sources change (e.g., new conversation loaded)
   React.useEffect(() => {
     setExpandedSources(new Set());
+    setShowAllSources(false);
   }, [sources]);
 
   // Handle external source expansion requests (for deep linking)
@@ -103,7 +108,7 @@ const SourcesList: React.FC<SourcesListProps> = ({
         }
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [sources, onSourceExpanded]);
 
   // Handle Escape key to close interstitial modal
@@ -305,9 +310,17 @@ const SourcesList: React.FC<SourcesListProps> = ({
       setExpandedSources(new Set());
       logEvent("collapse_all_sources", "UI", "accordion");
     } else {
+      // Show all sources AND expand them all
+      setShowAllSources(true);
       setExpandedSources(new Set(sources.map((_, index) => index)));
       logEvent("expand_all_sources", "UI", "accordion");
     }
+  };
+
+  // Handle showing more sources
+  const handleShowMore = () => {
+    setShowAllSources(true);
+    logEvent("show_more_sources", "UI", `revealed:${sources.length - INITIAL_SOURCES_COUNT}`);
   };
 
   // Handle toggling individual source expansion
@@ -329,7 +342,9 @@ const SourcesList: React.FC<SourcesListProps> = ({
   // Handle clicking on a source link
   const handleSourceClick = (e: React.MouseEvent<HTMLAnchorElement> | any, source: string) => {
     try {
-      e.preventDefault && e.preventDefault(); // Prevent default link behavior if preventDefault exists
+      if (e.preventDefault) {
+        e.preventDefault(); // Prevent default link behavior if preventDefault exists
+      }
       logEvent("click_source", "UI", source);
 
       // Ensure the URL has a protocol to prevent relative path issues
@@ -651,84 +666,104 @@ const SourcesList: React.FC<SourcesListProps> = ({
       {(!shouldHideSources || (shouldHideSources && showSourcesPopover)) && (
         <div className="px-3">
           {/* Render each source as an expandable details element */}
-          {sources.map((doc, index) => {
-            const isExpanded = expandedSources.has(index);
-            const isLastSource = index === sources.length - 1;
-            const sourceId = generateSourceId(doc);
+          {(() => {
+            const visibleSources = showAllSources ? sources : sources.slice(0, INITIAL_SOURCES_COUNT);
+            const hiddenCount = sources.length - INITIAL_SOURCES_COUNT;
+
             return (
-              <details
-                key={index}
-                id={sourceId}
-                className={`${styles.sourceDocsContainer} ${isLastSource ? "" : "border-b border-gray-200"} group scroll-mt-28`}
-                open={isExpanded}
-              >
-                {/* Source summary (always visible) */}
-                <summary
-                  onClick={(e) => {
-                    e.preventDefault();
-                    handleSourceToggle(index);
-                  }}
-                  className="flex items-center cursor-pointer list-none py-1 px-2 hover:bg-gray-50"
-                >
-                  <div className="flex flex-col sm:grid sm:grid-cols-[auto_1fr_auto] items-start sm:items-center w-full gap-2">
-                    <div className="flex items-start flex-1 min-w-0 w-full sm:w-auto sm:items-center">
-                      <span className="inline-flex items-center justify-center w-11 h-11 sm:w-4 sm:h-4 transition-transform duration-200 transform group-open:rotate-90 arrow-icon touch-manipulation flex-shrink-0">
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          viewBox="0 0 20 20"
-                          fill="currentColor"
-                          className="w-4 h-4 sm:w-4 sm:h-4"
-                        >
-                          <path
-                            fillRule="evenodd"
-                            d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z"
-                            clipRule="evenodd"
-                          />
-                        </svg>
-                      </span>
-                      <span className="material-icons text-sm ml-1 flex-shrink-0">{getSourceIcon(doc)}</span>
-                      <div className="flex flex-col flex-1 min-w-0 ml-1">
-                        <div className="flex items-center">{renderSourceTitle(doc)}</div>
-                        {doc.metadata.library && doc.metadata.library !== "Default Library" && (
-                          <div className="sm:hidden">{renderLibraryName(doc)}</div>
+              <>
+                {visibleSources.map((doc, index) => {
+                  const isExpanded = expandedSources.has(index);
+                  const isLastVisible = index === visibleSources.length - 1;
+                  const showBorder = !isLastVisible || (!showAllSources && hiddenCount > 0);
+                  const sourceId = generateSourceId(doc);
+                  return (
+                    <details
+                      key={index}
+                      id={sourceId}
+                      className={`${styles.sourceDocsContainer} ${showBorder ? "border-b border-gray-200" : ""} group scroll-mt-28`}
+                      open={isExpanded}
+                    >
+                      {/* Source summary (always visible) */}
+                      <summary
+                        onClick={(e) => {
+                          e.preventDefault();
+                          handleSourceToggle(index);
+                        }}
+                        className="flex items-center cursor-pointer list-none py-1 px-2 hover:bg-gray-50"
+                      >
+                        <div className="flex flex-col sm:grid sm:grid-cols-[1fr_auto] items-start sm:items-center w-full gap-2">
+                          <div className="flex items-start flex-1 min-w-0 w-full sm:max-w-[75%] sm:items-center">
+                            <span className="inline-flex items-center justify-center w-11 h-11 sm:w-4 sm:h-4 transition-transform duration-200 transform group-open:rotate-90 arrow-icon touch-manipulation flex-shrink-0">
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                viewBox="0 0 20 20"
+                                fill="currentColor"
+                                className="w-4 h-4 sm:w-4 sm:h-4"
+                              >
+                                <path
+                                  fillRule="evenodd"
+                                  d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z"
+                                  clipRule="evenodd"
+                                />
+                              </svg>
+                            </span>
+                            <span className="material-icons text-sm ml-1 flex-shrink-0">{getSourceIcon(doc)}</span>
+                            <div className="flex flex-col flex-1 min-w-0 ml-1">
+                              <div className="flex items-center">{renderSourceTitle(doc)}</div>
+                              {doc.metadata.library && doc.metadata.library !== "Default Library" && (
+                                <div className="sm:hidden">{renderLibraryName(doc)}</div>
+                              )}
+                            </div>
+                          </div>
+                          <div className="hidden sm:block text-right">
+                            {doc.metadata.library && doc.metadata.library !== "Default Library" && renderLibraryName(doc)}
+                          </div>
+                        </div>
+                      </summary>
+                      {/* Expanded source content */}
+                      <div className="pl-5 pb-1">
+                        {isExpanded && (
+                          <>
+                            {/* Render audio or YouTube player if applicable */}
+                            {doc.metadata && doc.metadata.type === "audio" && renderAudioPlayer(doc, index, isExpanded)}
+                            {doc.metadata && doc.metadata.type === "youtube" && renderYouTubePlayer(doc)}
+                            {/* Render author name if available */}
+                            {renderAuthorName(doc)}
+                          </>
                         )}
+                        {/* Render source content as markdown with matching passage label */}
+                        <div className="text-xs text-gray-400 mb-1 uppercase tracking-wide">Matching Passage</div>
+                        <ReactMarkdown
+                          remarkPlugins={[gfm]}
+                          components={{
+                            a: ({ ...props }) => <a target="_blank" rel="noopener noreferrer" {...props} />,
+                          }}
+                        >
+                          {doc.pageContent}
+                        </ReactMarkdown>
+                        {/* Render PDF download and Go to source buttons */}
+                        <div className="mt-2 mb-3 flex gap-2">
+                          {renderPdfDownloadButton(doc)}
+                          {renderGoToSourceButton(doc)}
+                        </div>
                       </div>
-                    </div>
-                    <div className="hidden sm:block text-right">
-                      {doc.metadata.library && doc.metadata.library !== "Default Library" && renderLibraryName(doc)}
-                    </div>
-                  </div>
-                </summary>
-                {/* Expanded source content */}
-                <div className="pl-5 pb-1">
-                  {isExpanded && (
-                    <>
-                      {/* Render audio or YouTube player if applicable */}
-                      {doc.metadata && doc.metadata.type === "audio" && renderAudioPlayer(doc, index, isExpanded)}
-                      {doc.metadata && doc.metadata.type === "youtube" && renderYouTubePlayer(doc)}
-                      {/* Render author name if available */}
-                      {renderAuthorName(doc)}
-                    </>
-                  )}
-                  {/* Render source content as markdown with matching passage label */}
-                  <div className="text-xs text-gray-400 mb-1 uppercase tracking-wide">Matching Passage</div>
-                  <ReactMarkdown
-                    remarkPlugins={[gfm]}
-                    components={{
-                      a: ({ ...props }) => <a target="_blank" rel="noopener noreferrer" {...props} />,
-                    }}
+                    </details>
+                  );
+                })}
+
+                {/* Show more button */}
+                {!showAllSources && hiddenCount > 0 && (
+                  <button
+                    onClick={handleShowMore}
+                    className="py-2 pl-9 sm:pl-7 text-sm text-blue-600 hover:text-blue-800 transition-colors text-left"
                   >
-                    {doc.pageContent}
-                  </ReactMarkdown>
-                  {/* Render PDF download and Go to source buttons */}
-                  <div className="mt-2 mb-3 flex gap-2">
-                    {renderPdfDownloadButton(doc)}
-                    {renderGoToSourceButton(doc)}
-                  </div>
-                </div>
-              </details>
+                    Show {hiddenCount} more source{hiddenCount !== 1 ? "s" : ""}
+                  </button>
+                )}
+              </>
             );
-          })}
+          })()}
         </div>
       )}
 

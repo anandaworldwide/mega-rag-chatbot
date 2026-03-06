@@ -34,8 +34,39 @@ try:
     AWS_AVAILABLE = True
 except ImportError:
     AWS_AVAILABLE = False
+    # Define these to avoid type checker errors
+    boto3 = None  # type: ignore[assignment]
+    BotoCoreError = Exception  # type: ignore[assignment, misc]
+    ClientError = Exception  # type: ignore[assignment, misc]
 
 logger = logging.getLogger(__name__)
+
+
+_SITE_SHORTNAME_FALLBACKS = {
+    "ananda": "Luca",
+    "ananda-public": "Vivek",
+    "crystal": "Crystal",
+    "jairam": "FJH",
+    "photo": "PhotoWise",
+}
+
+
+def get_site_shortname(site_id: str | None = None) -> str:
+    """Resolve the short public-facing site name for email subjects."""
+    resolved_site_id = site_id or os.getenv("SITE_ID") or "unknown"
+
+    site_config_json = os.getenv("SITE_CONFIG")
+    if site_config_json:
+        try:
+            all_configs = json.loads(site_config_json)
+            site_config = all_configs.get(resolved_site_id, {})
+            shortname = site_config.get("shortname")
+            if isinstance(shortname, str) and shortname.strip():
+                return shortname.strip()
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.warning(f"Failed to parse SITE_CONFIG for site shortname: {e}")
+
+    return _SITE_SHORTNAME_FALLBACKS.get(resolved_site_id, resolved_site_id)
 
 
 def _validate_email_config() -> list[str] | None:
@@ -83,13 +114,6 @@ def _build_email_body(message: str, error_details: dict[str, Any] | None) -> str
         if error_details.get("context"):
             email_body += f"Context: {json.dumps(error_details['context'], indent=2)}\n"
 
-    # Add timestamp and environment info
-    email_body += "\n\n--- System Info ---\n"
-    email_body += f"Timestamp: {datetime.now().isoformat()}\n"
-    email_body += f"Environment: {os.getenv('NODE_ENV', 'unknown')}\n"
-    email_body += f"Site ID: {os.getenv('SITE_ID', 'unknown')}\n"
-    email_body += f"Python Version: {os.sys.version}\n"
-
     return email_body
 
 
@@ -100,7 +124,7 @@ def _format_subject_line(subject: str) -> str:
         return subject
 
     environment = "prod" if os.getenv("NODE_ENV") == "production" else "dev"
-    site_name = os.getenv("SITE_ID", "unknown")
+    site_name = get_site_shortname()
     return f"[{environment.upper()}-{site_name}] {subject}"
 
 
@@ -140,6 +164,7 @@ async def send_ops_alert(
         formatted_subject = _format_subject_line(subject)
 
         # Create SES client
+        assert boto3 is not None  # Type guard: AWS_AVAILABLE ensures boto3 is imported
         ses_client = boto3.client(
             "ses",
             region_name=os.getenv("AWS_REGION", "us-east-1"),
@@ -163,12 +188,14 @@ async def send_ops_alert(
 
         return True
 
-    except (BotoCoreError, ClientError) as aws_error:
-        logger.error(f"AWS SES error sending ops alert: {aws_error}")
-        return False
     except Exception as e:
-        logger.error(f"Unexpected error sending ops alert: {e}")
-        logger.error(f"Stack trace: {traceback.format_exc()}")
+        # Check if this is an AWS error (only possible when AWS is available)
+        error_type_name = type(e).__name__
+        if AWS_AVAILABLE and error_type_name in ("BotoCoreError", "ClientError"):
+            logger.error(f"AWS SES error sending ops alert: {e}")
+        else:
+            logger.error(f"Unexpected error sending ops alert: {e}")
+            logger.error(f"Stack trace: {traceback.format_exc()}")
         return False
 
 

@@ -4,11 +4,13 @@
 
 FROM mcr.microsoft.com/playwright/python:v1.57.0-jammy
 
-# Install build tools for Python packages that need compilation (like thinc)
+# Install build tools and tzdata for zoneinfo support
+ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y \
     build-essential \
     g++ \
     gcc \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory

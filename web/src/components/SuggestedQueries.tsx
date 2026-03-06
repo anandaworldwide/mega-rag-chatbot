@@ -40,10 +40,11 @@ const SuggestedQueries: React.FC<SuggestedQueriesProps> = ({
   isLoading,
   shuffleQueries,
   isMobile,
-  siteConfig: _siteConfig, // eslint-disable-line @typescript-eslint/no-unused-vars
+  siteConfig: _siteConfig,  
   categorizedQueries,
 }) => {
-  const [shuffleKey, setShuffleKey] = useState(0);
+  // Initialize with random value to show different queries on each page load
+  const [shuffleKey, setShuffleKey] = useState(() => Math.floor(Math.random() * 10000));
 
   // Get three examples for display
   const displayExamples = useMemo(() => {

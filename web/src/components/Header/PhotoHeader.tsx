@@ -24,6 +24,7 @@ export default function PhotoHeader({
     <>
       <BaseHeader
         config={siteConfig.header}
+        siteConfig={siteConfig}
         parentSiteUrl={parentSiteUrl}
         parentSiteName={parentSiteName}
         requireLogin={siteConfig.requireLogin}

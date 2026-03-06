@@ -11,6 +11,8 @@ import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
 import { isDevelopment } from "@/utils/env";
 import { createSignedUUIDCookie } from "@/utils/server/uuidUtils";
+import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
+import type { EmailCategory } from "@/types/user";
 
 async function compareToken(token: string, hash: string): Promise<boolean> {
   try {
@@ -161,53 +163,69 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
     );
 
-    try {
-      cookies.set("auth", authToken, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: isSecure,
-        maxAge: 180 * 24 * 60 * 60 * 1000,
-        path: "/",
-      });
+    // Set authentication and session cookies without unnecessary try/catch
+    cookies.set("auth", authToken, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: isSecure,
+      maxAge: 180 * 24 * 60 * 60 * 1000,
+      path: "/",
+    });
 
-      // Set signed UUID cookie to prevent spoofing
-      // TODO: Remove migration bridge after June 2026 - only signed cookies supported
-      cookies.set("uuid", createSignedUUIDCookie(finalUuid as string), {
-        httpOnly: false,
-        sameSite: "lax",
-        secure: isSecure,
-        maxAge: 180 * 24 * 60 * 60 * 1000,
-        path: "/",
-      });
+    // Set signed UUID cookie to prevent spoofing
+    // TODO: Remove migration bridge after June 2026 - only signed cookies supported
+    cookies.set("uuid", createSignedUUIDCookie(finalUuid as string), {
+      httpOnly: false,
+      sameSite: "lax",
+      secure: isSecure,
+      maxAge: 180 * 24 * 60 * 60 * 1000,
+      path: "/",
+    });
 
-      // TODO: Remove migration bridge after June 2026 - only set authToken
-      // Set both auth and authToken cookies during migration period
-      // auth: legacy cookie for backward compatibility
-      cookies.set("auth", authToken, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: isSecure,
-        maxAge: 180 * 24 * 60 * 60 * 1000,
-        path: "/",
-      });
-      // authToken: new cookie name
-      cookies.set("authToken", authToken, {
-        httpOnly: true,
-        sameSite: "lax",
-        secure: isSecure,
-        maxAge: 180 * 24 * 60 * 60 * 1000,
-        path: "/",
-      });
-    } catch (cookieError) {
-      throw cookieError;
-    }
+    // TODO: Remove migration bridge after June 2026 - only set authToken
+    // Set both auth and authToken cookies during migration period
+    // auth: legacy cookie for backward compatibility
+    cookies.set("auth", authToken, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: isSecure,
+      maxAge: 180 * 24 * 60 * 60 * 1000,
+      path: "/",
+    });
+    // authToken: new cookie name
+    cookies.set("authToken", authToken, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: isSecure,
+      maxAge: 180 * 24 * 60 * 60 * 1000,
+      path: "/",
+    });
+    // Set client-readable session indicator (allows JS to detect auth cookies exist)
+    cookies.set("hasSession", "1", {
+      httpOnly: false,
+      sameSite: "lax",
+      secure: isSecure,
+      maxAge: 180 * 24 * 60 * 60 * 1000,
+      path: "/",
+    });
 
     // Return existing name data if available for pre-population
+    const siteConfig = await loadSiteConfig();
+    const enabledEmailTypes: EmailCategory[] = [];
+    if (siteConfig?.requireLogin) {
+      enabledEmailTypes.push("newsletters");
+      if (siteConfig?.enableOnboardingEmails) enabledEmailTypes.push("onboarding");
+      if (siteConfig?.enableReengagementEmails) enabledEmailTypes.push("reengagement");
+      if (siteConfig?.enableSpecialDayEmails) enabledEmailTypes.push("specialDay");
+      if (siteConfig?.enableNpsSurveyEmail) enabledEmailTypes.push("nps");
+    }
+
     return res.status(200).json({
       message: "ok",
       uuid: finalUuid,
       firstName: data?.firstName || undefined,
       lastName: data?.lastName || undefined,
+      enabledEmailTypes,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";

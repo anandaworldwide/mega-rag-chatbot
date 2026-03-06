@@ -138,15 +138,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const newsletterId = db.collection(getNewslettersCollectionName()).doc().id;
 
     // Queue emails in Firestore
+    // Note: We only store per-user data here. Content fields (subject, content, ctaUrl, ctaText)
+    // are stored once in the parent newsletter document to avoid redundant storage.
     const batch = db.batch();
     subscribedUsers.forEach((user: { email: string; data: any }) => {
       const queueRef = db!.collection(`${getNewslettersCollectionName()}/${newsletterId}/queueItems`).doc();
       batch.set(queueRef, {
         email: user.email,
-        subject: subject.trim(),
-        content: content.trim(),
-        ctaUrl: ctaUrl?.trim() || null,
-        ctaText: ctaText?.trim() || null,
         firstName: user.data?.firstName || null,
         lastName: user.data?.lastName || null,
         status: "pending",

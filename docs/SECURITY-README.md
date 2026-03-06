@@ -11,6 +11,7 @@ The system uses JSON Web Tokens (JWT) to secure API communication between:
 
 1. The web frontend and backend API
 2. The WordPress plugin and backend API
+3. Mobile applications and backend API
 
 ### Security Architecture
 
@@ -19,13 +20,19 @@ The system uses JSON Web Tokens (JWT) to secure API communication between:
 │                              CLIENT LAYER                                      │
 │                                                                                │
 │ ┌──────────────────┐    ┌─────────────────┐    ┌─────────────────────────────┐ │
-│ │   Web Client     │    │ WordPress Plugin│    │     Admin Client            │ │
+│ │   Web Client     │    │ WordPress Plugin│    │     Mobile App              │ │
 │ │                  │    │                 │    │                             │ │
-│ │ • JWT Tokens     │    │ • Site ID Check │    │ • Admin JWT                 │ │
-│ │ • HttpOnly       │    │ • Secure API    │    │ • Elevated Permissions      │ │
-│ │   Cookies        │    │   Client        │    │ • Sudo Mode                 │ │
+│ │ • JWT Tokens     │    │ • Site ID Check │    │ • Derived Secret            │ │
+│ │ • HttpOnly       │    │ • Secure API    │    │ • Token Exchange            │ │
+│ │   Cookies        │    │   Client        │    │ • SSE Streaming            │ │
 │ │ • CSRF Protection│    │ • Token Exchange│    │                             │ │
 │ └──────────────────┘    └─────────────────┘    └─────────────────────────────┘ │
+│                                                                                │
+│ ┌─────────────────────────────────────────────────────────────────────────────┐ │
+│ │                          Admin Client                                        │ │
+│ │                                                                             │ │
+│ │ • Admin JWT                 • Elevated Permissions      • Sudo Mode        │ │
+│ └─────────────────────────────────────────────────────────────────────────────┘ │
 └────────────────────────────────────────────────────────────────────────────────┘
                                        │
                             ┌─────────────────────────┐
@@ -104,6 +111,14 @@ The system uses JSON Web Tokens (JWT) to secure API communication between:
 - **Secure API Client** (`secure-api-client.php`): Handles token-based authentication for WordPress
 - **Secure API Test Page**: Admin interface for testing the secure API connection
 - **Site ID Validation**: Prevents accidental connections to wrong backend environments
+
+#### Mobile Applications
+
+- **Token Derivation**: Mobile secret derived from `SECURE_TOKEN` using
+  `sha256("mobile-" + SECURE_TOKEN).substring(0, 32)`
+- **JWT Authentication**: Uses same token issuance endpoint (`/api/get-token`) as WordPress
+- **SSE Streaming**: Supports Server-Sent Events for real-time chat responses
+- **Site ID Validation**: Optional `expectedSiteId` parameter prevents wrong backend connections
 
 ### Authentication Types
 
@@ -435,6 +450,52 @@ For WordPress integration, you have two options in wp-config.php:
 
 Option 2 is recommended as it automatically derives the WordPress token from the same SECURE_TOKEN used in the Vercel
 backend.
+
+#### Mobile Application Integration
+
+For mobile applications, the backend supports token-based authentication using a derived secret. The mobile secret is
+derived from the backend's `SECURE_TOKEN` environment variable using the following formula:
+
+```text
+mobile_secret = sha256("mobile-" + SECURE_TOKEN).substring(0, 32)
+```
+
+**Implementation Pattern**:
+
+1. The mobile app must have access to the backend's `SECURE_TOKEN` value (or the pre-computed mobile secret)
+2. When requesting a token, send `POST /api/get-token` with:
+
+   ```json
+   {
+     "secret": "<mobile_derived_secret>",
+     "expectedSiteId": "<site_id>"
+   }
+   ```
+
+3. The backend validates the secret and issues a JWT token with `client: "mobile"` in the payload
+4. Use this JWT token in subsequent API calls: `Authorization: Bearer <token>`
+
+**Security Considerations**:
+
+- The mobile secret is derived from `SECURE_TOKEN` using a mobile-specific salt (`"mobile-"` prefix)
+- This follows the same pattern as WordPress integration for consistency
+- Tokens expire after 15 minutes and must be refreshed proactively
+- The mobile secret can be embedded in the app binary (acceptable for public-facing chatbot apps)
+- For apps requiring user authentication, consider using the existing user auth system instead
+
+**Token Derivation Example** (Node.js):
+
+```javascript
+const crypto = require("crypto");
+
+function deriveMobileSecret(secureToken) {
+  return crypto.createHash("sha256").update(`mobile-${secureToken}`).digest("hex").substring(0, 32);
+}
+
+const SECURE_TOKEN = process.env.SECURE_TOKEN; // From backend
+const mobileSecret = deriveMobileSecret(SECURE_TOKEN);
+// Use mobileSecret in token requests
+```
 
 #### Site ID Validation
 

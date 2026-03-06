@@ -24,16 +24,13 @@ import DOMPurify from "dompurify";
 import validator from "validator";
 import styles from "@/styles/Home.module.css";
 import SuggestedQueries from "@/components/SuggestedQueries";
-import { SearchOptionsDropdown } from "@/components/SearchOptionsDropdown";
-import { TipsModal } from "@/components/TipsModal";
+import { FilterDropdown } from "@/components/FilterDropdown";
+import { TaskPopover } from "@/components/TaskPopover";
 import { SiteConfig } from "@/types/siteConfig";
 import { getEnableSuggestedQueries } from "@/utils/client/siteConfig";
 import { logEvent } from "@/utils/client/analytics";
 import { getOrCreateUUID } from "@/utils/client/uuid";
 import { FirestoreIndexError, useFirestoreIndexError } from "@/components/FirestoreIndexError";
-import { areTipsAvailable } from "@/utils/client/loadTips";
-import { loadSiteTips, TipsData } from "@/utils/client/loadTips";
-import { isAuthenticated, getToken } from "@/utils/client/tokenManager";
 
 // Define the props interface for the ChatInput component
 interface ChatInputProps {
@@ -69,6 +66,13 @@ interface ChatInputProps {
   onTemporarySessionChange?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   categorizedQueries?: { general: string[]; location: string[]; resources: string[] } | null;
   shouldShowSuggestions?: boolean; // Hide suggestions after first question
+  onTaskSubmit?: (
+    prompt: string,
+    sourceCount: number,
+    taskMode: string,
+    suggestedFollowups: string[],
+    authorFilter?: string
+  ) => void;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
@@ -101,16 +105,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   setSourceCount,
   categorizedQueries,
   shouldShowSuggestions = true,
+  onTaskSubmit,
 }) => {
   // State variables for managing component behavior
   const [, setLocalQuery] = useState<string>("");
   const [hasInteracted, setHasInteracted] = useState<boolean>(false);
   const [isFirstQuery, setIsFirstQuery] = useState<boolean>(true);
   const [isMobile, setIsMobile] = useState<boolean>(false);
-  const [showTipsModal, setShowTipsModal] = useState(false);
-  const [tipsAvailable, setTipsAvailable] = useState(false);
-  const [hasNewTips, setHasNewTips] = useState(false);
-  const [currentTipsVersion, setCurrentTipsVersion] = useState<number | null>(null);
   //const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Analyze error to determine if it's a Firestore index error
@@ -120,127 +121,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   useEffect(() => {
     try {
       getOrCreateUUID();
-    } catch {}
+    } catch {
+      // Silently ignore UUID creation errors - not critical for functionality
+    }
   }, []);
-
-  // Effect to check if tips are available for this site
-  useEffect(() => {
-    if (siteConfig) {
-      areTipsAvailable(siteConfig).then(setTipsAvailable);
-    }
-  }, [siteConfig]);
-
-  // Effect to check if there are new tips the user hasn't seen
-  useEffect(() => {
-    // Only check if tips are available and we know the current version
-    if (!tipsAvailable || currentTipsVersion === null) {
-      setHasNewTips(false);
-      return;
-    }
-
-    let timeoutId: NodeJS.Timeout | null = null;
-
-    const checkTipsStatus = async () => {
-      // For login-required sites, check authentication status
-      if (siteConfig?.requireLogin) {
-        const authStatus = isAuthenticated();
-
-        if (authStatus) {
-          try {
-            // Get JWT token and make authenticated API call
-            const token = await getToken();
-            const response = await fetch("/api/user/tips", {
-              method: "GET",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
-              },
-            });
-
-            if (response.ok) {
-              const data = await response.json();
-              const lastSeenVersion = data.lastSeenTipVersion || 0;
-              setHasNewTips(lastSeenVersion < currentTipsVersion);
-            } else {
-              throw new Error(`API returned ${response.status}`);
-            }
-          } catch {
-            // Fallback to localStorage if API fails
-            const localLastSeenVersion = parseInt(localStorage.getItem("lastSeenTipVersion") || "0", 10);
-            setHasNewTips(localLastSeenVersion < currentTipsVersion);
-          }
-        } else {
-          // User not authenticated yet - try to wait a bit for auth to load, then check again
-          // This handles the case where token hasn't loaded yet on initial render
-          timeoutId = setTimeout(() => {
-            if (isAuthenticated()) {
-              // Retry the API call now that we're authenticated
-              getToken()
-                .then((token) => {
-                  return fetch("/api/user/tips", {
-                    method: "GET",
-                    headers: {
-                      "Content-Type": "application/json",
-                      Authorization: `Bearer ${token}`,
-                    },
-                  });
-                })
-                .then((response) => {
-                  if (response.ok) {
-                    return response.json();
-                  } else {
-                    throw new Error(`API returned ${response.status}`);
-                  }
-                })
-                .then((data) => {
-                  const lastSeenVersion = data.lastSeenTipVersion || 0;
-                  setHasNewTips(lastSeenVersion < currentTipsVersion);
-                })
-                .catch(() => {
-                  // Fallback to localStorage if API fails
-                  const localLastSeenVersion = parseInt(localStorage.getItem("lastSeenTipVersion") || "0", 10);
-                  setHasNewTips(localLastSeenVersion < currentTipsVersion);
-                });
-            } else {
-              // Still not authenticated - use localStorage as fallback
-              // For new accounts, localStorage will be empty (0), so if currentTipsVersion > 0, show dot
-              const localLastSeenVersion = parseInt(localStorage.getItem("lastSeenTipVersion") || "0", 10);
-              setHasNewTips(localLastSeenVersion < currentTipsVersion);
-            }
-          }, 500); // Wait 500ms for auth to potentially load
-
-          // Also set initial state based on localStorage
-          const localLastSeenVersion = parseInt(localStorage.getItem("lastSeenTipVersion") || "0", 10);
-          setHasNewTips(localLastSeenVersion < currentTipsVersion);
-        }
-      } else {
-        // Use localStorage for non-login sites
-        const localLastSeenVersion = parseInt(localStorage.getItem("lastSeenTipVersion") || "0", 10);
-        setHasNewTips(localLastSeenVersion < currentTipsVersion);
-      }
-    };
-
-    checkTipsStatus();
-
-    return () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
-    };
-  }, [tipsAvailable, currentTipsVersion, siteConfig]);
-
-  // Effect to fetch current site tips version once we know tips exist
-  useEffect(() => {
-    if (tipsAvailable && currentTipsVersion === null && siteConfig) {
-      loadSiteTips(siteConfig)
-        .then((data: TipsData | null) => {
-          if (data) setCurrentTipsVersion(data.version);
-        })
-        .catch(() => {
-          /* ignore */
-        });
-    }
-  }, [tipsAvailable, currentTipsVersion, siteConfig]);
 
   // Effect to reset input after submission
   useEffect(() => {
@@ -374,60 +258,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     handleClick(q);
   };
 
-  // Function to handle tips button click
-  const handleTipsClick = () => {
-    setShowTipsModal(true);
-    logEvent("tips_modal_open", "Tips", "button_click");
-  };
 
-  // Function to handle tips modal close
-  const handleTipsClose = () => {
-    setShowTipsModal(false);
-    logEvent("tips_modal_close", "Tips", "modal_close");
-
-    // Mark tips as seen by updating the user's lastSeenTipVersion
-    if (currentTipsVersion && hasNewTips && siteConfig?.requireLogin) {
-      const authStatus = isAuthenticated();
-
-      if (authStatus) {
-        // Get JWT token and make authenticated API call
-        getToken()
-          .then((token) => {
-            return fetch("/api/user/tips", {
-              method: "PATCH",
-              headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${token}`,
-              },
-              body: JSON.stringify({
-                lastSeenTipVersion: currentTipsVersion,
-              }),
-            });
-          })
-          .then(() => {
-            setHasNewTips(false);
-            logEvent("tips_version_updated", "Tips", "api_success");
-          })
-          .catch(() => {
-            // Don't show error to user, just log it
-          });
-      } else {
-        // Use localStorage for non-authenticated users
-        localStorage.setItem("lastSeenTipVersion", currentTipsVersion.toString());
-        setHasNewTips(false);
-        logEvent("tips_version_updated", "Tips", "localStorage");
-      }
-    }
-
-    // Always save to localStorage as backup
-    if (currentTipsVersion && hasNewTips) {
-      localStorage.setItem("lastSeenTipVersion", currentTipsVersion.toString());
-      setHasNewTips(false);
-    }
-  };
-
-  // Static placeholder text
-  const placeholderText = "Ask a question...";
+  // Dynamic placeholder text based on conversation state
+  const placeholderText = shouldShowSuggestions ? "Ask a question..." : "Ask a follow-up question...";
 
   // Function to adjust textarea height
   const adjustTextAreaHeight = () => {
@@ -441,12 +274,12 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   // Render the chat input interface
   return (
-    <div className={`${styles.center} w-full mt-4 px-2 md:px-0`}>
+    <div className={`${styles.center} w-full mt-2 md:mt-4 px-2 md:px-0`}>
       <div className="w-full">
         <form onSubmit={onSubmit}>
-          {/* Temporary session indicator - now handled in navigation */}
+          {/* Temporary session indicator - hidden on mobile to save screen real estate (primary banner is in index.tsx) */}
           {temporarySession && (
-            <div className="flex items-center justify-center mb-3 px-3 py-2 bg-purple-100 border border-purple-300 rounded-lg">
+            <div className="hidden md:flex items-center justify-center mb-3 px-3 py-2 bg-purple-100 border border-purple-300 rounded-lg">
               <span className="material-icons text-purple-600 text-lg mr-2">lock</span>
               <span className="text-purple-800 text-sm font-medium">
                 Temporary Session Active
@@ -461,44 +294,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             </div>
           )}
 
-          {/* Input textarea and submit button */}
-          <div className="relative mb-4">
-            <textarea
-              onKeyDown={onEnter}
-              onChange={(e) => {
-                handleInputChange(e);
-                adjustTextAreaHeight();
-              }}
-              value={input}
-              ref={textAreaRef}
-              autoFocus={false}
-              rows={1}
-              maxLength={4000}
-              id="userInput"
-              name="userInput"
-              placeholder={disabled ? "View-only mode" : hasInteracted ? "" : placeholderText}
-              disabled={disabled}
-              className={`w-full p-3 pr-12 border border-gray-300 rounded-xl resize-none focus:outline-none min-h-[48px] overflow-hidden ${
-                disabled ? "bg-gray-100 cursor-not-allowed" : ""
-              }`}
-              style={{ height: "auto" }}
-            />
-            <button
-              type="submit"
-              disabled={disabled}
-              className={`absolute right-3 top-1/2 transform -translate-y-1/2 p-2 rounded-xl flex items-center justify-center w-8 h-8 ${
-                disabled ? "bg-gray-400 text-gray-600 cursor-not-allowed" : "bg-blue-500 text-white hover:bg-blue-600"
-              }`}
-            >
-              {loading ? (
-                <span className="material-icons text-lg leading-none">stop</span>
-              ) : (
-                <span className="material-icons text-lg leading-none">arrow_upward</span>
-              )}
-            </button>
-          </div>
-
-          {/* Suggested queries section */}
+          {/* Suggested queries section - above input */}
           {!isLoadingQueries && showSuggestedQueries && (suggestedQueries.length > 0 || categorizedQueries) && (
             <div className="w-full mb-4">
               <SuggestedQueries
@@ -513,36 +309,63 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             </div>
           )}
 
-          {/* Chat Options and Tips */}
-          <div className="mb-4 flex gap-2 items-start">
-            <SearchOptionsDropdown
-              siteConfig={siteConfig}
-              mediaTypes={mediaTypes}
-              handleMediaTypeChange={handleMediaTypeChange}
-              collection={collection}
-              handleCollectionChange={handleCollectionChange}
-              selectedLibraries={selectedLibraries}
-              handleLibraryChange={handleLibraryChange}
-              sourceCount={sourceCount}
-              setSourceCount={setSourceCount}
-            />
-
-            {/* Tips Button - only show if tips are available for this site */}
-            {tipsAvailable && (
+          {/* Input container with textarea and options row */}
+          <div className="mb-4 border border-gray-300 rounded-xl overflow-hidden">
+            {/* Input textarea and submit button */}
+            <div className="relative">
+              <textarea
+                onKeyDown={onEnter}
+                onChange={(e) => {
+                  handleInputChange(e);
+                  adjustTextAreaHeight();
+                }}
+                value={input}
+                ref={textAreaRef}
+                autoFocus={false}
+                rows={1}
+                maxLength={4000}
+                id="userInput"
+                name="userInput"
+                placeholder={disabled ? "View-only mode" : hasInteracted ? "" : placeholderText}
+                disabled={disabled}
+                className={`w-full p-3 pr-12 resize-none focus:outline-none min-h-[48px] overflow-hidden border-0 ${
+                  disabled ? "bg-gray-100 cursor-not-allowed" : ""
+                }`}
+                style={{ height: "auto" }}
+              />
               <button
-                type="button"
-                onClick={handleTipsClick}
-                className="relative flex items-center px-3 py-2 text-sm bg-white text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
-                aria-label="View tips and tricks"
+                type="submit"
+                disabled={disabled}
+                className={`absolute right-3 top-1/2 transform -translate-y-1/2 p-2 rounded-xl flex items-center justify-center w-8 h-8 ${
+                  disabled ? "bg-gray-400 text-gray-600 cursor-not-allowed" : "bg-blue-500 text-white hover:bg-blue-600"
+                }`}
               >
-                <span className="material-icons text-base mr-2">lightbulb</span>
-                Tips
-                {/* Blue dot indicator when there are new tips */}
-                {hasNewTips && (
-                  <span className="absolute -top-2 -right-2 h-4 w-4 rounded-full bg-blue-500 border-2 border-white" />
+                {loading ? (
+                  <span className="material-icons text-lg leading-none">stop</span>
+                ) : (
+                  <span className="material-icons text-lg leading-none">arrow_upward</span>
                 )}
               </button>
-            )}
+            </div>
+
+            {/* Options row inside input box */}
+            <div className="flex gap-2 items-center px-3 py-2">
+              {/* Task Popover - only show if tasks are enabled and handler provided */}
+              {onTaskSubmit && <TaskPopover siteConfig={siteConfig} onTaskSubmit={onTaskSubmit} />}
+
+              {/* Content Filters - media types, authors, libraries, extra sources */}
+              <FilterDropdown
+                siteConfig={siteConfig}
+                mediaTypes={mediaTypes}
+                handleMediaTypeChange={handleMediaTypeChange}
+                collection={collection}
+                handleCollectionChange={handleCollectionChange}
+                selectedLibraries={selectedLibraries}
+                handleLibraryChange={handleLibraryChange}
+                sourceCount={sourceCount}
+                setSourceCount={setSourceCount}
+              />
+            </div>
           </div>
 
           {/* Error display */}
@@ -556,14 +379,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               </div>
             ))}
         </form>
-
-        {/* Tips Modal */}
-        <TipsModal
-          isOpen={showTipsModal}
-          onClose={handleTipsClose}
-          siteConfig={siteConfig}
-          onVersionLoaded={setCurrentTipsVersion}
-        />
       </div>
     </div>
   );

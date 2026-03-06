@@ -1,7 +1,7 @@
 // This file defines the types and interfaces related to answers in the application.
 // It includes structures for answer data and admin actions.
 
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 
 // Possible admin actions that can be taken on an answer
 export type AdminAction = "affirmed" | "ignore" | "fixed";

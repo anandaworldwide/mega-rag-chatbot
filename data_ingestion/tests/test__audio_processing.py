@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from botocore.exceptions import ClientError
 from openai import OpenAI
-from pinecone import PineconeException
+from pinecone.exceptions import PineconeException
 
 from data_ingestion.audio_video.IngestQueue import IngestQueue
 from data_ingestion.audio_video.pinecone_utils import (
@@ -346,7 +346,7 @@ class TestAudioProcessing(unittest.TestCase):
         )
 
     @patch("pydub.AudioSegment.from_mp3")
-    @patch("data_ingestion.audio_video.pinecone_utils.load_pinecone")
+    @patch("data_ingestion.tests.test__audio_processing.load_pinecone")
     @patch("data_ingestion.audio_video.pinecone_utils.create_embeddings")
     @patch("data_ingestion.audio_video.pinecone_utils.store_in_pinecone")
     @patch("data_ingestion.audio_video.media_utils.split_audio")
@@ -384,7 +384,8 @@ class TestAudioProcessing(unittest.TestCase):
             MOCK_AUDIO_METADATA["url"],
             MOCK_AUDIO_METADATA["album"],
         )
-        mock_create_embeddings.return_value = MOCK_EMBEDDINGS
+        # create_embeddings now returns (embeddings, valid_chunks) tuple
+        mock_create_embeddings.return_value = (MOCK_EMBEDDINGS, MOCK_CHUNKS)
         mock_index = MagicMock()
         mock_load_pinecone.return_value = mock_index
         mock_store.return_value = len(MOCK_CHUNKS)
@@ -409,7 +410,7 @@ class TestAudioProcessing(unittest.TestCase):
         logger.debug("Pinecone storage success test completed")
 
     @patch("pydub.AudioSegment.from_mp3")
-    @patch("data_ingestion.audio_video.pinecone_utils.load_pinecone")
+    @patch("data_ingestion.tests.test__audio_processing.load_pinecone")
     @patch("data_ingestion.audio_video.pinecone_utils.create_embeddings")
     @patch("data_ingestion.audio_video.media_utils.split_audio")
     @patch("os.path.exists")
@@ -436,7 +437,8 @@ class TestAudioProcessing(unittest.TestCase):
         mock_get_saved.return_value = None  # No existing transcription
         mock_split_audio.return_value = [MagicMock()]  # Mock audio chunks
         mock_transcribe.return_value = MOCK_TRANSCRIPTION
-        mock_create_embeddings.return_value = MOCK_EMBEDDINGS
+        # create_embeddings now returns (embeddings, valid_chunks) tuple
+        mock_create_embeddings.return_value = (MOCK_EMBEDDINGS, MOCK_CHUNKS)
         mock_index = MagicMock()
         mock_load_pinecone.return_value = mock_index
         mock_from_mp3.return_value = MagicMock()
@@ -713,7 +715,7 @@ class TestAudioProcessing(unittest.TestCase):
         logger.debug("Transcription with corrupted audio test completed")
 
     @patch("pydub.AudioSegment.from_mp3")
-    @patch("data_ingestion.audio_video.pinecone_utils.load_pinecone")
+    @patch("data_ingestion.tests.test__audio_processing.load_pinecone")
     def test_pinecone_storage_with_empty_chunks(
         self, mock_load_pinecone, mock_from_mp3
     ):

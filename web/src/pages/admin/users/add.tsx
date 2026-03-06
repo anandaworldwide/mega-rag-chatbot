@@ -22,7 +22,6 @@ export default function AddUsersPage({ siteConfig }: AddUsersPageProps) {
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [messageType, setMessageType] = useState<"info" | "error">("info");
-  const [jwt, setJwt] = useState<string | null>(null);
   const [showGuidelinesModal, setShowGuidelinesModal] = useState(false);
 
   // Local storage key for persisting custom message
@@ -64,21 +63,45 @@ export default function AddUsersPage({ siteConfig }: AddUsersPageProps) {
     }
   }, [adminFirstName, siteConfig]);
 
-  // Initialize JWT
+  // Use a ref for the JWT so token refreshes don't trigger re-renders
+  const jwtRef = React.useRef<string | null>(null);
+
+  // Initialize JWT with periodic refresh
+  // Token is stored in jwtRef to avoid unnecessary re-renders
   useEffect(() => {
-    async function initJwt() {
+    async function refreshToken() {
       try {
         const res = await fetch("/api/web-token");
         if (res.ok) {
           const data = await res.json();
-          setJwt(data.token);
+          jwtRef.current = data.token;
+        } else if (res.status === 401) {
+          const fullPath = window.location.pathname + (window.location.search || "");
+          window.location.href = `/login?redirect=${encodeURIComponent(fullPath)}`;
         }
       } catch (error) {
         console.error("Failed to initialize JWT:", error);
       }
     }
 
-    initJwt();
+    refreshToken();
+
+    // Periodic token refresh to prevent expiration while page is open and idle
+    // JWT tokens expire after 15 minutes, so refresh every 10 minutes
+    // This only updates the ref - does NOT trigger re-renders
+    const TOKEN_REFRESH_INTERVAL = 10 * 60 * 1000; // 10 minutes
+    const refreshInterval = setInterval(refreshToken, TOKEN_REFRESH_INTERVAL);
+
+    // Also refresh token when user returns to the page
+    const handleWindowFocus = () => {
+      refreshToken();
+    };
+    window.addEventListener("focus", handleWindowFocus);
+
+    return () => {
+      clearInterval(refreshInterval);
+      window.removeEventListener("focus", handleWindowFocus);
+    };
   }, []);
 
   // Save custom message to local storage when it changes
@@ -96,11 +119,12 @@ export default function AddUsersPage({ siteConfig }: AddUsersPageProps) {
     url: string,
     options: RequestInit = {}
   ): Promise<{ data: T; refreshedToken?: string }> {
+    const currentJwt = jwtRef.current;
     const res = await fetch(url, {
       ...options,
       headers: {
         ...options.headers,
-        Authorization: `Bearer ${jwt}`,
+        ...(currentJwt ? { Authorization: `Bearer ${currentJwt}` } : {}),
       },
     });
 
@@ -110,6 +134,7 @@ export default function AddUsersPage({ siteConfig }: AddUsersPageProps) {
       if (tokenRes.ok) {
         const tokenData = await tokenRes.json();
         const newToken = tokenData.token;
+        jwtRef.current = newToken;
 
         // Retry request with new token
         const retryRes = await fetch(url, {
@@ -190,15 +215,11 @@ export default function AddUsersPage({ siteConfig }: AddUsersPageProps) {
 
         const promises = batch.map(async (email) => {
           try {
-            const { data, refreshedToken } = await fetchWithTokenRefresh<{ message: string }>("/api/admin/addUser", {
+            const { data } = await fetchWithTokenRefresh<{ message: string }>("/api/admin/addUser", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ email, customMessage: messageToSend }),
             });
-
-            if (refreshedToken) {
-              setJwt(refreshedToken);
-            }
 
             return { email, success: true, message: data.message };
           } catch (error: any) {

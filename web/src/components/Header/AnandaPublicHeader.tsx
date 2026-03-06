@@ -15,6 +15,7 @@ export default function AnandaHeader({ siteConfig, onNewChat }: AnandaHeaderProp
     <>
       <BaseHeader
         config={siteConfig.header}
+        siteConfig={siteConfig}
         parentSiteUrl={parentSiteUrl}
         parentSiteName={parentSiteName}
         requireLogin={siteConfig.requireLogin}

@@ -3,149 +3,24 @@ import React from "react";
 import Link from "next/link";
 import { SiteConfig } from "@/types/siteConfig";
 import { getFooterConfig } from "@/utils/client/siteConfig";
-import { useEffect, useState } from "react";
-import { useRouter } from "next/router";
-import { useSudo } from "@/contexts/SudoContext";
-import { isAuthenticated } from "@/utils/client/tokenManager";
 
 interface FooterProps {
   siteConfig: SiteConfig | null;
+  onFeedbackClick?: () => void;
 }
 
-const Footer: React.FC<FooterProps> = ({ siteConfig }) => {
-  const [isAdminRole, setIsAdminRole] = useState(false);
-  const [isSuperuser, setIsSuperuser] = useState(false);
-  const { isSudoUser } = useSudo();
-  const router = useRouter();
+// Get feedback icon based on site configuration
+const getFeedbackIcon = (siteConfig: SiteConfig | null): string => {
+  if (!siteConfig?.feedbackIcon) return "/bot-image.png"; // Default fallback
+  return `/${siteConfig.feedbackIcon}`;
+};
 
-  useEffect(() => {
-    let mounted = true;
-
-    async function checkRole() {
-      // Early return: Skip API call if site doesn't require login
-      if (!siteConfig?.requireLogin) {
-        if (mounted) setIsAdminRole(false);
-        return;
-      }
-
-      // Early return: Skip API call if user is not authenticated
-      if (!isAuthenticated()) {
-        if (mounted) setIsAdminRole(false);
-        // Clear cache when user is not authenticated
-        try {
-          sessionStorage.removeItem("userRole");
-        } catch {
-          // sessionStorage not available, continue
-        }
-        return;
-      }
-
-      // Check sessionStorage cache first (1-minute TTL for faster role updates)
-      try {
-        const cached = sessionStorage.getItem("userRole");
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          const isExpired = Date.now() - parsed.timestamp > 60 * 1000; // 1 minute (reduced from 5 minutes)
-          if (!isExpired && parsed.role) {
-            const isAdmin = parsed.role === "admin" || parsed.role === "superuser";
-            const isSuper = parsed.role === "superuser";
-            if (mounted) {
-              setIsAdminRole(isAdmin);
-              setIsSuperuser(isSuper);
-            }
-            return; // Use cached result
-          }
-        }
-      } catch {
-        // Invalid cache, continue to API call
-      }
-
-      // Make API call only when necessary
-      try {
-        const res = await fetch("/api/profile", { credentials: "include" });
-        if (!res.ok) {
-          if (mounted) setIsAdminRole(false);
-          return;
-        }
-
-        const data = await res.json();
-        const role = (data?.role as string) || "user";
-        const isAdmin = role === "admin" || role === "superuser";
-        const isSuper = role === "superuser";
-
-        // Cache the result
-        try {
-          sessionStorage.setItem(
-            "userRole",
-            JSON.stringify({
-              role,
-              timestamp: Date.now(),
-            })
-          );
-        } catch {
-          // sessionStorage failed, continue without caching
-        }
-
-        if (mounted) {
-          setIsAdminRole(isAdmin);
-          setIsSuperuser(isSuper);
-        }
-      } catch {
-        if (mounted) setIsAdminRole(false);
-      }
-    }
-
-    checkRole();
-
-    // Listen for storage events to refresh role when it changes
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === "userRole" && mounted) {
-        checkRole();
-      }
-    };
-    window.addEventListener("storage", handleStorageChange);
-
-    return () => {
-      mounted = false;
-      window.removeEventListener("storage", handleStorageChange);
-    };
-  }, [router.asPath, siteConfig?.requireLogin]);
+const Footer: React.FC<FooterProps> = ({ siteConfig, onFeedbackClick }) => {
   const footerConfig = getFooterConfig(siteConfig);
-
-  const showAdminSection = siteConfig?.requireLogin ? isAdminRole : isSudoUser;
+  const feedbackIcon = getFeedbackIcon(siteConfig);
 
   return (
     <>
-      {/* Admin section for admins/superusers via JWT role */}
-      {showAdminSection && (
-        <div className="bg-blue-50 text-gray-800 py-3 border-t-2 border-blue-600 mt-4">
-          <div className="mx-auto max-w-[800px] px-4">
-            <div className="flex flex-col items-center w-full">
-              <div className="flex flex-row justify-center items-center w-full gap-3">
-                {((siteConfig?.requireLogin && isSuperuser) || (!siteConfig?.requireLogin && isSudoUser)) && (
-                  <>
-                    <Link
-                      href="/answers"
-                      className="text-base font-medium hover:text-blue-700 cursor-pointer flex items-center transition-colors"
-                    >
-                      View all answers
-                      <span className="material-icons text-base ml-1.5">question_answer</span>
-                    </Link>
-                    <span className="text-blue-300 text-lg">|</span>
-                  </>
-                )}
-                <Link
-                  href="/admin"
-                  className="text-base font-semibold text-blue-700 hover:text-blue-800 cursor-pointer flex items-center transition-colors"
-                >
-                  Admin Dashboard
-                  <span className="material-icons text-lg ml-2">dashboard</span>
-                </Link>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
       {/* Main footer section */}
       <footer className="bg-white text-gray-500 py-4 border-t border-t-slate-200">
         <div className="mx-auto max-w-[800px] px-4">
@@ -213,11 +88,30 @@ const Footer: React.FC<FooterProps> = ({ siteConfig }) => {
                 );
               }
             })}
+            {/* Mobile-only feedback button - inline with other footer links */}
+            {onFeedbackClick && (
+              <button
+                onClick={onFeedbackClick}
+                className="md:hidden text-sm hover:text-slate-600 cursor-pointer mx-2 my-1 inline-flex items-center"
+                aria-label="Give feedback"
+              >
+                <img
+                  src={feedbackIcon}
+                  alt=""
+                  className="w-5 h-5 rounded-full object-cover mr-1"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    if (target.src !== "/bot-image.png") {
+                      target.src = "/bot-image.png";
+                    }
+                  }}
+                />
+                Feedback
+              </button>
+            )}
           </div>
         </div>
       </footer>
-      {/* Mobile spacing for feedback button */}
-      <div className="pb-20 md:pb-0" />
     </>
   );
 };

@@ -11,6 +11,7 @@ import CopyButton from "@/components/CopyButton";
 import { SiteConfig } from "@/types/siteConfig";
 import { ExtendedAIMessage } from "@/types/ExtendedAIMessage";
 import SuggestionPills from "@/components/SuggestionPills";
+import { TaskFollowupChips } from "@/components/TaskFollowupChips";
 import { TypedSuggestion } from "@/types/Suggestion";
 
 import { useSudo } from "@/contexts/SudoContext";
@@ -48,6 +49,13 @@ interface MessageItemProps {
   sourceLinkCopied?: string | null; // Source ID that was copied (for visual feedback)
   onSourceExpanded?: (index: number) => void; // Callback when source should be expanded (for deep linking)
   onSourceLinkCopied?: (sourceId: string) => void; // Callback when source link is copied
+  isTaskConversation?: boolean; // Whether current conversation started from a task
+  taskFollowups?: string[]; // Static task follow-up suggestions (from task definition)
+  dynamicFollowups?: string[]; // AI-generated context-specific follow-ups
+  isLoadingDynamicFollowups?: boolean; // Loading state for dynamic follow-ups
+  onTaskFollowupClick?: (suggestion: string) => void; // Handler for task follow-up clicks
+  timingMetricsDisplay?: React.ReactNode; // Timing metrics to display before suggestions
+  isAdminOrSuperuser?: boolean; // For login-required sites: whether user is admin/superuser
 }
 
 const MessageItem: React.FC<MessageItemProps> = ({
@@ -80,8 +88,17 @@ const MessageItem: React.FC<MessageItemProps> = ({
   sourceLinkCopied,
   onSourceExpanded,
   onSourceLinkCopied,
+  isTaskConversation = false,
+  taskFollowups = [],
+  dynamicFollowups = [],
+  isLoadingDynamicFollowups = false,
+  onTaskFollowupClick,
+  timingMetricsDisplay,
+  isAdminOrSuperuser = false,
 }) => {
   const { isSudoUser } = useSudo();
+  // Combine sudo user status with admin/superuser status for privileged access
+  const isPrivilegedUser = isSudoUser || isAdminOrSuperuser;
   const [localEditingText, setLocalEditingText] = React.useState(editingText);
 
   // Feature flag for alternate AI comparison button (temporarily disabled)
@@ -102,7 +119,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
             sources={message.sourceDocs}
             collectionName={collectionChanged && hasMultipleCollections ? message.collection : null}
             siteConfig={siteConfig}
-            isSudoAdmin={isSudoUser}
+            isSudoAdmin={isPrivilegedUser}
             docId={message.docId}
             sourceLinkCopied={sourceLinkCopied}
             onSourceExpanded={onSourceExpanded}
@@ -380,14 +397,35 @@ const MessageItem: React.FC<MessageItemProps> = ({
               </div>
             )}
 
-            {/* Follow-up question suggestions - only for AI messages, below action buttons */}
-            {!readOnly && message.type === "apiMessage" && message.suggestions && message.suggestions.length > 0 && (
-              <SuggestionPills
-                suggestions={message.suggestions}
-                onSuggestionClick={onSuggestionClick || (() => {})}
-                loading={loading}
-              />
+            {/* Timing metrics - display before suggestions */}
+            {timingMetricsDisplay && isLastMessage && message.type === "apiMessage" && (
+              <div className="mt-2">{timingMetricsDisplay}</div>
             )}
+
+            {/* Follow-up suggestions - task followups replace regular suggestions when task is active */}
+            {!readOnly &&
+              message.type === "apiMessage" &&
+              isLastMessage &&
+              (isTaskConversation &&
+              (taskFollowups.length > 0 || dynamicFollowups.length > 0 || isLoadingDynamicFollowups) ? (
+                <TaskFollowupChips
+                  dynamicSuggestions={dynamicFollowups}
+                  staticSuggestions={taskFollowups}
+                  onSelect={onTaskFollowupClick || (() => {})}
+                  visible={true}
+                  loading={loading}
+                  isLoadingDynamic={isLoadingDynamicFollowups}
+                />
+              ) : (
+                message.suggestions &&
+                message.suggestions.length > 0 && (
+                  <SuggestionPills
+                    suggestions={message.suggestions}
+                    onSuggestionClick={onSuggestionClick || (() => {})}
+                    loading={loading}
+                  />
+                )
+              ))}
           </div>
         )}
       </div>

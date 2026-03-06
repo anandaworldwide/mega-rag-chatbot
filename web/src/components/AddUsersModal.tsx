@@ -118,7 +118,7 @@ export function AddUsersModal({ isOpen, onClose, onAddUsers, isSubmitting = fals
       setEmailInput("");
       // Don't reset custom message - it will be loaded from storage next time
       onClose();
-    } catch (error) {
+    } catch (_error) {
       // Error handling is done by the parent component
     }
   };

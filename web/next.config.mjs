@@ -79,12 +79,18 @@ const nextConfig = {
     SITE_CONFIG: configData,
   },
   images: {
-    domains: ["www.crystalclarity.com"],
+    // Migrated from domains to remotePatterns for Next.js 15 compatibility
+    // Using specific protocol and hostname restrictions to prevent DoS attacks
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "www.crystalclarity.com",
+        // No pathname restriction - allows all paths on this domain
+      },
+    ],
   },
-  experimental: {
-    // This is the correct way to handle external packages for server components/actions
-    serverComponentsExternalPackages: ["onnxruntime-node"],
-  },
+  // External packages for server components (moved from experimental in Next.js 15)
+  serverExternalPackages: ["onnxruntime-node"],
 };
 
 export default nextConfig;

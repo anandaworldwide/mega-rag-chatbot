@@ -75,7 +75,7 @@ function isPrivateIPAddress(url: string): boolean {
     }
 
     return false;
-  } catch (e) {
+  } catch (_e) {
     // If URL parsing fails, it's not a valid URL
     return false;
   }

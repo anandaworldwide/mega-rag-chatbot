@@ -3,12 +3,16 @@ import Link from "next/link";
 import { useRouter } from "next/router";
 import { useState, useEffect } from "react";
 import { logEvent } from "@/utils/client/analytics";
-import { HeaderConfig } from "@/types/siteConfig";
+import { HeaderConfig, SiteConfig } from "@/types/siteConfig";
 import { isDevelopment } from "@/utils/env";
 import { initializeTokenManager, isAuthenticated } from "@/utils/client/tokenManager";
+import WhatsNewDropdown from "@/components/WhatsNewDropdown";
+import { isWhatsNewAvailable } from "@/utils/client/loadWhatsNew";
+import HelpDropdown from "@/components/HelpDropdown";
 
 interface BaseHeaderProps {
   config: HeaderConfig;
+  siteConfig?: SiteConfig | null;
   parentSiteUrl?: string;
   parentSiteName?: string;
   className?: string;
@@ -26,6 +30,7 @@ interface BaseHeaderProps {
 
 export default function BaseHeader({
   config,
+  siteConfig,
   parentSiteUrl,
   parentSiteName,
   logoComponent,
@@ -40,29 +45,32 @@ export default function BaseHeader({
 }: BaseHeaderProps) {
   const router = useRouter();
   // Fast initial state from cookie presence to avoid flicker; will be reconciled after init
-  // TODO: Remove migration bridge after June 2026 - during bridge, check legacy isLoggedIn for pre-migration sessions
-  // Check for authToken (new), auth (legacy HttpOnly), or isLoggedIn (old non-HttpOnly) during migration
+  // Check for hasSession (client-readable indicator) or legacy isLoggedIn during migration until June 2026.
+  // Note: authToken and auth cookies are HttpOnly and cannot be read from JavaScript
   const [isLoggedIn, setIsLoggedIn] = useState(() => {
     if (typeof document === "undefined") return false;
     return (
-      document.cookie.includes("authToken=") ||
-      document.cookie.includes("auth=") ||
-      document.cookie.includes("isLoggedIn=true")
+      document.cookie.includes("hasSession=") || document.cookie.includes("isLoggedIn=true") // Legacy fallback during migration
     );
   });
   const [authReady, setAuthReady] = useState(false);
+  const [whatsNewAvailable, setWhatsNewAvailable] = useState(false);
   const isActive = (pathname: string) => router.pathname === pathname;
+
+  useEffect(() => {
+    if (siteConfig) {
+      isWhatsNewAvailable(siteConfig).then(setWhatsNewAvailable);
+    }
+  }, [siteConfig]);
 
   // Keep auth state in sync without extra network calls
   useEffect(() => {
-    // TODO: Remove migration bridge after June 2026 - during bridge, check legacy isLoggedIn for pre-migration sessions
-    // Check for authToken (new), auth (legacy HttpOnly), or isLoggedIn (old non-HttpOnly) during migration
+    // Check for hasSession (client-readable indicator) or legacy isLoggedIn during migration until June 2026.
+    // Note: authToken and auth cookies are HttpOnly and cannot be read from JavaScript
     const hasAuthCookie = (): boolean => {
       return (
         typeof document !== "undefined" &&
-        (document.cookie.includes("authToken=") ||
-          document.cookie.includes("auth=") ||
-          document.cookie.includes("isLoggedIn=true"))
+        (document.cookie.includes("hasSession=") || document.cookie.includes("isLoggedIn=true")) // Legacy fallback during migration until June 2026.
       );
     };
 
@@ -92,13 +100,13 @@ export default function BaseHeader({
 
     // Trigger (deduped) auth initialization so we can reflect JWT state
     initializeTokenManager()
-      .then(() => {
-        updateAuthState();
+      .then(async () => {
+        await updateAuthState();
         setAuthReady(true);
       })
-      .catch(() => {
+      .catch(async () => {
         // Even if token initialization fails, check cookie state
-        updateAuthState();
+        await updateAuthState();
         setAuthReady(true);
       });
 
@@ -122,10 +130,18 @@ export default function BaseHeader({
     window.addEventListener("focus", handleFocus);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
+    // Periodic token refresh to prevent expiration while page is open and idle
+    // JWT tokens expire after 15 minutes, so check every 10 minutes to refresh proactively
+    const TOKEN_REFRESH_INTERVAL = 10 * 60 * 1000; // 10 minutes
+    const refreshInterval = setInterval(() => {
+      updateAuthState();
+    }, TOKEN_REFRESH_INTERVAL);
+
     return () => {
       router.events.off("routeChangeComplete", handleRoute);
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      clearInterval(refreshInterval);
     };
   }, [router.events]);
 
@@ -216,17 +232,27 @@ export default function BaseHeader({
                 <span className="material-icons text-xl">cloud_off</span>
               </button>
             )}
-            {/* Show new chat button when chat is not empty OR when temporary session is active */}
-            {(!isChatEmpty || temporarySession) && onNewChat && (
-              <button
-                onClick={onNewChat}
-                aria-label="New Chat"
-                className="text-white hover:text-gray-200 p-1 rounded-xl hover:bg-white/10 transition-colors"
-                title="Start New Chat"
-              >
-                <span className="material-icons text-xl">edit_square</span>
-              </button>
-            )}
+            {/* Show new chat button:
+                - Always for non-logged-in users (any page, any site)
+                - For logged-in users on login-required sites:
+                  - On home page: only when chat is not empty or temporary session (preserve original behavior)
+                  - On other pages (settings, answers, search): always show
+                - For logged-in users on non-login-required sites: only when chat is not empty or temporary session is active
+            */}
+            {onNewChat &&
+              (!isLoggedIn ||
+                (isLoggedIn && requireLogin && router.pathname !== "/") ||
+                !isChatEmpty ||
+                temporarySession) && (
+                <button
+                  onClick={onNewChat}
+                  aria-label="New Chat"
+                  className="text-white hover:text-gray-200 p-1 rounded-xl hover:bg-white/10 transition-colors"
+                  title="Start New Chat"
+                >
+                  <span className="material-icons text-xl">edit_square</span>
+                </button>
+              )}
             {enableSearchPage && (
               <Link
                 href="/search"
@@ -236,15 +262,10 @@ export default function BaseHeader({
                 <span className="material-icons text-xl">search</span>
               </Link>
             )}
-            {helpUrl && (
-              <a
-                href={helpUrl}
-                className="text-white hover:text-gray-200 p-1 rounded-xl hover:bg-white/10 transition-colors flex items-center"
-                title="Help"
-              >
-                <span className="material-icons text-xl">help_outline</span>
-              </a>
+            {whatsNewAvailable && siteConfig && (
+              <WhatsNewDropdown siteConfig={siteConfig} requireLogin={requireLogin} />
             )}
+            <HelpDropdown siteConfig={siteConfig || null} helpUrl={helpUrl} requireLogin={requireLogin} />
             {requireLogin && authReady && (
               <nav className="flex space-x-4">
                 {isLoggedIn ? (

@@ -15,7 +15,7 @@ function getSubscriptionReasonText(category: EmailCategory | undefined, siteName
     case "specialDay":
       return `You're receiving this because you're subscribed to ${siteName} special occasion notifications.`;
     case "reengagement":
-      return `You're receiving this because you're subscribed to ${siteName} activity reminders.`;
+      return `You're receiving this because you're subscribed to ${siteName} return reminders.`;
     case "nps":
       return `You're receiving this because you're subscribed to occasional ${siteName} feedback requests.`;
     case "newsletters":

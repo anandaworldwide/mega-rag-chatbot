@@ -133,8 +133,8 @@ describe("emailTemplates", () => {
         emailCategory: "reengagement",
       });
 
-      expect(result.html).toContain("activity reminders");
-      expect(result.text).toContain("activity reminders");
+      expect(result.html).toContain("return reminders");
+      expect(result.text).toContain("return reminders");
     });
 
     it("should include subscription reason text for NPS survey emails", () => {

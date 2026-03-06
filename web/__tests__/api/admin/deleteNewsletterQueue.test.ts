@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-var-requires, @typescript-eslint/no-unused-vars */
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { createMocks } from "node-mocks-http";
 import handler from "@/pages/api/admin/deleteNewsletterQueue";
 import * as firestoreRetryUtils from "@/utils/server/firestoreRetryUtils";
@@ -145,7 +145,7 @@ describe("/api/admin/deleteNewsletterQueue", () => {
       commit: jest.fn().mockResolvedValue(undefined),
     };
 
-    const mockDb = require("@/services/firebase").db;
+    const mockDb = jest.requireMock("@/services/firebase").db;
     mockDb.collection.mockReturnValue({
       where: jest.fn().mockReturnValue({
         orderBy: jest.fn().mockReturnValue({}),
@@ -199,7 +199,7 @@ describe("/api/admin/deleteNewsletterQueue", () => {
     } as any);
 
     // Mock firestore operations for batch processing
-    const mockDb = require("@/services/firebase").db;
+    const mockDb = jest.requireMock("@/services/firebase").db;
     let batchCallCount = 0;
     mockDb.batch.mockImplementation(() => {
       batchCallCount++;
@@ -269,7 +269,7 @@ describe("/api/admin/deleteNewsletterQueue", () => {
     } as any);
 
     // Mock firestore operations
-    const mockDb = require("@/services/firebase").db;
+    const mockDb = jest.requireMock("@/services/firebase").db;
     mockDb.batch.mockReturnValue(mockBatchWithError);
 
     const { req, res } = createMocks({

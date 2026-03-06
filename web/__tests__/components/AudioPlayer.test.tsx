@@ -2,7 +2,7 @@ import React from "react";
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { AudioPlayer } from "@/components/AudioPlayer";
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import { DocMetadata } from "@/types/DocMetadata";
 import { logEvent } from "@/utils/client/analytics";
 import { getCachedSecureAudioUrl } from "@/utils/client/getSecureAudioUrl";

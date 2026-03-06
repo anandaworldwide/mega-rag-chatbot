@@ -105,7 +105,7 @@ function isAllowedOrigin(origin: string, allowedDomains: string[]) {
           if (verboseLogging) console.log(`CORS allowed: regex match ${hostname} with pattern ${pattern}`);
           return true;
         }
-      } catch (e) {
+      } catch (_e) {
         // If regex is invalid, do a simple string inclusion check
         if (hostname.includes(pattern)) {
           if (verboseLogging) console.log(`CORS allowed: substring match ${hostname} with pattern ${pattern}`);
@@ -161,7 +161,7 @@ function isPrivateIPAddress(url: string): boolean {
     }
 
     return false;
-  } catch (e) {
+  } catch (_e) {
     // If URL parsing fails, it's not a valid URL
     return false;
   }
@@ -260,7 +260,7 @@ export function handleCors(req: NextRequest, siteConfig: SiteConfig) {
   try {
     const originUrl = new URL(origin);
     console.warn(`Origin hostname: ${originUrl.hostname}`);
-  } catch (e) {
+  } catch (_e) {
     console.warn(`Invalid origin URL: ${origin}`);
   }
 
@@ -307,14 +307,14 @@ export function addCorsHeaders(response: NextResponse, req: NextRequest, siteCon
           const originUrl = new URL(origin);
           console.warn(`Origin hostname: ${originUrl.hostname}`);
           console.warn(`Allowed domains: ${JSON.stringify(allowedDomains)}`);
-        } catch (e) {
+        } catch (_e) {
           console.warn(`Invalid origin URL: ${origin}`);
         }
 
         // Add debug header with rejection reason (only contains the hostname, not the full origin)
         try {
           response.headers.set("X-CORS-Debug", `rejected:${new URL(origin).hostname}`);
-        } catch (e) {
+        } catch (_e) {
           response.headers.set("X-CORS-Debug", "rejected:invalid_origin_url");
         }
       }

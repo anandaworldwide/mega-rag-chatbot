@@ -1,0 +1,57 @@
+{
+  "taskId": "class-planning",
+  "displayName": "Plan a Class",
+  "icon": "school",
+  "description": "Create a structured class outline with teachings and resources",
+  "sourceCount": 10,
+  "steps": [
+    {
+      "id": "topic",
+      "type": "text",
+      "label": "What is your class topic?",
+      "placeholder": "e.g., Introduction to Meditation",
+      "required": true
+    },
+    {
+      "id": "duration",
+      "type": "text",
+      "label": "How long is the class?",
+      "placeholder": "e.g., 1 hour, 90 minutes, 4 one-hour classes",
+      "required": true
+    },
+    {
+      "id": "audience",
+      "type": "text",
+      "label": "Who is your audience?",
+      "placeholder": "e.g., newcomers, kriyabans",
+      "required": true
+    },
+    {
+      "id": "includeQuotes",
+      "type": "checkbox",
+      "label": "Include direct quotes from Master and Swamiji",
+      "default": true
+    },
+    {
+      "id": "includeStories",
+      "type": "checkbox",
+      "label": "Include illustrative stories",
+      "default": true
+    },
+    {
+      "id": "additionalNotes",
+      "type": "textarea",
+      "label": "Any specific requests or focus areas?",
+      "placeholder": "e.g., Focus on practical techniques...",
+      "required": false
+    }
+  ],
+  "suggestedFollowups": [
+    "Create an email announcement for this class",
+    "Generate a one-page handout summarizing the key points",
+    "Create discussion questions for group engagement",
+    "Suggest a closing meditation or exercise",
+    "Adapt this outline for a different time format"
+  ],
+  "promptTemplate": "I'm preparing a class on \"{{topic}}\" for {{audience}}. The class duration is {{duration}}.{{#includeQuotes}}\n\nPlease include direct quotes from Master and Swamiji.{{/includeQuotes}}{{#includeStories}}\n\nInclude illustrative stories where appropriate.{{/includeStories}}{{#additionalNotes}}\n\nAdditional context: {{additionalNotes}}{{/additionalNotes}}\n\nPlease create a structured class outline with:\n\n1. Opening (with suggested timing)\n2. Main teaching points with source citations\n3. Discussion questions or exercises\n4. Closing/meditation suggestion\n\nInclude timing suggestions for each section that add up to {{duration}}."
+}

@@ -5,7 +5,7 @@
  * component details and implement the test cases relevant to your component.
  */
 
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent as _fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom';
 import YourComponent from '@/components/YourComponent';

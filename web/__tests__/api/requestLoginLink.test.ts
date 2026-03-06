@@ -11,9 +11,22 @@ jest.mock("firebase-admin", () => ({
 }));
 
 // Mock Firestore service
+const mockFirestoreWhere = jest.fn();
+const mockFirestoreLimit = jest.fn();
+const mockFirestoreGet = jest.fn();
+
 jest.mock("@/services/firebase", () => ({
   db: {
-    collection: jest.fn().mockReturnThis(),
+    collection: jest.fn((name: string) => {
+      if (name.includes("admin_approval_requests")) {
+        return {
+          where: mockFirestoreWhere,
+        };
+      }
+      return {
+        doc: jest.fn().mockReturnThis(),
+      };
+    }),
     doc: jest.fn().mockReturnThis(),
   },
 }));
@@ -137,8 +150,18 @@ describe("requestLoginLink API", () => {
     expect(res._getJSONData()).toEqual({ message: "activation-resent" });
   });
 
-  it("returns next=request-approval when user is not found", async () => {
+  it("returns next=request-approval when user is not found and no pending request exists", async () => {
     (firestoreGet as unknown as jest.Mock).mockResolvedValueOnce({ exists: false, data: () => null });
+
+    // Mock: no pending approval request
+    mockFirestoreWhere.mockReturnValue({
+      where: mockFirestoreWhere,
+      limit: mockFirestoreLimit,
+    });
+    mockFirestoreLimit.mockReturnValue({
+      get: mockFirestoreGet,
+    });
+    mockFirestoreGet.mockResolvedValueOnce({ empty: true, docs: [] });
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "POST",
@@ -149,5 +172,49 @@ describe("requestLoginLink API", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res._getJSONData()).toEqual({ next: "request-approval", isWhitelisted: false });
+  });
+
+  it("returns next=request-pending with admin info when pending approval request exists", async () => {
+    (firestoreGet as unknown as jest.Mock).mockResolvedValueOnce({ exists: false, data: () => null });
+
+    // Mock: pending approval request exists
+    const mockCreatedAt = new Date("2024-01-15T10:00:00Z");
+    mockFirestoreWhere.mockReturnValue({
+      where: mockFirestoreWhere,
+      limit: mockFirestoreLimit,
+    });
+    mockFirestoreLimit.mockReturnValue({
+      get: mockFirestoreGet,
+    });
+    mockFirestoreGet.mockResolvedValueOnce({
+      empty: false,
+      docs: [
+        {
+          data: () => ({
+            adminName: "John Admin",
+            adminEmail: "admin@example.com",
+            adminLocation: "San Francisco, CA",
+            createdAt: { toDate: () => mockCreatedAt },
+          }),
+        },
+      ],
+    });
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: { email: "pending@example.com" },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    const data = res._getJSONData();
+    expect(data.next).toBe("request-pending");
+    expect(data.pendingRequest).toEqual({
+      adminName: "John Admin",
+      adminEmail: "admin@example.com",
+      adminLocation: "San Francisco, CA",
+      createdAt: mockCreatedAt.toISOString(),
+    });
   });
 });

@@ -1,6 +1,7 @@
 // Settings page: shows user email and a logout button
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import Head from "next/head";
+import { useRouter } from "next/router";
 import Layout from "@/components/layout";
 import type { GetServerSideProps } from "next";
 import type { SiteConfig } from "@/types/siteConfig";
@@ -10,8 +11,11 @@ import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { EmailChangeModal } from "@/components/EmailChangeModal";
 import { PasswordChangeModal } from "@/components/PasswordChangeModal";
 import type { EmailPreferences, EmailCategory } from "@/types/user";
+import { MODEL_OPTIONS, DEFAULT_MODEL } from "@/config/modelOptions";
+import { logEvent } from "@/utils/client/analytics";
 
 export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | null }) {
+  const router = useRouter();
   const [email, setEmail] = useState<string | null>(null);
   const [firstName, setFirstName] = useState<string>("");
   const [lastName, setLastName] = useState<string>("");
@@ -29,6 +33,28 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
   const [role, setRole] = useState<string>("user");
   const [savingProfile, setSavingProfile] = useState(false);
 
+  // Chat preferences state
+  const [preferredModel, setPreferredModel] = useState<string>(DEFAULT_MODEL);
+  const [savingChatPrefs, setSavingChatPrefs] = useState(false);
+  const [showModelInfo, setShowModelInfo] = useState(false);
+
+  // Close model info modal on Escape key
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && showModelInfo) {
+        setShowModelInfo(false);
+      }
+    };
+
+    if (showModelInfo) {
+      document.addEventListener("keydown", handleEscape);
+    }
+
+    return () => {
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [showModelInfo]);
+
   // Email change state
   const [pendingEmail, setPendingEmail] = useState<string | null>(null);
   const [isEmailChangeModalOpen, setIsEmailChangeModalOpen] = useState(false);
@@ -36,6 +62,20 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
   // Password management state
   const [hasPassword, setHasPassword] = useState<boolean>(false);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
+
+  // Account activation date (for hiding onboarding after 30 days)
+  const [verifiedAt, setVerifiedAt] = useState<Date | null>(null);
+
+  // Filter out onboarding email preference after 30 days since activation
+  const visibleEmailTypes = useMemo(() => {
+    if (!verifiedAt) return enabledEmailTypes;
+
+    const daysSinceActivation = Math.floor((Date.now() - verifiedAt.getTime()) / (1000 * 60 * 60 * 24));
+    if (daysSinceActivation > 30) {
+      return enabledEmailTypes.filter((type) => type !== "onboarding");
+    }
+    return enabledEmailTypes;
+  }, [enabledEmailTypes, verifiedAt]);
 
   useEffect(() => {
     (async () => {
@@ -75,6 +115,15 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
             }
             setPendingEmail(typeof profile?.pendingEmail === "string" ? profile.pendingEmail : null);
             setHasPassword(typeof profile?.hasPassword === "boolean" ? profile.hasPassword : false);
+            // Load activation date for onboarding email visibility
+            if (profile?.verifiedAt) {
+              setVerifiedAt(new Date(profile.verifiedAt));
+            }
+            // Load chat preferences
+            if (typeof profile?.preferredModel === "string") {
+              setPreferredModel(profile.preferredModel);
+              localStorage.setItem("selectedModel", profile.preferredModel);
+            }
           } else {
             setEmail(null);
             setRole("user");
@@ -143,6 +192,30 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
     }));
   }
 
+  async function handleSaveChatPreferences() {
+    try {
+      setSavingChatPrefs(true);
+      const res = await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preferredModel }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Failed to save chat preferences");
+
+      // Also save to localStorage for immediate use
+      localStorage.setItem("selectedModel", preferredModel);
+      setMessage("Chat preferences saved");
+
+      // Track AI model change in Google Analytics
+      logEvent("settings_model_changed", "Settings", preferredModel);
+    } catch (e: any) {
+      setMessage(e?.message || "Failed to save chat preferences");
+    } finally {
+      setSavingChatPrefs(false);
+    }
+  }
+
   const emailCategoryConfig: Record<EmailCategory, { label: string; description: string }> = {
     newsletters: {
       label: "Newsletter updates",
@@ -150,7 +223,7 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
     },
     onboarding: {
       label: "Getting started tips",
-      description: "Helpful guidance emails when you first join",
+      description: "Helpful guidance emails in the first two weeks after you join",
     },
     reengagement: {
       label: "Return reminders",
@@ -162,7 +235,7 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
     },
     nps: {
       label: "Feedback surveys",
-      description: "Occasional surveys to help us improve",
+      description: "Occasional surveys to help us improve (once every six months)",
     },
   };
 
@@ -181,12 +254,16 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
     setMessage(successMessage);
   }
 
+  const handleNewChat = () => {
+    router.push("/");
+  };
+
   return (
     <>
       <Head>
         <title>Settings</title>
       </Head>
-      <Layout siteConfig={siteConfig}>
+      <Layout siteConfig={siteConfig} onNewChat={handleNewChat}>
         <main className="mx-auto max-w-3xl p-6 w-full">
           <h1 className="text-2xl font-semibold mb-4">Settings</h1>
           {message && <div className="mb-4 rounded border border-yellow-300 bg-yellow-50 p-3 text-sm">{message}</div>}
@@ -273,11 +350,30 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
                 </form>
               </section>
 
-              {enabledEmailTypes.length > 0 && (
+              <section className="mb-6">
+                <h2 className="text-lg font-semibold mb-1">Security</h2>
+                <div className="text-sm text-gray-700 mb-3">
+                  {hasPassword ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-green-600">✓ Password is set</span>
+                    </div>
+                  ) : (
+                    <div className="text-gray-600">No password set - using login link authentication</div>
+                  )}
+                </div>
+                <button
+                  onClick={() => setIsPasswordModalOpen(true)}
+                  className="rounded bg-blue-600 px-3 py-2 text-white hover:bg-blue-700"
+                >
+                  {hasPassword ? "Change Password" : "Set Password"}
+                </button>
+              </section>
+
+              {visibleEmailTypes.length > 0 && (
                 <section className="mb-6">
                   <h2 className="text-lg font-semibold mb-1">Email Preferences</h2>
                   <div className="space-y-3">
-                    {enabledEmailTypes.map((category) => {
+                    {visibleEmailTypes.map((category) => {
                       const config = emailCategoryConfig[category];
                       return (
                         <div key={category} className="flex items-start gap-2">
@@ -312,21 +408,37 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
               )}
 
               <section className="mb-6">
-                <h2 className="text-lg font-semibold mb-1">Security</h2>
-                <div className="text-sm text-gray-700 mb-3">
-                  {hasPassword ? (
-                    <div className="flex items-center gap-2">
-                      <span className="text-green-600">✓ Password is set</span>
-                    </div>
-                  ) : (
-                    <div className="text-gray-600">No password set - using login link authentication</div>
-                  )}
+                <div className="flex items-center gap-2 mb-1">
+                  <h2 className="text-lg font-semibold">Chat Preferences</h2>
+                  <button
+                    type="button"
+                    onClick={() => setShowModelInfo(true)}
+                    className="text-gray-400 hover:text-gray-600 transition-colors"
+                    aria-label="Model selection information"
+                  >
+                    <span className="material-icons text-lg">info_outline</span>
+                  </button>
+                </div>
+                <p className="text-sm text-gray-600 mb-3">Choose your preferred AI model for chat responses.</p>
+                <div className="mb-3">
+                  <select
+                    value={preferredModel}
+                    onChange={(e) => setPreferredModel(e.target.value)}
+                    className="block w-full max-w-xs rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    {MODEL_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <button
-                  onClick={() => setIsPasswordModalOpen(true)}
-                  className="rounded bg-blue-600 px-3 py-2 text-white hover:bg-blue-700"
+                  onClick={handleSaveChatPreferences}
+                  disabled={savingChatPrefs}
+                  className="rounded bg-blue-600 px-3 py-2 text-white disabled:opacity-50 hover:bg-blue-700 text-sm"
                 >
-                  {hasPassword ? "Change Password" : "Set Password"}
+                  {savingChatPrefs ? "Saving…" : "Save Chat Preferences"}
                 </button>
               </section>
 
@@ -352,6 +464,46 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
           hasPassword={hasPassword}
           onPasswordChanged={handlePasswordChanged}
         />
+
+        {/* AI Model Info Modal */}
+        {showModelInfo && (
+          <>
+            <div
+              className="fixed inset-0 bg-black/30 backdrop-blur-sm z-[100]"
+              onClick={() => setShowModelInfo(false)}
+              aria-hidden="true"
+            />
+            <div className="fixed z-[101] top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-white p-6 rounded-xl shadow-lg max-w-md w-full mx-4">
+              <div className="flex justify-between items-start mb-4">
+                <h3 className="text-lg font-semibold">AI Model Selection</h3>
+                <button
+                  onClick={() => setShowModelInfo(false)}
+                  className="text-gray-500 hover:text-gray-700"
+                  aria-label="Close"
+                >
+                  <span className="material-icons">close</span>
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-sm text-gray-600">
+                  Different AI models have different strengths. You can choose which model generates responses to your
+                  questions.
+                </p>
+
+                <div>
+                  <h4 className="font-medium mb-2 text-sm">Why try different models?</h4>
+                  <ul className="text-sm text-gray-600 space-y-1 list-disc list-inside">
+                    <li>Some models are faster, others are more thorough</li>
+                    <li>Different models may interpret questions differently</li>
+                    <li>Some models excel at creative responses, others at factual accuracy</li>
+                    <li>You can experiment to find which model works best for your needs</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </Layout>
     </>
   );

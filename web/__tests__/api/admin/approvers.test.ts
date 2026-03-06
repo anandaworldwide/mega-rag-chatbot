@@ -35,13 +35,11 @@ jest.mock("@/services/firebase", () => ({
 }));
 
 describe("/api/admin/approvers", () => {
-  /* eslint-disable @typescript-eslint/no-var-requires */
-  const redisUtils = require("@/utils/server/redisUtils");
-  const { genericRateLimiter } = require("@/utils/server/genericRateLimiter");
-  const loadSiteConfig = require("@/utils/server/loadSiteConfig");
-  const { firestoreQueryGet } = require("@/utils/server/firestoreRetryUtils");
-  const { db } = require("@/services/firebase");
-  /* eslint-enable @typescript-eslint/no-var-requires */
+  const redisUtils = jest.requireMock("@/utils/server/redisUtils");
+  const { genericRateLimiter } = jest.requireMock("@/utils/server/genericRateLimiter");
+  const loadSiteConfig = jest.requireMock("@/utils/server/loadSiteConfig");
+  const { firestoreQueryGet } = jest.requireMock("@/utils/server/firestoreRetryUtils");
+  const { db } = jest.requireMock("@/services/firebase");
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -394,8 +392,7 @@ describe("/api/admin/approvers", () => {
     redisUtils.getFromCache.mockResolvedValue(null);
 
     // Mock db as null/falsy to trigger the database check
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const firebaseModule = require("@/services/firebase");
+    const firebaseModule = jest.requireMock("@/services/firebase");
     const originalDb = firebaseModule.db;
     Object.defineProperty(firebaseModule, "db", {
       value: null,

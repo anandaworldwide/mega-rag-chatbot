@@ -21,12 +21,14 @@ import DownvoteFeedbackModal from "@/components/DownvoteFeedbackModal";
 import ChatHistorySidebar from "@/components/ChatHistorySidebar";
 import AnswerComparison from "@/components/AnswerComparison";
 import ModelComparisonFeedbackModal from "@/components/ModelComparisonFeedbackModal";
+import ConversationTitleBar from "@/components/ConversationTitleBar";
 
 // Hook imports
 import usePopup from "@/hooks/usePopup";
 import { useSuggestedQueries } from "@/hooks/useSuggestedQueries";
 import { useChat } from "@/hooks/useChat";
 import { useMultipleCollections } from "@/hooks/useMultipleCollections";
+import { useChatHistory } from "@/hooks/useChatHistory";
 
 // Utility imports
 import { logEvent } from "@/utils/client/analytics";
@@ -40,7 +42,8 @@ import {
   getEnableAuthorSelection,
   getEnabledMediaTypes,
 } from "@/utils/client/siteConfig";
-import { Document } from "langchain/document";
+import { DEFAULT_MODEL } from "@/config/modelOptions";
+import { Document } from "@langchain/core/documents";
 
 // Third-party library imports
 import Cookies from "js-cookie";
@@ -50,7 +53,7 @@ import { ExtendedAIMessage } from "@/types/ExtendedAIMessage";
 import { StreamingResponseData } from "@/types/StreamingResponseData";
 import { TypedSuggestion } from "@/types/Suggestion";
 import { SudoProvider, useSudo } from "@/contexts/SudoContext";
-import { fetchWithAuth } from "@/utils/client/tokenManager";
+import { fetchWithAuth, isAuthenticated, initializeTokenManager } from "@/utils/client/tokenManager";
 import { getOrCreateUUID } from "@/utils/client/uuid";
 import { loadConversationByConvId } from "@/utils/client/conversationLoader";
 import { getGreeting } from "@/utils/client/siteConfig";
@@ -177,6 +180,45 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     selectedLibrariesRef.current = selectedLibraries;
   }, [selectedLibraries]);
 
+  // Model selection state - initialize from localStorage or default
+  const [selectedModel, setSelectedModel] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("selectedModel");
+      if (saved) return saved;
+    }
+    return DEFAULT_MODEL;
+  });
+  // Keep a ref in sync to avoid stale closures during rapid toggles/submit
+  const selectedModelRef = useRef<string>(selectedModel);
+  useEffect(() => {
+    selectedModelRef.current = selectedModel;
+    if (typeof window !== "undefined") {
+      localStorage.setItem("selectedModel", selectedModel);
+    }
+  }, [selectedModel]);
+
+  // Load model preference from user profile for logged-in sites
+  useEffect(() => {
+    if (!siteConfig?.requireLogin) return;
+
+    const loadModelPreference = async () => {
+      try {
+        const res = await fetch("/api/profile", { credentials: "include" });
+        if (res.ok) {
+          const profile = await res.json();
+          if (profile?.preferredModel) {
+            setSelectedModel(profile.preferredModel);
+            localStorage.setItem("selectedModel", profile.preferredModel);
+          }
+        }
+      } catch {
+        // Silently fail - use localStorage/default
+      }
+    };
+
+    loadModelPreference();
+  }, [siteConfig?.requireLogin]);
+
   // Chat state management using custom hook
   const {
     messageState,
@@ -189,6 +231,23 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const { messages } = messageState as {
     messages: ExtendedAIMessage[];
   };
+
+  // Keep a ref in sync with history to avoid stale closures in callbacks
+  // This is critical for the API call to send the correct history for question reformulation
+  const historyRef = useRef(messageState.history);
+  useEffect(() => {
+    historyRef.current = messageState.history;
+  }, [messageState.history]);
+
+  // Keep a ref in sync with loading to avoid stale closures in setTimeout callbacks
+  // This is critical for updateMessageState to not hide the scroll button during streaming
+  const loadingRef = useRef(loading);
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+
+  // Chat history hook for star/unstar functionality
+  const { starConversation, unstarConversation, conversations } = useChatHistory(20, !!siteConfig?.requireLogin);
 
   // Track current conversation ID for follow-up messages
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
@@ -234,6 +293,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const [, _setCurrentQuestion] = useState<string>("");
   const currentQuestionRef = useRef<string>("");
 
+  // Track if current submission is from task wizard
+  const isTaskSubmissionRef = useRef<boolean>(false);
+
   // Helper to update both ref + state
   const setCurrentQuestion = (q: string) => {
     currentQuestionRef.current = q;
@@ -249,6 +311,41 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     sidebarRefetchRef.current = refetch;
   }, []);
 
+  // Track if star change is coming from sidebar (to avoid duplicate API calls)
+  const isStarChangeFromSidebarRef = useRef<boolean>(false);
+
+  // Handler for star/unstar conversation
+  const handleStarChange = useCallback(
+    async (convId: string, newStarState: boolean) => {
+      const isFromSidebar = isStarChangeFromSidebarRef.current;
+      isStarChangeFromSidebarRef.current = false; // Reset flag
+
+      try {
+        // Only call API if NOT from sidebar (sidebar already called it)
+        if (!isFromSidebar) {
+          if (newStarState) {
+            await starConversation(convId);
+          } else {
+            await unstarConversation(convId);
+          }
+        }
+
+        // Update local state immediately for title bar
+        setIsCurrentConversationStarred(newStarState);
+
+        // Refetch sidebar in background to sync star state (if action came from title bar)
+        // Don't await - useChatHistory already updated state optimistically
+        if (!isFromSidebar) {
+          sidebarRefetchRef.current();
+        }
+      } catch (error) {
+        console.error("Failed to update star status:", error);
+        toast.error("Failed to update star status. Please try again.");
+      }
+    },
+    [starConversation, unstarConversation]
+  );
+
   // (Removed pushedConvIdRef – no longer needed now that we update URL via
   // window.history.replaceState without triggering navigation.)
 
@@ -257,6 +354,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const [linkCopied, setLinkCopied] = useState<string | null>(null);
   const [sourceLinkCopied, setSourceLinkCopied] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
+  const [isCurrentConversationStarred, setIsCurrentConversationStarred] = useState<boolean>(false);
   const sourceExpandedRef = useRef<Set<number>>(new Set());
   const handledHashRef = useRef<string | null>(null);
 
@@ -268,7 +366,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const scrollButtonContainerRef = useRef<HTMLDivElement>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [showScrollDownButton, setShowScrollDownButton] = useState(false);
-  const [scrollClickState, setScrollClickState] = useState(0); // 0: initial, 1: scrolled to content
+  const [shimmerScrollButton, setShimmerScrollButton] = useState(false); // Shimmer animation when new content arrives
+  const [_scrollClickState, setScrollClickState] = useState(0); // 0: initial, 1: scrolled to content
   // Track which user message to highlight when clicked from suggested queries
   const [highlightMessageIndex, setHighlightMessageIndex] = useState<number | null>(null);
   const userMessageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -347,6 +446,50 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           }
         }
 
+        // Set star state from loaded conversation
+        setIsCurrentConversationStarred(loadedConversation.isStarred || false);
+
+        // Restore task state from loaded conversation (if it was a task conversation)
+        // Helper setters update both state and ref automatically
+        if (loadedConversation.taskMode) {
+          setIsTaskConversation(true);
+          setCurrentTaskMode(loadedConversation.taskMode);
+          setCurrentTaskFollowups(loadedConversation.taskFollowups || []);
+          setUsedTaskFollowups(loadedConversation.usedTaskFollowups || []);
+          // Clear dynamic follow-ups initially, then regenerate from last Q&A
+          setDynamicFollowups([]);
+
+          // Regenerate dynamic follow-ups from the last Q&A pair
+          // Extract last question and answer from loaded messages
+          const messages = loadedConversation.messages;
+          let lastQuestion = "";
+          let lastAnswer = "";
+          for (let i = messages.length - 1; i >= 0; i--) {
+            const msg = messages[i];
+            if (msg.type === "apiMessage" && !lastAnswer) {
+              lastAnswer = msg.message || "";
+            } else if (msg.type === "userMessage" && lastAnswer && !lastQuestion) {
+              lastQuestion = msg.message || "";
+              break;
+            }
+          }
+
+          // Generate follow-ups if we have a Q&A pair
+          if (lastQuestion && lastAnswer) {
+            // Use setTimeout to ensure refs are fully set and component is stable
+            setTimeout(() => {
+              generateDynamicFollowups(lastQuestion, lastAnswer);
+            }, 100);
+          }
+        } else {
+          // Clear task state for non-task conversations
+          setIsTaskConversation(false);
+          setCurrentTaskFollowups([]);
+          setUsedTaskFollowups([]);
+          setCurrentTaskMode(null);
+          setDynamicFollowups([]);
+        }
+
         // Log analytics event
         logEvent("chat_history_conversation_loaded", "Chat History", convId, loadedConversation.messages.length);
 
@@ -374,7 +517,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setLoading(false);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [siteConfig, setLoading, setError, setMessageState, setCurrentConvId]
+    // Note: generateDynamicFollowups is defined later but is stable (no deps, uses refs)
   );
 
   // Function to load a conversation from chat history
@@ -409,6 +554,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setCurrentConvId(null);
         setCurrentQuestion("");
         setConversationTitle(null); // Clear conversation title
+        setIsCurrentConversationStarred(false); // Clear star state
         setMessageState({
           messages: [
             {
@@ -517,6 +663,13 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           handleStop();
         }
 
+        // Clear task state
+        setIsTaskConversation(false);
+        setCurrentTaskFollowups([]);
+        setUsedTaskFollowups([]);
+        setCurrentTaskMode(null);
+        setDynamicFollowups([]);
+
         // Back to home: reset chat
         setMessageState({
           messages: [
@@ -528,6 +681,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           history: [],
         });
         setCurrentConvId(null);
+        setConversationTitle(null);
         setViewOnlyMode(false);
         setQuery("");
         setError(null);
@@ -575,6 +729,13 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       logEvent("end_temporary_session", "UI", "new_chat_button");
     }
 
+    // Clear task state (helper setters update both state and ref)
+    setIsTaskConversation(false);
+    setCurrentTaskFollowups([]);
+    setUsedTaskFollowups([]);
+    setCurrentTaskMode(null);
+    setDynamicFollowups([]);
+
     // Push a new history entry for '/' without triggering a Next.js navigation.
     window.history.pushState(null, "", "/");
     pathRef.current = "/";
@@ -582,6 +743,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     // handleUrlBasedLoading. This guarantees the New-Chat button and the
     // "Ask" nav item always start from a blank conversation.
     setCurrentConvId(null);
+    setConversationTitle(null);
     setCurrentQuestion("");
     setMessageState({
       messages: [
@@ -621,6 +783,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     setCurrentConvId(null);
     setCurrentQuestion("");
     setConversationTitle(null);
+    setIsCurrentConversationStarred(false);
     setMessageState({
       messages: [
         {
@@ -683,7 +846,42 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
   const [editingText, setEditingText] = useState<string>("");
 
-  const [sourceCount, setSourceCount] = useState<number>(siteConfig?.defaultNumSources || 4);
+  const [sourceCount, _setSourceCount] = useState<number>(siteConfig?.defaultNumSources || 4);
+  const sourceCountRef = useRef<number>(siteConfig?.defaultNumSources || 4); // Ref mirror for immediate access in async contexts
+
+  // Task state
+  const [currentTaskFollowups, _setCurrentTaskFollowups] = useState<string[]>([]);
+  const currentTaskFollowupsRef = useRef<string[]>([]); // Ref mirror for immediate access in async contexts
+  const [usedTaskFollowups, _setUsedTaskFollowups] = useState<string[]>([]); // Track used follow-ups to hide them
+  const usedTaskFollowupsRef = useRef<string[]>([]); // Ref mirror for immediate access in async contexts
+  const [isTaskConversation, _setIsTaskConversation] = useState<boolean>(false);
+  const isTaskConversationRef = useRef<boolean>(false); // Ref mirror for immediate access in async contexts
+  const [_currentTaskMode, _setCurrentTaskMode] = useState<string | null>(null);
+  const currentTaskModeRef = useRef<string | null>(null); // Ref mirror for immediate access in async contexts
+  const [dynamicFollowups, setDynamicFollowups] = useState<string[]>([]); // AI-generated context-specific follow-ups
+  const [isLoadingDynamicFollowups, setIsLoadingDynamicFollowups] = useState<boolean>(false);
+
+  // Helper setters that update both state and ref for task-related values
+  const setCurrentTaskFollowups = (followups: string[]) => {
+    currentTaskFollowupsRef.current = followups;
+    _setCurrentTaskFollowups(followups);
+  };
+  const setUsedTaskFollowups = (used: string[]) => {
+    usedTaskFollowupsRef.current = used;
+    _setUsedTaskFollowups(used);
+  };
+  const setIsTaskConversation = (isTask: boolean) => {
+    isTaskConversationRef.current = isTask;
+    _setIsTaskConversation(isTask);
+  };
+  const setCurrentTaskMode = (mode: string | null) => {
+    currentTaskModeRef.current = mode;
+    _setCurrentTaskMode(mode);
+  };
+  const setSourceCount = (count: number) => {
+    sourceCountRef.current = count;
+    _setSourceCount(count);
+  };
 
   // Load saved search preferences from localStorage
   useEffect(() => {
@@ -759,6 +957,82 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   // Check if user is sudo (only relevant on no-login sites)
   const { isSudoUser } = useSudo();
 
+  // Check if user is admin or superuser (for login-required sites)
+  const [isAdminOrSuperuser, setIsAdminOrSuperuser] = useState(false);
+
+  // Check admin/superuser status for login-required sites
+  useEffect(() => {
+    const checkAdminStatus = async () => {
+      // Only check for login-required sites
+      if (!siteConfig?.requireLogin) {
+        setIsAdminOrSuperuser(false);
+        return;
+      }
+
+      // Wait for token manager to initialize
+      try {
+        await initializeTokenManager();
+      } catch {
+        setIsAdminOrSuperuser(false);
+        return;
+      }
+
+      // Check if user is authenticated
+      if (!isAuthenticated()) {
+        setIsAdminOrSuperuser(false);
+        return;
+      }
+
+      // Check sessionStorage cache first (1-hour TTL)
+      try {
+        const cached = sessionStorage.getItem("userRole");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          const isExpired = Date.now() - parsed.timestamp > 60 * 60 * 1000;
+          if (!isExpired && parsed.role) {
+            const isAdmin = parsed.role === "admin" || parsed.role === "superuser";
+            setIsAdminOrSuperuser(isAdmin);
+            return;
+          }
+        }
+      } catch {
+        // Invalid cache, continue to API call
+      }
+
+      // Make API call to check role
+      try {
+        const res = await fetch("/api/profile", { credentials: "include" });
+        if (!res.ok) {
+          setIsAdminOrSuperuser(false);
+          return;
+        }
+
+        const data = await res.json();
+        const role = (data?.role as string) || "user";
+        const isAdmin = role === "admin" || role === "superuser";
+
+        // Cache the result
+        try {
+          sessionStorage.setItem(
+            "userRole",
+            JSON.stringify({
+              role,
+              timestamp: Date.now(),
+            })
+          );
+        } catch {
+          // sessionStorage failed, continue without caching
+        }
+
+        setIsAdminOrSuperuser(isAdmin);
+      } catch {
+        setIsAdminOrSuperuser(false);
+      }
+    };
+
+    checkAdminStatus();
+  }, [siteConfig?.requireLogin]);
+
   const updateMessageState = useCallback(
     (newResponse: string, newSourceDocs: Document[] | null) => {
       setMessageState((prevState) => {
@@ -825,23 +1099,29 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
           const isNearContentBottom = scrollHeight > clientHeight && distanceFromBottom <= 20;
 
-          if (!isNearContentBottom || scrollClickState === 1) {
+          if (!isNearContentBottom) {
             setShowScrollDownButton(true);
           } else {
             // Content overflows, but we are scrolled to the bottom of it,
             // and haven't clicked the button yet (state 0). Hide it for now.
             // Clicking will make it reappear via handleScrollDownClick.
             // Scrolling up will make it reappear via handleScroll.
-            setShowScrollDownButton(false);
+            // Don't hide during streaming - use ref to get current value (not stale closure)
+            if (!loadingRef.current) {
+              setShowScrollDownButton(false);
+            }
           }
         } else {
           // Hide button if content doesn't overflow viewport
-          setShowScrollDownButton(false);
+          // Don't hide during streaming - use ref to get current value (not stale closure)
+          if (!loadingRef.current) {
+            setShowScrollDownButton(false);
+          }
           setScrollClickState(0); // Reset click state if content fits
         }
       }, 50);
     },
-    [setMessageState, scrollClickState]
+    [setMessageState]
   );
 
   const handleStreamingResponse = useCallback(
@@ -868,10 +1148,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         // will always scroll to content bottom first
         setScrollClickState(0);
 
-        // Force scroll button to show when streaming content
-        if (!showScrollDownButton) {
-          setShowScrollDownButton(true);
-        }
+        // Force scroll button to show when streaming content - always visible during streaming
+        setShowScrollDownButton(true);
       }
 
       if (data.sourceDocs) {
@@ -1033,6 +1311,50 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         // Reset accumulated response when done
         accumulatedResponseRef.current = "";
 
+        // After streaming ends, check scroll position and keep button visible if user is not at bottom
+        setTimeout(() => {
+          const messageList = messageListRef.current;
+          if (messageList) {
+            const { scrollTop, scrollHeight, clientHeight } = messageList;
+            const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+            const threshold = 50;
+            // Keep button visible if user has scrolled away from bottom
+            if (scrollHeight > clientHeight && distanceFromBottom > threshold) {
+              setShowScrollDownButton(true);
+            }
+          }
+        }, 100);
+
+        // Generate dynamic follow-ups for task conversations
+        // Use a small delay to ensure message state is fully updated
+        if (isTaskConversationRef.current) {
+          setTimeout(() => {
+            setMessageState((prevState) => {
+              // Find the last Q&A pair
+              const messages = prevState.messages;
+              let lastQuestion = "";
+              let lastAnswer = "";
+
+              for (let i = messages.length - 1; i >= 0; i--) {
+                const msg = messages[i];
+                if (msg.type === "apiMessage" && !lastAnswer) {
+                  lastAnswer = msg.message || "";
+                } else if (msg.type === "userMessage" && lastAnswer && !lastQuestion) {
+                  lastQuestion = msg.message || "";
+                  break;
+                }
+              }
+
+              if (lastQuestion && lastAnswer) {
+                // Fire-and-forget the API call (don't block state update)
+                generateDynamicFollowups(lastQuestion, lastAnswer);
+              }
+
+              return prevState; // No state change
+            });
+          }, 100);
+        }
+
         // SOURCES DEBUGGING: Check if sources are missing after streaming completes
         setTimeout(() => {
           // Check the current state of sources for the last message
@@ -1072,6 +1394,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         }, 200); // Small delay to ensure all SSE messages have been processed
 
         // Force a state update to ensure UI re-renders immediately with buttons and correct docId
+        // Also update history with the actual assistant response content (critical for reformulation)
         setMessageState((prevState) => {
           // Check all messages to find the API message we need to update
           let apiMessageIndex = prevState.messages.length - 1;
@@ -1083,6 +1406,19 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
               if (prevState.messages[i].type === "apiMessage") {
                 apiMessageIndex = i;
                 apiMessage = prevState.messages[i];
+                break;
+              }
+            }
+          }
+
+          // Update the history's last assistant content with the actual response
+          // This is critical for question reformulation to have proper context
+          const updatedHistory = [...prevState.history];
+          if (updatedHistory.length > 0 && apiMessage.type === "apiMessage" && apiMessage.message) {
+            // Find the last assistant entry in history and update it
+            for (let i = updatedHistory.length - 1; i >= 0; i--) {
+              if (updatedHistory[i].role === "assistant" && updatedHistory[i].content === "") {
+                updatedHistory[i] = { ...updatedHistory[i], content: apiMessage.message };
                 break;
               }
             }
@@ -1100,10 +1436,11 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             return {
               ...prevState,
               messages: updatedMessages,
+              history: updatedHistory,
             };
           }
 
-          return { ...prevState };
+          return { ...prevState, history: updatedHistory };
         });
       }
 
@@ -1198,6 +1535,19 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     e.preventDefault();
     if (submittedQuery.trim() === "") return;
 
+    // Capture if this is a task submission before resetting (needed to reset sourceCount after API call)
+    const wasTaskSubmission = isTaskSubmissionRef.current;
+
+    // Keep task mode active for any submission while in a task conversation
+    // (whether from follow-up chip or custom text input)
+    if (isTaskConversationRef.current) {
+      // Clear dynamic follow-ups when submitting a new question in task mode
+      // They'll be regenerated after the response completes
+      setDynamicFollowups([]);
+    }
+    // Reset task submission flag
+    isTaskSubmissionRef.current = false;
+
     // Store the current question for sidebar updates
     setCurrentQuestion(submittedQuery);
 
@@ -1236,20 +1586,22 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     const newUserMessageIndex = messageState.messages.length;
 
     // Add user message to the state
-    setMessageState((prevState) => ({
-      ...prevState,
-      messages: [
-        ...prevState.messages,
-        { type: "userMessage", message: submittedQuery } as ExtendedAIMessage,
-        // Add an empty API message immediately so it's ready for the docId
-        {
-          type: "apiMessage",
-          message: "",
-          sourceDocs: [],
-        } as ExtendedAIMessage,
-      ],
-      history: [...prevState.history, { role: "user", content: submittedQuery }, { role: "assistant", content: "" }],
-    }));
+    setMessageState((prevState) => {
+      return {
+        ...prevState,
+        messages: [
+          ...prevState.messages,
+          { type: "userMessage", message: submittedQuery } as ExtendedAIMessage,
+          // Add an empty API message immediately so it's ready for the docId
+          {
+            type: "apiMessage",
+            message: "",
+            sourceDocs: [],
+          } as ExtendedAIMessage,
+        ],
+        history: [...prevState.history, { role: "user", content: submittedQuery }, { role: "assistant", content: "" }],
+      };
+    });
 
     // Scroll to the new user message if it's the second question or later
     if (isSecondQuestionOrLater) {
@@ -1283,17 +1635,28 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         },
         body: JSON.stringify({
           question: submittedQuery,
-          history: messageState.history,
+          history: historyRef.current,
           collection,
           temporarySession,
           mediaTypes,
           selectedLibraries: selectedLibrariesRef.current,
-          sourceCount: sourceCount,
+          sourceCount: sourceCountRef.current,
           uuid: getOrCreateUUID(),
           convId: currentConvIdRef.current, // Pass current conversation ID for follow-ups
+          modelOverride: selectedModelRef.current, // Always send the selected model
+          // Use refs for task state since this function may be called from stale closures
+          taskMode: currentTaskModeRef.current || undefined, // Pass task mode for persistence
+          taskFollowups: isTaskConversationRef.current ? currentTaskFollowupsRef.current : undefined, // Pass task follow-ups for persistence
+          usedTaskFollowups: isTaskConversationRef.current ? usedTaskFollowupsRef.current : undefined, // Use ref for immediate access
         }),
         signal: newAbortController.signal,
       });
+
+      // Reset sourceCount to default after task submission (task sourceCount only applies to first query)
+      if (wasTaskSubmission) {
+        const defaultSources = siteConfig?.defaultNumSources || 4;
+        setSourceCount(defaultSources);
+      }
 
       if (!response.ok) {
         setLoading(false);
@@ -1334,8 +1697,12 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
       setLoading(false);
     } catch (error) {
-      console.error("Error in handleSubmit:", error);
-      setError(error instanceof Error ? error.message : "An error occurred while streaming the response.");
+      // Don't show error if user intentionally stopped the request
+      const isAbortError = error instanceof DOMException && error.name === "AbortError";
+      if (!isAbortError) {
+        console.error("Error in handleSubmit:", error);
+        setError(error instanceof Error ? error.message : "An error occurred while streaming the response.");
+      }
       setLoading(false);
     }
   };
@@ -1393,6 +1760,90 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     // Submit the suggestion as a new question
     handleSubmit(new Event("submit") as unknown as React.FormEvent, suggestion.text);
   };
+
+  // Handle task wizard submission
+  const handleTaskSubmit = useCallback(
+    (prompt: string, taskSourceCount: number, taskMode: string, followups: string[], authorFilter?: string) => {
+      // Set task conversation state
+      setIsTaskConversation(true);
+      setCurrentTaskFollowups(followups);
+      setCurrentTaskMode(taskMode);
+
+      // Override sourceCount for this task
+      setSourceCount(taskSourceCount);
+
+      // Override collection/author filter if specified by the task
+      if (authorFilter) {
+        const collectionValue = authorFilter === "master-swami" ? "master_swami" : "whole_library";
+        setCollection(collectionValue);
+      }
+
+      // Mark as task submission
+      isTaskSubmissionRef.current = true;
+
+      // Inject prompt and submit
+      setQuery(prompt);
+      handleSubmit(new Event("submit") as unknown as React.FormEvent, prompt);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [] // handleSubmit has too many deps to memoize; callback only used on wizard submit
+  );
+
+  // Generate dynamic (AI-generated) follow-ups after streaming completes
+  const generateDynamicFollowups = useCallback(
+    async (question: string, answer: string) => {
+      // Only generate for task conversations
+      if (!isTaskConversationRef.current) {
+        return;
+      }
+
+      setIsLoadingDynamicFollowups(true);
+      try {
+        const response = await fetchWithAuth("/api/generateFollowups", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            question,
+            answer,
+            taskMode: currentTaskModeRef.current || undefined,
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.followups && Array.isArray(data.followups) && data.followups.length > 0) {
+            setDynamicFollowups(data.followups);
+          }
+        } else {
+          console.warn("Failed to generate dynamic follow-ups:", response.status);
+        }
+      } catch (error) {
+        console.error("Error generating dynamic follow-ups:", error);
+      } finally {
+        setIsLoadingDynamicFollowups(false);
+      }
+    },
+    [] // No deps needed - uses refs for task state
+  );
+
+  // Handle follow-up chip click
+  const handleFollowupSelect = useCallback(
+    (suggestion: string) => {
+      // Keep task conversation state - follow-ups are part of the task workflow
+      // Mark as task submission so we don't clear task state
+      isTaskSubmissionRef.current = true;
+
+      // Track this follow-up as used so we don't show it again
+      // Update ref immediately (sync) so handleSubmit can access it
+      usedTaskFollowupsRef.current = [...usedTaskFollowupsRef.current, suggestion];
+      setUsedTaskFollowups(usedTaskFollowupsRef.current);
+
+      // Submit the follow-up as a regular question (but keep task context)
+      handleSubmit(new Event("submit") as unknown as React.FormEvent, suggestion);
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [] // handleSubmit has too many deps to memoize; callback only used on chip click
+  );
 
   // Handle URL query params for pre-filled query with auto-submit (e.g., from Search page "Explain This")
   const hasAutoSubmittedRef = useRef(false);
@@ -1654,14 +2105,15 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             question: userMessage.message,
-            history: messageState.history.slice(0, messageIndex - 1), // Include conversation history before this Q&A pair
+            history: historyRef.current.slice(0, messageIndex - 1), // Include conversation history before this Q&A pair
             collection: apiMessage.collection || collection,
             mediaTypes: mediaTypes,
             selectedLibraries: selectedLibrariesRef.current,
-            sourceCount: apiMessage.sourceDocs?.length || sourceCount,
+            sourceCount: apiMessage.sourceDocs?.length || sourceCountRef.current,
             temporarySession: temporarySession,
             uuid: getOrCreateUUID(),
             convId: currentConvIdRef.current,
+            modelOverride: selectedModelRef.current, // Always send the selected model
           }),
           signal: newAbortController.signal,
         });
@@ -1748,6 +2200,27 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                 }
 
                 if (data.done) {
+                  // Update history with the regenerated response at the correct index
+                  // messageIndex is the API message index, history index is messageIndex - 1
+                  // (because history doesn't include the greeting message at index 0)
+                  setMessageState((prevState) => {
+                    const regeneratedMessage = prevState.messages[messageIndex];
+                    const historyIndex = messageIndex - 1;
+                    if (
+                      historyIndex >= 0 &&
+                      historyIndex < prevState.history.length &&
+                      prevState.history[historyIndex]?.role === "assistant" &&
+                      regeneratedMessage?.message
+                    ) {
+                      const updatedHistory = [...prevState.history];
+                      updatedHistory[historyIndex] = {
+                        ...updatedHistory[historyIndex],
+                        content: regeneratedMessage.message,
+                      };
+                      return { ...prevState, history: updatedHistory };
+                    }
+                    return prevState;
+                  });
                   setLoading(false);
                   accumulatedResponseRef.current = "";
                 }
@@ -1760,24 +2233,17 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
         setLoading(false);
       } catch (error) {
-        console.error("Error regenerating answer:", error);
-        toast.error("Failed to regenerate answer. Please try again.");
+        // Don't show error if user intentionally stopped the request
+        const isAbortError = error instanceof DOMException && error.name === "AbortError";
+        if (!isAbortError) {
+          console.error("Error regenerating answer:", error);
+          toast.error("Failed to regenerate answer. Please try again.");
+          setError(error instanceof Error ? error.message : "An error occurred while regenerating the answer.");
+        }
         setLoading(false);
-        setError(error instanceof Error ? error.message : "An error occurred while regenerating the answer.");
       }
     },
-    [
-      loading,
-      messages,
-      collection,
-      mediaTypes,
-      sourceCount,
-      temporarySession,
-      messageState.history,
-      setLoading,
-      setError,
-      setMessageState,
-    ]
+    [loading, messages, collection, mediaTypes, temporarySession, setLoading, setError, setMessageState]
   );
 
   // Function to handle starting question edit
@@ -1870,8 +2336,10 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             temporarySession,
             mediaTypes,
             selectedLibraries: selectedLibrariesRef.current,
+            sourceCount: sourceCountRef.current,
             uuid: getOrCreateUUID(),
             convId: currentConvIdRef.current,
+            modelOverride: selectedModelRef.current, // Always send the selected model
           }),
           signal: newAbortController.signal,
         });
@@ -1949,6 +2417,21 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                 }
 
                 if (data.done) {
+                  // Update history with actual assistant response content (critical for reformulation)
+                  setMessageState((prevState) => {
+                    const lastMessage = prevState.messages[prevState.messages.length - 1];
+                    const updatedHistory = [...prevState.history];
+                    if (updatedHistory.length > 0 && lastMessage?.type === "apiMessage" && lastMessage.message) {
+                      // Find the last assistant entry in history and update it
+                      for (let i = updatedHistory.length - 1; i >= 0; i--) {
+                        if (updatedHistory[i].role === "assistant" && updatedHistory[i].content === "") {
+                          updatedHistory[i] = { ...updatedHistory[i], content: lastMessage.message };
+                          break;
+                        }
+                      }
+                    }
+                    return { ...prevState, history: updatedHistory };
+                  });
                   setLoading(false);
                   accumulatedResponseRef.current = "";
                 }
@@ -1961,10 +2444,14 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
         setLoading(false);
       } catch (error) {
-        console.error("Error saving edited question:", error);
-        toast.error("Failed to save edited question. Please try again.");
+        // Don't show error if user intentionally stopped the request
+        const isAbortError = error instanceof DOMException && error.name === "AbortError";
+        if (!isAbortError) {
+          console.error("Error saving edited question:", error);
+          toast.error("Failed to save edited question. Please try again.");
+          setError(error instanceof Error ? error.message : "An error occurred while saving the edited question.");
+        }
         setLoading(false);
-        setError(error instanceof Error ? error.message : "An error occurred while saving the edited question.");
       }
     },
     [
@@ -2015,11 +2502,11 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             question: userMessage.message,
-            history: messageState.history.slice(0, messageIndex), // Include conversation history up to this point
+            history: historyRef.current.slice(0, messageIndex), // Include conversation history up to this point
             collection: apiMessage.collection || collection,
             mediaTypes: mediaTypes,
             selectedLibraries: selectedLibrariesRef.current,
-            sourceCount: apiMessage.sourceDocs?.length || sourceCount,
+            sourceCount: apiMessage.sourceDocs?.length || sourceCountRef.current,
             temporarySession: temporarySession,
             uuid: getOrCreateUUID(),
             convId: currentConvIdRef.current,
@@ -2076,7 +2563,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setRegeneratedAnswer(null);
       }
     },
-    [isRegenerating, messages, collection, mediaTypes, sourceCount, temporarySession, messageState.history]
+    [isRegenerating, messages, collection, mediaTypes, temporarySession]
   );
 
   // Function to submit comparison feedback
@@ -2357,18 +2844,31 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     }
   }, [currentConvId]);
 
+  // Sync star state when conversation or conversations list changes
+  useEffect(() => {
+    if (currentConvId) {
+      const currentConv = conversations.find((c) => c.convId === currentConvId);
+      const newStarState = currentConv?.isStarred || false;
+      setIsCurrentConversationStarred(newStarState);
+    } else {
+      setIsCurrentConversationStarred(false);
+    }
+  }, [currentConvId, conversations]);
+
   // Effect to set initial collection and focus input on component mount
   useEffect(() => {
-    // Retrieve and set the collection from the cookie
-    // TODO: This is a hack for jairam site test
-    const savedCollection =
-      Cookies.get("selectedCollection") || (process.env.SITE_ID === "jairam" ? "whole_library" : "master_swami");
-    setCollection(savedCollection);
+    // Retrieve collection from cookie, falling back to first collection in site config
+    const collections = siteConfig?.collectionConfig ? Object.keys(siteConfig.collectionConfig) : [];
+    const defaultCollection = collections[0] || "whole_library";
+    const savedCollection = Cookies.get("selectedCollection") || defaultCollection;
+    // Validate the saved collection exists in the current site's config
+    const validCollection = collections.includes(savedCollection) ? savedCollection : defaultCollection;
+    setCollection(validCollection);
 
     if (!isLoadingQueries && window.innerWidth > 768) {
       textAreaRef.current?.focus();
     }
-  }, [isLoadingQueries]);
+  }, [isLoadingQueries, siteConfig?.collectionConfig]);
 
   // Custom hook to check if multiple collections are available
   const hasMultipleCollections = useMultipleCollections(siteConfig || undefined);
@@ -2452,12 +2952,12 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const formatTimingMetrics = useCallback(() => {
     if (!timingMetrics) return null;
 
-    const { ttfb, tokensPerSecond, totalTokens } = timingMetrics;
+    const { ttfb, tokensPerSecond } = timingMetrics;
 
     if (ttfb === undefined || tokensPerSecond === undefined) return null;
 
     const ttfbSecs = (ttfb / 1000).toFixed(2);
-    return `${ttfbSecs} secs to first character, then ${tokensPerSecond} chars/sec streamed (${totalTokens} total)`;
+    return `${ttfbSecs} secs to first character, then ${tokensPerSecond} chars/sec streamed`;
   }, [timingMetrics]);
 
   // Function to handle scroll behavior and button visibility
@@ -2465,37 +2965,51 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     const messageList = messageListRef.current;
     if (!messageList) return;
 
+    // Note: We don't force-show the button when loading starts.
+    // The updateMessageState callback will show it when content actually overflows.
+    // The key fix is preventing HIDING during streaming (via loadingRef.current check).
+
     // Function to check scroll position and update button visibility
     const handleScroll = () => {
+      // Don't update button visibility during streaming - it's always shown
+      if (loading) {
+        return;
+      }
+
       const { scrollTop, scrollHeight, clientHeight } = messageList;
       const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
       const hasScrollbar = scrollHeight > clientHeight;
+      const threshold = 50; // Increased threshold to prevent flickering
 
-      // Check if we've scrolled up away from the bottom
-      if (hasScrollbar && distanceFromBottom > 20) {
-        // Only show if content is actually overflowing the viewport
-        const containerRect = messageList.getBoundingClientRect();
-        const vh = window.innerHeight;
-        if (containerRect.bottom > vh) {
-          setShowScrollDownButton(true);
-        }
+      // Show button if user has scrolled away from bottom
+      if (hasScrollbar && distanceFromBottom > threshold) {
+        setShowScrollDownButton(true);
+      } else if (hasScrollbar && distanceFromBottom <= threshold) {
+        // Hide if we're at the bottom
+        setShowScrollDownButton(false);
+      } else {
+        // No scrollbar - hide button
+        setShowScrollDownButton(false);
       }
-      // REMOVED: Logic that unconditionally hid the button when near the bottom
     };
 
-    // New: Window scroll handler to show button if user scrolls up from page bottom
+    // Window scroll handler - only used for page-level scrolling, not content scrolling
     const handleWindowScroll = () => {
-      const threshold = 20;
-      const atPageBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - threshold;
+      // Don't update during streaming
+      if (loading) {
+        return;
+      }
+
       const messageList = messageListRef.current;
       if (!messageList) return;
-      const containerRect = messageList.getBoundingClientRect();
-      const vh = window.innerHeight;
-      const overflowsViewport = containerRect.bottom > vh;
-      if (overflowsViewport && !atPageBottom) {
+
+      const { scrollTop, scrollHeight, clientHeight } = messageList;
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+      const threshold = 50;
+
+      // Only update if content area has scrolled away from bottom
+      if (scrollHeight > clientHeight && distanceFromBottom > threshold) {
         setShowScrollDownButton(true);
-      } else if (atPageBottom && scrollClickState === 0) {
-        setShowScrollDownButton(false);
       }
     };
 
@@ -2511,37 +3025,58 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       messageList.removeEventListener("scroll", handleScroll);
       window.removeEventListener("scroll", handleWindowScroll);
     };
-  }, [loading, scrollClickState]);
+  }, [loading]);
+
+  // Re-check scroll position when follow-up suggestions are added after streaming ends
+  // This fixes the bug where user scrolls to bottom before suggestions arrive, then suggestions render
+  // but the scroll button doesn't appear even though there's new content below
+  // Handles both:
+  // 1. Regular suggestions (Go deeper/Go broader chips) - from lastMessageSuggestions
+  // 2. Task dynamic follow-ups (AI-generated task-specific chips) - from dynamicFollowups
+  const lastMessageSuggestions = messages[messages.length - 1]?.suggestions;
+  useEffect(() => {
+    // Only run when not loading (suggestions arrive after streaming ends)
+    if (loading) return;
+
+    // Skip if no suggestions (initial render or cleared state)
+    const hasSuggestions =
+      (lastMessageSuggestions && lastMessageSuggestions.length > 0) ||
+      (dynamicFollowups && dynamicFollowups.length > 0);
+    if (!hasSuggestions) return;
+
+    // Check scroll position after DOM updates with new suggestions
+    const timeoutId = setTimeout(() => {
+      const messageList = messageListRef.current;
+      if (!messageList) return;
+
+      const { scrollTop, scrollHeight, clientHeight } = messageList;
+      const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+      const threshold = 50;
+
+      // Show button if there's content below current scroll position
+      if (scrollHeight > clientHeight && distanceFromBottom > threshold) {
+        setShowScrollDownButton(true);
+        // Trigger shimmer animation to draw attention to the button
+        setShimmerScrollButton(true);
+      }
+    }, 50); // Small delay to allow DOM to update
+
+    return () => clearTimeout(timeoutId);
+  }, [lastMessageSuggestions, dynamicFollowups, loading]);
 
   // Function to scroll to bottom when button clicked
   const handleScrollDownClick = () => {
-    if (scrollClickState === 0) {
-      // First click: Scroll to bottom of content but keep button visible
-      bottomOfListRef.current?.scrollIntoView({
-        behavior: "smooth",
-        block: "end",
-      });
-      setScrollClickState(1);
-      // Explicitly ensure the button stays visible after the first click
-      setShowScrollDownButton(true);
+    // Scroll to bottom of content and hide button
+    bottomOfListRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "end",
+    });
+    setShowScrollDownButton(false);
+    setScrollClickState(0);
 
-      // Focus on the input field if not on mobile
-      if (window.innerWidth >= 768 && textAreaRef.current) {
-        textAreaRef.current.focus();
-      }
-    } else {
-      // Second click: Scroll to very bottom of page and hide button
-      window.scrollTo({
-        top: document.body.scrollHeight,
-        behavior: "smooth",
-      });
-      setShowScrollDownButton(false);
-      setScrollClickState(0);
-
-      // Focus on the input field if not on mobile
-      if (window.innerWidth >= 768 && textAreaRef.current) {
-        textAreaRef.current.focus();
-      }
+    // Focus on the input field if not on mobile
+    if (window.innerWidth >= 768 && textAreaRef.current) {
+      textAreaRef.current.focus();
     }
   };
 
@@ -2568,6 +3103,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         temporarySession={temporarySession}
         onTemporarySessionChange={handleTemporarySessionChange}
         isChatEmpty={shouldShowSuggestions}
+        hasConversation={messages.length > 1}
       >
         {showPopup && popupMessage && <Popup message={popupMessage} onClose={closePopup} siteConfig={siteConfig} />}
 
@@ -2582,26 +3118,26 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
               }}
               onLoadConversation={handleLoadConversation}
               currentConvId={currentConvId}
-              onGetSidebarFunctions={(functions) => {
+              onGetSidebarFunctions={(functions, sidebarRefetch) => {
                 handleSidebarFunctions(functions, () => {
-                  // This refetch function is called when the sidebar needs to be reloaded
-                  // after a state change that might affect its data, e.g., clearing chat history
-                  // or changing collections.
-                  // For now, we'll just log the event, as the actual re-fetching logic
-                  // would involve fetching chat history from the backend.
+                  sidebarRefetch();
                   logEvent("chat_history_sidebar_refetch", "Chat History", "sidebar_refetch");
                 });
               }}
               onConversationDeleted={handleConversationDeleted}
+              onStarChange={async (convId: string, isStarred: boolean) => {
+                isStarChangeFromSidebarRef.current = true;
+                await handleStarChange(convId, isStarred);
+              }}
             />
           )}
 
           {/* Main Content Area */}
-          <div className="flex flex-col flex-1 min-w-0 lg:ml-0">
-            <div className="mx-auto w-full max-w-4xl px-4">
+          <div className="flex flex-col flex-1 min-w-0 lg:ml-0 overflow-hidden">
+            <div className="mx-auto w-full max-w-4xl px-4 flex flex-col h-full">
               {/* Hamburger Menu Button - Only show on sites that require login */}
               {siteConfig?.requireLogin && (
-                <div className="lg:hidden flex items-center justify-between p-4 border-b border-gray-200">
+                <div className="flex-shrink-0 lg:hidden flex items-center justify-between p-4 border-b border-gray-200">
                   <button
                     onClick={() => {
                       logEvent("chat_history_sidebar_open", "Chat History", "hamburger_menu");
@@ -2616,9 +3152,20 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                   <div className="w-10"></div> {/* Spacer for centering */}
                 </div>
               )}
+              {/* Conversation Title Bar - Only show on sites that require login */}
+              {siteConfig?.requireLogin && (
+                <div className="flex-shrink-0">
+                  <ConversationTitleBar
+                    convId={currentConvId}
+                    title={conversationTitle}
+                    isStarred={isCurrentConversationStarred}
+                    onStarChange={handleStarChange}
+                  />
+                </div>
+              )}
               {/* Temporary session banner */}
               {temporarySession && (
-                <div className="flex items-center justify-center mb-3 px-3 py-2 bg-purple-100 border border-purple-300 rounded-lg">
+                <div className="flex-shrink-0 flex items-center justify-center mb-3 px-3 py-2 bg-purple-100 border border-purple-300 rounded-lg">
                   <span className="material-icons text-purple-600 text-lg mr-2">lock</span>
                   <span className="text-purple-800 text-sm font-medium">
                     Temporary Session Active. It will not be logged, saved, or shareable.
@@ -2631,142 +3178,221 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                   </span>
                 </div>
               )}
-              <div className="flex-grow overflow-hidden answers-container">
-                <div ref={messageListRef} className="h-full overflow-y-auto">
-                  {/* Render chat messages */}
-                  {messages.map((message, index) => (
-                    <React.Fragment key={`chatMessage-${index}`}>
-                      <div
-                        ref={(el) => {
-                          // Store ref for user messages to enable scrolling/highlighting
-                          if (el && message.type === "userMessage") {
-                            userMessageRefs.current.set(index, el);
-                          } else if (message.type !== "userMessage") {
-                            userMessageRefs.current.delete(index);
-                          }
-                        }}
-                      >
-                        <MessageItem
-                          messageKey={`chatMessage-${index}`}
-                          message={message}
-                          previousMessage={index > 0 ? messages[index - 1] : undefined}
-                          index={index}
-                          isLastMessage={index === messages.length - 1}
-                          loading={loading}
-                          temporarySession={temporarySession}
-                          collectionChanged={collectionChanged}
-                          hasMultipleCollections={hasMultipleCollections}
-                          linkCopied={linkCopied}
-                          votes={votes}
-                          siteConfig={siteConfig}
-                          handleCopyLink={handleCopyLink}
-                          handleVote={handleVote}
-                          lastMessageRef={lastMessageRef}
-                          voteError={voteError}
-                          allowAllAnswersPage={siteConfig?.allowAllAnswersPage ?? false}
-                          onSuggestionClick={handleSuggestionClick}
-                          onTryGPT41={handleTryGPT41}
-                          isRegenerating={isRegenerating && regeneratingMessageIndex === index}
-                          onRegenerateAnswer={handleRegenerateAnswer}
-                          onEditQuestion={handleEditQuestion}
-                          isEditing={editingMessageIndex === index}
-                          editingText={editingText}
-                          onSaveEdit={handleSaveEdit}
-                          onCancelEdit={handleCancelEdit}
-                          sourceLinkCopied={sourceLinkCopied}
-                          onSourceExpanded={handleSourceExpanded}
-                          onSourceLinkCopied={handleSourceLinkCopied}
-                        />
-                      </div>
-
-                      {/* Show comparison UI if this message is being regenerated */}
-                      {regeneratingMessageIndex === index && regeneratedAnswer && (
-                        <div className="px-4 pb-4">
-                          <AnswerComparison
-                            originalAnswer={message}
-                            newAnswer={regeneratedAnswer}
-                            originalModel={siteConfig?.modelName || "GPT-4"}
-                            newModel="GPT-4.1"
-                            isStreaming={isRegenerating}
-                          />
-                          {/* Feedback button - only show after streaming completes */}
-                          {!isRegenerating && (
-                            <div className="mt-4 flex justify-center">
-                              <button
-                                onClick={() => setShowComparisonFeedbackModal(true)}
-                                className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow-md transition-colors"
-                              >
-                                Which answer was better?
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </React.Fragment>
-                  ))}
-                  {/* Display timing metrics for sudo users */}
-                  {isSudoUser && timingMetrics && !loading && messages.length > 0 && (
-                    <div className="text-xs text-gray-500 p-2 bg-gray-50 rounded m-2">{formatTimingMetrics()}</div>
-                  )}
-                  <div ref={bottomOfListRef} style={{ height: "1px" }} />
-                </div>
-
-                {/* Container to anchor the scroll button at the right edge of the content */}
-                <div ref={scrollButtonContainerRef} className="relative w-full">
-                  {/* Animated Scroll Down Button */}
-                  <div
-                    className={`fixed z-50 right-52 bottom-6 transition-all duration-300 ease-out transform 
-                  ${showScrollDownButton ? "translate-y-0 opacity-100 pointer-events-auto" : "translate-y-8 opacity-0 pointer-events-none"}`}
-                    style={{ willChange: "transform, opacity" }}
-                  >
-                    <button
-                      onClick={handleScrollDownClick}
-                      aria-label="Scroll to bottom"
-                      className="bg-white text-gray-600 rounded-full shadow-sm hover:shadow-md p-2 border border-gray-200 focus:outline-none"
-                    >
-                      <span className="material-icons text-xl">expand_more</span>
-                    </button>
+              {/* Conditional layout: centered for initial state, scrollable for conversation */}
+              {shouldShowSuggestions ? (
+                /* Initial centered layout - greeting and input centered on page */
+                <div className="flex-1 flex flex-col items-center justify-center px-4">
+                  {/* Greeting message */}
+                  <div className="text-center mb-8">
+                    <h1 className="text-xl md:text-2xl font-semibold text-gray-800">{messages[0]?.message}</h1>
+                  </div>
+                  {/* ChatInput with suggestions - centered */}
+                  <div className="w-full max-w-2xl">
+                    {isLoadingQueries ? null : (
+                      <ChatInput
+                        loading={loading}
+                        disabled={viewOnlyMode}
+                        handleSubmit={handleSubmit}
+                        handleEnter={handleEnter}
+                        handleClick={handleClick}
+                        handleCollectionChange={handleCollectionChange}
+                        collection={collection}
+                        temporarySession={temporarySession}
+                        error={chatError}
+                        setError={setError}
+                        suggestedQueries={suggestedQueries}
+                        shuffleQueries={shuffleQueries}
+                        textAreaRef={textAreaRef}
+                        mediaTypes={mediaTypes}
+                        handleMediaTypeChange={handleMediaTypeChange}
+                        selectedLibraries={selectedLibraries}
+                        handleLibraryChange={handleLibraryChange}
+                        siteConfig={siteConfig}
+                        input={query}
+                        handleInputChange={handleInputChange}
+                        setQuery={setQuery}
+                        setShouldAutoScroll={setIsNearBottom}
+                        handleStop={handleStop}
+                        isNearBottom={isNearBottom}
+                        setIsNearBottom={setIsNearBottom}
+                        isLoadingQueries={isLoadingQueries}
+                        sourceCount={sourceCount}
+                        setSourceCount={setSourceCount}
+                        onTemporarySessionChange={handleTemporarySessionChange}
+                        categorizedQueries={categorizedQueries}
+                        shouldShowSuggestions={shouldShowSuggestions}
+                        onTaskSubmit={handleTaskSubmit}
+                      />
+                    )}
                   </div>
                 </div>
-              </div>
-              <div className="mt-4 px-2 md:px-0">
-                {/* Render chat input component */}
-                {isLoadingQueries ? null : (
-                  <ChatInput
-                    loading={loading}
-                    disabled={viewOnlyMode}
-                    handleSubmit={handleSubmit}
-                    handleEnter={handleEnter}
-                    handleClick={handleClick}
-                    handleCollectionChange={handleCollectionChange}
-                    collection={collection}
-                    temporarySession={temporarySession}
-                    error={chatError}
-                    setError={setError}
-                    suggestedQueries={suggestedQueries}
-                    shuffleQueries={shuffleQueries}
-                    textAreaRef={textAreaRef}
-                    mediaTypes={mediaTypes}
-                    handleMediaTypeChange={handleMediaTypeChange}
-                    selectedLibraries={selectedLibraries}
-                    handleLibraryChange={handleLibraryChange}
-                    siteConfig={siteConfig}
-                    input={query}
-                    handleInputChange={handleInputChange}
-                    setQuery={setQuery}
-                    setShouldAutoScroll={setIsNearBottom}
-                    handleStop={handleStop}
-                    isNearBottom={isNearBottom}
-                    setIsNearBottom={setIsNearBottom}
-                    isLoadingQueries={isLoadingQueries}
-                    sourceCount={sourceCount}
-                    setSourceCount={setSourceCount}
-                    onTemporarySessionChange={handleTemporarySessionChange}
-                    categorizedQueries={categorizedQueries}
-                    shouldShowSuggestions={shouldShowSuggestions}
-                  />
-                )}
-              </div>
+              ) : (
+                /* Conversation layout - messages scrollable, input at bottom */
+                <>
+                  {/* Wrapper for scrollable area and scroll button */}
+                  <div className="flex-1 min-h-0 relative">
+                    {/* Messages container - scrollable area */}
+                    <div className="h-full overflow-hidden answers-container">
+                      <div ref={messageListRef} className="h-full overflow-y-auto">
+                        {/* Render chat messages */}
+                        {messages.map((message, index) => (
+                          <React.Fragment key={`chatMessage-${index}`}>
+                            <div
+                              ref={(el) => {
+                                // Store ref for user messages to enable scrolling/highlighting
+                                if (el && message.type === "userMessage") {
+                                  userMessageRefs.current.set(index, el);
+                                } else if (message.type !== "userMessage") {
+                                  userMessageRefs.current.delete(index);
+                                }
+                              }}
+                            >
+                              <MessageItem
+                                messageKey={`chatMessage-${index}`}
+                                message={message}
+                                previousMessage={index > 0 ? messages[index - 1] : undefined}
+                                index={index}
+                                isLastMessage={index === messages.length - 1}
+                                loading={loading}
+                                temporarySession={temporarySession}
+                                collectionChanged={collectionChanged}
+                                hasMultipleCollections={hasMultipleCollections}
+                                linkCopied={linkCopied}
+                                votes={votes}
+                                siteConfig={siteConfig}
+                                handleCopyLink={handleCopyLink}
+                                handleVote={handleVote}
+                                lastMessageRef={lastMessageRef}
+                                voteError={voteError}
+                                allowAllAnswersPage={siteConfig?.allowAllAnswersPage ?? false}
+                                onSuggestionClick={handleSuggestionClick}
+                                onTryGPT41={handleTryGPT41}
+                                isRegenerating={isRegenerating && regeneratingMessageIndex === index}
+                                onRegenerateAnswer={handleRegenerateAnswer}
+                                onEditQuestion={handleEditQuestion}
+                                isEditing={editingMessageIndex === index}
+                                editingText={editingText}
+                                onSaveEdit={handleSaveEdit}
+                                onCancelEdit={handleCancelEdit}
+                                sourceLinkCopied={sourceLinkCopied}
+                                onSourceExpanded={handleSourceExpanded}
+                                onSourceLinkCopied={handleSourceLinkCopied}
+                                isTaskConversation={isTaskConversation && index === messages.length - 1}
+                                taskFollowups={
+                                  isTaskConversation && index === messages.length - 1
+                                    ? currentTaskFollowups.filter((f) => !usedTaskFollowups.includes(f))
+                                    : []
+                                }
+                                dynamicFollowups={
+                                  isTaskConversation && index === messages.length - 1 ? dynamicFollowups : []
+                                }
+                                isLoadingDynamicFollowups={
+                                  isTaskConversation && index === messages.length - 1 && isLoadingDynamicFollowups
+                                }
+                                onTaskFollowupClick={handleFollowupSelect}
+                                isAdminOrSuperuser={isAdminOrSuperuser}
+                                timingMetricsDisplay={
+                                  (isSudoUser || isAdminOrSuperuser) &&
+                                  timingMetrics &&
+                                  !loading &&
+                                  index === messages.length - 1 ? (
+                                    <div className="text-xs text-gray-500 p-2 bg-gray-50 rounded m-2">
+                                      {formatTimingMetrics()}
+                                    </div>
+                                  ) : undefined
+                                }
+                              />
+                            </div>
+
+                            {/* Show comparison UI if this message is being regenerated */}
+                            {regeneratingMessageIndex === index && regeneratedAnswer && (
+                              <div className="px-4 pb-4">
+                                <AnswerComparison
+                                  originalAnswer={message}
+                                  newAnswer={regeneratedAnswer}
+                                  originalModel={siteConfig?.modelName || "GPT-4"}
+                                  newModel="GPT-4.1"
+                                  isStreaming={isRegenerating}
+                                />
+                                {/* Feedback button - only show after streaming completes */}
+                                {!isRegenerating && (
+                                  <div className="mt-4 flex justify-center">
+                                    <button
+                                      onClick={() => setShowComparisonFeedbackModal(true)}
+                                      className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow-md transition-colors"
+                                    >
+                                      Which answer was better?
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </React.Fragment>
+                        ))}
+                        {/* Bottom spacer to allow scrolling past last content item */}
+                        <div ref={bottomOfListRef} className="h-4 md:h-1" />
+                      </div>
+                    </div>
+
+                    {/* Animated Scroll Down Button - centered at bottom of scroll area */}
+                    <div
+                      ref={scrollButtonContainerRef}
+                      className={`absolute z-50 bottom-4 left-1/2 -translate-x-1/2 transition-all duration-300 ease-out transform 
+                      ${showScrollDownButton ? "translate-y-0 opacity-100 pointer-events-auto" : "translate-y-8 opacity-0 pointer-events-none"}`}
+                      style={{ willChange: "transform, opacity" }}
+                    >
+                      <button
+                        onClick={handleScrollDownClick}
+                        onAnimationEnd={() => setShimmerScrollButton(false)}
+                        aria-label="Scroll to bottom"
+                        className={`bg-white text-gray-600 rounded-full shadow-lg hover:shadow-xl p-2 border border-gray-200 focus:outline-none ${shimmerScrollButton ? "scroll-button-shimmer" : ""}`}
+                      >
+                        <span className="material-icons text-xl">arrow_downward</span>
+                      </button>
+                    </div>
+                  </div>
+                  {/* Input area - pinned to bottom when conversation is active */}
+                  <div className="flex-shrink-0 px-2 md:px-0 pb-2 bg-white relative z-10">
+                    {/* Render chat input component */}
+                    {isLoadingQueries ? null : (
+                      <ChatInput
+                        loading={loading}
+                        disabled={viewOnlyMode}
+                        handleSubmit={handleSubmit}
+                        handleEnter={handleEnter}
+                        handleClick={handleClick}
+                        handleCollectionChange={handleCollectionChange}
+                        collection={collection}
+                        temporarySession={temporarySession}
+                        error={chatError}
+                        setError={setError}
+                        suggestedQueries={suggestedQueries}
+                        shuffleQueries={shuffleQueries}
+                        textAreaRef={textAreaRef}
+                        mediaTypes={mediaTypes}
+                        handleMediaTypeChange={handleMediaTypeChange}
+                        selectedLibraries={selectedLibraries}
+                        handleLibraryChange={handleLibraryChange}
+                        siteConfig={siteConfig}
+                        input={query}
+                        handleInputChange={handleInputChange}
+                        setQuery={setQuery}
+                        setShouldAutoScroll={setIsNearBottom}
+                        handleStop={handleStop}
+                        isNearBottom={isNearBottom}
+                        setIsNearBottom={setIsNearBottom}
+                        isLoadingQueries={isLoadingQueries}
+                        sourceCount={sourceCount}
+                        setSourceCount={setSourceCount}
+                        onTemporarySessionChange={handleTemporarySessionChange}
+                        categorizedQueries={categorizedQueries}
+                        shouldShowSuggestions={shouldShowSuggestions}
+                        onTaskSubmit={handleTaskSubmit}
+                      />
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

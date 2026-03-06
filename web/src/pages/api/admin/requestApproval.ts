@@ -36,6 +36,9 @@ interface ApprovalRequestData {
   adminName: string;
   adminLocation: string;
   referenceNote?: string;
+  knowsAdmin?: boolean;
+  nearestCenter?: string;
+  connectionHistory?: string;
   requestId: string;
   status: "pending";
   createdAt: firebase.firestore.Timestamp;
@@ -49,7 +52,12 @@ export async function sendApprovalRequestEmail(
   adminName: string,
   requestId: string,
   referenceNote: string | undefined,
-  req?: any
+  req?: any,
+  additionalContext?: {
+    knowsAdmin?: boolean;
+    nearestCenter?: string;
+    connectionHistory?: string;
+  }
 ) {
   // Unescape names to handle existing data with backslashes
   requesterName = unescapeName(requesterName);
@@ -76,11 +84,28 @@ export async function sendApprovalRequestEmail(
 
   let message = `${requesterName} (${requesterEmail}) has requested access to ${brand}.`;
 
-  if (referenceNote) {
-    message += `\n\nMessage from requester:\n${referenceNote}\n\nPlease review this request and approve or deny access based on your knowledge of the requester.`;
-  } else {
-    message += `\n\nPlease review this request and approve or deny access.`;
+  // Add "knows admin" context if provided
+  if (additionalContext?.knowsAdmin === true) {
+    message += `\n\nThe requester indicated that you know them.`;
+  } else if (additionalContext?.knowsAdmin === false) {
+    message += `\n\n⚠️ Note: The requester indicated that you may not know them personally.`;
   }
+
+  // Add nearest center if provided
+  if (additionalContext?.nearestCenter) {
+    message += `\n\nNearest center: ${additionalContext.nearestCenter}`;
+  }
+
+  // Add connection history if provided
+  if (additionalContext?.connectionHistory) {
+    message += `\n\nAbout their connection:\n${additionalContext.connectionHistory}`;
+  }
+
+  if (referenceNote) {
+    message += `\n\nSomeone who knows them:\n${referenceNote}`;
+  }
+
+  message += `\n\nPlease review this request and approve or deny access.`;
 
   // Button will be added by email template
 
@@ -169,13 +194,26 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   if (!db) return res.status(503).json({ error: "Database not available" });
 
-  const { requesterEmail, requesterName, adminEmail, adminName, adminLocation, referenceNote } = req.body as {
+  const {
+    requesterEmail,
+    requesterName,
+    adminEmail,
+    adminName,
+    adminLocation,
+    referenceNote,
+    knowsAdmin,
+    nearestCenter,
+    connectionHistory,
+  } = req.body as {
     requesterEmail?: string;
     requesterName?: string;
     adminEmail?: string;
     adminName?: string;
     adminLocation?: string;
     referenceNote?: string;
+    knowsAdmin?: boolean;
+    nearestCenter?: string;
+    connectionHistory?: string;
   };
 
   // Validate and sanitize required fields
@@ -210,6 +248,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   let sanitizedAdminName: string;
   let sanitizedAdminLocation: string;
   let sanitizedReferenceNote: string | undefined;
+  let sanitizedNearestCenter: string | undefined;
+  let sanitizedConnectionHistory: string | undefined;
+  const sanitizedKnowsAdmin = typeof knowsAdmin === "boolean" ? knowsAdmin : undefined;
   try {
     sanitizedRequesterName = sanitizeName(requesterName, 100);
     sanitizedAdminName = sanitizeName(adminName, 100);
@@ -220,6 +261,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     });
     if (referenceNote) {
       sanitizedReferenceNote = sanitizeTextInput(referenceNote, {
+        maxLength: 1000,
+        allowNewlines: true,
+        allowSpecialChars: false,
+      });
+    }
+    if (nearestCenter) {
+      sanitizedNearestCenter = sanitizeTextInput(nearestCenter, {
+        maxLength: 200,
+        allowNewlines: false,
+        allowSpecialChars: false,
+      });
+    }
+    if (connectionHistory) {
+      sanitizedConnectionHistory = sanitizeTextInput(connectionHistory, {
         maxLength: 1000,
         allowNewlines: true,
         allowSpecialChars: false,
@@ -317,6 +372,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const collectionName = `${envPrefix}_admin_approval_requests`;
 
     // Check if there's already a pending request for this requesterEmail + adminEmail combination
+    // (This handles the case where someone tries to resubmit to the same admin)
     const existingRequestsQuery = await db
       .collection(collectionName)
       .where("requesterEmail", "==", sanitizedRequesterEmail.toLowerCase())
@@ -325,7 +381,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       .limit(1)
       .get();
 
-    // If pending request exists, resend the email reminder instead of creating a new entry
+    // If pending request exists for same admin, resend the email reminder instead of creating a new entry
     if (!existingRequestsQuery.empty) {
       const existingRequest = existingRequestsQuery.docs[0];
       const existingData = existingRequest.data() as ApprovalRequestData;
@@ -339,7 +395,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           sanitizedAdminName,
           existingData.requestId,
           sanitizedReferenceNote,
-          req
+          req,
+          {
+            knowsAdmin: sanitizedKnowsAdmin,
+            nearestCenter: sanitizedNearestCenter,
+            connectionHistory: sanitizedConnectionHistory,
+          }
         );
       } catch (emailError) {
         console.error("Error sending reminder email:", emailError);
@@ -362,6 +423,34 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       });
     }
 
+    // Check if there's ANY pending request for this requesterEmail to a DIFFERENT administrator
+    const anyPendingRequestQuery = await db
+      .collection(collectionName)
+      .where("requesterEmail", "==", sanitizedRequesterEmail.toLowerCase())
+      .where("status", "==", "pending")
+      .limit(1)
+      .get();
+
+    // If there's already a pending request to a different administrator, reject the new submission
+    if (!anyPendingRequestQuery.empty) {
+      const existingRequest = anyPendingRequestQuery.docs[0];
+      const existingData = existingRequest.data() as ApprovalRequestData;
+
+      // Log audit event for blocked duplicate submission
+      await writeAuditLog(req, "admin_approval_request", sanitizedRequesterEmail.toLowerCase(), {
+        outcome: "blocked_duplicate_submission",
+        attemptedAdminEmail: sanitizedAdminEmail.toLowerCase(),
+        existingAdminEmail: existingData.adminEmail,
+        existingRequestId: existingData.requestId,
+      });
+
+      return res.status(400).json({
+        error:
+          "You already have a pending account activation request. Please wait for a response before submitting another request.",
+        existingRequestId: existingData.requestId,
+      });
+    }
+
     // No pending request exists, create a new one
     const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const now = firebase.firestore.Timestamp.now();
@@ -373,6 +462,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       adminName: sanitizedAdminName,
       adminLocation: sanitizedAdminLocation,
       ...(sanitizedReferenceNote && { referenceNote: sanitizedReferenceNote }),
+      ...(sanitizedKnowsAdmin !== undefined && { knowsAdmin: sanitizedKnowsAdmin }),
+      ...(sanitizedNearestCenter && { nearestCenter: sanitizedNearestCenter }),
+      ...(sanitizedConnectionHistory && { connectionHistory: sanitizedConnectionHistory }),
       requestId,
       status: "pending",
       createdAt: now,
@@ -396,7 +488,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         sanitizedAdminName,
         requestId,
         sanitizedReferenceNote,
-        req
+        req,
+        {
+          knowsAdmin: sanitizedKnowsAdmin,
+          nearestCenter: sanitizedNearestCenter,
+          connectionHistory: sanitizedConnectionHistory,
+        }
       ),
       sendRequesterConfirmationEmail(
         sanitizedRequesterEmail,

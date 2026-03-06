@@ -19,3 +19,8 @@ export const getSuggestionsInteractionsCollectionName = () => {
   const env = getEnvName();
   return `${env}_suggestions_interactions`;
 };
+
+export const getModelPerformanceCollectionName = () => {
+  const env = getEnvName();
+  return `${env}_model_performance`;
+};

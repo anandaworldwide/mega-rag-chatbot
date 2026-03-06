@@ -1,0 +1,43 @@
+{
+  "taskId": "research",
+  "displayName": "Research a Topic",
+  "icon": "search",
+  "description": "Get a comprehensive survey of teachings on a topic",
+  "sourceCount": 20,
+  "steps": [
+    {
+      "id": "topic",
+      "type": "text",
+      "label": "What topic are you researching?",
+      "placeholder": "e.g., The role of will power, Overcoming attachments",
+      "required": true
+    },
+    {
+      "id": "purpose",
+      "type": "text",
+      "label": "What is this research for?",
+      "placeholder": "e.g., writing a book chapter, preparing a talk, personal study",
+      "required": true
+    },
+    {
+      "id": "depth",
+      "type": "text",
+      "label": "How thorough should the research be?",
+      "placeholder": "e.g., quick overview, comprehensive survey, exhaustive deep dive",
+      "required": true
+    },
+    {
+      "id": "focusAreas",
+      "type": "textarea",
+      "label": "Any specific angles or subtopics to emphasize?",
+      "placeholder": "(optional)",
+      "required": false
+    }
+  ],
+  "suggestedFollowups": [
+    "Create a shareable summary",
+    "Turn this into a class outline",
+    "Format as a study guide with key takeaways"
+  ],
+  "promptTemplate": "I'm researching \"{{topic}}\" for {{purpose}}. I'd like a {{depth}} treatment.{{#focusAreas}}\n\nPay special attention to: {{focusAreas}}{{/focusAreas}}\n\nPlease provide:\n\n1. Overview - A summary of what the teachings say about this topic\n2. Key Themes - Organize the main ideas into themes or categories\n3. Notable Quotes - Direct quotes from Master and Swamiji with source citations\n4. Different Perspectives - Any varying viewpoints or nuances in the teachings\n5. Practical Applications - How this applies to daily life/practice"
+}

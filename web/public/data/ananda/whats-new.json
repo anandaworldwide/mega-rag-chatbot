@@ -1,0 +1,31 @@
+{
+  "version": 5,
+  "wikiUrl": "https://anandafamily.notion.site/What-s-new-with-Luca-2ed7781078bc80c79438c02ea27ec710",
+  "entries": [
+    {
+      "date": "2026-01-22",
+      "title": "More Task Wizards and Streamlined Tools",
+      "description": "We now have seven task wizards to help you create comprehensive queries. The wizards will help you get started and suggest follow-up tasks to go even further. Click the magic wand in the question input box to get started."
+    },
+    {
+      "date": "2026-01-22",
+      "title": "Beginner Zoom Session Recordings",
+      "description": "Recordings of the beginner Zoom sessions are now available. These recordings provide valuable guidance for those new to Luca."
+    },
+    {
+      "date": "2026-01-19",
+      "title": "Task Wizard",
+      "description": "New structured task wizards help you create comprehensive research queries and class plans. Click the task buttons above the chat input to get started. The wizards will help you get started and suggest follow-up tasks to go even further."
+    },
+    {
+      "date": "2026-01-19",
+      "title": "What's New Feature",
+      "description": "Stay updated with the latest features and improvements. Click the bell icon in the top right button bar to see recent updates."
+    },
+    {
+      "date": "2026-01-18",
+      "title": "AI Model Selection",
+      "description": "You can now choose the underlying AI model that generates the answers. Different AI models have different strengths - some are faster, others are more thorough. Different models may interpret questions differently. Some models excel at creative responses, others at factual accuracy. You can experiment to find which model works best for your needs."
+    }
+  ]
+}

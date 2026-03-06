@@ -8,7 +8,7 @@ import { getSudoCookie } from "@/utils/server/sudoCookieUtils";
 import { getAnswersCollectionName } from "@/utils/server/firestoreUtils";
 import { getTotalDocuments, getAnswersByIds } from "@/utils/server/answersUtils";
 import { Answer } from "@/types/answer";
-import { Document } from "langchain/document";
+import { Document } from "@langchain/core/documents";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { withJwtAuth } from "@/utils/server/jwtUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";

@@ -1005,20 +1005,14 @@ chains.
 2. Mock factories run before variables are initialized (hoisting issues)
 3. Need to dynamically change mocks per test case
 
-**Wrong**: Trying to reassign const imports or using variables in mock factories.
+**Wrong**: Using `require()` which triggers ESLint `@typescript-eslint/no-require-imports` error.
 
 ```typescript
-import { db } from "@/services/firebase";
-
-jest.mock("@/services/firebase", () => ({
-  db: mockDb, // ReferenceError: mockDb not initialized
-}));
-
-// Later in test
-(db as any) = null; // Error: Assignment to constant variable
+// ESLint error: A `require()` style import is forbidden
+const { db } = require("@/services/firebase");
 ```
 
-**Correct**: Create mock, then use require() to get reference to module object for dynamic reassignment.
+**Correct**: Use `jest.requireMock()` to get reference to mocked modules without linter errors.
 
 ```typescript
 // Mock Firebase module
@@ -1029,33 +1023,24 @@ jest.mock("@/services/firebase", () => ({
   },
 }));
 
-// Get reference to mocked module for dynamic reassignment
-const mockFirebase = require("@/services/firebase");
+// Get reference to mocked module - NO eslint-disable needed
+const { db } = jest.requireMock("@/services/firebase");
+const { genericRateLimiter } = jest.requireMock("@/utils/server/genericRateLimiter");
+const loadSiteConfig = jest.requireMock("@/utils/server/loadSiteConfig");
 
-// In beforeEach, reset to default
-beforeEach(() => {
-  mockFirebase.db = {
-    collection: jest.fn(),
-    batch: jest.fn(),
-  };
-});
-
-// In specific tests, reassign as needed
-it("should handle missing database", async () => {
-  mockFirebase.db = null; // Can reassign module object property
-  // ... test code
-});
+// For dynamic reassignment per test
+const mockFirebase = jest.requireMock("@/services/firebase");
+mockFirebase.db = null; // Can reassign module object property
 ```
 
-**Pattern**: For tests that need dynamic mock reassignment:
+**Pattern**: For tests that need access to mocked modules:
 
-1. Create mock with basic structure in jest.mock()
-2. Use `require()` to get reference to mocked module object
-3. Reassign properties of the module object (`mockFirebase.db = ...`)
-4. Reset in beforeEach for isolation
+1. Create mock with basic structure in `jest.mock()`
+2. Use `jest.requireMock()` (not `require()`) to get reference to mocked module
+3. This avoids ESLint `@typescript-eslint/no-require-imports` errors
+4. For dynamic reassignment, get the module object and reassign properties
 
-**Applied To**: Fixed clone-conversation tests that needed to mock `db` as null or with different implementations per
-test.
+**Applied To**: Fixed `pendingRequests.test.ts` and other test files.
 
 ### 31. Jest Mock Constant Hoisting Issue
 
@@ -1394,54 +1379,71 @@ higher-level component (AuthGuard) should decide when to redirect after exhausti
 **Related Fix**: Also ensure all login endpoints use consistent JWT expiry. Legacy `login.ts` used 24h while newer
 endpoints used 180d, causing premature session expiration for users who logged in via the legacy endpoint.
 
-### 38. Header Authentication State Bug - Expired Token with Valid Session Cookie
+### 38. HttpOnly Cookies Cannot Be Detected by JavaScript - Use Client-Readable Session Indicator
 
 **Problem**: After leaving a page open for hours, the settings icon changes to "login" even though the user is still
-logged in. Navigation still works because the session cookie is valid, but the UI shows incorrect state.
+logged in. The original fix attempted to detect auth cookies and refresh the token, but it failed because the auth
+cookies (`authToken`, `auth`) are set with `httpOnly: true`, meaning JavaScript cannot read them via `document.cookie`.
 
-**Root Cause**: The `BaseHeader` component's `updateAuthState()` function checks `isAuthenticated()` which relies on
-in-memory JWT token. When the token expires (typically after 15 minutes), `isAuthenticated()` returns false even though
-the session cookie (`authToken`) is still valid (may last 24 hours or 180 days). The component was using cookies as a
-fallback but not refreshing the expired token.
+**Root Cause**: The authentication cookies are HttpOnly for security, but the client-side code was attempting to detect
+them with `document.cookie.includes("authToken=")` which always returns false for HttpOnly cookies.
 
-**Wrong**: Only checking token state and using cookies as fallback without refreshing expired tokens.
-
-```typescript
-const updateAuthState = () => {
-  const hasAuthCookie = document.cookie.includes("authToken=");
-  const tokenAuthenticated = isAuthenticated();
-  setIsLoggedIn(tokenAuthenticated || hasAuthCookie); // Falls back to cookie but doesn't refresh token
-};
-```
-
-**Correct**: When cookies exist but token is expired, refresh the token instead of just using cookie fallback.
+**Wrong**: Attempting to detect HttpOnly cookies from JavaScript.
 
 ```typescript
-const updateAuthState = async () => {
-  const tokenAuthenticated = isAuthenticated();
-  const cookiesExist = hasAuthCookie();
-
-  // If we have cookies but token is expired/invalid, refresh the token
-  if (cookiesExist && !tokenAuthenticated) {
-    try {
-      await initializeTokenManager(); // Refresh the expired token
-      const refreshedAuth = isAuthenticated();
-      setIsLoggedIn(refreshedAuth || cookiesExist);
-    } catch (error) {
-      setIsLoggedIn(cookiesExist); // Fallback to cookie state
-    }
-  } else {
-    setIsLoggedIn(tokenAuthenticated || cookiesExist);
-  }
-};
+// This ALWAYS returns false for HttpOnly cookies!
+const hasAuthCookie = document.cookie.includes("authToken=") || document.cookie.includes("auth=");
 ```
 
-**Pattern**: When authentication state depends on both in-memory tokens and session cookies, always refresh expired
-tokens when cookies indicate a valid session. Also add `visibilitychange` event listener to refresh tokens when tabs
-become visible after being hidden.
+**Correct**: Set a separate non-HttpOnly cookie (`hasSession=1`) alongside auth cookies during login. This cookie
+contains no sensitive data but allows JavaScript to detect when auth cookies exist.
 
-**Applied To**: `BaseHeader.tsx` - updated `updateAuthState()` to refresh tokens when expired, added `visibilitychange`
-event listener for tab visibility changes.
+```typescript
+// In login endpoints - set alongside auth cookies:
+cookies.set("hasSession", "1", {
+  httpOnly: false, // Client-readable!
+  secure: isSecure,
+  maxAge: 180 * 24 * 60 * 60 * 1000, // Same as auth cookies
+  sameSite: "lax",
+  path: "/",
+});
+
+// In client-side detection:
+const hasAuthCookie = document.cookie.includes("hasSession=");
+```
+
+**Additional Fix**: The `updateAuthState()` function was async but not awaited, causing a timing issue where
+`setAuthReady(true)` ran before auth state was updated.
+
+```typescript
+// Wrong: async function not awaited
+initializeTokenManager().then(() => {
+  updateAuthState(); // NOT awaited!
+  setAuthReady(true); // Runs before updateAuthState completes
+});
+
+// Correct: await the async function
+initializeTokenManager().then(async () => {
+  await updateAuthState();
+  setAuthReady(true);
+});
+```
+
+**Pattern**: When using HttpOnly cookies for authentication:
+
+1. Add a non-HttpOnly session indicator cookie (e.g., `hasSession=1`) for client-side detection
+2. Set it during all login flows and clear it during logout
+3. **Clear it whenever auth cookies are cleared due to invalid/expired tokens** (e.g., in `web-token.ts` when JWT
+   verification fails)
+4. Use it in place of trying to detect HttpOnly cookies from JavaScript
+
+**Critical**: The `hasSession` cookie must be cleared in ALL places where `authToken`/`auth` cookies are cleared,
+including error handlers that detect invalid cookies. Otherwise, clients will see `hasSession=1` and believe the user is
+logged in, while the server has no valid session.
+
+**Applied To**: All login endpoints (`login.ts`, `loginWithPassword.ts`, `magicLogin.ts`, `verifyMagicLink.ts`,
+`web-token.ts` migration), `logout.ts`, `web-token.ts` (error handlers), `BaseHeader.tsx`, `tokenManager.ts`,
+`AuthGuard.tsx`.
 
 ### ECS Manual Task Runs Require Public IP for Secrets Manager Access
 
@@ -1525,7 +1527,68 @@ try {
 
 **Applied To**: Fixed chat route to properly await title generation updates and user activity tracking.
 
-### 40. Paired Endpoints Must Use Consistent Token Validation
+### 40. Chat History Must Be Updated With Actual Assistant Responses
+
+**Problem**: Question reformulation fails when history contains empty assistant content strings, causing follow-up
+questions to lose context and generate irrelevant responses.
+
+**Root Cause**: When a new message is submitted, the history is initialized with `{ role: "assistant", content: "" }`,
+but this empty content is never updated with the actual streamed response. Subsequent questions send this broken history
+to the API, and the reformulation model can't incorporate proper context.
+
+**Wrong**: Adding empty assistant content to history and never updating it.
+
+```typescript
+// When submitting a question
+setMessageState((prevState) => ({
+  ...prevState,
+  messages: [...prevState.messages, userMsg, emptyApiMsg],
+  history: [...prevState.history, { role: "user", content: query }, { role: "assistant", content: "" }], // Empty!
+}));
+
+// When streaming completes - history never updated
+if (data.done) {
+  setLoading(false);
+  // Missing: history update with actual response
+}
+```
+
+**Correct**: Update history with actual assistant content when streaming completes.
+
+```typescript
+if (data.done) {
+  // Update history with actual assistant response content (critical for reformulation)
+  setMessageState((prevState) => {
+    const lastMessage = prevState.messages[prevState.messages.length - 1];
+    const updatedHistory = [...prevState.history];
+    if (updatedHistory.length > 0 && lastMessage?.type === "apiMessage" && lastMessage.message) {
+      // Find the last assistant entry in history and update it
+      for (let i = updatedHistory.length - 1; i >= 0; i--) {
+        if (updatedHistory[i].role === "assistant" && updatedHistory[i].content === "") {
+          updatedHistory[i] = { ...updatedHistory[i], content: lastMessage.message };
+          break;
+        }
+      }
+    }
+    return { ...prevState, history: updatedHistory };
+  });
+  setLoading(false);
+}
+```
+
+**Pattern**: In any chat interface with conversation history used for context/reformulation:
+
+1. History must be kept in sync with actual message content
+2. Update history when streaming completes, not just when message is submitted
+3. Applies to all flows: main submit, edit message, and regenerate answer
+
+**Symptom**: Reformulation shows unchanged question like `"Create X" → "Create X."` (only adds punctuation) because the
+model has no conversation context to incorporate.
+
+**Applied To**: Fixed `index.tsx` in three locations: main handleSubmit, handleSaveEditedQuestion, and
+handleRegenerateAnswer.
+
+### 41. Paired Endpoints Must Use Consistent Token Validation
 
 **Problem**: When implementing paired operations (subscribe/unsubscribe, enable/disable), endpoints must use the same
 token validation logic. If one endpoint is updated to support new token formats, the paired endpoint must be updated
@@ -1567,3 +1630,323 @@ other.
 
 **Applied To**: Fixed resubscribe endpoint to match unsubscribe endpoint's token validation, supporting both legacy and
 category-specific tokens.
+
+### 42. React Stale Closure Issue - Use Refs for Values Needed in Callbacks
+
+**Problem**: State values captured in callback closures become stale when the callback is invoked later, after the state
+has changed. This causes API calls to send outdated data.
+
+**Wrong**: Using state directly in async callbacks/API calls.
+
+```typescript
+const [messageState, setMessageState] = useState({ history: [] });
+
+const handleSubmit = async () => {
+  // This captures the CURRENT value of messageState.history at render time
+  // When user clicks submit, this may be stale (old empty array)
+  const response = await fetch("/api/chat", {
+    body: JSON.stringify({ history: messageState.history }), // STALE!
+  });
+};
+```
+
+**Correct**: Use a ref that stays in sync with state, and read from the ref in callbacks.
+
+```typescript
+const [messageState, setMessageState] = useState({ history: [] });
+
+// Keep ref in sync with state
+const historyRef = useRef(messageState.history);
+useEffect(() => {
+  historyRef.current = messageState.history;
+}, [messageState.history]);
+
+const handleSubmit = async () => {
+  // Ref always has the latest value
+  const response = await fetch("/api/chat", {
+    body: JSON.stringify({ history: historyRef.current }), // FRESH!
+  });
+};
+```
+
+**Pattern**: When state is needed in callbacks that may execute after re-renders:
+
+1. Create a ref mirroring the state value
+2. Use `useEffect` to keep the ref in sync
+3. Read from `ref.current` in callbacks instead of state directly
+4. Remove the state from useCallback dependency arrays (refs are stable)
+
+**Symptom**: API calls send empty/stale data even though React DevTools shows state is correct. The callback closure
+captured the old value.
+
+**Applied To**: Fixed `index.tsx` history management - created `historyRef` to ensure API calls always send current chat
+history for question reformulation.
+
+### 43. React Portal Positioning Flicker
+
+**Problem**: Portaled popovers/modals flicker in the top-left corner before appearing in the correct position because
+they render before position is calculated.
+
+**Wrong**: Rendering portal immediately with position calculated in useEffect.
+
+```typescript
+const [position, setPosition] = useState({ top: 0, left: 0 });
+
+useEffect(() => {
+  if (isOpen) calculatePosition(); // Runs AFTER first render
+}, [isOpen]);
+
+return isOpen && createPortal(
+  <div style={{ top: position.top, left: position.left }}>  {/* Flickers at 0,0 first */}
+    ...
+  </div>,
+  document.body
+);
+```
+
+**Correct**: Use `isPositioned` state and opacity to hide until position is calculated.
+
+```typescript
+const [position, setPosition] = useState({ top: 0, left: 0 });
+const [isPositioned, setIsPositioned] = useState(false);
+
+const calculatePosition = () => {
+  // ... calculate position
+  setPosition({ top, left });
+  setIsPositioned(true);
+};
+
+useEffect(() => {
+  if (isOpen) {
+    requestAnimationFrame(() => calculatePosition());
+  }
+}, [isOpen]);
+
+const handleClose = () => {
+  setIsOpen(false);
+  setIsPositioned(false); // Reset for next open
+};
+
+return isOpen && createPortal(
+  <div style={{
+    top: position.top,
+    left: position.left,
+    opacity: isPositioned ? 1 : 0
+  }}>
+    ...
+  </div>,
+  document.body
+);
+```
+
+**Pattern**: For portaled elements that need dynamic positioning:
+
+1. Add `isPositioned` state starting as false
+2. Set `isPositioned = true` after position is calculated
+3. Use `opacity: 0` until positioned (not `display: none` - element needs to be in DOM for size calculation)
+4. Reset `isPositioned` when closing
+5. Use `requestAnimationFrame` to ensure DOM has updated before calculating position
+
+**Applied To**: Fixed `TaskPopover.tsx` flickering on open.
+
+### 44. Approval Workflows Must Track Actual Approver, Not Just Assigned Approver
+
+**Problem**: When a request is routed to an admin but a Super User (or different admin) approves it, the UI shows the
+originally assigned admin as the approver instead of the person who actually approved.
+
+**Root Cause**: The system stored `adminEmail` and `adminName` (the originally assigned approver) but only stored
+`processedBy` (email) without the name. The UI then displayed the assigned admin's info because that's all it had.
+
+**Wrong**: Only storing the email of who processed the request.
+
+```typescript
+const updates = {
+  status: "approved",
+  processedBy: adminEmail, // Just the email, no name
+};
+// UI shows: request.adminName (assigned admin) - WRONG!
+```
+
+**Correct**: Store both email and name of the actual approver.
+
+```typescript
+// Look up the approver's name from Firestore
+const adminDoc = await transaction.get(adminDocRef);
+const firstName = adminDoc.data()?.firstName || "";
+const lastName = adminDoc.data()?.lastName || "";
+const processedByName = `${firstName} ${lastName}`.trim() || adminEmail;
+
+const updates = {
+  status: "approved",
+  processedBy: adminEmail,
+  processedByName: processedByName, // Store the actual approver's name
+};
+
+// UI shows: request.processedByName || request.adminName (fallback for legacy)
+```
+
+**Pattern**: For approval/action workflows where multiple people can process requests:
+
+1. Always store both `processedBy` (email) and `processedByName` (display name)
+2. Look up the actor's name from Firestore if not in JWT
+3. Update related records (e.g., `invitedByEmail`, `invitedByName`) to reflect actual approver
+4. UI should display `processedByName` with fallback to `adminName` for legacy records
+
+**Applied To**: Fixed Admin Approvals page (`pendingRequests.ts`, `approvals.tsx`) to show correct approver when Super
+User approves requests assigned to other admins.
+
+### 45. JWT Token Refresh Must Not Trigger Data Re-fetches
+
+**Problem**: Admin pages that refresh JWT tokens periodically (every 10 minutes via `setInterval`) inadvertently trigger
+full data re-fetches because the JWT is stored in React state and the data-fetching `useEffect` depends on that state.
+
+**Root Cause**: `setJwt(newToken)` updates state -> `useEffect([jwt, ...])` fires -> data re-fetched. This fills up
+server logs with unnecessary API calls every 10 minutes per idle admin tab.
+
+**Wrong**: Storing JWT in state that data-fetching effects depend on.
+
+```typescript
+const [jwt, setJwt] = useState<string | null>(null);
+
+// Token refresh updates state every 10 minutes
+setInterval(() => {
+  setJwt(newToken); // Triggers re-render + data fetch
+}, TOKEN_REFRESH_INTERVAL);
+
+// Data fetch depends on jwt state
+useEffect(() => {
+  if (!jwt) return;
+  fetchData(); // Re-runs every time jwt changes!
+}, [jwt, ...otherDeps]);
+```
+
+**Correct**: Store JWT in a ref, use a one-time boolean state for initial readiness.
+
+```typescript
+const jwtRef = React.useRef<string | null>(null);
+const [jwtReady, setJwtReady] = useState(false);
+
+// Token refresh only updates ref (no re-render)
+setInterval(() => {
+  jwtRef.current = newToken; // Silent update
+}, TOKEN_REFRESH_INTERVAL);
+
+// Initial token sets jwtReady once
+if (!jwtReady) setJwtReady(true);
+
+// Data fetch only runs once on initial token + when filters change
+useEffect(() => {
+  if (!jwtReady) return;
+  fetchData();
+}, [jwtReady, ...otherDeps]);
+
+// API calls read from ref for latest token
+const currentJwt = jwtRef.current;
+```
+
+**Pattern**: For pages with periodic token refresh + data fetching:
+
+1. Store JWT in `useRef` instead of `useState`
+2. Use a `jwtReady` boolean state that flips once on first token acquisition
+3. Data-fetching `useEffect` depends on `jwtReady` (not the token value)
+4. API calls read `jwtRef.current` for the latest token
+5. `fetchWithTokenRefresh` handles stale tokens by retrying with fresh ones
+
+**Applied To**: Fixed all admin pages (`index.tsx`, `pending.tsx`, `approvals.tsx`, `add.tsx`).
+
+### 46. SQLite Locking Protocol Recovery on EFS
+
+**Problem**: On EFS-backed SQLite, transient `sqlite3.OperationalError: locking protocol` can appear even with a single
+crawler instance, and then cascade into follow-up DB read/write failures.
+
+**Wrong**: Logging the error and returning fallback data (e.g., zero stats) without reconnection/retry.
+
+```python
+try:
+    cursor.execute("SELECT ...")
+except Exception as e:
+    logging.error(f"Error getting queue stats: {e}")
+    return {"pending": 0, "visited": 0, "failed": 0, "total": 0}  # Misleading
+```
+
+**Correct**: Detect lock protocol errors, reconnect SQLite, re-apply PRAGMAs, retry once, and mark session as fatal if
+recovery fails.
+
+```python
+if "locking protocol" in str(error).lower():
+    if recover_database_connection():
+        return retry_operation_once()
+    mark_db_recovery_failed("...")  # Trigger graceful session exit
+```
+
+**Pattern**:
+
+1. Add centralized lock-protocol recovery in DB wrapper/decorator.
+2. Reconnect with `timeout=60`, `check_same_thread=False`, then re-apply:
+   `journal_mode=WAL`, `busy_timeout=60000`, `synchronous=NORMAL`.
+3. Retry the failed DB operation once only.
+4. If retry still fails, mark DB as unrecoverable and exit the crawler loop cleanly.
+5. Never log fake zero stats when DB is unavailable; mark stats as unavailable instead.
+
+### 47. Local CLI Scripts Should Not Assume User Bin Path Is on PATH
+
+**Problem**: Scripts that install Python CLIs with `pip install --user` can fail in local validation when invoking commands directly because `~/.local/bin` is not on `PATH` in some environments.
+
+**Wrong**: Calling installed CLI command directly after install.
+
+```bash
+./bin/run-pip-audit.sh
+# ... pip-audit: command not found
+```
+
+**Correct**: Either prepend user bin to `PATH` when running scripts or invoke via `python -m`.
+
+```bash
+PATH="$HOME/.local/bin:$PATH" ./bin/run-pip-audit.sh
+# or
+python -m pip_audit ...
+```
+
+**Pattern**: In CI scripts, prefer robust command invocation that does not depend on shell-specific user PATH setup.
+
+### 48. Cursor Environment Dockerfile Path Must Be Explicit
+
+**Problem**: `.cursor/environment.json` using `"dockerfile": "Dockerfile"` can point to a missing/wrong file in this repo, causing the cloud environment to fall back to a base image with incompatible Python (e.g., <3.11).
+
+**Wrong**:
+
+```json
+"build": {
+  "context": ".",
+  "dockerfile": "Dockerfile"
+}
+```
+
+**Correct**:
+
+```json
+"build": {
+  "context": ".",
+  "dockerfile": ".cursor/Dockerfile"
+}
+```
+
+**Pattern**: In this repository, always point Cursor build config to `.cursor/Dockerfile` and add an install-time Python version guard when requirements need Python 3.11+.
+
+### 49. Lockfiles Must Use Published Package Versions
+
+**Problem**: A pinned dependency version in a compiled requirements file can be invalid (not published on PyPI), causing startup/install failure with `No matching distribution found`.
+
+**Wrong**:
+
+```text
+scikit-learn==1.8.0
+```
+
+**Correct**:
+
+```text
+scikit-learn==1.7.2
+```
+
+**Pattern**: After changing a pinned dependency version in lockfiles, run `python3 -m pip install --dry-run -r requirements.txt` to verify all pins resolve.

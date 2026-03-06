@@ -8,6 +8,7 @@ import signal
 import sqlite3
 import tempfile
 from datetime import datetime, timezone
+from pathlib import Path
 
 from openai import APIConnectionError, APIError, APITimeoutError, OpenAI
 from tenacity import (
@@ -30,6 +31,9 @@ from data_ingestion.audio_video.youtube_utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Cache for loaded transcription corrections per site
+_transcription_corrections_cache: dict[str, dict[str, str]] = {}
 
 
 def get_transcriptions_db_path(site: str) -> str:
@@ -789,6 +793,161 @@ def split_large_chunks(chunks, target_size):
             new_chunks.append(chunk)
 
     return new_chunks
+
+
+def _load_transcription_corrections(site_id: str) -> dict[str, str]:
+    """
+    Load transcription corrections for a specific site from transcription_corrections.json.
+
+    Args:
+        site_id: Site identifier (e.g., 'ananda', 'crystal', 'jairam')
+
+    Returns:
+        Dictionary mapping incorrect text to corrected text
+    """
+    # Check cache first
+    if site_id in _transcription_corrections_cache:
+        return _transcription_corrections_cache[site_id]
+
+    try:
+        # Load from sibling file using Path(__file__).parent
+        current_file = Path(__file__)
+        config_path = current_file.parent / "transcription_corrections.json"
+
+        with open(config_path, encoding="utf-8") as f:
+            all_corrections = json.load(f)
+
+        if site_id not in all_corrections:
+            logger.debug(
+                f"Transcription corrections not found for site '{site_id}', using empty corrections"
+            )
+            _transcription_corrections_cache[site_id] = {}
+            return {}
+
+        corrections = all_corrections[site_id]
+        _transcription_corrections_cache[site_id] = corrections
+        return corrections
+
+    except FileNotFoundError:
+        logger.debug(
+            f"Transcription corrections file not found, using empty corrections for site '{site_id}'"
+        )
+        _transcription_corrections_cache[site_id] = {}
+        return {}
+    except json.JSONDecodeError as e:
+        logger.error(f"Invalid JSON in transcription corrections file: {e}")
+        _transcription_corrections_cache[site_id] = {}
+        return {}
+    except Exception as e:
+        logger.warning(f"Could not load transcription corrections for {site_id}: {e}")
+        _transcription_corrections_cache[site_id] = {}
+        return {}
+
+
+def _normalize_transcript_format(transcript):
+    """Normalize transcript to dict format, handling string or list inputs."""
+    if isinstance(transcript, str):
+        return {"text": transcript, "words": []}
+    if isinstance(transcript, list):
+        # Combine list of transcripts into single dict
+        all_words = []
+        full_text = ""
+        for t in transcript:
+            all_words.extend(t.get("words", []))
+            full_text += " " + t.get("text", "")
+        return {"words": all_words, "text": full_text.strip()}
+    return transcript
+
+
+def _apply_text_corrections(text: str, corrections: dict[str, str]) -> tuple[str, list[str]]:
+    """
+    Apply corrections to text and return corrected text with list of applied corrections.
+
+    Returns:
+        Tuple of (corrected_text, corrections_applied_list)
+    """
+    corrected_text = text
+    corrections_applied = []
+
+    for incorrect, correct in corrections.items():
+        if incorrect in corrected_text:
+            corrected_text = corrected_text.replace(incorrect, correct)
+            corrections_applied.append(f"{incorrect} → {correct}")
+
+    return corrected_text, corrections_applied
+
+
+def _apply_word_corrections(words: list, corrections: dict[str, str]) -> list:
+    """Apply corrections to word objects, maintaining timestamp alignment."""
+    corrected_words = []
+    for word_obj in words:
+        word_text = word_obj.get("word", "")
+        corrected_word_text = word_text
+
+        for incorrect, correct in corrections.items():
+            if incorrect in corrected_word_text:
+                corrected_word_text = corrected_word_text.replace(incorrect, correct)
+
+        # Create new word object with corrected text
+        corrected_word = dict(word_obj)
+        corrected_word["word"] = corrected_word_text
+        corrected_words.append(corrected_word)
+
+    return corrected_words
+
+
+def apply_transcription_corrections(transcript: dict, site: str | None = None) -> dict:
+    """
+    Apply site-specific corrections to a transcription before chunking.
+
+    Corrections are applied to both the full text and individual word entries
+    to maintain timestamp alignment. Corrections are loaded from
+    transcription_corrections.json in the same directory.
+
+    Args:
+        transcript: Transcription dict with 'text' and 'words' fields
+        site: Site identifier for loading site-specific corrections (required)
+
+    Returns:
+        Corrected transcription dict with same structure
+
+    Examples:
+        >>> transcript = {"text": "Rajashijanakaranda spoke", "words": [{"word": "Rajashijanakaranda", ...}]}
+        >>> corrected = apply_transcription_corrections(transcript, "ananda")
+        >>> corrected["text"]
+        "Rajarsi Janakananda spoke"
+    """
+    if not site:
+        logger.warning("No site provided to apply_transcription_corrections, skipping corrections")
+        return transcript
+
+    # Normalize transcript format
+    transcript = _normalize_transcript_format(transcript)
+
+    # Load corrections for this site
+    corrections = _load_transcription_corrections(site)
+    if not corrections:
+        return transcript
+
+    # Apply corrections to full text and words
+    corrected_text, corrections_applied = _apply_text_corrections(
+        transcript.get("text", ""), corrections
+    )
+    corrected_words = _apply_word_corrections(transcript.get("words", []), corrections)
+
+    # Log corrections applied
+    if corrections_applied:
+        logger.info(
+            f"Applied {len(corrections_applied)} transcription correction(s) for site '{site}': "
+            + ", ".join(corrections_applied)
+        )
+
+    # Return corrected transcript
+    return {
+        **transcript,
+        "text": corrected_text,
+        "words": corrected_words,
+    }
 
 
 def save_youtube_transcription(youtube_data, file_path, transcripts, site=None):

@@ -18,11 +18,15 @@ interface ApprovalRequest {
   adminName: string;
   adminLocation: string;
   referenceNote?: string;
+  knowsAdmin?: boolean;
+  nearestCenter?: string;
+  connectionHistory?: string;
   status: "pending" | "approved" | "denied";
   createdAt: string;
   updatedAt: string;
   adminMessage?: string;
   processedBy?: string;
+  processedByName?: string;
 }
 
 interface AdminApprovalsPageProps {
@@ -32,7 +36,7 @@ interface AdminApprovalsPageProps {
 export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPageProps) {
   const router = useRouter();
   const { request: requestId } = router.query;
-  const [jwt, setJwt] = useState<string | null>(null);
+  const [jwtReady, setJwtReady] = useState(false);
   const [userRole, setUserRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [requests, setRequests] = useState<ApprovalRequest[]>([]);
@@ -47,13 +51,17 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
   const [dataLoaded, setDataLoaded] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
 
-  // Initialize JWT and get user role and email
+  // Use a ref for the JWT so token refreshes don't trigger data re-fetches
+  const jwtRef = React.useRef<string | null>(null);
+
+  // Initialize JWT and get user role and email with periodic refresh
+  // Token is stored in jwtRef to avoid triggering data re-fetches on refresh
   useEffect(() => {
-    const initJwt = async () => {
+    const refreshToken = async () => {
       const tokenRes = await fetch("/api/web-token");
       if (tokenRes.ok) {
         const data = await tokenRes.json();
-        setJwt(data.token);
+        jwtRef.current = data.token;
         // Decode token to get role and email
         try {
           const payload = JSON.parse(atob(data.token.split(".")[1]));
@@ -62,17 +70,39 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
         } catch (error) {
           console.error("Error decoding token:", error);
         }
+        // Only trigger data fetch on first token acquisition
+        if (!jwtReady) {
+          setJwtReady(true);
+        }
       } else {
         const fullPath = window.location.pathname + (window.location.search || "");
         window.location.href = `/login?redirect=${encodeURIComponent(fullPath)}`;
       }
     };
-    initJwt();
+    refreshToken();
+
+    // Periodic token refresh to prevent expiration while page is open and idle
+    // JWT tokens expire after 15 minutes, so refresh every 10 minutes
+    // This only updates the ref - does NOT trigger data re-fetches
+    const TOKEN_REFRESH_INTERVAL = 10 * 60 * 1000; // 10 minutes
+    const refreshInterval = setInterval(refreshToken, TOKEN_REFRESH_INTERVAL);
+
+    // Also refresh token when user returns to the page
+    const handleWindowFocus = () => {
+      refreshToken();
+    };
+    window.addEventListener("focus", handleWindowFocus);
+
+    return () => {
+      clearInterval(refreshInterval);
+      window.removeEventListener("focus", handleWindowFocus);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Fetch requests (pending by default; also fetch recently approved)
   useEffect(() => {
-    if (!jwt) return;
+    if (!jwtReady) return;
 
     const fetchRequests = async () => {
       setLoading(true);
@@ -84,16 +114,17 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
       }, 2000);
 
       try {
+        const currentJwt = jwtRef.current;
         const res = await fetch("/api/admin/pendingRequests", {
           headers: {
-            Authorization: `Bearer ${jwt}`,
+            ...(currentJwt ? { Authorization: `Bearer ${currentJwt}` } : {}),
           },
         });
 
         let data;
         try {
           data = await res.json();
-        } catch (jsonError) {
+        } catch (_jsonError) {
           // If response isn't valid JSON, show a server error message
           setMessage("Server returned an invalid response. Please try again.");
           setMessageType("error");
@@ -123,29 +154,47 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
         }
 
         const pendingList = data.requests || [];
-        // Additionally fetch recently approved for the "Recently Approved" section
-        let approvedList: ApprovalRequest[] = [];
+        // Additionally fetch recent decisions (both approved and denied) for the "Recent Decisions" section
+        let decisionsList: ApprovalRequest[] = [];
         try {
-          const approvedRes = await fetch("/api/admin/pendingRequests?status=approved&limit=10", {
-            headers: { Authorization: `Bearer ${jwt}` },
-          });
+          const latestJwt = jwtRef.current;
+          // Fetch both approved and denied requests in parallel
+          const [approvedRes, deniedRes] = await Promise.all([
+            fetch("/api/admin/pendingRequests?status=approved&limit=10", {
+              headers: { ...(latestJwt ? { Authorization: `Bearer ${latestJwt}` } : {}) },
+            }),
+            fetch("/api/admin/pendingRequests?status=denied&limit=10", {
+              headers: { ...(latestJwt ? { Authorization: `Bearer ${latestJwt}` } : {}) },
+            }),
+          ]);
+
           const approvedData = await approvedRes.json();
-          if (!approvedRes.ok) {
-            if (approvedData?.type === "firestore_index_error") {
-              const adminMsg = approvedData.adminMessage || "Database configuration required";
-              const idxUrl = approvedData.indexUrl;
-              const composed = idxUrl ? `${adminMsg}\n\nFirebase Console: ${idxUrl}` : adminMsg;
-              setMessage((prev) => (prev ? prev : composed));
-              setMessageType("error");
-            }
-          } else {
-            approvedList = approvedData.requests || [];
+          const deniedData = await deniedRes.json();
+
+          if (!approvedRes.ok && approvedData?.type === "firestore_index_error") {
+            const adminMsg = approvedData.adminMessage || "Database configuration required";
+            const idxUrl = approvedData.indexUrl;
+            const composed = idxUrl ? `${adminMsg}\n\nFirebase Console: ${idxUrl}` : adminMsg;
+            setMessage((prev) => (prev ? prev : composed));
+            setMessageType("error");
           }
-        } catch (e) {
+
+          if (!deniedRes.ok && deniedData?.type === "firestore_index_error") {
+            const adminMsg = deniedData.adminMessage || "Database configuration required";
+            const idxUrl = deniedData.indexUrl;
+            const composed = idxUrl ? `${adminMsg}\n\nFirebase Console: ${idxUrl}` : adminMsg;
+            setMessage((prev) => (prev ? prev : composed));
+            setMessageType("error");
+          }
+
+          const approvedList = approvedRes.ok ? approvedData.requests || [] : [];
+          const deniedList = deniedRes.ok ? deniedData.requests || [] : [];
+          decisionsList = [...approvedList, ...deniedList];
+        } catch (_e) {
           // non-fatal
         }
 
-        setRequests([...pendingList, ...approvedList]);
+        setRequests([...pendingList, ...decisionsList]);
 
         // If there's a specific request ID in the URL, select it
         if (requestId && typeof requestId === "string") {
@@ -167,7 +216,7 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
     };
 
     fetchRequests();
-  }, [jwt, requestId]);
+  }, [jwtReady, requestId]);
 
   const handleOpenActionModal = (request: ApprovalRequest, action: "approve" | "deny") => {
     setSelectedRequest(request);
@@ -177,7 +226,8 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
   };
 
   const handleProcessRequest = async () => {
-    if (!selectedRequest || !actionType || !jwt) return;
+    const currentJwt = jwtRef.current;
+    if (!selectedRequest || !actionType || !currentJwt) return;
 
     setProcessing(true);
     setMessage(null);
@@ -186,7 +236,7 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
       const res = await fetch("/api/admin/pendingRequests", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${jwt}`,
+          Authorization: `Bearer ${currentJwt}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -230,10 +280,9 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
 
   const pendingRequests = requests.filter((r) => r.status === "pending");
   const processedRequests = requests.filter((r) => r.status !== "pending");
-  const recentlyApproved = processedRequests
-    .filter((r) => r.status === "approved")
+  const recentDecisions = processedRequests
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-    .slice(0, 5);
+    .slice(0, 10);
 
   const mainContent = (
     <>
@@ -309,10 +358,38 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
                   </div>
                 </div>
 
-                {request.referenceNote && (
-                  <div className="mb-4 p-3 bg-gray-50 rounded-md text-sm">
-                    <span className="text-gray-700 font-medium">Reference: </span>
-                    <span className="text-gray-900">{request.referenceNote}</span>
+                {/* Additional context fields */}
+                {(request.knowsAdmin !== undefined ||
+                  request.nearestCenter ||
+                  request.connectionHistory ||
+                  request.referenceNote) && (
+                  <div className="mb-4 p-3 bg-gray-50 rounded-md text-sm space-y-2">
+                    {request.knowsAdmin !== undefined && (
+                      <div>
+                        <span className="text-gray-700 font-medium">Admin knows requester: </span>
+                        <span className={`${request.knowsAdmin ? "text-green-700" : "text-amber-700"} font-medium`}>
+                          {request.knowsAdmin ? "Yes" : "No"}
+                        </span>
+                      </div>
+                    )}
+                    {request.nearestCenter && (
+                      <div>
+                        <span className="text-gray-700 font-medium">Nearest center: </span>
+                        <span className="text-gray-900">{request.nearestCenter}</span>
+                      </div>
+                    )}
+                    {request.connectionHistory && (
+                      <div>
+                        <span className="text-gray-700 font-medium">Connection to organization: </span>
+                        <span className="text-gray-900">{request.connectionHistory}</span>
+                      </div>
+                    )}
+                    {request.referenceNote && (
+                      <div>
+                        <span className="text-gray-700 font-medium">Someone who knows them: </span>
+                        <span className="text-gray-900">{request.referenceNote}</span>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -361,45 +438,52 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
         </div>
       )}
 
-      {dataLoaded &&
-        ((userRole === "superuser" && recentlyApproved.length > 0) ||
-          (userRole !== "superuser" && recentlyApproved.length > 0)) && (
-          <div className="mt-8">
-            <h2 className="text-2xl font-bold mb-4">Recently Approved</h2>
-            <div className="space-y-4">
-              {recentlyApproved.map((request) => (
-                <div key={request.requestId} className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h3 className="font-semibold text-gray-900">{request.requesterName}</h3>
-                      <p className="text-sm text-gray-600">
-                        {isDemoModeEnabled() ? maskEmail(request.requesterEmail) : request.requesterEmail}
-                      </p>
-                    </div>
-                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
-                      Approved
+      {dataLoaded && recentDecisions.length > 0 && (
+        <div className="mt-8">
+          <h2 className="text-2xl font-bold mb-4">Recent Decisions</h2>
+          <div className="space-y-4">
+            {recentDecisions.map((request) => (
+              <div key={request.requestId} className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="font-semibold text-gray-900">{request.requesterName}</h3>
+                    <p className="text-sm text-gray-600">
+                      {isDemoModeEnabled() ? maskEmail(request.requesterEmail) : request.requesterEmail}
+                    </p>
+                  </div>
+                  <span
+                    className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                      request.status === "approved" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
+                    }`}
+                  >
+                    {request.status === "approved" ? "Approved" : "Denied"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-4 text-sm mt-2">
+                  <div>
+                    <span className="text-gray-500">Decided:</span>
+                    <span className="ml-2 text-gray-900">{new Date(request.updatedAt).toLocaleString()}</span>
+                  </div>
+                  <div>
+                    <span className="text-gray-500">By:</span>
+                    <span className="ml-2 text-gray-900">
+                      {/* Use processedByName/processedBy (actual processor) if available, fall back to adminName/adminEmail (assigned admin) for legacy records */}
+                      {request.processedByName || request.adminName} (
+                      {isDemoModeEnabled()
+                        ? maskEmail(request.processedBy || request.adminEmail)
+                        : request.processedBy || request.adminEmail}
+                      )
                     </span>
                   </div>
-                  <div className="grid grid-cols-2 gap-4 text-sm mt-2">
-                    <div>
-                      <span className="text-gray-500">Approved at:</span>
-                      <span className="ml-2 text-gray-900">{new Date(request.updatedAt).toLocaleString()}</span>
-                    </div>
-                    <div>
-                      <span className="text-gray-500">Approved by:</span>
-                      <span className="ml-2 text-gray-900">
-                        {request.adminName} ({isDemoModeEnabled() ? maskEmail(request.adminEmail) : request.adminEmail})
-                      </span>
-                    </div>
-                  </div>
-                  {request.adminMessage && (
-                    <p className="mt-2 text-sm text-gray-600 italic">&ldquo;{request.adminMessage}&rdquo;</p>
-                  )}
                 </div>
-              ))}
-            </div>
+                {request.adminMessage && (
+                  <p className="mt-2 text-sm text-gray-600 italic">&ldquo;{request.adminMessage}&rdquo;</p>
+                )}
+              </div>
+            ))}
           </div>
-        )}
+        </div>
+      )}
 
       {/* Action Modal */}
       <Modal
@@ -412,17 +496,41 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
       >
         {selectedRequest && (
           <div className="space-y-4">
-            <div className="bg-gray-50 rounded-lg p-4">
-              <p className="text-sm text-gray-600 mb-1">Requester</p>
-              <p className="font-semibold">{selectedRequest.requesterName}</p>
-              <p className="text-sm text-gray-600">
-                {isDemoModeEnabled() ? maskEmail(selectedRequest.requesterEmail) : selectedRequest.requesterEmail}
-              </p>
+            <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+              <div>
+                <p className="text-sm text-gray-600 mb-1">Requester</p>
+                <p className="font-semibold">{selectedRequest.requesterName}</p>
+                <p className="text-sm text-gray-600">
+                  {isDemoModeEnabled() ? maskEmail(selectedRequest.requesterEmail) : selectedRequest.requesterEmail}
+                </p>
+              </div>
+              {selectedRequest.knowsAdmin !== undefined && (
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">Admin knows requester</p>
+                  <p
+                    className={`text-sm font-medium ${selectedRequest.knowsAdmin ? "text-green-700" : "text-amber-700"}`}
+                  >
+                    {selectedRequest.knowsAdmin ? "Yes" : "No"}
+                  </p>
+                </div>
+              )}
+              {selectedRequest.nearestCenter && (
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">Nearest center</p>
+                  <p className="text-sm text-gray-900">{selectedRequest.nearestCenter}</p>
+                </div>
+              )}
+              {selectedRequest.connectionHistory && (
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">Connection to organization</p>
+                  <p className="text-sm text-gray-900">{selectedRequest.connectionHistory}</p>
+                </div>
+              )}
               {selectedRequest.referenceNote && (
-                <>
-                  <p className="text-sm text-gray-600 mt-3 mb-1">Reference</p>
+                <div>
+                  <p className="text-sm text-gray-600 mb-1">Someone who knows them</p>
                   <p className="text-sm text-gray-900">{selectedRequest.referenceNote}</p>
-                </>
+                </div>
               )}
             </div>
 

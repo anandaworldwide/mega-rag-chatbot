@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-var-requires */
+/* global __dirname, process */
 /** @type {import('jest').Config} */
 
 const path = require("path");
@@ -39,8 +39,8 @@ if (isServerTest) {
       "^@/types/(.*)$": "<rootDir>/src/types/$1",
       "^@/services/(.*)$": "<rootDir>/src/services/$1",
       "^@/components/(.*)$": "<rootDir>/src/components/$1",
-      "\.(css|less|scss|sass)$": "identity-obj-proxy",
-      "\.module\.(css|less|scss|sass)$": "identity-obj-proxy",
+      "\\.(css|less|scss|sass)$": "identity-obj-proxy",
+      "\\.module\\.(css|less|scss|sass)$": "identity-obj-proxy",
       "^react-markdown$": "<rootDir>/__mocks__/react-markdown.js",
       "^remark-gfm$": "<rootDir>/__mocks__/remark-gfm.js",
       "^next/server$": "<rootDir>/__mocks__/next/server.js",

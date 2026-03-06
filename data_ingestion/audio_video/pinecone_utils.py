@@ -33,20 +33,16 @@ Rate Limits:
 """
 
 
-def create_embeddings(chunks, client):
-    """
-    Generates embeddings for text chunks using OpenAI's API.
+def validate_and_prepare_chunks(chunks):
+    """Validate chunks and prepare texts for embedding.
 
-    Batch Processing:
-    - Processes all chunks in single API call
-    - Maintains chunk order for vector mapping
-    - Returns flat list of embeddings
-
-    Rate Limits: Determined by OpenAI API quotas
+    Returns:
+        tuple: (texts, valid_chunks) where texts is a list of validated text strings
+               and valid_chunks is the list of chunk dictionaries that passed validation.
+               Both lists are in the same order and have the same length.
     """
-    # Extract and validate text chunks
     texts = []
-    valid_chunk_indices = []
+    valid_chunks = []
 
     for i, chunk in enumerate(chunks):
         if not isinstance(chunk, dict):
@@ -75,9 +71,11 @@ def create_embeddings(chunks, client):
                 f"Chunk {i} text is very long ({len(text)} chars), truncating"
             )
             text = text[:8000]
+            # Update the chunk's text with the truncated version
+            chunk = {**chunk, "text": text}
 
         texts.append(text)
-        valid_chunk_indices.append(i)
+        valid_chunks.append(chunk)
 
     if not texts:
         raise ValueError("No valid text chunks found for embedding creation")
@@ -86,6 +84,11 @@ def create_embeddings(chunks, client):
         f"create_embeddings: Processing {len(texts)} valid text chunks out of {len(chunks)} total"
     )
 
+    return texts, valid_chunks
+
+
+def call_openai_embeddings_api(texts, client):
+    """Call OpenAI embeddings API and validate response."""
     model_name = os.getenv("OPENAI_INGEST_EMBEDDINGS_MODEL")
     if not model_name:
         raise ValueError("OPENAI_INGEST_EMBEDDINGS_MODEL environment variable not set")
@@ -118,6 +121,29 @@ def create_embeddings(chunks, client):
         raise
 
 
+def create_embeddings(chunks, client):
+    """
+    Generates embeddings for text chunks using OpenAI's API.
+
+    Batch Processing:
+    - Processes all chunks in single API call
+    - Maintains chunk order for vector mapping
+    - Returns embeddings and corresponding valid chunks
+
+    Rate Limits: Determined by OpenAI API quotas
+
+    Returns:
+        tuple: (embeddings, valid_chunks) where embeddings is a list of vector embeddings
+               and valid_chunks is the list of chunk dictionaries that were successfully
+               processed. Both lists are in the same order and have the same length.
+               Callers should use valid_chunks (not the original chunks) when storing
+               to ensure proper alignment between chunks and embeddings.
+    """
+    texts, valid_chunks = validate_and_prepare_chunks(chunks)
+    embeddings = call_openai_embeddings_api(texts, client)
+    return embeddings, valid_chunks
+
+
 def load_pinecone(index_name=None):
     """
     Initializes or connects to Pinecone index with error handling.
@@ -134,7 +160,15 @@ def load_pinecone(index_name=None):
     """
     if not index_name:
         index_name = os.getenv("PINECONE_INGEST_INDEX_NAME")
-    pc = Pinecone()
+
+    if not index_name:
+        raise ValueError("PINECONE_INGEST_INDEX_NAME environment variable not set")
+
+    api_key = os.getenv("PINECONE_API_KEY")
+    if not api_key:
+        raise ValueError("PINECONE_API_KEY environment variable not set")
+
+    pc = Pinecone(api_key=api_key)
     try:
         dimension_str = os.getenv("OPENAI_INGEST_EMBEDDINGS_DIMENSION")
         if not dimension_str:
@@ -152,11 +186,12 @@ def load_pinecone(index_name=None):
             spec=ServerlessSpec(cloud=cloud, region=region),
         )
     except PineconeException as e:
-        if e.status == 409:
+        error_str = str(e).lower()
+        if "409" in error_str or "already exists" in error_str:
             logger.info(
                 f"Index {index_name} already exists. Proceeding with existing index."
             )
-        elif e.status == 500:
+        elif "500" in error_str or "internal server" in error_str:
             logger.error("Internal Server Error. Please try again later.")
         else:
             logger.error(f"Unexpected error: {e}")

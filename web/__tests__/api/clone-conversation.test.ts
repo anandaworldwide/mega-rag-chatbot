@@ -14,8 +14,7 @@ jest.mock("@/services/firebase", () => ({
 }));
 
 // Get reference to the mocked module for dynamic reassignment
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const mockFirebase = require("@/services/firebase");
+const mockFirebase = jest.requireMock("@/services/firebase");
 
 // Mock JWT utils
 jest.mock("@/utils/server/jwtUtils", () => ({

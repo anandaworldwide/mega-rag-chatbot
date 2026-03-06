@@ -67,6 +67,11 @@ const CronJobsPage = ({ siteConfig }: CronJobsPageProps) => {
       endpoint: "/api/cron/download-locations",
       description: "Downloads location data CSV from external source and updates S3 if changed",
     },
+    {
+      name: "Model Performance Digest",
+      endpoint: "/api/admin/model-performance-digest",
+      description: "Sends daily email digest of model performance metrics for the last 24 hours",
+    },
   ];
 
   const mainContent = (
