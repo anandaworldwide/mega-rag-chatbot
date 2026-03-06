@@ -37,6 +37,45 @@ const SingleAnswer = ({ siteConfig }: SingleAnswerProps) => {
   const [error, setError] = useState<string | null>(null);
   // Add ref to track initial load
   const initialLoadRef = useRef(true);
+  // Check if user is admin or superuser (for login-required sites)
+  const [isAdminOrSuperuser, setIsAdminOrSuperuser] = useState(false);
+
+  // Check admin/superuser status for login-required sites
+  useEffect(() => {
+    const checkAdminStatus = async () => {
+      if (!siteConfig?.requireLogin) return;
+
+      // Check sessionStorage cache first
+      const cachedRole = sessionStorage.getItem("userRole");
+      if (cachedRole) {
+        try {
+          const { role, timestamp } = JSON.parse(cachedRole);
+          // Cache valid for 1 hour
+          if (Date.now() - timestamp < 60 * 60 * 1000) {
+            setIsAdminOrSuperuser(role === "admin" || role === "superuser");
+            return;
+          }
+        } catch {
+          // Invalid cache, continue to fetch
+        }
+      }
+
+      try {
+        const response = await queryFetch("/api/profile");
+        if (response.ok) {
+          const data = await response.json();
+          const role = (data?.role as string)?.toLowerCase() || "user";
+          setIsAdminOrSuperuser(role === "admin" || role === "superuser");
+          // Cache the result
+          sessionStorage.setItem("userRole", JSON.stringify({ role, timestamp: Date.now() }));
+        }
+      } catch (error) {
+        console.error("Failed to check admin status:", error);
+      }
+    };
+
+    checkAdminStatus();
+  }, [siteConfig?.requireLogin]);
 
   // Redirect to new share URL format
   useEffect(() => {
@@ -251,6 +290,7 @@ const SingleAnswer = ({ siteConfig }: SingleAnswerProps) => {
               handleDelete={handleDelete}
               linkCopied={linkCopied ? answer.id : null}
               isSudoUser={isSudoUser}
+              isAdminOrSuperuser={isAdminOrSuperuser}
               isFullPage={true}
               siteConfig={siteConfig}
             />

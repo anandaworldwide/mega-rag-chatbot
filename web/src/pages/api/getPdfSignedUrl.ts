@@ -34,7 +34,7 @@ async function validateShareAccess(docId: string, pdfS3Key: string): Promise<boo
       );
     });
     return found;
-  } catch (error) {
+  } catch (_error) {
     return false;
   }
 }
@@ -85,7 +85,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         if (decoded && !token.includes("placeholder")) {
           isAuthenticated = true;
         }
-      } catch (error) {
+      } catch (_error) {
         // Token invalid, continue as anonymous
       }
     }

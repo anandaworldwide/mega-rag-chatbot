@@ -1005,20 +1005,14 @@ chains.
 2. Mock factories run before variables are initialized (hoisting issues)
 3. Need to dynamically change mocks per test case
 
-**Wrong**: Trying to reassign const imports or using variables in mock factories.
+**Wrong**: Using `require()` which triggers ESLint `@typescript-eslint/no-require-imports` error.
 
 ```typescript
-import { db } from "@/services/firebase";
-
-jest.mock("@/services/firebase", () => ({
-  db: mockDb, // ReferenceError: mockDb not initialized
-}));
-
-// Later in test
-(db as any) = null; // Error: Assignment to constant variable
+// ESLint error: A `require()` style import is forbidden
+const { db } = require("@/services/firebase");
 ```
 
-**Correct**: Create mock, then use require() to get reference to module object for dynamic reassignment.
+**Correct**: Use `jest.requireMock()` to get reference to mocked modules without linter errors.
 
 ```typescript
 // Mock Firebase module
@@ -1029,33 +1023,24 @@ jest.mock("@/services/firebase", () => ({
   },
 }));
 
-// Get reference to mocked module for dynamic reassignment
-const mockFirebase = require("@/services/firebase");
+// Get reference to mocked module - NO eslint-disable needed
+const { db } = jest.requireMock("@/services/firebase");
+const { genericRateLimiter } = jest.requireMock("@/utils/server/genericRateLimiter");
+const loadSiteConfig = jest.requireMock("@/utils/server/loadSiteConfig");
 
-// In beforeEach, reset to default
-beforeEach(() => {
-  mockFirebase.db = {
-    collection: jest.fn(),
-    batch: jest.fn(),
-  };
-});
-
-// In specific tests, reassign as needed
-it("should handle missing database", async () => {
-  mockFirebase.db = null; // Can reassign module object property
-  // ... test code
-});
+// For dynamic reassignment per test
+const mockFirebase = jest.requireMock("@/services/firebase");
+mockFirebase.db = null; // Can reassign module object property
 ```
 
-**Pattern**: For tests that need dynamic mock reassignment:
+**Pattern**: For tests that need access to mocked modules:
 
-1. Create mock with basic structure in jest.mock()
-2. Use `require()` to get reference to mocked module object
-3. Reassign properties of the module object (`mockFirebase.db = ...`)
-4. Reset in beforeEach for isolation
+1. Create mock with basic structure in `jest.mock()`
+2. Use `jest.requireMock()` (not `require()`) to get reference to mocked module
+3. This avoids ESLint `@typescript-eslint/no-require-imports` errors
+4. For dynamic reassignment, get the module object and reassign properties
 
-**Applied To**: Fixed clone-conversation tests that needed to mock `db` as null or with different implementations per
-test.
+**Applied To**: Fixed `pendingRequests.test.ts` and other test files.
 
 ### 31. Jest Mock Constant Hoisting Issue
 
@@ -1763,3 +1748,142 @@ return isOpen && createPortal(
 5. Use `requestAnimationFrame` to ensure DOM has updated before calculating position
 
 **Applied To**: Fixed `TaskPopover.tsx` flickering on open.
+
+### 44. Approval Workflows Must Track Actual Approver, Not Just Assigned Approver
+
+**Problem**: When a request is routed to an admin but a Super User (or different admin) approves it, the UI shows the
+originally assigned admin as the approver instead of the person who actually approved.
+
+**Root Cause**: The system stored `adminEmail` and `adminName` (the originally assigned approver) but only stored
+`processedBy` (email) without the name. The UI then displayed the assigned admin's info because that's all it had.
+
+**Wrong**: Only storing the email of who processed the request.
+
+```typescript
+const updates = {
+  status: "approved",
+  processedBy: adminEmail, // Just the email, no name
+};
+// UI shows: request.adminName (assigned admin) - WRONG!
+```
+
+**Correct**: Store both email and name of the actual approver.
+
+```typescript
+// Look up the approver's name from Firestore
+const adminDoc = await transaction.get(adminDocRef);
+const firstName = adminDoc.data()?.firstName || "";
+const lastName = adminDoc.data()?.lastName || "";
+const processedByName = `${firstName} ${lastName}`.trim() || adminEmail;
+
+const updates = {
+  status: "approved",
+  processedBy: adminEmail,
+  processedByName: processedByName, // Store the actual approver's name
+};
+
+// UI shows: request.processedByName || request.adminName (fallback for legacy)
+```
+
+**Pattern**: For approval/action workflows where multiple people can process requests:
+
+1. Always store both `processedBy` (email) and `processedByName` (display name)
+2. Look up the actor's name from Firestore if not in JWT
+3. Update related records (e.g., `invitedByEmail`, `invitedByName`) to reflect actual approver
+4. UI should display `processedByName` with fallback to `adminName` for legacy records
+
+**Applied To**: Fixed Admin Approvals page (`pendingRequests.ts`, `approvals.tsx`) to show correct approver when Super
+User approves requests assigned to other admins.
+
+### 45. JWT Token Refresh Must Not Trigger Data Re-fetches
+
+**Problem**: Admin pages that refresh JWT tokens periodically (every 10 minutes via `setInterval`) inadvertently trigger
+full data re-fetches because the JWT is stored in React state and the data-fetching `useEffect` depends on that state.
+
+**Root Cause**: `setJwt(newToken)` updates state -> `useEffect([jwt, ...])` fires -> data re-fetched. This fills up
+server logs with unnecessary API calls every 10 minutes per idle admin tab.
+
+**Wrong**: Storing JWT in state that data-fetching effects depend on.
+
+```typescript
+const [jwt, setJwt] = useState<string | null>(null);
+
+// Token refresh updates state every 10 minutes
+setInterval(() => {
+  setJwt(newToken); // Triggers re-render + data fetch
+}, TOKEN_REFRESH_INTERVAL);
+
+// Data fetch depends on jwt state
+useEffect(() => {
+  if (!jwt) return;
+  fetchData(); // Re-runs every time jwt changes!
+}, [jwt, ...otherDeps]);
+```
+
+**Correct**: Store JWT in a ref, use a one-time boolean state for initial readiness.
+
+```typescript
+const jwtRef = React.useRef<string | null>(null);
+const [jwtReady, setJwtReady] = useState(false);
+
+// Token refresh only updates ref (no re-render)
+setInterval(() => {
+  jwtRef.current = newToken; // Silent update
+}, TOKEN_REFRESH_INTERVAL);
+
+// Initial token sets jwtReady once
+if (!jwtReady) setJwtReady(true);
+
+// Data fetch only runs once on initial token + when filters change
+useEffect(() => {
+  if (!jwtReady) return;
+  fetchData();
+}, [jwtReady, ...otherDeps]);
+
+// API calls read from ref for latest token
+const currentJwt = jwtRef.current;
+```
+
+**Pattern**: For pages with periodic token refresh + data fetching:
+
+1. Store JWT in `useRef` instead of `useState`
+2. Use a `jwtReady` boolean state that flips once on first token acquisition
+3. Data-fetching `useEffect` depends on `jwtReady` (not the token value)
+4. API calls read `jwtRef.current` for the latest token
+5. `fetchWithTokenRefresh` handles stale tokens by retrying with fresh ones
+
+**Applied To**: Fixed all admin pages (`index.tsx`, `pending.tsx`, `approvals.tsx`, `add.tsx`).
+
+### 46. SQLite Locking Protocol Recovery on EFS
+
+**Problem**: On EFS-backed SQLite, transient `sqlite3.OperationalError: locking protocol` can appear even with a single
+crawler instance, and then cascade into follow-up DB read/write failures.
+
+**Wrong**: Logging the error and returning fallback data (e.g., zero stats) without reconnection/retry.
+
+```python
+try:
+    cursor.execute("SELECT ...")
+except Exception as e:
+    logging.error(f"Error getting queue stats: {e}")
+    return {"pending": 0, "visited": 0, "failed": 0, "total": 0}  # Misleading
+```
+
+**Correct**: Detect lock protocol errors, reconnect SQLite, re-apply PRAGMAs, retry once, and mark session as fatal if
+recovery fails.
+
+```python
+if "locking protocol" in str(error).lower():
+    if recover_database_connection():
+        return retry_operation_once()
+    mark_db_recovery_failed("...")  # Trigger graceful session exit
+```
+
+**Pattern**:
+
+1. Add centralized lock-protocol recovery in DB wrapper/decorator.
+2. Reconnect with `timeout=60`, `check_same_thread=False`, then re-apply:
+   `journal_mode=WAL`, `busy_timeout=60000`, `synchronous=NORMAL`.
+3. Retry the failed DB operation once only.
+4. If retry still fails, mark DB as unrecoverable and exit the crawler loop cleanly.
+5. Never log fake zero stats when DB is unavailable; mark stats as unavailable instead.

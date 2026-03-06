@@ -56,6 +56,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Python dependency security audit
+        if: matrix.python-version == '3.11'
+        run: |
+          ./bin/run-pip-audit.sh
+
       - name: Install Node.js dependencies
         working-directory: ./web
         run: npm ci

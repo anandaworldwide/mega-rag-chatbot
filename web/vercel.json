@@ -30,7 +30,7 @@
     },
     {
       "path": "/api/admin/model-performance-digest",
-      "schedule": "15 14 * * *"
+      "schedule": "15 14 * * 3,6"
     }
   ],
   "buildCommand": "npm install dotenv && npm install --include=dev && npm run build-with-api-tests",

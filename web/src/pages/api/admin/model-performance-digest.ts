@@ -18,17 +18,33 @@ function formatNumber(value: number) {
   return Number.isFinite(value) ? value.toFixed(2) : "0.00";
 }
 
-function getTtfbIndicator(ttfbMs: number): string {
+function getTtfbStatus(ttfbMs: number): { emoji: string; label: "GOOD" | "WARNING" | "CRITICAL" } {
   // TTFB values are in milliseconds
-  // Green indicator: < 3000ms (3 seconds) - good performance
-  // Yellow indicator: >= 3000ms (3 seconds) - warning
+  // Green indicator: < 4000ms (4 seconds) - good performance
+  // Yellow indicator: >= 4000ms (4 seconds) - warning
   // Red indicator: >= 6000ms (6 seconds) - critical
   if (ttfbMs >= 6000) {
-    return "🔴 [CRITICAL] ";
-  } else if (ttfbMs >= 3000) {
-    return "⚠️ [WARNING] ";
+    return { emoji: "🔴", label: "CRITICAL" };
+  } else if (ttfbMs >= 4000) {
+    return { emoji: "⚠️", label: "WARNING" };
   }
-  return "✅ [GOOD] ";
+  return { emoji: "✅", label: "GOOD" };
+}
+
+function getOverallTtfbMs(summaries: ReturnType<ModelPerformanceAggregator["buildSummary"]>): number {
+  let weightedTotal = 0;
+  let sampleCount = 0;
+
+  summaries.forEach((summary) => {
+    const count = summary.metrics.ttfbMs.count;
+    const mean = summary.metrics.ttfbMs.mean;
+    if (!Number.isFinite(mean) || count <= 0) return;
+    weightedTotal += mean * count;
+    sampleCount += count;
+  });
+
+  if (sampleCount === 0) return 0;
+  return weightedTotal / sampleCount;
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -49,7 +65,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   try {
     const now = new Date();
-    const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const since = new Date(now.getTime() - 72 * 60 * 60 * 1000);
     const sinceTimestamp = fbadmin.firestore.Timestamp.fromDate(since);
     const collectionName = getModelPerformanceCollectionName();
 
@@ -85,7 +101,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const header = [
       `Model performance digest for ${siteId} (${environment})`,
-      `Window: last 24 hours`,
+      `Window: last 72 hours`,
       `Since: ${since.toISOString()}`,
       ``,
       `SUMMARY:`,
@@ -97,14 +113,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const modelSections =
       summaries.length === 0
-        ? "No model performance records in the last 24 hours."
+        ? "No model performance records in the last 72 hours."
         : summaries
             .map((summary) => {
               const metrics = summary.metrics;
-              const ttfbIndicator = getTtfbIndicator(metrics.ttfbMs.mean);
+              const ttfbStatus = getTtfbStatus(metrics.ttfbMs.mean);
               const lines = [
                 `MODEL: ${summary.model} (n=${summary.count})`,
-                `- TTFB avg: ${ttfbIndicator}${formatSeconds(metrics.ttfbMs.mean)} (stdev ${formatSeconds(metrics.ttfbMs.stdDev)}, n=${metrics.ttfbMs.count})`,
+                `- TTFB avg: ${ttfbStatus.emoji} [${ttfbStatus.label}] ${formatSeconds(metrics.ttfbMs.mean)} (stdev ${formatSeconds(metrics.ttfbMs.stdDev)}, n=${metrics.ttfbMs.count})`,
                 `- Answer streaming avg: ${formatSeconds(metrics.answerStreamingMs.mean)} (stdev ${formatSeconds(metrics.answerStreamingMs.stdDev)}, n=${metrics.answerStreamingMs.count})`,
                 `- Total session avg: ${formatSeconds(metrics.totalSessionMs.mean)} (stdev ${formatSeconds(metrics.totalSessionMs.stdDev)}, n=${metrics.totalSessionMs.count})`,
                 `- Tokens/sec avg: ${formatNumber(metrics.tokensPerSecond.mean)} (stdev ${formatNumber(metrics.tokensPerSecond.stdDev)}, n=${metrics.tokensPerSecond.count})`,
@@ -119,16 +135,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       ``,
       `---`,
       `TTFB Thresholds:`,
-      `- ✅ [GOOD] < 3.00s (3000ms)`,
-      `- ⚠️ [WARNING] >= 3.00s (3000ms)`,
+      `- ✅ [GOOD] < 4.00s (4000ms)`,
+      `- ⚠️ [WARNING] >= 4.00s (4000ms)`,
       `- 🔴 [CRITICAL] >= 6.00s (6000ms)`,
     ].join("\n");
 
     const body = `${header}${modelSections}${footer}`;
-    const subject = `Model performance digest: ${totals.totalRecords} records, ${totals.errorRecords} errors`;
+    const overallTtfbMs = getOverallTtfbMs(summaries);
+    const overallTtfbStatus = getTtfbStatus(overallTtfbMs);
+    const subject = `Model performance TTFB ${overallTtfbStatus.emoji} ${formatSeconds(overallTtfbMs)}`;
 
     if (totals.totalRecords > 0 || totals.errorRecords > 0) {
-      await sendOpsAlert(subject, body);
+      await sendOpsAlert(subject, body, undefined, { alertLabel: "" });
     }
 
     return res.status(200).json({

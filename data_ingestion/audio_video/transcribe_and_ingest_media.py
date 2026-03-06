@@ -82,6 +82,7 @@ from data_ingestion.audio_video.processing_time_estimates import (  # noqa: E402
 from data_ingestion.audio_video.transcription_utils import (  # noqa: E402
     RateLimitError,
     UnsupportedAudioFormatError,
+    apply_transcription_corrections,
     chunk_transcription,
     get_saved_transcription,
     init_db,
@@ -453,6 +454,8 @@ def _process_and_store_transcription(
             )
 
         logger.info(f"Processing transcripts for {file_name}")
+        # Apply site-specific corrections before chunking
+        transcription = apply_transcription_corrections(transcription, site)
         chunks = chunk_transcription(transcription)
         if isinstance(chunks, dict) and "error" in chunks:
             error_msg = (

@@ -250,7 +250,7 @@ async function applyRateLimiting(req: NextRequest, siteConfig: SiteConfig): Prom
       max: isDevelopment() ? siteConfig.queriesPerUserPerDay * 10 : siteConfig.queriesPerUserPerDay,
       name: "query",
     },
-    req.ip
+    getClientIp(req)
   );
 
   if (!isAllowed) {
@@ -1075,22 +1075,23 @@ async function handleChatRequest(req: NextRequest) {
 
         // Execute the full chain
         timingMetrics.chainExecutionStart = Date.now();
-        const { fullResponse, finalDocs, restatedQuestion, suggestions, model, temperature } = await setupAndExecuteLanguageModelChain(
-          retriever,
-          sanitizedInput.question, // Use sanitized question (whitespace normalized) for AI processing
-          sanitizedInput.history || [],
-          sendData,
-          sourceCount,
-          filter,
-          siteConfig,
-          timingMetrics.startTime,
-          sanitizedInput.temporarySession || false,
-          req, // Pass the request object for geo-awareness
-          timingMetrics, // Pass timing metrics for detailed tracking
-          sanitizedInput.modelOverride, // Pass model override if provided
-          sanitizedInput.selectedLibraries, // Pass selected libraries for filtering
-          sanitizedInput.taskMode // Pass task mode to skip reformulation
-        );
+        const { fullResponse, finalDocs, restatedQuestion, suggestions, model, temperature } =
+          await setupAndExecuteLanguageModelChain(
+            retriever,
+            sanitizedInput.question, // Use sanitized question (whitespace normalized) for AI processing
+            sanitizedInput.history || [],
+            sendData,
+            sourceCount,
+            filter,
+            siteConfig,
+            timingMetrics.startTime,
+            sanitizedInput.temporarySession || false,
+            req,
+            timingMetrics,
+            sanitizedInput.modelOverride,
+            sanitizedInput.selectedLibraries,
+            sanitizedInput.taskMode
+          );
         // --- End of Encapsulated Call ---
         timingMetrics.answerStreamingComplete = Date.now();
 

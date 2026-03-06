@@ -21,6 +21,7 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 # Import from crawler submodules (support both module and direct execution)
 try:
@@ -31,6 +32,7 @@ except ImportError:
 # Import email utilities
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from pyutil.email_ops import send_ops_alert_sync
+from pyutil.email_ops import get_site_shortname
 
 # Optional AWS imports
 try:
@@ -45,6 +47,50 @@ except ImportError:
     ClientError = Exception  # type: ignore[assignment, misc]
 
 logger = logging.getLogger(__name__)
+
+# Pacific timezone for report display
+PACIFIC_TZ = ZoneInfo("America/Los_Angeles")
+
+
+def format_timestamp_pacific(timestamp_str: str | None) -> str:
+    """Convert a timestamp string to Pacific time format.
+
+    Args:
+        timestamp_str: Timestamp string in ISO format or SQLite format (YYYY-MM-DD HH:MM:SS)
+
+    Returns:
+        Formatted timestamp string in Pacific time, or original if parsing fails
+    """
+    if not timestamp_str:
+        return "Never (or database error)"
+
+    try:
+        # Parse the timestamp - handle both ISO format and SQLite format
+        if "T" in timestamp_str:
+            # ISO format: 2026-01-20T00:22:25.883577
+            dt = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+        else:
+            # SQLite format: 2026-01-20 00:22:25
+            dt = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+
+        # If naive datetime, assume UTC
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+
+        # Convert to Pacific time
+        pacific_dt = dt.astimezone(PACIFIC_TZ)
+
+        month_name = pacific_dt.strftime("%B")
+        day = pacific_dt.day
+        hour_12 = pacific_dt.hour % 12 or 12
+        minute = pacific_dt.strftime("%M")
+        am_pm = pacific_dt.strftime("%p")
+        tz_abbr = pacific_dt.strftime("%Z")
+
+        return f"{month_name} {day}, {hour_12}:{minute} {am_pm} {tz_abbr}."
+    except (ValueError, TypeError) as e:
+        logger.warning(f"Could not parse timestamp '{timestamp_str}': {e}")
+        return timestamp_str
 
 
 def get_database_path(site_id: str) -> Path:
@@ -186,7 +232,10 @@ def _process_cloudwatch_events(events: list[dict[str, Any]]) -> list[dict[str, A
     errors = []
     for event in events:
         timestamp_ms = event.get("timestamp", 0)
-        timestamp_dt = datetime.fromtimestamp(timestamp_ms / 1000)
+        # CloudWatch timestamps are in UTC
+        timestamp_dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=ZoneInfo("UTC"))
+        # Convert to Pacific time for display
+        pacific_dt = timestamp_dt.astimezone(PACIFIC_TZ)
         message = event.get("message", "").strip()
 
         # Skip 404 errors - they're expected in crawlers and not consequential
@@ -194,7 +243,7 @@ def _process_cloudwatch_events(events: list[dict[str, Any]]) -> list[dict[str, A
         if message and not _404_PATTERN.search(message):
             errors.append(
                 {
-                    "timestamp": timestamp_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                    "timestamp": pacific_dt.strftime("%Y-%m-%d %I:%M:%S %p %Z"),
                     "message": message,
                 }
             )
@@ -289,23 +338,37 @@ def format_report(
     report_lines.append("=== Crawler Health Summary ===")
     error_count = len(errors)
     processed_count = activity.get("urls_processed", 0)
+    ready_to_process = queue_stats.get("ready_to_process", 0)
 
     # Determine overall health status
-    if error_count == 0 and processed_count > 0:
+    # HEALTHY if:
+    #   - No CloudWatch errors AND
+    #   - Either processed some URLs OR nothing was ready to process
+    # NEEDS ATTENTION if:
+    #   - CloudWatch errors exist OR
+    #   - URLs were ready but none were processed (crawler may be stuck)
+    if error_count == 0 and (processed_count > 0 or ready_to_process == 0):
         status = "HEALTHY"
-    elif error_count > 0 or processed_count == 0:
+    elif error_count > 0:
+        status = "NEEDS ATTENTION"
+    elif processed_count == 0 and ready_to_process > 0:
+        # URLs were ready but nothing was processed - crawler may be stuck
         status = "NEEDS ATTENTION"
     else:
         status = "UNKNOWN"
 
     report_lines.append(f"Status: {status}")
 
+    # Convert last crawl time to Pacific
     last_crawl = activity.get("last_crawl_time")
-    if last_crawl:
-        report_lines.append(f"Last successful crawl: {last_crawl}")
-    else:
-        report_lines.append("Last successful crawl: Never (or database error)")
+    last_crawl_formatted = format_timestamp_pacific(last_crawl)
+    report_lines.append(f"Last successful crawl: {last_crawl_formatted}")
 
+    report_lines.append("")
+
+    # Activity
+    report_lines.append("=== Activity (Last 24h) ===")
+    report_lines.append(f"- URLs processed: {processed_count}")
     report_lines.append("")
 
     # Queue status
@@ -316,11 +379,6 @@ def format_report(
     report_lines.append(f"- Completed: {queue_stats.get('visited', 0)}")
     report_lines.append(f"- Failed: {queue_stats.get('failed', 0)}")
     report_lines.append(f"- Deleted: {queue_stats.get('deleted', 0)}")
-    report_lines.append("")
-
-    # Activity
-    report_lines.append("=== Activity (Last 24h) ===")
-    report_lines.append(f"- URLs processed: {processed_count}")
     report_lines.append("")
 
     # CloudWatch errors
@@ -339,10 +397,14 @@ def format_report(
 
 def generate_subject_line(site_id: str, ready: int, processed: int, errors: int) -> str:
     """Generate email subject line with key metrics."""
-    # Format subject with metrics: "[ananda-public] Daily Crawler: 142 ready | 87 processed | 3 errors"
+    site_shortname = get_site_shortname(site_id)
+    # Format subject with metrics: "[Vivek] Daily Crawler: 3 errors | 142 ready | 87 processed"
     # Note: We format with site prefix here, and email_ops.py will skip adding dev/prod prefix
     # since it detects the subject already starts with '['
-    subject = f"[{site_id}] Daily Crawler: {ready} ready | {processed} processed | {errors} errors"
+    subject = (
+        f"[{site_shortname}] Daily Crawler: "
+        f"{errors} errors | {ready} ready | {processed} processed"
+    )
     return subject
 
 
@@ -408,16 +470,21 @@ def main():
 
     # Send email
     logger.info(f"Sending daily report email with subject: {subject}")
-    success = send_ops_alert_sync(
-        subject=subject,
-        message=report_body,
-        error_details={
+
+    error_details = None
+    if errors:
+        error_details = {
             "context": {
                 "site_id": site_id,
                 "report_type": "daily_operations",
-                "timestamp": datetime.now().isoformat(),
+                "cloudwatch_error_count": error_count,
             }
-        },
+        }
+
+    success = send_ops_alert_sync(
+        subject=subject,
+        message=report_body,
+        error_details=error_details,
     )
 
     if success:

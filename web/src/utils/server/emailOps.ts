@@ -2,6 +2,7 @@
 // It uses AWS SES for email delivery and supports multiple recipient addresses.
 
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
+import { loadSiteConfigSync } from "./loadSiteConfig";
 
 const ses = new SESClient({
   region: process.env.AWS_REGION || "us-east-1",
@@ -10,6 +11,25 @@ const ses = new SESClient({
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
   },
 });
+
+const SITE_SHORTNAME_FALLBACKS: Record<string, string> = {
+  ananda: "Luca",
+  "ananda-public": "Vivek",
+  crystal: "Crystal",
+  jairam: "FJH",
+  photo: "PhotoWise",
+};
+
+function getSiteShortname(siteId: string): string {
+  if (process.env.SITE_CONFIG) {
+    const siteConfig = loadSiteConfigSync(siteId);
+    if (siteConfig?.shortname?.trim()) {
+      return siteConfig.shortname.trim();
+    }
+  }
+
+  return SITE_SHORTNAME_FALLBACKS[siteId] || siteId;
+}
 
 /**
  * Sends an operational alert email to the configured ops team.
@@ -26,6 +46,9 @@ export async function sendOpsAlert(
     error?: Error;
     context?: Record<string, any>;
     stack?: string;
+  },
+  options?: {
+    alertLabel?: string;
   }
 ): Promise<boolean> {
   try {
@@ -80,7 +103,12 @@ export async function sendOpsAlert(
 
     // Determine environment and site for subject line
     const environment = process.env.NODE_ENV === "production" ? "prod" : "dev";
-    const siteName = process.env.SITE_ID || "unknown";
+    const siteId = process.env.SITE_ID || "unknown";
+    const siteShortname = getSiteShortname(siteId);
+    const alertLabel = options?.alertLabel ?? "OPS ALERT";
+    const subjectPrefix = alertLabel
+      ? `[${siteShortname} chatbot ${environment} ${alertLabel}]`
+      : `[${siteShortname} chatbot ${environment}]`;
 
     const params = {
       Source: process.env.CONTACT_EMAIL || "noreply@ananda.org",
@@ -89,7 +117,7 @@ export async function sendOpsAlert(
       },
       Message: {
         Subject: {
-          Data: `[${siteName} chatbot ${environment} OPS ALERT] ${subject}`,
+          Data: `${subjectPrefix} ${subject}`,
         },
         Body: {
           Text: {

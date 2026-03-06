@@ -37,10 +37,14 @@ export default function MagicLoginPage() {
           let decoded = redirect;
           try {
             decoded = decodeURIComponent(decoded);
-          } catch {}
+          } catch {
+            // Ignore decode errors - use value as-is
+          }
           try {
             decoded = decodeURIComponent(decoded);
-          } catch {}
+          } catch {
+            // Ignore decode errors - use value as-is
+          }
           // Only allow internal redirects
           if (decoded.startsWith("/")) target = decoded;
         }

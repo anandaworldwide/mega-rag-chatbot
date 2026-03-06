@@ -89,7 +89,7 @@ jobs:
           echo "🔒 Running security audits..."
 
           echo "✅ Python security audit"
-          pip-audit --desc --output=json || echo "⚠️  pip-audit not available, install with: pip install pip-audit"
+          ./bin/run-pip-audit.sh
 
           echo "✅ Node.js security audit"
           cd web && npm audit --audit-level=moderate || echo "⚠️  Security audit completed with warnings"

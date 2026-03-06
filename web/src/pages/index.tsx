@@ -53,7 +53,7 @@ import { ExtendedAIMessage } from "@/types/ExtendedAIMessage";
 import { StreamingResponseData } from "@/types/StreamingResponseData";
 import { TypedSuggestion } from "@/types/Suggestion";
 import { SudoProvider, useSudo } from "@/contexts/SudoContext";
-import { fetchWithAuth } from "@/utils/client/tokenManager";
+import { fetchWithAuth, isAuthenticated, initializeTokenManager } from "@/utils/client/tokenManager";
 import { getOrCreateUUID } from "@/utils/client/uuid";
 import { loadConversationByConvId } from "@/utils/client/conversationLoader";
 import { getGreeting } from "@/utils/client/siteConfig";
@@ -957,6 +957,82 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   // Check if user is sudo (only relevant on no-login sites)
   const { isSudoUser } = useSudo();
 
+  // Check if user is admin or superuser (for login-required sites)
+  const [isAdminOrSuperuser, setIsAdminOrSuperuser] = useState(false);
+
+  // Check admin/superuser status for login-required sites
+  useEffect(() => {
+    const checkAdminStatus = async () => {
+      // Only check for login-required sites
+      if (!siteConfig?.requireLogin) {
+        setIsAdminOrSuperuser(false);
+        return;
+      }
+
+      // Wait for token manager to initialize
+      try {
+        await initializeTokenManager();
+      } catch {
+        setIsAdminOrSuperuser(false);
+        return;
+      }
+
+      // Check if user is authenticated
+      if (!isAuthenticated()) {
+        setIsAdminOrSuperuser(false);
+        return;
+      }
+
+      // Check sessionStorage cache first (1-hour TTL)
+      try {
+        const cached = sessionStorage.getItem("userRole");
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          const isExpired = Date.now() - parsed.timestamp > 60 * 60 * 1000;
+          if (!isExpired && parsed.role) {
+            const isAdmin = parsed.role === "admin" || parsed.role === "superuser";
+            setIsAdminOrSuperuser(isAdmin);
+            return;
+          }
+        }
+      } catch {
+        // Invalid cache, continue to API call
+      }
+
+      // Make API call to check role
+      try {
+        const res = await fetch("/api/profile", { credentials: "include" });
+        if (!res.ok) {
+          setIsAdminOrSuperuser(false);
+          return;
+        }
+
+        const data = await res.json();
+        const role = (data?.role as string) || "user";
+        const isAdmin = role === "admin" || role === "superuser";
+
+        // Cache the result
+        try {
+          sessionStorage.setItem(
+            "userRole",
+            JSON.stringify({
+              role,
+              timestamp: Date.now(),
+            })
+          );
+        } catch {
+          // sessionStorage failed, continue without caching
+        }
+
+        setIsAdminOrSuperuser(isAdmin);
+      } catch {
+        setIsAdminOrSuperuser(false);
+      }
+    };
+
+    checkAdminStatus();
+  }, [siteConfig?.requireLogin]);
+
   const updateMessageState = useCallback(
     (newResponse: string, newSourceDocs: Document[] | null) => {
       setMessageState((prevState) => {
@@ -1622,8 +1698,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       setLoading(false);
     } catch (error) {
       // Don't show error if user intentionally stopped the request
-      const isAbortError =
-        error instanceof DOMException && error.name === "AbortError";
+      const isAbortError = error instanceof DOMException && error.name === "AbortError";
       if (!isAbortError) {
         console.error("Error in handleSubmit:", error);
         setError(error instanceof Error ? error.message : "An error occurred while streaming the response.");
@@ -2159,8 +2234,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setLoading(false);
       } catch (error) {
         // Don't show error if user intentionally stopped the request
-        const isAbortError =
-          error instanceof DOMException && error.name === "AbortError";
+        const isAbortError = error instanceof DOMException && error.name === "AbortError";
         if (!isAbortError) {
           console.error("Error regenerating answer:", error);
           toast.error("Failed to regenerate answer. Please try again.");
@@ -2262,6 +2336,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             temporarySession,
             mediaTypes,
             selectedLibraries: selectedLibrariesRef.current,
+            sourceCount: sourceCountRef.current,
             uuid: getOrCreateUUID(),
             convId: currentConvIdRef.current,
             modelOverride: selectedModelRef.current, // Always send the selected model
@@ -2370,8 +2445,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setLoading(false);
       } catch (error) {
         // Don't show error if user intentionally stopped the request
-        const isAbortError =
-          error instanceof DOMException && error.name === "AbortError";
+        const isAbortError = error instanceof DOMException && error.name === "AbortError";
         if (!isAbortError) {
           console.error("Error saving edited question:", error);
           toast.error("Failed to save edited question. Please try again.");
@@ -2783,16 +2857,18 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
   // Effect to set initial collection and focus input on component mount
   useEffect(() => {
-    // Retrieve and set the collection from the cookie
-    // TODO: This is a hack for jairam site test
-    const savedCollection =
-      Cookies.get("selectedCollection") || (process.env.SITE_ID === "jairam" ? "whole_library" : "master_swami");
-    setCollection(savedCollection);
+    // Retrieve collection from cookie, falling back to first collection in site config
+    const collections = siteConfig?.collectionConfig ? Object.keys(siteConfig.collectionConfig) : [];
+    const defaultCollection = collections[0] || "whole_library";
+    const savedCollection = Cookies.get("selectedCollection") || defaultCollection;
+    // Validate the saved collection exists in the current site's config
+    const validCollection = collections.includes(savedCollection) ? savedCollection : defaultCollection;
+    setCollection(validCollection);
 
     if (!isLoadingQueries && window.innerWidth > 768) {
       textAreaRef.current?.focus();
     }
-  }, [isLoadingQueries]);
+  }, [isLoadingQueries, siteConfig?.collectionConfig]);
 
   // Custom hook to check if multiple collections are available
   const hasMultipleCollections = useMultipleCollections(siteConfig || undefined);
@@ -2876,12 +2952,12 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const formatTimingMetrics = useCallback(() => {
     if (!timingMetrics) return null;
 
-    const { ttfb, tokensPerSecond, totalTokens } = timingMetrics;
+    const { ttfb, tokensPerSecond } = timingMetrics;
 
     if (ttfb === undefined || tokensPerSecond === undefined) return null;
 
     const ttfbSecs = (ttfb / 1000).toFixed(2);
-    return `${ttfbSecs} secs to first character, then ${tokensPerSecond} chars/sec streamed (${totalTokens} total)`;
+    return `${ttfbSecs} secs to first character, then ${tokensPerSecond} chars/sec streamed`;
   }, [timingMetrics]);
 
   // Function to handle scroll behavior and button visibility
@@ -3108,9 +3184,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                 <div className="flex-1 flex flex-col items-center justify-center px-4">
                   {/* Greeting message */}
                   <div className="text-center mb-8">
-                    <h1 className="text-xl md:text-2xl font-semibold text-gray-800">
-                      {messages[0]?.message}
-                    </h1>
+                    <h1 className="text-xl md:text-2xl font-semibold text-gray-800">{messages[0]?.message}</h1>
                   </div>
                   {/* ChatInput with suggestions - centered */}
                   <div className="w-full max-w-2xl">
@@ -3160,92 +3234,101 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                     {/* Messages container - scrollable area */}
                     <div className="h-full overflow-hidden answers-container">
                       <div ref={messageListRef} className="h-full overflow-y-auto">
-                      {/* Render chat messages */}
-                      {messages.map((message, index) => (
-                        <React.Fragment key={`chatMessage-${index}`}>
-                          <div
-                            ref={(el) => {
-                              // Store ref for user messages to enable scrolling/highlighting
-                              if (el && message.type === "userMessage") {
-                                userMessageRefs.current.set(index, el);
-                              } else if (message.type !== "userMessage") {
-                                userMessageRefs.current.delete(index);
-                              }
-                            }}
-                          >
-                            <MessageItem
-                              messageKey={`chatMessage-${index}`}
-                              message={message}
-                              previousMessage={index > 0 ? messages[index - 1] : undefined}
-                              index={index}
-                              isLastMessage={index === messages.length - 1}
-                              loading={loading}
-                              temporarySession={temporarySession}
-                              collectionChanged={collectionChanged}
-                              hasMultipleCollections={hasMultipleCollections}
-                              linkCopied={linkCopied}
-                              votes={votes}
-                              siteConfig={siteConfig}
-                              handleCopyLink={handleCopyLink}
-                              handleVote={handleVote}
-                              lastMessageRef={lastMessageRef}
-                              voteError={voteError}
-                              allowAllAnswersPage={siteConfig?.allowAllAnswersPage ?? false}
-                              onSuggestionClick={handleSuggestionClick}
-                              onTryGPT41={handleTryGPT41}
-                              isRegenerating={isRegenerating && regeneratingMessageIndex === index}
-                              onRegenerateAnswer={handleRegenerateAnswer}
-                              onEditQuestion={handleEditQuestion}
-                              isEditing={editingMessageIndex === index}
-                              editingText={editingText}
-                              onSaveEdit={handleSaveEdit}
-                              onCancelEdit={handleCancelEdit}
-                              sourceLinkCopied={sourceLinkCopied}
-                              onSourceExpanded={handleSourceExpanded}
-                              onSourceLinkCopied={handleSourceLinkCopied}
-                              isTaskConversation={isTaskConversation && index === messages.length - 1}
-                              taskFollowups={
-                                isTaskConversation && index === messages.length - 1
-                                  ? currentTaskFollowups.filter((f) => !usedTaskFollowups.includes(f))
-                                  : []
-                              }
-                              dynamicFollowups={isTaskConversation && index === messages.length - 1 ? dynamicFollowups : []}
-                              isLoadingDynamicFollowups={
-                                isTaskConversation && index === messages.length - 1 && isLoadingDynamicFollowups
-                              }
-                              onTaskFollowupClick={handleFollowupSelect}
-                            />
-                          </div>
-
-                          {/* Show comparison UI if this message is being regenerated */}
-                          {regeneratingMessageIndex === index && regeneratedAnswer && (
-                            <div className="px-4 pb-4">
-                              <AnswerComparison
-                                originalAnswer={message}
-                                newAnswer={regeneratedAnswer}
-                                originalModel={siteConfig?.modelName || "GPT-4"}
-                                newModel="GPT-4.1"
-                                isStreaming={isRegenerating}
+                        {/* Render chat messages */}
+                        {messages.map((message, index) => (
+                          <React.Fragment key={`chatMessage-${index}`}>
+                            <div
+                              ref={(el) => {
+                                // Store ref for user messages to enable scrolling/highlighting
+                                if (el && message.type === "userMessage") {
+                                  userMessageRefs.current.set(index, el);
+                                } else if (message.type !== "userMessage") {
+                                  userMessageRefs.current.delete(index);
+                                }
+                              }}
+                            >
+                              <MessageItem
+                                messageKey={`chatMessage-${index}`}
+                                message={message}
+                                previousMessage={index > 0 ? messages[index - 1] : undefined}
+                                index={index}
+                                isLastMessage={index === messages.length - 1}
+                                loading={loading}
+                                temporarySession={temporarySession}
+                                collectionChanged={collectionChanged}
+                                hasMultipleCollections={hasMultipleCollections}
+                                linkCopied={linkCopied}
+                                votes={votes}
+                                siteConfig={siteConfig}
+                                handleCopyLink={handleCopyLink}
+                                handleVote={handleVote}
+                                lastMessageRef={lastMessageRef}
+                                voteError={voteError}
+                                allowAllAnswersPage={siteConfig?.allowAllAnswersPage ?? false}
+                                onSuggestionClick={handleSuggestionClick}
+                                onTryGPT41={handleTryGPT41}
+                                isRegenerating={isRegenerating && regeneratingMessageIndex === index}
+                                onRegenerateAnswer={handleRegenerateAnswer}
+                                onEditQuestion={handleEditQuestion}
+                                isEditing={editingMessageIndex === index}
+                                editingText={editingText}
+                                onSaveEdit={handleSaveEdit}
+                                onCancelEdit={handleCancelEdit}
+                                sourceLinkCopied={sourceLinkCopied}
+                                onSourceExpanded={handleSourceExpanded}
+                                onSourceLinkCopied={handleSourceLinkCopied}
+                                isTaskConversation={isTaskConversation && index === messages.length - 1}
+                                taskFollowups={
+                                  isTaskConversation && index === messages.length - 1
+                                    ? currentTaskFollowups.filter((f) => !usedTaskFollowups.includes(f))
+                                    : []
+                                }
+                                dynamicFollowups={
+                                  isTaskConversation && index === messages.length - 1 ? dynamicFollowups : []
+                                }
+                                isLoadingDynamicFollowups={
+                                  isTaskConversation && index === messages.length - 1 && isLoadingDynamicFollowups
+                                }
+                                onTaskFollowupClick={handleFollowupSelect}
+                                isAdminOrSuperuser={isAdminOrSuperuser}
+                                timingMetricsDisplay={
+                                  (isSudoUser || isAdminOrSuperuser) &&
+                                  timingMetrics &&
+                                  !loading &&
+                                  index === messages.length - 1 ? (
+                                    <div className="text-xs text-gray-500 p-2 bg-gray-50 rounded m-2">
+                                      {formatTimingMetrics()}
+                                    </div>
+                                  ) : undefined
+                                }
                               />
-                              {/* Feedback button - only show after streaming completes */}
-                              {!isRegenerating && (
-                                <div className="mt-4 flex justify-center">
-                                  <button
-                                    onClick={() => setShowComparisonFeedbackModal(true)}
-                                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow-md transition-colors"
-                                  >
-                                    Which answer was better?
-                                  </button>
-                                </div>
-                              )}
                             </div>
-                          )}
-                        </React.Fragment>
-                      ))}
-                        {/* Display timing metrics for sudo users */}
-                        {isSudoUser && timingMetrics && !loading && messages.length > 0 && (
-                          <div className="text-xs text-gray-500 p-2 bg-gray-50 rounded m-2">{formatTimingMetrics()}</div>
-                        )}
+
+                            {/* Show comparison UI if this message is being regenerated */}
+                            {regeneratingMessageIndex === index && regeneratedAnswer && (
+                              <div className="px-4 pb-4">
+                                <AnswerComparison
+                                  originalAnswer={message}
+                                  newAnswer={regeneratedAnswer}
+                                  originalModel={siteConfig?.modelName || "GPT-4"}
+                                  newModel="GPT-4.1"
+                                  isStreaming={isRegenerating}
+                                />
+                                {/* Feedback button - only show after streaming completes */}
+                                {!isRegenerating && (
+                                  <div className="mt-4 flex justify-center">
+                                    <button
+                                      onClick={() => setShowComparisonFeedbackModal(true)}
+                                      className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow-md transition-colors"
+                                    >
+                                      Which answer was better?
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </React.Fragment>
+                        ))}
                         {/* Bottom spacer to allow scrolling past last content item */}
                         <div ref={bottomOfListRef} className="h-4 md:h-1" />
                       </div>

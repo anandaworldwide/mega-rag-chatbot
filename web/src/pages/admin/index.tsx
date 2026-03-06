@@ -79,7 +79,7 @@ export default function AdminDashboardPage({ isSudoAdmin, siteConfig }: AdminDas
   const [activeLoading, setActiveLoading] = useState(false);
   const [showLoading, setShowLoading] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
-  const [jwt, setJwt] = useState<string | null>(null);
+  const [jwtReady, setJwtReady] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pagination, setPagination] = useState<PaginationInfo | null>(null);
   const [sortBy, setSortBy] = useState<SortOption>("activity-desc");
@@ -87,14 +87,18 @@ export default function AdminDashboardPage({ isSudoAdmin, siteConfig }: AdminDas
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState<string>("");
   const [showAdminsOnly, setShowAdminsOnly] = useState<boolean>(false);
 
+  // Use a ref for the JWT so token refreshes don't trigger data re-fetches
+  const jwtRef = React.useRef<string | null>(null);
+
   // Shared function to handle token refresh and retry logic
   async function fetchWithTokenRefresh<T>(
     url: string,
     options: RequestInit = {}
   ): Promise<{ data: T; refreshedToken?: string }> {
+    const currentJwt = jwtRef.current;
     const res = await fetch(url, {
       ...options,
-      headers: jwt ? { Authorization: `Bearer ${jwt}`, ...options.headers } : options.headers,
+      headers: currentJwt ? { Authorization: `Bearer ${currentJwt}`, ...options.headers } : options.headers,
     });
     const data = await res.json();
 
@@ -104,6 +108,7 @@ export default function AdminDashboardPage({ isSudoAdmin, siteConfig }: AdminDas
       if (tokenRes.ok) {
         const tokenData = await tokenRes.json();
         const newToken = tokenData.token;
+        jwtRef.current = newToken;
 
         // Retry the original request with new token
         const retryRes = await fetch(url, {
@@ -159,15 +164,10 @@ export default function AdminDashboardPage({ isSudoAdmin, siteConfig }: AdminDas
         params.append("adminsOnly", "true");
       }
 
-      const { data, refreshedToken } = await fetchWithTokenRefresh<{
+      const { data } = await fetchWithTokenRefresh<{
         items: any[];
         pagination: PaginationInfo;
       }>(`/api/admin/listActiveUsers?${params.toString()}`);
-
-      // Update JWT if it was refreshed
-      if (refreshedToken) {
-        setJwt(refreshedToken);
-      }
 
       const items: ActiveUser[] = (data.items || []).map((it: any) => ({
         email: it.email,
@@ -199,14 +199,19 @@ export default function AdminDashboardPage({ isSudoAdmin, siteConfig }: AdminDas
   }
 
   // Acquire a short-lived JWT on mount and handle token refresh
+  // Token is stored in jwtRef to avoid triggering data re-fetches on refresh
   useEffect(() => {
-    async function getToken() {
+    async function refreshToken() {
       try {
         const res = await fetch("/api/web-token");
         const data = await res.json();
         if (res.ok && data?.token) {
-          setJwt(data.token);
+          jwtRef.current = data.token;
           setMessage(null); // Clear any previous error messages
+          // Only trigger data fetch on first token acquisition
+          if (!jwtReady) {
+            setJwtReady(true);
+          }
         } else if (res.status === 401) {
           // Token expired or authentication issue - redirect to login
           const fullPath = window.location.pathname + (window.location.search || "");
@@ -220,51 +225,26 @@ export default function AdminDashboardPage({ isSudoAdmin, siteConfig }: AdminDas
         setMessageType("error");
       }
     }
-    getToken();
+    refreshToken();
 
     // Periodic token refresh to prevent expiration while page is open and idle
     // JWT tokens expire after 15 minutes, so refresh every 10 minutes
+    // This only updates the ref - does NOT trigger data re-fetches
     const TOKEN_REFRESH_INTERVAL = 10 * 60 * 1000; // 10 minutes
-    const refreshInterval = setInterval(() => {
-      getToken();
-    }, TOKEN_REFRESH_INTERVAL);
+    const refreshInterval = setInterval(refreshToken, TOKEN_REFRESH_INTERVAL);
 
-    return () => clearInterval(refreshInterval);
-  }, []);
-
-  // Add window focus listener to refresh token when user returns to page
-  useEffect(() => {
-    async function handleWindowFocus() {
-      // Always refresh token on focus to handle cases where:
-      // 1. Token expired while tab was inactive
-      // 2. Browser was suspended/resumed
-      try {
-        const res = await fetch("/api/web-token");
-        const data = await res.json();
-        if (res.ok && data?.token) {
-          setJwt(data.token);
-          setMessage(null);
-        } else if (res.status === 401) {
-          const fullPath = window.location.pathname + (window.location.search || "");
-          window.location.href = `/login?redirect=${encodeURIComponent(fullPath)}`;
-        }
-      } catch (e) {
-        console.error("Failed to refresh token on focus:", e);
-      }
-    }
-
+    // Also refresh token when user returns to the page
+    const handleWindowFocus = () => {
+      refreshToken();
+    };
     window.addEventListener("focus", handleWindowFocus);
-    return () => window.removeEventListener("focus", handleWindowFocus);
-  }, []);
 
-  // Fetch active users once JWT is available (only for login-required sites)
-  useEffect(() => {
-    if (!loginRequired || !jwt) return;
-    fetchActive(currentPage);
-    // Intentionally only depends on jwt to refetch if token is refreshed
+    return () => {
+      clearInterval(refreshInterval);
+      window.removeEventListener("focus", handleWindowFocus);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jwt, currentPage, loginRequired]);
-  // Note: fetchActive is not included to avoid infinite loops
+  }, []);
 
   // Debounce search query to prevent excessive API calls
   useEffect(() => {
@@ -275,13 +255,12 @@ export default function AdminDashboardPage({ isSudoAdmin, siteConfig }: AdminDas
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // Fetch active users when page, sort, debounced search, or admin filter changes (only for login-required sites)
+  // Fetch active users once JWT is available and when filters/page change (only for login-required sites)
   useEffect(() => {
-    if (!loginRequired || !jwt) return;
+    if (!loginRequired || !jwtReady) return;
     fetchActive(currentPage);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, jwt, sortBy, debouncedSearchQuery, showAdminsOnly, loginRequired]);
-  // Note: fetchActive is not included to avoid infinite loops
+  }, [currentPage, jwtReady, sortBy, debouncedSearchQuery, showAdminsOnly, loginRequired]);
 
   // Handle sort change
   const handleSortChange = (newSort: SortOption) => {

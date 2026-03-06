@@ -58,7 +58,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
         userUuid = tokenPayload.uuid;
         userEmail = tokenPayload.email || null;
-      } catch (error) {
+      } catch (_error) {
         return res.status(401).json({ error: "Authentication required. Please log in to continue." });
       }
     } else {

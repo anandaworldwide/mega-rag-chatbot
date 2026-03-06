@@ -383,6 +383,131 @@ class TestSQLiteIntegration(BaseWebsiteCrawlerTest):
         crawler.close()
 
 
+class TestDatabaseRecovery(BaseWebsiteCrawlerTest):
+    """Test database recovery behavior for SQLite locking protocol faults."""
+
+    def setUp(self):
+        """Set up test environment."""
+        super().setUp()
+        self.temp_dir = tempfile.mkdtemp()
+        self.site_id = "test-site"
+        self.site_config = {
+            "domain": "example.com",
+            "skip_patterns": [],
+            "crawl_frequency_days": 7,
+        }
+
+        self.path_patcher = patch("crawler.website_crawler.Path")
+        mock_path_constructor = self.path_patcher.start()
+        mock_path_constructor.return_value.parent.return_value = Path(self.temp_dir)
+
+        self.original_sqlite_connect = sqlite3.connect
+        self.connect_patcher = patch("sqlite3.connect")
+        mock_sqlite_connect = self.connect_patcher.start()
+        mock_sqlite_connect.side_effect = (
+            lambda db_path_arg, **kwargs: self.original_sqlite_connect(":memory:")
+        )
+
+    def tearDown(self):
+        """Clean up after tests."""
+        self.path_patcher.stop()
+        self.connect_patcher.stop()
+        shutil.rmtree(self.temp_dir)
+        super().tearDown()
+
+    def test_recover_database_connection_success_resets_failure_flags(self):
+        """Recovering the DB connection clears fatal recovery state."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+        crawler.mark_db_recovery_failed("test failure")
+        self.assertTrue(crawler.is_db_recovery_failed())
+
+        self.assertTrue(crawler.recover_database_connection())
+        self.assertFalse(crawler.is_db_recovery_failed())
+        self.assertIsNone(crawler.get_db_recovery_failure_reason())
+
+        assert crawler.cursor is not None
+        crawler.cursor.execute("SELECT 1")
+        self.assertEqual(crawler.cursor.fetchone()[0], 1)
+        crawler.close()
+
+    def test_recover_database_connection_returns_false_when_db_file_missing(self):
+        """Recovery should fail cleanly when db_file is not available."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+        crawler.db_file = None
+
+        self.assertFalse(crawler.recover_database_connection())
+        crawler.close()
+
+    def test_requires_db_retries_once_on_locking_protocol(self):
+        """Decorator retries once when a locking protocol error occurs."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        mock_cursor = MagicMock()
+        mock_cursor.execute.side_effect = [
+            sqlite3.OperationalError("locking protocol"),
+            None,
+        ]
+        mock_cursor.fetchone.return_value = ("https://example.com/retry",)
+        crawler.cursor = mock_cursor
+
+        with patch.object(crawler, "recover_database_connection", return_value=True) as recover_mock:
+            result = crawler.is_url_in_database("https://example.com/retry")
+
+        self.assertTrue(result)
+        self.assertEqual(mock_cursor.execute.call_count, 2)
+        recover_mock.assert_called_once()
+        crawler.close()
+
+    def test_requires_db_marks_failure_when_recovery_fails(self):
+        """Decorator should raise and mark fatal state when recovery cannot reconnect."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+        mock_cursor = MagicMock()
+        mock_cursor.execute.side_effect = sqlite3.OperationalError("locking protocol")
+        crawler.cursor = mock_cursor
+
+        with patch.object(crawler, "recover_database_connection", return_value=False), patch.object(
+            crawler, "mark_db_recovery_failed"
+        ) as mark_failed_mock, self.assertRaises(sqlite3.OperationalError):
+            crawler.is_url_in_database("https://example.com/fail")
+
+        mark_failed_mock.assert_called_once()
+        crawler.close()
+
+    def test_get_queue_stats_marks_unavailable_when_recovery_fails(self):
+        """Queue stats should be marked unavailable after unrecoverable lock error."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+        mock_cursor = MagicMock()
+        mock_cursor.execute.side_effect = sqlite3.OperationalError("locking protocol")
+        crawler.cursor = mock_cursor
+
+        with patch.object(crawler, "recover_database_connection", return_value=False):
+            stats = crawler.get_queue_stats()
+
+        self.assertFalse(stats["available"])
+        self.assertTrue(crawler.is_db_recovery_failed())
+        crawler.close()
+
+    def test_check_loop_exit_conditions_exits_on_db_recovery_failure(self):
+        """Crawler loop should exit immediately when DB recovery is marked failed."""
+        from crawler.crawl_loop import _check_loop_exit_conditions
+
+        crawler = MagicMock()
+        crawler.is_db_recovery_failed.return_value = True
+        crawler.get_db_recovery_failure_reason.return_value = "test failure"
+        crawler.health_monitor.is_shutdown_requested.return_value = False
+
+        args = MagicMock()
+        result = _check_loop_exit_conditions(
+            crawler=crawler,
+            start_time=0.0,
+            max_runtime_seconds=9999.0,
+            args=args,
+            pages_processed=0,
+        )
+
+        self.assertTrue(result)
+
+
 class TestCSVFunctionality(BaseWebsiteCrawlerTest):
     """Test cases for CSV functionality."""
 
@@ -739,6 +864,127 @@ https://example.com/page2,2025-07-13 09:30:00,Test Page 2
             # Should process CSV and add URLs
             added_count = crawler.check_and_process_csv(mock_browser)
             self.assertEqual(added_count, 1)
+
+        crawler.close()
+
+    def test_trash_then_republish_requeues_url(self):
+        """Test that a URL trashed then re-published gets re-added to queue.
+
+        Simulates the WordPress scenario where a page is trashed (remove)
+        and then re-published (add/update) shortly after. Both rows appear
+        in the same CSV. The URL must end up with status='pending' so it
+        gets re-crawled.
+        """
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        now = datetime.now()
+        trash_date = now - timedelta(minutes=2)
+        republish_date = now - timedelta(minutes=1)
+
+        # Pre-populate: URL was previously crawled
+        test_url = "https://example.com/another-test-page/"
+        normalized_url = crawler.normalize_url(test_url)
+        assert crawler.cursor is not None
+        assert crawler.conn is not None
+        crawler.cursor.execute(
+            """INSERT INTO crawl_queue 
+            (url, status, priority, last_crawl, next_crawl, crawl_frequency)
+            VALUES (?, 'visited', 5, ?, datetime('now', '+7 days'), 14)""",
+            (normalized_url, (now - timedelta(hours=1)).isoformat()),
+        )
+        crawler.conn.commit()
+
+        csv_data = [
+            {
+                "URL": test_url,
+                "Modified Date": trash_date.strftime("%m/%d/%y %H:%M"),
+                "Post Title": "Another Test",
+                "Required Action": "remove",
+            },
+            {
+                "URL": test_url,
+                "Modified Date": republish_date.strftime("%m/%d/%y %H:%M"),
+                "Post Title": "Another Test",
+                "Required Action": "Add/Update",
+            },
+        ]
+
+        mock_index = Mock()
+        mock_index.query.return_value = Mock(matches=[])
+
+        crawler.process_csv_data(csv_data, pinecone_index=mock_index)
+
+        # URL must be pending so it gets re-crawled
+        crawler.cursor.execute(
+            "SELECT status, priority FROM crawl_queue WHERE url = ?",
+            (normalized_url,),
+        )
+        result = crawler.cursor.fetchone()
+        self.assertIsNotNone(result, "URL should still exist in crawl_queue")
+        self.assertEqual(result[0], "pending", "Status should be 'pending' after re-publish")
+        self.assertEqual(result[1], 10, "Priority should be 10 (CSV high priority)")
+
+        crawler.close()
+
+    def test_add_url_to_queue_reactivates_deleted_url(self):
+        """Test that add_url_to_queue resets a deleted URL back to pending."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        test_url = "https://example.com/deleted-page/"
+        normalized_url = crawler.normalize_url(test_url)
+        assert crawler.cursor is not None
+        assert crawler.conn is not None
+
+        # Insert a deleted URL with same priority that CSV would use
+        crawler.cursor.execute(
+            """INSERT INTO crawl_queue 
+            (url, status, priority, last_crawl, next_crawl, crawl_frequency)
+            VALUES (?, 'deleted', 10, datetime('now'), datetime('now', '+7 days'), 14)""",
+            (normalized_url,),
+        )
+        crawler.conn.commit()
+
+        result = crawler.add_url_to_queue(test_url, priority=10)
+        self.assertEqual(result, "updated_priority")
+
+        crawler.cursor.execute(
+            "SELECT status FROM crawl_queue WHERE url = ?",
+            (normalized_url,),
+        )
+        row = crawler.cursor.fetchone()
+        self.assertEqual(row[0], "pending")
+
+        crawler.close()
+
+    def test_should_process_csv_url_allows_deleted_urls(self):
+        """Test that _should_process_csv_url doesn't skip deleted URLs
+        even when last_crawl is recent."""
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+
+        test_url = "https://example.com/deleted-page/"
+        normalized_url = crawler.normalize_url(test_url)
+        now = datetime.now()
+        assert crawler.cursor is not None
+        assert crawler.conn is not None
+
+        # Insert a deleted URL with a very recent last_crawl
+        crawler.cursor.execute(
+            """INSERT INTO crawl_queue 
+            (url, status, priority, last_crawl, next_crawl, crawl_frequency)
+            VALUES (?, 'deleted', 5, ?, datetime('now', '+7 days'), 14)""",
+            (normalized_url, now.isoformat()),
+        )
+        crawler.conn.commit()
+
+        # Modified date older than last_crawl — would normally be skipped
+        modified_date = now - timedelta(hours=1)
+        cutoff_date = now - timedelta(days=1)
+
+        should_process, reason = crawler._should_process_csv_url(
+            test_url, modified_date, cutoff_date
+        )
+        self.assertTrue(should_process, "Deleted URLs should always be re-processed")
+        self.assertEqual(reason, "")
 
         crawler.close()
 

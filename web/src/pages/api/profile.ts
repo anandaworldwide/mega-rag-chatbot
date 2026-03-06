@@ -212,7 +212,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           isCompletingActivation = true;
 
           // Initialize email preferences if not set (migrate from legacy newsletterSubscribed)
-          if (!userData?.emailPreferences) {
+          if (!userData?.emailPreferences && updates.emailPreferences === undefined) {
             updates.emailPreferences = getDefaultEmailPreferences();
             // Also set newsletterSubscribed for backward compatibility
             if (userData?.newsletterSubscribed !== undefined) {

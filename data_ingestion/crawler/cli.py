@@ -175,7 +175,10 @@ def _execute_crawler(
             )
             if not crawler.is_initial_crawl_completed():
                 logging.info("--force-csv-mode: Forcing initial crawl completion")
-                crawler.mark_initial_crawl_completed()
+                if not crawler.mark_initial_crawl_completed():
+                    logging.warning(
+                        "--force-csv-mode: Failed to mark initial crawl completed"
+                    )
 
         if crawler.csv_mode_enabled:
             logging.debug(

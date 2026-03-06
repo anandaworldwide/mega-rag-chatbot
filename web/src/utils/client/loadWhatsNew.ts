@@ -25,7 +25,7 @@ export interface WhatsNewData {
  * @returns Promise that resolves to What's New data with version, wiki URL, and entries, or null if not available
  */
 export async function loadSiteWhatsNew(siteConfig: SiteConfig | null): Promise<WhatsNewData | null> {
-  if (!siteConfig?.siteId) {
+  if (!siteConfig?.siteId || !siteConfig.enableWhatsNew) {
     return null;
   }
 
@@ -60,7 +60,7 @@ export async function loadSiteWhatsNew(siteConfig: SiteConfig | null): Promise<W
  * @returns Promise that resolves to true if What's New content is available, false otherwise
  */
 export async function isWhatsNewAvailable(siteConfig: SiteConfig | null): Promise<boolean> {
-  if (!siteConfig?.siteId) {
+  if (!siteConfig?.siteId || !siteConfig.enableWhatsNew) {
     return false;
   }
 

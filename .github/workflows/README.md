@@ -18,6 +18,7 @@ This directory contains automated CI/CD workflows for the Ananda Library Chatbot
 - Executes the complete **Validation Checklist** from `PYTHON_UPGRADE_TODO.md`:
   - Import sweep testing
   - Dependency integrity checks
+  - Python dependency security audit with `pip-audit` across all repo requirement files
   - Static analysis with Ruff
   - PDF processing dry-run
   - Node.js linting and type checking
@@ -97,6 +98,7 @@ Test the validation checklist locally:
 # Python validation
 python bin/import_sweep.py
 python -m pip check
+./bin/run-pip-audit.sh
 python -m pytest -q tests/
 python -m ruff check data_ingestion/ bin/ pyutil/ evaluation/
 

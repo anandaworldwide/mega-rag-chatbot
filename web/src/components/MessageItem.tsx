@@ -54,6 +54,8 @@ interface MessageItemProps {
   dynamicFollowups?: string[]; // AI-generated context-specific follow-ups
   isLoadingDynamicFollowups?: boolean; // Loading state for dynamic follow-ups
   onTaskFollowupClick?: (suggestion: string) => void; // Handler for task follow-up clicks
+  timingMetricsDisplay?: React.ReactNode; // Timing metrics to display before suggestions
+  isAdminOrSuperuser?: boolean; // For login-required sites: whether user is admin/superuser
 }
 
 const MessageItem: React.FC<MessageItemProps> = ({
@@ -91,8 +93,12 @@ const MessageItem: React.FC<MessageItemProps> = ({
   dynamicFollowups = [],
   isLoadingDynamicFollowups = false,
   onTaskFollowupClick,
+  timingMetricsDisplay,
+  isAdminOrSuperuser = false,
 }) => {
   const { isSudoUser } = useSudo();
+  // Combine sudo user status with admin/superuser status for privileged access
+  const isPrivilegedUser = isSudoUser || isAdminOrSuperuser;
   const [localEditingText, setLocalEditingText] = React.useState(editingText);
 
   // Feature flag for alternate AI comparison button (temporarily disabled)
@@ -113,7 +119,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
             sources={message.sourceDocs}
             collectionName={collectionChanged && hasMultipleCollections ? message.collection : null}
             siteConfig={siteConfig}
-            isSudoAdmin={isSudoUser}
+            isSudoAdmin={isPrivilegedUser}
             docId={message.docId}
             sourceLinkCopied={sourceLinkCopied}
             onSourceExpanded={onSourceExpanded}
@@ -391,11 +397,17 @@ const MessageItem: React.FC<MessageItemProps> = ({
               </div>
             )}
 
+            {/* Timing metrics - display before suggestions */}
+            {timingMetricsDisplay && isLastMessage && message.type === "apiMessage" && (
+              <div className="mt-2">{timingMetricsDisplay}</div>
+            )}
+
             {/* Follow-up suggestions - task followups replace regular suggestions when task is active */}
             {!readOnly &&
               message.type === "apiMessage" &&
               isLastMessage &&
-              (isTaskConversation && (taskFollowups.length > 0 || dynamicFollowups.length > 0 || isLoadingDynamicFollowups) ? (
+              (isTaskConversation &&
+              (taskFollowups.length > 0 || dynamicFollowups.length > 0 || isLoadingDynamicFollowups) ? (
                 <TaskFollowupChips
                   dynamicSuggestions={dynamicFollowups}
                   staticSuggestions={taskFollowups}

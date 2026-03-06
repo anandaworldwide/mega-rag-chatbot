@@ -2,11 +2,12 @@
  * External Token Issuance API Endpoint
  *
  * This endpoint is responsible for issuing JWT tokens for authenticated external clients,
- * such as the WordPress plugin.
+ * such as the WordPress plugin and mobile applications.
  *
- * It supports two authentication methods:
+ * It supports three authentication methods:
  * 1. Direct API calls - using the SECURE_TOKEN directly
  * 2. WordPress plugin - using a derived token from SECURE_TOKEN with a WordPress-specific salt
+ * 3. Mobile applications - using a derived token from SECURE_TOKEN with a mobile-specific salt
  *
  * The endpoint issues JWTs with a 15-minute expiration period, identifying the client type
  * in the token payload. This enables secure communication between different clients and
@@ -97,8 +98,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const isWordPress = sharedSecret === wordpressToken;
 
-    // If neither secret matches, return forbidden response
-    if (!isWebFrontend && !isWordPress) {
+    // For mobile applications, derive a mobile-specific token by hashing the SECURE_TOKEN
+    // with a mobile-specific salt (prefix) for additional security
+    const mobileToken = crypto.createHash("sha256").update(`mobile-${secureToken}`).digest("hex").substring(0, 32); // Use first 32 chars of the hash for better usability
+
+    const isMobile = sharedSecret === mobileToken;
+
+    // If none of the secrets match, return forbidden response
+    if (!isWebFrontend && !isWordPress && !isMobile) {
       console.warn("Invalid secret provided - no match found");
 
       // If there was an expected site ID, add a hint about site mismatch
@@ -113,7 +120,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Create JWT payload with client identifier and standard timestamps
     const payload = {
-      client: isWebFrontend ? "web" : "wordpress", // Identify client type
+      client: isWebFrontend ? "web" : isWordPress ? "wordpress" : "mobile", // Identify client type
       iat: Math.floor(Date.now() / 1000), // Issued at timestamp
     };
 

@@ -81,6 +81,9 @@ except ImportError:
 
 - **Frontend**: `cd web && npm run test:all`
 - **Python**: `cd data_ingestion && python -m pytest`
+- **Python dependency security audit**: Run `./bin/run-pip-audit.sh` from repo root to audit all maintained requirements
+  files (`requirements.txt`, `reranking/requirements.txt`, `data_ingestion/crawler/requirements.txt`,
+  `wordpress/analytics/requirements.txt`)
 - **Pattern**: Write tests first, add to existing test files when logical
 
 ### CLI Argument Patterns
@@ -134,6 +137,23 @@ except ImportError:
 - For the crawler, prefer **one-shot scheduled ECS tasks** with `--max-runtime-minutes` over an always-on ECS service +
   supervisor loop when you want strict “only run in this window” behavior.
 
+### Crawler Deployment ("build and push to production")
+
+- When the user says "build and push to production" for the crawler, this means **deploy to AWS ECS**, not git push.
+- **Step 1**: `bash data_ingestion/crawler/bin/build-and-push.sh latest` — builds Docker image for linux/amd64 and
+  pushes to ECR (`ananda-crawler` repo in us-west-1)
+- **Step 2**: `bash data_ingestion/crawler/bin/register-task-definition.sh latest` — registers new ECS task definition
+  revision and updates the EventBridge schedule to use it
+- The next hourly scheduled run automatically picks up the new image
+
+### SQLite on EFS (Network Filesystems)
+
+- **Always use WAL mode** for SQLite on EFS/NFS to prevent "database is locked" and "database disk image is malformed"
+  errors
+- DELETE journal mode is not robust enough for network filesystems with latency
+- Required PRAGMAs: `journal_mode=WAL`, `busy_timeout=60000`, `synchronous=NORMAL`
+- Use longer connection timeouts (60s+) to handle EFS latency spikes
+
 ### AWS Cost Reporting
 
 - Cost Explorer should be queried via `--region us-east-1`, then filtered to the workload region via the `REGION`
@@ -147,6 +167,8 @@ except ImportError:
 - **OOP over functional** - user preference
 - **Testing approach**: TDD with failing → passing pattern
 - **Documentation**: Update relevant docs with changes
+- **Ops email subject naming**: Use site shortname (e.g., Luca, Vivek), not long site name/site ID
+- **Crawler daily digest subject order**: Put error count first so inbox preview surfaces errors immediately
 
 ### Dependencies
 
@@ -183,6 +205,8 @@ except ImportError:
 
 - Use shadcn/ui for admin UI (forms, lists, buttons)
 - Start with SES email templates; consider SendGrid later for richer templates/analytics
+- Activation page headline should use site-config long name directly (`siteConfig.name`), not site-specific hardcoded
+  text
 
 ## Entitlements (Interim)
 

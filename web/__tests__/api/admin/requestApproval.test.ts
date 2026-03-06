@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
 import { createMocks } from "node-mocks-http";
 import type { NextApiRequest, NextApiResponse } from "next";
 import handler from "@/pages/api/admin/requestApproval";
@@ -110,12 +109,12 @@ jest.mock("@aws-sdk/client-ses", () => {
 });
 
 describe("/api/admin/requestApproval", () => {
-  const firestoreRetryUtils = require("@/utils/server/firestoreRetryUtils");
-  const { genericRateLimiter } = require("@/utils/server/genericRateLimiter");
-  const { writeAuditLog } = require("@/utils/server/auditLog");
-  const loadSiteConfig = require("@/utils/server/loadSiteConfig");
-  const { isEmailDomainWhitelisted } = require("@/utils/server/domainWhitelistUtils");
-  const { sendActivationEmail } = require("@/utils/server/userInviteUtils");
+  const firestoreRetryUtils = jest.requireMock("@/utils/server/firestoreRetryUtils");
+  const { genericRateLimiter } = jest.requireMock("@/utils/server/genericRateLimiter");
+  const { writeAuditLog } = jest.requireMock("@/utils/server/auditLog");
+  const loadSiteConfig = jest.requireMock("@/utils/server/loadSiteConfig");
+  const { isEmailDomainWhitelisted } = jest.requireMock("@/utils/server/domainWhitelistUtils");
+  const { sendActivationEmail } = jest.requireMock("@/utils/server/userInviteUtils");
 
   // Store original env vars
   const originalEnv = process.env;
@@ -299,7 +298,7 @@ describe("/api/admin/requestApproval", () => {
     writeAuditLog.mockResolvedValue(undefined);
 
     // Mock the db collection
-    const { db } = require("@/services/firebase");
+    const { db } = jest.requireMock("@/services/firebase");
 
     db.collection = mockCollection;
 
@@ -368,7 +367,7 @@ describe("/api/admin/requestApproval", () => {
     writeAuditLog.mockResolvedValue(undefined);
 
     // Mock the db collection
-    const { db } = require("@/services/firebase");
+    const { db } = jest.requireMock("@/services/firebase");
 
     db.collection = mockCollection;
 
@@ -428,7 +427,7 @@ describe("/api/admin/requestApproval", () => {
     writeAuditLog.mockResolvedValue(undefined);
 
     // Mock the db collection
-    const { db } = require("@/services/firebase");
+    const { db } = jest.requireMock("@/services/firebase");
 
     db.collection = mockCollection;
 
@@ -452,7 +451,7 @@ describe("/api/admin/requestApproval", () => {
   });
 
   it("should return error when email sending fails and cleanup the request", async () => {
-    const mockSend = require("@aws-sdk/client-ses").mockSend;
+    const mockSend = jest.requireMock("@aws-sdk/client-ses").mockSend;
     const mockDelete = jest.fn().mockResolvedValue(undefined);
     const mockDoc = jest.fn(() => ({
       delete: mockDelete,
@@ -475,7 +474,7 @@ describe("/api/admin/requestApproval", () => {
     writeAuditLog.mockResolvedValue(undefined);
 
     // Mock the db collection
-    const { db } = require("@/services/firebase");
+    const { db } = jest.requireMock("@/services/firebase");
 
     db.collection = mockCollection;
 
@@ -515,7 +514,7 @@ describe("/api/admin/requestApproval", () => {
   });
 
   it("should return generic error message for other email failures", async () => {
-    const mockSend = require("@aws-sdk/client-ses").mockSend;
+    const mockSend = jest.requireMock("@aws-sdk/client-ses").mockSend;
     const mockDelete = jest.fn().mockResolvedValue(undefined);
     const mockDoc = jest.fn(() => ({
       delete: mockDelete,
@@ -538,7 +537,7 @@ describe("/api/admin/requestApproval", () => {
     writeAuditLog.mockResolvedValue(undefined);
 
     // Mock the db collection
-    const { db } = require("@/services/firebase");
+    const { db } = jest.requireMock("@/services/firebase");
 
     db.collection = mockCollection;
 
@@ -604,7 +603,7 @@ describe("/api/admin/requestApproval", () => {
     writeAuditLog.mockResolvedValue(undefined);
 
     // Mock the db collection
-    const { db } = require("@/services/firebase");
+    const { db } = jest.requireMock("@/services/firebase");
 
     db.collection = mockCollection;
 
@@ -672,7 +671,7 @@ describe("/api/admin/requestApproval", () => {
     writeAuditLog.mockResolvedValue(undefined);
 
     // Mock the db collection
-    const { db } = require("@/services/firebase");
+    const { db } = jest.requireMock("@/services/firebase");
 
     db.collection = mockCollection;
 
@@ -712,7 +711,7 @@ describe("/api/admin/requestApproval", () => {
 
   it("should block new request to different admin when pending request exists with another admin", async () => {
     const existingRequestId = "req_123456789_existing";
-    const mockSend = require("@aws-sdk/client-ses").mockSend;
+    const mockSend = jest.requireMock("@aws-sdk/client-ses").mockSend;
 
     // First query: Check for same requesterEmail + adminEmail (should return empty)
     // Second query: Check for any pending request with same requesterEmail (should return existing request)
@@ -769,7 +768,7 @@ describe("/api/admin/requestApproval", () => {
     mockSend.mockResolvedValue({});
 
     // Mock the db collection
-    const { db } = require("@/services/firebase");
+    const { db } = jest.requireMock("@/services/firebase");
 
     db.collection = mockCollection;
 
@@ -833,7 +832,7 @@ describe("/api/admin/requestApproval", () => {
     writeAuditLog.mockResolvedValue(undefined);
 
     // Mock the db collection
-    const { db } = require("@/services/firebase");
+    const { db } = jest.requireMock("@/services/firebase");
 
     db.collection = mockCollection;
 
@@ -872,7 +871,7 @@ describe("/api/admin/requestApproval", () => {
 
   it("should check same admin first, then check any admin", async () => {
     const existingRequestId = "req_123456789_existing";
-    const mockSend = require("@aws-sdk/client-ses").mockSend;
+    const mockSend = jest.requireMock("@aws-sdk/client-ses").mockSend;
 
     // Track query order
     const queryOrder: string[] = [];
@@ -927,7 +926,7 @@ describe("/api/admin/requestApproval", () => {
     writeAuditLog.mockResolvedValue(undefined);
     mockSend.mockResolvedValue({});
 
-    const { db } = require("@/services/firebase");
+    const { db } = jest.requireMock("@/services/firebase");
 
     db.collection = mockCollection;
 
@@ -961,8 +960,8 @@ describe("/api/admin/requestApproval", () => {
     });
 
     it("should skip admin approval and send activation email for whitelisted domain", async () => {
-      const { db } = require("@/services/firebase");
-      const { getUsersCollectionName } = require("@/utils/server/firestoreUtils");
+      const { db } = jest.requireMock("@/services/firebase");
+      const { getUsersCollectionName } = jest.requireMock("@/utils/server/firestoreUtils");
 
       isEmailDomainWhitelisted.mockResolvedValue(true);
       genericRateLimiter.mockResolvedValue(true);
@@ -1029,8 +1028,8 @@ describe("/api/admin/requestApproval", () => {
     });
 
     it("should return success for whitelisted user who is already accepted", async () => {
-      const { db } = require("@/services/firebase");
-      const { getUsersCollectionName } = require("@/utils/server/firestoreUtils");
+      const { db } = jest.requireMock("@/services/firebase");
+      const { getUsersCollectionName } = jest.requireMock("@/utils/server/firestoreUtils");
 
       isEmailDomainWhitelisted.mockResolvedValue(true);
       genericRateLimiter.mockResolvedValue(true);
@@ -1075,8 +1074,8 @@ describe("/api/admin/requestApproval", () => {
     });
 
     it("should resend activation email for whitelisted user with pending status", async () => {
-      const { db } = require("@/services/firebase");
-      const { getUsersCollectionName } = require("@/utils/server/firestoreUtils");
+      const { db } = jest.requireMock("@/services/firebase");
+      const { getUsersCollectionName } = jest.requireMock("@/utils/server/firestoreUtils");
 
       isEmailDomainWhitelisted.mockResolvedValue(true);
       genericRateLimiter.mockResolvedValue(true);
@@ -1135,7 +1134,7 @@ describe("/api/admin/requestApproval", () => {
 
   it("should handle reminder email sending failure gracefully", async () => {
     const existingRequestId = "req_123456789_abc123";
-    const sesModule = require("@aws-sdk/client-ses");
+    const sesModule = jest.requireMock("@aws-sdk/client-ses");
     const mockSend = sesModule.mockSend;
 
     const mockGet = jest.fn().mockResolvedValue({
@@ -1175,7 +1174,7 @@ describe("/api/admin/requestApproval", () => {
     mockSend.mockReset();
     mockSend.mockRejectedValue(new Error("Email service unavailable"));
 
-    const { db } = require("@/services/firebase");
+    const { db } = jest.requireMock("@/services/firebase");
 
     db.collection = mockCollection;
 

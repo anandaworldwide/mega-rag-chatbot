@@ -191,6 +191,8 @@ class WebsiteCrawler:
         self.conn: sqlite3.Connection | None = None
         self.cursor: sqlite3.Cursor | None = None
         self.db_file: Path | None = None
+        self._db_recovery_failed = False
+        self._db_recovery_failure_reason: str | None = None
         self.current_processing_url: str | None = None
         self._rate_limit_exit: bool = False
         # Track URLs that timeout within a session to avoid retry loops
@@ -209,10 +211,14 @@ class WebsiteCrawler:
         db_dir.mkdir(parents=True, exist_ok=True)
         self.db_file = db_dir / f"crawler_queue_{self.site_id}.db"
         self.conn = sqlite3.connect(
-            str(self.db_file), timeout=30.0, check_same_thread=False
-        )  # 30s busy timeout for EFS, allow cross-thread access
+            str(self.db_file), timeout=60.0, check_same_thread=False
+        )  # 60s busy timeout for EFS latency spikes, allow cross-thread access
         self.conn.row_factory = sqlite3.Row  # Allow dictionary-like access to rows
         self.cursor = self.conn.cursor()
+        self._db_recovery_failed = False
+        self._db_recovery_failure_reason = None
+
+        self._apply_sqlite_pragmas()
 
         # Create crawl_queue table if it doesn't exist
         self.cursor.execute("""
@@ -248,6 +254,73 @@ class WebsiteCrawler:
         )""")
 
         self.conn.commit()
+
+    def _apply_sqlite_pragmas(self) -> None:
+        """Apply SQLite PRAGMA settings for EFS compatibility."""
+        assert self.cursor is not None
+        self.cursor.execute("PRAGMA journal_mode=WAL")
+        journal_result = self.cursor.fetchone()
+        if journal_result and journal_result[0] != "wal":
+            logging.warning(
+                f"Could not enable WAL mode, journal_mode is: {journal_result[0]}"
+            )
+        else:
+            logging.debug("WAL mode enabled for database")
+        self.cursor.execute("PRAGMA busy_timeout=60000")
+        self.cursor.execute("PRAGMA synchronous=NORMAL")
+
+    def _is_locking_protocol_error(self, error: Exception) -> bool:
+        """Return True when SQLite reports a locking protocol fault."""
+        return isinstance(error, sqlite3.OperationalError) and (
+            "locking protocol" in str(error).lower()
+        )
+
+    def mark_db_recovery_failed(self, reason: str) -> None:
+        """Mark the crawler session for shutdown after unrecoverable DB failure."""
+        self._db_recovery_failed = True
+        self._db_recovery_failure_reason = reason
+        logging.critical(
+            f"Database recovery failed; crawler session marked for shutdown: {reason}"
+        )
+
+    def is_db_recovery_failed(self) -> bool:
+        """Check whether a fatal DB recovery failure has occurred."""
+        return self._db_recovery_failed
+
+    def get_db_recovery_failure_reason(self) -> str | None:
+        """Return the fatal DB recovery failure reason, if any."""
+        return self._db_recovery_failure_reason
+
+    def recover_database_connection(self) -> bool:
+        """Reconnect SQLite database and re-apply PRAGMAs after lock protocol errors."""
+        if self.db_file is None:
+            logging.error("Cannot recover database connection: db_file is not set")
+            return False
+
+        try:
+            if self.cursor is not None:
+                with suppress(Exception):
+                    self.cursor.close()
+            if self.conn is not None:
+                with suppress(Exception):
+                    self.conn.close()
+
+            self.conn = sqlite3.connect(
+                str(self.db_file), timeout=60.0, check_same_thread=False
+            )
+            self.conn.row_factory = sqlite3.Row
+            self.cursor = self.conn.cursor()
+            self._apply_sqlite_pragmas()
+
+            self.cursor.execute("SELECT 1")
+            self.cursor.fetchone()
+            self._db_recovery_failed = False
+            self._db_recovery_failure_reason = None
+            logging.info("Recovered SQLite connection after locking protocol error")
+            return True
+        except Exception as recovery_error:
+            logging.error(f"Failed to recover SQLite connection: {recovery_error}")
+            return False
 
     def _ensure_db_initialized(self) -> None:
         """Ensure database is initialized. Raises RuntimeError if not."""
@@ -399,8 +472,21 @@ class WebsiteCrawler:
                 logging.debug(f"  - Existing modified date: {existing_modified_date}")
                 logging.debug(f"  - New modified date: {modified_date}")
 
+                # Re-activate deleted URLs regardless of priority/modified_date
+                if existing_status == "deleted":
+                    self.cursor.execute(
+                        """
+                        UPDATE crawl_queue 
+                        SET priority = ?, next_crawl = datetime('now'), status = 'pending',
+                            modified_date = ?, last_crawl = NULL
+                        WHERE url = ?
+                        """,
+                        (priority, modified_date, normalized_url),
+                    )
+                    logging.debug("  - Decision: reactivated (was deleted)")
+                    return "updated_priority"
                 # If new priority is higher, update it and reset next_crawl for immediate processing
-                if priority > existing_priority:
+                elif priority > existing_priority:
                     self.cursor.execute(
                         """
                         UPDATE crawl_queue 
@@ -492,7 +578,7 @@ class WebsiteCrawler:
         return bool(self.cursor.fetchone())
 
     @requires_db
-    def get_next_url_to_crawl(self) -> str | None:
+    def get_next_url_to_crawl(self, _retried: bool = False) -> str | None:
         """Get the next URL to crawl from the queue"""
         assert self.cursor is not None
         assert self.conn is not None
@@ -565,6 +651,15 @@ class WebsiteCrawler:
             )
             return None
         except Exception as e:
+            if self._is_locking_protocol_error(e):
+                if not _retried and self.recover_database_connection():
+                    logging.warning(
+                        "Retrying get_next_url_to_crawl after lock recovery"
+                    )
+                    return self.get_next_url_to_crawl(_retried=True)
+                self.mark_db_recovery_failed(
+                    f"get_next_url_to_crawl failed after recovery attempt: {e}"
+                )
             logging.error(f"Error getting next URL to crawl: {e}")
             return None
 
@@ -765,6 +860,7 @@ class WebsiteCrawler:
         status: str,
         error_msg: str | None = None,
         content_hash: str | None = None,
+        _retried: bool = False,
     ):
         """Update URL status in the database"""
         assert self.cursor is not None
@@ -844,6 +940,19 @@ class WebsiteCrawler:
             self.conn.commit()
             return True
         except Exception as e:
+            if self._is_locking_protocol_error(e):
+                if not _retried and self.recover_database_connection():
+                    logging.warning("Retrying mark_url_status after lock recovery")
+                    return self.mark_url_status(
+                        url=url,
+                        status=status,
+                        error_msg=error_msg,
+                        content_hash=content_hash,
+                        _retried=True,
+                    )
+                self.mark_db_recovery_failed(
+                    f"mark_url_status failed after recovery attempt: {e}"
+                )
             logging.error(f"Error updating URL status: {e}")
             return False
 
@@ -860,7 +969,7 @@ class WebsiteCrawler:
             return False
 
     @requires_db
-    def get_queue_stats(self) -> dict:
+    def get_queue_stats(self, _retried: bool = False) -> dict:
         """Get statistics about the crawl queue"""
         assert self.cursor is not None
         stats = {
@@ -872,6 +981,7 @@ class WebsiteCrawler:
             "pending_retry": 0,  # URLs waiting to be retried
             "avg_retry_count": 0,  # Average retry count for URLs with retries
             "high_priority": 0,  # URLs with priority > 0
+            "available": True,
         }
         try:
             # Get counts by status
@@ -926,7 +1036,15 @@ class WebsiteCrawler:
 
             return stats
         except Exception as e:
+            if self._is_locking_protocol_error(e):
+                if not _retried and self.recover_database_connection():
+                    logging.warning("Retrying get_queue_stats after lock recovery")
+                    return self.get_queue_stats(_retried=True)
+                self.mark_db_recovery_failed(
+                    f"get_queue_stats failed after recovery attempt: {e}"
+                )
             logging.error(f"Error getting queue stats: {e}")
+            stats["available"] = False
             return stats
 
     @requires_db
@@ -2372,7 +2490,7 @@ class WebsiteCrawler:
         normalized_url = self.normalize_url(full_url)
         self.cursor.execute(
             """
-            SELECT last_crawl, modified_date 
+            SELECT last_crawl, modified_date, status 
             FROM crawl_queue 
             WHERE url = ?
             """,
@@ -2381,7 +2499,11 @@ class WebsiteCrawler:
         existing = self.cursor.fetchone()
 
         if existing:
-            last_crawl, existing_modified_date = existing
+            last_crawl, existing_modified_date, status = existing
+
+            # Always re-process deleted URLs (e.g. trashed then re-published)
+            if status == "deleted":
+                return True, ""
 
             # If we have a last crawl date, check if it's more recent than the modified date
             if last_crawl:
@@ -2785,7 +2907,7 @@ class WebsiteCrawler:
         return True
 
     @requires_db
-    def mark_initial_crawl_completed(self):
+    def mark_initial_crawl_completed(self, _retried: bool = False) -> bool:
         """Mark that the initial full crawl has been completed"""
         assert self.cursor is not None
         assert self.conn is not None
@@ -2814,12 +2936,23 @@ class WebsiteCrawler:
             logging.info(
                 "Marked initial crawl as completed - CSV mode will now activate"
             )
+            return True
 
         except Exception as e:
+            if self._is_locking_protocol_error(e):
+                if not _retried and self.recover_database_connection():
+                    logging.warning(
+                        "Retrying mark_initial_crawl_completed after lock recovery"
+                    )
+                    return self.mark_initial_crawl_completed(_retried=True)
+                self.mark_db_recovery_failed(
+                    f"mark_initial_crawl_completed failed after recovery attempt: {e}"
+                )
             logging.error(f"Error marking initial crawl completed: {e}")
+            return False
 
     @requires_db
-    def is_initial_crawl_completed(self) -> bool:
+    def is_initial_crawl_completed(self, _retried: bool = False) -> bool:
         """Check if initial crawl has been completed"""
         assert self.cursor is not None
         try:
@@ -2831,6 +2964,15 @@ class WebsiteCrawler:
             result = self.cursor.fetchone()
             return bool(result and result[0])
         except Exception as e:
+            if self._is_locking_protocol_error(e):
+                if not _retried and self.recover_database_connection():
+                    logging.warning(
+                        "Retrying is_initial_crawl_completed after lock recovery"
+                    )
+                    return self.is_initial_crawl_completed(_retried=True)
+                self.mark_db_recovery_failed(
+                    f"is_initial_crawl_completed failed after recovery attempt: {e}"
+                )
             logging.error(f"Error checking initial crawl status: {e}")
             return False
 
