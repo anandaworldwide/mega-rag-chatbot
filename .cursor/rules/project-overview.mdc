@@ -4,29 +4,50 @@ globs:
 alwaysApply: true
 ---
 
-# Ananda Library Chatbot - Detailed Reference
+# Ananda Library Chatbot - Detailed File Reference
 
-## Memory Management (CRITICAL)
+For project overview, see [AGENTS.md](mdc:AGENTS.md) in the repo root.
 
-Always read and update project memory:
-
-- `.remember/memory/self.md` - Past mistakes and fixes
-- `.remember/memory/project.md` - User preferences and project rules
-
-## Detailed File Paths Reference
+## Key File Paths (IDE Navigation)
 
 ### Frontend
 
 - **[web/src/app/](mdc:web/src/app)** - Next.js App Router pages and API routes
+- **[web/src/pages/](mdc:web/src/pages)** - Next.js Pages Router (legacy endpoints)
 - **[web/src/components/](mdc:web/src/components)** - Reusable React components
+- **[web/src/hooks/](mdc:web/src/hooks)** - Custom React hooks
+- **[web/src/utils/client/](mdc:web/src/utils/client)** - Client-side utilities
+- **[web/src/utils/server/](mdc:web/src/utils/server)** - Server-side utilities
+- **[web/src/services/](mdc:web/src/services)** - Firebase and external services
+- **[web/__tests__/](mdc:web/__tests__)** - Jest/React Testing Library tests
 - **[web/src/utils/](mdc:web/src/utils)** - Client and server utilities
 
 ### Data Ingestion
 
 - **[data_ingestion/pdf_to_vector_db.py](mdc:data_ingestion/pdf_to_vector_db.py)** - PDF processing
-- **[data_ingestion/crawler/](mdc:data_ingestion/crawler)** - Web crawling
+- **[data_ingestion/crawler/](mdc:data_ingestion/crawler)** - Web crawling system
 - **[data_ingestion/audio_video/](mdc:data_ingestion/audio_video)** - Media transcription
+- **[data_ingestion/utils/](mdc:data_ingestion/utils)** - Shared Python utilities
+- **[data_ingestion/tests/](mdc:data_ingestion/tests)** - pytest test suite
 
 ### Configuration
 
 - **[site-config/config.json](mdc:site-config/config.json)** - Site-specific settings
+- **[site-config/prompts/](mdc:site-config/prompts)** - System prompts per site
+- **[web/next.config.js](mdc:web/next.config.js)** - Next.js build configuration
+- **[pyproject.toml](mdc:pyproject.toml)** - Python project configuration
+
+### WordPress Integration
+
+- **[wordpress/plugins/ananda-ai-chatbot/](mdc:wordpress/plugins/ananda-ai-chatbot)** - Plugin directory
+- **[wordpress/plugins/ananda-ai-chatbot/secure-api-client.php](mdc:wordpress/plugins/ananda-ai-chatbot/secure-api-client.php)** - API client
+
+## Site Configurations
+
+Sites: `ananda`, `ananda-public`, `crystal`, `jairam`
+
+Each has:
+
+- Pinecone namespace in [site-config/config.json](mdc:site-config/config.json)
+- System prompts in [site-config/prompts/](mdc:site-config/prompts)
+- Environment file: `.env.[site]`
