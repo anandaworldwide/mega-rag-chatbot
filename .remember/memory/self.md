@@ -1950,3 +1950,29 @@ scikit-learn==1.7.2
 ```
 
 **Pattern**: After changing a pinned dependency version in lockfiles, run `python3 -m pip install --dry-run -r requirements.txt` to verify all pins resolve.
+
+### 50. LangChain Package Family Must Be Upgraded Together
+
+**Problem**: Upgrading one LangChain package (for example `@langchain/community`) without aligning `@langchain/core` and `langchain` can leave the dependency tree in an invalid state and break tests with missing module errors.
+
+**Wrong**:
+
+```json
+{
+  "@langchain/community": "^1.1.22",
+  "@langchain/core": "1.1.17",
+  "langchain": "^1.2.13"
+}
+```
+
+**Correct**:
+
+```json
+{
+  "@langchain/community": "^1.1.22",
+  "@langchain/core": "^1.1.31",
+  "langchain": "^1.2.30"
+}
+```
+
+**Pattern**: After any LangChain security bump, run `npm ls @langchain/core @langchain/openai @langchain/community langchain --all` and verify there are no `invalid` peer dependency entries before running tests.

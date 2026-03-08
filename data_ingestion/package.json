@@ -8,14 +8,14 @@
     "ingest:pdf:trace": "NODE_ENV=development NODE_OPTIONS='--max-old-space-size=6000 --trace-deprecation' python pdf_to_vector_db.py"
   },
   "dependencies": {
-    "@langchain/community": "^1.1.15",
-    "@langchain/core": "1.1.17",
+    "@langchain/community": "^1.1.22",
+    "@langchain/core": "^1.1.31",
     "@langchain/openai": "^1.2.3",
     "@langchain/pinecone": "^1.0.1",
     "@langchain/textsplitters": "^1.0.1",
     "@pinecone-database/pinecone": "^5.1.2",
     "dotenv": "^16.6.1",
-    "langchain": "^1.2.13",
+    "langchain": "^1.2.30",
     "p-map": "^7.0.3",
     "pdf-parse": "^1.1.1"
   },
