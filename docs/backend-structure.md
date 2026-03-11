@@ -191,7 +191,6 @@ API endpoints are defined in `pages/api/` and `app/api/`. Most endpoints are pro
   - **Logic:** Fetches all messages in a conversation grouped by `convId`, supports timestamp filtering for sharing.
   - **Response:** Complete conversation thread with all messages and metadata.
 - **`GET /api/document/[docId]`** (`pages/api/document/[docId].ts`)
-
   - **Purpose:** Retrieves single document for ownership verification and conversation lookup.
   - **Auth:** Optional JWT authentication (supports anonymous sharing).
   - **Logic:** Fetches document metadata including `convId` and ownership information.
@@ -206,7 +205,6 @@ API endpoints are defined in `pages/api/` and `app/api/`. Most endpoints are pro
   - **Request:** `{ convId: string, action: "star" | "unstar" }`
   - **Response:** Success confirmation with documents updated count.
 - **`GET /api/conversations/starred`** (`pages/api/conversations/starred.ts`)
-
   - **Purpose:** Retrieves user's starred conversations with pagination.
   - **Auth:** Requires JWT authentication.
   - **Logic:** Queries Firestore for conversations with `isStarred: true`, groups by `convId`, supports cursor-based
@@ -296,7 +294,8 @@ API endpoints are defined in `pages/api/` and `app/api/`. Most endpoints are pro
   - **Purpose:** Daily download and update of location data CSV from external source to S3.
   - **Auth:** Requires Cron Secret or JWT authentication (hybrid auth).
   - **Schedule:** Daily at 3:00 AM UTC (configured in `vercel.json`).
-  - **Logic:** Downloads CSV from `LOCATION_DATA_DOWNLOAD_URL` if defined, compares to existing S3 file (`site-config/location/${siteId}-locations.csv`), uploads if different. Sends ops alerts on updates or failures.
+  - **Logic:** Downloads CSV from `LOCATION_DATA_DOWNLOAD_URL` if defined, compares to existing S3 file
+    (`site-config/location/${siteId}-locations.csv`), uploads if different. Sends ops alerts on updates or failures.
 
 **Middleware:**
 
@@ -312,7 +311,6 @@ API endpoints are defined in `pages/api/` and `app/api/`. Most endpoints are pro
 Data is stored across multiple services:
 
 - **Firestore:**
-
   - **`chatLogs` (Collection):** Stores records of each chat interaction.
     - `question`: User's query.
     - `answer`: LLM's generated response.
@@ -345,14 +343,12 @@ Data is stored across multiple services:
 
   - **`modelComparisons`, `modelComparisonVotes` (Collections):** Data related to A/B testing or comparing different LLM
     responses.
-  - **`modelPerformance` (Collection):** Environment-prefixed
-    (`dev_model_performance`, `prod_model_performance`) records of per-request performance metrics (timings, tokens,
-    model name, site ID, and status).
+  - **`modelPerformance` (Collection):** Environment-prefixed (`dev_model_performance`, `prod_model_performance`)
+    records of per-request performance metrics (timings, tokens, model name, site ID, and status).
   - **`ingestQueue` (Collection - Inferred):** Used by Python scripts to manage the data ingestion pipeline for sources
     like websites, PDFs, audio, video, and SQL databases.
 
 - **Pinecone:**
-
   - **Index(es):** Contains vector embeddings of source documents. Organized by `namespace` (e.g., 'ananda', 'jairam',
     'crystal').
   - **Vectors:** High-dimensional representations of text chunks.
@@ -372,7 +368,6 @@ Data is stored across multiple services:
     - `access_level`: Access control classification (default: "public", or e.g. restricted: "kriyaban").
 
 - **Redis:**
-
   - Stores key-value pairs for rate limiting, typically mapping an IP address or user ID to a request count within a
     time window. Keys might look like `rateLimit:<ip_address>`.
 
@@ -415,22 +410,25 @@ material) from search results based on site configuration.
 **Implementation Components:**
 
 1. **Ingestion Pipeline (`data_ingestion/`):**
-
    - **Path Analysis**: `pyutil/site_config_utils.py` provides `determine_access_level()` function
    - **Automatic Classification**: Files containing "Kriyaban Only" in path → `access_level="kriyaban"`
    - **Default Behavior**: All other content → `access_level="public"` (implicit)
    - **Integration**: `transcribe_and_ingest_media.py` applies access levels during vector upsert
 
 2. **Query Filtering (`web/src/app/api/chat/v1/route.ts`):**
-
    - **Filter Generation**: `setupPineconeAndFilter()` creates Pinecone filters
    - **Exclusion Logic**: `{ access_level: { $nin: excludedAccessLevels } }`
    - **Combined Filters**: Access level restrictions combined with media type and collection filters
    - **Site-Specific**: Only applies to sites with configured `excludedAccessLevels`
 
-3. **Migration Support (`bin/tag_kriyaban_vectors.py`):**
-   - **Bulk Tagging**: Script to retroactively tag existing vectors
-   - **Path-Based Identification**: Matches file paths containing "Kriyaban Only"
+3. **Migration Support (`bin/tag_access_level_vectors.py`):**
+   - **Bulk Tagging**: Script to retroactively tag existing vectors with a supplied access level
+   - **Targeting Options**: Matches vectors by vector ID prefix or by title, source, filename, library, and author
+     substrings
+   - **Operator Safety**: Prints the match count, a sample vector, and a per-source breakdown, then requires yes/no
+     confirmation before updating
+   - **Debug Performance**: Caches listed vector IDs locally so repeated runs do not have to re-enumerate the same
+     prefix from Pinecone
    - **Batch Processing**: Handles large vector sets with progress tracking
    - **Verification**: Confirms successful tagging with detailed logging
 
@@ -553,7 +551,6 @@ capabilities:
 The authentication system behaves differently based on the site's `requireLogin` configuration:
 
 - **Login-Required Sites** (`siteConfig.requireLogin === true`):
-
   - Examples: `ananda`, `jairam` sites
   - **Admin Authorization**: Always uses JWT `role` field (`admin` or `superuser`)
   - **No Sudo Cookie**: `sudoCookie` checks are completely bypassed
@@ -653,7 +650,6 @@ embeddings.
 **Architecture Components:**
 
 - **Seed Data Management (`web/site-config/location-intent/`):**
-
   - Site-specific seed files containing positive and negative location intent examples
   - `{site}-seeds.json` format with curated multilingual examples
   - Currently implemented for `ananda-public` with 68 positive and 28 negative seeds
@@ -662,7 +658,6 @@ embeddings.
   - Human-editable JSON files for easy maintenance and updates
 
 - **Embedding Generation (`web/scripts/generate-location-intent-embeddings.ts`):**
-
   - One-time script to generate semantic embeddings from seed data
   - Uses configurable OpenAI embedding model (currently `text-embedding-3-large` with 3072 dimensions)
   - Batch processing with rate limiting for efficient API usage

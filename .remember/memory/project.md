@@ -99,6 +99,9 @@ except ImportError:
 - **Preference**: Long-form arguments first in argparse
 - **Environment**: Use `--site` argument with `pyutil.env_utils.load_env(site_name)`
 - **Example**: `parser.add_argument("--video", "-v", ...)` not `("-v", "--video", ...)`
+- **Pinecone ops scripts**: Prefer `--vector-id-prefix` style selectors over broad title substring matching when the ID
+  structure can target the document set directly
+- **Pinecone debug caching**: Cache only listed vector IDs locally for repeated runs; do not cache full mutable metadata
 - **Site and Environment Pattern**:
   - Always add `--site` argument (required) for loading `.env.[site]` files
   - Add `-e` or `--env` argument with `choices=['dev', 'prod']` and `default='prod'` (or 'dev' if appropriate)

@@ -213,6 +213,35 @@ prefix = f"{content_type}||{library}||{source_location}||{title}"
 **Fixed In**: `bin/delete_pinecone_data.py` - use `--prefix` argument directly instead of `--file-type` to avoid prefix
 construction bugs
 
+### 3. Pinecone Maintenance Scripts Should Prefer ID Prefix + ID-Only Cache
+
+**Rule**: For large Pinecone maintenance/debug scripts, do not scan the full index with loose metadata substring filters if
+the vector ID structure can narrow the target set first.
+
+**Wrong**: List every vector ID in the index, fetch metadata for all of them, then filter with broad title matching.
+
+```python
+for id_batch in index.list():
+    fetch_response = index.fetch(ids=id_batch)
+    # filter 250k+ vectors by metadata.title contains ...
+```
+
+**Correct**: Use `index.list(prefix=...)` with the vector ID prefix to reduce the candidate set, then fetch metadata only
+for those IDs. Cache only the listed IDs locally, not full metadata, so repeated debug runs avoid re-enumeration while
+still reflecting metadata changes.
+
+```python
+candidate_ids = list(index.list(prefix=vector_id_prefix, limit=100))
+# cache candidate_ids locally
+# fetch metadata only for candidate_ids
+```
+
+**Why This Matters**:
+
+- Pinecone vector IDs in this project encode library/source/title structure and are often the best selector
+- Full-index metadata scans are extremely slow on large indexes
+- ID-only caches are safe for iteration because metadata can change while IDs usually stay stable
+
 ### 4. HTML Processing Destroying Paragraph Structure
 
 **Wrong**: Aggressive whitespace normalization destroys paragraph breaks.

@@ -34,6 +34,20 @@ using NDCG scores).
 Standardizes author names in Pinecone metadata. It takes a configuration file specifying alternative author name
 variants and a canonical name, then updates records in Pinecone to use the canonical name. Supports dry-run mode.
 
+### `tag_access_level_vectors.py`
+
+Retroactively tags existing Pinecone vectors with access-level metadata. It scans the index, filters by metadata
+substrings such as title, source, filename, library, and author, and can also narrow candidates by vector ID prefix. It
+prints the number of matching vectors, shows a sample vector, prints a per-source match count breakdown, asks for a
+yes/no confirmation before setting the `access_level` you supply on the command line, and caches listed vector IDs
+locally for faster repeated runs.
+
+#### Usage of tag_access_level_vectors.py
+
+```bash
+python bin/tag_access_level_vectors.py --site ananda --access-level kriyaban --vector-id-prefix "text||Ananda Library||db||6. Preparation for Kriya Yoga::"
+```
+
 ### `count_hallucinated_urls.py`
 
 Analyzes Firestore chat logs to find URLs in "answer" fields. It checks these URLs for validity (2xx status codes) and
