@@ -47,9 +47,10 @@ function ananda_get_api_token() {
     // Get the expected site ID from settings
     $expected_site_id = get_option('aichatbot_expected_site_id', 'ananda-public');
     
-    // Basic logging for debugging
-    error_log("Connecting to backend URL: $base_url");
-    error_log("Expected site ID: $expected_site_id");
+    if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log("Connecting to backend URL: $base_url");
+        error_log("Expected site ID: $expected_site_id");
+    }
     
     // Make the API request to get a token
     // We use wp_remote_post to handle the HTTP request securely
@@ -72,9 +73,10 @@ function ananda_get_api_token() {
     // Check HTTP response code for API errors
     $response_code = wp_remote_retrieve_response_code($response);
     
-    // Debug: Log raw response body to check for non-JSON content
-    $raw_body = wp_remote_retrieve_body($response);
-    error_log("Raw API response body: " . substr($raw_body, 0, 500)); // Log first 500 chars to avoid huge logs
+    if (defined('WP_DEBUG') && WP_DEBUG) {
+        $raw_body = wp_remote_retrieve_body($response);
+        error_log("Raw API response body: " . substr($raw_body, 0, 500));
+    }
     
     if ($response_code !== 200) {
         // Extract error details from the response if available
@@ -193,10 +195,3 @@ function ananda_call_secure_api($endpoint, $args = []) {
 function ananda_get_secure_data() {
     return ananda_call_secure_api('secure-data');
 }
-
-if (defined('CHATBOT_BACKEND_SECURE_TOKEN')) {
-  $wp_token = hash('sha256', 'wordpress-' . CHATBOT_BACKEND_SECURE_TOKEN);
-  $wp_token = substr($wp_token, 0, 32);
-  error_log('WP Token (first 6 chars): ' . substr($wp_token, 0, 6));
-  error_log('Token source (first 6 chars): ' . substr(CHATBOT_BACKEND_SECURE_TOKEN, 0, 6));
-} 
