@@ -64,8 +64,6 @@ cohere==5.20.2
     # via -r requirements.in
 colorama==0.4.6
     # via -r requirements.in
-coloredlogs==15.0.1
-    # via onnxruntime
 confection==0.1.5
     # via
     #   thinc
@@ -106,8 +104,6 @@ filelock==3.20.3
     #   transformers
 firebase-admin==7.1.0
     # via -r requirements.in
-flatbuffers==25.12.19
-    # via onnxruntime
 fonttools==4.61.1
     # via matplotlib
 fpdf==1.7.2
@@ -199,11 +195,8 @@ httpx[http2]==0.28.1
 huggingface-hub==0.33.0
     # via
     #   -r requirements.in
-    #   optimum
     #   tokenizers
     #   transformers
-humanfriendly==10.0
-    # via coloredlogs
 hyperframe==6.1.0
     # via h2
 idna==3.11
@@ -301,9 +294,6 @@ numpy==1.26.4
     #   imageio
     #   matplotlib
     #   moviepy
-    #   onnx
-    #   onnxruntime
-    #   optimum
     #   pandas
     #   scikit-learn
     #   scipy
@@ -311,20 +301,15 @@ numpy==1.26.4
     #   spacy
     #   thinc
     #   transformers
-onnx==1.18.0
-    # via -r requirements.in
-onnxruntime==1.22.0
-    # via -r requirements.in
 openai==2.21.0
     # via
     #   -r requirements.in
     #   langchain-openai
 openpyxl==3.1.5
     # via -r requirements.in
-optimum==1.25.3
-    # via -r requirements.in
-orjson==3.11.5
+orjson==3.11.7
     # via
+    #   -r requirements.in
     #   langsmith
     #   pinecone
 packaging==24.2
@@ -333,8 +318,6 @@ packaging==24.2
     #   langchain-core
     #   langsmith
     #   matplotlib
-    #   onnxruntime
-    #   optimum
     #   pinecone-plugin-assistant
     #   pipdeptree
     #   pytest
@@ -393,8 +376,6 @@ protobuf==6.33.5
     #   google-cloud-firestore
     #   googleapis-common-protos
     #   grpcio-status
-    #   onnx
-    #   onnxruntime
     #   proto-plus
 psutil==7.2.1
     # via -r requirements.in
@@ -430,8 +411,10 @@ pygments==2.19.2
     # via
     #   pytest
     #   rich
-pyjwt[crypto]==2.10.1
-    # via firebase-admin
+pyjwt[crypto]==2.12.1
+    # via
+    #   -r requirements.in
+    #   firebase-admin
 pymysql==1.1.1
     # via -r requirements.in
 pyparsing==3.3.2
@@ -535,9 +518,7 @@ srsly==2.5.2
     #   thinc
     #   weasel
 sympy==1.14.0
-    # via
-    #   onnxruntime
-    #   torch
+    # via torch
 tenacity==8.2.2
     # via
     #   -r requirements.in
@@ -554,9 +535,7 @@ tokenizers==0.21.1
     #   cohere
     #   transformers
 torch==2.2.2
-    # via
-    #   -r requirements.in
-    #   optimum
+    # via -r requirements.in
 tqdm==4.67.1
     # via
     #   -r requirements.in
@@ -568,9 +547,7 @@ tqdm==4.67.1
     #   spacy
     #   transformers
 transformers==4.53.3
-    # via
-    #   -r requirements.in
-    #   optimum
+    # via -r requirements.in
 typer==0.16.0
     # via -r requirements.in
 typer-slim==0.21.1
@@ -587,7 +564,6 @@ typing-extensions==4.14.0
     #   cohere
     #   huggingface-hub
     #   langchain-core
-    #   onnx
     #   openai
     #   pinecone
     #   pydantic

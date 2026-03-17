@@ -2005,3 +2005,24 @@ scikit-learn==1.7.2
 ```
 
 **Pattern**: After any LangChain security bump, run `npm ls @langchain/core @langchain/openai @langchain/community langchain --all` and verify there are no `invalid` peer dependency entries before running tests.
+
+### 51. Python Lockfiles Must Be Recompiled With Matching Minor Version
+
+**Problem**: Re-running `pip-compile` with the wrong interpreter version can generate incorrect lockfiles and dependency resolutions for this repo's maintained requirements.
+
+**Wrong**:
+
+```bash
+python3 -m piptools compile --output-file=requirements.txt requirements.in
+# Uses system Python 3.9, but the lockfile is meant for Python 3.12
+```
+
+**Correct**:
+
+```bash
+python3.12 -m piptools compile --output-file=requirements.txt requirements.in
+python3.12 -m piptools compile --output-file=reranking/requirements.txt reranking/requirements.in
+python3.11 -m piptools compile --output-file=data_ingestion/crawler/requirements.txt data_ingestion/crawler/requirements.in
+```
+
+**Pattern**: Match the interpreter to the lockfile header and target environment before recompiling Python requirements.

@@ -32,4 +32,5 @@ psutil
 boto3
 
 # Security fixes
+orjson>=3.11.6  # CVE-2025-67221: recursion DoS fix
 urllib3>=2.6.3  # CVE-2025-66418, CVE-2025-66471, CVE-2026-21441: Decompression bomb fixes

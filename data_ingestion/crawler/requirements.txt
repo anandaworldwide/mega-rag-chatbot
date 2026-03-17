@@ -107,8 +107,9 @@ numpy==2.2.6
     #   thinc
 openai==2.9.0
     # via langchain-openai
-orjson==3.11.5
+orjson==3.11.7
     # via
+    #   -r data_ingestion/crawler/requirements.in
     #   langsmith
     #   pinecone
 packaging==24.2

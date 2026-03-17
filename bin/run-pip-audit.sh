@@ -25,11 +25,15 @@ python -m pip install --upgrade pip-audit >/dev/null
 # torch >=2.6.0 doesn't publish wheels for Python 3.12, so we can't upgrade
 # past 2.2.x. Accept these known torch CVEs until Python version upgrade.
 # Mitigation: never call torch.load() on untrusted data.
+# onnx CVE-2026-28500 currently has no published fixed PyPI version.
+# Mitigation: reranking tooling is isolated, not part of the main runtime,
+# and we do not load untrusted ONNX repositories/models through onnx.hub.load().
 IGNORED_VULNS=(
   --ignore-vuln PYSEC-2025-41
   --ignore-vuln PYSEC-2024-259
   --ignore-vuln CVE-2025-2953
   --ignore-vuln CVE-2025-3730
+  --ignore-vuln CVE-2026-28500
 )
 
 echo "Running pip-audit on all Python requirements files..."
