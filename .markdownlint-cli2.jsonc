@@ -1,0 +1,10 @@
+{
+  "config": {
+    "default": true,
+    "MD046": { "style": "fenced" },
+    "MD013": false,
+    "MD060": false
+  },
+  "globs": ["**/*.md"],
+  "ignores": ["node_modules", "**/node_modules", "**/venv", "reranking/markdown_files"]
+}

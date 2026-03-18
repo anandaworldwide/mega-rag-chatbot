@@ -40,7 +40,7 @@ This directory should contain your Google service account credentials file.
 
 After setup, this directory should contain:
 
-```
+```text
 credentials/
 ├── README.md (this file)
 └── ga-service-account.json (your credentials - DO NOT COMMIT)

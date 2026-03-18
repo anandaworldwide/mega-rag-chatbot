@@ -8,7 +8,7 @@ references to detailed implementation documentation.
 
 ### Data Ingestion Pipeline
 
-```
+```text
 ┌────────────────────────────────────────────────────────────────────────────────┐
 │                             CONTENT SOURCES                                    │
 │                                                                                │
