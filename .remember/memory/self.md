@@ -2026,3 +2026,23 @@ python3.11 -m piptools compile --output-file=data_ingestion/crawler/requirements
 ```
 
 **Pattern**: Match the interpreter to the lockfile header and target environment before recompiling Python requirements.
+
+### 52. Pip-Tools and Pip Validation Can Fail for Environment Reasons
+
+**Problem**: In this workspace, Python dependency maintenance commands can fail even when dependency resolution is correct because tooling tries to write outside the writable workspace or rehash pyenv shims.
+
+**Wrong**:
+
+```bash
+python3.12 -m piptools compile --output-file=requirements.txt requirements.in
+python3.12 -m pip install --dry-run -r requirements.txt
+```
+
+**Correct**:
+
+```bash
+PIP_TOOLS_CACHE_DIR=.cache/pip-tools python3.12 -m piptools compile --output-file=requirements.txt requirements.in
+PYENV_REHASH_DISABLE=1 python3.12 -m pip install --dry-run -r requirements.txt
+```
+
+**Pattern**: If `piptools` complains that its cache directory is not writable, point `PIP_TOOLS_CACHE_DIR` at a workspace-local directory. If `pip --dry-run` ends with `pyenv: cannot rehash ... isn't writable`, inspect the output for a successful `Would install ...` line before treating it as a real dependency-resolution failure.
