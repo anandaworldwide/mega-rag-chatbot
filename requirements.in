@@ -52,6 +52,7 @@ pipdeptree==2.26.1
 pinecone>=8.0.0
 reportlab==4.2.5
 playwright>=1.55.1
+pyasn1>=0.6.3  # CVE-2026-30922: unbounded recursion DoS fix
 pycryptodomex==3.23.0
 pyjwt[crypto]>=2.12.0  # CVE-2026-32597: crit header validation fix
 pydub==0.25.1
@@ -70,9 +71,6 @@ seaborn
 spacy>=3.8.11
 tenacity==8.2.2
 tokenizers==0.21.1
-torch>=2.2.0  # Pinned to 2.2.x: PyTorch >=2.6.0 doesn't publish wheels for Python 3.12.
-              # Known CVEs (PYSEC-2025-41, PYSEC-2024-259, CVE-2025-2953, CVE-2025-3730) accepted
-              # until Python upgrade. Mitigation: never call torch.load() on untrusted data.
 tqdm==4.67.1
 transformers>=4.53.0  # CVE-2025-5197, CVE-2025-3933: ReDoS fixes
 typer==0.16.0
