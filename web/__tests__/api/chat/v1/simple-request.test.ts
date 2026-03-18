@@ -4,7 +4,7 @@
 import { Request, Response, Headers } from '@web-std/fetch';
 Object.assign(global, { Request, Response, Headers });
 
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/ban-ts-comment */
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 // @ts-ignore - Ignoring type errors in tests to simplify testing
 /**
  * Tests for the Chat API simple request handling
@@ -60,7 +60,7 @@ jest.mock('next/server', () => {
           // If any error occurs in our custom logic, try falling back to original
           try {
             return await originalJson();
-          } catch (innerError) {
+          } catch (_) {
             throw error; // Throw the original error if fallback also fails
           }
         }

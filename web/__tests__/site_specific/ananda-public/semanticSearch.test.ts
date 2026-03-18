@@ -621,7 +621,7 @@ testRunner("Vivek Response Semantic Validation (ananda-public)", () => {
       // Unexpected: Different explanations, multiple/wrong links
       const unexpectedResponseCanonical = [
         "The fire ceremony is a purification ritual using mantras and offerings. You can find details on the main Ananda website.", // Wrong link implied
-        "It\'s a powerful ceremony to burn away karma. Find more info here: [link1], [link2].", // Multiple links / different explanation
+        "It's a powerful ceremony to burn away karma. Find more info here: [link1], [link2].", // Multiple links / different explanation
       ];
 
       const actualResponse = await getVivekResponse(query);

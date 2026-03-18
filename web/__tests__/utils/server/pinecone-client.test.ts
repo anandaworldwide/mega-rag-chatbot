@@ -44,7 +44,7 @@ describe('Pinecone Client Service', () => {
     // Clean up global state after each test
     try {
       __setGlobalPineconeClientForTesting(null);
-    } catch (error) {
+    } catch (_) {
       // Ignore errors if NODE_ENV is not test
     }
   });

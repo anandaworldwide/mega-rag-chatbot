@@ -1,5 +1,6 @@
 // Add custom jest matchers for DOM elements
 import "@testing-library/jest-dom";
+import React from "react";
 
 // Polyfill for TextEncoder/TextDecoder
 import { TextEncoder as TextEncodingPolyfill, TextDecoder as TextDecodingPolyfill } from "text-encoding";
@@ -19,7 +20,7 @@ expect.extend({});
 process.env.SECRET_KEY = process.env.SECRET_KEY || "test-secret-key-for-jest";
 
 // Configure React for testing
-global.React = require("react");
+global.React = React;
 
 // Mock next/router
 jest.mock("next/router", () => ({

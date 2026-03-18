@@ -1,5 +1,6 @@
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import AdminApproverSelector from "@/components/AdminApproverSelector";
+import { fetchWithAuth } from "@/utils/client/tokenManager";
 
 // Mock the tokenManager
 jest.mock("@/utils/client/tokenManager", () => ({
@@ -10,8 +11,6 @@ jest.mock("@/utils/client/tokenManager", () => ({
 }));
 
 describe("AdminApproverSelector", () => {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { fetchWithAuth } = require("@/utils/client/tokenManager");
   const mockApproversData = {
     lastUpdated: "2025-10-03",
     regions: [
