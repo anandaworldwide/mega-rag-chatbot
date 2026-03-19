@@ -23,7 +23,7 @@ if (fs.existsSync(envFile)) {
 process.chdir(path.join(__dirname, '..', 'web'));
 
 // Run next dev from the web directory, using its own node_modules
-const nextDev = spawn('next', ['dev', '-p', '3000'], {
+const nextDev = spawn('next', ['dev', '--webpack', '-p', '3000'], {
   stdio: 'inherit',
   env: process.env, // Use web's own dependencies
 });

@@ -26,7 +26,7 @@ if (process.env.NODE_ENV === "production" || process.env.VERCEL) {
   }
 }
 
-const nextBuild = spawn("next", ["build"], {
+const nextBuild = spawn("next", ["build", "--webpack"], {
   stdio: "inherit",
   env: process.env,
 });
