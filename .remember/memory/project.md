@@ -71,6 +71,11 @@ except ImportError:
 
 ## Development Workflow
 
+### Next.js 16 Upgrade Note
+
+- This repo currently uses a custom `webpack` config in `web/next.config.mjs`
+- When running Next.js 16, keep `next build` and `next dev` explicit with `--webpack` unless the app is intentionally migrated to Turbopack
+
 ### Memory Management (Critical)
 
 - **Always read** `@self.md` and `@project.md` first
