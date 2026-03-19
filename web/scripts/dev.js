@@ -96,7 +96,7 @@ async function main() {
   console.log(`Starting Next.js with SITE_ID: ${site}\n`);
 
   // Pass the environment to the spawned process
-  const nextDev = spawn("next", ["dev", "-H", "0.0.0.0"], {
+  const nextDev = spawn("next", ["dev", "--webpack", "-H", "0.0.0.0"], {
     stdio: "inherit",
     env: process.env,
   });

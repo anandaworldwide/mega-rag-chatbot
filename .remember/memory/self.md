@@ -2,6 +2,30 @@
 
 ## Critical Lessons Learned
 
+### Next.js 16 Defaults To Turbopack
+
+**Rule**: Upgrading to Next.js 16 can break repos with custom `webpack` config because `next build` and `next dev` default to Turbopack.
+
+**Wrong**:
+
+```json
+"build": "next build",
+"dev:site": "SITE_ID=$npm_config_site next dev"
+```
+
+**Correct**:
+
+```json
+"build": "next build --webpack",
+"dev:site": "SITE_ID=$npm_config_site next dev --webpack"
+```
+
+**Why This Matters**:
+
+- Next 16 errors when Turbopack is used alongside a webpack config and no turbopack config
+- Explicit `--webpack` is the safest narrow fix when the repo already depends on webpack behavior
+- A successful Next 16 build may also require `tsconfig.json` updates such as `jsx: "react-jsx"` and including `.next/dev/types/**/*.ts`
+
 ### 1. Document Migration Must Include All Validated Updates
 
 **Rule**: When migrating a Firestore document (e.g., changing email address as document ID), ALL validated updates must
