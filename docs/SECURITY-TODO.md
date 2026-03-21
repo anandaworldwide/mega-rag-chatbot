@@ -23,8 +23,11 @@ Defined in `bin/run-pip-audit.sh`. These are accepted because no fix exists for 
 | CVE-2025-2953 | torch | Same |
 | CVE-2025-3730 | torch | Same |
 | CVE-2026-28500 | onnx | No fixed PyPI version |
+| GHSA-rf74-v2fm-23pw | nltk | No newer PyPI release than 3.9.3 |
+| CVE-2026-33230 | nltk | Same |
+| CVE-2026-33231 | nltk | Same |
 
-**Mitigations:** Never call `torch.load()` on untrusted data. Reranking tooling is isolated; we do not load untrusted ONNX models via `onnx.hub.load()`.
+**Mitigations:** Never call `torch.load()` on untrusted data. Reranking tooling is isolated; we do not load untrusted ONNX models via `onnx.hub.load()`. `nltk` is only used in evaluation, experiments, and analysis tooling, not in the web runtime.
 
 ## Open Dependabot PRs (Triage)
 

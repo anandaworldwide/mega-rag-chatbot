@@ -28,12 +28,18 @@ python -m pip install --upgrade pip-audit >/dev/null
 # onnx CVE-2026-28500 currently has no published fixed PyPI version.
 # Mitigation: reranking tooling is isolated, not part of the main runtime,
 # and we do not load untrusted ONNX repositories/models through onnx.hub.load().
+# nltk GHSA-rf74-v2fm-23pw / CVE-2026-33230 / CVE-2026-33231 currently have
+# no newer PyPI release than 3.9.3. Mitigation: nltk is only used in
+# evaluation, experiments, and analysis tooling - not in the web runtime.
 IGNORED_VULNS=(
   --ignore-vuln PYSEC-2025-41
   --ignore-vuln PYSEC-2024-259
   --ignore-vuln CVE-2025-2953
   --ignore-vuln CVE-2025-3730
   --ignore-vuln CVE-2026-28500
+  --ignore-vuln GHSA-rf74-v2fm-23pw
+  --ignore-vuln CVE-2026-33230
+  --ignore-vuln CVE-2026-33231
 )
 
 echo "Running pip-audit on all Python requirements files..."

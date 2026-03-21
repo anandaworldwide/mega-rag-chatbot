@@ -67,3 +67,5 @@ next-env.d.ts
 # prompts
 .prompts-staging/
 /venv/
+
+.cache/
