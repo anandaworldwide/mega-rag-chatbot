@@ -83,6 +83,8 @@ except ImportError:
 - **Only store** general, reusable lessons (not request-specific details)
 - **Cursor env build config**: Use `.cursor/Dockerfile` explicitly in `.cursor/environment.json` (avoid ambiguous `Dockerfile`
   path)
+- **Large Pinecone analysis scripts**: Stream batches into disk-backed SQLite and summarize from the DB; do not accumulate
+  full ID lists, metadata rows, or prefix/title maps in memory
 
 ### Testing Requirements
 

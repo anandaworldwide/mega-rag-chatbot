@@ -2070,3 +2070,28 @@ PYENV_REHASH_DISABLE=1 python3.12 -m pip install --dry-run -r requirements.txt
 ```
 
 **Pattern**: If `piptools` complains that its cache directory is not writable, point `PIP_TOOLS_CACHE_DIR` at a workspace-local directory. If `pip --dry-run` ends with `pyenv: cannot rehash ... isn't writable`, inspect the output for a successful `Would install ...` line before treating it as a real dependency-resolution failure.
+
+### 53. Large Pinecone Analysis Scripts Must Stream to Disk
+
+**Wrong**: Collecting all vector IDs, fetched metadata rows, and derived prefix/title relationships in Python lists, dicts,
+and sets before summarizing.
+
+```python
+vector_ids = collect_all_ids(index)
+rows = fetch_all_metadata(index, vector_ids)
+catalog = build_catalog(rows)  # huge in-memory maps of prefixes -> titles
+```
+
+**Correct**: Stream Pinecone batches and aggregate into a disk-backed SQLite database, then compute summaries from SQLite.
+
+```python
+connection = initialize_database(sqlite_path)
+for id_batch in index.list(limit=batch_size):
+    fetch_response = index.fetch(ids=id_batch)
+    upsert_batch_into_database(connection, batch_rows)
+
+summary = build_summary(connection, scan_stats, top_n, ambiguity_limit)
+```
+
+**Pattern**: For high-cardinality analysis jobs, treat batch streaming plus disk-backed aggregation as the default design,
+not a later optimization. Keep only per-batch counters/sets in memory.
