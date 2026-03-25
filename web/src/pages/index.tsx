@@ -59,6 +59,7 @@ import { loadConversationByConvId } from "@/utils/client/conversationLoader";
 import { getGreeting } from "@/utils/client/siteConfig";
 import { SidebarFunctions, SidebarRefetch } from "@/components/ChatHistorySidebar";
 import { generateSourceId } from "@/utils/client/sourceUtils";
+import { FilterConflictAction, TitleScopeFilterConflictPayload, TitleScopeSelection, TitleScopeSuggestion } from "@/types/titleScope";
 
 // Custom hook for scroll depth tracking
 function useScrollDepthTracking() {
@@ -179,6 +180,94 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   useEffect(() => {
     selectedLibrariesRef.current = selectedLibraries;
   }, [selectedLibraries]);
+  const [selectedTitleScope, setSelectedTitleScope] = useState<TitleScopeSelection | null>(null);
+  const [titleScopeSuggestions, setTitleScopeSuggestions] = useState<TitleScopeSuggestion[]>([]);
+  const [titleScopeError, setTitleScopeError] = useState<string | null>(null);
+  const [filterConflict, setFilterConflict] = useState<TitleScopeFilterConflictPayload | null>(null);
+  const [pendingConflictRetry, setPendingConflictRetry] = useState(false);
+  const [librariesExplicit, setLibrariesExplicit] = useState(false);
+  const [mediaTypesExplicit, setMediaTypesExplicit] = useState(false);
+  const isTitleScopeSelectionEnabled = Boolean(siteConfig?.enableTitleScopeSelection);
+  const selectedTitleScopeRef = useRef<TitleScopeSelection | null>(selectedTitleScope);
+  useEffect(() => {
+    selectedTitleScopeRef.current = selectedTitleScope;
+  }, [selectedTitleScope]);
+  useEffect(() => {
+    if (!isTitleScopeSelectionEnabled && selectedTitleScopeRef.current) {
+      setSelectedTitleScope(null);
+    }
+  }, [isTitleScopeSelectionEnabled, selectedTitleScope]);
+  const handleTitleScopeChange = useCallback((scope: TitleScopeSelection | null) => {
+    setSelectedTitleScope(scope);
+    setTitleScopeSuggestions([]);
+    setTitleScopeError(null);
+    setFilterConflict(null);
+  }, []);
+
+  useEffect(() => {
+    const defaultLibNames = (siteConfig?.includedLibraries || []).map((lib) => (typeof lib === "string" ? lib : lib.name));
+    const isDefaultLibs =
+      defaultLibNames.length > 0 &&
+      selectedLibraries.length === defaultLibNames.length &&
+      defaultLibNames.every((lib) => selectedLibraries.includes(lib));
+    setLibrariesExplicit(!isDefaultLibs);
+  }, [siteConfig?.includedLibraries, selectedLibraries]);
+
+  useEffect(() => {
+    const enabled = getEnabledMediaTypes(siteConfig);
+    if (!enabled.length) {
+      setMediaTypesExplicit(false);
+      return;
+    }
+    const allOn = enabled.every((t) => mediaTypes[t as keyof typeof mediaTypes] === true);
+    setMediaTypesExplicit(!allOn);
+  }, [siteConfig, mediaTypes]);
+
+  const buildFilterExplicitnessPayload = useCallback(() => {
+    if (!isTitleScopeSelectionEnabled) {
+      return undefined;
+    }
+    return {
+      collection: collectionChanged,
+      libraries: librariesExplicit,
+      mediaTypes: mediaTypesExplicit,
+    };
+  }, [isTitleScopeSelectionEnabled, collectionChanged, librariesExplicit, mediaTypesExplicit]);
+
+  const applyFilterConflictAction = useCallback(
+    (action: FilterConflictAction) => {
+      if (action.kind === "repairAll") {
+        if (action.collection === "whole_library") {
+          setCollection("whole_library");
+          setCollectionChanged(true);
+        }
+        if (action.libraries && action.libraries.length > 0) {
+          setSelectedLibraries([...action.libraries]);
+        }
+        if (action.mediaTypes) {
+          setMediaTypes({ ...action.mediaTypes });
+        }
+      } else {
+        if (action.kind === "setCollection" && action.collection) {
+          setCollection(action.collection);
+          setCollectionChanged(true);
+        }
+        if (action.kind === "setLibraries" && action.libraries && action.libraries.length > 0) {
+          setSelectedLibraries([...action.libraries]);
+        }
+        if (action.kind === "setMediaTypes" && action.mediaTypes) {
+          setMediaTypes({ ...action.mediaTypes });
+        }
+        if (action.kind === "clearTitleScope" || action.clearTitleScope) {
+          handleTitleScopeChange(null);
+        }
+      }
+
+      setPendingConflictRetry(true);
+      setFilterConflict(null);
+    },
+    [handleTitleScopeChange]
+  );
 
   // Model selection state - initialize from localStorage or default
   const [selectedModel, setSelectedModel] = useState<string>(() => {
@@ -1134,6 +1223,38 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         console.log("[BACKEND]", data.log);
       }
 
+      if (data.titleScopeSuggestions) {
+        setTitleScopeSuggestions(data.titleScopeSuggestions);
+        setTitleScopeError(data.error || null);
+      }
+
+      if (data.filterConflict) {
+        setFilterConflict(data.filterConflict);
+        setError(null);
+        setMessageState((prevState) => {
+          const newMessages = [...prevState.messages];
+          const lastMessage = newMessages[newMessages.length - 1];
+          if (lastMessage?.type === "apiMessage") {
+            newMessages[newMessages.length - 1] = {
+              ...lastMessage,
+              message: data.filterConflict!.summaryMessage,
+            };
+          }
+          const newHistory = [...prevState.history];
+          if (newHistory.length > 0 && newHistory[newHistory.length - 1].role === "assistant") {
+            newHistory[newHistory.length - 1] = {
+              ...newHistory[newHistory.length - 1],
+              content: data.filterConflict!.summaryMessage,
+            };
+          }
+          return {
+            ...prevState,
+            messages: newMessages,
+            history: newHistory,
+          };
+        });
+      }
+
       // Capture timing information
       if (data.timing) {
         setTimingMetrics(data.timing);
@@ -1466,6 +1587,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       messages,
       savedDocId,
       showScrollDownButton,
+      setFilterConflict,
     ]
     // Note: reportMissingSourcesToBacked and reportPartialSourcesToBacked are defined after this callback
     // but are stable functions that don't need to be in the dependency array
@@ -1575,6 +1697,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     setIsNearBottom(true);
     setLoading(true);
     setError(null);
+    setFilterConflict(null);
 
     // Reset accumulated response at the start of each new query
     accumulatedResponseRef.current = "";
@@ -1640,6 +1763,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           temporarySession,
           mediaTypes,
           selectedLibraries: selectedLibrariesRef.current,
+          titleScope: siteConfig?.enableTitleScopeSelection ? selectedTitleScopeRef.current : undefined,
+          filterExplicitness: buildFilterExplicitnessPayload(),
           sourceCount: sourceCountRef.current,
           uuid: getOrCreateUUID(),
           convId: currentConvIdRef.current, // Pass current conversation ID for follow-ups
@@ -2094,6 +2219,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
       setLoading(true);
       setError(null);
+      setTitleScopeSuggestions([]);
+      setTitleScopeError(null);
       accumulatedResponseRef.current = "";
 
       try {
@@ -2109,6 +2236,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             collection: apiMessage.collection || collection,
             mediaTypes: mediaTypes,
             selectedLibraries: selectedLibrariesRef.current,
+            titleScope: isTitleScopeSelectionEnabled ? selectedTitleScopeRef.current : undefined,
+            filterExplicitness: buildFilterExplicitnessPayload(),
             sourceCount: apiMessage.sourceDocs?.length || sourceCountRef.current,
             temporarySession: temporarySession,
             uuid: getOrCreateUUID(),
@@ -2125,6 +2254,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         if (!response.body) {
           throw new Error("No response body");
         }
+
+        setFilterConflict(null);
 
         // Replace the existing message with an empty one to prepare for streaming
         setMessageState((prevState) => {
@@ -2154,6 +2285,51 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             if (line.startsWith("data: ")) {
               try {
                 const data = JSON.parse(line.slice(5));
+
+                if (data.filterConflict) {
+                  setFilterConflict(data.filterConflict);
+                  setMessageState((prevState) => {
+                    const newMessages = [...prevState.messages];
+                    newMessages[messageIndex] = {
+                      ...newMessages[messageIndex],
+                      message: data.filterConflict.summaryMessage,
+                    };
+                    const newHistory = [...prevState.history];
+                    const historyIndex = messageIndex - 1;
+                    if (
+                      historyIndex >= 0 &&
+                      historyIndex < newHistory.length &&
+                      newHistory[historyIndex]?.role === "assistant"
+                    ) {
+                      newHistory[historyIndex] = {
+                        ...newHistory[historyIndex],
+                        content: data.filterConflict.summaryMessage,
+                      };
+                    }
+                    return {
+                      ...prevState,
+                      messages: newMessages,
+                      history: newHistory,
+                    };
+                  });
+                }
+
+                if (data.suggestions && Array.isArray(data.suggestions) && data.suggestions.length > 0) {
+                  setMessageState((prevState) => {
+                    const newMessages = [...prevState.messages];
+                    const targetMessage = newMessages[messageIndex];
+                    if (targetMessage?.type === "apiMessage") {
+                      newMessages[messageIndex] = {
+                        ...targetMessage,
+                        suggestions: data.suggestions,
+                      };
+                    }
+                    return {
+                      ...prevState,
+                      messages: newMessages,
+                    };
+                  });
+                }
 
                 if (data.token) {
                   accumulatedResponseRef.current += data.token;
@@ -2243,8 +2419,40 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setLoading(false);
       }
     },
-    [loading, messages, collection, mediaTypes, temporarySession, setLoading, setError, setMessageState]
+    [
+      loading,
+      messages,
+      collection,
+      mediaTypes,
+      temporarySession,
+      isTitleScopeSelectionEnabled,
+      buildFilterExplicitnessPayload,
+      setLoading,
+      setError,
+      setMessageState,
+    ]
   );
+
+  useEffect(() => {
+    if (!pendingConflictRetry || loading) {
+      return;
+    }
+
+    const retryIndex = (() => {
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        if (messages[index]?.type === "apiMessage") {
+          return index;
+        }
+      }
+      return null;
+    })();
+
+    setPendingConflictRetry(false);
+    if (retryIndex === null) {
+      return;
+    }
+    handleRegenerateAnswer(retryIndex);
+  }, [handleRegenerateAnswer, loading, messages, pendingConflictRetry]);
 
   // Function to handle starting question edit
   const handleEditQuestion = useCallback((messageIndex: number, originalText: string) => {
@@ -2336,6 +2544,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             temporarySession,
             mediaTypes,
             selectedLibraries: selectedLibrariesRef.current,
+            titleScope: isTitleScopeSelectionEnabled ? selectedTitleScopeRef.current : undefined,
+            filterExplicitness: buildFilterExplicitnessPayload(),
             sourceCount: sourceCountRef.current,
             uuid: getOrCreateUUID(),
             convId: currentConvIdRef.current,
@@ -2351,6 +2561,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         if (!response.body) {
           throw new Error("No response body");
         }
+
+        setFilterConflict(null);
 
         // Add empty API message for streaming
         setMessageState((prevState) => ({
@@ -2382,6 +2594,39 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             if (line.startsWith("data: ")) {
               try {
                 const data = JSON.parse(line.slice(5));
+
+                if (data.filterConflict) {
+                  setFilterConflict(data.filterConflict);
+                  setError(null);
+                  updateMessageState(data.filterConflict.summaryMessage, null);
+                  setMessageState((prevState) => {
+                    const updatedHistory = [...prevState.history];
+                    if (updatedHistory.length > 0 && updatedHistory[updatedHistory.length - 1].role === "assistant") {
+                      updatedHistory[updatedHistory.length - 1] = {
+                        ...updatedHistory[updatedHistory.length - 1],
+                        content: data.filterConflict.summaryMessage,
+                      };
+                    }
+                    return { ...prevState, history: updatedHistory };
+                  });
+                }
+
+                if (data.suggestions && Array.isArray(data.suggestions) && data.suggestions.length > 0) {
+                  setMessageState((prevState) => {
+                    const updatedMessages = [...prevState.messages];
+                    const lastMessage = updatedMessages[updatedMessages.length - 1];
+                    if (lastMessage?.type === "apiMessage") {
+                      updatedMessages[updatedMessages.length - 1] = {
+                        ...lastMessage,
+                        suggestions: data.suggestions,
+                      };
+                    }
+                    return {
+                      ...prevState,
+                      messages: updatedMessages,
+                    };
+                  });
+                }
 
                 if (data.token) {
                   accumulatedResponseRef.current += data.token;
@@ -2469,6 +2714,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       setSourceDocs,
       setSavedDocId,
       setCurrentConvId,
+      isTitleScopeSelectionEnabled,
+      buildFilterExplicitnessPayload,
     ]
   );
 
@@ -2506,6 +2753,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             collection: apiMessage.collection || collection,
             mediaTypes: mediaTypes,
             selectedLibraries: selectedLibrariesRef.current,
+            titleScope: isTitleScopeSelectionEnabled ? selectedTitleScopeRef.current : undefined,
+            filterExplicitness: buildFilterExplicitnessPayload(),
             sourceCount: apiMessage.sourceDocs?.length || sourceCountRef.current,
             temporarySession: temporarySession,
             uuid: getOrCreateUUID(),
@@ -2523,6 +2772,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           throw new Error("No response body");
         }
 
+        setFilterConflict(null);
+
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
 
@@ -2537,6 +2788,18 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             if (line.startsWith("data: ")) {
               try {
                 const data = JSON.parse(line.slice(5));
+
+                if (data.filterConflict) {
+                  setFilterConflict(data.filterConflict);
+                  setRegeneratedAnswer((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          message: data.filterConflict.summaryMessage,
+                        }
+                      : prev
+                  );
+                }
 
                 if (data.token) {
                   regeneratedAnswerRef.current += data.token;
@@ -2563,7 +2826,15 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setRegeneratedAnswer(null);
       }
     },
-    [isRegenerating, messages, collection, mediaTypes, temporarySession]
+    [
+      isRegenerating,
+      messages,
+      collection,
+      mediaTypes,
+      temporarySession,
+      isTitleScopeSelectionEnabled,
+      buildFilterExplicitnessPayload,
+    ]
   );
 
   // Function to submit comparison feedback
@@ -3218,6 +3489,13 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                         isLoadingQueries={isLoadingQueries}
                         sourceCount={sourceCount}
                         setSourceCount={setSourceCount}
+                        selectedTitleScope={selectedTitleScope}
+                        setSelectedTitleScope={handleTitleScopeChange}
+                        titleScopeSuggestions={titleScopeSuggestions}
+                        titleScopeError={titleScopeError}
+                        filterConflict={filterConflict}
+                        onApplyFilterConflictAction={applyFilterConflictAction}
+                        onDismissFilterConflict={() => setFilterConflict(null)}
                         onTemporarySessionChange={handleTemporarySessionChange}
                         categorizedQueries={categorizedQueries}
                         shouldShowSuggestions={shouldShowSuggestions}
@@ -3384,6 +3662,13 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                         isLoadingQueries={isLoadingQueries}
                         sourceCount={sourceCount}
                         setSourceCount={setSourceCount}
+                        selectedTitleScope={selectedTitleScope}
+                        setSelectedTitleScope={handleTitleScopeChange}
+                        titleScopeSuggestions={titleScopeSuggestions}
+                        titleScopeError={titleScopeError}
+                        filterConflict={filterConflict}
+                        onApplyFilterConflictAction={applyFilterConflictAction}
+                        onDismissFilterConflict={() => setFilterConflict(null)}
                         onTemporarySessionChange={handleTemporarySessionChange}
                         categorizedQueries={categorizedQueries}
                         shouldShowSuggestions={shouldShowSuggestions}

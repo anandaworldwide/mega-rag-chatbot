@@ -57,6 +57,7 @@ export class NoSourcesError extends Error {
       libraries?: string[];
       mediaTypes?: { text?: boolean; audio?: boolean; youtube?: boolean };
       collection?: string;
+      titleScope?: string;
     }
   ) {
     super(message);
@@ -418,7 +419,8 @@ export const makeChain = async (
   siteConfig?: AppSiteConfig | null,
   originalQuestion?: string, // Add this parameter to pass the original question
   selectedLibraries?: string[], // Selected libraries for filtering
-  taskMode?: string // Task mode (e.g., "class-planning", "research") - skips reformulation when set
+  taskMode?: string, // Task mode (e.g., "class-planning", "research") - skips reformulation when set
+  selectedTitleScopeLabel?: string
 ) => {
   const { model, temperature, label } = modelConfig;
   let answerModel: BaseLanguageModel; // Renamed for clarity
@@ -748,6 +750,7 @@ Error details: ${errorString}`,
                 }, {})
               : undefined,
           collection: baseFilter && baseFilter.author ? String(baseFilter.author) : undefined,
+          titleScope: selectedTitleScopeLabel,
         });
       }
 
@@ -1459,7 +1462,8 @@ export async function setupAndExecuteLanguageModelChain(
   timingMetrics?: any, // Accept timing metrics for detailed tracking
   modelOverride?: string, // Optional model override for testing/comparison
   selectedLibraries?: string[], // Selected libraries for filtering
-  taskMode?: string // Task mode (e.g., "class-planning", "research") - skips reformulation when set
+  taskMode?: string, // Task mode (e.g., "class-planning", "research") - skips reformulation when set
+  selectedTitleScopeLabel?: string
 ): Promise<{
   fullResponse: string;
   finalDocs: Document[];
@@ -1525,7 +1529,8 @@ export async function setupAndExecuteLanguageModelChain(
         siteConfig,
         sanitizedQuestion, // Pass original question for intent detection
         selectedLibraries, // Pass selected libraries for filtering
-        taskMode // Pass task mode to skip reformulation
+        taskMode, // Pass task mode to skip reformulation
+        selectedTitleScopeLabel
       );
 
       // Format chat history for the language model

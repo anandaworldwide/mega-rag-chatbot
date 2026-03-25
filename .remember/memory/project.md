@@ -200,6 +200,14 @@ except ImportError:
 - **Environment files**: `.env.[site]` pattern
 - **Pinecone namespaces**: One per site
 - **Config location**: `site-config/config.json`
+- **Feature rollout preference**: New user-facing features should be gated by site config and enabled only for the intended site(s), not assumed global
+- **Planning rule**: For major features, explicitly ask the user whether rollout should be global or site-configurable before implementing
+- **Site complexity**: `ananda` / Luca is the deep, feature-rich site; the other sites are intentionally simpler
+- **Title catalog artifacts**: S3 title-scope artifacts are shared between development and production per site; do not split them by env prefix
+- **Title catalog lookup.json**: Every entry must include per-prefix `availability` (libraries, mediaTypes,
+  collectionsWithVectors); the chat API validates on load and returns a structured `filterConflict` SSE payload before
+  retrieval when user filters exclude the selected source
+- **AWS CLI preference**: Use named profiles for different AWS accounts and prefer explicit `--profile ...` on AWS CLI commands for safety
 - **System prompts**: Located in `web/site-config/prompts/[site]-base.txt`
 - **UUID identification**: All users have UUIDs (JWT token for login-required, cookies for non-login sites)
 - **UUID utility**: Use `getSecureUUID()` for API endpoints that work with both authenticated and non-authenticated

@@ -1369,6 +1369,17 @@ aws ce get-cost-and-usage \
   --region us-east-1
 ```
 
+### Mistake: Assuming Major Features Apply To All Sites
+
+**Wrong**:
+Implementing a major user-facing feature across the multi-site app without first confirming whether it should be global
+or gated per site.
+
+**Correct**:
+Before implementing any major feature, explicitly ask whether it should apply to all sites or be configurable by site.
+Default to site-config gating when rollout scope is not already specified, especially because `ananda`/Luca is much more
+feature-rich than the simpler sites.
+
 ### 37. Auth Token Fetch Should Not Redirect Directly - Let AuthGuard Handle It
 
 **Problem**: When `fetchNewToken()` gets a 401 from `/api/web-token`, it immediately redirects via
@@ -2095,3 +2106,18 @@ summary = build_summary(connection, scan_stats, top_n, ambiguity_limit)
 
 **Pattern**: For high-cardinality analysis jobs, treat batch streaming plus disk-backed aggregation as the default design,
 not a later optimization. Keep only per-batch counters/sets in memory.
+
+### Mistake: SQLite GROUP_CONCAT(DISTINCT … ORDER BY …)
+
+**Wrong**: `GROUP_CONCAT(DISTINCT col ORDER BY col)` — SQLite rejects it (`near "ORDER": syntax error`).
+
+**Correct**: Use `GROUP_CONCAT(DISTINCT col)` and sort/dedupe in application code, or use a subquery.
+
+### 54. Unlaunched Features — No Schema Back-Compat in Code
+
+**Wrong**: Keeping runtime fallbacks for “older” artifacts (e.g. optional `availability` on title catalog entries, returning
+`null` to skip conflict detection) when the feature was never launched.
+
+**Correct**: Require the current artifact/schema in types, validate at load, throw a dedicated error (e.g.
+`TitleCatalogDataError`) with rebuild instructions, and surface it through the chat SSE `error` field. Operators refresh
+artifacts once; the codebase stays single-path.

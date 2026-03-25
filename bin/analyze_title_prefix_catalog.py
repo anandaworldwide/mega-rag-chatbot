@@ -46,11 +46,28 @@ ARTICLE_PATTERN = re.compile(r"^(?:the|a|an)\s+", re.IGNORECASE)
 WHITESPACE_PATTERN = re.compile(r"\s+")
 NON_ALNUM_PATTERN = re.compile(r"[^a-z0-9]+")
 
+# Must match web/src/app/api/chat/v1/route.ts master_swami author filter.
+MASTER_SWAMI_AUTHORS = frozenset({"Paramhansa Yogananda", "Swami Kriyananda"})
+CANONICAL_MEDIA_TYPES = frozenset({"text", "audio", "youtube"})
+
+
+def normalize_media_type(raw: Any) -> str:
+    """Map Pinecone metadata.type to chat filter values (text/audio/youtube)."""
+    if raw is None or raw == "":
+        return "text"
+    value = str(raw).strip().lower()
+    if value in CANONICAL_MEDIA_TYPES:
+        return value
+    if value == "video":
+        return "youtube"
+    return "text"
+
 
 @dataclass(frozen=True)
 class ScriptConfig:
     """Runtime configuration for the title prefix analysis."""
 
+    site: str
     index_name: str
     vector_id_prefix: str | None
     max_vectors: int | None
@@ -61,6 +78,7 @@ class ScriptConfig:
     write_artifacts: bool
     output_dir: Path | None
     sqlite_path: Path
+    artifact_version: str
     estimated_total_vectors: int | None = None
 
 
@@ -261,14 +279,35 @@ def initialize_database(sqlite_path: Path) -> sqlite3.Connection:
         )
         """
     )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS prefix_authors (
+            prefix TEXT NOT NULL,
+            author TEXT NOT NULL,
+            PRIMARY KEY (prefix, author)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS prefix_media_types (
+            prefix TEXT NOT NULL,
+            media_type TEXT NOT NULL,
+            PRIMARY KEY (prefix, media_type)
+        )
+        """
+    )
     connection.commit()
     return connection
 
 
 def upsert_batch_into_database(
-    connection: sqlite3.Connection, rows: list[tuple[str, str]]
+    connection: sqlite3.Connection, rows: list[tuple[str, str, str, str]]
 ) -> None:
-    """Aggregate one fetched metadata batch into SQLite."""
+    """Aggregate one fetched metadata batch into SQLite.
+
+    Each row is (title, library, author, media_type) where media_type is canonical text/audio/youtube.
+    """
     if not rows:
         return
 
@@ -279,10 +318,12 @@ def upsert_batch_into_database(
     prefix_metadata: dict[str, tuple[int, str]] = {}
     prefix_titles: set[tuple[str, str]] = set()
     prefix_libraries: set[tuple[str, str]] = set()
+    prefix_authors: set[tuple[str, str]] = set()
+    prefix_media_types: set[tuple[str, str]] = set()
     normalized_prefixes: set[tuple[str, str]] = set()
     terminal_segments: set[tuple[str, str]] = set()
 
-    for title, library in rows:
+    for title, library, author, media_type in rows:
         title_counts[title] += 1
         if library:
             title_libraries.add((title, library))
@@ -300,6 +341,12 @@ def upsert_batch_into_database(
 
             if library:
                 prefix_libraries.add((prefix, library))
+
+            author_stripped = author.strip()
+            if author_stripped:
+                prefix_authors.add((prefix, author_stripped))
+
+            prefix_media_types.add((prefix, media_type))
 
             normalized_prefixes.add((normalize_title_for_matching(prefix), prefix))
             terminal_segments.add((normalize_segment(prefix_metadata[prefix][1]), prefix))
@@ -337,6 +384,14 @@ def upsert_batch_into_database(
         connection.executemany(
             "INSERT OR IGNORE INTO prefix_libraries (prefix, library) VALUES (?, ?)",
             list(prefix_libraries),
+        )
+        connection.executemany(
+            "INSERT OR IGNORE INTO prefix_authors (prefix, author) VALUES (?, ?)",
+            list(prefix_authors),
+        )
+        connection.executemany(
+            "INSERT OR IGNORE INTO prefix_media_types (prefix, media_type) VALUES (?, ?)",
+            list(prefix_media_types),
         )
         connection.executemany(
             """
@@ -429,7 +484,7 @@ def stream_titles_to_database(
                 )
                 continue
 
-            batch_rows: list[tuple[str, str]] = []
+            batch_rows: list[tuple[str, str, str, str]] = []
             for vector_data in fetch_response.vectors.values():
                 metadata = vector_data.metadata or {}
                 raw_title = metadata.get("title")
@@ -441,7 +496,9 @@ def stream_titles_to_database(
                     continue
 
                 library = str(metadata.get("library", "")).strip()
-                batch_rows.append((title, library))
+                author = str(metadata.get("author", "")).strip()
+                media_type = normalize_media_type(metadata.get("type"))
+                batch_rows.append((title, library, author, media_type))
 
             upsert_batch_into_database(connection, batch_rows)
             titled_vectors += len(batch_rows)
@@ -669,6 +726,94 @@ def iter_ambiguous_terminal_segment_items(connection: sqlite3.Connection):
 
     if current_segment is not None:
         yield current_segment, current_prefixes
+
+
+def load_prefix_distinct_field_map(
+    connection: sqlite3.Connection, table: str, value_column: str
+) -> dict[str, list[str]]:
+    """Load prefix -> sorted distinct string values.
+
+    SQLite does not allow DISTINCT and ORDER BY together inside GROUP_CONCAT; use DISTINCT
+    only and sort in Python.
+    """
+    # value_column is fixed by callers only; not user input.
+    sql = f"SELECT prefix, GROUP_CONCAT(DISTINCT {value_column}) FROM {table} GROUP BY prefix"
+    result: dict[str, list[str]] = {}
+    for prefix, joined in connection.execute(sql):
+        key = str(prefix)
+        if joined:
+            parts = [part for part in str(joined).split(",") if part]
+            result[key] = sorted(set(parts))
+        else:
+            result[key] = []
+    return result
+
+
+def build_collections_with_vectors_for_prefix(authors: list[str]) -> list[str]:
+    """Derive chat collection keys that can return vectors for this prefix."""
+    collections: list[str] = []
+    if any(author in MASTER_SWAMI_AUTHORS for author in authors):
+        collections.append("master_swami")
+    collections.append("whole_library")
+    return collections
+
+
+def iter_runtime_lookup_entries(connection: sqlite3.Connection):
+    """Yield compact runtime lookup entries for autocomplete and matching."""
+    library_map = load_prefix_distinct_field_map(connection, "prefix_libraries", "library")
+    author_map = load_prefix_distinct_field_map(connection, "prefix_authors", "author")
+    media_map = load_prefix_distinct_field_map(connection, "prefix_media_types", "media_type")
+
+    cursor = connection.execute(
+        """
+        SELECT
+            p.prefix,
+            p.depth,
+            p.terminal_segment,
+            p.vector_count,
+            COALESCE(pt.full_title_count, 0) AS full_title_count
+        FROM prefixes p
+        LEFT JOIN (
+            SELECT prefix, COUNT(*) AS full_title_count
+            FROM prefix_titles
+            GROUP BY prefix
+        ) pt ON pt.prefix = p.prefix
+        ORDER BY p.prefix
+        """
+    )
+    for prefix, depth, terminal_segment, vector_count, full_title_count in cursor:
+        prefix_str = str(prefix)
+        authors = author_map.get(prefix_str, [])
+        media_types = media_map.get(prefix_str, [])
+        if not media_types:
+            media_types = ["text"]
+        libraries = library_map.get(prefix_str, [])
+        yield {
+            "canonicalPrefix": prefix_str,
+            "normalizedPrefix": normalize_title_for_matching(prefix_str),
+            "normalizedSearchText": normalize_title_for_matching(prefix_str).replace(
+                " :: ", " "
+            ),
+            "normalizedLevels": [
+                normalize_segment(level) for level in split_title_levels(prefix_str)
+            ],
+            "depth": int(depth),
+            "terminalSegment": str(terminal_segment),
+            "normalizedTerminalSegment": normalize_segment(str(terminal_segment)),
+            "fullTitleCount": int(full_title_count),
+            "vectorCount": int(vector_count),
+            "availability": {
+                "libraries": libraries,
+                "mediaTypes": media_types,
+                "collectionsWithVectors": build_collections_with_vectors_for_prefix(authors),
+            },
+        }
+
+
+def iter_runtime_expansion_entries(connection: sqlite3.Connection):
+    """Yield canonical prefix -> full title expansion entries."""
+    for canonical_prefix, full_titles in iter_prefix_to_full_titles_items(connection):
+        yield canonical_prefix, full_titles
 
 
 def query_scalar(
@@ -907,10 +1052,16 @@ def print_summary(summary: dict[str, Any]) -> None:
 
 
 def write_artifacts(
-    output_dir: Path, config: ScriptConfig, summary: dict[str, Any]
+    output_dir: Path,
+    config: ScriptConfig,
+    summary: dict[str, Any],
+    connection: sqlite3.Connection,
 ) -> None:
-    """Write summary artifacts while keeping the SQLite database for inspection."""
+    """Write summary artifacts and runtime title-catalog payloads."""
     output_dir.mkdir(parents=True, exist_ok=True)
+    version_dir = output_dir / config.artifact_version
+    version_dir.mkdir(parents=True, exist_ok=True)
+
     summary_payload = {
         "generatedAtEpochSeconds": int(time.time()),
         "indexName": config.index_name,
@@ -922,7 +1073,54 @@ def write_artifacts(
     (output_dir / "summary.json").write_text(
         json.dumps(summary_payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
+
+    lookup_entries = list(iter_runtime_lookup_entries(connection))
+    lookup_payload = {
+        "site": config.site,
+        "version": config.artifact_version,
+        "generatedAtEpochSeconds": int(time.time()),
+        "entryCount": len(lookup_entries),
+        "entries": lookup_entries,
+    }
+    (version_dir / "lookup.json").write_text(
+        json.dumps(lookup_payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+    expansions_payload = {
+        "version": config.artifact_version,
+        "generatedAtEpochSeconds": int(time.time()),
+        "expansionCount": int(query_scalar(connection, "SELECT COUNT(*) FROM prefixes")),
+        "expansions": {
+            canonical_prefix: full_titles
+            for canonical_prefix, full_titles in iter_runtime_expansion_entries(connection)
+        },
+    }
+    (version_dir / "expansions.json").write_text(
+        json.dumps(expansions_payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+    manifest_payload = {
+        "site": config.site,
+        "version": config.artifact_version,
+        "generatedAtEpochSeconds": int(time.time()),
+        "indexName": config.index_name,
+        "lookupKey": f"{config.artifact_version}/lookup.json",
+        "expansionsKey": f"{config.artifact_version}/expansions.json",
+        "summary": {
+            "uniquePrefixes": summary["uniquePrefixes"],
+            "uniqueFullTitles": summary["uniqueFullTitles"],
+            "uniqueNormalizedPrefixes": summary["uniqueNormalizedPrefixes"],
+            "maxHierarchyDepth": summary["maxHierarchyDepth"],
+        },
+    }
+    (output_dir / "manifest.json").write_text(
+        json.dumps(manifest_payload, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
     log(f"\nWrote summary artifact to {output_dir / 'summary.json'}")
+    log(f"Wrote runtime lookup artifact to {version_dir / 'lookup.json'}")
+    log(f"Wrote runtime expansions artifact to {version_dir / 'expansions.json'}")
+    log(f"Wrote runtime manifest to {output_dir / 'manifest.json'}")
     log(f"Retained SQLite investigation database at {config.sqlite_path}")
 
 
@@ -991,6 +1189,10 @@ def parse_args() -> argparse.Namespace:
         "--sqlite-path",
         help="Optional explicit SQLite database path for the investigation state",
     )
+    parser.add_argument(
+        "--artifact-version",
+        help="Optional explicit artifact version for runtime payload output",
+    )
     return parser.parse_args()
 
 
@@ -1015,7 +1217,9 @@ def main() -> None:
     )
     sqlite_path = resolve_sqlite_path(args, output_dir)
     should_delete_sqlite = not args.write_artifacts and args.sqlite_path is None
+    artifact_version = args.artifact_version or f"{args.site}-{int(time.time())}"
     config = ScriptConfig(
+        site=args.site,
         index_name=index_name,
         vector_id_prefix=args.vector_id_prefix,
         max_vectors=args.max_vectors,
@@ -1026,6 +1230,7 @@ def main() -> None:
         write_artifacts=args.write_artifacts,
         output_dir=output_dir if args.write_artifacts else None,
         sqlite_path=sqlite_path,
+        artifact_version=artifact_version,
     )
 
     log(f"Using Pinecone index: {config.index_name}")
@@ -1044,6 +1249,7 @@ def main() -> None:
     estimated_total_vectors = int(getattr(index_stats, "total_vector_count", 0) or 0)
     log(f"Index reports {estimated_total_vectors:,} total vector(s)")
     config = ScriptConfig(
+        site=args.site,
         index_name=config.index_name,
         vector_id_prefix=config.vector_id_prefix,
         max_vectors=config.max_vectors,
@@ -1054,6 +1260,7 @@ def main() -> None:
         write_artifacts=config.write_artifacts,
         output_dir=config.output_dir,
         sqlite_path=config.sqlite_path,
+        artifact_version=config.artifact_version,
         estimated_total_vectors=estimated_total_vectors,
     )
 
@@ -1068,7 +1275,7 @@ def main() -> None:
         print_summary(summary)
 
         if config.write_artifacts and config.output_dir is not None:
-            write_artifacts(config.output_dir, config, summary)
+            write_artifacts(config.output_dir, config, summary, connection)
     finally:
         connection.close()
         if should_delete_sqlite and config.sqlite_path.exists():
