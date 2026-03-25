@@ -80,6 +80,143 @@ type AnswerChainInput = {
 
 export type CollectionKey = "master_swami" | "whole_library";
 
+type ActiveMediaTypeFilter = { text?: boolean; audio?: boolean; youtube?: boolean };
+
+type ActiveFilterPromptData = {
+  activeFiltersSummary: string;
+  hasRestrictiveFilters: boolean;
+  collectionLabel?: string;
+  selectedLibraries?: string[];
+  mediaTypes?: ActiveMediaTypeFilter;
+  titleScopeLabel?: string;
+};
+
+function getSiteLibraryNames(siteConfig?: AppSiteConfig | null): string[] {
+  const libraries = siteConfig?.includedLibraries || [];
+  return libraries.map((lib) => (typeof lib === "string" ? lib : lib.name));
+}
+
+function getEnabledSiteMediaTypes(siteConfig?: AppSiteConfig | null): Array<"text" | "audio" | "youtube"> {
+  const enabledMediaTypes = siteConfig?.enabledMediaTypes;
+  if (!enabledMediaTypes || enabledMediaTypes.length === 0) {
+    return ["text", "audio", "youtube"];
+  }
+  return enabledMediaTypes;
+}
+
+function extractMediaTypeFilter(filter?: Record<string, unknown>): ActiveMediaTypeFilter | undefined {
+  if (!filter) {
+    return undefined;
+  }
+
+  const clauses: Record<string, unknown>[] = [];
+  if ("$and" in filter && Array.isArray(filter.$and)) {
+    clauses.push(...(filter.$and as Record<string, unknown>[]));
+  } else {
+    clauses.push(filter);
+  }
+
+  const typeClause = clauses.find((clause) => typeof clause === "object" && clause && "type" in clause);
+  if (!typeClause || !("type" in typeClause)) {
+    return undefined;
+  }
+
+  const rawTypeFilter = typeClause.type as { $in?: string[] } | string | undefined;
+  let mediaTypes: string[] = [];
+  if (typeof rawTypeFilter === "string") {
+    mediaTypes = [rawTypeFilter];
+  } else if (rawTypeFilter && Array.isArray(rawTypeFilter.$in)) {
+    mediaTypes = rawTypeFilter.$in;
+  }
+
+  if (mediaTypes.length === 0) {
+    return undefined;
+  }
+
+  return mediaTypes.reduce<ActiveMediaTypeFilter>((acc, mediaType) => {
+    if (mediaType === "text") acc.text = true;
+    if (mediaType === "audio") acc.audio = true;
+    if (mediaType === "youtube") acc.youtube = true;
+    return acc;
+  }, {});
+}
+
+function formatMediaTypeList(mediaTypes: ActiveMediaTypeFilter): string[] {
+  const labels: string[] = [];
+  if (mediaTypes.text) labels.push("text");
+  if (mediaTypes.audio) labels.push("audio");
+  if (mediaTypes.youtube) labels.push("video");
+  return labels;
+}
+
+function areSameStringSets(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  const rightSet = new Set(right);
+  return left.every((item) => rightSet.has(item));
+}
+
+export function buildActiveFilterPromptData(
+  siteConfig?: AppSiteConfig | null,
+  baseFilter?: Record<string, unknown>,
+  selectedCollectionKey?: string,
+  selectedLibraries?: string[],
+  selectedTitleScopeLabel?: string
+): ActiveFilterPromptData {
+  const lines: string[] = [];
+  const allLibraryNames = getSiteLibraryNames(siteConfig);
+  const collectionLabel =
+    selectedCollectionKey && selectedCollectionKey !== "whole_library"
+      ? siteConfig?.collectionConfig?.[selectedCollectionKey] || selectedCollectionKey
+      : undefined;
+
+  if (collectionLabel) {
+    lines.push(`- Collection: ${collectionLabel}`);
+  }
+
+  const restrictiveLibraries =
+    selectedLibraries && selectedLibraries.length > 0 && !areSameStringSets(selectedLibraries, allLibraryNames)
+      ? [...selectedLibraries]
+      : undefined;
+  if (restrictiveLibraries && restrictiveLibraries.length > 0) {
+    lines.push(`- Libraries: ${restrictiveLibraries.join(", ")}`);
+  }
+
+  const activeMediaTypes = extractMediaTypeFilter(baseFilter);
+  const enabledMediaTypes = getEnabledSiteMediaTypes(siteConfig);
+  const activeMediaTypeLabels = activeMediaTypes ? formatMediaTypeList(activeMediaTypes) : [];
+  const enabledMediaTypeLabels = formatMediaTypeList(
+    enabledMediaTypes.reduce<ActiveMediaTypeFilter>((acc: ActiveMediaTypeFilter, mediaType: "text" | "audio" | "youtube") => {
+      acc[mediaType] = true;
+      return acc;
+    }, {})
+  );
+  const restrictiveMediaTypes =
+    activeMediaTypeLabels.length > 0 && !areSameStringSets(activeMediaTypeLabels, enabledMediaTypeLabels)
+      ? activeMediaTypes
+      : undefined;
+  if (restrictiveMediaTypes) {
+    lines.push(`- Media types: ${formatMediaTypeList(restrictiveMediaTypes).join(", ")}`);
+  }
+
+  if (selectedTitleScopeLabel) {
+    lines.push(`- Source scope: Only ${selectedTitleScopeLabel}`);
+  }
+
+  return {
+    activeFiltersSummary:
+      lines.length > 0
+        ? `Current active filters:\n${lines.join("\n")}`
+        : "Current active filters:\n- No restrictive filters are active.",
+    hasRestrictiveFilters: lines.length > 0,
+    collectionLabel,
+    selectedLibraries: restrictiveLibraries,
+    mediaTypes: restrictiveMediaTypes,
+    titleScopeLabel: selectedTitleScopeLabel,
+  };
+}
+
 interface TemplateContent {
   content?: string;
   file?: string;
@@ -419,6 +556,7 @@ export const makeChain = async (
   siteConfig?: AppSiteConfig | null,
   originalQuestion?: string, // Add this parameter to pass the original question
   selectedLibraries?: string[], // Selected libraries for filtering
+  selectedCollectionKey?: string,
   taskMode?: string, // Task mode (e.g., "class-planning", "research") - skips reformulation when set
   selectedTitleScopeLabel?: string
 ) => {
@@ -632,10 +770,17 @@ Error details: ${errorString}`,
   const condenseQuestionPrompt = ChatPromptTemplate.fromTemplate(CONDENSE_TEMPLATE);
   const fullTemplate = await getFullTemplate(siteId);
   const templateWithReplacedVars = fullTemplate.replace(
-    /\${(context|chat_history|question)}/g,
+    /\${(context|chat_history|question|activeFiltersSummary)}/g,
     (match, key) => `{${key}}`
   );
   const answerPrompt = ChatPromptTemplate.fromTemplate(`{context}\n\n${templateWithReplacedVars}`);
+  const activeFilterPromptData = buildActiveFilterPromptData(
+    siteConfig,
+    baseFilter,
+    selectedCollectionKey,
+    selectedLibraries,
+    selectedTitleScopeLabel
+  );
 
   // Rephrase the initial question into a dereferenced standalone question based on
   // the chat history to allow effective vectorstore querying.
@@ -739,18 +884,10 @@ Error details: ${errorString}`,
 
         // Throw NoSourcesError with filter information
         throw new NoSourcesError("No sources found for your query with the current chat options.", {
-          libraries: selectedLibraries && selectedLibraries.length > 0 ? selectedLibraries : undefined,
-          mediaTypes:
-            baseFilter && baseFilter.type
-              ? (baseFilter.type as { $in?: string[] }).$in?.reduce((acc: any, type: string) => {
-                  if (type === "text") acc.text = true;
-                  if (type === "audio") acc.audio = true;
-                  if (type === "youtube") acc.youtube = true;
-                  return acc;
-                }, {})
-              : undefined,
-          collection: baseFilter && baseFilter.author ? String(baseFilter.author) : undefined,
-          titleScope: selectedTitleScopeLabel,
+          libraries: activeFilterPromptData.selectedLibraries,
+          mediaTypes: activeFilterPromptData.mediaTypes,
+          collection: activeFilterPromptData.collectionLabel,
+          titleScope: activeFilterPromptData.titleScopeLabel,
         });
       }
 
@@ -851,6 +988,7 @@ Error details: ${errorString}`,
     context: string;
     chat_history: string;
     question: string;
+    activeFiltersSummary: string;
     documents: Document[]; // also include documents for passthrough
   };
 
@@ -986,6 +1124,7 @@ Error details: ${errorString}`,
           context: truncatedContext,
           chat_history: truncatedChatHistory,
           question: input.question,
+          activeFiltersSummary: input.activeFiltersSummary,
         };
       }
 
@@ -993,6 +1132,7 @@ Error details: ${errorString}`,
         context: input.context,
         chat_history: input.chat_history,
         question: input.question,
+        activeFiltersSummary: input.activeFiltersSummary,
       };
     },
     answerPrompt,
@@ -1019,6 +1159,7 @@ Error details: ${errorString}`,
       context: input.retrievalOutput.combinedContent,
       chat_history: input.originalInput.chat_history,
       question: input.originalInput.question,
+      activeFiltersSummary: activeFilterPromptData.activeFiltersSummary,
       documents: input.retrievalOutput.documents, // Pass documents along
     }),
     fullAnswerGenerationChain, // This now takes the mapped input and produces { answer, sourceDocuments }
@@ -1462,6 +1603,7 @@ export async function setupAndExecuteLanguageModelChain(
   timingMetrics?: any, // Accept timing metrics for detailed tracking
   modelOverride?: string, // Optional model override for testing/comparison
   selectedLibraries?: string[], // Selected libraries for filtering
+  selectedCollectionKey?: string,
   taskMode?: string, // Task mode (e.g., "class-planning", "research") - skips reformulation when set
   selectedTitleScopeLabel?: string
 ): Promise<{
@@ -1529,6 +1671,7 @@ export async function setupAndExecuteLanguageModelChain(
         siteConfig,
         sanitizedQuestion, // Pass original question for intent detection
         selectedLibraries, // Pass selected libraries for filtering
+        selectedCollectionKey,
         taskMode, // Pass task mode to skip reformulation
         selectedTitleScopeLabel
       );

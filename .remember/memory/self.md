@@ -2113,6 +2113,14 @@ not a later optimization. Keep only per-batch counters/sets in memory.
 
 **Correct**: Use `GROUP_CONCAT(DISTINCT col)` and sort/dedupe in application code, or use a subquery.
 
+### Mistake: Reading Pinecone Filters As Top-Level Fields
+
+**Wrong**: Assuming a request filter like media types is available directly on `filter.type` when the real Pinecone
+filter shape is often nested under `filter.$and`.
+
+**Correct**: When extracting active constraints from a Pinecone filter for logging, prompts, or fallback messaging,
+inspect both the top-level object and nested `$and` clauses.
+
 ### 54. Unlaunched Features — No Schema Back-Compat in Code
 
 **Wrong**: Keeping runtime fallbacks for “older” artifacts (e.g. optional `availability` on title catalog entries, returning
@@ -2121,3 +2129,58 @@ not a later optimization. Keep only per-batch counters/sets in memory.
 **Correct**: Require the current artifact/schema in types, validate at load, throw a dedicated error (e.g.
 `TitleCatalogDataError`) with rebuild instructions, and surface it through the chat SSE `error` field. Operators refresh
 artifacts once; the codebase stays single-path.
+
+### 55. lint-staged Validates The Git Index, Not Just The Working Tree
+
+**Wrong**: Fixing lint errors in the working tree, then retrying commit without re-staging the modified files.
+
+```bash
+# Working tree is fixed, but staged snapshot is stale
+git commit
+# pre-commit still reports the old lint errors
+```
+
+**Correct**: After fixing files that already had staged changes, re-stage those files so the git index matches the working tree
+before retrying the commit.
+
+```bash
+git add path/to/fixed-file.tsx
+git add path/to/another-fixed-file.tsx
+git commit
+```
+
+### 56. Next.js Multi-Lockfile Root Detection Warning
+
+**Problem**: Next.js can infer the wrong workspace root when multiple lockfiles exist above the app directory, producing
+warnings and tracing from an unrelated parent directory.
+
+**Wrong**: Relying on inferred root detection in `web/next.config.*`.
+
+```javascript
+export default {
+  reactStrictMode: true,
+};
+```
+
+**Correct**: Set `outputFileTracingRoot` explicitly to the repository root.
+
+```javascript
+const repoRoot = path.join(__dirname, "..");
+
+export default {
+  reactStrictMode: true,
+  outputFileTracingRoot: repoRoot,
+};
+```
+
+**Pattern**: In this repo, keep `outputFileTracingRoot` pinned to the monorepo root so Next.js does not walk upward to an
+unrelated lockfile in the home directory.
+
+### Mistake: Source-Scoped Prompt Fallbacks Were Too Vague
+
+**Wrong**: When a user scoped to a specific source, adding only generic filter-awareness wording like "name the limiting
+filter" still allowed the model to pivot into "broader teachings" or "related spiritual texts" instead of naming the
+scoped source that lacked the requested teaching.
+
+**Correct**: For source-scoped prompts, explicitly instruct the model to treat the selected source as the intended corpus,
+state that source by name on misses, and forbid fallback phrasing that implies broader material answered the question.

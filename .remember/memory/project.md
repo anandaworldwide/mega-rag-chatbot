@@ -207,6 +207,9 @@ except ImportError:
 - **Title catalog lookup.json**: Every entry must include per-prefix `availability` (libraries, mediaTypes,
   collectionsWithVectors); the chat API validates on load and returns a structured `filterConflict` SSE payload before
   retrieval when user filters exclude the selected source
+- **Title-scoped prompt behavior**: When `activeFiltersSummary` includes a source scope, phrase it as `Only [source]`
+  and instruct the model to name that selected source directly on misses (for example, "`Bhagavad Gita` does not contain
+  direct teachings from Lahiri Mahasaya on this point") instead of drifting into "broader teachings" or "related texts"
 - **AWS CLI preference**: Use named profiles for different AWS accounts and prefer explicit `--profile ...` on AWS CLI commands for safety
 - **System prompts**: Located in `web/site-config/prompts/[site]-base.txt`
 - **UUID identification**: All users have UUIDs (JWT token for login-required, cookies for non-login sites)

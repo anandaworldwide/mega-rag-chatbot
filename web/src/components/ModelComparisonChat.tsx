@@ -256,7 +256,7 @@ const ModelComparisonChat: React.FC<ModelComparisonChatProps> = ({ siteConfig, s
         historyB: historyB, // Separate history for model B
         sourceCount,
         selectedLibraries,
-        titleScope: siteConfig?.enableTitleScopeSelection ? selectedTitleScope : undefined,
+        titleScope: siteConfig?.enableTitleScopeSelection && selectedTitleScope ? selectedTitleScope : undefined,
         useExtraSources: false,
         uuid: getOrCreateUUID(),
       };

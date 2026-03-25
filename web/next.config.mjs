@@ -12,6 +12,7 @@ const site = process.env.SITE_ID || "default";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const repoRoot = path.join(__dirname, "..");
 
 const configPath = path.join(__dirname, "site-config", "config.json");
 const configData = fs.readFileSync(configPath, "utf8");
@@ -24,6 +25,7 @@ const allowedDevOrigins = process.env.NEXT_PUBLIC_ALLOWED_DEV_ORIGINS
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  outputFileTracingRoot: repoRoot,
   ...(allowedDevOrigins && { allowedDevOrigins }),
   webpack: (config, { dev, isServer }) => {
     config.experiments = { ...config.experiments, topLevelAwait: true };

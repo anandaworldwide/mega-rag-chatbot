@@ -1750,6 +1750,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     try {
       const newAbortController = new AbortController();
       setAbortController(newAbortController);
+      const requestTitleScope =
+        siteConfig?.enableTitleScopeSelection && selectedTitleScopeRef.current ? selectedTitleScopeRef.current : undefined;
 
       const response = await fetchWithAuth("/api/chat/v1", {
         method: "POST",
@@ -1763,7 +1765,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           temporarySession,
           mediaTypes,
           selectedLibraries: selectedLibrariesRef.current,
-          titleScope: siteConfig?.enableTitleScopeSelection ? selectedTitleScopeRef.current : undefined,
+          titleScope: requestTitleScope,
           filterExplicitness: buildFilterExplicitnessPayload(),
           sourceCount: sourceCountRef.current,
           uuid: getOrCreateUUID(),
@@ -2236,7 +2238,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             collection: apiMessage.collection || collection,
             mediaTypes: mediaTypes,
             selectedLibraries: selectedLibrariesRef.current,
-            titleScope: isTitleScopeSelectionEnabled ? selectedTitleScopeRef.current : undefined,
+            titleScope:
+              isTitleScopeSelectionEnabled && selectedTitleScopeRef.current ? selectedTitleScopeRef.current : undefined,
             filterExplicitness: buildFilterExplicitnessPayload(),
             sourceCount: apiMessage.sourceDocs?.length || sourceCountRef.current,
             temporarySession: temporarySession,
@@ -2544,7 +2547,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             temporarySession,
             mediaTypes,
             selectedLibraries: selectedLibrariesRef.current,
-            titleScope: isTitleScopeSelectionEnabled ? selectedTitleScopeRef.current : undefined,
+            titleScope:
+              isTitleScopeSelectionEnabled && selectedTitleScopeRef.current ? selectedTitleScopeRef.current : undefined,
             filterExplicitness: buildFilterExplicitnessPayload(),
             sourceCount: sourceCountRef.current,
             uuid: getOrCreateUUID(),
@@ -2753,7 +2757,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             collection: apiMessage.collection || collection,
             mediaTypes: mediaTypes,
             selectedLibraries: selectedLibrariesRef.current,
-            titleScope: isTitleScopeSelectionEnabled ? selectedTitleScopeRef.current : undefined,
+            titleScope:
+              isTitleScopeSelectionEnabled && selectedTitleScopeRef.current ? selectedTitleScopeRef.current : undefined,
             filterExplicitness: buildFilterExplicitnessPayload(),
             sourceCount: apiMessage.sourceDocs?.length || sourceCountRef.current,
             temporarySession: temporarySession,

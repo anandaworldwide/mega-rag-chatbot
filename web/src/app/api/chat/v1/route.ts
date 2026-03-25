@@ -243,22 +243,24 @@ async function validateAndPreprocessInput(
     return corsMiddleware.addCorsHeaders(response, req, siteConfig);
   }
   const sanitizedUuid = rawUuid;
-  const titleScope = requestBody.titleScope;
-  if (titleScope !== undefined) {
+  const titleScope: unknown = requestBody.titleScope;
+  if (titleScope !== undefined && titleScope !== null) {
     if (!siteConfig.enableTitleScopeSelection) {
       const response = NextResponse.json({ error: "Title scope filtering is not enabled for this site" }, { status: 400 });
       return corsMiddleware.addCorsHeaders(response, req, siteConfig);
     }
 
-    if (typeof titleScope !== "object" || titleScope === null || Array.isArray(titleScope)) {
+    if (typeof titleScope !== "object" || Array.isArray(titleScope)) {
       const response = NextResponse.json({ error: "titleScope must be an object" }, { status: 400 });
       return corsMiddleware.addCorsHeaders(response, req, siteConfig);
     }
+    const titleScopeObject = titleScope as Record<string, unknown>;
 
     const canonicalPrefix =
-      typeof titleScope.canonicalPrefix === "string" ? titleScope.canonicalPrefix.trim() : undefined;
-    const displayTitle = typeof titleScope.displayTitle === "string" ? titleScope.displayTitle.trim() : undefined;
-    const userInput = typeof titleScope.userInput === "string" ? titleScope.userInput.trim() : undefined;
+      typeof titleScopeObject.canonicalPrefix === "string" ? titleScopeObject.canonicalPrefix.trim() : undefined;
+    const displayTitle =
+      typeof titleScopeObject.displayTitle === "string" ? titleScopeObject.displayTitle.trim() : undefined;
+    const userInput = typeof titleScopeObject.userInput === "string" ? titleScopeObject.userInput.trim() : undefined;
 
     if (canonicalPrefix && canonicalPrefix.length > 500) {
       const response = NextResponse.json({ error: "titleScope.canonicalPrefix is too long" }, { status: 400 });
@@ -567,13 +569,16 @@ function handleError(error: unknown, sendData: (data: StreamingResponseData) => 
     // Handle specific error cases
     if (error instanceof NoSourcesError) {
       // Build actionable error message based on active filters as a chat response
-      let message = "No sources found matching your chat options. ";
+      let message = "I couldn't find matching sources under your current chat filters. ";
       const suggestions: string[] = [];
 
       if (error.filters.libraries && error.filters.libraries.length > 0) {
         if (error.filters.libraries.length === 1) {
           message += `You're searching only in "${error.filters.libraries[0]}". `;
           suggestions.push("Try selecting additional libraries");
+        } else {
+          message += `You're searching only in these libraries: ${error.filters.libraries.join(", ")}. `;
+          suggestions.push("Try broadening your library selection");
         }
       }
 
@@ -590,8 +595,8 @@ function handleError(error: unknown, sendData: (data: StreamingResponseData) => 
       }
 
       if (error.filters.collection) {
-        message += `You're filtering by collection: "${error.filters.collection}". `;
-        suggestions.push("Try changing your collection filter.");
+        message += `You're filtering by collection: "${error.filters.collection}". That filter may exclude the teachings you're asking about. `;
+        suggestions.push("Try switching or clearing your collection filter");
       }
 
       if (error.filters.titleScope) {
@@ -1191,6 +1196,7 @@ async function handleChatRequest(req: NextRequest) {
             timingMetrics,
             sanitizedInput.modelOverride,
             sanitizedInput.selectedLibraries,
+            sanitizedInput.collection || "whole_library",
             sanitizedInput.taskMode,
             resolvedTitleScope?.displayTitle
           );
