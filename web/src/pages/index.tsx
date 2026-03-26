@@ -120,6 +120,10 @@ function useScrollDepthTracking() {
   return { trackFirstInteraction };
 }
 
+export function getRepairAllLibrariesSelection(actionLibraries: string[] | undefined, defaultLibraries: string[]): string[] {
+  return actionLibraries ? [...actionLibraries] : [...defaultLibraries];
+}
+
 // Main component for the chat interface
 export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) {
   const router = useRouter();
@@ -188,6 +192,23 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const [librariesExplicit, setLibrariesExplicit] = useState(false);
   const [mediaTypesExplicit, setMediaTypesExplicit] = useState(false);
   const isTitleScopeSelectionEnabled = Boolean(siteConfig?.enableTitleScopeSelection);
+  const defaultCollection = useMemo(() => {
+    const collections = getCollectionsConfig(siteConfig);
+    return Object.keys(collections)[0] || "whole_library";
+  }, [siteConfig]);
+  const defaultMediaTypes = useMemo(() => {
+    const enabledTypes = getEnabledMediaTypes(siteConfig);
+    return {
+      text: enabledTypes.includes("text"),
+      audio: enabledTypes.includes("audio"),
+      youtube: enabledTypes.includes("youtube"),
+    };
+  }, [siteConfig]);
+  const defaultLibraries = useMemo(
+    () => (siteConfig?.includedLibraries || []).map((lib) => (typeof lib === "string" ? lib : lib.name)),
+    [siteConfig?.includedLibraries]
+  );
+  const defaultSourceCount = siteConfig?.defaultNumSources || 4;
   const selectedTitleScopeRef = useRef<TitleScopeSelection | null>(selectedTitleScope);
   useEffect(() => {
     selectedTitleScopeRef.current = selectedTitleScope;
@@ -205,23 +226,24 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   }, []);
 
   useEffect(() => {
-    const defaultLibNames = (siteConfig?.includedLibraries || []).map((lib) => (typeof lib === "string" ? lib : lib.name));
     const isDefaultLibs =
-      defaultLibNames.length > 0 &&
-      selectedLibraries.length === defaultLibNames.length &&
-      defaultLibNames.every((lib) => selectedLibraries.includes(lib));
+      defaultLibraries.length > 0 &&
+      selectedLibraries.length === defaultLibraries.length &&
+      defaultLibraries.every((lib) => selectedLibraries.includes(lib));
     setLibrariesExplicit(!isDefaultLibs);
-  }, [siteConfig?.includedLibraries, selectedLibraries]);
+  }, [defaultLibraries, selectedLibraries]);
 
   useEffect(() => {
-    const enabled = getEnabledMediaTypes(siteConfig);
-    if (!enabled.length) {
+    const enabledMediaTypeKeys = (Object.keys(defaultMediaTypes) as Array<keyof typeof defaultMediaTypes>).filter(
+      (type) => defaultMediaTypes[type]
+    );
+    if (!enabledMediaTypeKeys.length) {
       setMediaTypesExplicit(false);
       return;
     }
-    const allOn = enabled.every((t) => mediaTypes[t as keyof typeof mediaTypes] === true);
+    const allOn = enabledMediaTypeKeys.every((type) => mediaTypes[type] === true);
     setMediaTypesExplicit(!allOn);
-  }, [siteConfig, mediaTypes]);
+  }, [defaultMediaTypes, mediaTypes]);
 
   const buildFilterExplicitnessPayload = useCallback(() => {
     if (!isTitleScopeSelectionEnabled) {
@@ -241,9 +263,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           setCollection("whole_library");
           setCollectionChanged(true);
         }
-        if (action.libraries && action.libraries.length > 0) {
-          setSelectedLibraries([...action.libraries]);
-        }
+        setSelectedLibraries(getRepairAllLibrariesSelection(action.libraries, defaultLibraries));
         if (action.mediaTypes) {
           setMediaTypes({ ...action.mediaTypes });
         }
@@ -266,7 +286,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       setPendingConflictRetry(true);
       setFilterConflict(null);
     },
-    [handleTitleScopeChange]
+    [defaultLibraries, handleTitleScopeChange]
   );
 
   // Model selection state - initialize from localStorage or default
@@ -492,6 +512,61 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       return newSelection;
     });
   };
+  const [sourceCount, _setSourceCount] = useState<number>(siteConfig?.defaultNumSources || 4);
+  const sourceCountRef = useRef<number>(siteConfig?.defaultNumSources || 4); // Ref mirror for immediate access in async contexts
+  const setSourceCount = (count: number) => {
+    sourceCountRef.current = count;
+    _setSourceCount(count);
+  };
+  const clearLegacyFilterStorage = useCallback(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    Cookies.remove("selectedCollection", { path: "/" });
+    localStorage.removeItem("searchMediaTypes");
+    localStorage.removeItem("selectedLibraries");
+    localStorage.removeItem("useExtraSources");
+  }, []);
+  const resetRetrievalFiltersToDefaults = useCallback(() => {
+    setCollection(defaultCollection);
+    setCollectionChanged(false);
+    setMediaTypes(defaultMediaTypes);
+    setSelectedLibraries(defaultLibraries);
+    setSourceCount(defaultSourceCount);
+    handleTitleScopeChange(null);
+    setPendingConflictRetry(false);
+  }, [defaultCollection, defaultLibraries, defaultMediaTypes, defaultSourceCount, handleTitleScopeChange]);
+  const restoreConversationFilters = useCallback(
+    (filters?: {
+      collection?: string | null;
+      mediaTypes?: { text?: boolean; audio?: boolean; youtube?: boolean } | null;
+      selectedLibraries?: string[] | null;
+      sourceCount?: number | null;
+      titleScope?: TitleScopeSelection | null;
+    }) => {
+      const collectionsConfig = getCollectionsConfig(siteConfig);
+      const restoredCollection =
+        filters?.collection && collectionsConfig[filters.collection] ? filters.collection : defaultCollection;
+      const restoredMediaTypes = {
+        text: filters?.mediaTypes?.text ?? defaultMediaTypes.text,
+        audio: filters?.mediaTypes?.audio ?? defaultMediaTypes.audio,
+        youtube: filters?.mediaTypes?.youtube ?? defaultMediaTypes.youtube,
+      };
+      const restoredLibraries =
+        filters?.selectedLibraries?.filter((library) => defaultLibraries.includes(library)) || defaultLibraries;
+      const restoredSourceCount =
+        typeof filters?.sourceCount === "number" && filters.sourceCount > 0 ? filters.sourceCount : defaultSourceCount;
+
+      setCollection(restoredCollection);
+      setCollectionChanged(restoredCollection !== defaultCollection);
+      setMediaTypes(restoredMediaTypes);
+      setSelectedLibraries(restoredLibraries.length > 0 ? restoredLibraries : defaultLibraries);
+      setSourceCount(restoredSourceCount);
+      handleTitleScopeChange(filters?.titleScope || null);
+      setPendingConflictRetry(false);
+    },
+    [defaultCollection, defaultLibraries, defaultMediaTypes, defaultSourceCount, handleTitleScopeChange, siteConfig]
+  );
 
   // Helper function to load conversation content without URL updates
   const loadConversationDirectly = useCallback(
@@ -537,6 +612,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
         // Set star state from loaded conversation
         setIsCurrentConversationStarred(loadedConversation.isStarred || false);
+
+        // Restore the retrieval context that was active for the latest message in this conversation.
+        restoreConversationFilters(loadedConversation.filters);
 
         // Restore task state from loaded conversation (if it was a task conversation)
         // Helper setters update both state and ref automatically
@@ -607,7 +685,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [siteConfig, setLoading, setError, setMessageState, setCurrentConvId]
+    [restoreConversationFilters, setCurrentConvId, setError, setLoading, setMessageState, siteConfig]
     // Note: generateDynamicFollowups is defined later but is stable (no deps, uses refs)
   );
 
@@ -644,6 +722,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setCurrentQuestion("");
         setConversationTitle(null); // Clear conversation title
         setIsCurrentConversationStarred(false); // Clear star state
+        resetRetrievalFiltersToDefaults();
         setMessageState({
           messages: [
             {
@@ -679,6 +758,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     chatError,
     siteConfig,
     loadConversationDirectly,
+    resetRetrievalFiltersToDefaults,
     setCurrentConvId,
     setMessageState,
     setError,
@@ -800,7 +880,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     if (getEnableAuthorSelection(siteConfig) && newCollection !== collection) {
       setCollectionChanged(true);
       setCollection(newCollection);
-      Cookies.set("selectedCollection", newCollection, { expires: 365 });
       logEvent("change_collection", "UI", newCollection);
     }
   };
@@ -834,6 +913,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     setCurrentConvId(null);
     setConversationTitle(null);
     setCurrentQuestion("");
+    resetRetrievalFiltersToDefaults();
     setMessageState({
       messages: [
         {
@@ -873,6 +953,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     setCurrentQuestion("");
     setConversationTitle(null);
     setIsCurrentConversationStarred(false);
+    resetRetrievalFiltersToDefaults();
     setMessageState({
       messages: [
         {
@@ -935,9 +1016,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
   const [editingText, setEditingText] = useState<string>("");
 
-  const [sourceCount, _setSourceCount] = useState<number>(siteConfig?.defaultNumSources || 4);
-  const sourceCountRef = useRef<number>(siteConfig?.defaultNumSources || 4); // Ref mirror for immediate access in async contexts
-
   // Task state
   const [currentTaskFollowups, _setCurrentTaskFollowups] = useState<string[]>([]);
   const currentTaskFollowupsRef = useRef<string[]>([]); // Ref mirror for immediate access in async contexts
@@ -967,73 +1045,11 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     currentTaskModeRef.current = mode;
     _setCurrentTaskMode(mode);
   };
-  const setSourceCount = (count: number) => {
-    sourceCountRef.current = count;
-    _setSourceCount(count);
-  };
-
-  // Load saved search preferences from localStorage
+  // Remove legacy browser-level search persistence so retrieval filters stay
+  // scoped to the active conversation rather than silently carrying across chats.
   useEffect(() => {
-    try {
-      let preferencesLoaded = false;
-
-      // Load media type preferences
-      const savedMediaTypes = localStorage.getItem("searchMediaTypes");
-      if (savedMediaTypes) {
-        const parsedMediaTypes = JSON.parse(savedMediaTypes);
-        setMediaTypes(parsedMediaTypes);
-        preferencesLoaded = true;
-
-        // Analytics for loaded media type preferences
-        const enabledCount = Object.values(parsedMediaTypes).filter(Boolean).length;
-        logEvent(
-          "search_preferences_loaded",
-          "Settings",
-          `media_types_restored|text_${parsedMediaTypes.text}|audio_${parsedMediaTypes.audio}|youtube_${parsedMediaTypes.youtube}`,
-          enabledCount
-        );
-      }
-
-      // Load library selection preferences
-      const savedLibraries = localStorage.getItem("selectedLibraries");
-      if (savedLibraries) {
-        const parsedLibraries = JSON.parse(savedLibraries);
-        // Validate that saved libraries are still available in siteConfig
-        const availableLibraries = (siteConfig?.includedLibraries || []).map((lib) =>
-          typeof lib === "string" ? lib : lib.name
-        );
-        const validLibraries = parsedLibraries.filter((lib: string) => availableLibraries.includes(lib));
-        // Only restore if there's at least one valid library
-        if (validLibraries.length > 0) {
-          setSelectedLibraries(validLibraries);
-          preferencesLoaded = true;
-          logEvent("search_preferences_loaded", "Settings", "libraries_restored", validLibraries.length);
-        }
-      }
-
-      // Load extra sources preference
-      const savedUseExtraSources = localStorage.getItem("useExtraSources");
-      if (savedUseExtraSources !== null) {
-        const useExtra = savedUseExtraSources === "true";
-        const defaultSources = siteConfig?.defaultNumSources || 4;
-        setSourceCount(useExtra ? 10 : defaultSources);
-        preferencesLoaded = true;
-
-        // Analytics for loaded source count preference
-        logEvent("search_preferences_loaded", "Settings", "extra_sources_restored", useExtra ? 10 : defaultSources);
-      }
-
-      // Track if any preferences were loaded
-      if (preferencesLoaded) {
-        logEvent("search_preferences_loaded", "Settings", "preferences_restored_on_load");
-      }
-    } catch (error) {
-      console.error("Error loading search preferences from localStorage:", error);
-
-      // Analytics for localStorage errors
-      logEvent("search_preferences_error", "Settings", "localStorage_parse_error");
-    }
-  }, [siteConfig?.defaultNumSources, siteConfig?.includedLibraries]);
+    clearLegacyFilterStorage();
+  }, [clearLegacyFilterStorage]);
 
   // Add state for timing information
   const [timingMetrics, setTimingMetrics] = useState<{
@@ -1384,7 +1400,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             const questionWords = questionForSidebar.trim().split(/\s+/);
             const tempTitle =
               questionWords.length <= 9 ? questionForSidebar : questionWords.slice(0, 9).join(" ") + "...";
-
             sidebarFunctionsRef.current.addNewConversation(data.convId, tempTitle, questionForSidebar);
 
             // Clear the current question now that we've used it
@@ -2090,6 +2105,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       // handleUrlBasedLoading. This guarantees ending temporary session clears the conversation.
       setCurrentConvId(null);
       setCurrentQuestion("");
+      resetRetrievalFiltersToDefaults();
       setMessageState({
         messages: [
           {
@@ -2228,7 +2244,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       try {
         const newAbortController = new AbortController();
         setAbortController(newAbortController);
-
         const response = await fetchWithAuth("/api/chat/v1", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2378,6 +2393,37 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                   });
                 }
 
+                if (data.convId) {
+                  const isNewConversation = !currentConvIdRef.current;
+                  currentConvIdRef.current = data.convId;
+                  setCurrentConvId(data.convId);
+
+                  if (isNewConversation) {
+                    if (siteConfig?.requireLogin) {
+                      window.history.pushState(null, "", `/chat/${data.convId}`);
+                      pathRef.current = `/chat/${data.convId}`;
+                    }
+
+                    const questionForSidebar = userMessage.message;
+                    if (siteConfig?.requireLogin && sidebarFunctionsRef.current && questionForSidebar) {
+                      const questionWords = questionForSidebar.trim().split(/\s+/);
+                      const tempTitle =
+                        questionWords.length <= 9 ? questionForSidebar : questionWords.slice(0, 9).join(" ") + "...";
+                      sidebarFunctionsRef.current.addNewConversation(data.convId, tempTitle, questionForSidebar);
+                      setCurrentQuestion("");
+                    }
+                  }
+                }
+
+                if (data.title && data.convId) {
+                  if (sidebarFunctionsRef.current) {
+                    sidebarFunctionsRef.current.updateConversationTitle(data.convId, data.title);
+                  }
+                  if (data.convId === currentConvIdRef.current) {
+                    setConversationTitle(data.title);
+                  }
+                }
+
                 if (data.done) {
                   // Update history with the regenerated response at the correct index
                   // messageIndex is the API message index, history index is messageIndex - 1
@@ -2430,6 +2476,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       temporarySession,
       isTitleScopeSelectionEnabled,
       buildFilterExplicitnessPayload,
+      siteConfig?.requireLogin,
       setLoading,
       setError,
       setMessageState,
@@ -2449,7 +2496,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       }
       return null;
     })();
-
     setPendingConflictRetry(false);
     if (retryIndex === null) {
       return;
@@ -3131,20 +3177,22 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     }
   }, [currentConvId, conversations]);
 
-  // Effect to set initial collection and focus input on component mount
+  // Keep fresh-chat state aligned with site defaults and clear any legacy filter persistence.
   useEffect(() => {
-    // Retrieve collection from cookie, falling back to first collection in site config
-    const collections = siteConfig?.collectionConfig ? Object.keys(siteConfig.collectionConfig) : [];
-    const defaultCollection = collections[0] || "whole_library";
-    const savedCollection = Cookies.get("selectedCollection") || defaultCollection;
-    // Validate the saved collection exists in the current site's config
-    const validCollection = collections.includes(savedCollection) ? savedCollection : defaultCollection;
-    setCollection(validCollection);
+    if (pathRef.current === "/" && !currentConvIdRef.current) {
+      setCollection(defaultCollection);
+      setCollectionChanged(false);
+      setMediaTypes(defaultMediaTypes);
+      setSelectedLibraries(defaultLibraries);
+      setSourceCount(defaultSourceCount);
+      handleTitleScopeChange(null);
+      setPendingConflictRetry(false);
+    }
 
     if (!isLoadingQueries && window.innerWidth > 768) {
       textAreaRef.current?.focus();
     }
-  }, [isLoadingQueries, siteConfig?.collectionConfig]);
+  }, [defaultCollection, defaultLibraries, defaultMediaTypes, defaultSourceCount, isLoadingQueries, handleTitleScopeChange]);
 
   // Custom hook to check if multiple collections are available
   const hasMultipleCollections = useMultipleCollections(siteConfig || undefined);

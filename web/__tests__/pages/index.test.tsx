@@ -3,7 +3,7 @@ import { render, act, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SiteConfig } from "@/types/siteConfig";
-import Home from "@/pages/index";
+import Home, { getRepairAllLibrariesSelection } from "@/pages/index";
 
 // Mock next/image to prevent Base URL error
 jest.mock("next/image", () => ({
@@ -226,6 +226,17 @@ describe("Home Page", () => {
     Object.defineProperty(window, "location", {
       value: originalLocation,
       writable: true,
+    });
+  });
+
+  describe("Filter Conflict Recovery", () => {
+    it("falls back to default libraries when repairAll omits libraries", () => {
+      expect(getRepairAllLibrariesSelection(undefined, [])).toEqual([]);
+      expect(getRepairAllLibrariesSelection(undefined, ["Default Library"])).toEqual(["Default Library"]);
+    });
+
+    it("uses action libraries when repairAll provides them", () => {
+      expect(getRepairAllLibrariesSelection(["Repair Library"], ["Default Library"])).toEqual(["Repair Library"]);
     });
   });
 

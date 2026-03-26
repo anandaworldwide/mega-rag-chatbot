@@ -285,11 +285,6 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
 
   const handleMediaTypeToggle = (type: "text" | "audio" | "youtube") => {
     handleMediaTypeChange(type);
-
-    // Save media type preferences to localStorage
-    const newMediaTypes = { ...mediaTypes, [type]: !mediaTypes[type] };
-    localStorage.setItem("searchMediaTypes", JSON.stringify(newMediaTypes));
-
     logEvent(`toggle_media_type_${type}`, "Settings", mediaTypes[type] ? "disabled" : "enabled");
   };
 
@@ -303,17 +298,13 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
   const handleLibraryToggle = (library: string) => {
     handleLibraryChange(library);
 
-    // Calculate the new selection for localStorage
     const isCurrentlySelected = selectedLibraries.includes(library);
     const newSelection = isCurrentlySelected
       ? selectedLibraries.filter((lib) => lib !== library)
       : [...selectedLibraries, library];
 
-    // Save library preferences to localStorage (only if change is allowed)
     if (newSelection.length > 0) {
-      localStorage.setItem("selectedLibraries", JSON.stringify(newSelection));
       const status = isCurrentlySelected ? "disabled" : "enabled";
-      // Log library toggle with status in label and current selected count as value
       logEvent("toggle_library", "Settings", `${library}:${status}`, newSelection.length);
     }
   };
@@ -324,10 +315,6 @@ export const SearchOptionsDropdown: React.FC<SearchOptionsDropdownProps> = ({
     const newSourceCount = checked ? extraSources : defaultSources;
 
     setSourceCount(newSourceCount);
-
-    // Save extra sources preference to localStorage
-    localStorage.setItem("useExtraSources", checked.toString());
-
     logEvent("toggle_extra_sources", "Settings", checked ? "enabled" : "disabled");
   };
 

@@ -31,6 +31,12 @@ export const TitleScopePicker: React.FC<TitleScopePickerProps> = ({
   const [error, setError] = useState<string | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const suggestionButtonRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  useEffect(() => {
+    suggestionButtonRefs.current = suggestionButtonRefs.current.slice(0, suggestions.length);
+  }, [suggestions]);
 
   useEffect(() => {
     setInputValue(value?.displayTitle || value?.userInput || "");
@@ -44,6 +50,21 @@ export const TitleScopePicker: React.FC<TitleScopePickerProps> = ({
       setIsPositioned(false);
     }
   }, [externalError, externalSuggestions]);
+
+  useEffect(() => {
+    if (!isOpen || typeof window === "undefined" || window.innerWidth < 768) {
+      return;
+    }
+
+    const focusTimer = window.setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(focusTimer);
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -251,6 +272,45 @@ export const TitleScopePicker: React.FC<TitleScopePickerProps> = ({
     setIsOpen((previous) => !previous);
   };
 
+  const focusSuggestionAtIndex = (index: number) => {
+    suggestionButtonRefs.current[index]?.focus();
+  };
+
+  const handleInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (suggestions.length === 0) {
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      focusSuggestionAtIndex(0);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      focusSuggestionAtIndex(suggestions.length - 1);
+    }
+  };
+
+  const handleSuggestionKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      if (index < suggestions.length - 1) {
+        focusSuggestionAtIndex(index + 1);
+      } else {
+        inputRef.current?.focus();
+      }
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      if (index > 0) {
+        focusSuggestionAtIndex(index - 1);
+      } else {
+        inputRef.current?.focus();
+      }
+    }
+  };
+
   const showEmptyState = inputValue.trim().length >= 2 && !isLoading && suggestions.length === 0 && !error;
   const buttonClassName = `relative flex items-center justify-center p-2 text-sm border rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
     disabled
@@ -291,10 +351,12 @@ export const TitleScopePicker: React.FC<TitleScopePickerProps> = ({
 
         <div className="relative mt-3">
           <input
+            ref={inputRef}
             id="titleScopeInput"
             type="text"
             value={inputValue}
             onChange={handleInputChange}
+            onKeyDown={handleInputKeyDown}
             onFocus={() => setIsOpen(true)}
             disabled={disabled}
             placeholder="Lessons in Meditation, Bible Genesis, etc."
@@ -324,11 +386,15 @@ export const TitleScopePicker: React.FC<TitleScopePickerProps> = ({
             ) : showEmptyState ? (
               <div className="px-3 py-3 text-sm text-gray-500">No matching source scopes found yet.</div>
             ) : (
-              suggestions.map((suggestion) => (
+              suggestions.map((suggestion, index) => (
                 <button
                   key={suggestion.canonicalPrefix}
+                  ref={(element) => {
+                    suggestionButtonRefs.current[index] = element;
+                  }}
                   type="button"
                   onClick={() => handleSuggestionSelect(suggestion)}
+                  onKeyDown={(event) => handleSuggestionKeyDown(event, index)}
                   className="block w-full border-b border-gray-100 px-3 py-3 text-left last:border-b-0 hover:bg-gray-50"
                 >
                   <div className="text-sm font-medium text-gray-900">{suggestion.displayTitle}</div>

@@ -83,6 +83,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         timestamp: data.timestamp,
 
         collection: data.collection,
+        mediaTypes: data.mediaTypes || null,
+        selectedLibraries: data.selectedLibraries || null,
+        sourceCount: data.sourceCount || null,
+        titleScope: data.titleScope || null,
         convId: data.convId || null, // Include convId in response
         title: data.title || null, // Include title in response
         sources: data.sources || null, // Include sources in response

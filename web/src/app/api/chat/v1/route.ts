@@ -444,6 +444,10 @@ async function saveOrUpdateDocument(
   fullResponse: string,
   finalDocuments: Document[], // Use the final documents
   collection: string,
+  mediaTypes: MediaTypes | undefined,
+  selectedLibraries: string[] | undefined,
+  sourceCount: number,
+  titleScope: TitleScopeSelection | undefined,
   history: ChatMessage[],
   clientIP: string,
   restatedQuestion: string,
@@ -491,6 +495,9 @@ async function saveOrUpdateDocument(
     question: sanitizedOriginalQuestion,
     answer: fullResponse,
     collection: collection,
+    mediaTypes: mediaTypes || null,
+    selectedLibraries: selectedLibraries || [],
+    sourceCount,
     sources: JSON.stringify(finalDocuments), // Save the correct final documents
 
     history: history,
@@ -502,6 +509,15 @@ async function saveOrUpdateDocument(
     convId: finalConvId, // Add conversation ID for grouping
     suggestions: sanitizedSuggestions, // Save follow-up suggestions (typed, with undefined values removed)
   };
+  const sanitizedTitleScope =
+    titleScope && (titleScope.canonicalPrefix || titleScope.displayTitle || titleScope.userInput)
+      ? {
+          ...(titleScope.canonicalPrefix ? { canonicalPrefix: titleScope.canonicalPrefix } : {}),
+          ...(titleScope.displayTitle ? { displayTitle: titleScope.displayTitle } : {}),
+          ...(titleScope.userInput ? { userInput: titleScope.userInput } : {}),
+        }
+      : null;
+  dataToSave.titleScope = sanitizedTitleScope;
 
   // Add model and temperature if provided
   if (model !== undefined) {
@@ -1224,6 +1240,10 @@ async function handleChatRequest(req: NextRequest) {
               fullResponse,
               finalDocs,
               sanitizedInput.collection || "whole_library",
+              sanitizedInput.mediaTypes,
+              sanitizedInput.selectedLibraries,
+              sourceCount,
+              sanitizedInput.titleScope,
               sanitizedInput.history || [],
               clientIP,
               restatedQuestion, // Pass the restated question

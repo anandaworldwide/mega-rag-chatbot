@@ -266,8 +266,6 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
 
   const handleMediaTypeToggle = (type: "text" | "audio" | "youtube") => {
     handleMediaTypeChange(type);
-    const newMediaTypes = { ...mediaTypes, [type]: !mediaTypes[type] };
-    localStorage.setItem("searchMediaTypes", JSON.stringify(newMediaTypes));
     logEvent(`toggle_media_type_${type}`, "Settings", mediaTypes[type] ? "disabled" : "enabled");
   };
 
@@ -286,7 +284,6 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
       : [...selectedLibraries, library];
 
     if (newSelection.length > 0) {
-      localStorage.setItem("selectedLibraries", JSON.stringify(newSelection));
       const status = isCurrentlySelected ? "disabled" : "enabled";
       logEvent("toggle_library", "Settings", `${library}:${status}`, newSelection.length);
     }
@@ -298,7 +295,6 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
     const newSourceCount = checked ? extraSources : defaultSources;
 
     setSourceCount(newSourceCount);
-    localStorage.setItem("useExtraSources", checked.toString());
     logEvent("toggle_extra_sources", "Settings", checked ? "enabled" : "disabled");
   };
 

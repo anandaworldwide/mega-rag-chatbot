@@ -11,6 +11,7 @@ import { ChatMessage, createChatMessages } from "@/utils/shared/chatHistory";
 import { ChatHistoryItem } from "@/hooks/useChatHistory";
 import { Document } from "@langchain/core/documents";
 import { TypedSuggestion } from "@/types/Suggestion";
+import { TitleScopeSelection } from "@/types/titleScope";
 
 export interface LoadedConversation {
   messages: Message[];
@@ -18,6 +19,13 @@ export interface LoadedConversation {
   title?: string;
   convId?: string;
   isStarred?: boolean;
+  filters?: {
+    collection?: string | null;
+    mediaTypes?: { text?: boolean; audio?: boolean; youtube?: boolean } | null;
+    selectedLibraries?: string[] | null;
+    sourceCount?: number | null;
+    titleScope?: TitleScopeSelection | null;
+  };
   // Task wizard state (for persisting structured task conversations)
   taskMode?: string;
   taskFollowups?: string[];
@@ -196,6 +204,15 @@ export async function loadConversationByConvId(
     const taskMode = lastChat?.taskMode;
     const taskFollowups = lastChat?.taskFollowups;
     const usedTaskFollowups = lastChat?.usedTaskFollowups;
+    const filters = lastChat
+      ? {
+          collection: lastChat.collection,
+          mediaTypes: lastChat.mediaTypes || null,
+          selectedLibraries: lastChat.selectedLibraries || null,
+          sourceCount: lastChat.sourceCount || null,
+          titleScope: lastChat.titleScope || null,
+        }
+      : undefined;
 
     return {
       messages,
@@ -203,6 +220,7 @@ export async function loadConversationByConvId(
       title,
       convId,
       isStarred,
+      filters,
       taskMode,
       taskFollowups,
       usedTaskFollowups,

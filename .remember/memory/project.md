@@ -203,6 +203,7 @@ except ImportError:
 - **Feature rollout preference**: New user-facing features should be gated by site config and enabled only for the intended site(s), not assumed global
 - **Planning rule**: For major features, explicitly ask the user whether rollout should be global or site-configurable before implementing
 - **Site complexity**: `ananda` / Luca is the deep, feature-rich site; the other sites are intentionally simpler
+- **New chat behavior**: `New Chat` should reset all answer-scope filters globally (collection, libraries, media types, title/source scope, and similar retrieval filters); if persistence is desired later, implement it as explicit user settings/preferences rather than hidden carry-over chat state
 - **Title catalog artifacts**: S3 title-scope artifacts are shared between development and production per site; do not split them by env prefix
 - **Title catalog lookup.json**: Every entry must include per-prefix `availability` (libraries, mediaTypes,
   collectionsWithVectors); the chat API validates on load and returns a structured `filterConflict` SSE payload before

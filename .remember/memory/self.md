@@ -2184,3 +2184,21 @@ scoped source that lacked the requested teaching.
 
 **Correct**: For source-scoped prompts, explicitly instruct the model to treat the selected source as the intended corpus,
 state that source by name on misses, and forbid fallback phrasing that implies broader material answered the question.
+
+### Mistake: Hook Dependencies Referencing Later `const` Functions
+
+**Wrong**: Defining a `useCallback` or `useEffect` earlier in a component and referencing a helper declared later with
+`const`, which triggers `ReferenceError: Cannot access '...' before initialization` during render when the dependency array
+is evaluated.
+
+**Correct**: Either move the helper declaration above the hook that depends on it, or avoid `const` TDZ by restructuring
+the helper/hook order so dependency arrays never read not-yet-initialized bindings.
+
+### Mistake: Fixing One SSE Handler But Not Parallel Ones
+
+**Wrong**: Updating the primary SSE response handler to perform a side effect like setting `convId`, pushing the chat URL,
+adding a sidebar row, or updating the AI-generated title, while forgetting that a secondary SSE handler (such as
+regenerate/retry) receives the same events and must apply the same UI state transitions.
+
+**Correct**: When the same SSE event type is consumed in multiple client handlers, either share one helper for the side
+effects or explicitly mirror the full set of required UI updates in each handler.
