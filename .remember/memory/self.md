@@ -2202,3 +2202,11 @@ regenerate/retry) receives the same events and must apply the same UI state tran
 
 **Correct**: When the same SSE event type is consumed in multiple client handlers, either share one helper for the side
 effects or explicitly mirror the full set of required UI updates in each handler.
+
+### Mistake: Persisting Fuzzy Input Instead Of Canonical Selection
+
+**Wrong**: Saving only the user's original typed text for a resolved picker/autocomplete selection, even after the backend
+has already resolved it to a canonical identifier.
+
+**Correct**: Persist the canonical identifier and canonical display label for restoration, and keep the original typed text
+only as optional `userInput` metadata.

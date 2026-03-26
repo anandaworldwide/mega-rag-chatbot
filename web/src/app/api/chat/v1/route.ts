@@ -82,6 +82,7 @@ import {
   TitleCatalogDataError,
   TitleScopeResolutionError,
 } from "@/utils/server/titleCatalog";
+import { buildTitleScopeForPersistence } from "@/utils/server/titleScopePersistence";
 import { TitleScopeSelection } from "@/types/titleScope";
 
 export const runtime = "nodejs";
@@ -1225,6 +1226,10 @@ async function handleChatRequest(req: NextRequest) {
             timingMetrics.documentSaveStart = Date.now();
             // Use pre-generated conversationId for new conversations, or provided convId for follow-ups
             const finalConversationId = conversationId || sanitizedInput.convId || uuidv4();
+            const titleScopeForPersistence = buildTitleScopeForPersistence(
+              resolvedTitleScope,
+              sanitizedInput.titleScope
+            );
 
             // For follow-up messages, send convId to frontend if not already sent
             if (sanitizedInput.convId && !conversationId) {
@@ -1243,7 +1248,7 @@ async function handleChatRequest(req: NextRequest) {
               sanitizedInput.mediaTypes,
               sanitizedInput.selectedLibraries,
               sourceCount,
-              sanitizedInput.titleScope,
+              titleScopeForPersistence,
               sanitizedInput.history || [],
               clientIP,
               restatedQuestion, // Pass the restated question
