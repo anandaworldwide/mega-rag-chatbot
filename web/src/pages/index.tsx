@@ -481,6 +481,20 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const [highlightMessageIndex, setHighlightMessageIndex] = useState<number | null>(null);
   const userMessageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
+  const focusChatInput = useCallback(() => {
+    if (typeof window !== "undefined" && window.innerWidth >= 768) {
+      textAreaRef.current?.focus();
+    }
+  }, []);
+
+  const handleFocusSourceScope = useCallback(
+    (scope: TitleScopeSelection) => {
+      handleTitleScopeChange(scope);
+      focusChatInput();
+    },
+    [focusChatInput, handleTitleScopeChange]
+  );
+
   // Function to handle media type selection
   const handleMediaTypeChange = (type: "text" | "audio" | "youtube") => {
     if (getEnableMediaTypeSelection(siteConfig)) {
@@ -3608,6 +3622,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                                 sourceLinkCopied={sourceLinkCopied}
                                 onSourceExpanded={handleSourceExpanded}
                                 onSourceLinkCopied={handleSourceLinkCopied}
+                                activeTitleScope={selectedTitleScope}
+                                onFocusSourceScope={handleFocusSourceScope}
                                 isTaskConversation={isTaskConversation && index === messages.length - 1}
                                 taskFollowups={
                                   isTaskConversation && index === messages.length - 1

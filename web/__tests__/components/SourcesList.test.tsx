@@ -1,5 +1,5 @@
 import React from "react";
-import { render, fireEvent, screen } from "@testing-library/react";
+import { render, fireEvent, screen, within } from "@testing-library/react";
 import SourcesList from "@/components/SourcesList";
 import { Document } from "@langchain/core/documents";
 import { DocMetadata } from "@/types/DocMetadata";
@@ -113,6 +113,16 @@ describe("SourcesList", () => {
     },
   };
 
+  const hierarchyScopeSource: Document<DocMetadata> = {
+    pageContent: "Teachings from Matthew chapter 5.",
+    metadata: {
+      title: "The Bible::New Testament::Book of Matthew::Chapter 5",
+      type: "text",
+      library: "Test Library",
+      source: "https://test.com/matthew-5",
+    },
+  };
+
   const mockSiteConfig: SiteConfig = {
     siteId: "test",
     name: "Test Site",
@@ -143,6 +153,62 @@ describe("SourcesList", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it("shows a hierarchy-aware focus menu for source scope selection", () => {
+    const handleFocusSourceScope = jest.fn();
+    const titleScopeSiteConfig = { ...mockSiteConfig, enableTitleScopeSelection: true };
+
+    render(
+      <SourcesList
+        sources={[hierarchyScopeSource]}
+        siteConfig={titleScopeSiteConfig}
+        onFocusSourceScope={handleFocusSourceScope}
+      />
+    );
+
+    fireEvent.click(screen.getByText("The Bible").closest("summary")!);
+    fireEvent.click(screen.getByText("Focus on..."));
+
+    const menu = screen.getByRole("menu");
+
+    expect(within(menu).getByText("Choose scope level")).toBeInTheDocument();
+    expect(within(menu).getByText("New Testament")).toBeInTheDocument();
+    expect(within(menu).getByText("Book of Matthew")).toBeInTheDocument();
+    expect(within(menu).getByText("Chapter 5")).toBeInTheDocument();
+    expect(within(menu).getByText("Recommended")).toBeInTheDocument();
+
+    fireEvent.click(within(menu).getByText("Book of Matthew"));
+
+    expect(handleFocusSourceScope).toHaveBeenCalledWith({
+      canonicalPrefix: "The Bible::New Testament::Book of Matthew",
+      displayTitle: "The Bible::New Testament::Book of Matthew",
+      userInput: "The Bible::New Testament::Book of Matthew",
+    });
+  });
+
+  it("shows the active source scope inside the hierarchy menu", () => {
+    const titleScopeSiteConfig = { ...mockSiteConfig, enableTitleScopeSelection: true };
+
+    render(
+      <SourcesList
+        sources={[hierarchyScopeSource]}
+        siteConfig={titleScopeSiteConfig}
+        activeTitleScope={{
+          canonicalPrefix: "The Bible::New Testament::Book of Matthew",
+          displayTitle: "The Bible::New Testament::Book of Matthew",
+        }}
+        onFocusSourceScope={jest.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByText("The Bible").closest("summary")!);
+    fireEvent.click(screen.getByText("Focus on..."));
+
+    const menu = screen.getByRole("menu");
+
+    expect(within(menu).getByText("Book of Matthew")).toBeInTheDocument();
+    expect(within(menu).getByText("check")).toBeInTheDocument();
   });
 
   it("renders text sources correctly", () => {

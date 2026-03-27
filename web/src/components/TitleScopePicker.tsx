@@ -7,6 +7,16 @@ import { fetchWithAuth } from "@/utils/client/tokenManager";
 const TITLE_SCOPE_POPOVER_MAX_HEIGHT_PX = 520;
 const VIEW_MARGIN_PX = 10;
 
+const formatScopeLabel = (value?: string): string => {
+  return (
+    value
+      ?.split("::")
+      .map((segment) => segment.trim())
+      .filter(Boolean)
+      .join(" > ") || ""
+  );
+};
+
 interface TitleScopePickerProps {
   disabled?: boolean;
   value: TitleScopeSelection | null;
@@ -223,6 +233,7 @@ export const TitleScopePicker: React.FC<TitleScopePickerProps> = ({
   }, [disabled, inputValue]);
 
   const hasSelection = Boolean(value?.canonicalPrefix);
+  const activeScopeLabel = formatScopeLabel(value?.displayTitle || value?.canonicalPrefix);
 
   const handleInputChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const nextValue = event.target.value;
@@ -370,8 +381,8 @@ export const TitleScopePicker: React.FC<TitleScopePickerProps> = ({
 
         {hasSelection && (
           <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            <div className="font-medium">{value?.displayTitle || value?.canonicalPrefix}</div>
-            <div className="mt-1 text-xs text-amber-800">Only this source scope will be used for the next answer.</div>
+            <div className="font-medium">{activeScopeLabel}</div>
+            <div className="mt-1 text-xs text-amber-800">Answers will stay focused on this source until you clear it.</div>
           </div>
         )}
 
@@ -411,7 +422,7 @@ export const TitleScopePicker: React.FC<TitleScopePickerProps> = ({
   );
 
   return (
-    <div className="relative">
+    <div className="relative flex max-w-full items-center gap-2">
       <button
         ref={buttonRef}
         type="button"
@@ -421,13 +432,29 @@ export const TitleScopePicker: React.FC<TitleScopePickerProps> = ({
         aria-expanded={isOpen}
         aria-haspopup="dialog"
         aria-label="Focus on one source"
-        title={hasSelection ? `Focused on ${value?.displayTitle || value?.canonicalPrefix}` : "Focus on one source"}
+        title={hasSelection ? `Focused on ${activeScopeLabel}` : "Focus on one source"}
       >
         <span className="relative inline-block" style={{ width: "20px", height: "20px" }}>
           {hasSelection && <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-amber-500" />}
           <span className="material-icons text-base absolute inset-0 flex items-center justify-center">menu_book</span>
         </span>
       </button>
+
+      {hasSelection && (
+        <div className="flex min-w-0 max-w-[min(100%,28rem)] items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm text-amber-900">
+          <span className="material-icons text-sm text-amber-700">menu_book</span>
+          <span className="truncate">Focused: {activeScopeLabel}</span>
+          <button
+            type="button"
+            onClick={clearSelection}
+            className="inline-flex items-center justify-center rounded-full text-amber-700 hover:bg-amber-100"
+            aria-label="Clear focused source"
+            title="Clear focused source"
+          >
+            <span className="material-icons text-sm">close</span>
+          </button>
+        </div>
+      )}
 
       {isOpen && typeof window !== "undefined" && createPortal(popover, document.body)}
     </div>

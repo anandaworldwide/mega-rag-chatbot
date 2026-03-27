@@ -366,7 +366,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             </div>
 
             {/* Options row inside input box */}
-            <div className="flex gap-2 items-center px-3 py-2">
+            <div className="flex flex-wrap gap-2 items-center px-3 py-2">
               {/* Task Popover - only show if tasks are enabled and handler provided */}
               {onTaskSubmit && <TaskPopover siteConfig={siteConfig} onTaskSubmit={onTaskSubmit} />}
 

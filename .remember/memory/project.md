@@ -211,6 +211,9 @@ except ImportError:
 - **Title-scoped prompt behavior**: When `activeFiltersSummary` includes a source scope, phrase it as `Only [source]`
   and instruct the model to name that selected source directly on misses (for example, "`Bhagavad Gita` does not contain
   direct teachings from Lahiri Mahasaya on this point") instead of drifting into "broader teachings" or "related texts"
+- **Source-focus UX**: Source focus is persistent until cleared. Keep the colored book icon, but also show the active
+  source explicitly in the composer. Post-answer source shortcuts should be hierarchy-aware so users can choose broader
+  or narrower levels (for example, book instead of chapter) from the rendered source card
 - **AWS CLI preference**: Use named profiles for different AWS accounts and prefer explicit `--profile ...` on AWS CLI commands for safety
 - **System prompts**: Located in `web/site-config/prompts/[site]-base.txt`
 - **UUID identification**: All users have UUIDs (JWT token for login-required, cookies for non-login sites)
