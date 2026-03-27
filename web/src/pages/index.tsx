@@ -55,7 +55,7 @@ import { TypedSuggestion } from "@/types/Suggestion";
 import { SudoProvider, useSudo } from "@/contexts/SudoContext";
 import { fetchWithAuth, isAuthenticated, initializeTokenManager } from "@/utils/client/tokenManager";
 import { getOrCreateUUID } from "@/utils/client/uuid";
-import { loadConversationByConvId } from "@/utils/client/conversationLoader";
+import { ConversationNotFoundError, loadConversationByConvId } from "@/utils/client/conversationLoader";
 import { getGreeting } from "@/utils/client/siteConfig";
 import { SidebarFunctions, SidebarRefetch } from "@/components/ChatHistorySidebar";
 import { generateSourceId } from "@/utils/client/sourceUtils";
@@ -679,7 +679,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
          * to avoid conflicts with browser's native scrolling and ensure proper timing
          */
       } catch (error) {
-        console.error("Error loading conversation:", error);
+        if (!(error instanceof ConversationNotFoundError)) {
+          console.error("Error loading conversation:", error);
+        }
 
         // Set the conversation ID even on error to prevent infinite retry loops
         setCurrentConvId(convId);

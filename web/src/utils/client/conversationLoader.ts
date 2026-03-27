@@ -13,6 +13,14 @@ import { Document } from "@langchain/core/documents";
 import { TypedSuggestion } from "@/types/Suggestion";
 import { TitleScopeSelection } from "@/types/titleScope";
 
+/** Thrown when the API returns no messages for a convId (stale link, deleted chat, etc.). Not logged as an error. */
+export class ConversationNotFoundError extends Error {
+  constructor(message = "Conversation not found") {
+    super(message);
+    this.name = "ConversationNotFoundError";
+  }
+}
+
 export interface LoadedConversation {
   messages: Message[];
   history: ChatMessage[];
@@ -81,7 +89,7 @@ export async function loadConversationByConvId(
     const chats: ChatHistoryItem[] = Array.isArray(responseData) ? responseData : [];
 
     if (chats.length === 0) {
-      throw new Error("Conversation not found");
+      throw new ConversationNotFoundError();
     }
 
     // Sort chats by timestamp (oldest first for proper conversation flow)
@@ -226,7 +234,9 @@ export async function loadConversationByConvId(
       usedTaskFollowups,
     };
   } catch (error) {
-    console.error("Error loading conversation:", error);
+    if (!(error instanceof ConversationNotFoundError)) {
+      console.error("Error loading conversation:", error);
+    }
     throw error;
   }
 }
@@ -272,7 +282,9 @@ export async function loadConversationByDocId(
       viewOnly: !isOwner,
     };
   } catch (error) {
-    console.error("Error loading conversation by doc ID:", error);
+    if (!(error instanceof ConversationNotFoundError)) {
+      console.error("Error loading conversation by doc ID:", error);
+    }
     throw error;
   }
 }
