@@ -2210,3 +2210,11 @@ has already resolved it to a canonical identifier.
 
 **Correct**: Persist the canonical identifier and canonical display label for restoration, and keep the original typed text
 only as optional `userInput` metadata.
+
+### Mistake: Semantic Tests Using Unresolvable Source-Scope Inputs
+
+**Wrong**: Writing live source-scope semantic tests around example inputs from planning docs (for example `Bible Genesis`)
+without first confirming that the current site's title catalog resolves that input.
+
+**Correct**: For live semantic tests, use source-scope inputs that are known to resolve on the target site, or explicitly
+assert the SSE error/suggestion path when the input is intentionally unresolvable or ambiguous.

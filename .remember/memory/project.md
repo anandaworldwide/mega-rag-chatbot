@@ -211,6 +211,8 @@ except ImportError:
 - **Title-scoped prompt behavior**: When `activeFiltersSummary` includes a source scope, phrase it as `Only [source]`
   and instruct the model to name that selected source directly on misses (for example, "`Bhagavad Gita` does not contain
   direct teachings from Lahiri Mahasaya on this point") instead of drifting into "broader teachings" or "related texts"
+- **Title-scope semantic coverage**: When extending Luca's live semantic suite for source scope, include a scoped hit, a
+  scoped miss that explicitly names the selected source, and an ambiguous scope-input case that returns suggestions
 - **Source-focus UX**: Source focus is persistent until cleared. Keep the colored book icon, but also show the active
   source explicitly in the composer. Post-answer source shortcuts should be hierarchy-aware so users can choose broader
   or narrower levels (for example, book instead of chapter) from the rendered source card
