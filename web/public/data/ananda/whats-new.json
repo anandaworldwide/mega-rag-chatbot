@@ -1,7 +1,12 @@
 {
-  "version": 5,
+  "version": 6,
   "wikiUrl": "https://anandafamily.notion.site/What-s-new-with-Luca-2ed7781078bc80c79438c02ea27ec710",
   "entries": [
+    {
+      "date": "2026-03-27",
+      "title": "Source Focus",
+      "description": "You can now focus Luca on a single source, such as a book, chapter, or source family. Choose a source before asking, or click \"Focus on this source\" after an answer, and Luca will stay focused there until you clear it."
+    },
     {
       "date": "2026-01-22",
       "title": "More Task Wizards and Streamlined Tools",
