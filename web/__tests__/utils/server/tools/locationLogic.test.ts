@@ -10,6 +10,10 @@ import {
   extractIPGeolocationData,
   shouldSearchCenters,
   createPerformanceMetrics,
+  determineLocationSearchScope,
+  extractCountryMentionFromQuestion,
+  hasProximityIntentInQuestion,
+  getCanonicalCountryLabel,
 } from "../../../../src/utils/server/tools/locationLogic";
 import { LocationResult, CenterResult } from "../../../../src/utils/server/tools";
 
@@ -376,6 +380,152 @@ describe("LocationLogic - Pure Business Logic Functions", () => {
         centerSearchLatency: "0ms",
         totalLatency: "50ms",
       });
+    });
+  });
+
+  describe("determineLocationSearchScope", () => {
+    const baseLocation = (overrides: Partial<LocationResult>): LocationResult => ({
+      city: "Test City",
+      country: "United States",
+      latitude: 37.0,
+      longitude: -122.0,
+      confidence: "high",
+      source: "google-geolocation",
+      ...overrides,
+    });
+
+    it("should classify user-provided country India as country scope", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "India",
+        originalQuestion: "",
+        resolvedLocation: baseLocation({ city: "India", country: "India" }),
+      });
+      expect(r.scope).toBe("country");
+      expect(r.countryFilter).toBe("India");
+    });
+
+    it("should classify user-provided New Zealand as country scope", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "New Zealand",
+        originalQuestion: "",
+        resolvedLocation: baseLocation({ city: "Wellington", country: "New Zealand" }),
+      });
+      expect(r.scope).toBe("country");
+      expect(r.countryFilter).toBe("New Zealand");
+    });
+
+    it("should normalize USA to United States for country scope", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "USA",
+        originalQuestion: "",
+        resolvedLocation: baseLocation({ city: "Washington", country: "United States" }),
+      });
+      expect(r.scope).toBe("country");
+      expect(r.countryFilter).toBe("United States");
+    });
+
+    it("should classify NZ alias when resolved country is New Zealand", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "NZ",
+        originalQuestion: "",
+        resolvedLocation: baseLocation({ city: "Auckland", country: "New Zealand" }),
+      });
+      expect(r.scope).toBe("country");
+      expect(r.countryFilter).toBe("New Zealand");
+    });
+
+    it("should use proximity scope for city with comma", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "San Francisco, California",
+        originalQuestion: "",
+        resolvedLocation: baseLocation({ city: "San Francisco", country: "United States" }),
+      });
+      expect(r.scope).toBe("proximity");
+    });
+
+    it("should use proximity when question has near-me intent", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "",
+        originalQuestion: "What is the nearest Ananda center near me?",
+        resolvedLocation: baseLocation({}),
+      });
+      expect(r.scope).toBe("proximity");
+    });
+
+    it("should use proximity for city-only Delhi (not a synonym country)", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "Delhi",
+        originalQuestion: "",
+        resolvedLocation: baseLocation({ city: "Delhi", country: "India" }),
+      });
+      expect(r.scope).toBe("proximity");
+    });
+
+    it("should use proximity for street addresses with digits", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "123 Main Street, Anytown",
+        originalQuestion: "",
+        resolvedLocation: baseLocation({}),
+      });
+      expect(r.scope).toBe("proximity");
+    });
+
+    it("should return fallback when question and user location are empty", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "",
+        originalQuestion: "",
+        resolvedLocation: baseLocation({}),
+      });
+      expect(r.scope).toBe("fallback");
+    });
+
+    it("should return fallback for whitespace-only user location and empty question", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "   ",
+        originalQuestion: "",
+        resolvedLocation: baseLocation({}),
+      });
+      expect(r.scope).toBe("fallback");
+    });
+
+    it("should use country scope from question when geocoded country differs (India question, US IP)", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "",
+        originalQuestion: "Is there an Ananda center in India?",
+        resolvedLocation: baseLocation({ city: "Mountain View", country: "United States" }),
+      });
+      expect(r.scope).toBe("country");
+      expect(r.countryFilter).toBe("India");
+    });
+  });
+
+  describe("extractCountryMentionFromQuestion", () => {
+    it("should extract India from a typical question", () => {
+      expect(extractCountryMentionFromQuestion("Is there an Ananda center in India?")).toBe("India");
+    });
+
+    it("should extract New Zealand", () => {
+      expect(extractCountryMentionFromQuestion("Are there centers in New Zealand?")).toBe("New Zealand");
+    });
+  });
+
+  describe("hasProximityIntentInQuestion", () => {
+    it("should detect near me", () => {
+      expect(hasProximityIntentInQuestion("centers near me please")).toBe(true);
+    });
+
+    it("should detect within N miles", () => {
+      expect(hasProximityIntentInQuestion("within 50 miles of Austin")).toBe(true);
+    });
+  });
+
+  describe("getCanonicalCountryLabel", () => {
+    it("should map USA to United States", () => {
+      expect(getCanonicalCountryLabel("USA")).toBe("United States");
+    });
+
+    it("should return null for unknown tokens", () => {
+      expect(getCanonicalCountryLabel("Delhi")).toBeNull();
     });
   });
 });

@@ -282,6 +282,13 @@ except ImportError:
 - **Pattern**: Increment version number (e.g., 3 → 4) whenever adding, removing, or modifying entries
 - **Purpose**: Version tracking helps detect when clients need to refresh their cached content
 
+## Geo / location matching
+
+- Country-level questions (e.g. “centers in India”) use deterministic scope detection in
+  `web/src/utils/server/tools/locationLogic.ts` and country-filtered center search (`centers.searchMode: "country"` in tool
+  JSON). Proximity questions keep Haversine-ranked results. `executeTool` receives `originalQuestion` from makechain so
+  scope works when the model omits `userProvidedLocation`.
+
 ## Never Do Again
 
 1. Cross-evaluate between different embedding model generations

@@ -12,6 +12,7 @@ import {
   extractIPGeolocationData,
   shouldSearchCenters,
   createPerformanceMetrics,
+  determineLocationSearchScope,
 } from "./locationLogic";
 
 /**
@@ -31,7 +32,8 @@ export class LocationToolService implements ILocationToolService {
    */
   async getUserLocation(
     args: { userProvidedLocation?: string },
-    headers: Headers
+    headers: Headers,
+    context?: { originalQuestion?: string }
   ): Promise<{ location: LocationResult | null; centers: NearestCenterResult }> {
     const toolStartTime = Date.now();
 
@@ -88,7 +90,19 @@ export class LocationToolService implements ILocationToolService {
 
     if (shouldSearchCenters(location)) {
       const centerSearchStart = Date.now();
-      centers = await this.centerSearchService.findNearestCenters(location.latitude, location.longitude);
+      const scope = determineLocationSearchScope({
+        originalQuestion: context?.originalQuestion,
+        userProvidedLocation: args.userProvidedLocation,
+        resolvedLocation: location,
+      });
+      const useCountry = scope.scope === "country" && !!scope.countryFilter;
+      centers = await this.centerSearchService.findNearestCenters(
+        location.latitude,
+        location.longitude,
+        useCountry
+          ? { searchScope: "country", countryFilter: scope.countryFilter }
+          : undefined
+      );
       const centerSearchLatency = Date.now() - centerSearchStart;
 
       // Log successful completion

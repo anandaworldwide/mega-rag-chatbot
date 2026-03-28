@@ -828,5 +828,122 @@ describe("Services - Dependency Injection Architecture", () => {
         fallbackMessage: "Failed to load center data from S3",
       });
     });
+
+    it("should filter centers by country when searchScope is country", async () => {
+      const mockCenters = [
+        {
+          name: "Delhi Center",
+          latitude: 28.6,
+          longitude: 77.2,
+          city: "Delhi",
+          state: "",
+          address: "",
+          country: "India",
+        },
+        {
+          name: "Gurgaon Center",
+          latitude: 28.45,
+          longitude: 77.02,
+          city: "Gurgaon",
+          state: "",
+          address: "",
+          country: "India",
+        },
+        {
+          name: "Palo Alto",
+          latitude: 37.44,
+          longitude: -122.14,
+          city: "Palo Alto",
+          state: "CA",
+          address: "",
+          country: "United States",
+        },
+      ];
+
+      mockCenterDataService.loadCenters.mockResolvedValue(mockCenters);
+      mockDistanceCalculator.calculateDistance.mockReturnValue(100);
+
+      const result = await service.findNearestCenters(20, 78, {
+        searchScope: "country",
+        countryFilter: "India",
+      });
+
+      expect(result.found).toBe(true);
+      expect(result.searchMode).toBe("country");
+      expect(result.centers).toHaveLength(2);
+      expect(result.centers.every((c) => c.country === "India")).toBe(true);
+    });
+
+    it("should match United States centers when countryFilter is USA", async () => {
+      const mockCenters = [
+        {
+          name: "US Center",
+          latitude: 37.0,
+          longitude: -122.0,
+          city: "Test",
+          state: "CA",
+          address: "",
+          country: "United States",
+        },
+      ];
+      mockCenterDataService.loadCenters.mockResolvedValue(mockCenters);
+      mockDistanceCalculator.calculateDistance.mockReturnValue(5);
+
+      const result = await service.findNearestCenters(37.0, -122.0, {
+        searchScope: "country",
+        countryFilter: "USA",
+      });
+
+      expect(result.found).toBe(true);
+      expect(result.searchMode).toBe("country");
+      expect(result.centers).toHaveLength(1);
+    });
+
+    it("should return no matches for country scope when no centers in that country", async () => {
+      mockCenterDataService.loadCenters.mockResolvedValue([
+        {
+          name: "India Only",
+          latitude: 20,
+          longitude: 77,
+          city: "X",
+          state: "",
+          address: "",
+          country: "India",
+        },
+      ]);
+      mockCenterDataService.getLastError.mockReturnValue({ type: null, message: null });
+
+      const result = await service.findNearestCenters(0, 0, {
+        searchScope: "country",
+        countryFilter: "Antarctica",
+      });
+
+      expect(result.found).toBe(false);
+      expect(result.searchMode).toBe("country");
+      expect(result.centers).toEqual([]);
+      expect(result.fallbackMessage).toContain("No Ananda centers were found in that country");
+    });
+
+    it("should cap country-scoped results at LOCATION_COUNTRY_SEARCH_MAX_RESULTS", async () => {
+      const mockCenters = Array.from({ length: 22 }, (_, i) => ({
+        name: `India Center ${i}`,
+        latitude: 20 + i * 0.02,
+        longitude: 77,
+        city: "City",
+        state: "",
+        address: "",
+        country: "India",
+      }));
+      mockCenterDataService.loadCenters.mockResolvedValue(mockCenters);
+      mockDistanceCalculator.calculateDistance.mockImplementation(() => Math.random());
+
+      const result = await service.findNearestCenters(20, 77, {
+        searchScope: "country",
+        countryFilter: "India",
+      });
+
+      expect(result.found).toBe(true);
+      expect(result.centers.length).toBe(20);
+    });
   });
 });

@@ -37,6 +37,10 @@ export interface NearestCenterResult {
   found: boolean;
   centers: CenterResult[];
   fallbackMessage?: string;
+  /** Present when results were filtered by country (country-level query) */
+  searchMode?: "proximity" | "country";
+  /** Inline guidance for model response formatting (country-level queries) */
+  responseGuidance?: string;
 }
 
 // Using existing S3 client from awsConfig.ts
@@ -105,10 +109,11 @@ export const toolImplementations = {
    */
   async get_user_location(
     args: { userProvidedLocation?: string },
-    request: NextRequest
+    request: NextRequest,
+    toolContext?: { originalQuestion?: string }
   ): Promise<{ location: LocationResult | null; centers: NearestCenterResult }> {
     const service = await getLocationToolService();
-    return await service.getUserLocation(args, request.headers);
+    return await service.getUserLocation(args, request.headers, toolContext);
   },
 
   /**
@@ -130,7 +135,12 @@ export const toolImplementations = {
  * @param request - NextRequest object
  * @returns Promise<any>
  */
-export async function executeTool(toolName: string, args: any, request: NextRequest): Promise<any> {
+export async function executeTool(
+  toolName: string,
+  args: any,
+  request: NextRequest,
+  toolContext?: { originalQuestion?: string }
+): Promise<any> {
   const tool = toolImplementations[toolName as keyof typeof toolImplementations];
 
   if (!tool) {
@@ -160,7 +170,7 @@ export async function executeTool(toolName: string, args: any, request: NextRequ
           },
         },
       } as any;
-      return await (tool as any)(args, mockRequest);
+      return await (tool as any)(args, mockRequest, toolContext);
     } else {
       // In production, this is a serious error - don't create mock data
       console.error("🚨 CRITICAL: Invalid request object in production - cannot execute geo tool");
@@ -198,9 +208,9 @@ export async function executeTool(toolName: string, args: any, request: NextRequ
         },
       } as any;
 
-      return await (tool as any)(args, enhancedRequest);
+      return await (tool as any)(args, enhancedRequest, toolContext);
     }
   }
 
-  return await (tool as any)(args, request);
+  return await (tool as any)(args, request, toolContext);
 }

@@ -1823,7 +1823,9 @@ export async function setupAndExecuteLanguageModelChain(
           for (const toolCall of currentResponse.tool_calls) {
             try {
               console.log(`🔧 Executing tool: ${toolCall.name} with args:`, toolCall.args);
-              const toolResult = await executeTool(toolCall.name, toolCall.args, request!);
+              const toolResult = await executeTool(toolCall.name, toolCall.args, request!, {
+                originalQuestion: sanitizedQuestion,
+              });
               toolResults.push({
                 tool_call_id: toolCall.id,
                 content: JSON.stringify(toolResult),

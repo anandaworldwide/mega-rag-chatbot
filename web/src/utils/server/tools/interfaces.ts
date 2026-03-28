@@ -35,10 +35,23 @@ export interface IDistanceCalculator {
 }
 
 /**
+ * Options for center search (proximity vs country-filtered list)
+ */
+export interface CenterSearchOptions {
+  searchScope?: "proximity" | "country";
+  /** Required when searchScope is "country"; matched alias-aware against center.country */
+  countryFilter?: string;
+}
+
+/**
  * Interface for center search logic
  */
 export interface ICenterSearchService {
-  findNearestCenters(latitude: number, longitude: number): Promise<NearestCenterResult>;
+  findNearestCenters(
+    latitude: number,
+    longitude: number,
+    options?: CenterSearchOptions
+  ): Promise<NearestCenterResult>;
 }
 
 /**
@@ -64,7 +77,8 @@ export interface ILocationService {
 export interface ILocationToolService {
   getUserLocation(
     args: { userProvidedLocation?: string },
-    headers: Headers
+    headers: Headers,
+    context?: { originalQuestion?: string }
   ): Promise<{ location: LocationResult | null; centers: NearestCenterResult }>;
 
   confirmUserLocation(location: string, confirmed: boolean): Promise<{ location: string; confirmed: boolean }>;
