@@ -1446,6 +1446,30 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
 
         crawler.close()
 
+    def test_duplicate_csv_check_is_skipped_after_startup_pass(self):
+        """No-url handling should not re-fetch CSV after a startup CSV check in the same run."""
+        csv_config = {
+            "domain": "example.com",
+            "skip_patterns": [],
+            "crawl_frequency_days": 7,
+            "csv_export_url": "https://example.com/export.csv",
+            "csv_modified_days_threshold": 1,
+        }
+
+        crawler = WebsiteCrawler(self.site_id, csv_config)
+        crawler._startup_csv_check_completed = True
+
+        with patch.object(
+            crawler, "check_and_process_csv", return_value=1
+        ) as mock_csv_check:
+            from crawler.crawl_loop import _process_csv_updates
+
+            result = _process_csv_updates(crawler, MagicMock(), MagicMock())
+
+        self.assertIsNone(result)
+        mock_csv_check.assert_not_called()
+        crawler.close()
+
 
 class TestPunctuationPreservation(BaseWebsiteCrawlerTest):
     """Test cases for punctuation preservation in web crawler text processing."""

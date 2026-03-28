@@ -169,6 +169,7 @@ class WebsiteCrawler:
         self.csv_mode_enabled = bool(self.csv_export_url)
         self.force_csv_mode = False  # Set to True via --force-csv-mode flag
         self._csv_force_used = False  # Track if force bypass has been used once
+        self._startup_csv_check_completed = False
         self.initial_crawl_completed = False
 
     def _init_robots_config(self, skip_init: bool) -> None:

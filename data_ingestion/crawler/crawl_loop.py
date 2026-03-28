@@ -341,6 +341,10 @@ def _process_csv_updates(
     if not crawler.csv_mode_enabled:
         return None
 
+    if getattr(crawler, "_startup_csv_check_completed", False):
+        logging.debug("Skipping duplicate CSV check after startup CSV pass")
+        return None
+
     try:
         # Check browser health before CSV processing
         if not _is_browser_healthy(browser):
@@ -951,6 +955,7 @@ def run_crawl_loop(
         if crawler.csv_mode_enabled:
             logging.info("Checking CSV at start of crawler run...")
             csv_added = crawler.check_and_process_csv(browser, pinecone_index)
+            crawler._startup_csv_check_completed = True
             if csv_added > 0:
                 logging.info(f"CSV startup check added {csv_added} high-priority URLs")
 
