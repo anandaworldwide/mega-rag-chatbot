@@ -59,9 +59,10 @@ def _prepare_browser_launch(attempt: int) -> None:
     if psutil:
         memory = psutil.virtual_memory()
         available_gb = memory.available / (1024**3)
-        if available_gb < 1.5:  # Need at least 1.5GB for browser launch
+        available_ratio = memory.available / memory.total if memory.total else 0
+        if available_ratio < 0.25:
             logging.warning(
-                f"Low memory available ({available_gb:.1f}GB), "
+                f"Low memory available ({available_gb:.1f}GB, {available_ratio:.0%} free), "
                 f"performing aggressive cleanup"
             )
             # More aggressive garbage collection

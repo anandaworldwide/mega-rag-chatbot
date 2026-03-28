@@ -2218,3 +2218,18 @@ without first confirming that the current site's title catalog resolves that inp
 
 **Correct**: For live semantic tests, use source-scope inputs that are known to resolve on the target site, or explicitly
 assert the SSE error/suggestion path when the input is intentionally unresolvable or ambiguous.
+
+### Mistake: CSV Startup Checks After Queue-Empty Early Exit
+
+**Wrong**: Returning early from a crawler run when `peek_next_url_to_crawl()` is empty before running the startup CSV check.
+
+**Correct**: For CSV-enabled sites, perform the startup CSV check first, then exit only if the queue is still empty after
+CSV processing. Add a focused test to cover the empty-queue + CSV-enabled path.
+
+### Mistake: Fixed GB Memory Thresholds On Small Hosts
+
+**Wrong**: Treating browser-launch memory pressure as a hardcoded absolute threshold such as `available_gb < 1.5`, which
+produces misleading low-memory warnings on smaller machines like 2 GB instances.
+
+**Correct**: Use a relative threshold based on available-memory percentage (for example `<25% free`) so warnings reflect
+actual pressure across different host sizes.
