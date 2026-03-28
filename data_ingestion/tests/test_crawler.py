@@ -1389,6 +1389,63 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
 
         crawler.close()
 
+    @patch("crawler.crawl_loop._cleanup_orphaned_processes")
+    @patch("crawler.crawl_loop._cleanup_browser_resources")
+    @patch("crawler.crawl_loop._setup_crawler_browser")
+    def test_csv_startup_check_runs_when_no_urls_ready(
+        self,
+        mock_setup_browser,
+        mock_cleanup_browser,
+        mock_cleanup_processes,
+    ):
+        """CSV startup checks should still run even when the queue is empty."""
+        mock_browser = MagicMock()
+        mock_page = MagicMock()
+        mock_setup_browser.return_value = (mock_browser, mock_page)
+
+        csv_config = {
+            "domain": "example.com",
+            "skip_patterns": [],
+            "crawl_frequency_days": 7,
+            "csv_export_url": "https://example.com/export.csv",
+            "csv_modified_days_threshold": 1,
+        }
+
+        crawler = WebsiteCrawler(self.site_id, csv_config)
+        crawler.mark_initial_crawl_completed()
+
+        assert crawler.cursor is not None
+        assert crawler.conn is not None
+        crawler.cursor.execute("DELETE FROM crawl_queue")
+        crawler.conn.commit()
+
+        with (
+            patch.object(
+                crawler, "check_and_process_csv", return_value=0
+            ) as mock_csv_check,
+            patch.object(crawler, "peek_next_url_to_crawl", side_effect=[None, None]),
+            patch("crawler.crawl_loop.is_exiting", return_value=False),
+            patch("crawler.crawl_loop.sync_playwright") as mock_playwright,
+            patch("os.getenv", return_value="test-index"),
+        ):
+            mock_p = MagicMock()
+            mock_playwright.return_value.__enter__.return_value = mock_p
+
+            mock_args = MagicMock()
+            mock_args.stop_after = None
+            mock_args.max_runtime_minutes = 38
+
+            from crawler.crawl_loop import run_crawl_loop
+
+            run_crawl_loop(crawler, MagicMock(), mock_args)
+
+        mock_setup_browser.assert_called_once()
+        mock_csv_check.assert_called_once_with(mock_browser, unittest.mock.ANY)
+        mock_cleanup_browser.assert_called_once_with(mock_browser)
+        mock_cleanup_processes.assert_called_once()
+
+        crawler.close()
+
 
 class TestPunctuationPreservation(BaseWebsiteCrawlerTest):
     """Test cases for punctuation preservation in web crawler text processing."""
