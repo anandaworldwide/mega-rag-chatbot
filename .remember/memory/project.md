@@ -154,6 +154,8 @@ except ImportError:
   expressions to avoid DST/UTC conversion mistakes.
 - For the crawler, prefer **one-shot scheduled ECS tasks** with `--max-runtime-minutes` over an always-on ECS service +
   supervisor loop when you want strict “only run in this window” behavior.
+- For server redeploy/runbook instructions, include `git pull` immediately after the initial `cd` into the repo so the
+  remote box is updated before rebuild/restart commands.
 
 ### Crawler Deployment ("build and push to production")
 

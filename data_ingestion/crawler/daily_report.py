@@ -329,28 +329,20 @@ def format_report(
     site_id: str,
     queue_stats: dict[str, Any],
     activity: dict[str, Any],
-    errors: list[dict[str, Any]],
 ) -> str:
     """Format the daily report email body."""
     report_lines = []
 
     # Health summary
     report_lines.append("=== Crawler Health Summary ===")
-    error_count = len(errors)
     processed_count = activity.get("urls_processed", 0)
     ready_to_process = queue_stats.get("ready_to_process", 0)
 
     # Determine overall health status
-    # HEALTHY if:
-    #   - No CloudWatch errors AND
-    #   - Either processed some URLs OR nothing was ready to process
-    # NEEDS ATTENTION if:
-    #   - CloudWatch errors exist OR
-    #   - URLs were ready but none were processed (crawler may be stuck)
-    if error_count == 0 and (processed_count > 0 or ready_to_process == 0):
+    # HEALTHY if either processed some URLs or nothing was ready to process.
+    # NEEDS ATTENTION if URLs were ready but none were processed.
+    if processed_count > 0 or ready_to_process == 0:
         status = "HEALTHY"
-    elif error_count > 0:
-        status = "NEEDS ATTENTION"
     elif processed_count == 0 and ready_to_process > 0:
         # URLs were ready but nothing was processed - crawler may be stuck
         status = "NEEDS ATTENTION"
@@ -381,29 +373,18 @@ def format_report(
     report_lines.append(f"- Deleted: {queue_stats.get('deleted', 0)}")
     report_lines.append("")
 
-    # CloudWatch errors
-    report_lines.append("=== CloudWatch Errors (Last 24h) ===")
-    if errors:
-        report_lines.append(f"Found {error_count} ERROR entries:\n")
-        for error in errors[:20]:  # Limit to first 20 errors to keep email manageable
-            report_lines.append(f"[{error['timestamp']}] {error['message']}")
-        if len(errors) > 20:
-            report_lines.append(f"\n... and {len(errors) - 20} more errors (truncated)")
-    else:
-        report_lines.append("No ERROR entries found in CloudWatch logs.")
-
     return "\n".join(report_lines)
 
 
-def generate_subject_line(site_id: str, ready: int, processed: int, errors: int) -> str:
+def generate_subject_line(site_id: str, ready: int, processed: int) -> str:
     """Generate email subject line with key metrics."""
     site_shortname = get_site_shortname(site_id)
-    # Format subject with metrics: "[Vivek] Daily Crawler: 3 errors | 142 ready | 87 processed"
+    # Format subject with metrics: "[Vivek] Daily Crawler: 142 ready | 87 processed"
     # Note: We format with site prefix here, and email_ops.py will skip adding dev/prod prefix
     # since it detects the subject already starts with '['
     subject = (
         f"[{site_shortname}] Daily Crawler: "
-        f"{errors} errors | {ready} ready | {processed} processed"
+        f"{ready} ready | {processed} processed"
     )
     return subject
 
@@ -453,38 +434,22 @@ def main():
     activity = query_recent_activity(db_path, hours=24)
     logger.info(f"Recent activity: {activity}")
 
-    # Query CloudWatch for errors
-    log_group = "/ecs/ananda-crawler"
-    errors = query_cloudwatch_errors(log_group, hours=24)
-    logger.info(f"Found {len(errors)} errors in CloudWatch")
-
     # Format report
-    report_body = format_report(site_id, queue_stats, activity, errors)
+    report_body = format_report(site_id, queue_stats, activity)
 
     # Generate subject line with key metrics
     # Use "ready_to_process" count instead of all pending
     ready_count = queue_stats.get("ready_to_process", 0)
     processed_count = activity.get("urls_processed", 0)
-    error_count = len(errors)
-    subject = generate_subject_line(site_id, ready_count, processed_count, error_count)
+    subject = generate_subject_line(site_id, ready_count, processed_count)
 
     # Send email
     logger.info(f"Sending daily report email with subject: {subject}")
 
-    error_details = None
-    if errors:
-        error_details = {
-            "context": {
-                "site_id": site_id,
-                "report_type": "daily_operations",
-                "cloudwatch_error_count": error_count,
-            }
-        }
-
     success = send_ops_alert_sync(
         subject=subject,
         message=report_body,
-        error_details=error_details,
+        error_details=None,
     )
 
     if success:
