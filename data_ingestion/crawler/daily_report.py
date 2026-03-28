@@ -51,6 +51,9 @@ logger = logging.getLogger(__name__)
 # Pacific timezone for report display
 PACIFIC_TZ = ZoneInfo("America/Los_Angeles")
 
+SQLITE_NORMALIZED_NEXT_CRAWL = "datetime(replace(substr(next_crawl,1,19),'T',' '))"
+SQLITE_NORMALIZED_RETRY_AFTER = "datetime(replace(substr(retry_after,1,19),'T',' '))"
+
 
 def format_timestamp_pacific(timestamp_str: str | None) -> str:
     """Convert a timestamp string to Pacific time format.
@@ -148,13 +151,13 @@ def query_queue_stats(db_path: Path) -> dict[str, Any]:
         # - pending URLs with no retry delay (or retry delay expired)
         # - visited URLs that are due for re-crawl
         cursor.execute(
-            """
+            f"""
             SELECT COUNT(*) as count
             FROM crawl_queue 
             WHERE (
-                (status = 'pending' AND (retry_after IS NULL OR retry_after <= datetime('now'))) 
+                (status = 'pending' AND (retry_after IS NULL OR {SQLITE_NORMALIZED_RETRY_AFTER} <= datetime('now'))) 
                 OR 
-                (status = 'visited' AND next_crawl <= datetime('now'))
+                (status = 'visited' AND {SQLITE_NORMALIZED_NEXT_CRAWL} <= datetime('now'))
             )
             """
         )

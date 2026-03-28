@@ -2291,6 +2291,56 @@ class TestRobotsTxtCompliance(BaseWebsiteCrawlerTest):
         crawler.close()
 
     @patch("crawler.website_crawler.RobotFileParser")
+    def test_iso_timestamps_are_treated_as_due_in_queue_queries(
+        self, mock_robot_parser_class
+    ):
+        """ISO timestamps with T/fractions should still be treated as due by crawler queue queries."""
+        mock_parser = Mock()
+        mock_parser.can_fetch.return_value = True
+        mock_robot_parser_class.return_value = mock_parser
+
+        site_config = {
+            "domain": "example.com",
+            "skip_patterns": [],
+            "crawl_frequency_days": 14,
+        }
+        crawler = WebsiteCrawler(self.site_id, site_config)
+
+        assert crawler.cursor is not None
+        assert crawler.conn is not None
+        cursor = crawler.cursor
+        cursor.execute("DELETE FROM crawl_queue")
+
+        due_url = crawler.normalize_url("https://example.com/due-page")
+        retry_url = crawler.normalize_url("https://example.com/retry-later")
+        due_iso = (datetime.utcnow() - timedelta(minutes=5)).isoformat()
+        future_retry_iso = (datetime.utcnow() + timedelta(minutes=30)).isoformat()
+
+        cursor.execute(
+            """
+            INSERT INTO crawl_queue (url, status, last_crawl, next_crawl, crawl_frequency, priority)
+            VALUES (?, 'visited', ?, ?, 14, 0)
+            """,
+            (due_url, due_iso, due_iso),
+        )
+        cursor.execute(
+            """
+            INSERT INTO crawl_queue (url, status, retry_after, crawl_frequency, priority, failure_type, retry_count)
+            VALUES (?, 'pending', ?, 14, 0, 'temporary', 1)
+            """,
+            (retry_url, future_retry_iso),
+        )
+        crawler.conn.commit()
+
+        self.assertEqual(crawler.peek_next_url_to_crawl(), due_url)
+        self.assertEqual(crawler.get_next_url_to_crawl(), due_url)
+
+        stats = crawler.get_queue_stats()
+        self.assertEqual(stats["pending_retry"], 1)
+
+        crawler.close()
+
+    @patch("crawler.website_crawler.RobotFileParser")
     def test_handle_url_processing_removes_skip_pattern_urls(
         self, mock_robot_parser_class
     ):

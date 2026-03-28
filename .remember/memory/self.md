@@ -2233,3 +2233,12 @@ produces misleading low-memory warnings on smaller machines like 2 GB instances.
 
 **Correct**: Use a relative threshold based on available-memory percentage (for example `<25% free`) so warnings reflect
 actual pressure across different host sizes.
+
+### Mistake: Comparing ISO SQLite Timestamps To `datetime('now')` Without Normalization
+
+**Wrong**: Comparing stored timestamps like `2026-03-28T22:52:29.637057` directly against SQLite `datetime('now')` using
+clauses like `next_crawl <= datetime('now')` or `retry_after > datetime('now')`.
+
+**Correct**: Normalize stored ISO timestamps inside SQLite queries first, e.g.
+`datetime(replace(substr(next_crawl,1,19),'T',' '))`, before comparing to `datetime('now')`. Apply the same normalization
+for `retry_after` so queue stats and due-selection logic agree with the actual DB state.
