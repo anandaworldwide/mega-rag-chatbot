@@ -59,7 +59,12 @@ import { ConversationNotFoundError, loadConversationByConvId } from "@/utils/cli
 import { getGreeting } from "@/utils/client/siteConfig";
 import { SidebarFunctions, SidebarRefetch } from "@/components/ChatHistorySidebar";
 import { generateSourceId } from "@/utils/client/sourceUtils";
-import { FilterConflictAction, TitleScopeFilterConflictPayload, TitleScopeSelection, TitleScopeSuggestion } from "@/types/titleScope";
+import {
+  FilterConflictAction,
+  TitleScopeFilterConflictPayload,
+  TitleScopeSelection,
+  TitleScopeSuggestion,
+} from "@/types/titleScope";
 
 // Custom hook for scroll depth tracking
 function useScrollDepthTracking() {
@@ -120,8 +125,17 @@ function useScrollDepthTracking() {
   return { trackFirstInteraction };
 }
 
-export function getRepairAllLibrariesSelection(actionLibraries: string[] | undefined, defaultLibraries: string[]): string[] {
+export function getRepairAllLibrariesSelection(
+  actionLibraries: string[] | undefined,
+  defaultLibraries: string[]
+): string[] {
   return actionLibraries ? [...actionLibraries] : [...defaultLibraries];
+}
+
+function getAutoAppliedSourceFocusAction(payload: TitleScopeFilterConflictPayload): FilterConflictAction | null {
+  return (
+    payload.actions.find((action) => action.kind === "setCollection" && action.collection === "whole_library") || null
+  );
 }
 
 // Main component for the chat interface
@@ -340,6 +354,21 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const { messages } = messageState as {
     messages: ExtendedAIMessage[];
   };
+  const autoApplySourceFocusConflict = useCallback(
+    (payload: TitleScopeFilterConflictPayload) => {
+      const autoAction = getAutoAppliedSourceFocusAction(payload);
+      if (!autoAction) {
+        return false;
+      }
+
+      setFilterConflict(null);
+      setError(null);
+      applyFilterConflictAction(autoAction);
+      logEvent("source_focus_auto_author_switch", "Source Focus", payload.titleScopeLabel);
+      return true;
+    },
+    [applyFilterConflictAction, setError]
+  );
 
   // Keep a ref in sync with history to avoid stale closures in callbacks
   // This is critical for the API call to send the correct history for question reformulation
@@ -1261,6 +1290,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       }
 
       if (data.filterConflict) {
+        if (autoApplySourceFocusConflict(data.filterConflict)) {
+          return;
+        }
         setFilterConflict(data.filterConflict);
         setError(null);
         setMessageState((prevState) => {
@@ -1618,6 +1650,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       messages,
       savedDocId,
       showScrollDownButton,
+      autoApplySourceFocusConflict,
       setFilterConflict,
     ]
     // Note: reportMissingSourcesToBacked and reportPartialSourcesToBacked are defined after this callback
@@ -1782,7 +1815,19 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       const newAbortController = new AbortController();
       setAbortController(newAbortController);
       const requestTitleScope =
-        siteConfig?.enableTitleScopeSelection && selectedTitleScopeRef.current ? selectedTitleScopeRef.current : undefined;
+        siteConfig?.enableTitleScopeSelection && selectedTitleScopeRef.current
+          ? selectedTitleScopeRef.current
+          : undefined;
+      if (requestTitleScope) {
+        logEvent(
+          "source_focus_query_submitted",
+          "Source Focus",
+          requestTitleScope.canonicalPrefix ||
+            requestTitleScope.displayTitle ||
+            requestTitleScope.userInput ||
+            "unknown"
+        );
+      }
 
       const response = await fetchWithAuth("/api/chat/v1", {
         method: "POST",
@@ -2321,6 +2366,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                 const data = JSON.parse(line.slice(5));
 
                 if (data.filterConflict) {
+                  if (autoApplySourceFocusConflict(data.filterConflict)) {
+                    continue;
+                  }
                   setFilterConflict(data.filterConflict);
                   setMessageState((prevState) => {
                     const newMessages = [...prevState.messages];
@@ -2496,6 +2544,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       setLoading,
       setError,
       setMessageState,
+      autoApplySourceFocusConflict,
     ]
   );
 
@@ -2662,6 +2711,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                 const data = JSON.parse(line.slice(5));
 
                 if (data.filterConflict) {
+                  if (autoApplySourceFocusConflict(data.filterConflict)) {
+                    continue;
+                  }
                   setFilterConflict(data.filterConflict);
                   setError(null);
                   updateMessageState(data.filterConflict.summaryMessage, null);
@@ -2782,6 +2834,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       setCurrentConvId,
       isTitleScopeSelectionEnabled,
       buildFilterExplicitnessPayload,
+      autoApplySourceFocusConflict,
     ]
   );
 
@@ -2857,6 +2910,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                 const data = JSON.parse(line.slice(5));
 
                 if (data.filterConflict) {
+                  if (autoApplySourceFocusConflict(data.filterConflict)) {
+                    continue;
+                  }
                   setFilterConflict(data.filterConflict);
                   setRegeneratedAnswer((prev) =>
                     prev
@@ -2901,6 +2957,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       temporarySession,
       isTitleScopeSelectionEnabled,
       buildFilterExplicitnessPayload,
+      autoApplySourceFocusConflict,
     ]
   );
 
@@ -3195,6 +3252,10 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
   // Keep fresh-chat state aligned with site defaults and clear any legacy filter persistence.
   useEffect(() => {
+    const isActuallyFreshChat = messageState.messages.length <= 1 && messageState.history.length === 0;
+    if (pathRef.current === "/" && !currentConvIdRef.current && !isActuallyFreshChat) {
+      return;
+    }
     if (pathRef.current === "/" && !currentConvIdRef.current) {
       setCollection(defaultCollection);
       setCollectionChanged(false);
@@ -3208,7 +3269,17 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     if (!isLoadingQueries && window.innerWidth > 768) {
       textAreaRef.current?.focus();
     }
-  }, [defaultCollection, defaultLibraries, defaultMediaTypes, defaultSourceCount, isLoadingQueries, handleTitleScopeChange]);
+  }, [
+    defaultCollection,
+    defaultLibraries,
+    defaultMediaTypes,
+    defaultSourceCount,
+    isLoadingQueries,
+    loading,
+    messageState.history.length,
+    messageState.messages.length,
+    handleTitleScopeChange,
+  ]);
 
   // Custom hook to check if multiple collections are available
   const hasMultipleCollections = useMultipleCollections(siteConfig || undefined);

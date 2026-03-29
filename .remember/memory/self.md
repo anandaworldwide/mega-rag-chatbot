@@ -2242,3 +2242,20 @@ clauses like `next_crawl <= datetime('now')` or `retry_after > datetime('now')`.
 **Correct**: Normalize stored ISO timestamps inside SQLite queries first, e.g.
 `datetime(replace(substr(next_crawl,1,19),'T',' '))`, before comparing to `datetime('now')`. Apply the same normalization
 for `retry_after` so queue stats and due-selection logic agree with the actual DB state.
+
+### Mistake: Fresh-Chat Filter Resets Based On URL Alone
+
+**Wrong**: Treating `path === "/"` and a missing `convId` as sufficient proof that the app is in a true fresh-chat state,
+then resetting retrieval filters immediately.
+
+**Correct**: Only run fresh-chat filter resets when the conversation is actually empty, e.g. greeting-only messages plus
+empty history. During active requests or retry handoffs, `/` plus no `convId` can still represent an in-progress
+conversation.
+
+### Mistake: Source-Scope Canonical Keys Need Normalized Matching
+
+**Wrong**: Requiring source-scope `canonicalPrefix` strings to match title-catalog expansion keys exactly, including
+spacing around hierarchy delimiters like `::`.
+
+**Correct**: When resolving a persisted or source-card-selected source scope, normalize both the requested canonical prefix
+and catalog keys before concluding the source is unavailable. Use the normalized-equivalent catalog key if it exists.

@@ -158,6 +158,7 @@ describe("SourcesList", () => {
   it("shows a hierarchy-aware focus menu for source scope selection", () => {
     const handleFocusSourceScope = jest.fn();
     const titleScopeSiteConfig = { ...mockSiteConfig, enableTitleScopeSelection: true };
+    const mockLogEvent = jest.mocked(analyticsModule.logEvent);
 
     render(
       <SourcesList
@@ -169,6 +170,11 @@ describe("SourcesList", () => {
 
     fireEvent.click(screen.getByText("The Bible").closest("summary")!);
     fireEvent.click(screen.getByText("Focus on..."));
+    expect(mockLogEvent).toHaveBeenCalledWith(
+      "source_focus_source_card_menu_opened",
+      "Source Focus",
+      "The Bible::New Testament::Book of Matthew::Chapter 5"
+    );
 
     const menu = screen.getByRole("menu");
 
@@ -185,6 +191,12 @@ describe("SourcesList", () => {
       displayTitle: "The Bible::New Testament::Book of Matthew",
       userInput: "The Bible::New Testament::Book of Matthew",
     });
+    expect(mockLogEvent).toHaveBeenCalledWith("source_focus_source_card_selected", "Source Focus", "menu");
+    expect(mockLogEvent).toHaveBeenCalledWith(
+      "source_focus_source_card_selected_level",
+      "Source Focus",
+      "Book of Matthew"
+    );
   });
 
   it("shows the active source scope inside the hierarchy menu", () => {

@@ -33,7 +33,12 @@ import { getEnableSuggestedQueries } from "@/utils/client/siteConfig";
 import { logEvent } from "@/utils/client/analytics";
 import { getOrCreateUUID } from "@/utils/client/uuid";
 import { FirestoreIndexError, useFirestoreIndexError } from "@/components/FirestoreIndexError";
-import { FilterConflictAction, TitleScopeFilterConflictPayload, TitleScopeSelection, TitleScopeSuggestion } from "@/types/titleScope";
+import {
+  FilterConflictAction,
+  TitleScopeFilterConflictPayload,
+  TitleScopeSelection,
+  TitleScopeSuggestion,
+} from "@/types/titleScope";
 
 // Define the props interface for the ChatInput component
 interface ChatInputProps {
@@ -274,7 +279,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     setIsNearBottom(true);
     handleClick(q);
   };
-
 
   // Dynamic placeholder text based on conversation state
   const placeholderText = shouldShowSuggestions ? "Ask a question..." : "Ask a follow-up question...";

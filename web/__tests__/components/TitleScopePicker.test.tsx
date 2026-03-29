@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { TitleScopePicker } from "@/components/TitleScopePicker";
 import { TitleScopeSelection, TitleScopeSuggestion } from "@/types/titleScope";
 import { fetchWithAuth } from "@/utils/client/tokenManager";
+import * as analyticsModule from "@/utils/client/analytics";
 
 jest.mock("@/utils/client/tokenManager", () => ({
   fetchWithAuth: jest.fn().mockResolvedValue({
@@ -11,12 +12,17 @@ jest.mock("@/utils/client/tokenManager", () => ({
   }),
 }));
 
+jest.mock("@/utils/client/analytics", () => ({
+  logEvent: jest.fn(),
+}));
+
 describe("TitleScopePicker", () => {
   const originalInnerWidth = window.innerWidth;
   const originalRequestAnimationFrame = global.requestAnimationFrame;
   const mockFetchWithAuth = jest.mocked(fetchWithAuth);
 
   beforeEach(() => {
+    jest.clearAllMocks();
     jest.useFakeTimers();
     Object.defineProperty(window, "innerWidth", {
       configurable: true,
@@ -118,5 +124,49 @@ describe("TitleScopePicker", () => {
     fireEvent.click(screen.getByRole("button", { name: "Clear focused source" }));
 
     expect(screen.queryByText("Focused: The Bible > New Testament > Book of Matthew")).not.toBeInTheDocument();
+  });
+
+  it("logs analytics when opening, selecting, and clearing a source focus", async () => {
+    const mockLogEvent = jest.mocked(analyticsModule.logEvent);
+    const suggestions: TitleScopeSuggestion[] = [
+      {
+        canonicalPrefix: "Lessons in Meditation",
+        displayTitle: "Lessons in Meditation",
+        depth: 1,
+        fullTitleCount: 1,
+        vectorCount: 12,
+        matchType: "exact",
+        score: 1,
+      },
+    ];
+
+    mockFetchWithAuth.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ suggestions, query: "Le" }),
+    } as Awaited<ReturnType<typeof fetchWithAuth>>);
+
+    const Wrapper = () => {
+      const [value, setValue] = React.useState<TitleScopeSelection | null>(null);
+      return <TitleScopePicker value={value} onChange={setValue} />;
+    };
+
+    render(<Wrapper />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Focus on one source" }));
+    expect(mockLogEvent).toHaveBeenCalledWith("source_focus_picker_opened", "Source Focus", "empty");
+
+    const input = await screen.findByPlaceholderText("Lessons in Meditation, Bible Genesis, etc.");
+    fireEvent.change(input, { target: { value: "Le" } });
+    jest.runAllTimers();
+
+    await waitFor(() => {
+      expect(screen.getByText("Lessons in Meditation")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByText("Lessons in Meditation"));
+    expect(mockLogEvent).toHaveBeenCalledWith("source_focus_picker_selected", "Source Focus", "Lessons in Meditation");
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear focused source" }));
+    expect(mockLogEvent).toHaveBeenCalledWith("source_focus_cleared", "Source Focus", "Lessons in Meditation");
   });
 });

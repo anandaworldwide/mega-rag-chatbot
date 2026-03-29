@@ -465,7 +465,13 @@ const SourcesList: React.FC<SourcesListProps> = ({
     return <span className="text-black font-medium">{formattedTitle}</span>;
   };
 
-  const applyFocusedSourceScope = (scope: TitleScopeSelection) => {
+  const applyFocusedSourceScope = (
+    scope: TitleScopeSelection,
+    metadata?: {
+      sourcePath?: "single_button" | "menu";
+      selectedLevel?: string;
+    }
+  ) => {
     if (!onFocusSourceScope) {
       return;
     }
@@ -473,6 +479,16 @@ const SourcesList: React.FC<SourcesListProps> = ({
     onFocusSourceScope(scope);
     setFocusMenuSourceIndex(null);
     logEvent("focus_source_scope", "UI", scope.canonicalPrefix || scope.displayTitle || "unknown");
+    logEvent(
+      "source_focus_source_card_selected",
+      "Source Focus",
+      metadata?.sourcePath || "unknown"
+    );
+    logEvent(
+      "source_focus_source_card_selected_level",
+      "Source Focus",
+      metadata?.selectedLevel || scope.canonicalPrefix || scope.displayTitle || "unknown"
+    );
   };
 
   const renderFocusSourceScopeButton = (doc: Document<DocMetadata>, index: number) => {
@@ -498,6 +514,9 @@ const SourcesList: React.FC<SourcesListProps> = ({
                 canonicalPrefix: onlyOption.canonicalPrefix,
                 displayTitle: onlyOption.displayTitle,
                 userInput: onlyOption.displayTitle,
+              }, {
+                sourcePath: "single_button",
+                selectedLevel: onlyOption.levelLabel,
               });
             }
           }}
@@ -524,6 +543,7 @@ const SourcesList: React.FC<SourcesListProps> = ({
           onClick={() => {
             setFocusMenuSourceIndex((previousIndex) => (previousIndex === index ? null : index));
             logEvent("open_focus_source_scope_menu", "UI", buildSourceHierarchyTitle(doc.metadata));
+            logEvent("source_focus_source_card_menu_opened", "Source Focus", buildSourceHierarchyTitle(doc.metadata));
           }}
           className={`inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-xl transition-colors ${
             hasActiveOption
@@ -559,6 +579,9 @@ const SourcesList: React.FC<SourcesListProps> = ({
                       canonicalPrefix: option.canonicalPrefix,
                       displayTitle: option.displayTitle,
                       userInput: option.displayTitle,
+                    }, {
+                      sourcePath: "menu",
+                      selectedLevel: option.levelLabel,
                     })
                   }
                   className={`flex w-full items-start justify-between gap-3 rounded-lg px-3 py-2 text-left transition-colors ${

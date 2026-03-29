@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { TitleScopeSelection, TitleScopeSuggestion, TitleScopeSuggestionResponse } from "@/types/titleScope";
 import { fetchWithAuth } from "@/utils/client/tokenManager";
+import { logEvent } from "@/utils/client/analytics";
 
 /** Header + input + helper + max-h-72 list — used to pick above/below before measure so layout does not flip on inner scroll. */
 const TITLE_SCOPE_POPOVER_MAX_HEIGHT_PX = 520;
@@ -257,6 +258,7 @@ export const TitleScopePicker: React.FC<TitleScopePickerProps> = ({
     setError(null);
     setIsOpen(false);
     setIsPositioned(false);
+    logEvent("source_focus_picker_selected", "Source Focus", suggestion.canonicalPrefix);
     onChange({
       canonicalPrefix: suggestion.canonicalPrefix,
       displayTitle: suggestion.displayTitle,
@@ -265,6 +267,7 @@ export const TitleScopePicker: React.FC<TitleScopePickerProps> = ({
   };
 
   const clearSelection = () => {
+    logEvent("source_focus_cleared", "Source Focus", value?.canonicalPrefix || value?.displayTitle || "unknown");
     setInputValue("");
     setSuggestions([]);
     setError(null);
@@ -276,6 +279,9 @@ export const TitleScopePicker: React.FC<TitleScopePickerProps> = ({
   const togglePopover = () => {
     if (disabled) {
       return;
+    }
+    if (!isOpen) {
+      logEvent("source_focus_picker_opened", "Source Focus", value?.canonicalPrefix ? "with_active_focus" : "empty");
     }
     if (isOpen) {
       setIsPositioned(false);
@@ -346,7 +352,9 @@ export const TitleScopePicker: React.FC<TitleScopePickerProps> = ({
         <div className="flex items-start justify-between gap-3">
           <div>
             <h3 className="text-sm font-medium text-gray-900">Focus on one source</h3>
-            <p className="mt-1 text-xs text-gray-500">Narrow the next answer to one book, text family, or source branch.</p>
+            <p className="mt-1 text-xs text-gray-500">
+              Narrow the next answer to one book, text family, or source branch.
+            </p>
           </div>
           {hasSelection && (
             <button
@@ -382,12 +390,18 @@ export const TitleScopePicker: React.FC<TitleScopePickerProps> = ({
         {hasSelection && (
           <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
             <div className="font-medium">{activeScopeLabel}</div>
-            <div className="mt-1 text-xs text-amber-800">Answers will stay focused on this source until you clear it.</div>
+            <div className="mt-1 text-xs text-amber-800">
+              Answers will stay focused on this source until you clear it.
+            </div>
           </div>
         )}
 
         <div className="mt-3 min-h-[1.25rem] text-xs">
-          {error ? <p className="text-red-600">{error}</p> : <p className="text-gray-500">Type at least 2 characters to search.</p>}
+          {error ? (
+            <p className="text-red-600">{error}</p>
+          ) : (
+            <p className="text-gray-500">Type at least 2 characters to search.</p>
+          )}
         </div>
 
         {(isLoading || suggestions.length > 0 || showEmptyState) && (
@@ -410,7 +424,8 @@ export const TitleScopePicker: React.FC<TitleScopePickerProps> = ({
                 >
                   <div className="text-sm font-medium text-gray-900">{suggestion.displayTitle}</div>
                   <div className="mt-1 text-xs text-gray-500">
-                    {suggestion.fullTitleCount} title{suggestion.fullTitleCount === 1 ? "" : "s"} · {suggestion.matchType}
+                    {suggestion.fullTitleCount} title{suggestion.fullTitleCount === 1 ? "" : "s"} ·{" "}
+                    {suggestion.matchType}
                   </div>
                 </button>
               ))

@@ -541,14 +541,24 @@ export async function resolveTitleScopeSelection(
   if (canonicalPrefix) {
     const expansions = await getTitleCatalogExpansions(siteId);
     const exactTitles = expansions.expansions[canonicalPrefix];
-    if (!exactTitles || exactTitles.length === 0) {
+    const normalizedCanonicalPrefix = normalizeTitleScopeInput(canonicalPrefix);
+    const normalizedFallbackKey =
+      !exactTitles && normalizedCanonicalPrefix
+        ? Object.keys(expansions.expansions).find(
+            (key) => normalizeTitleScopeInput(key) === normalizedCanonicalPrefix
+          ) || null
+        : null;
+    const resolvedCanonicalPrefix =
+      exactTitles && exactTitles.length > 0 ? canonicalPrefix : normalizedFallbackKey || canonicalPrefix;
+    const resolvedExactTitles = expansions.expansions[resolvedCanonicalPrefix];
+    if (!resolvedExactTitles || resolvedExactTitles.length === 0) {
       throw new TitleScopeResolutionError(`The selected source scope "${canonicalPrefix}" is no longer available.`);
     }
 
     return {
-      canonicalPrefix,
-      displayTitle: selection.displayTitle?.trim() || canonicalPrefix,
-      exactTitles,
+      canonicalPrefix: resolvedCanonicalPrefix,
+      displayTitle: selection.displayTitle?.trim() || resolvedCanonicalPrefix,
+      exactTitles: resolvedExactTitles,
     };
   }
 

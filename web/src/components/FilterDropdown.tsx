@@ -72,7 +72,8 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
   const showSourceCountSelector = siteConfig?.showSourceCountSelector ?? false;
 
   // Check if any filter options are available
-  const hasAnyFilters = showMediaTypeSelection || showAuthorSelection || showLibrarySelection || showSourceCountSelector;
+  const hasAnyFilters =
+    showMediaTypeSelection || showAuthorSelection || showLibrarySelection || showSourceCountSelector;
 
   // Determine if options have been changed from defaults
   const isModified = useMemo((): boolean => {
@@ -616,7 +617,9 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
                 {showAuthorSelection && (
                   <div>
                     <h4 className="font-medium mb-1">Collection Selection</h4>
-                    <p className="text-sm text-gray-600">Select specific collections or authors to focus your search.</p>
+                    <p className="text-sm text-gray-600">
+                      Select specific collections or authors to focus your search.
+                    </p>
                   </div>
                 )}
 
@@ -625,8 +628,8 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
                     <h4 className="font-medium mb-1">Media Type Selection</h4>
                     <p className="text-sm text-gray-600">
                       Choose which media types (
-                      {enabledMediaTypes.map((type) => (type === "youtube" ? "video" : type)).join(", ")}) to include for
-                      your query.
+                      {enabledMediaTypes.map((type) => (type === "youtube" ? "video" : type)).join(", ")}) to include
+                      for your query.
                     </p>
                   </div>
                 )}
@@ -645,9 +648,9 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
                   <div>
                     <h4 className="font-medium mb-1">Use Extra Sources</h4>
                     <p className="text-sm text-gray-600">
-                      Enable to use more sources (10 instead of {siteConfig?.defaultNumSources || 4}) for potentially more
-                      comprehensive responses. Relevant text passages are retrieved based on similarity to your query and
-                      used as context for generating answers.
+                      Enable to use more sources (10 instead of {siteConfig?.defaultNumSources || 4}) for potentially
+                      more comprehensive responses. Relevant text passages are retrieved based on similarity to your
+                      query and used as context for generating answers.
                     </p>
                   </div>
                 )}
