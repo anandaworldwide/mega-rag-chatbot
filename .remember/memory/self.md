@@ -2185,6 +2185,15 @@ scoped source that lacked the requested teaching.
 **Correct**: For source-scoped prompts, explicitly instruct the model to treat the selected source as the intended corpus,
 state that source by name on misses, and forbid fallback phrasing that implies broader material answered the question.
 
+### Mistake: Prompt Quote Rules Allowed Paraphrase-As-Verbatim
+
+**Wrong**: Telling the model to provide direct quotes without also forbidding invented or cleaned-up wording created room
+for poetic paraphrases to be presented as verbatim source text.
+
+**Correct**: When a prompt permits quoting, add an explicit integrity rule: quotation marks are only for exact source
+wording; if exact wording cannot be verified from the provided text/transcript, the model must paraphrase without quotes
+or say it cannot verify a verbatim passage.
+
 ### Mistake: Hook Dependencies Referencing Later `const` Functions
 
 **Wrong**: Defining a `useCallback` or `useEffect` earlier in a component and referencing a helper declared later with
