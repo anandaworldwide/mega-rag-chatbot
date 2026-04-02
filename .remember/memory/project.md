@@ -189,6 +189,7 @@ except ImportError:
 - **Documentation**: Update relevant docs with changes
 - **Ops email subject naming**: Use site shortname (e.g., Luca, Vivek), not long site name/site ID
 - **Crawler daily digest subject order**: Put error count first so inbox preview surfaces errors immediately
+- **Provisioning digest wording**: For pre-approved-domain activations, say `matched pre-approved domain` without repeating the domain, since it is already visible in the email address
 
 ### Dependencies
 

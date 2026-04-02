@@ -270,7 +270,7 @@ API endpoints are defined in `pages/api/` and `app/api/`. Most endpoints are pro
   - **Purpose:** Scheduled task endpoint to clean up expired rate limit entries in Redis.
   - **Auth:** Requires Cron Secret.
 - **`POST /api/admin/digestSelfProvision`** (`pages/api/admin/digestSelfProvision.ts`)
-  - **Purpose:** Daily digest of user activation attempts and completions.
+  - **Purpose:** Daily digest of user activation attempts and completions, including whether each activated user came through an admin invite, admin approval, or a pre-approved domain match.
   - **Auth:** Requires Cron Secret or JWT authentication.
   - **Schedule:** Daily at 1:00 PM UTC (configured in `vercel.json`).
 - **`GET /api/admin/model-performance`** (`pages/api/admin/model-performance.ts`)

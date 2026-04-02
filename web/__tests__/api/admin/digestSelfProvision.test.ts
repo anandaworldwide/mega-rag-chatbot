@@ -4,18 +4,117 @@ import handler from "@/pages/api/admin/digestSelfProvision";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { sendOpsAlert } from "@/utils/server/emailOps";
 
-// Mock Firebase
-let mockDbValue: any = {
-  collection: jest.fn(() => ({
+type MockDigestDoc = {
+  action?: string;
+  target?: string;
+  details?: Record<string, unknown>;
+};
+
+type MockUserRecord = {
+  firstName?: string;
+  lastName?: string;
+  invitedByEmail?: string;
+  invitedByName?: string;
+};
+
+let mockSelfProvisionDocs: MockDigestDoc[] = [];
+let mockActivationDocs: MockDigestDoc[] = [];
+let mockUserDocs: Record<string, MockUserRecord> = {};
+let mockAdminAccessByEmail: Record<string, { action: string } | undefined> = {};
+
+function createQuerySnapshot(docs: MockDigestDoc[]) {
+  return {
+    empty: docs.length === 0,
+    docs: docs.map((doc) => ({
+      data: () => doc,
+    })),
+    forEach: jest.fn((callback) => {
+      docs.forEach((doc) =>
+        callback({
+          data: () => doc,
+        })
+      );
+    }),
+  };
+}
+
+function buildDefaultCollectionMock(collectionName: string) {
+  const userCollection = process.env.NODE_ENV === "production" ? "prod_users" : "dev_users";
+  const auditCollection = process.env.NODE_ENV === "production" ? "prod_admin_audit" : "dev_admin_audit";
+
+  if (collectionName === userCollection) {
+    return {
+      doc: jest.fn((email: string) => ({
+        get: jest.fn(() => {
+          const userData = mockUserDocs[email];
+          return Promise.resolve({
+            exists: !!userData,
+            data: () => userData,
+          });
+        }),
+      })),
+    };
+  }
+
+  if (collectionName === auditCollection) {
+    return {
+      where: jest.fn((field: string, _op: string, value: string) => {
+        if (field === "action") {
+          return {
+            where: jest.fn(() => ({
+              get: jest.fn(() => {
+                if (value === "self_provision_attempt") {
+                  return Promise.resolve(createQuerySnapshot(mockSelfProvisionDocs));
+                }
+                if (value === "user_activation_completed") {
+                  return Promise.resolve(createQuerySnapshot(mockActivationDocs));
+                }
+                return Promise.resolve(createQuerySnapshot([]));
+              }),
+            })),
+          };
+        }
+
+        if (field === "target") {
+          return {
+            where: jest.fn((_actionField: string, _actionOp: string, _actionValues: string[]) => ({
+              orderBy: jest.fn(() => ({
+                limit: jest.fn(() => {
+                  const adminAccess = mockAdminAccessByEmail[value];
+                  return {
+                    get: jest.fn(() =>
+                      Promise.resolve(
+                        createQuerySnapshot(adminAccess ? [{ action: adminAccess.action, target: value }] : [])
+                      )
+                    ),
+                  };
+                }),
+              })),
+            })),
+          };
+        }
+
+        return {
+          where: jest.fn(() => ({
+            get: jest.fn(() => Promise.resolve(createQuerySnapshot([]))),
+          })),
+        };
+      }),
+    };
+  }
+
+  return {
     where: jest.fn(() => ({
       where: jest.fn(() => ({
-        get: jest
-          .fn()
-          .mockResolvedValueOnce({ forEach: jest.fn() }) // First call for self_provision_attempt
-          .mockResolvedValue({ forEach: jest.fn() }), // Second call for user_activation_completed
+        get: jest.fn(() => Promise.resolve(createQuerySnapshot([]))),
       })),
     })),
-  })),
+  };
+}
+
+// Mock Firebase
+let mockDbValue: any = {
+  collection: jest.fn((collectionName: string) => buildDefaultCollectionMock(collectionName)),
 };
 
 jest.mock("@/services/firebase", () => ({
@@ -50,18 +149,13 @@ describe("/api/admin/digestSelfProvision", () => {
     };
     (genericRateLimiter as jest.Mock).mockResolvedValue(true);
     (sendOpsAlert as jest.Mock).mockResolvedValue(true);
+    mockSelfProvisionDocs = [];
+    mockActivationDocs = [];
+    mockUserDocs = {};
+    mockAdminAccessByEmail = {};
 
     // Reset the database mock to return empty results by default
-    mockDbValue.collection = jest.fn(() => ({
-      where: jest.fn(() => ({
-        where: jest.fn(() => ({
-          get: jest
-            .fn()
-            .mockResolvedValueOnce({ forEach: jest.fn() }) // First call for self_provision_attempt
-            .mockResolvedValue({ forEach: jest.fn() }), // Second call for user_activation_completed
-        })),
-      })),
-    }));
+    mockDbValue.collection = jest.fn((collectionName: string) => buildDefaultCollectionMock(collectionName));
   });
 
   afterEach(() => {
@@ -267,61 +361,12 @@ describe("/api/admin/digestSelfProvision", () => {
 
   describe("Data Aggregation", () => {
     it("correctly aggregates activation outcomes", async () => {
-      // Mock self-provision data (for counting activation emails sent)
-      const mockSelfProvisionDocs = [
-        {
-          data: () => ({
-            details: { outcome: "created_pending_user" },
-            target: "user1@example.com",
-          }),
-        },
-        {
-          data: () => ({
-            details: { outcome: "created_pending_user" },
-            target: "user2@example.com",
-          }),
-        },
-        {
-          data: () => ({
-            details: { outcome: "server_error" },
-            target: "user5@example.com",
-          }),
-        },
+      mockSelfProvisionDocs = [
+        { details: { outcome: "created_pending_user" }, target: "user1@example.com" },
+        { details: { outcome: "created_pending_user" }, target: "user2@example.com" },
+        { details: { outcome: "server_error" }, target: "user5@example.com" },
       ];
-
-      // Mock activation completion data (for counting actual activations)
-      const mockActivationDocs = [
-        {
-          data: () => ({
-            details: { outcome: "activation_completed" },
-            target: "user1@example.com",
-          }),
-        },
-      ];
-
-      const mockSelfProvisionForEach = jest.fn((callback) => {
-        mockSelfProvisionDocs.forEach(callback);
-      });
-
-      const mockActivationForEach = jest.fn((callback) => {
-        mockActivationDocs.forEach(callback);
-      });
-
-      // Set up the mock to return different results based on the action being queried
-      mockDbValue.collection = jest.fn(() => ({
-        where: jest.fn((field, op, value) => ({
-          where: jest.fn(() => ({
-            get: jest.fn(() => {
-              if (value === "self_provision_attempt") {
-                return Promise.resolve({ forEach: mockSelfProvisionForEach });
-              } else if (value === "user_activation_completed") {
-                return Promise.resolve({ forEach: mockActivationForEach });
-              }
-              return Promise.resolve({ forEach: jest.fn() });
-            }),
-          })),
-        })),
-      }));
+      mockActivationDocs = [{ details: { outcome: "activation_completed" }, target: "user1@example.com" }];
 
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "POST",
@@ -350,31 +395,9 @@ describe("/api/admin/digestSelfProvision", () => {
     });
 
     it("limits samples to 100 entries", async () => {
-      const mockActivationDocs = Array.from({ length: 150 }, (_, i) => ({
-        data: () => ({
-          details: { outcome: "activation_completed" },
-          target: `user${i}@example.com`,
-        }),
-      }));
-
-      const mockActivationForEach = jest.fn((callback) => {
-        mockActivationDocs.forEach(callback);
-      });
-
-      // Set up the mock to return empty self-provision data and lots of activation data
-      mockDbValue.collection = jest.fn(() => ({
-        where: jest.fn((field, op, value) => ({
-          where: jest.fn(() => ({
-            get: jest.fn(() => {
-              if (value === "self_provision_attempt") {
-                return Promise.resolve({ forEach: jest.fn() }); // Empty self_provision_attempt data
-              } else if (value === "user_activation_completed") {
-                return Promise.resolve({ forEach: mockActivationForEach }); // Lots of activation data
-              }
-              return Promise.resolve({ forEach: jest.fn() });
-            }),
-          })),
-        })),
+      mockActivationDocs = Array.from({ length: 150 }, (_, i) => ({
+        details: { outcome: "activation_completed" },
+        target: `user${i}@example.com`,
       }));
 
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
@@ -395,31 +418,9 @@ describe("/api/admin/digestSelfProvision", () => {
     });
 
     it("shows 'plus X more' message when there are more activations than the limit", async () => {
-      const mockActivationDocs = Array.from({ length: 150 }, (_, i) => ({
-        data: () => ({
-          details: { outcome: "activation_completed" },
-          target: `user${i}@example.com`,
-        }),
-      }));
-
-      const mockActivationForEach = jest.fn((callback) => {
-        mockActivationDocs.forEach(callback);
-      });
-
-      // Set up the mock to return empty self-provision data and lots of activation data
-      mockDbValue.collection = jest.fn(() => ({
-        where: jest.fn((field, op, value) => ({
-          where: jest.fn(() => ({
-            get: jest.fn(() => {
-              if (value === "self_provision_attempt") {
-                return Promise.resolve({ forEach: jest.fn() }); // Empty self_provision_attempt data
-              } else if (value === "user_activation_completed") {
-                return Promise.resolve({ forEach: mockActivationForEach }); // Lots of activation data
-              }
-              return Promise.resolve({ forEach: jest.fn() });
-            }),
-          })),
-        })),
+      mockActivationDocs = Array.from({ length: 150 }, (_, i) => ({
+        details: { outcome: "activation_completed" },
+        target: `user${i}@example.com`,
       }));
 
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
@@ -445,47 +446,8 @@ describe("/api/admin/digestSelfProvision", () => {
 
   describe("Email Operations", () => {
     it("sends ops alert with correct digest format", async () => {
-      const mockSelfProvisionDocs = [
-        {
-          data: () => ({
-            details: { outcome: "created_pending_user" },
-            target: "user1@example.com",
-          }),
-        },
-      ];
-
-      const mockActivationDocs = [
-        {
-          data: () => ({
-            details: { outcome: "activation_completed" },
-            target: "user1@example.com",
-          }),
-        },
-      ];
-
-      const mockSelfProvisionForEach = jest.fn((callback) => {
-        mockSelfProvisionDocs.forEach(callback);
-      });
-
-      const mockActivationForEach = jest.fn((callback) => {
-        mockActivationDocs.forEach(callback);
-      });
-
-      // Set up the mock to return different results for each query
-      mockDbValue.collection = jest.fn(() => ({
-        where: jest.fn((field, op, value) => ({
-          where: jest.fn(() => ({
-            get: jest.fn(() => {
-              if (value === "self_provision_attempt") {
-                return Promise.resolve({ forEach: mockSelfProvisionForEach });
-              } else if (value === "user_activation_completed") {
-                return Promise.resolve({ forEach: mockActivationForEach });
-              }
-              return Promise.resolve({ forEach: jest.fn() });
-            }),
-          })),
-        })),
-      }));
+      mockSelfProvisionDocs = [{ details: { outcome: "created_pending_user" }, target: "user1@example.com" }];
+      mockActivationDocs = [{ details: { outcome: "activation_completed" }, target: "user1@example.com" }];
 
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "POST",
@@ -508,41 +470,26 @@ describe("/api/admin/digestSelfProvision", () => {
       expect(emailBody).toContain("ACTIVITY DETAILS:");
     });
 
-    it("formats status text using audit entry outcomes, not current user status", async () => {
-      const mockActivationDocs = [
-        {
-          data: () => ({
-            details: { outcome: "activation_completed" },
-            target: "user1@example.com",
-          }),
-        },
-        {
-          data: () => ({
-            details: { outcome: "activation_completed" },
-            target: "user2@example.com",
-          }),
-        },
+    it("includes how each activated user got access", async () => {
+      mockActivationDocs = [
+        { details: { outcome: "activation_completed" }, target: "user1@example.com" },
+        { details: { outcome: "activation_completed" }, target: "user2@example.com" },
+        { details: { outcome: "activation_completed" }, target: "user3@anandaindia.org" },
       ];
-
-      const mockActivationForEach = jest.fn((callback) => {
-        mockActivationDocs.forEach(callback);
-      });
-
-      // Set up the mock to return empty self-provision data and activation data
-      mockDbValue.collection = jest.fn(() => ({
-        where: jest.fn((field, op, value) => ({
-          where: jest.fn(() => ({
-            get: jest.fn(() => {
-              if (value === "self_provision_attempt") {
-                return Promise.resolve({ forEach: jest.fn() }); // Empty self_provision_attempt data
-              } else if (value === "user_activation_completed") {
-                return Promise.resolve({ forEach: mockActivationForEach }); // Activation data
-              }
-              return Promise.resolve({ forEach: jest.fn() });
-            }),
-          })),
-        })),
-      }));
+      mockUserDocs = {
+        "user1@example.com": {
+          invitedByEmail: "admin1@example.com",
+          invitedByName: "Admin One",
+        },
+        "user2@example.com": {
+          invitedByEmail: "admin2@example.com",
+          invitedByName: "Admin Two",
+        },
+      };
+      mockAdminAccessByEmail = {
+        "user1@example.com": { action: "admin_add_user" },
+        "user2@example.com": { action: "admin_approval_approve" },
+      };
 
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "POST",
@@ -556,14 +503,16 @@ describe("/api/admin/digestSelfProvision", () => {
 
       const emailBody = (sendOpsAlert as jest.Mock).mock.calls[0][1];
 
-      // Verify that status text shows activation completions
       expect(emailBody).toContain("Account activated");
-      expect(emailBody).not.toContain("Created (pending activation)"); // No longer shown in samples
-      expect(emailBody).not.toContain("Activation link resent"); // No longer shown in samples
-
-      // Verify proper formatting with email prefixes as names
-      expect(emailBody).toContain("1. user1 (user1@example.com) - Account activated");
-      expect(emailBody).toContain("2. user2 (user2@example.com) - Account activated");
+      expect(emailBody).toContain(
+        "1. user1 (user1@example.com) - Account activated - invited by admin Admin One (admin1@example.com)"
+      );
+      expect(emailBody).toContain(
+        "2. user2 (user2@example.com) - Account activated - approved by admin Admin Two (admin2@example.com)"
+      );
+      expect(emailBody).toContain(
+        "3. user3 (user3@anandaindia.org) - Account activated - matched pre-approved domain"
+      );
     });
 
     it("does not send email when there is no activity", async () => {
@@ -628,34 +577,7 @@ describe("/api/admin/digestSelfProvision", () => {
     });
 
     it("returns 500 when email sending fails", async () => {
-      // Mock some activity so email sending is attempted
-      const mockActivationDocs = [
-        {
-          data: () => ({
-            details: { outcome: "activation_completed" },
-            target: "user1@example.com",
-          }),
-        },
-      ];
-
-      const mockActivationForEach = jest.fn((callback) => {
-        mockActivationDocs.forEach(callback);
-      });
-
-      mockDbValue.collection = jest.fn(() => ({
-        where: jest.fn((field, op, value) => ({
-          where: jest.fn(() => ({
-            get: jest.fn(() => {
-              if (value === "self_provision_attempt") {
-                return Promise.resolve({ forEach: jest.fn() }); // Empty self_provision_attempt data
-              } else if (value === "user_activation_completed") {
-                return Promise.resolve({ forEach: mockActivationForEach }); // Activation data
-              }
-              return Promise.resolve({ forEach: jest.fn() });
-            }),
-          })),
-        })),
-      }));
+      mockActivationDocs = [{ details: { outcome: "activation_completed" }, target: "user1@example.com" }];
 
       (sendOpsAlert as jest.Mock).mockRejectedValue(new Error("Email error"));
 
