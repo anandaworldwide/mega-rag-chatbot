@@ -362,7 +362,7 @@ export default function ChatHistorySidebar({
         className={`
         fixed top-[88px] left-0 h-[calc(100vh-88px)] min-h-0 w-72 shadow-lg transform transition-transform duration-300 ease-in-out z-30 flex flex-col
         ${isOpen ? "translate-x-0" : "-translate-x-full"}
-        lg:relative lg:top-0 lg:h-full lg:translate-x-0 lg:shadow-none
+        lg:relative lg:top-0 lg:h-full lg:translate-x-0 lg:overflow-hidden lg:shadow-none
       `}
         style={{ backgroundColor: "#fffbee" }}
       >
