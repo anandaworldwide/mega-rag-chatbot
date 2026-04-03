@@ -2143,6 +2143,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     return userMessages.length === 0;
   }, [messages]);
 
+  const shouldUsePinnedChatShell = Boolean(siteConfig?.requireLogin) || messages.length > 1;
+
   // Function to handle temporary session changes
   const handleTemporarySessionChange = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -3514,7 +3516,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         temporarySession={temporarySession}
         onTemporarySessionChange={handleTemporarySessionChange}
         isChatEmpty={shouldShowSuggestions}
-        hasConversation={messages.length > 1}
+        hasConversation={shouldUsePinnedChatShell}
       >
         {showPopup && popupMessage && <Popup message={popupMessage} onClose={closePopup} siteConfig={siteConfig} />}
 
