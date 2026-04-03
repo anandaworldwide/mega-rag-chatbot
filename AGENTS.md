@@ -40,6 +40,8 @@ This file provides project-specific instructions for automated coding agents.
 - The server is already running; do not run `npm run dev`.
 - Avoid `rm -rf`; use `trash` for deletions.
 - Do not run `npm install` at repo root; use `web/` for Node dependencies.
+- Python tooling is standardized on Python 3.11 with `uv` at the repo root.
+- Use `uv lock`, `uv sync`, `uv run`, and `bin/export-python-requirements.sh` instead of `pip-compile` and manual `pip install -r` flows.
 
 ## Python ingestion guidelines
 

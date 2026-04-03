@@ -130,6 +130,12 @@ testing.
 
 ## Running Tests
 
+Python tooling is managed with `uv`. Sync the repo first with:
+
+```bash
+uv sync --locked --package mega-rag-chatbot --package mega-rag-chatbot-crawler
+```
+
 ### Running Standard Tests Only (recommended for component/client work)
 
 ```bash
@@ -260,7 +266,7 @@ Run the repository-wide Python dependency security check from the project root:
 ./bin/run-pip-audit.sh
 ```
 
-This audits all maintained Python requirements files:
+This exports and audits all maintained Python compatibility requirements files from `uv.lock`:
 
 - `requirements.txt`
 - `reranking/requirements.txt`

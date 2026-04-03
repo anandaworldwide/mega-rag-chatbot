@@ -14,7 +14,9 @@ import {
   ICenterSearchService,
   ILogger,
   ILocationService,
+  CenterSearchOptions,
 } from "./interfaces";
+import { countriesMatchForCenterSearch, LOCATION_COUNTRY_SEARCH_MAX_RESULTS, COUNTRY_SEARCH_RESPONSE_GUIDANCE } from "./locationLogic";
 import { LocationResult, CenterResult, NearestCenterResult } from "../tools";
 import { safeFetch } from "../ssrfProtection";
 
@@ -682,7 +684,11 @@ export class CenterSearchService implements ICenterSearchService {
     private distanceCalculator: IDistanceCalculator
   ) {}
 
-  async findNearestCenters(latitude: number, longitude: number): Promise<NearestCenterResult> {
+  async findNearestCenters(
+    latitude: number,
+    longitude: number,
+    options?: CenterSearchOptions
+  ): Promise<NearestCenterResult> {
     try {
       const centers = await this.centerDataService.loadCenters();
 
@@ -702,6 +708,41 @@ export class CenterSearchService implements ICenterSearchService {
             fallbackMessage: "No Ananda centers data available at this time.",
           };
         }
+      }
+
+      if (options?.searchScope === "country" && options.countryFilter) {
+        const filtered = centers.filter((c) => countriesMatchForCenterSearch(c.country, options.countryFilter!));
+        if (filtered.length === 0) {
+          const lastError = this.centerDataService.getLastError();
+          if (lastError.type && lastError.message) {
+            return {
+              found: false,
+              centers: [],
+              fallbackMessage: lastError.message,
+              searchMode: "country",
+              responseGuidance: COUNTRY_SEARCH_RESPONSE_GUIDANCE,
+            };
+          }
+          return {
+            found: false,
+            centers: [],
+            fallbackMessage:
+              "No Ananda centers were found in that country in our directory. You can explore Ananda's online programs and virtual community.",
+            searchMode: "country",
+            responseGuidance: COUNTRY_SEARCH_RESPONSE_GUIDANCE,
+          };
+        }
+        const centersWithDistance = filtered.map((center) => ({
+          ...center,
+          distance: this.distanceCalculator.calculateDistance(latitude, longitude, center.latitude, center.longitude),
+        }));
+        const sorted = centersWithDistance.sort((a, b) => a.distance - b.distance).slice(0, LOCATION_COUNTRY_SEARCH_MAX_RESULTS);
+        return {
+          found: true,
+          centers: sorted,
+          searchMode: "country",
+          responseGuidance: COUNTRY_SEARCH_RESPONSE_GUIDANCE,
+        };
       }
 
       // Calculate distances and sort

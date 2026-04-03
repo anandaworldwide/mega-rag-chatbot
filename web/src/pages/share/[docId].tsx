@@ -11,7 +11,7 @@ import Layout from "@/components/layout";
 import MessageItem from "@/components/MessageItem";
 import { SiteConfig } from "@/types/siteConfig";
 import { getCommonSiteConfigProps } from "@/utils/server/getCommonSiteConfigProps";
-import { loadConversationByDocId } from "@/utils/client/conversationLoader";
+import { ConversationNotFoundError, loadConversationByDocId } from "@/utils/client/conversationLoader";
 import { logEvent } from "@/utils/client/analytics";
 import { getGreeting, getSiteName } from "@/utils/client/siteConfig";
 import { ExtendedAIMessage } from "@/types/ExtendedAIMessage";
@@ -321,7 +321,9 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
         }, 100);
         }
       } catch (error) {
-        console.error("Error loading shared conversation:", error);
+        if (!(error instanceof ConversationNotFoundError)) {
+          console.error("Error loading shared conversation:", error);
+        }
         setError(error instanceof Error ? error.message : "Failed to load shared conversation");
       } finally {
         setLoading(false);

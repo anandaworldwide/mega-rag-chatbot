@@ -341,6 +341,10 @@ def _process_csv_updates(
     if not crawler.csv_mode_enabled:
         return None
 
+    if getattr(crawler, "_startup_csv_check_completed", False):
+        logging.debug("Skipping duplicate CSV check after startup CSV pass")
+        return None
+
     try:
         # Check browser health before CSV processing
         if not _is_browser_healthy(browser):
@@ -933,8 +937,8 @@ def run_crawl_loop(
         stop_after,
     ) = _unpack_crawler_setup(setup_result, args)
 
-    # If nothing is eligible, exit before launching Playwright/Firefox.
-    if not crawler.peek_next_url_to_crawl():
+    # If nothing is eligible and CSV mode is disabled, exit before launching Playwright/Firefox.
+    if not crawler.csv_mode_enabled and not crawler.peek_next_url_to_crawl():
         logging.info("No URLs ready for processing; skipping browser launch (0 pages).")
         _log_crawler_completion(start_time, 0)
         return
@@ -951,8 +955,17 @@ def run_crawl_loop(
         if crawler.csv_mode_enabled:
             logging.info("Checking CSV at start of crawler run...")
             csv_added = crawler.check_and_process_csv(browser, pinecone_index)
+            crawler._startup_csv_check_completed = True
             if csv_added > 0:
                 logging.info(f"CSV startup check added {csv_added} high-priority URLs")
+
+        # After the startup CSV check, exit early only if nothing is still eligible.
+        if not crawler.peek_next_url_to_crawl():
+            logging.info("No URLs ready for processing after startup checks; skipping browser launch (0 pages).")
+            _cleanup_browser_resources(browser)
+            _cleanup_orphaned_processes()
+            _log_crawler_completion(start_time, 0)
+            return
 
         try:
             pages_processed = _run_crawler_main_loop(

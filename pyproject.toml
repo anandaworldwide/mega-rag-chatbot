@@ -1,10 +1,110 @@
+[project]
+name = "mega-rag-chatbot"
+version = "0.1.0"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "aiohttp>=3.13.3",
+    "beautifulsoup4==4.12.2",
+    "boto3>=1.38.44",
+    "botocore>=1.38.44",
+    "click==8.2.1",
+    "colorama==0.4.6",
+    "cohere>=5.0.0",
+    "cryptography>=46.0.6",
+    "dill==0.4.0",
+    "filelock>=3.20.1",
+    "firebase-admin==7.1.0",
+    "fpdf==1.7.2",
+    "frozenlist==1.7.0",
+    "fsspec==2024.6.1",
+    "google-analytics-data",
+    "google-api-core==2.25.2",
+    "google-auth>=2.47.0",
+    "google-cloud-firestore==2.21.0",
+    "googleapis-common-protos==1.70.0",
+    "grpcio==1.73.0",
+    "grpcio-status==1.73.0",
+    "h11==0.16.0",
+    "httpcore==1.0.9",
+    "httpx==0.28.1",
+    "huggingface-hub==0.33.0",
+    "langchain-core>=1.2.11",
+    "langchain-openai>=1.1.1",
+    "langchain-text-splitters>=1.0.0",
+    "langsmith>=0.6.3",
+    "matplotlib",
+    "moviepy==1.0.3",
+    "multidict==6.4.4",
+    "multiprocess==0.70.18",
+    "mutagen==1.47.0",
+    "networkx==3.4.2",
+    "nltk==3.9.3",
+    "numpy>=2.0,<3.0",
+    "openai>=2.20.0",
+    "openpyxl==3.1.5",
+    "orjson>=3.11.6",
+    "pandas==2.3.0",
+    "pdfminer-six>=20251230",
+    "pdfplumber>=0.11.8",
+    "pinecone>=8.0.0",
+    "playwright>=1.55.1",
+    "protobuf>=6.33.5",
+    "psutil",
+    "pyasn1>=0.6.3",
+    "pycryptodomex==3.23.0",
+    "pyjwt[crypto]>=2.12.0",
+    "pymysql==1.1.1",
+    "pydub==0.25.1",
+    "python-dateutil==2.9.0.post0",
+    "python-dotenv==1.1.0",
+    "pytz==2024.1",
+    "readability-lxml",
+    "reportlab==4.2.5",
+    "requests>=2.33.0",
+    "rsa==4.9.1",
+    "s3transfer==0.13.0",
+    "scikit-learn",
+    "seaborn",
+    "spacy>=3.8.11",
+    "tenacity==8.2.2",
+    "tiktoken==0.12.0",
+    "tokenizers==0.21.1",
+    "tqdm==4.67.1",
+    "transformers>=4.53.0",
+    "typer==0.16.0",
+    "typing_extensions==4.14.0",
+    "urllib3>=2.6.3",
+    "websockets==15.0.1",
+    "yarl==1.20.1",
+    "yt-dlp==2026.2.21",
+]
+
+[dependency-groups]
+dev = [
+    "pip-audit",
+    "pipdeptree==2.26.1",
+    "pytest==8.4.0",
+    "pytest-asyncio==0.26.0",
+    "pytest-mock",
+    "ruff==0.11.13",
+]
+
+[tool.uv]
+package = false
+default-groups = ["dev"]
+required-version = ">=0.11.3"
+exclude-newer = "7 days"
+
+[tool.uv.workspace]
+members = ["data_ingestion/crawler", "reranking", "wordpress/analytics"]
+
 [tool.ruff]
 # Same as Black.
 line-length = 88
 indent-width = 4
 
-# Assume Python 3.10+
-target-version = "py310"
+# Assume Python 3.11+
+target-version = "py311"
 
 [tool.ruff.lint]
 # Enable Pyflakes (`F`) and a subset of the pycodestyle (`E`)  codes by default.

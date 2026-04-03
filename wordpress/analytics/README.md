@@ -19,7 +19,7 @@ The WordPress plugin tracks comprehensive user interactions with the chatbot, in
 
 ```bash
 cd wordpress/analytics
-pip install -r requirements.txt
+uv sync --locked --package mega-rag-chatbot-wordpress-analytics --no-default-groups
 ```
 
 ### 2. Google Analytics Setup
@@ -225,8 +225,8 @@ When using `--charts`, generates PNG files:
    - Confirm Google Analytics is receiving the events
 
 4. **Import errors**:
-   - Ensure all dependencies are installed: `pip install -r requirements.txt`
-   - Check Python version compatibility (3.8+)
+   - Ensure the analytics package is synced: `uv sync --locked --package mega-rag-chatbot-wordpress-analytics --no-default-groups`
+   - Check Python version compatibility (3.11)
 
 ### Debugging
 

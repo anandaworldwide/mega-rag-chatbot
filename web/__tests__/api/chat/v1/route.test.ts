@@ -39,6 +39,7 @@ import * as makeChainModule from "@/utils/server/makechain";
 import jwt from "jsonwebtoken";
 import { POST } from "@/app/api/chat/v1/route";
 import { determineActiveMediaTypes, MediaTypes } from "@/utils/determineActiveMediaTypes";
+import { buildTitleScopeForPersistence } from "@/utils/server/titleScopePersistence";
 
 // Ensure the SECURE_TOKEN env var is set for JWT tests
 process.env.SECURE_TOKEN = "test-jwt-secret-key";
@@ -1074,6 +1075,41 @@ describe("determineActiveMediaTypes", () => {
     expect(determineActiveMediaTypes({ video: true }, undefined)).toEqual(defaultEnabled);
     // Selects youtube which is in the hardcoded default
     expect(determineActiveMediaTypes({ youtube: true }, undefined)).toEqual(["youtube"]);
+  });
+});
+
+describe("buildTitleScopeForPersistence", () => {
+  it("persists canonical title scope after resolution while preserving user input", () => {
+    expect(
+      buildTitleScopeForPersistence(
+        {
+          canonicalPrefix: "Lessons in Meditation",
+          displayTitle: "Lessons in Meditation",
+          exactTitles: ["Lessons in Meditation"],
+        },
+        {
+          userInput: "Lessons meditation",
+        }
+      )
+    ).toEqual({
+      canonicalPrefix: "Lessons in Meditation",
+      displayTitle: "Lessons in Meditation",
+      userInput: "Lessons meditation",
+    });
+  });
+
+  it("falls back to the original title scope when no resolved scope exists", () => {
+    expect(
+      buildTitleScopeForPersistence(undefined, {
+        canonicalPrefix: "Lessons in Meditation",
+        displayTitle: "Lessons in Meditation",
+        userInput: "Lessons meditation",
+      })
+    ).toEqual({
+      canonicalPrefix: "Lessons in Meditation",
+      displayTitle: "Lessons in Meditation",
+      userInput: "Lessons meditation",
+    });
   });
 });
 

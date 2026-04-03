@@ -27,7 +27,7 @@ jest.mock("@langchain/openai", () => ({
 // Now import ChatOpenAI - it will be the mocked version
 import { VectorStoreRetriever } from "@langchain/core/vectorstores";
 import { Document } from "@langchain/core/documents";
-import { makeChain } from "../../../src/utils/server/makechain";
+import { buildActiveFilterPromptData, makeChain } from "../../../src/utils/server/makechain";
 import fs from "fs/promises";
 import path from "path";
 import { ChatOpenAI } from "@langchain/openai";
@@ -168,6 +168,99 @@ function combineDocumentsFn(docs: Document[]): string {
   }));
   return JSON.stringify(serializedDocs);
 }
+
+describe("buildActiveFilterPromptData", () => {
+  const mockSiteConfig = {
+    siteId: "ananda",
+    shortname: "Luca",
+    name: "Ananda",
+    tagline: "Test",
+    greeting: "Hi",
+    parent_site_url: "",
+    parent_site_name: "",
+    help_url: "",
+    help_text: "",
+    collectionConfig: {
+      master_swami: "Master and Swami",
+      whole_library: "All authors",
+      bible: "Bible",
+    },
+    libraryMappings: {},
+    enableSuggestedQueries: true,
+    enableMediaTypeSelection: true,
+    enableAuthorSelection: true,
+    welcome_popup_heading: "",
+    other_visitors_reference: "",
+    loginImage: null,
+    header: { logo: "", navItems: [] },
+    footer: { links: [] },
+    requireLogin: false,
+    allowTemporarySessions: true,
+    allowAllAnswersPage: true,
+    queriesPerUserPerDay: 100,
+    showSourceContent: true,
+    showVoting: true,
+    includedLibraries: ["Ananda Library", "Crystal Clarity"],
+    enabledMediaTypes: ["text", "audio", "youtube"] as const,
+  };
+
+  it("returns no restrictive filters for whole_library with all libraries and all media", () => {
+    const result = buildActiveFilterPromptData(
+      mockSiteConfig as any,
+      { $and: [{ type: { $in: ["text", "audio", "youtube"] } }] },
+      "whole_library",
+      ["Ananda Library", "Crystal Clarity"]
+    );
+
+    expect(result.hasRestrictiveFilters).toBe(false);
+    expect(result.activeFiltersSummary).toContain("No restrictive filters are active");
+  });
+
+  it("includes a collection label when a restrictive collection is active", () => {
+    const result = buildActiveFilterPromptData(mockSiteConfig as any, undefined, "bible");
+
+    expect(result.hasRestrictiveFilters).toBe(true);
+    expect(result.collectionLabel).toBe("Bible");
+    expect(result.activeFiltersSummary).toContain("- Collection: Bible");
+  });
+
+  it("includes a restrictive library subset", () => {
+    const result = buildActiveFilterPromptData(
+      mockSiteConfig as any,
+      undefined,
+      "whole_library",
+      ["Ananda Library"]
+    );
+
+    expect(result.selectedLibraries).toEqual(["Ananda Library"]);
+    expect(result.activeFiltersSummary).toContain('- Libraries: Ananda Library');
+  });
+
+  it("includes restrictive media types from the Pinecone filter", () => {
+    const result = buildActiveFilterPromptData(
+      mockSiteConfig as any,
+      { $and: [{ type: { $in: ["text"] } }] },
+      "whole_library",
+      ["Ananda Library", "Crystal Clarity"]
+    );
+
+    expect(result.mediaTypes).toEqual({ text: true });
+    expect(result.activeFiltersSummary).toContain("- Media types: text");
+  });
+
+  it("includes selected title scope as a restrictive filter", () => {
+    const result = buildActiveFilterPromptData(
+      mockSiteConfig as any,
+      undefined,
+      "whole_library",
+      ["Ananda Library", "Crystal Clarity"],
+      "Whispers from Eternity"
+    );
+
+    expect(result.titleScopeLabel).toBe("Whispers from Eternity");
+    expect(result.activeFiltersSummary).toContain("- Source scope: Only Whispers from Eternity");
+  });
+});
 
 describe("makeChain", () => {
   // Create mock documents

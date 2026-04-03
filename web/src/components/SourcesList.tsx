@@ -33,10 +33,60 @@ import { getOrCreateUUID } from "@/utils/client/uuid";
 import { getToken } from "@/utils/client/tokenManager";
 import { generateSourceId, generateSourceDeepLink } from "@/utils/client/sourceUtils";
 import { transformYouTubeUrl } from "@/utils/client/youtubeUtils";
+import { TitleScopeSelection } from "@/types/titleScope";
 
 // Helper function to extract the title from document metadata.
 const extractTitle = (metadata: DocMetadata): string => {
   return metadata.title || metadata["pdf.info.Title"] || "Unknown source";
+};
+
+const buildSourceHierarchyTitle = (metadata: DocMetadata): string => {
+  const baseTitle = extractTitle(metadata);
+  if (metadata.type === "audio" && metadata.album) {
+    return `${metadata.album}::${baseTitle}`;
+  }
+  return baseTitle;
+};
+
+const formatScopeBreadcrumb = (title: string): string => {
+  return title
+    .split("::")
+    .map((segment) => segment.trim())
+    .filter(Boolean)
+    .join(" > ");
+};
+
+interface SourceScopeOption {
+  canonicalPrefix: string;
+  displayTitle: string;
+  levelLabel: string;
+  breadcrumbLabel: string;
+  isRecommended: boolean;
+}
+
+const buildSourceScopeOptions = (metadata: DocMetadata): SourceScopeOption[] => {
+  const levels = buildSourceHierarchyTitle(metadata)
+    .split("::")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+
+  if (levels.length === 0) {
+    return [];
+  }
+
+  const recommendedIndex = levels.length > 1 ? levels.length - 2 : 0;
+
+  return levels.map((levelLabel, index) => {
+    const canonicalPrefix = levels.slice(0, index + 1).join("::");
+
+    return {
+      canonicalPrefix,
+      displayTitle: canonicalPrefix,
+      levelLabel,
+      breadcrumbLabel: formatScopeBreadcrumb(canonicalPrefix),
+      isRecommended: index === recommendedIndex,
+    };
+  });
 };
 
 interface SourcesListProps {
@@ -48,6 +98,8 @@ interface SourcesListProps {
   onSourceExpanded?: (index: number) => void; // Callback when source should be expanded (for deep linking)
   sourceLinkCopied?: string | null; // Source ID that was copied (for visual feedback)
   onSourceLinkCopied?: (sourceId: string) => void; // Callback when source link is copied
+  activeTitleScope?: TitleScopeSelection | null;
+  onFocusSourceScope?: (scope: TitleScopeSelection) => void;
 }
 
 const SourcesList: React.FC<SourcesListProps> = ({
@@ -59,22 +111,9 @@ const SourcesList: React.FC<SourcesListProps> = ({
   onSourceExpanded,
   sourceLinkCopied,
   onSourceLinkCopied,
+  activeTitleScope = null,
+  onFocusSourceScope,
 }) => {
-  // DEBUG: Add logging for sources display debugging
-  React.useEffect(() => {
-    console.log(`🔍 SOURCELIST DEBUG: Component received ${sources.length} sources`);
-    if (sources.length === 0) {
-      console.log(`⚠️ SOURCELIST WARNING: No sources to display`);
-    } else {
-      console.log(`🔍 SOURCELIST DEBUG: First source:`, {
-        hasPageContent: !!sources[0]?.pageContent,
-        hasMetadata: !!sources[0]?.metadata,
-        type: sources[0]?.metadata?.type,
-        title: sources[0]?.metadata?.title,
-      });
-    }
-  }, [sources]);
-
   // State hooks
   const [expandedSources, setExpandedSources] = useState<Set<number>>(new Set());
   const [showAllSources, setShowAllSources] = useState<boolean>(false);
@@ -82,6 +121,8 @@ const SourcesList: React.FC<SourcesListProps> = ({
   const [showAccessInterstitial, setShowAccessInterstitial] = useState<boolean>(false);
   const [currentSourceUrl, setCurrentSourceUrl] = useState<string>("");
   const [currentSourceDoc, setCurrentSourceDoc] = useState<Document<DocMetadata> | null>(null);
+  const [focusMenuSourceIndex, setFocusMenuSourceIndex] = useState<number | null>(null);
+  const focusMenuRef = React.useRef<HTMLDivElement | null>(null);
 
   // Constants for source display
   const INITIAL_SOURCES_COUNT = 4;
@@ -90,7 +131,35 @@ const SourcesList: React.FC<SourcesListProps> = ({
   React.useEffect(() => {
     setExpandedSources(new Set());
     setShowAllSources(false);
+    setFocusMenuSourceIndex(null);
   }, [sources]);
+
+  React.useEffect(() => {
+    if (focusMenuSourceIndex === null) {
+      return;
+    }
+
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!focusMenuRef.current?.contains(target)) {
+        setFocusMenuSourceIndex(null);
+      }
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setFocusMenuSourceIndex(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [focusMenuSourceIndex]);
 
   // Handle external source expansion requests (for deep linking)
   // Note: expandedSources is intentionally NOT in the dependency array to prevent
@@ -384,14 +453,7 @@ const SourcesList: React.FC<SourcesListProps> = ({
 
   // Render the title of a source, including a link if available
   const renderSourceTitle = (doc: Document<DocMetadata>) => {
-    // Extract the base title
-    const baseTitle = extractTitle(doc.metadata);
-
-    // For audio sources with album metadata, create hierarchical title
-    let titleToFormat = baseTitle;
-    if (doc.metadata.type === "audio" && doc.metadata.album) {
-      titleToFormat = `${doc.metadata.album}::${baseTitle}`;
-    }
+    const titleToFormat = buildSourceHierarchyTitle(doc.metadata);
 
     // Format with enhanced hierarchy
     const formattedTitle = formatTitle(titleToFormat);
@@ -401,6 +463,152 @@ const SourcesList: React.FC<SourcesListProps> = ({
     // - YouTube: expand to use inline video player
     // - Text: expand to read content with "Go to source" button
     return <span className="text-black font-medium">{formattedTitle}</span>;
+  };
+
+  const applyFocusedSourceScope = (
+    scope: TitleScopeSelection,
+    metadata?: {
+      sourcePath?: "single_button" | "menu";
+      selectedLevel?: string;
+    }
+  ) => {
+    if (!onFocusSourceScope) {
+      return;
+    }
+
+    onFocusSourceScope(scope);
+    setFocusMenuSourceIndex(null);
+    logEvent("focus_source_scope", "UI", scope.canonicalPrefix || scope.displayTitle || "unknown");
+    logEvent(
+      "source_focus_source_card_selected",
+      "Source Focus",
+      metadata?.sourcePath || "unknown"
+    );
+    logEvent(
+      "source_focus_source_card_selected_level",
+      "Source Focus",
+      metadata?.selectedLevel || scope.canonicalPrefix || scope.displayTitle || "unknown"
+    );
+  };
+
+  const renderFocusSourceScopeButton = (doc: Document<DocMetadata>, index: number) => {
+    if (!siteConfig?.enableTitleScopeSelection || !onFocusSourceScope) {
+      return null;
+    }
+
+    const scopeOptions = buildSourceScopeOptions(doc.metadata);
+    if (scopeOptions.length === 0) {
+      return null;
+    }
+
+    if (scopeOptions.length === 1) {
+      const onlyOption = scopeOptions[0];
+      const isActive = activeTitleScope?.canonicalPrefix === onlyOption.canonicalPrefix;
+
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            if (!isActive) {
+              applyFocusedSourceScope({
+                canonicalPrefix: onlyOption.canonicalPrefix,
+                displayTitle: onlyOption.displayTitle,
+                userInput: onlyOption.displayTitle,
+              }, {
+                sourcePath: "single_button",
+                selectedLevel: onlyOption.levelLabel,
+              });
+            }
+          }}
+          disabled={isActive}
+          className={`inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-xl transition-colors ${
+            isActive
+              ? "bg-amber-100 text-amber-800 cursor-default"
+              : "bg-amber-50 hover:bg-amber-100 text-amber-800"
+          }`}
+        >
+          <span className="material-icons text-sm">{isActive ? "check" : "menu_book"}</span>
+          {isActive ? "Focused" : "Focus on this source"}
+        </button>
+      );
+    }
+
+    const isMenuOpen = focusMenuSourceIndex === index;
+    const hasActiveOption = scopeOptions.some((option) => option.canonicalPrefix === activeTitleScope?.canonicalPrefix);
+
+    return (
+      <div className="relative" ref={isMenuOpen ? focusMenuRef : undefined}>
+        <button
+          type="button"
+          onClick={() => {
+            setFocusMenuSourceIndex((previousIndex) => (previousIndex === index ? null : index));
+            logEvent("open_focus_source_scope_menu", "UI", buildSourceHierarchyTitle(doc.metadata));
+            logEvent("source_focus_source_card_menu_opened", "Source Focus", buildSourceHierarchyTitle(doc.metadata));
+          }}
+          className={`inline-flex items-center gap-2 px-3 py-1.5 text-sm rounded-xl transition-colors ${
+            hasActiveOption
+              ? "bg-amber-100 hover:bg-amber-200 text-amber-900"
+              : "bg-amber-50 hover:bg-amber-100 text-amber-800"
+          }`}
+          aria-expanded={isMenuOpen}
+          aria-haspopup="menu"
+        >
+          <span className="material-icons text-sm">{hasActiveOption ? "check" : "menu_book"}</span>
+          <span>Focus on...</span>
+          <span className="material-icons text-sm">expand_more</span>
+        </button>
+
+        {isMenuOpen && (
+          <div
+            className="absolute left-0 top-full z-20 mt-2 w-80 rounded-xl border border-gray-200 bg-white p-2 shadow-lg"
+            role="menu"
+          >
+            <div className="px-3 pb-2 pt-1 text-xs font-medium uppercase tracking-wide text-gray-500">
+              Choose scope level
+            </div>
+            {scopeOptions.map((option) => {
+              const isActive = activeTitleScope?.canonicalPrefix === option.canonicalPrefix;
+
+              return (
+                <button
+                  key={option.canonicalPrefix}
+                  type="button"
+                  role="menuitem"
+                  onClick={() =>
+                    applyFocusedSourceScope({
+                      canonicalPrefix: option.canonicalPrefix,
+                      displayTitle: option.displayTitle,
+                      userInput: option.displayTitle,
+                    }, {
+                      sourcePath: "menu",
+                      selectedLevel: option.levelLabel,
+                    })
+                  }
+                  className={`flex w-full items-start justify-between gap-3 rounded-lg px-3 py-2 text-left transition-colors ${
+                    isActive ? "bg-amber-50 text-amber-900" : "hover:bg-gray-50"
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium text-gray-900">{option.levelLabel}</span>
+                      {option.isRecommended && !isActive ? (
+                        <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+                          Recommended
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className="mt-1 text-xs text-gray-500">{option.breadcrumbLabel}</div>
+                  </div>
+                  <span className={`material-icons text-sm ${isActive ? "text-amber-700" : "text-gray-300"}`}>
+                    {isActive ? "check" : "chevron_right"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
   };
 
   // Render a PDF download button if pdf_s3_key exists
@@ -610,9 +818,10 @@ const SourcesList: React.FC<SourcesListProps> = ({
                       >
                         {doc.pageContent}
                       </ReactMarkdown>
-                      <div className="mt-2 mb-3 flex gap-2">
+                      <div className="mt-2 mb-3 flex flex-wrap gap-2">
                         {renderPdfDownloadButton(doc)}
                         {renderGoToSourceButton(doc)}
+                        {renderFocusSourceScopeButton(doc, index)}
                       </div>
                     </div>
                   );
@@ -743,9 +952,10 @@ const SourcesList: React.FC<SourcesListProps> = ({
                           {doc.pageContent}
                         </ReactMarkdown>
                         {/* Render PDF download and Go to source buttons */}
-                        <div className="mt-2 mb-3 flex gap-2">
+                        <div className="mt-2 mb-3 flex flex-wrap gap-2">
                           {renderPdfDownloadButton(doc)}
                           {renderGoToSourceButton(doc)}
+                          {renderFocusSourceScopeButton(doc, index)}
                         </div>
                       </div>
                     </details>

@@ -166,3 +166,202 @@ export function createPerformanceMetrics(
     totalLatency: `${totalLatency}ms`,
   };
 }
+
+/** Synonym groups: first label is the preferred form for matching center CSV `country` values. */
+export const COUNTRY_SYNONYM_GROUPS: readonly (readonly string[])[] = [
+  ["United States", "USA", "US", "America", "U.S.", "U.S.A.", "United States of America"],
+  ["United Kingdom", "UK", "Great Britain", "Britain", "England", "Scotland", "Wales", "Northern Ireland"],
+  ["New Zealand", "NZ", "Aotearoa"],
+  ["India", "Republic of India", "Bharat"],
+  ["Italy", "Italia", "Italian Republic"],
+  ["Canada"],
+  ["Australia"],
+  ["Germany", "Deutschland"],
+  ["France", "French Republic"],
+  ["Spain", "España"],
+  ["Mexico", "México"],
+  ["Brazil", "Brasil"],
+  ["Netherlands", "Holland", "The Netherlands"],
+  ["Ireland", "Republic of Ireland", "Éire"],
+  ["Switzerland", "Schweiz", "Suisse"],
+  ["Austria", "Österreich"],
+  ["Belgium", "België", "Belgique"],
+  ["Sweden", "Sverige"],
+  ["Norway", "Norge"],
+  ["Denmark", "Danmark"],
+  ["Finland", "Suomi"],
+  ["Portugal"],
+  ["Greece", "Hellas"],
+  ["Poland", "Polska"],
+  ["Czech Republic", "Czechia"],
+  ["Hungary", "Magyarország"],
+  ["Romania", "România"],
+  ["Croatia", "Hrvatska"],
+  ["Slovenia"],
+  ["Slovakia"],
+  ["Bulgaria"],
+  ["Serbia"],
+  ["Japan", "Nippon"],
+  ["China", "People's Republic of China", "PRC"],
+  ["Taiwan", "Republic of China"],
+  ["South Korea", "Korea", "Republic of Korea"],
+  ["Thailand", "Siam"],
+  ["Singapore"],
+  ["Malaysia"],
+  ["Indonesia"],
+  ["Philippines", "Pilipinas"],
+  ["Vietnam", "Việt Nam"],
+  ["South Africa", "RSA"],
+  ["Israel"],
+  ["Turkey", "Türkiye"],
+  ["Russia", "Russian Federation"],
+  ["Ukraine", "Україна"],
+  ["Argentina"],
+  ["Chile"],
+  ["Colombia"],
+  ["Peru", "Perú"],
+  ["Costa Rica"],
+  ["Guatemala"],
+  ["Nicaragua"],
+  ["Panama", "Panamá"],
+  ["Ecuador"],
+  ["Uruguay"],
+  ["Paraguay"],
+  ["Bolivia"],
+  ["Venezuela"],
+];
+
+export function normalizeCountryKey(raw: string): string {
+  return raw
+    .toLowerCase()
+    .trim()
+    .replace(/\./g, "")
+    .replace(/\s+/g, " ");
+}
+
+export function getCanonicalCountryLabel(raw: string): string | null {
+  const k = normalizeCountryKey(raw);
+  if (!k) return null;
+  for (const group of COUNTRY_SYNONYM_GROUPS) {
+    for (const name of group) {
+      if (normalizeCountryKey(name) === k) {
+        return group[0];
+      }
+    }
+  }
+  return null;
+}
+
+export function countriesMatchForCenterSearch(centerCsvCountry: string, filterCountry: string): boolean {
+  const cCanon = getCanonicalCountryLabel(centerCsvCountry);
+  const fCanon = getCanonicalCountryLabel(filterCountry);
+  if (cCanon && fCanon) {
+    return cCanon === fCanon;
+  }
+  const nCenter = normalizeCountryKey(centerCsvCountry);
+  const nFilter = normalizeCountryKey(filterCountry);
+  if (fCanon) {
+    return nCenter === normalizeCountryKey(fCanon);
+  }
+  if (cCanon) {
+    return nFilter === normalizeCountryKey(cCanon);
+  }
+  return nCenter === nFilter;
+}
+
+export function hasProximityIntentInQuestion(question: string): boolean {
+  return /\b(near me|nearby|closest|nearest|within\s+\d+|\d+\s*miles?\s+of|km\s+of)\b/i.test(question);
+}
+
+/**
+ * Extract a country phrase after "in" / "in the" from the user question (e.g. "center in New Zealand").
+ */
+export function extractCountryMentionFromQuestion(question: string): string | null {
+  if (!question || !question.trim()) {
+    return null;
+  }
+  const m = question.match(/\bin\s+(?:the\s+)?([A-Za-z]+(?:\s+[A-Za-z]+){0,3})\b/i);
+  if (!m) {
+    return null;
+  }
+  const candidate = m[1].trim();
+  if (candidate.length < 2) {
+    return null;
+  }
+  return candidate;
+}
+
+export type LocationSearchScopeType = "country" | "proximity" | "fallback";
+
+export interface LocationSearchScopeInput {
+  originalQuestion?: string;
+  userProvidedLocation?: string;
+  resolvedLocation: LocationResult;
+}
+
+export interface LocationSearchScopeResult {
+  scope: LocationSearchScopeType;
+  /** Canonical-ish country label for filtering center CSV rows */
+  countryFilter?: string;
+}
+
+/**
+ * Deterministic scope for center search: country-wide list vs distance-ranked proximity.
+ * No model calls — uses question text, tool args, and geocoded country only.
+ */
+export function determineLocationSearchScope(input: LocationSearchScopeInput): LocationSearchScopeResult {
+  const q = (input.originalQuestion ?? "").trim();
+  const u = (input.userProvidedLocation ?? "").trim();
+  const resolvedCountry = input.resolvedLocation.country ?? "";
+
+  if (!u && !q) {
+    return { scope: "fallback" };
+  }
+
+  if (q && hasProximityIntentInQuestion(q)) {
+    return { scope: "proximity" };
+  }
+
+  if (u && /\d/.test(u)) {
+    return { scope: "proximity" };
+  }
+
+  if (u && u.includes(",")) {
+    return { scope: "proximity" };
+  }
+
+  if (u) {
+    const uCanon = getCanonicalCountryLabel(u);
+    if (uCanon && countriesMatchForCenterSearch(u, resolvedCountry)) {
+      return {
+        scope: "country",
+        countryFilter: getCanonicalCountryLabel(resolvedCountry) ?? resolvedCountry,
+      };
+    }
+    return { scope: "proximity" };
+  }
+
+  const extracted = extractCountryMentionFromQuestion(q);
+  if (extracted) {
+    const exCanon = getCanonicalCountryLabel(extracted);
+    if (!exCanon) {
+      return { scope: "proximity" };
+    }
+    if (countriesMatchForCenterSearch(extracted, resolvedCountry)) {
+      return {
+        scope: "country",
+        countryFilter: getCanonicalCountryLabel(resolvedCountry) ?? resolvedCountry,
+      };
+    }
+    return { scope: "country", countryFilter: exCanon };
+  }
+
+  return { scope: "proximity" };
+}
+
+/** Max centers returned for country-scoped searches (full list can be large). */
+export const LOCATION_COUNTRY_SEARCH_MAX_RESULTS = 20;
+
+/** Inline guidance injected into country-level tool results so the model sees it adjacent to the data. */
+export const COUNTRY_SEARCH_RESPONSE_GUIDANCE =
+  "This is a country-level search. End the location section by inviting the user to ask about a specific city or region for more targeted results, THEN link to the directory. Do NOT just say 'For a full directory, visit…' without offering the narrower follow-up first.";

@@ -55,10 +55,16 @@ import { TypedSuggestion } from "@/types/Suggestion";
 import { SudoProvider, useSudo } from "@/contexts/SudoContext";
 import { fetchWithAuth, isAuthenticated, initializeTokenManager } from "@/utils/client/tokenManager";
 import { getOrCreateUUID } from "@/utils/client/uuid";
-import { loadConversationByConvId } from "@/utils/client/conversationLoader";
+import { ConversationNotFoundError, loadConversationByConvId } from "@/utils/client/conversationLoader";
 import { getGreeting } from "@/utils/client/siteConfig";
 import { SidebarFunctions, SidebarRefetch } from "@/components/ChatHistorySidebar";
 import { generateSourceId } from "@/utils/client/sourceUtils";
+import {
+  FilterConflictAction,
+  TitleScopeFilterConflictPayload,
+  TitleScopeSelection,
+  TitleScopeSuggestion,
+} from "@/types/titleScope";
 
 // Custom hook for scroll depth tracking
 function useScrollDepthTracking() {
@@ -117,6 +123,19 @@ function useScrollDepthTracking() {
   }, [scrollDepthsTracked, trackFirstInteraction]);
 
   return { trackFirstInteraction };
+}
+
+export function getRepairAllLibrariesSelection(
+  actionLibraries: string[] | undefined,
+  defaultLibraries: string[]
+): string[] {
+  return actionLibraries ? [...actionLibraries] : [...defaultLibraries];
+}
+
+function getAutoAppliedSourceFocusAction(payload: TitleScopeFilterConflictPayload): FilterConflictAction | null {
+  return (
+    payload.actions.find((action) => action.kind === "setCollection" && action.collection === "whole_library") || null
+  );
 }
 
 // Main component for the chat interface
@@ -179,6 +198,110 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   useEffect(() => {
     selectedLibrariesRef.current = selectedLibraries;
   }, [selectedLibraries]);
+  const [selectedTitleScope, setSelectedTitleScope] = useState<TitleScopeSelection | null>(null);
+  const [titleScopeSuggestions, setTitleScopeSuggestions] = useState<TitleScopeSuggestion[]>([]);
+  const [titleScopeError, setTitleScopeError] = useState<string | null>(null);
+  const [filterConflict, setFilterConflict] = useState<TitleScopeFilterConflictPayload | null>(null);
+  const [pendingConflictRetry, setPendingConflictRetry] = useState(false);
+  const [librariesExplicit, setLibrariesExplicit] = useState(false);
+  const [mediaTypesExplicit, setMediaTypesExplicit] = useState(false);
+  const isTitleScopeSelectionEnabled = Boolean(siteConfig?.enableTitleScopeSelection);
+  const defaultCollection = useMemo(() => {
+    const collections = getCollectionsConfig(siteConfig);
+    return Object.keys(collections)[0] || "whole_library";
+  }, [siteConfig]);
+  const defaultMediaTypes = useMemo(() => {
+    const enabledTypes = getEnabledMediaTypes(siteConfig);
+    return {
+      text: enabledTypes.includes("text"),
+      audio: enabledTypes.includes("audio"),
+      youtube: enabledTypes.includes("youtube"),
+    };
+  }, [siteConfig]);
+  const defaultLibraries = useMemo(
+    () => (siteConfig?.includedLibraries || []).map((lib) => (typeof lib === "string" ? lib : lib.name)),
+    [siteConfig?.includedLibraries]
+  );
+  const defaultSourceCount = siteConfig?.defaultNumSources || 4;
+  const selectedTitleScopeRef = useRef<TitleScopeSelection | null>(selectedTitleScope);
+  useEffect(() => {
+    selectedTitleScopeRef.current = selectedTitleScope;
+  }, [selectedTitleScope]);
+  useEffect(() => {
+    if (!isTitleScopeSelectionEnabled && selectedTitleScopeRef.current) {
+      setSelectedTitleScope(null);
+    }
+  }, [isTitleScopeSelectionEnabled, selectedTitleScope]);
+  const handleTitleScopeChange = useCallback((scope: TitleScopeSelection | null) => {
+    setSelectedTitleScope(scope);
+    setTitleScopeSuggestions([]);
+    setTitleScopeError(null);
+    setFilterConflict(null);
+  }, []);
+
+  useEffect(() => {
+    const isDefaultLibs =
+      defaultLibraries.length > 0 &&
+      selectedLibraries.length === defaultLibraries.length &&
+      defaultLibraries.every((lib) => selectedLibraries.includes(lib));
+    setLibrariesExplicit(!isDefaultLibs);
+  }, [defaultLibraries, selectedLibraries]);
+
+  useEffect(() => {
+    const enabledMediaTypeKeys = (Object.keys(defaultMediaTypes) as Array<keyof typeof defaultMediaTypes>).filter(
+      (type) => defaultMediaTypes[type]
+    );
+    if (!enabledMediaTypeKeys.length) {
+      setMediaTypesExplicit(false);
+      return;
+    }
+    const allOn = enabledMediaTypeKeys.every((type) => mediaTypes[type] === true);
+    setMediaTypesExplicit(!allOn);
+  }, [defaultMediaTypes, mediaTypes]);
+
+  const buildFilterExplicitnessPayload = useCallback(() => {
+    if (!isTitleScopeSelectionEnabled) {
+      return undefined;
+    }
+    return {
+      collection: collectionChanged,
+      libraries: librariesExplicit,
+      mediaTypes: mediaTypesExplicit,
+    };
+  }, [isTitleScopeSelectionEnabled, collectionChanged, librariesExplicit, mediaTypesExplicit]);
+
+  const applyFilterConflictAction = useCallback(
+    (action: FilterConflictAction) => {
+      if (action.kind === "repairAll") {
+        if (action.collection === "whole_library") {
+          setCollection("whole_library");
+          setCollectionChanged(true);
+        }
+        setSelectedLibraries(getRepairAllLibrariesSelection(action.libraries, defaultLibraries));
+        if (action.mediaTypes) {
+          setMediaTypes({ ...action.mediaTypes });
+        }
+      } else {
+        if (action.kind === "setCollection" && action.collection) {
+          setCollection(action.collection);
+          setCollectionChanged(true);
+        }
+        if (action.kind === "setLibraries" && action.libraries && action.libraries.length > 0) {
+          setSelectedLibraries([...action.libraries]);
+        }
+        if (action.kind === "setMediaTypes" && action.mediaTypes) {
+          setMediaTypes({ ...action.mediaTypes });
+        }
+        if (action.kind === "clearTitleScope" || action.clearTitleScope) {
+          handleTitleScopeChange(null);
+        }
+      }
+
+      setPendingConflictRetry(true);
+      setFilterConflict(null);
+    },
+    [defaultLibraries, handleTitleScopeChange]
+  );
 
   // Model selection state - initialize from localStorage or default
   const [selectedModel, setSelectedModel] = useState<string>(() => {
@@ -231,6 +354,21 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const { messages } = messageState as {
     messages: ExtendedAIMessage[];
   };
+  const autoApplySourceFocusConflict = useCallback(
+    (payload: TitleScopeFilterConflictPayload) => {
+      const autoAction = getAutoAppliedSourceFocusAction(payload);
+      if (!autoAction) {
+        return false;
+      }
+
+      setFilterConflict(null);
+      setError(null);
+      applyFilterConflictAction(autoAction);
+      logEvent("source_focus_auto_author_switch", "Source Focus", payload.titleScopeLabel);
+      return true;
+    },
+    [applyFilterConflictAction, setError]
+  );
 
   // Keep a ref in sync with history to avoid stale closures in callbacks
   // This is critical for the API call to send the correct history for question reformulation
@@ -372,6 +510,20 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const [highlightMessageIndex, setHighlightMessageIndex] = useState<number | null>(null);
   const userMessageRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
+  const focusChatInput = useCallback(() => {
+    if (typeof window !== "undefined" && window.innerWidth >= 768) {
+      textAreaRef.current?.focus();
+    }
+  }, []);
+
+  const handleFocusSourceScope = useCallback(
+    (scope: TitleScopeSelection) => {
+      handleTitleScopeChange(scope);
+      focusChatInput();
+    },
+    [focusChatInput, handleTitleScopeChange]
+  );
+
   // Function to handle media type selection
   const handleMediaTypeChange = (type: "text" | "audio" | "youtube") => {
     if (getEnableMediaTypeSelection(siteConfig)) {
@@ -403,6 +555,61 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       return newSelection;
     });
   };
+  const [sourceCount, _setSourceCount] = useState<number>(siteConfig?.defaultNumSources || 4);
+  const sourceCountRef = useRef<number>(siteConfig?.defaultNumSources || 4); // Ref mirror for immediate access in async contexts
+  const setSourceCount = (count: number) => {
+    sourceCountRef.current = count;
+    _setSourceCount(count);
+  };
+  const clearLegacyFilterStorage = useCallback(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    Cookies.remove("selectedCollection", { path: "/" });
+    localStorage.removeItem("searchMediaTypes");
+    localStorage.removeItem("selectedLibraries");
+    localStorage.removeItem("useExtraSources");
+  }, []);
+  const resetRetrievalFiltersToDefaults = useCallback(() => {
+    setCollection(defaultCollection);
+    setCollectionChanged(false);
+    setMediaTypes(defaultMediaTypes);
+    setSelectedLibraries(defaultLibraries);
+    setSourceCount(defaultSourceCount);
+    handleTitleScopeChange(null);
+    setPendingConflictRetry(false);
+  }, [defaultCollection, defaultLibraries, defaultMediaTypes, defaultSourceCount, handleTitleScopeChange]);
+  const restoreConversationFilters = useCallback(
+    (filters?: {
+      collection?: string | null;
+      mediaTypes?: { text?: boolean; audio?: boolean; youtube?: boolean } | null;
+      selectedLibraries?: string[] | null;
+      sourceCount?: number | null;
+      titleScope?: TitleScopeSelection | null;
+    }) => {
+      const collectionsConfig = getCollectionsConfig(siteConfig);
+      const restoredCollection =
+        filters?.collection && collectionsConfig[filters.collection] ? filters.collection : defaultCollection;
+      const restoredMediaTypes = {
+        text: filters?.mediaTypes?.text ?? defaultMediaTypes.text,
+        audio: filters?.mediaTypes?.audio ?? defaultMediaTypes.audio,
+        youtube: filters?.mediaTypes?.youtube ?? defaultMediaTypes.youtube,
+      };
+      const restoredLibraries =
+        filters?.selectedLibraries?.filter((library) => defaultLibraries.includes(library)) || defaultLibraries;
+      const restoredSourceCount =
+        typeof filters?.sourceCount === "number" && filters.sourceCount > 0 ? filters.sourceCount : defaultSourceCount;
+
+      setCollection(restoredCollection);
+      setCollectionChanged(restoredCollection !== defaultCollection);
+      setMediaTypes(restoredMediaTypes);
+      setSelectedLibraries(restoredLibraries.length > 0 ? restoredLibraries : defaultLibraries);
+      setSourceCount(restoredSourceCount);
+      handleTitleScopeChange(filters?.titleScope || null);
+      setPendingConflictRetry(false);
+    },
+    [defaultCollection, defaultLibraries, defaultMediaTypes, defaultSourceCount, handleTitleScopeChange, siteConfig]
+  );
 
   // Helper function to load conversation content without URL updates
   const loadConversationDirectly = useCallback(
@@ -448,6 +655,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
         // Set star state from loaded conversation
         setIsCurrentConversationStarred(loadedConversation.isStarred || false);
+
+        // Restore the retrieval context that was active for the latest message in this conversation.
+        restoreConversationFilters(loadedConversation.filters);
 
         // Restore task state from loaded conversation (if it was a task conversation)
         // Helper setters update both state and ref automatically
@@ -498,7 +708,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
          * to avoid conflicts with browser's native scrolling and ensure proper timing
          */
       } catch (error) {
-        console.error("Error loading conversation:", error);
+        if (!(error instanceof ConversationNotFoundError)) {
+          console.error("Error loading conversation:", error);
+        }
 
         // Set the conversation ID even on error to prevent infinite retry loops
         setCurrentConvId(convId);
@@ -518,7 +730,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [siteConfig, setLoading, setError, setMessageState, setCurrentConvId]
+    [restoreConversationFilters, setCurrentConvId, setError, setLoading, setMessageState, siteConfig]
     // Note: generateDynamicFollowups is defined later but is stable (no deps, uses refs)
   );
 
@@ -555,6 +767,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setCurrentQuestion("");
         setConversationTitle(null); // Clear conversation title
         setIsCurrentConversationStarred(false); // Clear star state
+        resetRetrievalFiltersToDefaults();
         setMessageState({
           messages: [
             {
@@ -590,6 +803,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     chatError,
     siteConfig,
     loadConversationDirectly,
+    resetRetrievalFiltersToDefaults,
     setCurrentConvId,
     setMessageState,
     setError,
@@ -711,7 +925,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     if (getEnableAuthorSelection(siteConfig) && newCollection !== collection) {
       setCollectionChanged(true);
       setCollection(newCollection);
-      Cookies.set("selectedCollection", newCollection, { expires: 365 });
       logEvent("change_collection", "UI", newCollection);
     }
   };
@@ -745,6 +958,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     setCurrentConvId(null);
     setConversationTitle(null);
     setCurrentQuestion("");
+    resetRetrievalFiltersToDefaults();
     setMessageState({
       messages: [
         {
@@ -784,6 +998,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     setCurrentQuestion("");
     setConversationTitle(null);
     setIsCurrentConversationStarred(false);
+    resetRetrievalFiltersToDefaults();
     setMessageState({
       messages: [
         {
@@ -846,9 +1061,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
   const [editingText, setEditingText] = useState<string>("");
 
-  const [sourceCount, _setSourceCount] = useState<number>(siteConfig?.defaultNumSources || 4);
-  const sourceCountRef = useRef<number>(siteConfig?.defaultNumSources || 4); // Ref mirror for immediate access in async contexts
-
   // Task state
   const [currentTaskFollowups, _setCurrentTaskFollowups] = useState<string[]>([]);
   const currentTaskFollowupsRef = useRef<string[]>([]); // Ref mirror for immediate access in async contexts
@@ -878,73 +1090,11 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     currentTaskModeRef.current = mode;
     _setCurrentTaskMode(mode);
   };
-  const setSourceCount = (count: number) => {
-    sourceCountRef.current = count;
-    _setSourceCount(count);
-  };
-
-  // Load saved search preferences from localStorage
+  // Remove legacy browser-level search persistence so retrieval filters stay
+  // scoped to the active conversation rather than silently carrying across chats.
   useEffect(() => {
-    try {
-      let preferencesLoaded = false;
-
-      // Load media type preferences
-      const savedMediaTypes = localStorage.getItem("searchMediaTypes");
-      if (savedMediaTypes) {
-        const parsedMediaTypes = JSON.parse(savedMediaTypes);
-        setMediaTypes(parsedMediaTypes);
-        preferencesLoaded = true;
-
-        // Analytics for loaded media type preferences
-        const enabledCount = Object.values(parsedMediaTypes).filter(Boolean).length;
-        logEvent(
-          "search_preferences_loaded",
-          "Settings",
-          `media_types_restored|text_${parsedMediaTypes.text}|audio_${parsedMediaTypes.audio}|youtube_${parsedMediaTypes.youtube}`,
-          enabledCount
-        );
-      }
-
-      // Load library selection preferences
-      const savedLibraries = localStorage.getItem("selectedLibraries");
-      if (savedLibraries) {
-        const parsedLibraries = JSON.parse(savedLibraries);
-        // Validate that saved libraries are still available in siteConfig
-        const availableLibraries = (siteConfig?.includedLibraries || []).map((lib) =>
-          typeof lib === "string" ? lib : lib.name
-        );
-        const validLibraries = parsedLibraries.filter((lib: string) => availableLibraries.includes(lib));
-        // Only restore if there's at least one valid library
-        if (validLibraries.length > 0) {
-          setSelectedLibraries(validLibraries);
-          preferencesLoaded = true;
-          logEvent("search_preferences_loaded", "Settings", "libraries_restored", validLibraries.length);
-        }
-      }
-
-      // Load extra sources preference
-      const savedUseExtraSources = localStorage.getItem("useExtraSources");
-      if (savedUseExtraSources !== null) {
-        const useExtra = savedUseExtraSources === "true";
-        const defaultSources = siteConfig?.defaultNumSources || 4;
-        setSourceCount(useExtra ? 10 : defaultSources);
-        preferencesLoaded = true;
-
-        // Analytics for loaded source count preference
-        logEvent("search_preferences_loaded", "Settings", "extra_sources_restored", useExtra ? 10 : defaultSources);
-      }
-
-      // Track if any preferences were loaded
-      if (preferencesLoaded) {
-        logEvent("search_preferences_loaded", "Settings", "preferences_restored_on_load");
-      }
-    } catch (error) {
-      console.error("Error loading search preferences from localStorage:", error);
-
-      // Analytics for localStorage errors
-      logEvent("search_preferences_error", "Settings", "localStorage_parse_error");
-    }
-  }, [siteConfig?.defaultNumSources, siteConfig?.includedLibraries]);
+    clearLegacyFilterStorage();
+  }, [clearLegacyFilterStorage]);
 
   // Add state for timing information
   const [timingMetrics, setTimingMetrics] = useState<{
@@ -1134,6 +1284,41 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         console.log("[BACKEND]", data.log);
       }
 
+      if (data.titleScopeSuggestions) {
+        setTitleScopeSuggestions(data.titleScopeSuggestions);
+        setTitleScopeError(data.error || null);
+      }
+
+      if (data.filterConflict) {
+        if (autoApplySourceFocusConflict(data.filterConflict)) {
+          return;
+        }
+        setFilterConflict(data.filterConflict);
+        setError(null);
+        setMessageState((prevState) => {
+          const newMessages = [...prevState.messages];
+          const lastMessage = newMessages[newMessages.length - 1];
+          if (lastMessage?.type === "apiMessage") {
+            newMessages[newMessages.length - 1] = {
+              ...lastMessage,
+              message: data.filterConflict!.summaryMessage,
+            };
+          }
+          const newHistory = [...prevState.history];
+          if (newHistory.length > 0 && newHistory[newHistory.length - 1].role === "assistant") {
+            newHistory[newHistory.length - 1] = {
+              ...newHistory[newHistory.length - 1],
+              content: data.filterConflict!.summaryMessage,
+            };
+          }
+          return {
+            ...prevState,
+            messages: newMessages,
+            history: newHistory,
+          };
+        });
+      }
+
       // Capture timing information
       if (data.timing) {
         setTimingMetrics(data.timing);
@@ -1263,7 +1448,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             const questionWords = questionForSidebar.trim().split(/\s+/);
             const tempTitle =
               questionWords.length <= 9 ? questionForSidebar : questionWords.slice(0, 9).join(" ") + "...";
-
             sidebarFunctionsRef.current.addNewConversation(data.convId, tempTitle, questionForSidebar);
 
             // Clear the current question now that we've used it
@@ -1466,6 +1650,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       messages,
       savedDocId,
       showScrollDownButton,
+      autoApplySourceFocusConflict,
+      setFilterConflict,
     ]
     // Note: reportMissingSourcesToBacked and reportPartialSourcesToBacked are defined after this callback
     // but are stable functions that don't need to be in the dependency array
@@ -1575,6 +1761,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     setIsNearBottom(true);
     setLoading(true);
     setError(null);
+    setFilterConflict(null);
 
     // Reset accumulated response at the start of each new query
     accumulatedResponseRef.current = "";
@@ -1627,6 +1814,20 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     try {
       const newAbortController = new AbortController();
       setAbortController(newAbortController);
+      const requestTitleScope =
+        siteConfig?.enableTitleScopeSelection && selectedTitleScopeRef.current
+          ? selectedTitleScopeRef.current
+          : undefined;
+      if (requestTitleScope) {
+        logEvent(
+          "source_focus_query_submitted",
+          "Source Focus",
+          requestTitleScope.canonicalPrefix ||
+            requestTitleScope.displayTitle ||
+            requestTitleScope.userInput ||
+            "unknown"
+        );
+      }
 
       const response = await fetchWithAuth("/api/chat/v1", {
         method: "POST",
@@ -1640,6 +1841,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           temporarySession,
           mediaTypes,
           selectedLibraries: selectedLibrariesRef.current,
+          titleScope: requestTitleScope,
+          filterExplicitness: buildFilterExplicitnessPayload(),
           sourceCount: sourceCountRef.current,
           uuid: getOrCreateUUID(),
           convId: currentConvIdRef.current, // Pass current conversation ID for follow-ups
@@ -1940,6 +2143,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     return userMessages.length === 0;
   }, [messages]);
 
+  const shouldUsePinnedChatShell = Boolean(siteConfig?.requireLogin) || messages.length > 1;
+
   // Function to handle temporary session changes
   const handleTemporarySessionChange = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -1963,6 +2168,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       // handleUrlBasedLoading. This guarantees ending temporary session clears the conversation.
       setCurrentConvId(null);
       setCurrentQuestion("");
+      resetRetrievalFiltersToDefaults();
       setMessageState({
         messages: [
           {
@@ -2094,12 +2300,13 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
       setLoading(true);
       setError(null);
+      setTitleScopeSuggestions([]);
+      setTitleScopeError(null);
       accumulatedResponseRef.current = "";
 
       try {
         const newAbortController = new AbortController();
         setAbortController(newAbortController);
-
         const response = await fetchWithAuth("/api/chat/v1", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2109,6 +2316,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             collection: apiMessage.collection || collection,
             mediaTypes: mediaTypes,
             selectedLibraries: selectedLibrariesRef.current,
+            titleScope:
+              isTitleScopeSelectionEnabled && selectedTitleScopeRef.current ? selectedTitleScopeRef.current : undefined,
+            filterExplicitness: buildFilterExplicitnessPayload(),
             sourceCount: apiMessage.sourceDocs?.length || sourceCountRef.current,
             temporarySession: temporarySession,
             uuid: getOrCreateUUID(),
@@ -2125,6 +2335,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         if (!response.body) {
           throw new Error("No response body");
         }
+
+        setFilterConflict(null);
 
         // Replace the existing message with an empty one to prepare for streaming
         setMessageState((prevState) => {
@@ -2154,6 +2366,54 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             if (line.startsWith("data: ")) {
               try {
                 const data = JSON.parse(line.slice(5));
+
+                if (data.filterConflict) {
+                  if (autoApplySourceFocusConflict(data.filterConflict)) {
+                    continue;
+                  }
+                  setFilterConflict(data.filterConflict);
+                  setMessageState((prevState) => {
+                    const newMessages = [...prevState.messages];
+                    newMessages[messageIndex] = {
+                      ...newMessages[messageIndex],
+                      message: data.filterConflict.summaryMessage,
+                    };
+                    const newHistory = [...prevState.history];
+                    const historyIndex = messageIndex - 1;
+                    if (
+                      historyIndex >= 0 &&
+                      historyIndex < newHistory.length &&
+                      newHistory[historyIndex]?.role === "assistant"
+                    ) {
+                      newHistory[historyIndex] = {
+                        ...newHistory[historyIndex],
+                        content: data.filterConflict.summaryMessage,
+                      };
+                    }
+                    return {
+                      ...prevState,
+                      messages: newMessages,
+                      history: newHistory,
+                    };
+                  });
+                }
+
+                if (data.suggestions && Array.isArray(data.suggestions) && data.suggestions.length > 0) {
+                  setMessageState((prevState) => {
+                    const newMessages = [...prevState.messages];
+                    const targetMessage = newMessages[messageIndex];
+                    if (targetMessage?.type === "apiMessage") {
+                      newMessages[messageIndex] = {
+                        ...targetMessage,
+                        suggestions: data.suggestions,
+                      };
+                    }
+                    return {
+                      ...prevState,
+                      messages: newMessages,
+                    };
+                  });
+                }
 
                 if (data.token) {
                   accumulatedResponseRef.current += data.token;
@@ -2197,6 +2457,37 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                       messages: newMessages,
                     };
                   });
+                }
+
+                if (data.convId) {
+                  const isNewConversation = !currentConvIdRef.current;
+                  currentConvIdRef.current = data.convId;
+                  setCurrentConvId(data.convId);
+
+                  if (isNewConversation) {
+                    if (siteConfig?.requireLogin) {
+                      window.history.pushState(null, "", `/chat/${data.convId}`);
+                      pathRef.current = `/chat/${data.convId}`;
+                    }
+
+                    const questionForSidebar = userMessage.message;
+                    if (siteConfig?.requireLogin && sidebarFunctionsRef.current && questionForSidebar) {
+                      const questionWords = questionForSidebar.trim().split(/\s+/);
+                      const tempTitle =
+                        questionWords.length <= 9 ? questionForSidebar : questionWords.slice(0, 9).join(" ") + "...";
+                      sidebarFunctionsRef.current.addNewConversation(data.convId, tempTitle, questionForSidebar);
+                      setCurrentQuestion("");
+                    }
+                  }
+                }
+
+                if (data.title && data.convId) {
+                  if (sidebarFunctionsRef.current) {
+                    sidebarFunctionsRef.current.updateConversationTitle(data.convId, data.title);
+                  }
+                  if (data.convId === currentConvIdRef.current) {
+                    setConversationTitle(data.title);
+                  }
                 }
 
                 if (data.done) {
@@ -2243,8 +2534,41 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setLoading(false);
       }
     },
-    [loading, messages, collection, mediaTypes, temporarySession, setLoading, setError, setMessageState]
+    [
+      loading,
+      messages,
+      collection,
+      mediaTypes,
+      temporarySession,
+      isTitleScopeSelectionEnabled,
+      buildFilterExplicitnessPayload,
+      siteConfig?.requireLogin,
+      setLoading,
+      setError,
+      setMessageState,
+      autoApplySourceFocusConflict,
+    ]
   );
+
+  useEffect(() => {
+    if (!pendingConflictRetry || loading) {
+      return;
+    }
+
+    const retryIndex = (() => {
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        if (messages[index]?.type === "apiMessage") {
+          return index;
+        }
+      }
+      return null;
+    })();
+    setPendingConflictRetry(false);
+    if (retryIndex === null) {
+      return;
+    }
+    handleRegenerateAnswer(retryIndex);
+  }, [handleRegenerateAnswer, loading, messages, pendingConflictRetry]);
 
   // Function to handle starting question edit
   const handleEditQuestion = useCallback((messageIndex: number, originalText: string) => {
@@ -2336,6 +2660,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             temporarySession,
             mediaTypes,
             selectedLibraries: selectedLibrariesRef.current,
+            titleScope:
+              isTitleScopeSelectionEnabled && selectedTitleScopeRef.current ? selectedTitleScopeRef.current : undefined,
+            filterExplicitness: buildFilterExplicitnessPayload(),
             sourceCount: sourceCountRef.current,
             uuid: getOrCreateUUID(),
             convId: currentConvIdRef.current,
@@ -2351,6 +2678,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         if (!response.body) {
           throw new Error("No response body");
         }
+
+        setFilterConflict(null);
 
         // Add empty API message for streaming
         setMessageState((prevState) => ({
@@ -2382,6 +2711,42 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             if (line.startsWith("data: ")) {
               try {
                 const data = JSON.parse(line.slice(5));
+
+                if (data.filterConflict) {
+                  if (autoApplySourceFocusConflict(data.filterConflict)) {
+                    continue;
+                  }
+                  setFilterConflict(data.filterConflict);
+                  setError(null);
+                  updateMessageState(data.filterConflict.summaryMessage, null);
+                  setMessageState((prevState) => {
+                    const updatedHistory = [...prevState.history];
+                    if (updatedHistory.length > 0 && updatedHistory[updatedHistory.length - 1].role === "assistant") {
+                      updatedHistory[updatedHistory.length - 1] = {
+                        ...updatedHistory[updatedHistory.length - 1],
+                        content: data.filterConflict.summaryMessage,
+                      };
+                    }
+                    return { ...prevState, history: updatedHistory };
+                  });
+                }
+
+                if (data.suggestions && Array.isArray(data.suggestions) && data.suggestions.length > 0) {
+                  setMessageState((prevState) => {
+                    const updatedMessages = [...prevState.messages];
+                    const lastMessage = updatedMessages[updatedMessages.length - 1];
+                    if (lastMessage?.type === "apiMessage") {
+                      updatedMessages[updatedMessages.length - 1] = {
+                        ...lastMessage,
+                        suggestions: data.suggestions,
+                      };
+                    }
+                    return {
+                      ...prevState,
+                      messages: updatedMessages,
+                    };
+                  });
+                }
 
                 if (data.token) {
                   accumulatedResponseRef.current += data.token;
@@ -2469,6 +2834,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       setSourceDocs,
       setSavedDocId,
       setCurrentConvId,
+      isTitleScopeSelectionEnabled,
+      buildFilterExplicitnessPayload,
+      autoApplySourceFocusConflict,
     ]
   );
 
@@ -2506,6 +2874,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             collection: apiMessage.collection || collection,
             mediaTypes: mediaTypes,
             selectedLibraries: selectedLibrariesRef.current,
+            titleScope:
+              isTitleScopeSelectionEnabled && selectedTitleScopeRef.current ? selectedTitleScopeRef.current : undefined,
+            filterExplicitness: buildFilterExplicitnessPayload(),
             sourceCount: apiMessage.sourceDocs?.length || sourceCountRef.current,
             temporarySession: temporarySession,
             uuid: getOrCreateUUID(),
@@ -2523,6 +2894,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           throw new Error("No response body");
         }
 
+        setFilterConflict(null);
+
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
 
@@ -2537,6 +2910,21 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             if (line.startsWith("data: ")) {
               try {
                 const data = JSON.parse(line.slice(5));
+
+                if (data.filterConflict) {
+                  if (autoApplySourceFocusConflict(data.filterConflict)) {
+                    continue;
+                  }
+                  setFilterConflict(data.filterConflict);
+                  setRegeneratedAnswer((prev) =>
+                    prev
+                      ? {
+                          ...prev,
+                          message: data.filterConflict.summaryMessage,
+                        }
+                      : prev
+                  );
+                }
 
                 if (data.token) {
                   regeneratedAnswerRef.current += data.token;
@@ -2563,7 +2951,16 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setRegeneratedAnswer(null);
       }
     },
-    [isRegenerating, messages, collection, mediaTypes, temporarySession]
+    [
+      isRegenerating,
+      messages,
+      collection,
+      mediaTypes,
+      temporarySession,
+      isTitleScopeSelectionEnabled,
+      buildFilterExplicitnessPayload,
+      autoApplySourceFocusConflict,
+    ]
   );
 
   // Function to submit comparison feedback
@@ -2855,20 +3252,36 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     }
   }, [currentConvId, conversations]);
 
-  // Effect to set initial collection and focus input on component mount
+  // Keep fresh-chat state aligned with site defaults and clear any legacy filter persistence.
   useEffect(() => {
-    // Retrieve collection from cookie, falling back to first collection in site config
-    const collections = siteConfig?.collectionConfig ? Object.keys(siteConfig.collectionConfig) : [];
-    const defaultCollection = collections[0] || "whole_library";
-    const savedCollection = Cookies.get("selectedCollection") || defaultCollection;
-    // Validate the saved collection exists in the current site's config
-    const validCollection = collections.includes(savedCollection) ? savedCollection : defaultCollection;
-    setCollection(validCollection);
+    const isActuallyFreshChat = messageState.messages.length <= 1 && messageState.history.length === 0;
+    if (pathRef.current === "/" && !currentConvIdRef.current && !isActuallyFreshChat) {
+      return;
+    }
+    if (pathRef.current === "/" && !currentConvIdRef.current) {
+      setCollection(defaultCollection);
+      setCollectionChanged(false);
+      setMediaTypes(defaultMediaTypes);
+      setSelectedLibraries(defaultLibraries);
+      setSourceCount(defaultSourceCount);
+      handleTitleScopeChange(null);
+      setPendingConflictRetry(false);
+    }
 
     if (!isLoadingQueries && window.innerWidth > 768) {
       textAreaRef.current?.focus();
     }
-  }, [isLoadingQueries, siteConfig?.collectionConfig]);
+  }, [
+    defaultCollection,
+    defaultLibraries,
+    defaultMediaTypes,
+    defaultSourceCount,
+    isLoadingQueries,
+    loading,
+    messageState.history.length,
+    messageState.messages.length,
+    handleTitleScopeChange,
+  ]);
 
   // Custom hook to check if multiple collections are available
   const hasMultipleCollections = useMultipleCollections(siteConfig || undefined);
@@ -3103,11 +3516,11 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         temporarySession={temporarySession}
         onTemporarySessionChange={handleTemporarySessionChange}
         isChatEmpty={shouldShowSuggestions}
-        hasConversation={messages.length > 1}
+        hasConversation={shouldUsePinnedChatShell}
       >
         {showPopup && popupMessage && <Popup message={popupMessage} onClose={closePopup} siteConfig={siteConfig} />}
 
-        <div className="flex h-full">
+        <div className="flex h-full min-h-0">
           {/* Chat History Sidebar - Only show on sites that require login */}
           {siteConfig?.requireLogin && (
             <ChatHistorySidebar
@@ -3133,8 +3546,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           )}
 
           {/* Main Content Area */}
-          <div className="flex flex-col flex-1 min-w-0 lg:ml-0 overflow-hidden">
-            <div className="mx-auto w-full max-w-4xl px-4 flex flex-col h-full">
+          <div className="flex flex-col flex-1 min-w-0 min-h-0 lg:ml-0 overflow-hidden">
+            <div className="mx-auto w-full max-w-4xl px-4 flex flex-col h-full min-h-0">
               {/* Hamburger Menu Button - Only show on sites that require login */}
               {siteConfig?.requireLogin && (
                 <div className="flex-shrink-0 lg:hidden flex items-center justify-between p-4 border-b border-gray-200">
@@ -3181,49 +3594,58 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
               {/* Conditional layout: centered for initial state, scrollable for conversation */}
               {shouldShowSuggestions ? (
                 /* Initial centered layout - greeting and input centered on page */
-                <div className="flex-1 flex flex-col items-center justify-center px-4">
-                  {/* Greeting message */}
-                  <div className="text-center mb-8">
-                    <h1 className="text-xl md:text-2xl font-semibold text-gray-800">{messages[0]?.message}</h1>
-                  </div>
-                  {/* ChatInput with suggestions - centered */}
-                  <div className="w-full max-w-2xl">
-                    {isLoadingQueries ? null : (
-                      <ChatInput
-                        loading={loading}
-                        disabled={viewOnlyMode}
-                        handleSubmit={handleSubmit}
-                        handleEnter={handleEnter}
-                        handleClick={handleClick}
-                        handleCollectionChange={handleCollectionChange}
-                        collection={collection}
-                        temporarySession={temporarySession}
-                        error={chatError}
-                        setError={setError}
-                        suggestedQueries={suggestedQueries}
-                        shuffleQueries={shuffleQueries}
-                        textAreaRef={textAreaRef}
-                        mediaTypes={mediaTypes}
-                        handleMediaTypeChange={handleMediaTypeChange}
-                        selectedLibraries={selectedLibraries}
-                        handleLibraryChange={handleLibraryChange}
-                        siteConfig={siteConfig}
-                        input={query}
-                        handleInputChange={handleInputChange}
-                        setQuery={setQuery}
-                        setShouldAutoScroll={setIsNearBottom}
-                        handleStop={handleStop}
-                        isNearBottom={isNearBottom}
-                        setIsNearBottom={setIsNearBottom}
-                        isLoadingQueries={isLoadingQueries}
-                        sourceCount={sourceCount}
-                        setSourceCount={setSourceCount}
-                        onTemporarySessionChange={handleTemporarySessionChange}
-                        categorizedQueries={categorizedQueries}
-                        shouldShowSuggestions={shouldShowSuggestions}
-                        onTaskSubmit={handleTaskSubmit}
-                      />
-                    )}
+                <div className="flex-1 flex items-center justify-center px-4 py-6 md:py-8 md:pb-20 lg:pb-24">
+                  <div data-testid="landing-chat-layout" className="w-full max-w-3xl">
+                    {/* Greeting message */}
+                    <div className="text-center mb-8">
+                      <h1 className="text-xl md:text-2xl font-semibold text-gray-800">{messages[0]?.message}</h1>
+                    </div>
+                    {/* ChatInput with suggestions - centered */}
+                    <div className="w-full max-w-2xl mx-auto">
+                      {isLoadingQueries ? null : (
+                        <ChatInput
+                          loading={loading}
+                          disabled={viewOnlyMode}
+                          handleSubmit={handleSubmit}
+                          handleEnter={handleEnter}
+                          handleClick={handleClick}
+                          handleCollectionChange={handleCollectionChange}
+                          collection={collection}
+                          temporarySession={temporarySession}
+                          error={chatError}
+                          setError={setError}
+                          suggestedQueries={suggestedQueries}
+                          shuffleQueries={shuffleQueries}
+                          textAreaRef={textAreaRef}
+                          mediaTypes={mediaTypes}
+                          handleMediaTypeChange={handleMediaTypeChange}
+                          selectedLibraries={selectedLibraries}
+                          handleLibraryChange={handleLibraryChange}
+                          siteConfig={siteConfig}
+                          input={query}
+                          handleInputChange={handleInputChange}
+                          setQuery={setQuery}
+                          setShouldAutoScroll={setIsNearBottom}
+                          handleStop={handleStop}
+                          isNearBottom={isNearBottom}
+                          setIsNearBottom={setIsNearBottom}
+                          isLoadingQueries={isLoadingQueries}
+                          sourceCount={sourceCount}
+                          setSourceCount={setSourceCount}
+                          selectedTitleScope={selectedTitleScope}
+                          setSelectedTitleScope={handleTitleScopeChange}
+                          titleScopeSuggestions={titleScopeSuggestions}
+                          titleScopeError={titleScopeError}
+                          filterConflict={filterConflict}
+                          onApplyFilterConflictAction={applyFilterConflictAction}
+                          onDismissFilterConflict={() => setFilterConflict(null)}
+                          onTemporarySessionChange={handleTemporarySessionChange}
+                          categorizedQueries={categorizedQueries}
+                          shouldShowSuggestions={shouldShowSuggestions}
+                          onTaskSubmit={handleTaskSubmit}
+                        />
+                      )}
+                    </div>
                   </div>
                 </div>
               ) : (
@@ -3277,6 +3699,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                                 sourceLinkCopied={sourceLinkCopied}
                                 onSourceExpanded={handleSourceExpanded}
                                 onSourceLinkCopied={handleSourceLinkCopied}
+                                activeTitleScope={selectedTitleScope}
+                                onFocusSourceScope={handleFocusSourceScope}
                                 isTaskConversation={isTaskConversation && index === messages.length - 1}
                                 taskFollowups={
                                   isTaskConversation && index === messages.length - 1
@@ -3384,6 +3808,13 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                         isLoadingQueries={isLoadingQueries}
                         sourceCount={sourceCount}
                         setSourceCount={setSourceCount}
+                        selectedTitleScope={selectedTitleScope}
+                        setSelectedTitleScope={handleTitleScopeChange}
+                        titleScopeSuggestions={titleScopeSuggestions}
+                        titleScopeError={titleScopeError}
+                        filterConflict={filterConflict}
+                        onApplyFilterConflictAction={applyFilterConflictAction}
+                        onDismissFilterConflict={() => setFilterConflict(null)}
                         onTemporarySessionChange={handleTemporarySessionChange}
                         categorizedQueries={categorizedQueries}
                         shouldShowSuggestions={shouldShowSuggestions}

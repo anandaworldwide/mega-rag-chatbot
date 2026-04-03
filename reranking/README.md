@@ -3,31 +3,21 @@
 This module contains tools for fine-tuning and evaluating cross-encoder reranking models to improve document retrieval
 relevance.
 
-## ⚠️ Separate Virtual Environment Required
+## UV Workspace Environment
 
-**This module requires its own isolated virtual environment** due to dependency conflicts with the main project
-(specifically numpy 2.x vs 1.x). Do not install these requirements in the root project environment.
+This module now uses the shared UV workspace and Python 3.11. Sync just the reranking environment when you need it.
 
 ### Quick Setup
 
 ```bash
-# From the project root, navigate to reranking directory
-cd reranking
-
-# Create isolated virtual environment
-python3 -m venv venv
-
-# Install dependencies
-source venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
-deactivate
+# From the project root
+uv sync --locked --package mega-rag-chatbot-reranking --no-default-groups
 ```
 
 ### Automatic Environment Activation (Recommended)
 
-This module includes a `.envrc` file for automatic environment activation using `direnv`. Once set up, the virtual
-environment will automatically activate when you `cd` into the `reranking` directory and deactivate when you leave.
+This module includes a `.envrc` file for automatic environment activation using `direnv`. Once set up, you can use
+`uv run --package mega-rag-chatbot-reranking ...` from inside the directory without manual venv management.
 
 **One-time direnv setup:**
 
@@ -58,24 +48,17 @@ direnv allow  # Grant permission for this directory
 Now the environment will automatically activate/deactivate:
 
 ```bash
-cd reranking              # Automatically activates venv
-python label_relevance.py --site ananda
-cd ..                     # Automatically deactivates venv
+cd reranking
+uv run --package mega-rag-chatbot-reranking python label_relevance.py --site ananda
+cd ..
 ```
 
-### Manual Activation (Alternative)
+### Manual Usage (Alternative)
 
-If you prefer not to use direnv, manually activate the environment:
+If you prefer not to use direnv, run commands directly through UV:
 
 ```bash
-cd reranking
-source venv/bin/activate  # macOS/Linux
-# OR
-venv\Scripts\activate     # Windows
-
-python label_relevance.py --site ananda
-
-deactivate  # When done
+uv run --package mega-rag-chatbot-reranking python reranking/label_relevance.py --site ananda
 ```
 
 ## Module Contents
@@ -100,7 +83,7 @@ the relevance of documents retrieved from Pinecone.
 
 ## Prerequisites
 
-- Python 3.6+
+- Python 3.11
 - Pinecone API key
 - OpenAI API key
 - Pinecone index name
@@ -110,7 +93,8 @@ the relevance of documents retrieved from Pinecone.
 
 ## Dependencies
 
-This module has its own `requirements.txt` file with pinned versions. The dependencies are:
+This module exports a compatibility `requirements.txt` file from the shared `uv.lock`. The primary dependency source is
+`reranking/pyproject.toml`.
 
 - `transformers` - Hugging Face transformers library
 - `optimum[onnxruntime]` - Optimized inference with ONNX Runtime
@@ -119,8 +103,7 @@ This module has its own `requirements.txt` file with pinned versions. The depend
 - `numpy` - Numerical computing (version 2.x)
 - `protobuf` - Protocol buffers for serialization
 
-**Important:** These requirements are **separate from** and **incompatible with** the root project requirements. Always
-use the isolated virtual environment (see setup instructions above).
+**Important:** Use the UV reranking package environment rather than manual `pip install -r` flows.
 
 ## Environment Setup
 

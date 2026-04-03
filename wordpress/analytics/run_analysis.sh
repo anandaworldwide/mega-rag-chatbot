@@ -11,6 +11,7 @@ set -e
 # Configuration
 PROPERTY_ID="266581873"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 CREDENTIALS_PATH="${SCRIPT_DIR}/credentials/ga-service-account.json"
 OUTPUT_DIR="${SCRIPT_DIR}/reports"
 CHARTS_DIR="${SCRIPT_DIR}/charts"
@@ -48,22 +49,19 @@ check_dependencies() {
         exit 1
     fi
     
-    # Check if virtual environment exists
-    if [[ ! -d "${SCRIPT_DIR}/venv" ]]; then
-        log_warning "Virtual environment not found. Creating one..."
-        python3 -m venv "${SCRIPT_DIR}/venv"
-        log_success "Virtual environment created"
+    # Check uv
+    if ! command -v uv &> /dev/null; then
+        log_error "uv is required but not installed"
+        log_info "Install uv with: curl -LsSf https://astral.sh/uv/install.sh | sh"
+        exit 1
     fi
-    
-    # Activate virtual environment
-    source "${SCRIPT_DIR}/venv/bin/activate"
-    
-    # Check if requirements are installed
-    if ! python -c "import google.analytics.data_v1beta" &> /dev/null; then
-        log_warning "Dependencies not installed. Installing..."
-        pip install -r "${SCRIPT_DIR}/requirements.txt"
-        log_success "Dependencies installed"
-    fi
+
+    log_info "Syncing analytics environment..."
+    (
+        cd "${REPO_ROOT}"
+        uv sync --locked --package mega-rag-chatbot-wordpress-analytics --no-default-groups
+    )
+    log_success "Analytics environment is ready"
 }
 
 check_credentials() {
@@ -90,7 +88,7 @@ run_analysis() {
     log_info "Running analysis for the last $days days..."
     
     # Build command
-    local cmd="python ${SCRIPT_DIR}/wordpress_plugin_analytics.py"
+    local cmd="uv run --project ${REPO_ROOT} --package mega-rag-chatbot-wordpress-analytics python ${SCRIPT_DIR}/wordpress_plugin_analytics.py"
     cmd="$cmd --property-id $PROPERTY_ID"
     cmd="$cmd --credentials $CREDENTIALS_PATH"
     cmd="$cmd --days $days"
@@ -157,7 +155,6 @@ case "${1:-}" in
         check_dependencies
         check_credentials
         create_directories
-        source "${SCRIPT_DIR}/venv/bin/activate"
         run_analysis "$days" false
         ;;
         
@@ -166,7 +163,6 @@ case "${1:-}" in
         check_dependencies
         check_credentials
         create_directories
-        source "${SCRIPT_DIR}/venv/bin/activate"
         run_analysis "$days" true
         ;;
         
@@ -174,7 +170,6 @@ case "${1:-}" in
         check_dependencies
         check_credentials
         create_directories
-        source "${SCRIPT_DIR}/venv/bin/activate"
         run_analysis 7 true
         ;;
         
@@ -182,7 +177,6 @@ case "${1:-}" in
         check_dependencies
         check_credentials
         create_directories
-        source "${SCRIPT_DIR}/venv/bin/activate"
         run_analysis 30 true
         ;;
         
@@ -202,7 +196,6 @@ case "${1:-}" in
         check_dependencies
         check_credentials
         create_directories
-        source "${SCRIPT_DIR}/venv/bin/activate"
         run_analysis "$days" "$include_charts"
         ;;
         
@@ -210,10 +203,8 @@ case "${1:-}" in
         log_info "Testing connection and credentials..."
         check_dependencies
         check_credentials
-        source "${SCRIPT_DIR}/venv/bin/activate"
-        
         # Run a minimal test
-        python -c "
+        uv run --project ${REPO_ROOT} --package mega-rag-chatbot-wordpress-analytics python -c "
 from wordpress_plugin_analytics import WordPressPluginAnalytics
 import sys
 

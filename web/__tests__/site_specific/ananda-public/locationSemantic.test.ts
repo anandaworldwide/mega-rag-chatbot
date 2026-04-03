@@ -29,8 +29,8 @@
  * These tests are SKIPPED by default when running the full test suite.
  *
  * To run these tests:
- * - Use `npm run test:queries:ananda-public` - Runs all Ananda semantic and location tests (60 tests total)
- * - Use `npm run test:location:ananda-public` - Runs only location tests (20 tests)
+ * - Use `npm run test:queries:ananda-public` - Runs all Ananda semantic and location tests
+ * - Use `npm run test:location:ananda-public` - Runs only location tests (includes country-level and proximity cases)
  * - Or set environment variable: `RUN_LOCATION_TESTS=true` when running tests
  *
  * Important: Running these tests requires:
@@ -309,6 +309,32 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
       expect(similarityToLocationResponses).toBeGreaterThan(0.5);
       expect(actualResponse.toLowerCase()).toMatch(/ananda|center|group/);
     });
+
+    test.concurrent('should return proximity-ranked California centers for Palo Alto area query', async () => {
+      console.log(`Running test: Palo Alto proximity sanity (distance-ranked, not country-wide)`);
+      const query = "What Ananda centers are near Palo Alto, California?";
+
+      const actualResponse = await getVivekLocationResponse(query);
+      const actualEmbedding = await getEmbedding(actualResponse);
+
+      const similarityToLocationResponses = getMaxSimilarity(actualEmbedding, locationResponseEmbeddings);
+
+      console.log(
+        `Query: "${query}"\nResponse: "${actualResponse}"\nSimilarity to Location Responses: ${similarityToLocationResponses}`
+      );
+
+      expect(similarityToLocationResponses).toBeGreaterThan(0.5);
+      const lower = actualResponse.toLowerCase();
+      expect(lower).toMatch(/ananda|center|group/);
+      const mentionsCaliforniaArea =
+        lower.includes("palo alto") ||
+        lower.includes("san jose") ||
+        lower.includes("san francisco") ||
+        lower.includes("nevada city") ||
+        lower.includes("expanding light") ||
+        lower.includes("sacramento");
+      expect(mentionsCaliforniaArea).toBe(true);
+    });
   });
 
   describe("International Location Queries", () => {
@@ -361,6 +387,71 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
 
       expect(similarityToLocationResponses).toBeGreaterThan(0.5);
       expect(actualResponse.toLowerCase()).toMatch(/ananda|center|group/);
+    });
+  });
+
+  describe("Country-Level Location Queries", () => {
+    test.concurrent('should mention multiple centers for "Is there an Ananda center in India?"', async () => {
+      console.log(`Running test: should mention multiple centers for India country query`);
+      const query = "Is there an Ananda center in India?";
+
+      const actualResponse = await getVivekLocationResponse(query);
+      const actualEmbedding = await getEmbedding(actualResponse);
+
+      const similarityToLocationResponses = getMaxSimilarity(actualEmbedding, locationResponseEmbeddings);
+
+      console.log(
+        `Query: "${query}"\nResponse: "${actualResponse}"\nSimilarity to Location Responses: ${similarityToLocationResponses}`
+      );
+
+      expect(similarityToLocationResponses).toBeGreaterThan(0.5);
+      const lower = actualResponse.toLowerCase();
+      expect(lower).toMatch(/ananda|center|group/);
+      const mentionsDelhiOrGurgaon =
+        lower.includes("delhi") || lower.includes("gurgaon") || lower.includes("gurugram");
+      const mentionsMumbai = lower.includes("mumbai");
+      expect(mentionsDelhiOrGurgaon && mentionsMumbai).toBe(true);
+    });
+
+    test.concurrent('should mention NZ centers for New Zealand country query', async () => {
+      console.log(`Running test: should mention NZ centers for New Zealand`);
+      const query = "Are there any Ananda centers in New Zealand?";
+
+      const actualResponse = await getVivekLocationResponse(query);
+      const actualEmbedding = await getEmbedding(actualResponse);
+
+      const similarityToLocationResponses = getMaxSimilarity(actualEmbedding, locationResponseEmbeddings);
+
+      console.log(
+        `Query: "${query}"\nResponse: "${actualResponse}"\nSimilarity to Location Responses: ${similarityToLocationResponses}`
+      );
+
+      expect(similarityToLocationResponses).toBeGreaterThan(0.5);
+      const lower = actualResponse.toLowerCase();
+      expect(lower).toMatch(/ananda|center|group/);
+      const mentionsNZ =
+        lower.includes("hamilton") || lower.includes("waikato") || lower.includes("new zealand");
+      expect(mentionsNZ).toBe(true);
+    });
+
+    test.concurrent('should mention Italian centers for "Ananda centers in Italy"', async () => {
+      console.log(`Running test: should mention Italian centers for Italy country query`);
+      const query = "Ananda centers in Italy";
+
+      const actualResponse = await getVivekLocationResponse(query);
+      const actualEmbedding = await getEmbedding(actualResponse);
+
+      const similarityToLocationResponses = getMaxSimilarity(actualEmbedding, locationResponseEmbeddings);
+
+      console.log(
+        `Query: "${query}"\nResponse: "${actualResponse}"\nSimilarity to Location Responses: ${similarityToLocationResponses}`
+      );
+
+      expect(similarityToLocationResponses).toBeGreaterThan(0.5);
+      const lower = actualResponse.toLowerCase();
+      expect(lower).toMatch(/ananda|center|group|europa|nocera|umbria/);
+      const mentionsNoceraOrEuropa = lower.includes("nocera") || lower.includes("europa");
+      expect(mentionsNoceraOrEuropa).toBe(true);
     });
   });
 

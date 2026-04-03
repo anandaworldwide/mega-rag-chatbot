@@ -24,6 +24,7 @@ import fetch from "node-fetch";
 import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
 import { getEmbedding, cosineSimilarity } from "../../utils/embeddingUtils";
+import { TitleScopeFilterConflictPayload, TitleScopeSuggestion } from "@/types/titleScope";
 
 // Skip all tests unless running with explicit flag
 const runSemanticTests = process.env.RUN_SEMANTIC_TESTS === "true";
@@ -45,13 +46,30 @@ const CANONICAL_REJECTIONS = [
 // Precompute rejection embeddings (optional optimization, could be done once)
 let rejectionEmbeddings: number[][] = [];
 
+interface RequestOverrides {
+  collection?: string;
+  mediaTypes?: Record<string, boolean>;
+  selectedLibraries?: string[];
+  sourceCount?: number;
+  siteId?: string;
+  titleScope?: {
+    canonicalPrefix?: string;
+    displayTitle?: string;
+    userInput?: string;
+  };
+}
+
 testRunner("Luca Response Semantic Validation (ananda)", () => {
   // Fetch embeddings for canonical rejections once before tests run
   beforeAll(async () => {
     rejectionEmbeddings = await Promise.all(CANONICAL_REJECTIONS.map((text) => getEmbedding(text)));
   });
 
-  const getLucaResponse = async (query: string, history: any[] = []): Promise<string> => {
+  const getLucaResponse = async (
+    query: string,
+    history: any[] = [],
+    requestOverrides: RequestOverrides = {}
+  ): Promise<string> => {
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
     const endpoint = `${baseUrl}/api/chat/v1`;
 
@@ -68,6 +86,7 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
       sourceCount: 3, // Default source count
       siteId: "ananda", // Identify the target site
       uuid: uuid, // Required UUID for conversation tracking
+      ...requestOverrides,
     };
 
     // Generate a fresh token for this request
@@ -133,9 +152,16 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
     sourceDocs: any[];
     suppressSources: boolean;
     hasMarker: boolean; // Check if marker leaked through (should be false)
+    error?: string;
+    titleScopeSuggestions: TitleScopeSuggestion[];
+    filterConflict: TitleScopeFilterConflictPayload | null;
   }
 
-  const getLucaResponseWithMetadata = async (query: string, history: any[] = []): Promise<StreamingResult> => {
+  const getLucaResponseWithMetadata = async (
+    query: string,
+    history: any[] = [],
+    requestOverrides: RequestOverrides = {}
+  ): Promise<StreamingResult> => {
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
     const endpoint = `${baseUrl}/api/chat/v1`;
 
@@ -149,6 +175,7 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
       sourceCount: 3,
       siteId: "ananda",
       uuid: uuid,
+      ...requestOverrides,
     };
 
     const token = generateTestToken();
@@ -171,6 +198,9 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
     let extractedText = "";
     let sourceDocs: any[] = [];
     let suppressSources = false;
+    let errorMessage: string | undefined;
+    let titleScopeSuggestions: TitleScopeSuggestion[] = [];
+    let filterConflict: TitleScopeFilterConflictPayload | null = null;
 
     if (response.headers.get("content-type")?.includes("text/event-stream")) {
       const lines = responseText.trim().split("\n");
@@ -188,6 +218,15 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
                 suppressSources = true;
               }
             }
+            if (data.error) {
+              errorMessage = data.error;
+            }
+            if (data.titleScopeSuggestions) {
+              titleScopeSuggestions = data.titleScopeSuggestions;
+            }
+            if (data.filterConflict) {
+              filterConflict = data.filterConflict;
+            }
           } catch (_err) {
             // Skip malformed lines
           }
@@ -203,6 +242,9 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
       sourceDocs,
       suppressSources,
       hasMarker,
+      error: errorMessage,
+      titleScopeSuggestions,
+      filterConflict,
     };
   };
 
@@ -704,6 +746,85 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
         expect(similarityToRejection).toBeLessThan(dissimilarityThreshold);
       }
     );
+  });
+
+  describe("Source Scope Questions", () => {
+    test.concurrent("should answer semantically from Matthew 5 when that source scope is selected", async () => {
+      console.log(`Running test: should answer semantically from Matthew 5 when that source scope is selected`);
+      const query = "In this source, what is said about the meek?";
+      const actualResponse = await getLucaResponse(query, [], {
+        titleScope: { userInput: "Bible Matthew 5" },
+      });
+      const actualEmbedding = await getEmbedding(actualResponse);
+
+      const canonicalResponses = [
+        "Jesus says that the meek are blessed and will inherit the earth.",
+        "In Matthew 5, the meek are called blessed in the Beatitudes.",
+      ];
+      const canonicalEmbeddings = await Promise.all(canonicalResponses.map((text) => getEmbedding(text)));
+      const similarityToCanonicals = getMaxSimilarity(actualEmbedding, canonicalEmbeddings);
+      const similarityToRejection = getMaxSimilarity(actualEmbedding, rejectionEmbeddings);
+
+      console.log(
+        `Query: "${query}"\nResponse: "${actualResponse}"\nSimilarity to Canonicals: ${similarityToCanonicals}\nSimilarity to Rejection: ${similarityToRejection}`
+      );
+
+      expect(similarityToCanonicals).toBeGreaterThanOrEqual(0.63);
+      expect(similarityToRejection).toBeLessThan(0.6);
+      expect(actualResponse).toMatch(/meek|blessed|inherit the earth/i);
+    });
+
+    test.concurrent("should name the selected source directly on a scoped miss", async () => {
+      console.log(`Running test: should name the selected source directly on a scoped miss`);
+      const query = "What direct teachings does Lahiri Mahasaya give in this source about destiny?";
+      const result = await getLucaResponseWithMetadata(query, [], {
+        titleScope: { userInput: "Bible Matthew 5" },
+      });
+      const actualResponse = result.text;
+      const actualEmbedding = await getEmbedding(actualResponse);
+
+      const expectedResponseCanonical = [
+        "Since you are filtering to Bible content, I am not seeing Lahiri Mahasaya material in the current search. The Bible: New Testament: Book of Matthew: Chapter 5 does not contain direct teachings from Lahiri Mahasaya on destiny.",
+        "The Bible: New Testament: Book of Matthew: Chapter 5 does not contain direct teachings from Lahiri Mahasaya on this point, so you would need to broaden the current source scope to find his teachings.",
+      ];
+      const unexpectedResponseCanonical = [
+        "Broader teachings discuss Lahiri Mahasaya's view even if this source does not.",
+        "Related spiritual texts say Lahiri Mahasaya taught about destiny in other places.",
+      ];
+
+      const expectedEmbeddings = await Promise.all(expectedResponseCanonical.map(getEmbedding));
+      const unexpectedEmbeddings = await Promise.all(unexpectedResponseCanonical.map(getEmbedding));
+      const similarityToExpected = getMaxSimilarity(actualEmbedding, expectedEmbeddings);
+      const similarityToUnexpected = getMaxSimilarity(actualEmbedding, unexpectedEmbeddings);
+
+      console.log(
+        `Query: "${query}"\nResponse: "${actualResponse}"\nSimilarity to Expected (Scoped Miss): ${similarityToExpected}\nSimilarity to Unexpected (Broader Drift): ${similarityToUnexpected}`
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(similarityToExpected).toBeGreaterThanOrEqual(0.72);
+      expect(similarityToUnexpected).toBeLessThan(0.8);
+      expect(actualResponse).toMatch(/Matthew|Chapter 5|Bible:\s*New Testament/i);
+      expect(actualResponse).toMatch(/does not contain direct teachings from Lahiri Mahasaya/i);
+      expect(actualResponse).not.toMatch(/broader teachings|related spiritual texts/i);
+    });
+
+    test.concurrent("should return title scope suggestions for ambiguous source scope input", async () => {
+      console.log(`Running test: should return title scope suggestions for ambiguous source scope input`);
+      const result = await getLucaResponseWithMetadata("What does this source say about devotion?", [], {
+        titleScope: { userInput: "Chapter 1" },
+      });
+
+      console.log(
+        `Response error: "${result.error}"\nSuggestion count: ${result.titleScopeSuggestions.length}\nSuggestions: ${result.titleScopeSuggestions
+          .map((suggestion) => suggestion.displayTitle)
+          .join(" | ")}`
+      );
+
+      expect(result.error).toMatch(/matches multiple titles/i);
+      expect(result.titleScopeSuggestions.length).toBeGreaterThan(0);
+      expect(result.titleScopeSuggestions.every((suggestion) => suggestion.displayTitle.length > 0)).toBe(true);
+    });
   });
 
   describe("Source Suppression Tests", () => {

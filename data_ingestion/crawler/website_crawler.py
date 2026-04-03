@@ -106,6 +106,9 @@ DEFAULT_PAGE_TIMEOUT_MS = 30000  # 30 seconds
 NETWORK_IDLE_TIMEOUT_MS = 15000  # 15 seconds for network idle
 CSV_TIMEOUT_MS = 30000  # 30 seconds for CSV downloads
 
+SQLITE_NORMALIZED_NEXT_CRAWL = "datetime(replace(substr(next_crawl,1,19),'T',' '))"
+SQLITE_NORMALIZED_RETRY_AFTER = "datetime(replace(substr(retry_after,1,19),'T',' '))"
+
 # Configure logging defaults (main() will override with _configure_logging()).
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
@@ -169,6 +172,7 @@ class WebsiteCrawler:
         self.csv_mode_enabled = bool(self.csv_export_url)
         self.force_csv_mode = False  # Set to True via --force-csv-mode flag
         self._csv_force_used = False  # Track if force bypass has been used once
+        self._startup_csv_check_completed = False
         self.initial_crawl_completed = False
 
     def _init_robots_config(self, skip_init: bool) -> None:
@@ -370,15 +374,15 @@ class WebsiteCrawler:
             self.conn.commit()
         else:
             # Get breakdown of what's available for crawling
-            self.cursor.execute("""
+            self.cursor.execute(f"""
             SELECT COUNT(*) FROM crawl_queue 
-            WHERE status = 'pending' AND (retry_after IS NULL OR retry_after <= datetime('now'))
+            WHERE status = 'pending' AND (retry_after IS NULL OR {SQLITE_NORMALIZED_RETRY_AFTER} <= datetime('now'))
             """)
             pending_ready = self.cursor.fetchone()[0]
 
-            self.cursor.execute("""
+            self.cursor.execute(f"""
             SELECT COUNT(*) FROM crawl_queue 
-            WHERE status = 'visited' AND next_crawl <= datetime('now')
+            WHERE status = 'visited' AND {SQLITE_NORMALIZED_NEXT_CRAWL} <= datetime('now')
             """)
             stale_count = self.cursor.fetchone()[0]
 
@@ -590,19 +594,19 @@ class WebsiteCrawler:
             iteration = 0
             while iteration < max_iterations:
                 iteration += 1
-                self.cursor.execute("""
+                self.cursor.execute(f"""
                 SELECT url FROM crawl_queue 
                 WHERE (
-                    (status = 'pending' AND (retry_after IS NULL OR retry_after <= datetime('now'))) 
+                    (status = 'pending' AND (retry_after IS NULL OR {SQLITE_NORMALIZED_RETRY_AFTER} <= datetime('now'))) 
                     OR 
-                    (status = 'visited' AND next_crawl <= datetime('now'))
+                    (status = 'visited' AND {SQLITE_NORMALIZED_NEXT_CRAWL} <= datetime('now'))
                 )
                 ORDER BY 
                     priority DESC,           -- Highest priority first
                     status = 'pending' DESC,  -- Prioritize pending URLs first
                     last_crawl IS NULL DESC,  -- Then new URLs
                     retry_count ASC,         -- Then URLs with fewer retries
-                    next_crawl ASC,          -- Then URLs due longest ago
+                    {SQLITE_NORMALIZED_NEXT_CRAWL} ASC,  -- Then URLs due longest ago
                     url ASC                  -- Finally alphabetical for consistency
                 LIMIT 1
                 """)
@@ -669,19 +673,19 @@ class WebsiteCrawler:
         assert self.cursor is not None
         try:
             self.cursor.execute(
-                """
+                f"""
                 SELECT url FROM crawl_queue
                 WHERE (
-                    (status = 'pending' AND (retry_after IS NULL OR retry_after <= datetime('now')))
+                    (status = 'pending' AND (retry_after IS NULL OR {SQLITE_NORMALIZED_RETRY_AFTER} <= datetime('now')))
                     OR
-                    (status = 'visited' AND next_crawl <= datetime('now'))
+                    (status = 'visited' AND {SQLITE_NORMALIZED_NEXT_CRAWL} <= datetime('now'))
                 )
                 ORDER BY
                     priority DESC,
                     status = 'pending' DESC,
                     last_crawl IS NULL DESC,
                     retry_count ASC,
-                    next_crawl ASC,
+                    {SQLITE_NORMALIZED_NEXT_CRAWL} ASC,
                     url ASC
                 LIMIT 1
                 """
@@ -997,11 +1001,11 @@ class WebsiteCrawler:
                 stats["total"] += count
 
             # Count pending URLs with retry_after in the future
-            self.cursor.execute("""
+            self.cursor.execute(f"""
             SELECT COUNT(*) FROM crawl_queue 
             WHERE status = 'pending' 
             AND retry_after IS NOT NULL 
-            AND retry_after > datetime('now')
+            AND {SQLITE_NORMALIZED_RETRY_AFTER} > datetime('now')
             """)
             stats["pending_retry"] = self.cursor.fetchone()[0]
 

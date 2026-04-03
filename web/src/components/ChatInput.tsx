@@ -26,11 +26,19 @@ import styles from "@/styles/Home.module.css";
 import SuggestedQueries from "@/components/SuggestedQueries";
 import { FilterDropdown } from "@/components/FilterDropdown";
 import { TaskPopover } from "@/components/TaskPopover";
+import { FilterConflictCard } from "@/components/FilterConflictCard";
+import { TitleScopePicker } from "@/components/TitleScopePicker";
 import { SiteConfig } from "@/types/siteConfig";
 import { getEnableSuggestedQueries } from "@/utils/client/siteConfig";
 import { logEvent } from "@/utils/client/analytics";
 import { getOrCreateUUID } from "@/utils/client/uuid";
 import { FirestoreIndexError, useFirestoreIndexError } from "@/components/FirestoreIndexError";
+import {
+  FilterConflictAction,
+  TitleScopeFilterConflictPayload,
+  TitleScopeSelection,
+  TitleScopeSuggestion,
+} from "@/types/titleScope";
 
 // Define the props interface for the ChatInput component
 interface ChatInputProps {
@@ -63,6 +71,13 @@ interface ChatInputProps {
   showTemporarySessionOptions?: boolean;
   sourceCount: number;
   setSourceCount: (count: number) => void;
+  selectedTitleScope: TitleScopeSelection | null;
+  setSelectedTitleScope: (scope: TitleScopeSelection | null) => void;
+  titleScopeSuggestions?: TitleScopeSuggestion[];
+  titleScopeError?: string | null;
+  filterConflict?: TitleScopeFilterConflictPayload | null;
+  onApplyFilterConflictAction?: (action: FilterConflictAction) => void;
+  onDismissFilterConflict?: () => void;
   onTemporarySessionChange?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   categorizedQueries?: { general: string[]; location: string[]; resources: string[] } | null;
   shouldShowSuggestions?: boolean; // Hide suggestions after first question
@@ -103,6 +118,13 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onTemporarySessionChange,
   sourceCount,
   setSourceCount,
+  selectedTitleScope,
+  setSelectedTitleScope,
+  titleScopeSuggestions = [],
+  titleScopeError = null,
+  filterConflict = null,
+  onApplyFilterConflictAction,
+  onDismissFilterConflict,
   categorizedQueries,
   shouldShowSuggestions = true,
   onTaskSubmit,
@@ -258,7 +280,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     handleClick(q);
   };
 
-
   // Dynamic placeholder text based on conversation state
   const placeholderText = shouldShowSuggestions ? "Ask a question..." : "Ask a follow-up question...";
 
@@ -274,7 +295,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   // Render the chat input interface
   return (
-    <div className={`${styles.center} w-full mt-2 md:mt-4 px-2 md:px-0`}>
+    <div
+      className={`${styles.center} w-full px-2 md:px-0 ${shouldShowSuggestions ? "mt-0" : "mt-2 md:mt-4"}`}
+    >
       <div className="w-full">
         <form onSubmit={onSubmit}>
           {/* Temporary session indicator - hidden on mobile to save screen real estate (primary banner is in index.tsx) */}
@@ -349,9 +372,20 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             </div>
 
             {/* Options row inside input box */}
-            <div className="flex gap-2 items-center px-3 py-2">
+            <div className="flex flex-wrap gap-2 items-center px-3 py-2">
               {/* Task Popover - only show if tasks are enabled and handler provided */}
               {onTaskSubmit && <TaskPopover siteConfig={siteConfig} onTaskSubmit={onTaskSubmit} />}
+
+              {/* Source scope picker */}
+              {siteConfig?.enableTitleScopeSelection && (
+                <TitleScopePicker
+                  disabled={disabled || loading}
+                  value={selectedTitleScope}
+                  onChange={setSelectedTitleScope}
+                  externalSuggestions={titleScopeSuggestions}
+                  externalError={titleScopeError}
+                />
+              )}
 
               {/* Content Filters - media types, authors, libraries, extra sources */}
               <FilterDropdown
@@ -367,6 +401,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               />
             </div>
           </div>
+
+          {filterConflict && onApplyFilterConflictAction ? (
+            <FilterConflictCard
+              payload={filterConflict}
+              onApplyAction={onApplyFilterConflictAction}
+              onDismiss={onDismissFilterConflict}
+            />
+          ) : null}
 
           {/* Error display */}
           {error &&

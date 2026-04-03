@@ -14,7 +14,7 @@ actual ingestion scripts.
 1. **Test Environment**: Set up a dedicated test environment (e.g., `.env.test`)
 2. **Test Pinecone Index**: Create a separate Pinecone index for testing
 3. **Test Data**: Ensure the specified test files are available
-4. **Dependencies**: Install all required dependencies (`pip install -r requirements.txt`)
+4. **Dependencies**: Install all required dependencies (`uv sync --locked --package mega-rag-chatbot --package mega-rag-chatbot-crawler`)
 
 ## Test Environment Setup
 

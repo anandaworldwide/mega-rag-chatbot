@@ -8,6 +8,61 @@ import { createIndexErrorResponse } from "@/utils/server/firestoreIndexErrorHand
 import { withJwtOrCronAuth } from "@/utils/server/cronAuthUtils";
 import { unescapeName } from "@/utils/shared/nameUtils";
 
+type DigestSample = {
+  target?: string;
+  outcome?: string;
+  firstName?: string;
+  lastName?: string;
+  invitedByEmail?: string;
+  invitedByName?: string;
+};
+
+type AccessSourceContext = {
+  auditCollection: string;
+};
+
+function formatAdminIdentity(sample: DigestSample): string | null {
+  if (sample.invitedByName && sample.invitedByEmail) {
+    return `${sample.invitedByName} (${sample.invitedByEmail})`;
+  }
+
+  return sample.invitedByName || sample.invitedByEmail || null;
+}
+
+async function resolveAccessSourceText(sample: DigestSample, ctx: AccessSourceContext): Promise<string | null> {
+  const email = sample.target;
+  if (!email || !db) return null;
+
+  const inviterIdentity = formatAdminIdentity(sample);
+  if (inviterIdentity) {
+    try {
+      const adminAccessSnap = await db
+        .collection(ctx.auditCollection)
+        .where("target", "==", email)
+        .where("action", "in", ["admin_add_user", "admin_approval_approve"])
+        .orderBy("createdAt", "desc")
+        .limit(1)
+        .get();
+
+      if (!adminAccessSnap.empty) {
+        const adminAccessEntry = adminAccessSnap.docs[0]?.data() as { action?: string } | undefined;
+        if (adminAccessEntry?.action === "admin_add_user") {
+          return `invited by admin ${inviterIdentity}`;
+        }
+        if (adminAccessEntry?.action === "admin_approval_approve") {
+          return `approved by admin ${inviterIdentity}`;
+        }
+      }
+    } catch (error) {
+      console.warn(`Failed to resolve admin access source for ${email}:`, error);
+    }
+
+    return `granted by admin ${inviterIdentity}`;
+  }
+
+  return "matched pre-approved domain";
+}
+
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST" && req.method !== "GET") return res.status(405).json({ error: "Method not allowed" });
 
@@ -53,12 +108,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     let activationEmailsSent = 0;
     let activationsCompleted = 0;
     let errors = 0;
-    const samples: Array<{
-      target?: string;
-      outcome?: string;
-      firstName?: string;
-      lastName?: string;
-    }> = [];
+    const samples: DigestSample[] = [];
 
     // First pass: count self-provision outcomes (for activation emails sent)
     const emailsToLookup: string[] = [];
@@ -88,8 +138,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
     });
 
-    // Third pass: fetch actual user data for names only (not status)
-    const userDataMap = new Map<string, { firstName?: string; lastName?: string }>();
+    // Third pass: fetch actual user data for names and access provenance fields.
+    const userDataMap = new Map<
+      string,
+      { firstName?: string; lastName?: string; invitedByEmail?: string; invitedByName?: string }
+    >();
     if (emailsToLookup.length > 0) {
       try {
         const userCollection = process.env.NODE_ENV === "production" ? "prod_users" : "dev_users";
@@ -106,7 +159,14 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
               userDataMap.set(emailsToLookup[index], {
                 firstName: unescapeName(userData.firstName),
                 lastName: unescapeName(userData.lastName),
-                // Don't include inviteStatus - use audit entry outcome instead
+                invitedByEmail:
+                  typeof userData.invitedByEmail === "string" && userData.invitedByEmail.trim()
+                    ? userData.invitedByEmail
+                    : undefined,
+                invitedByName:
+                  typeof userData.invitedByName === "string" && userData.invitedByName.trim()
+                    ? unescapeName(userData.invitedByName)
+                    : undefined,
               });
             }
           }
@@ -122,20 +182,25 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         const userData = userDataMap.get(sample.target);
         sample.firstName = userData?.firstName;
         sample.lastName = userData?.lastName;
-        // Don't set inviteStatus - use audit entry outcome instead
+        sample.invitedByEmail = userData?.invitedByEmail;
+        sample.invitedByName = userData?.invitedByName;
       }
     });
 
+    const sampleAccessSources = await Promise.all(
+      samples.map(async (sample) => ({
+        email: sample.target,
+        accessSourceText: await resolveAccessSourceText(sample, { auditCollection: collection }),
+      }))
+    );
+    const accessSourceByEmail = new Map(
+      sampleAccessSources
+        .filter((item): item is { email: string; accessSourceText: string } => !!item.email && !!item.accessSourceText)
+        .map((item) => [item.email, item.accessSourceText])
+    );
+
     // Format samples in a user-friendly way
-    const formatSamples = (
-      samples: Array<{
-        target?: string;
-        outcome?: string;
-        firstName?: string;
-        lastName?: string;
-      }>,
-      totalCount: number
-    ) => {
+    const formatSamples = (samples: DigestSample[], totalCount: number) => {
       if (samples.length === 0) return "No activity in the last 24 hours.";
 
       const samplesList = samples
@@ -156,8 +221,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
               activation_completed: "Account activated",
               server_error: "Server error occurred",
             }[outcome] || outcome;
+          const accessSourceText = email ? accessSourceByEmail.get(email) : null;
 
-          return `${index + 1}. ${displayName} (${email}) - ${statusText}`;
+          return accessSourceText
+            ? `${index + 1}. ${displayName} (${email}) - ${statusText} - ${accessSourceText}`
+            : `${index + 1}. ${displayName} (${email}) - ${statusText}`;
         })
         .join("\n");
 

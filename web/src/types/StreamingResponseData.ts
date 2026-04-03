@@ -1,5 +1,6 @@
 import { Document } from "@langchain/core/documents";
 import { TypedSuggestion } from "./Suggestion";
+import { TitleScopeFilterConflictPayload, TitleScopeSuggestion } from "./titleScope";
 
 // Force TypeScript cache invalidation
 export interface StreamingResponseData {
@@ -26,5 +27,8 @@ export interface StreamingResponseData {
     firstTokenGenerated?: number;
   };
   suggestions?: TypedSuggestion[]; // Follow-up question suggestions as typed items (deeper/broader)
+  titleScopeSuggestions?: TitleScopeSuggestion[];
+  /** Present when selected source cannot match current author/library/media filters. */
+  filterConflict?: TitleScopeFilterConflictPayload;
   log?: string;
 }

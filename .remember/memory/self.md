@@ -26,6 +26,163 @@
 - Explicit `--webpack` is the safest narrow fix when the repo already depends on webpack behavior
 - A successful Next 16 build may also require `tsconfig.json` updates such as `jsx: "react-jsx"` and including `.next/dev/types/**/*.ts`
 
+### UV Repos Need Plain `.python-version` Pins And A Minimum UV Version
+
+**Rule**: When a repo uses `uv` as the Python workflow, `.python-version` should contain a plain interpreter version like
+`3.11`, not a custom pyenv virtualenv name, and the repo should declare `tool.uv.required-version` when it depends on
+newer UV config features.
+
+**Wrong**:
+
+```text
+# .python-version
+mega-rag-chatbot-3.11
+```
+
+```toml
+[tool.uv]
+exclude-newer = "7 days"
+```
+
+**Correct**:
+
+```text
+# .python-version
+3.11
+```
+
+```toml
+[tool.uv]
+required-version = ">=0.11.3"
+exclude-newer = "7 days"
+```
+
+**Why This Matters**:
+
+- Older `uv` versions can fail to parse relative `exclude-newer` values like `"7 days"`
+- Custom pyenv environment names in `.python-version` are not portable for `uv` and can make it fall back to the wrong
+  interpreter
+- Plain version pins work with `uv`, `actions/setup-python`, and local toolchains consistently
+
+### Do Not Override Seven-Day Dependency Cooldowns
+
+**Rule**: When the user has set a dependency cooldown like `exclude-newer = "7 days"` or `.npmrc` `min-release-age=7`,
+do not add package-specific exceptions to bypass it.
+
+**Wrong**:
+
+```toml
+[tool.uv]
+exclude-newer = "7 days"
+exclude-newer-package = { requests = false, aiohttp = false }
+```
+
+**Correct**:
+
+```toml
+[tool.uv]
+exclude-newer = "7 days"
+```
+
+Use temporary audit ignores if a fixed version exists but is still inside the cooldown.
+
+**Why This Matters**:
+
+- The cooldown is a supply-chain security control, not a preference to quietly override
+- Punching holes in it defeats the user's explicit threat model
+- The safe fallback is to wait for the release to age or document a temporary audit ignore
+
+### Exported Requirements Import Sweeps Must Filter Direct Dependencies And Isolate Imports
+
+**Rule**: When validating a `uv export`-generated `requirements.txt`, do not import every pinned transitive dependency in
+process. Filter to direct dependencies and run each import in a subprocess so one crashing extension or bad package cannot
+take down the whole sweep.
+
+**Wrong**:
+
+```python
+for pkg in parse_requirements("requirements.txt"):
+    importlib.import_module(pkg.replace("-", "_"))
+```
+
+**Correct**:
+
+```python
+direct_packages = parse_exported_requirements(Path("requirements.txt"))
+for pkg in direct_packages:
+    subprocess.run([sys.executable, "-c", import_command], check=True)
+```
+
+**Why This Matters**:
+
+- `uv export` compatibility files include transitive dependencies, which creates false failures for packages the repo does not
+  directly validate
+- Native extensions like `numpy` can segfault the interpreter on import; subprocess isolation turns that into a readable
+  package-level failure instead of exit 139 with no context
+- Package names and import names often differ (`pdfminer-six` -> `pdfminer`, `pyjwt` -> `jwt`, etc.), so the sweep needs an
+  explicit mapping table
+
+### Dependency Annotation Parsing Must Match Exact Package Names
+
+**Rule**: When parsing dependency provenance annotations like `# via ...`, never use raw substring matching to decide whether
+an exported package is referenced. Parse the annotation into exact package names first.
+
+**Wrong**:
+
+```python
+annotation_blob = "\n".join(current_annotations)
+if any(exported_package in annotation_blob for exported_package in exported_packages):
+    direct_packages.append(current_package)
+```
+
+**Correct**:
+
+```python
+via_packages = extract_via_packages(current_annotations)
+if exported_packages & via_packages:
+    direct_packages.append(current_package)
+```
+
+**Why This Matters**:
+
+- Substring checks create false positives when one package name is contained inside another, like `my-config` and
+  `my-config-helper`
+- `uv export` comments need exact package-name semantics, not fuzzy text matching
+- A focused regression test should cover the substring case explicitly
+
+### Flex Scroll Layouts Need `min-h-0` On Parent Chains
+
+**Rule**: In column/row flex layouts with scrollable children like sidebars or message panes, add `min-h-0` to the
+relevant flex parents and the scroll region to prevent one pane's loaded content from re-sizing siblings.
+
+**Wrong**:
+
+```tsx
+<div className="flex h-full">
+  <aside className="w-72 flex flex-col">
+    <div className="flex-1 overflow-y-auto">{/* long list */}</div>
+  </aside>
+  <main className="flex-1">{/* centered content */}</main>
+</div>
+```
+
+**Correct**:
+
+```tsx
+<div className="flex h-full min-h-0">
+  <aside className="w-72 min-h-0 flex flex-col">
+    <div className="flex-1 min-h-0 overflow-y-auto">{/* long list */}</div>
+  </aside>
+  <main className="flex-1 min-h-0">{/* centered content */}</main>
+</div>
+```
+
+**Why This Matters**:
+
+- Prevents sidebar/history loads from pushing or re-centering the main panel
+- Keeps scroll behavior inside the intended pane
+- Avoids hard-to-debug layout shifts in full-height app shells
+
 ### 1. Document Migration Must Include All Validated Updates
 
 **Rule**: When migrating a Firestore document (e.g., changing email address as document ID), ALL validated updates must
@@ -1369,6 +1526,17 @@ aws ce get-cost-and-usage \
   --region us-east-1
 ```
 
+### Mistake: Assuming Major Features Apply To All Sites
+
+**Wrong**:
+Implementing a major user-facing feature across the multi-site app without first confirming whether it should be global
+or gated per site.
+
+**Correct**:
+Before implementing any major feature, explicitly ask whether it should apply to all sites or be configurable by site.
+Default to site-config gating when rollout scope is not already specified, especially because `ananda`/Luca is much more
+feature-rich than the simpler sites.
+
 ### 37. Auth Token Fetch Should Not Redirect Directly - Let AuthGuard Handle It
 
 **Problem**: When `fetchNewToken()` gets a 401 from `/api/web-token`, it immediately redirects via
@@ -2070,3 +2238,190 @@ PYENV_REHASH_DISABLE=1 python3.12 -m pip install --dry-run -r requirements.txt
 ```
 
 **Pattern**: If `piptools` complains that its cache directory is not writable, point `PIP_TOOLS_CACHE_DIR` at a workspace-local directory. If `pip --dry-run` ends with `pyenv: cannot rehash ... isn't writable`, inspect the output for a successful `Would install ...` line before treating it as a real dependency-resolution failure.
+
+### 53. Large Pinecone Analysis Scripts Must Stream to Disk
+
+**Wrong**: Collecting all vector IDs, fetched metadata rows, and derived prefix/title relationships in Python lists, dicts,
+and sets before summarizing.
+
+```python
+vector_ids = collect_all_ids(index)
+rows = fetch_all_metadata(index, vector_ids)
+catalog = build_catalog(rows)  # huge in-memory maps of prefixes -> titles
+```
+
+**Correct**: Stream Pinecone batches and aggregate into a disk-backed SQLite database, then compute summaries from SQLite.
+
+```python
+connection = initialize_database(sqlite_path)
+for id_batch in index.list(limit=batch_size):
+    fetch_response = index.fetch(ids=id_batch)
+    upsert_batch_into_database(connection, batch_rows)
+
+summary = build_summary(connection, scan_stats, top_n, ambiguity_limit)
+```
+
+**Pattern**: For high-cardinality analysis jobs, treat batch streaming plus disk-backed aggregation as the default design,
+not a later optimization. Keep only per-batch counters/sets in memory.
+
+### Mistake: SQLite GROUP_CONCAT(DISTINCT … ORDER BY …)
+
+**Wrong**: `GROUP_CONCAT(DISTINCT col ORDER BY col)` — SQLite rejects it (`near "ORDER": syntax error`).
+
+**Correct**: Use `GROUP_CONCAT(DISTINCT col)` and sort/dedupe in application code, or use a subquery.
+
+### Mistake: Reading Pinecone Filters As Top-Level Fields
+
+**Wrong**: Assuming a request filter like media types is available directly on `filter.type` when the real Pinecone
+filter shape is often nested under `filter.$and`.
+
+**Correct**: When extracting active constraints from a Pinecone filter for logging, prompts, or fallback messaging,
+inspect both the top-level object and nested `$and` clauses.
+
+### 54. Unlaunched Features — No Schema Back-Compat in Code
+
+**Wrong**: Keeping runtime fallbacks for “older” artifacts (e.g. optional `availability` on title catalog entries, returning
+`null` to skip conflict detection) when the feature was never launched.
+
+**Correct**: Require the current artifact/schema in types, validate at load, throw a dedicated error (e.g.
+`TitleCatalogDataError`) with rebuild instructions, and surface it through the chat SSE `error` field. Operators refresh
+artifacts once; the codebase stays single-path.
+
+### 55. lint-staged Validates The Git Index, Not Just The Working Tree
+
+**Wrong**: Fixing lint errors in the working tree, then retrying commit without re-staging the modified files.
+
+```bash
+# Working tree is fixed, but staged snapshot is stale
+git commit
+# pre-commit still reports the old lint errors
+```
+
+**Correct**: After fixing files that already had staged changes, re-stage those files so the git index matches the working tree
+before retrying the commit.
+
+```bash
+git add path/to/fixed-file.tsx
+git add path/to/another-fixed-file.tsx
+git commit
+```
+
+### 56. Next.js Multi-Lockfile Root Detection Warning
+
+**Problem**: Next.js can infer the wrong workspace root when multiple lockfiles exist above the app directory, producing
+warnings and tracing from an unrelated parent directory.
+
+**Wrong**: Relying on inferred root detection in `web/next.config.*`.
+
+```javascript
+export default {
+  reactStrictMode: true,
+};
+```
+
+**Correct**: Set `outputFileTracingRoot` explicitly to the repository root.
+
+```javascript
+const repoRoot = path.join(__dirname, "..");
+
+export default {
+  reactStrictMode: true,
+  outputFileTracingRoot: repoRoot,
+};
+```
+
+**Pattern**: In this repo, keep `outputFileTracingRoot` pinned to the monorepo root so Next.js does not walk upward to an
+unrelated lockfile in the home directory.
+
+### Mistake: Source-Scoped Prompt Fallbacks Were Too Vague
+
+**Wrong**: When a user scoped to a specific source, adding only generic filter-awareness wording like "name the limiting
+filter" still allowed the model to pivot into "broader teachings" or "related spiritual texts" instead of naming the
+scoped source that lacked the requested teaching.
+
+**Correct**: For source-scoped prompts, explicitly instruct the model to treat the selected source as the intended corpus,
+state that source by name on misses, and forbid fallback phrasing that implies broader material answered the question.
+
+### Mistake: Prompt Quote Rules Allowed Paraphrase-As-Verbatim
+
+**Wrong**: Telling the model to provide direct quotes without also forbidding invented or cleaned-up wording created room
+for poetic paraphrases to be presented as verbatim source text.
+
+**Correct**: When a prompt permits quoting, add an explicit integrity rule: quotation marks are only for exact source
+wording; if exact wording cannot be verified from the provided text/transcript, the model must paraphrase without quotes
+or say it cannot verify a verbatim passage.
+
+### Mistake: Hook Dependencies Referencing Later `const` Functions
+
+**Wrong**: Defining a `useCallback` or `useEffect` earlier in a component and referencing a helper declared later with
+`const`, which triggers `ReferenceError: Cannot access '...' before initialization` during render when the dependency array
+is evaluated.
+
+**Correct**: Either move the helper declaration above the hook that depends on it, or avoid `const` TDZ by restructuring
+the helper/hook order so dependency arrays never read not-yet-initialized bindings.
+
+### Mistake: Fixing One SSE Handler But Not Parallel Ones
+
+**Wrong**: Updating the primary SSE response handler to perform a side effect like setting `convId`, pushing the chat URL,
+adding a sidebar row, or updating the AI-generated title, while forgetting that a secondary SSE handler (such as
+regenerate/retry) receives the same events and must apply the same UI state transitions.
+
+**Correct**: When the same SSE event type is consumed in multiple client handlers, either share one helper for the side
+effects or explicitly mirror the full set of required UI updates in each handler.
+
+### Mistake: Persisting Fuzzy Input Instead Of Canonical Selection
+
+**Wrong**: Saving only the user's original typed text for a resolved picker/autocomplete selection, even after the backend
+has already resolved it to a canonical identifier.
+
+**Correct**: Persist the canonical identifier and canonical display label for restoration, and keep the original typed text
+only as optional `userInput` metadata.
+
+### Mistake: Semantic Tests Using Unresolvable Source-Scope Inputs
+
+**Wrong**: Writing live source-scope semantic tests around example inputs from planning docs (for example `Bible Genesis`)
+without first confirming that the current site's title catalog resolves that input.
+
+**Correct**: For live semantic tests, use source-scope inputs that are known to resolve on the target site, or explicitly
+assert the SSE error/suggestion path when the input is intentionally unresolvable or ambiguous.
+
+### Mistake: CSV Startup Checks After Queue-Empty Early Exit
+
+**Wrong**: Returning early from a crawler run when `peek_next_url_to_crawl()` is empty before running the startup CSV check.
+
+**Correct**: For CSV-enabled sites, perform the startup CSV check first, then exit only if the queue is still empty after
+CSV processing. Add a focused test to cover the empty-queue + CSV-enabled path.
+
+### Mistake: Fixed GB Memory Thresholds On Small Hosts
+
+**Wrong**: Treating browser-launch memory pressure as a hardcoded absolute threshold such as `available_gb < 1.5`, which
+produces misleading low-memory warnings on smaller machines like 2 GB instances.
+
+**Correct**: Use a relative threshold based on available-memory percentage (for example `<25% free`) so warnings reflect
+actual pressure across different host sizes.
+
+### Mistake: Comparing ISO SQLite Timestamps To `datetime('now')` Without Normalization
+
+**Wrong**: Comparing stored timestamps like `2026-03-28T22:52:29.637057` directly against SQLite `datetime('now')` using
+clauses like `next_crawl <= datetime('now')` or `retry_after > datetime('now')`.
+
+**Correct**: Normalize stored ISO timestamps inside SQLite queries first, e.g.
+`datetime(replace(substr(next_crawl,1,19),'T',' '))`, before comparing to `datetime('now')`. Apply the same normalization
+for `retry_after` so queue stats and due-selection logic agree with the actual DB state.
+
+### Mistake: Fresh-Chat Filter Resets Based On URL Alone
+
+**Wrong**: Treating `path === "/"` and a missing `convId` as sufficient proof that the app is in a true fresh-chat state,
+then resetting retrieval filters immediately.
+
+**Correct**: Only run fresh-chat filter resets when the conversation is actually empty, e.g. greeting-only messages plus
+empty history. During active requests or retry handoffs, `/` plus no `convId` can still represent an in-progress
+conversation.
+
+### Mistake: Source-Scope Canonical Keys Need Normalized Matching
+
+**Wrong**: Requiring source-scope `canonicalPrefix` strings to match title-catalog expansion keys exactly, including
+spacing around hierarchy delimiters like `::`.
+
+**Correct**: When resolving a persisted or source-card-selected source scope, normalize both the requested canonical prefix
+and catalog keys before concluding the source is unavailable. Use the normalized-equivalent catalog key if it exists.

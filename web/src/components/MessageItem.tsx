@@ -16,6 +16,7 @@ import { TypedSuggestion } from "@/types/Suggestion";
 
 import { useSudo } from "@/contexts/SudoContext";
 import { Components } from "react-markdown";
+import { TitleScopeSelection } from "@/types/titleScope";
 
 interface MessageItemProps {
   message: ExtendedAIMessage;
@@ -49,6 +50,8 @@ interface MessageItemProps {
   sourceLinkCopied?: string | null; // Source ID that was copied (for visual feedback)
   onSourceExpanded?: (index: number) => void; // Callback when source should be expanded (for deep linking)
   onSourceLinkCopied?: (sourceId: string) => void; // Callback when source link is copied
+  activeTitleScope?: TitleScopeSelection | null;
+  onFocusSourceScope?: (scope: TitleScopeSelection) => void;
   isTaskConversation?: boolean; // Whether current conversation started from a task
   taskFollowups?: string[]; // Static task follow-up suggestions (from task definition)
   dynamicFollowups?: string[]; // AI-generated context-specific follow-ups
@@ -88,6 +91,8 @@ const MessageItem: React.FC<MessageItemProps> = ({
   sourceLinkCopied,
   onSourceExpanded,
   onSourceLinkCopied,
+  activeTitleScope = null,
+  onFocusSourceScope,
   isTaskConversation = false,
   taskFollowups = [],
   dynamicFollowups = [],
@@ -124,6 +129,8 @@ const MessageItem: React.FC<MessageItemProps> = ({
             sourceLinkCopied={sourceLinkCopied}
             onSourceExpanded={onSourceExpanded}
             onSourceLinkCopied={onSourceLinkCopied}
+            activeTitleScope={activeTitleScope}
+            onFocusSourceScope={onFocusSourceScope}
           />
         </div>
       );

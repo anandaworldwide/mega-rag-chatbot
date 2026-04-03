@@ -87,6 +87,8 @@ references to detailed implementation documentation.
 
 **📖 [Chunking Strategy Implementation](chunking-strategy.md)**
 
+**📖 [Title Scope Ingestion Guide](title-scope-ingestion-guide.md)**
+
 The chunking-strategy.md document contains the authoritative and up-to-date information on:
 
 - **Current Implementation**: spaCy word-based token chunking strategy

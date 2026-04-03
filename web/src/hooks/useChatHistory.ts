@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { fetchWithAuth } from "@/utils/client/tokenManager";
 import { getOrCreateUUID } from "@/utils/client/uuid";
+import { TitleScopeSelection } from "@/types/titleScope";
 
 export interface ChatHistoryItem {
   id: string;
@@ -9,6 +10,10 @@ export interface ChatHistoryItem {
   timestamp: any; // Firestore timestamp
 
   collection: string;
+  mediaTypes?: { text?: boolean; audio?: boolean; youtube?: boolean };
+  selectedLibraries?: string[];
+  sourceCount?: number;
+  titleScope?: TitleScopeSelection | null;
   convId?: string;
   title?: string; // AI-generated title
   sources?: string; // JSON string of source documents

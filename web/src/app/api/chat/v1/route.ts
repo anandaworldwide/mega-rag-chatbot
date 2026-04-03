@@ -76,6 +76,14 @@ import { generateTitle } from "@/utils/server/titleGeneration";
 import { firestoreUpdate } from "@/utils/server/firestoreRetryUtils";
 import { updateUserActivity } from "@/utils/server/userActivityUtils";
 import { ModelPerformanceRecordContext, ModelPerformanceTracker } from "@/utils/server/modelPerformanceUtils";
+import {
+  getTitleScopeFilterConflict,
+  resolveTitleScopeSelection,
+  TitleCatalogDataError,
+  TitleScopeResolutionError,
+} from "@/utils/server/titleCatalog";
+import { buildTitleScopeForPersistence } from "@/utils/server/titleScopePersistence";
+import { TitleScopeSelection } from "@/types/titleScope";
 
 export const runtime = "nodejs";
 export const maxDuration = 240;
@@ -128,6 +136,7 @@ interface ChatRequestBody {
   temporarySession?: boolean;
   mediaTypes?: Partial<MediaTypes>;
   selectedLibraries?: string[]; // selected content libraries to search
+  titleScope?: TitleScopeSelection;
   sourceCount?: number;
   siteId?: string;
   uuid: string; // required client UUID (persisted regardless of auth)
@@ -136,6 +145,11 @@ interface ChatRequestBody {
   taskMode?: string; // optional task mode for analytics (e.g., "class-planning", "research")
   taskFollowups?: string[]; // available task follow-up suggestions
   usedTaskFollowups?: string[]; // follow-ups that have been used
+  filterExplicitness?: {
+    collection?: boolean;
+    libraries?: boolean;
+    mediaTypes?: boolean;
+  };
 }
 
 interface ComparisonRequestBody extends ChatRequestBody {
@@ -230,12 +244,67 @@ async function validateAndPreprocessInput(
     return corsMiddleware.addCorsHeaders(response, req, siteConfig);
   }
   const sanitizedUuid = rawUuid;
+  const titleScope: unknown = requestBody.titleScope;
+  if (titleScope !== undefined && titleScope !== null) {
+    if (!siteConfig.enableTitleScopeSelection) {
+      const response = NextResponse.json({ error: "Title scope filtering is not enabled for this site" }, { status: 400 });
+      return corsMiddleware.addCorsHeaders(response, req, siteConfig);
+    }
+
+    if (typeof titleScope !== "object" || Array.isArray(titleScope)) {
+      const response = NextResponse.json({ error: "titleScope must be an object" }, { status: 400 });
+      return corsMiddleware.addCorsHeaders(response, req, siteConfig);
+    }
+    const titleScopeObject = titleScope as Record<string, unknown>;
+
+    const canonicalPrefix =
+      typeof titleScopeObject.canonicalPrefix === "string" ? titleScopeObject.canonicalPrefix.trim() : undefined;
+    const displayTitle =
+      typeof titleScopeObject.displayTitle === "string" ? titleScopeObject.displayTitle.trim() : undefined;
+    const userInput = typeof titleScopeObject.userInput === "string" ? titleScopeObject.userInput.trim() : undefined;
+
+    if (canonicalPrefix && canonicalPrefix.length > 500) {
+      const response = NextResponse.json({ error: "titleScope.canonicalPrefix is too long" }, { status: 400 });
+      return corsMiddleware.addCorsHeaders(response, req, siteConfig);
+    }
+
+    if (displayTitle && displayTitle.length > 500) {
+      const response = NextResponse.json({ error: "titleScope.displayTitle is too long" }, { status: 400 });
+      return corsMiddleware.addCorsHeaders(response, req, siteConfig);
+    }
+
+    if (userInput && userInput.length > 200) {
+      const response = NextResponse.json({ error: "titleScope.userInput is too long" }, { status: 400 });
+      return corsMiddleware.addCorsHeaders(response, req, siteConfig);
+    }
+
+    requestBody.titleScope = {
+      canonicalPrefix,
+      displayTitle,
+      userInput,
+    };
+  }
+
+  const rawFilterExplicitness = requestBody.filterExplicitness;
+  let filterExplicitness: ChatRequestBody["filterExplicitness"];
+  if (rawFilterExplicitness !== undefined) {
+    if (typeof rawFilterExplicitness !== "object" || rawFilterExplicitness === null || Array.isArray(rawFilterExplicitness)) {
+      const response = NextResponse.json({ error: "filterExplicitness must be an object" }, { status: 400 });
+      return corsMiddleware.addCorsHeaders(response, req, siteConfig);
+    }
+    filterExplicitness = {
+      collection: typeof rawFilterExplicitness.collection === "boolean" ? rawFilterExplicitness.collection : undefined,
+      libraries: typeof rawFilterExplicitness.libraries === "boolean" ? rawFilterExplicitness.libraries : undefined,
+      mediaTypes: typeof rawFilterExplicitness.mediaTypes === "boolean" ? rawFilterExplicitness.mediaTypes : undefined,
+    };
+  }
 
   return {
     sanitizedInput: {
       ...requestBody,
       question: sanitizedQuestion,
       uuid: sanitizedUuid,
+      filterExplicitness,
     },
     originalQuestion,
   };
@@ -267,7 +336,8 @@ async function applyRateLimiting(req: NextRequest, siteConfig: SiteConfig): Prom
 async function setupPineconeAndFilter(
   collection: string,
   mediaTypes: Partial<MediaTypes> | undefined,
-  siteConfig: SiteConfig
+  siteConfig: SiteConfig,
+  exactTitles?: string[]
 ): Promise<{ index: Index<RecordMetadata>; filter: PineconeFilter }> {
   // Use cached Pinecone index instead of creating a new one each time
   const indexName = getPineconeIndexName() || "";
@@ -298,6 +368,12 @@ async function setupPineconeAndFilter(
         author: { $in: ["Paramhansa Yogananda", "Swami Kriyananda"] },
       });
     }
+  }
+
+  if (exactTitles && exactTitles.length > 0) {
+    filter.$and.push({
+      title: exactTitles.length === 1 ? { $eq: exactTitles[0] } : { $in: exactTitles },
+    });
   }
 
   // If you need to pass filter to makeChain in the future, you might need to add library filters here
@@ -369,6 +445,10 @@ async function saveOrUpdateDocument(
   fullResponse: string,
   finalDocuments: Document[], // Use the final documents
   collection: string,
+  mediaTypes: MediaTypes | undefined,
+  selectedLibraries: string[] | undefined,
+  sourceCount: number,
+  titleScope: TitleScopeSelection | undefined,
   history: ChatMessage[],
   clientIP: string,
   restatedQuestion: string,
@@ -416,6 +496,9 @@ async function saveOrUpdateDocument(
     question: sanitizedOriginalQuestion,
     answer: fullResponse,
     collection: collection,
+    mediaTypes: mediaTypes || null,
+    selectedLibraries: selectedLibraries || [],
+    sourceCount,
     sources: JSON.stringify(finalDocuments), // Save the correct final documents
 
     history: history,
@@ -427,6 +510,15 @@ async function saveOrUpdateDocument(
     convId: finalConvId, // Add conversation ID for grouping
     suggestions: sanitizedSuggestions, // Save follow-up suggestions (typed, with undefined values removed)
   };
+  const sanitizedTitleScope =
+    titleScope && (titleScope.canonicalPrefix || titleScope.displayTitle || titleScope.userInput)
+      ? {
+          ...(titleScope.canonicalPrefix ? { canonicalPrefix: titleScope.canonicalPrefix } : {}),
+          ...(titleScope.displayTitle ? { displayTitle: titleScope.displayTitle } : {}),
+          ...(titleScope.userInput ? { userInput: titleScope.userInput } : {}),
+        }
+      : null;
+  dataToSave.titleScope = sanitizedTitleScope;
 
   // Add model and temperature if provided
   if (model !== undefined) {
@@ -494,13 +586,16 @@ function handleError(error: unknown, sendData: (data: StreamingResponseData) => 
     // Handle specific error cases
     if (error instanceof NoSourcesError) {
       // Build actionable error message based on active filters as a chat response
-      let message = "No sources found matching your chat options. ";
+      let message = "I couldn't find matching sources under your current chat filters. ";
       const suggestions: string[] = [];
 
       if (error.filters.libraries && error.filters.libraries.length > 0) {
         if (error.filters.libraries.length === 1) {
           message += `You're searching only in "${error.filters.libraries[0]}". `;
           suggestions.push("Try selecting additional libraries");
+        } else {
+          message += `You're searching only in these libraries: ${error.filters.libraries.join(", ")}. `;
+          suggestions.push("Try broadening your library selection");
         }
       }
 
@@ -517,8 +612,13 @@ function handleError(error: unknown, sendData: (data: StreamingResponseData) => 
       }
 
       if (error.filters.collection) {
-        message += `You're filtering by collection: "${error.filters.collection}". `;
-        suggestions.push("Try changing your collection filter.");
+        message += `You're filtering by collection: "${error.filters.collection}". That filter may exclude the teachings you're asking about. `;
+        suggestions.push("Try switching or clearing your collection filter");
+      }
+
+      if (error.filters.titleScope) {
+        message += `You're searching only within "${error.filters.titleScope}". `;
+        suggestions.push("Try clearing or broadening the selected source.");
       }
 
       if (suggestions.length > 0) {
@@ -1020,6 +1120,28 @@ async function handleChatRequest(req: NextRequest) {
       try {
         // Send site ID first
         sendData({ siteId: siteConfig.siteId });
+        const resolvedTitleScope = await resolveTitleScopeSelection(siteConfig.siteId, sanitizedInput.titleScope);
+
+        if (siteConfig.enableTitleScopeSelection && resolvedTitleScope) {
+          const filterConflict = await getTitleScopeFilterConflict(
+            siteConfig.siteId,
+            resolvedTitleScope.canonicalPrefix,
+            siteConfig,
+            {
+              collection: sanitizedInput.collection || "whole_library",
+              selectedLibraries: sanitizedInput.selectedLibraries,
+              mediaTypes: sanitizedInput.mediaTypes,
+              filterExplicitness: sanitizedInput.filterExplicitness,
+            }
+          );
+          if (filterConflict) {
+            sendData({ filterConflict });
+            sendData({ done: true });
+            timingMetrics.totalTime = Date.now() - timingMetrics.startTime;
+            controller.close();
+            return;
+          }
+        }
 
         // FRONT-LOAD CONVERSATION SETUP FOR NEW CONVERSATIONS
         // Generate convId immediately and start title generation in parallel
@@ -1060,7 +1182,8 @@ async function handleChatRequest(req: NextRequest) {
         const { index, filter } = await setupPineconeAndFilter(
           sanitizedInput.collection || "whole_library",
           sanitizedInput.mediaTypes,
-          siteConfig
+          siteConfig,
+          resolvedTitleScope?.exactTitles
         );
         timingMetrics.pineconeSetupComplete = Date.now();
 
@@ -1090,7 +1213,9 @@ async function handleChatRequest(req: NextRequest) {
             timingMetrics,
             sanitizedInput.modelOverride,
             sanitizedInput.selectedLibraries,
-            sanitizedInput.taskMode
+            sanitizedInput.collection || "whole_library",
+            sanitizedInput.taskMode,
+            resolvedTitleScope?.displayTitle
           );
         // --- End of Encapsulated Call ---
         timingMetrics.answerStreamingComplete = Date.now();
@@ -1101,6 +1226,10 @@ async function handleChatRequest(req: NextRequest) {
             timingMetrics.documentSaveStart = Date.now();
             // Use pre-generated conversationId for new conversations, or provided convId for follow-ups
             const finalConversationId = conversationId || sanitizedInput.convId || uuidv4();
+            const titleScopeForPersistence = buildTitleScopeForPersistence(
+              resolvedTitleScope,
+              sanitizedInput.titleScope
+            );
 
             // For follow-up messages, send convId to frontend if not already sent
             if (sanitizedInput.convId && !conversationId) {
@@ -1116,6 +1245,10 @@ async function handleChatRequest(req: NextRequest) {
               fullResponse,
               finalDocs,
               sanitizedInput.collection || "whole_library",
+              sanitizedInput.mediaTypes,
+              sanitizedInput.selectedLibraries,
+              sourceCount,
+              titleScopeForPersistence,
               sanitizedInput.history || [],
               clientIP,
               restatedQuestion, // Pass the restated question
@@ -1179,6 +1312,18 @@ async function handleChatRequest(req: NextRequest) {
         }
       } catch (error: unknown) {
         requestStatus = "error";
+        if (error instanceof TitleScopeResolutionError) {
+          sendData({
+            error: error.message,
+            titleScopeSuggestions: error.suggestions,
+          });
+          return;
+        }
+        if (error instanceof TitleCatalogDataError) {
+          console.error("Title catalog data error:", error.message);
+          sendData({ error: error.message });
+          return;
+        }
         handleError(error, sendData);
       } finally {
         // Ensure title generation completes or is properly cleaned up

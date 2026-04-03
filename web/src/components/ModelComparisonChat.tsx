@@ -8,6 +8,7 @@ import Link from "next/link";
 import { logEvent } from "@/utils/client/analytics";
 import { fetchWithAuth } from "@/utils/client/tokenManager";
 import { MODEL_OPTIONS, DEFAULT_MODEL } from "@/config/modelOptions";
+import { TitleScopeSelection } from "@/types/titleScope";
 
 export interface SavedState {
   modelA: string;
@@ -62,6 +63,7 @@ const ModelComparisonChat: React.FC<ModelComparisonChatProps> = ({ siteConfig, s
   const [mediaTypes, setMediaTypes] = useState(savedState.mediaTypes);
   const [collection, setCollection] = useState(savedState.collection);
   const [selectedLibraries, setSelectedLibraries] = useState<string[]>(savedState.selectedLibraries || []);
+  const [selectedTitleScope, setSelectedTitleScope] = useState<TitleScopeSelection | null>(null);
   const accumulatedResponseA = useRef("");
   const accumulatedResponseB = useRef("");
   const [copiedMessageA, setCopiedMessageA] = useState<string | null>(null);
@@ -254,6 +256,7 @@ const ModelComparisonChat: React.FC<ModelComparisonChatProps> = ({ siteConfig, s
         historyB: historyB, // Separate history for model B
         sourceCount,
         selectedLibraries,
+        titleScope: siteConfig?.enableTitleScopeSelection && selectedTitleScope ? selectedTitleScope : undefined,
         useExtraSources: false,
         uuid: getOrCreateUUID(),
       };
@@ -618,6 +621,8 @@ const ModelComparisonChat: React.FC<ModelComparisonChatProps> = ({ siteConfig, s
     showTemporarySessionOptions: false,
     sourceCount,
     setSourceCount,
+    selectedTitleScope,
+    setSelectedTitleScope,
     useExtraSources: false,
     onExtraSourcesChange: () => {},
     isChatEmpty: true, // Required property for ChatInput component

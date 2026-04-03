@@ -1389,6 +1389,87 @@ class TestDaemonBehavior(BaseWebsiteCrawlerTest):
 
         crawler.close()
 
+    @patch("crawler.crawl_loop._cleanup_orphaned_processes")
+    @patch("crawler.crawl_loop._cleanup_browser_resources")
+    @patch("crawler.crawl_loop._setup_crawler_browser")
+    def test_csv_startup_check_runs_when_no_urls_ready(
+        self,
+        mock_setup_browser,
+        mock_cleanup_browser,
+        mock_cleanup_processes,
+    ):
+        """CSV startup checks should still run even when the queue is empty."""
+        mock_browser = MagicMock()
+        mock_page = MagicMock()
+        mock_setup_browser.return_value = (mock_browser, mock_page)
+
+        csv_config = {
+            "domain": "example.com",
+            "skip_patterns": [],
+            "crawl_frequency_days": 7,
+            "csv_export_url": "https://example.com/export.csv",
+            "csv_modified_days_threshold": 1,
+        }
+
+        crawler = WebsiteCrawler(self.site_id, csv_config)
+        crawler.mark_initial_crawl_completed()
+
+        assert crawler.cursor is not None
+        assert crawler.conn is not None
+        crawler.cursor.execute("DELETE FROM crawl_queue")
+        crawler.conn.commit()
+
+        with (
+            patch.object(
+                crawler, "check_and_process_csv", return_value=0
+            ) as mock_csv_check,
+            patch.object(crawler, "peek_next_url_to_crawl", side_effect=[None, None]),
+            patch("crawler.crawl_loop.is_exiting", return_value=False),
+            patch("crawler.crawl_loop.sync_playwright") as mock_playwright,
+            patch("os.getenv", return_value="test-index"),
+        ):
+            mock_p = MagicMock()
+            mock_playwright.return_value.__enter__.return_value = mock_p
+
+            mock_args = MagicMock()
+            mock_args.stop_after = None
+            mock_args.max_runtime_minutes = 38
+
+            from crawler.crawl_loop import run_crawl_loop
+
+            run_crawl_loop(crawler, MagicMock(), mock_args)
+
+        mock_setup_browser.assert_called_once()
+        mock_csv_check.assert_called_once_with(mock_browser, unittest.mock.ANY)
+        mock_cleanup_browser.assert_called_once_with(mock_browser)
+        mock_cleanup_processes.assert_called_once()
+
+        crawler.close()
+
+    def test_duplicate_csv_check_is_skipped_after_startup_pass(self):
+        """No-url handling should not re-fetch CSV after a startup CSV check in the same run."""
+        csv_config = {
+            "domain": "example.com",
+            "skip_patterns": [],
+            "crawl_frequency_days": 7,
+            "csv_export_url": "https://example.com/export.csv",
+            "csv_modified_days_threshold": 1,
+        }
+
+        crawler = WebsiteCrawler(self.site_id, csv_config)
+        crawler._startup_csv_check_completed = True
+
+        with patch.object(
+            crawler, "check_and_process_csv", return_value=1
+        ) as mock_csv_check:
+            from crawler.crawl_loop import _process_csv_updates
+
+            result = _process_csv_updates(crawler, MagicMock(), MagicMock())
+
+        self.assertIsNone(result)
+        mock_csv_check.assert_not_called()
+        crawler.close()
+
 
 class TestPunctuationPreservation(BaseWebsiteCrawlerTest):
     """Test cases for punctuation preservation in web crawler text processing."""
@@ -2206,6 +2287,56 @@ class TestRobotsTxtCompliance(BaseWebsiteCrawlerTest):
             urls_in_db,
             "Valid URL should still be in database",
         )
+
+        crawler.close()
+
+    @patch("crawler.website_crawler.RobotFileParser")
+    def test_iso_timestamps_are_treated_as_due_in_queue_queries(
+        self, mock_robot_parser_class
+    ):
+        """ISO timestamps with T/fractions should still be treated as due by crawler queue queries."""
+        mock_parser = Mock()
+        mock_parser.can_fetch.return_value = True
+        mock_robot_parser_class.return_value = mock_parser
+
+        site_config = {
+            "domain": "example.com",
+            "skip_patterns": [],
+            "crawl_frequency_days": 14,
+        }
+        crawler = WebsiteCrawler(self.site_id, site_config)
+
+        assert crawler.cursor is not None
+        assert crawler.conn is not None
+        cursor = crawler.cursor
+        cursor.execute("DELETE FROM crawl_queue")
+
+        due_url = crawler.normalize_url("https://example.com/due-page")
+        retry_url = crawler.normalize_url("https://example.com/retry-later")
+        due_iso = (datetime.utcnow() - timedelta(minutes=5)).isoformat()
+        future_retry_iso = (datetime.utcnow() + timedelta(minutes=30)).isoformat()
+
+        cursor.execute(
+            """
+            INSERT INTO crawl_queue (url, status, last_crawl, next_crawl, crawl_frequency, priority)
+            VALUES (?, 'visited', ?, ?, 14, 0)
+            """,
+            (due_url, due_iso, due_iso),
+        )
+        cursor.execute(
+            """
+            INSERT INTO crawl_queue (url, status, retry_after, crawl_frequency, priority, failure_type, retry_count)
+            VALUES (?, 'pending', ?, 14, 0, 'temporary', 1)
+            """,
+            (retry_url, future_retry_iso),
+        )
+        crawler.conn.commit()
+
+        self.assertEqual(crawler.peek_next_url_to_crawl(), due_url)
+        self.assertEqual(crawler.get_next_url_to_crawl(), due_url)
+
+        stats = crawler.get_queue_stats()
+        self.assertEqual(stats["pending_retry"], 1)
 
         crawler.close()
 

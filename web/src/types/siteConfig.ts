@@ -35,6 +35,7 @@ export interface SiteConfig {
   enableSuggestedQueries: boolean;
   enableMediaTypeSelection: boolean;
   enableAuthorSelection: boolean;
+  enableTitleScopeSelection?: boolean;
   enableSearchPage?: boolean;
   welcome_popup_heading: string;
   other_visitors_reference: string;

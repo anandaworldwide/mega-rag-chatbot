@@ -29,9 +29,7 @@ Enable these options:
 In the "Status checks found in the last week for this repository" section, search for and add:
 
 ```text
-Python CI (Python 3.10)
-Python CI (Python 3.11)
-Python CI (Python 3.12)
+Monorepo CI (Python 3.11)
 ```
 
 **Note**: These checks will only appear after the workflows have run at least once. If you don't see them:
@@ -56,7 +54,7 @@ Click **Create** or **Save changes**
 After setup, when someone creates a PR:
 
 1. The Python CI workflows will automatically run
-2. All three Python versions (3.10, 3.11, 3.12) must pass
+2. The standardized Python 3.11 workflow must pass
 3. The PR cannot be merged until all checks are green
 4. If any workflow fails, the merge button will be disabled
 
@@ -76,11 +74,12 @@ With the included `.github/dependabot.yml` configuration:
 If the required status checks don't appear in the dropdown:
 
 1. Ensure the workflows have run at least once
-2. Check the workflow names match exactly:
-   - `Python CI (Python 3.10)`
-   - `Python CI (Python 3.11)`
-   - `Python CI (Python 3.12)`
-3. Wait a few minutes after workflow completion
+
+1. Check the workflow names match exactly:
+
+- `Monorepo CI (Python 3.11)`
+
+1. Wait a few minutes after workflow completion
 
 ### Workflows Not Triggering
 

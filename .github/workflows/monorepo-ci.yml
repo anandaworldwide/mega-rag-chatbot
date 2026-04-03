@@ -4,14 +4,18 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - "requirements.in"
+      - "pyproject.toml"
+      - "uv.lock"
       - "requirements.txt"
+      - "reranking/**"
       - "data_ingestion/**"
+      - "wordpress/analytics/**"
       - "bin/**"
       - "pyutil/**"
       - "evaluation/**"
       - "web/src/**"
       - "web/package*.json"
+      - ".npmrc"
       - ".github/workflows/monorepo-ci.yml"
       - ".github/workflows/monorepo-nightly.yml"
       - ".github/workflows/README.md"
@@ -21,45 +25,45 @@ on:
 
 jobs:
   monorepo-ci:
-    name: Monorepo CI (Python ${{ matrix.python-version }})
+    name: Monorepo CI (Python 3.11)
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11", "3.12"]
-      fail-fast: false
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python 3.11
         uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.0.0
+        with:
+          enable-cache: true
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: "npm"
+          cache-dependency-path: |
+            web/package-lock.json
+            web/package.json
 
-      - name: Cache pip dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ matrix.python-version }}-${{ hashFiles('requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-${{ matrix.python-version }}-
-            ${{ runner.os }}-pip-
+      - name: Make helper scripts executable
+        run: chmod +x bin/export-python-requirements.sh bin/run-pip-audit.sh
 
       - name: Install Python dependencies
+        run: uv sync --locked --package mega-rag-chatbot --package mega-rag-chatbot-crawler
+
+      - name: Verify exported requirements are current
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          ./bin/export-python-requirements.sh
+          git diff --exit-code -- requirements.txt reranking/requirements.txt data_ingestion/crawler/requirements.txt wordpress/analytics/requirements.txt
 
       - name: Python dependency security audit
-        if: matrix.python-version == '3.11'
-        run: |
-          ./bin/run-pip-audit.sh
+        run: ./bin/run-pip-audit.sh
 
       - name: Install Node.js dependencies
         working-directory: ./web
@@ -70,21 +74,21 @@ jobs:
           echo "🔍 Running Monorepo Validation Checklist..."
 
           echo "✅ Import sweep: Testing all top-level module imports"
-          python bin/import_sweep.py || echo "⚠️  Some imports failed (expected in CI environment)"
+          uv run --locked python bin/import_sweep.py requirements.txt || echo "⚠️  Some imports failed (expected in CI environment)"
 
           echo "✅ Dependency integrity: Checking for conflicts"
-          python -m pip check || echo "⚠️  Some dependency conflicts detected"
+          uv run --locked python -m pip check || echo "⚠️  Some dependency conflicts detected"
 
           echo "✅ Smoke tests: Running quick validation tests"
-          python -m pytest -q tests/ -k "smoke" --tb=short || echo "⚠️  No smoke tests found, continuing..."
+          uv run --locked python -m pytest -q tests/test_smoke_validation.py --tb=short
 
           echo "✅ Static analysis: Running ruff check"
-          python -m ruff check data_ingestion/ bin/ pyutil/ evaluation/ --select=E,W,F || echo "⚠️  Ruff check completed with warnings"
+          uv run --locked python -m ruff check data_ingestion/ bin/ pyutil/ evaluation/ --select=E,W,F || echo "⚠️  Ruff check completed with warnings"
 
           echo "✅ Dry-run ingestion: Testing PDF processing pipeline"
-          # Create a minimal test PDF for dry-run (skip if no sample available)
-          if [ -f "data_ingestion/tests/sample.pdf" ] || [ -f "test-sample.pdf" ]; then
-            python data_ingestion/pdf_to_vector_db.py --dry-run $(find . -name "*.pdf" -type f | head -1) || echo "⚠️  PDF dry-run skipped - no sample PDF found"
+          sample_pdf=$(rg --files -g '*.pdf' | head -n 1 || true)
+          if [ -n "${sample_pdf}" ]; then
+            uv run --locked python data_ingestion/pdf_to_vector_db.py --dry-run "${sample_pdf}" || echo "⚠️  PDF dry-run skipped - no sample PDF found"
           else
             echo "⚠️  PDF dry-run skipped - no sample PDF found"
           fi
@@ -112,6 +116,6 @@ jobs:
         if: always()
         run: |
           echo "🎯 Monorepo CI Validation Complete!"
-          echo "✅ Python ${{ matrix.python-version }} + Node.js validation passed"
+          echo "✅ Python 3.11 + Node.js validation passed"
           echo "✅ All validation checklist items completed"
           echo "✅ Ready for merge!"
