@@ -295,7 +295,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
   // Render the chat input interface
   return (
-    <div className={`${styles.center} w-full mt-2 md:mt-4 px-2 md:px-0`}>
+    <div
+      className={`${styles.center} w-full px-2 md:px-0 ${shouldShowSuggestions ? "mt-0" : "mt-2 md:mt-4"}`}
+    >
       <div className="w-full">
         <form onSubmit={onSubmit}>
           {/* Temporary session indicator - hidden on mobile to save screen real estate (primary banner is in index.tsx) */}

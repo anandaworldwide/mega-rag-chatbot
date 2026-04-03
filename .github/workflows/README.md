@@ -14,15 +14,16 @@ This directory contains automated CI/CD workflows for the Ananda Library Chatbot
 
 **What it does:**
 
-- Runs on Python 3.11 and 3.12 in parallel
+- Runs on Python 3.11
 - Executes the complete **Validation Checklist** from `PYTHON_UPGRADE_TODO.md`:
   - Import sweep testing
   - Dependency integrity checks
-  - Python dependency security audit with `pip-audit` across all repo requirement files
+  - Compatibility export drift check for `requirements.txt` files derived from `uv.lock`
+  - Python dependency security audit with `pip-audit` across all repo compatibility requirement files
   - Static analysis with Ruff
   - PDF processing dry-run
   - Node.js linting and type checking
-- Uses caching for pip and npm dependencies for faster builds
+- Uses caching for uv and npm dependencies for faster builds
 
 **Status:** This workflow must pass before PRs can be merged.
 
@@ -53,7 +54,6 @@ To configure required status checks in GitHub:
 3. Enable "Require status checks to pass before merging"
 4. Add required checks:
    - `Monorepo CI (Python 3.11)`
-   - `Monorepo CI (Python 3.12)`
 
 ## Environment Variables
 
@@ -67,7 +67,7 @@ The workflows use minimal environment variables to avoid requiring secrets in CI
 
 Both workflows implement caching to reduce build times:
 
-- **pip cache:** `~/.cache/pip` keyed by OS, Python version, and `requirements.txt` hash
+- **uv cache:** managed by `astral-sh/setup-uv`, keyed from `uv.lock`
 - **npm cache:** Built-in npm cache via `actions/setup-node@v4`
 
 ## Troubleshooting
@@ -95,11 +95,13 @@ Test the validation checklist locally:
 
 ```bash
 # Python validation
-python bin/import_sweep.py
-python -m pip check
+uv sync --locked --package mega-rag-chatbot --package mega-rag-chatbot-crawler
+./bin/export-python-requirements.sh
+uv run python bin/import_sweep.py requirements.txt
+uv run python -m pip check
 ./bin/run-pip-audit.sh
-python -m pytest -q tests/
-python -m ruff check data_ingestion/ bin/ pyutil/ evaluation/
+uv run python -m pytest -q tests/
+uv run python -m ruff check data_ingestion/ bin/ pyutil/ evaluation/
 
 # Node.js validation
 cd web
@@ -111,7 +113,7 @@ npx tsc --noEmit
 
 When Dependabot or similar tools create dependency update PRs, these workflows will automatically:
 
-1. Test the new dependencies across supported Python versions
+1. Test the new dependencies on the standardized Python 3.11 toolchain
 2. Validate compatibility with the existing codebase
 3. Ensure no breaking changes are introduced
 4. Provide confidence before merging dependency updates

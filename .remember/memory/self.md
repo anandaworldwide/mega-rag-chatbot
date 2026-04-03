@@ -26,6 +26,163 @@
 - Explicit `--webpack` is the safest narrow fix when the repo already depends on webpack behavior
 - A successful Next 16 build may also require `tsconfig.json` updates such as `jsx: "react-jsx"` and including `.next/dev/types/**/*.ts`
 
+### UV Repos Need Plain `.python-version` Pins And A Minimum UV Version
+
+**Rule**: When a repo uses `uv` as the Python workflow, `.python-version` should contain a plain interpreter version like
+`3.11`, not a custom pyenv virtualenv name, and the repo should declare `tool.uv.required-version` when it depends on
+newer UV config features.
+
+**Wrong**:
+
+```text
+# .python-version
+mega-rag-chatbot-3.11
+```
+
+```toml
+[tool.uv]
+exclude-newer = "7 days"
+```
+
+**Correct**:
+
+```text
+# .python-version
+3.11
+```
+
+```toml
+[tool.uv]
+required-version = ">=0.11.3"
+exclude-newer = "7 days"
+```
+
+**Why This Matters**:
+
+- Older `uv` versions can fail to parse relative `exclude-newer` values like `"7 days"`
+- Custom pyenv environment names in `.python-version` are not portable for `uv` and can make it fall back to the wrong
+  interpreter
+- Plain version pins work with `uv`, `actions/setup-python`, and local toolchains consistently
+
+### Do Not Override Seven-Day Dependency Cooldowns
+
+**Rule**: When the user has set a dependency cooldown like `exclude-newer = "7 days"` or `.npmrc` `min-release-age=7`,
+do not add package-specific exceptions to bypass it.
+
+**Wrong**:
+
+```toml
+[tool.uv]
+exclude-newer = "7 days"
+exclude-newer-package = { requests = false, aiohttp = false }
+```
+
+**Correct**:
+
+```toml
+[tool.uv]
+exclude-newer = "7 days"
+```
+
+Use temporary audit ignores if a fixed version exists but is still inside the cooldown.
+
+**Why This Matters**:
+
+- The cooldown is a supply-chain security control, not a preference to quietly override
+- Punching holes in it defeats the user's explicit threat model
+- The safe fallback is to wait for the release to age or document a temporary audit ignore
+
+### Exported Requirements Import Sweeps Must Filter Direct Dependencies And Isolate Imports
+
+**Rule**: When validating a `uv export`-generated `requirements.txt`, do not import every pinned transitive dependency in
+process. Filter to direct dependencies and run each import in a subprocess so one crashing extension or bad package cannot
+take down the whole sweep.
+
+**Wrong**:
+
+```python
+for pkg in parse_requirements("requirements.txt"):
+    importlib.import_module(pkg.replace("-", "_"))
+```
+
+**Correct**:
+
+```python
+direct_packages = parse_exported_requirements(Path("requirements.txt"))
+for pkg in direct_packages:
+    subprocess.run([sys.executable, "-c", import_command], check=True)
+```
+
+**Why This Matters**:
+
+- `uv export` compatibility files include transitive dependencies, which creates false failures for packages the repo does not
+  directly validate
+- Native extensions like `numpy` can segfault the interpreter on import; subprocess isolation turns that into a readable
+  package-level failure instead of exit 139 with no context
+- Package names and import names often differ (`pdfminer-six` -> `pdfminer`, `pyjwt` -> `jwt`, etc.), so the sweep needs an
+  explicit mapping table
+
+### Dependency Annotation Parsing Must Match Exact Package Names
+
+**Rule**: When parsing dependency provenance annotations like `# via ...`, never use raw substring matching to decide whether
+an exported package is referenced. Parse the annotation into exact package names first.
+
+**Wrong**:
+
+```python
+annotation_blob = "\n".join(current_annotations)
+if any(exported_package in annotation_blob for exported_package in exported_packages):
+    direct_packages.append(current_package)
+```
+
+**Correct**:
+
+```python
+via_packages = extract_via_packages(current_annotations)
+if exported_packages & via_packages:
+    direct_packages.append(current_package)
+```
+
+**Why This Matters**:
+
+- Substring checks create false positives when one package name is contained inside another, like `my-config` and
+  `my-config-helper`
+- `uv export` comments need exact package-name semantics, not fuzzy text matching
+- A focused regression test should cover the substring case explicitly
+
+### Flex Scroll Layouts Need `min-h-0` On Parent Chains
+
+**Rule**: In column/row flex layouts with scrollable children like sidebars or message panes, add `min-h-0` to the
+relevant flex parents and the scroll region to prevent one pane's loaded content from re-sizing siblings.
+
+**Wrong**:
+
+```tsx
+<div className="flex h-full">
+  <aside className="w-72 flex flex-col">
+    <div className="flex-1 overflow-y-auto">{/* long list */}</div>
+  </aside>
+  <main className="flex-1">{/* centered content */}</main>
+</div>
+```
+
+**Correct**:
+
+```tsx
+<div className="flex h-full min-h-0">
+  <aside className="w-72 min-h-0 flex flex-col">
+    <div className="flex-1 min-h-0 overflow-y-auto">{/* long list */}</div>
+  </aside>
+  <main className="flex-1 min-h-0">{/* centered content */}</main>
+</div>
+```
+
+**Why This Matters**:
+
+- Prevents sidebar/history loads from pushing or re-centering the main panel
+- Keeps scroll behavior inside the intended pane
+- Avoids hard-to-debug layout shifts in full-height app shells
+
 ### 1. Document Migration Must Include All Validated Updates
 
 **Rule**: When migrating a Firestore document (e.g., changing email address as document ID), ALL validated updates must

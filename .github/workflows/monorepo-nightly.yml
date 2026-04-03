@@ -22,47 +22,53 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.0.0
+        with:
+          enable-cache: true
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: "20"
-
-      - name: Cache pip dependencies
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-nightly-${{ hashFiles('requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-nightly-
-            ${{ runner.os }}-pip-
+          cache: "npm"
+          cache-dependency-path: |
+            web/package-lock.json
+            web/package.json
 
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
+        run: uv sync --locked --package mega-rag-chatbot --package mega-rag-chatbot-crawler
 
       - name: Install Node.js dependencies
         working-directory: ./web
         run: npm ci
+
+      - name: Make helper scripts executable
+        run: chmod +x bin/export-python-requirements.sh bin/run-pip-audit.sh
+
+      - name: Verify exported requirements are current
+        run: |
+          ./bin/export-python-requirements.sh
+          git diff --exit-code -- requirements.txt reranking/requirements.txt data_ingestion/crawler/requirements.txt wordpress/analytics/requirements.txt
 
       - name: Full Validation Checklist
         run: |
           echo "🌙 Running Full Stack Validation..."
 
           echo "✅ Import sweep: Testing all top-level module imports"
-          python bin/import_sweep.py || echo "⚠️  Some imports failed (expected in CI environment)"
+          uv run --locked python bin/import_sweep.py requirements.txt || echo "⚠️  Some imports failed (expected in CI environment)"
 
           echo "✅ Dependency integrity: Checking for conflicts"
-          python -m pip check || echo "⚠️  Some dependency conflicts detected"
+          uv run --locked python -m pip check || echo "⚠️  Some dependency conflicts detected"
 
           echo "✅ Full test suite: Running all Python tests"
-          python -m pytest data_ingestion/tests/ -v --tb=short || echo "⚠️  Some tests failed"
+          uv run --locked python -m pytest data_ingestion/tests/ -v --tb=short || echo "⚠️  Some tests failed"
 
           echo "✅ Static analysis: Running comprehensive ruff check"
-          python -m ruff check data_ingestion/ bin/ pyutil/ evaluation/ || echo "⚠️  Ruff check completed with warnings"
+          uv run --locked python -m ruff check data_ingestion/ bin/ pyutil/ evaluation/ || echo "⚠️  Ruff check completed with warnings"
 
           echo "✅ Type checking: Running mypy if available"
-          python -m mypy data_ingestion/ bin/ pyutil/ --ignore-missing-imports || echo "⚠️  mypy not configured, skipping"
+          uv run --locked python -m mypy data_ingestion/ bin/ pyutil/ --ignore-missing-imports || echo "⚠️  mypy not configured, skipping"
 
       - name: Node.js Full Validation
         working-directory: ./web

@@ -102,7 +102,9 @@ mega-rag-chatbot/
 - `package.json`: Lists project dependencies and scripts (Node.js).
 - `package-lock.json`: Records exact versions of Node.js dependencies.
 - `tsconfig.json`: TypeScript compiler configuration.
-- `requirements.txt`: Lists Python dependencies.
+- `pyproject.toml`: Root Python project metadata and `uv` configuration.
+- `uv.lock`: Shared Python lockfile for the UV workspace.
+- `requirements.txt`: Exported compatibility requirements file derived from `uv.lock`.
 - `README.md`: Main project documentation file.
 - `middleware.ts`: Next.js middleware configuration for intercepting requests.
 - `vercel.json`: Configuration for deploying the project on Vercel.

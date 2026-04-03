@@ -146,7 +146,8 @@ class TestEmailOps(unittest.TestCase):
         self.assertIn("--- Error Details ---", email_body)
         self.assertIn("Test error", email_body)
         self.assertIn("ValueError", email_body)
-        self.assertIn("--- System Info ---", email_body)
+        self.assertIn("Context:", email_body)
+        self.assertIn('"test": true', email_body)
 
     @patch("data_ingestion.crawler.crawler_alerts.send_ops_alert_sync")
     def test_crawler_wedged_alert_convenience_function(self, mock_send):

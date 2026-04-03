@@ -1,5 +1,7 @@
 {
   // Python linting and formatting configuration
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python",
+
   // Enable Ruff as the linter
   "python.linting.enabled": true,
   "python.linting.ruffEnabled": true,

@@ -6,9 +6,10 @@ This guide walks you through setting up your development environment and getting
 
 Before you begin, ensure you have the following installed:
 
-1. **Node.js** (version 18+) - [Download from nodejs.org](https://nodejs.org/)
-2. **Python 3.12.3** - We recommend using pyenv for Python version management
-3. **Firebase CLI** (optional for local development)
+1. **Node.js** (version 20+) - [Download from nodejs.org](https://nodejs.org/)
+2. **Python 3.11** - We recommend using pyenv or UV-managed Python
+3. **UV** - Install from [docs.astral.sh/uv](https://docs.astral.sh/uv/)
+4. **Firebase CLI** (optional for local development)
 
 ## Installation
 
@@ -21,13 +22,12 @@ cd mega-rag-chatbot
 
 ### Step 2: Install Node Dependencies
 
-This project uses npm workspaces. Run the following at the root:
+Install the frontend dependencies from the `web` directory:
 
 ```bash
-npm install
+cd web
+npm ci
 ```
-
-After installation, you should see a `node_modules` folder.
 
 ### Step 3: Set Up Python Virtual Environment
 
@@ -47,20 +47,20 @@ Invoke-WebRequest -UseBasicParsing `
   -OutFile "./install-pyenv-win.ps1"; &"./install-pyenv-win.ps1"
 ```
 
-#### Install Python 3.12.3 and Create Virtual Environment
+#### Install Python 3.11 and Sync the UV Environment
 
 ```bash
-# Install Python 3.12.3
-pyenv install 3.12.3
+# Install Python 3.11 if needed
+pyenv install 3.11
 
-# Create a virtual environment
-pyenv virtualenv 3.12.3 mega-rag-chatbot
+# Pin the repo to Python 3.11
+pyenv local 3.11
 
-# Activate it automatically when you enter the directory
-pyenv local mega-rag-chatbot
+# Sync the root Python environment
+uv sync --locked --package mega-rag-chatbot
 
-# Install Python dependencies
-pip install -r requirements.txt
+# Install Playwright browsers for crawler-related work
+uv run playwright install
 ```
 
 ## Environment Variables Setup
@@ -209,10 +209,10 @@ npm run test:changed -- path/to/file.ts
 
 ```bash
 # Run all Python tests
-python -m unittest discover -s data_ingestion/tests/ -p 'test*.py'
+uv run python -m pytest data_ingestion/tests/
 
 # Run a specific test file
-python -m unittest data_ingestion/tests/test_file.py
+uv run python -m pytest data_ingestion/tests/test_file.py
 ```
 
 ### Pre-commit Checks
@@ -236,13 +236,13 @@ This project uses [Ruff](https://github.com/astral-sh/ruff) for Python linting a
 
 ```bash
 # Check for linting issues
-ruff check .
+uv run ruff check .
 
 # Fix auto-fixable issues
-ruff check --fix .
+uv run ruff check --fix .
 
 # Format code
-ruff format .
+uv run ruff format .
 ```
 
 ## Optional: Firebase Emulator Setup

@@ -34,15 +34,17 @@ try:
         Dimension,
         Filter,
         FilterExpression,
-        FilterExpressionList,
         Metric,
         RunReportRequest,
     )
     from google.oauth2.service_account import Credentials
 except ImportError as e:
     print(f"Missing required dependency: {e}")
-    print("Please install required packages:")
-    print("pip install google-analytics-data pandas matplotlib seaborn")
+    print("Please sync the UV environment first:")
+    print(
+        "uv sync --locked --package "
+        "mega-rag-chatbot-wordpress-analytics --no-default-groups"
+    )
     sys.exit(1)
 
 # Configure logging

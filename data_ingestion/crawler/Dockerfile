@@ -16,14 +16,19 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
-# Copy crawler-specific requirements (minimal dependencies)
-COPY data_ingestion/crawler/requirements.txt /app/requirements.txt
+# Install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Copy lock and project metadata needed to resolve the crawler environment
+COPY pyproject.toml /app/pyproject.toml
+COPY uv.lock /app/uv.lock
+COPY data_ingestion/crawler/pyproject.toml /app/data_ingestion/crawler/pyproject.toml
+
+# Install Python dependencies into a project-local virtual environment
+RUN uv sync --locked --package mega-rag-chatbot-crawler --no-default-groups --no-editable
 
 # Pre-download spaCy model (avoids runtime download on every container start)
-RUN python -m spacy download en_core_web_sm
+RUN uv run --package mega-rag-chatbot-crawler python -m spacy download en_core_web_sm
 
 # Copy crawler code (build context is project root)
 COPY data_ingestion/crawler/ /app/crawler/
@@ -35,7 +40,8 @@ COPY pyutil/ /app/pyutil/
 RUN mkdir -p /app/data/db /app/data/logs && \
     chown -R 1000:1000 /app
 
-# Set Python path
+# Set Python path and virtual environment path
+ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH=/app
 
 # Run as non-root user (UID 1000) for security hardening

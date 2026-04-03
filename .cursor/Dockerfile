@@ -18,6 +18,9 @@ RUN apt-get update && apt-get install -y \
 # Install pip for Python 3.11
 RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.11
 
+# Install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
+
 # Set Python 3.11 as the default python3
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
     && update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1
@@ -38,7 +41,7 @@ RUN mkdir -p $NVM_DIR \
 ENV PATH="$NVM_DIR/versions/node/v20.*/bin:$PATH"
     
 # Verify installation
-RUN . $NVM_DIR/nvm.sh && nvm use 20 && python3 --version && pip3 --version && node --version && npm --version
+RUN . $NVM_DIR/nvm.sh && nvm use 20 && python3 --version && pip3 --version && uv --version && node --version && npm --version
 
 # Set environment variable for virtual environment path
-ENV PATH="/workspace/venv/bin:$PATH"
+ENV PATH="/workspace/.venv/bin:$PATH"

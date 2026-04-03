@@ -36,8 +36,8 @@ retrieval-augmented generation (RAG) systems.
 
 ### Prerequisites
 
-- Python 3.10+
-- Required Python packages (see requirements.txt)
+- Python 3.11
+- UV-managed crawler environment
 - macOS (for daemon support) or Docker (for cloud deployment)
 - Access to Pinecone and OpenAI APIs
 
@@ -55,8 +55,8 @@ See [CLOUD-DEPLOYMENT.md](CLOUD-DEPLOYMENT.md) for cloud deployment instructions
 1. **Install Dependencies**
 
    ```bash
-   cd data_ingestion
-   pip install -r requirements.txt
+   cd /path/to/mega-rag-chatbot
+   uv sync --locked --package mega-rag-chatbot-crawler --no-default-groups
    ```
 
 2. **Configure Environment** Create a `.env.{site_id}` file in the project root:

@@ -26,8 +26,11 @@ try:
     from pyutil.env_utils import load_env
 except ImportError as e:
     print(f"Missing required dependency: {e}")
-    print("Please install required packages:")
-    print("pip install google-analytics-data")
+    print("Please sync the UV environment first:")
+    print(
+        "uv sync --locked --package "
+        "mega-rag-chatbot-wordpress-analytics --no-default-groups"
+    )
     sys.exit(1)
 
 logging.basicConfig(

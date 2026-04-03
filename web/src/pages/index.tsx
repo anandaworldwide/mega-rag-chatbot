@@ -3518,7 +3518,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       >
         {showPopup && popupMessage && <Popup message={popupMessage} onClose={closePopup} siteConfig={siteConfig} />}
 
-        <div className="flex h-full">
+        <div className="flex h-full min-h-0">
           {/* Chat History Sidebar - Only show on sites that require login */}
           {siteConfig?.requireLogin && (
             <ChatHistorySidebar
@@ -3544,8 +3544,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           )}
 
           {/* Main Content Area */}
-          <div className="flex flex-col flex-1 min-w-0 lg:ml-0 overflow-hidden">
-            <div className="mx-auto w-full max-w-4xl px-4 flex flex-col h-full">
+          <div className="flex flex-col flex-1 min-w-0 min-h-0 lg:ml-0 overflow-hidden">
+            <div className="mx-auto w-full max-w-4xl px-4 flex flex-col h-full min-h-0">
               {/* Hamburger Menu Button - Only show on sites that require login */}
               {siteConfig?.requireLogin && (
                 <div className="flex-shrink-0 lg:hidden flex items-center justify-between p-4 border-b border-gray-200">
@@ -3592,56 +3592,58 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
               {/* Conditional layout: centered for initial state, scrollable for conversation */}
               {shouldShowSuggestions ? (
                 /* Initial centered layout - greeting and input centered on page */
-                <div className="flex-1 flex flex-col items-center justify-center px-4">
-                  {/* Greeting message */}
-                  <div className="text-center mb-8">
-                    <h1 className="text-xl md:text-2xl font-semibold text-gray-800">{messages[0]?.message}</h1>
-                  </div>
-                  {/* ChatInput with suggestions - centered */}
-                  <div className="w-full max-w-2xl">
-                    {isLoadingQueries ? null : (
-                      <ChatInput
-                        loading={loading}
-                        disabled={viewOnlyMode}
-                        handleSubmit={handleSubmit}
-                        handleEnter={handleEnter}
-                        handleClick={handleClick}
-                        handleCollectionChange={handleCollectionChange}
-                        collection={collection}
-                        temporarySession={temporarySession}
-                        error={chatError}
-                        setError={setError}
-                        suggestedQueries={suggestedQueries}
-                        shuffleQueries={shuffleQueries}
-                        textAreaRef={textAreaRef}
-                        mediaTypes={mediaTypes}
-                        handleMediaTypeChange={handleMediaTypeChange}
-                        selectedLibraries={selectedLibraries}
-                        handleLibraryChange={handleLibraryChange}
-                        siteConfig={siteConfig}
-                        input={query}
-                        handleInputChange={handleInputChange}
-                        setQuery={setQuery}
-                        setShouldAutoScroll={setIsNearBottom}
-                        handleStop={handleStop}
-                        isNearBottom={isNearBottom}
-                        setIsNearBottom={setIsNearBottom}
-                        isLoadingQueries={isLoadingQueries}
-                        sourceCount={sourceCount}
-                        setSourceCount={setSourceCount}
-                        selectedTitleScope={selectedTitleScope}
-                        setSelectedTitleScope={handleTitleScopeChange}
-                        titleScopeSuggestions={titleScopeSuggestions}
-                        titleScopeError={titleScopeError}
-                        filterConflict={filterConflict}
-                        onApplyFilterConflictAction={applyFilterConflictAction}
-                        onDismissFilterConflict={() => setFilterConflict(null)}
-                        onTemporarySessionChange={handleTemporarySessionChange}
-                        categorizedQueries={categorizedQueries}
-                        shouldShowSuggestions={shouldShowSuggestions}
-                        onTaskSubmit={handleTaskSubmit}
-                      />
-                    )}
+                <div className="flex-1 flex items-center justify-center px-4 py-6 md:py-8 md:pb-20 lg:pb-24">
+                  <div data-testid="landing-chat-layout" className="w-full max-w-3xl">
+                    {/* Greeting message */}
+                    <div className="text-center mb-8">
+                      <h1 className="text-xl md:text-2xl font-semibold text-gray-800">{messages[0]?.message}</h1>
+                    </div>
+                    {/* ChatInput with suggestions - centered */}
+                    <div className="w-full max-w-2xl mx-auto">
+                      {isLoadingQueries ? null : (
+                        <ChatInput
+                          loading={loading}
+                          disabled={viewOnlyMode}
+                          handleSubmit={handleSubmit}
+                          handleEnter={handleEnter}
+                          handleClick={handleClick}
+                          handleCollectionChange={handleCollectionChange}
+                          collection={collection}
+                          temporarySession={temporarySession}
+                          error={chatError}
+                          setError={setError}
+                          suggestedQueries={suggestedQueries}
+                          shuffleQueries={shuffleQueries}
+                          textAreaRef={textAreaRef}
+                          mediaTypes={mediaTypes}
+                          handleMediaTypeChange={handleMediaTypeChange}
+                          selectedLibraries={selectedLibraries}
+                          handleLibraryChange={handleLibraryChange}
+                          siteConfig={siteConfig}
+                          input={query}
+                          handleInputChange={handleInputChange}
+                          setQuery={setQuery}
+                          setShouldAutoScroll={setIsNearBottom}
+                          handleStop={handleStop}
+                          isNearBottom={isNearBottom}
+                          setIsNearBottom={setIsNearBottom}
+                          isLoadingQueries={isLoadingQueries}
+                          sourceCount={sourceCount}
+                          setSourceCount={setSourceCount}
+                          selectedTitleScope={selectedTitleScope}
+                          setSelectedTitleScope={handleTitleScopeChange}
+                          titleScopeSuggestions={titleScopeSuggestions}
+                          titleScopeError={titleScopeError}
+                          filterConflict={filterConflict}
+                          onApplyFilterConflictAction={applyFilterConflictAction}
+                          onDismissFilterConflict={() => setFilterConflict(null)}
+                          onTemporarySessionChange={handleTemporarySessionChange}
+                          categorizedQueries={categorizedQueries}
+                          shouldShowSuggestions={shouldShowSuggestions}
+                          onTaskSubmit={handleTaskSubmit}
+                        />
+                      )}
+                    </div>
                   </div>
                 </div>
               ) : (

@@ -19,7 +19,7 @@ Experience the power of our RAG system across different organizations:
 
 Ready to build your AI assistant? Here's what you'll need:
 
-**Prerequisites:** Node.js 18+, Python 3.12+, API keys (OpenAI, Pinecone, Firebase)
+**Prerequisites:** Node.js 20+, Python 3.11, UV, API keys (OpenAI, Pinecone, Firebase)
 
 **Setup Steps:**
 
@@ -62,7 +62,7 @@ Ready to build your AI assistant? Here's what you'll need:
 
 ### 🔧 Developer-Friendly Architecture
 
-- **Modern Tech Stack** - Next.js 14, TypeScript, React, Python 3.12+
+- **Modern Tech Stack** - Next.js 14, TypeScript, React, Python 3.11 + UV
 - **Comprehensive Testing** - 1,600+ TypeScript tests (Jest) and 520+ Python tests (pytest) with integration coverage
 - **Production Monitoring** - Built-in analytics, error tracking, and health checks
 - **WordPress Plugin** - Drop-in chatbot widget for WordPress sites

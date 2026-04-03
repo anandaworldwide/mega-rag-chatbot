@@ -1,5 +1,6 @@
-# Crawler-specific requirements (minimal)
-# pip-compile requirements.in to generate requirements.txt
+# Legacy reference file for crawler dependencies.
+# The source of truth is now `data_ingestion/crawler/pyproject.toml` + the shared `uv.lock`.
+# Compatibility `requirements.txt` exports are generated via `bin/export-python-requirements.sh`.
 
 # Web crawling
 beautifulsoup4
@@ -33,4 +34,5 @@ boto3
 
 # Security fixes
 orjson>=3.11.6  # CVE-2025-67221: recursion DoS fix
+requests>=2.33.0  # CVE-2026-25645
 urllib3>=2.6.3  # CVE-2025-66418, CVE-2025-66471, CVE-2026-21441: Decompression bomb fixes

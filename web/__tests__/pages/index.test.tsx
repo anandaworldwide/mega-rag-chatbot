@@ -252,6 +252,7 @@ describe("Home Page", () => {
     });
 
     expect(await screen.findByText("Welcome! How can I help you today?")).toBeInTheDocument();
+    expect(screen.getByTestId("landing-chat-layout")).toBeInTheDocument();
   });
 
   // it('handles GETHUMAN links correctly', async () => {
