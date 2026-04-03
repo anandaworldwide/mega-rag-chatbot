@@ -3,22 +3,6 @@ name: Monorepo CI
 on:
   pull_request:
     branches: [main]
-    paths:
-      - "pyproject.toml"
-      - "uv.lock"
-      - "requirements.txt"
-      - "reranking/**"
-      - "data_ingestion/**"
-      - "wordpress/analytics/**"
-      - "bin/**"
-      - "pyutil/**"
-      - "evaluation/**"
-      - "web/src/**"
-      - "web/package*.json"
-      - ".npmrc"
-      - ".github/workflows/monorepo-ci.yml"
-      - ".github/workflows/monorepo-nightly.yml"
-      - ".github/workflows/README.md"
 
   # Manual trigger for testing
   workflow_dispatch:
