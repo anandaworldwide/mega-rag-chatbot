@@ -288,7 +288,7 @@ mutagen==1.47.0
     # via mega-rag-chatbot
 networkx==3.4.2
     # via mega-rag-chatbot
-nltk==3.9.3
+nltk==3.9.4
     # via mega-rag-chatbot
 numpy==2.4.3
     # via

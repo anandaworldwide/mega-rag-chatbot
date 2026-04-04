@@ -28,11 +28,8 @@ echo "Exporting compatibility requirements from uv.lock..."
 # The repo enforces a strict 7-day UV exclude-newer policy. Vulnerabilities
 # whose fixed releases are newer than that cooldown are temporarily ignored
 # until the release ages in.
-# torch is only used in isolated reranking tooling.
-# Mitigation: never call torch.load() on untrusted data.
-# nltk GHSA-rf74-v2fm-23pw / CVE-2026-33230 / CVE-2026-33231 currently have
-# no newer PyPI release than 3.9.3. Mitigation: nltk is only used in
-# evaluation, experiments, and analysis tooling - not in the web runtime.
+# onnx CVE-2026-28500 has no fixed PyPI release. Mitigation: reranking tooling
+# is isolated, and we do not load untrusted models via onnx.hub.load().
 IGNORED_VULNS=(
   --ignore-vuln CVE-2026-22815
   --ignore-vuln CVE-2026-34513
@@ -44,19 +41,7 @@ IGNORED_VULNS=(
   --ignore-vuln CVE-2026-34519
   --ignore-vuln CVE-2026-34520
   --ignore-vuln CVE-2026-34525
-  --ignore-vuln PYSEC-2025-41
-  --ignore-vuln PYSEC-2024-259
-  --ignore-vuln CVE-2025-2953
-  --ignore-vuln CVE-2025-3730
   --ignore-vuln CVE-2026-28500
-  --ignore-vuln GHSA-rf74-v2fm-23pw
-  --ignore-vuln GHSA-q56x-g2fj-4rj6
-  --ignore-vuln CVE-2026-27489
-  --ignore-vuln CVE-2026-34445
-  --ignore-vuln CVE-2026-34446
-  --ignore-vuln CVE-2026-34447
-  --ignore-vuln CVE-2026-33230
-  --ignore-vuln CVE-2026-33231
   --ignore-vuln CVE-2026-4539
 )
 

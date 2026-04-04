@@ -150,6 +150,34 @@ if exported_packages & via_packages:
 - `uv export` comments need exact package-name semantics, not fuzzy text matching
 - A focused regression test should cover the substring case explicitly
 
+### Aged-In UV Fixes May Require Explicit Package Upgrades
+
+**Rule**: When a dependency fix has aged past the repo's `exclude-newer = "7 days"` gate, do not assume `uv lock` alone will
+refresh an already-pinned older version in `uv.lock`. Use `uv lock --upgrade-package <name>` when the lockfile needs a targeted
+version bump.
+
+**Wrong**:
+
+```bash
+uv lock
+./bin/export-python-requirements.sh
+./bin/run-pip-audit.sh
+```
+
+**Correct**:
+
+```bash
+uv lock --upgrade-package onnx
+./bin/export-python-requirements.sh
+./bin/run-pip-audit.sh
+```
+
+**Why This Matters**:
+
+- `uv lock` can preserve an existing locked version even after a newer allowed fix has aged in
+- Temporary audit ignores can look "stale" on paper while the exported requirements still reflect the older lock
+- The reliable validation path is: targeted upgrade, regenerate exports, then rerun `pip-audit`
+
 ### Flex Scroll Layouts Need `min-h-0` On Parent Chains
 
 **Rule**: In column/row flex layouts with scrollable children like sidebars or message panes, add `min-h-0` to the
