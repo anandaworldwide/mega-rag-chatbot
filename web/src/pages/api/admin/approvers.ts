@@ -97,6 +97,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       regionMap.get(regionName)!.push(approver);
     });
 
+    // Sort admins within each region by location:
+    // For comma-separated locations like "Nevada City, CA", sort by last part (state/country)
+    // first, then by preceding parts (city). Handles both "City, State" and "City, Country".
+    const locationSortKey = (loc: string): [string, string] => {
+      const lastComma = loc.lastIndexOf(",");
+      if (lastComma === -1) return [loc.trim().toLowerCase(), ""];
+      return [loc.slice(lastComma + 1).trim().toLowerCase(), loc.slice(0, lastComma).trim().toLowerCase()];
+    };
+
+    for (const admins of regionMap.values()) {
+      admins.sort((a, b) => {
+        const [aPrimary, aSecondary] = locationSortKey(a.location);
+        const [bPrimary, bSecondary] = locationSortKey(b.location);
+        return aPrimary.localeCompare(bPrimary) || aSecondary.localeCompare(bSecondary);
+      });
+    }
+
     // Convert map to regions array
     const regions: Region[] = Array.from(regionMap.entries()).map(([name, admins]) => ({
       name,

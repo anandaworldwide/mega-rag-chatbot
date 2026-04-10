@@ -313,6 +313,74 @@ describe("/api/admin/approvers", () => {
     expect(regionNames.slice(0, -1).sort()).toEqual(["Canada", "Europe", "United States"]);
   });
 
+  it("should sort admins within a region by location (state/country first, then city)", async () => {
+    genericRateLimiter.mockResolvedValue(true);
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    redisUtils.getFromCache.mockResolvedValue(null);
+
+    const mockCollection = jest.fn(() => ({
+      where: jest.fn(() => ({
+        where: jest.fn(() => ({
+          where: jest.fn(),
+        })),
+      })),
+    }));
+    db.collection = mockCollection;
+
+    const mockDocs = [
+      // US admins - should sort by state abbreviation, then city
+      { id: "sam@example.com", data: () => ({ firstName: "Sam", lastName: "Barone", approverLocation: "Monterey Bay Area, CA", approverRegion: "United States" }) },
+      { id: "casey@example.com", data: () => ({ firstName: "Casey", lastName: "Hughes", approverLocation: "Encinitas, CA", approverRegion: "United States" }) },
+      { id: "nancy@example.com", data: () => ({ firstName: "Nancy", lastName: "Phillips", approverLocation: "Washington, DC", approverRegion: "United States" }) },
+      { id: "badri@example.com", data: () => ({ firstName: "Badri", lastName: "Matlock", approverLocation: "Portland, OR", approverRegion: "United States" }) },
+      { id: "maitri@example.com", data: () => ({ firstName: "maitri", lastName: "Smithhisler", approverLocation: "Dallas, TX", approverRegion: "United States" }) },
+      { id: "govinda@example.com", data: () => ({ firstName: "Govinda", lastName: "Frutos", approverLocation: "Holbrook, AZ", approverRegion: "United States" }) },
+      { id: "nayaswami@example.com", data: () => ({ firstName: "Nayaswami", lastName: "Dharmadas", approverLocation: "Sacramento, CA", approverRegion: "United States" }) },
+      // Asia-Pacific - mix of "City, Country" and single-part locations
+      { id: "amit@example.com", data: () => ({ firstName: "Amit", lastName: "Purohit", approverLocation: "India", approverRegion: "Asia-Pacific" }) },
+      { id: "kavita@example.com", data: () => ({ firstName: "Kavita", lastName: "Parshotam", approverLocation: "Hamilton, New Zealand", approverRegion: "Asia-Pacific" }) },
+      { id: "jay@example.com", data: () => ({ firstName: "Jay", lastName: "Bhati", approverLocation: "New Zealand", approverRegion: "Asia-Pacific" }) },
+    ];
+
+    firestoreQueryGet.mockResolvedValue({ docs: mockDocs });
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({ method: "GET" });
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    const data = res._getJSONData();
+
+    // Find the United States region
+    const usRegion = data.regions.find((r: any) => r.name === "United States");
+    expect(usRegion).toBeDefined();
+    const usLocations = usRegion.admins.map((a: any) => a.location);
+
+    // Should sort by state (AZ, CA×3, DC, OR, TX) then by city within same state
+    expect(usLocations).toEqual([
+      "Holbrook, AZ",         // AZ
+      "Encinitas, CA",        // CA - Encinitas
+      "Monterey Bay Area, CA",// CA - Monterey
+      "Sacramento, CA",       // CA - Sacramento
+      "Washington, DC",       // DC
+      "Portland, OR",         // OR
+      "Dallas, TX",           // TX
+    ]);
+
+    // Asia-Pacific: single-part "India" sorts before "New Zealand" (both no comma),
+    // and "Hamilton, New Zealand" sorts by "New Zealand" then "Hamilton"
+    const apacRegion = data.regions.find((r: any) => r.name === "Asia-Pacific");
+    expect(apacRegion).toBeDefined();
+    const apacLocations = apacRegion.admins.map((a: any) => a.location);
+
+    // "India" (no comma → primary="india"), "New Zealand" (primary="new zealand"),
+    // "Hamilton, New Zealand" (primary="new zealand", secondary="hamilton")
+    expect(apacLocations).toEqual([
+      "India",
+      "New Zealand",
+      "Hamilton, New Zealand",
+    ]);
+  });
+
   it("should handle approvers with missing firstName/lastName", async () => {
     genericRateLimiter.mockResolvedValue(true);
     loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
