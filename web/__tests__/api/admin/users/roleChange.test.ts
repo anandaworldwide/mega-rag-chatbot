@@ -202,6 +202,64 @@ describe("/api/admin/users/[userId] role change authorization", () => {
     expect(res._getJSONData()).toEqual({ error: "Only superuser may change role" });
   });
 
+  it("allows simultaneous role change to admin + enable approver on a 'user' role target", async () => {
+    const jwtUtils = await import("@/utils/server/jwtUtils");
+    (jwtUtils.verifyToken as jest.Mock).mockReturnValue({ email: "super@example.com", role: "superuser" });
+
+    const targetEmail = "newuser@example.com";
+    const mockDb = jest.requireMock("@/services/firebase").db;
+    mockDb.__docMap[targetEmail] = {
+      email: targetEmail,
+      role: "user",
+    };
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "PATCH",
+      query: { userId: targetEmail },
+      cookies: { auth: "token" },
+      body: {
+        role: "admin",
+        isApprover: true,
+        approverLocation: "Portland",
+        approverRegion: "United States",
+      },
+    });
+
+    await handler(req, res);
+    expect(res.statusCode).toBe(200);
+    const data = res._getJSONData();
+    expect(data.user.role).toBe("admin");
+    expect(data.user.isApprover).toBe(true);
+    expect(data.user.approverLocation).toBe("Portland");
+    expect(data.user.approverRegion).toBe("United States");
+  });
+
+  it("rejects approver enable when role stays 'user' (no role change in request)", async () => {
+    const jwtUtils = await import("@/utils/server/jwtUtils");
+    (jwtUtils.verifyToken as jest.Mock).mockReturnValue({ email: "super@example.com", role: "superuser" });
+
+    const targetEmail = "regularuser@example.com";
+    const mockDb = jest.requireMock("@/services/firebase").db;
+    mockDb.__docMap[targetEmail] = {
+      email: targetEmail,
+      role: "user",
+    };
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "PATCH",
+      query: { userId: targetEmail },
+      cookies: { auth: "token" },
+      body: {
+        isApprover: true,
+        approverLocation: "Portland",
+      },
+    });
+
+    await handler(req, res);
+    expect(res.statusCode).toBe(400);
+    expect(res._getJSONData().error).toMatch(/admin or superuser/);
+  });
+
   it("rejects invalid role with 400", async () => {
     const jwtUtils = await import("@/utils/server/jwtUtils");
     (jwtUtils.verifyToken as jest.Mock).mockReturnValue({ email: "super@example.com", role: "superuser" });

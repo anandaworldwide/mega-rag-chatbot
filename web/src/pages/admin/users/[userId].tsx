@@ -56,6 +56,7 @@ export default function EditUserPage({ siteConfig }: PageProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [user, setUser] = useState<UserDetail | null>(null);
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<string>("user");
@@ -217,6 +218,7 @@ export default function EditUserPage({ siteConfig }: PageProps) {
     if (!user) return;
     setSaving(true);
     setError(null);
+    setSuccessMsg(null);
     try {
       const token = await getToken();
       if (!token) {
@@ -251,10 +253,16 @@ export default function EditUserPage({ siteConfig }: PageProps) {
         },
         body: JSON.stringify(updates),
       });
-      const data = await res.json();
+
+      let data: any;
+      try {
+        data = await res.json();
+      } catch (_jsonErr) {
+        throw new Error(`Server returned ${res.status} with non-JSON response`);
+      }
 
       if (!res.ok) {
-        const errorMessage = data?.error || "Failed to save";
+        const errorMessage = data?.error || `Save failed (${res.status})`;
         if (errorMessage.toLowerCase().includes("role")) {
           setRole(user.role);
         }
@@ -303,13 +311,13 @@ export default function EditUserPage({ siteConfig }: PageProps) {
         setApproversPreview(null);
       }
 
+      setSuccessMsg("Changes saved successfully.");
       if (updatedUser.id !== user.id) {
         // Email changed → navigate to new route
         router.replace(`/admin/users/${encodeURIComponent(updatedUser.id)}`);
       }
     } catch (e: any) {
       setError(e?.message || "Failed to save");
-      // Scroll to top to show error message
       window.scrollTo({ top: 0, behavior: "smooth" });
     } finally {
       setSaving(false);
@@ -358,8 +366,10 @@ export default function EditUserPage({ siteConfig }: PageProps) {
         <p className="text-sm text-gray-600 mt-1">Manage user account details and settings</p>
       </div>
 
-      {/* Error message - shown at top but doesn't hide the form */}
       {error && <div className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
+      {successMsg && !error && (
+        <div className="mb-4 rounded border border-green-300 bg-green-50 p-3 text-sm text-green-800">{successMsg}</div>
+      )}
 
       {loading ? (
         <div>Loading…</div>

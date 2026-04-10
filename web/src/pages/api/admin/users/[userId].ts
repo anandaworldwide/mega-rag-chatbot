@@ -212,15 +212,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
         // Only check role requirement when actually setting approver fields (not clearing them)
         if (isSettingAnyApproverField) {
-          // Get current user data to check role
-          const currentUserDoc = await db.collection(usersCol).doc(currentId).get();
-          if (!currentUserDoc.exists) {
-            return res.status(404).json({ error: "User not found" });
-          }
-          const currentUserData = currentUserDoc.data() || {};
-          const currentUserRole = currentUserData.role || "user";
+          // If role is being changed in the same request, use the new role for validation
+          // (the Firestore doc still has the old role at this point)
+          const effectiveRole = updates.role as string | undefined;
+          if (!effectiveRole) {
+            const currentUserDoc = await db.collection(usersCol).doc(currentId).get();
+            if (!currentUserDoc.exists) {
+              return res.status(404).json({ error: "User not found" });
+            }
+            const currentUserData = currentUserDoc.data() || {};
+            const currentUserRole = currentUserData.role || "user";
 
-          if (currentUserRole !== "admin" && currentUserRole !== "superuser") {
+            if (currentUserRole !== "admin" && currentUserRole !== "superuser") {
+              console.warn(`[PATCH /admin/users] 400: approver settings on non-admin role. userId=${currentId}, currentRole=${currentUserRole}`);
+              return res.status(400).json({ error: "Approver settings can only be set on admin or superuser roles" });
+            }
+          } else if (effectiveRole !== "admin" && effectiveRole !== "superuser") {
+            console.warn(`[PATCH /admin/users] 400: approver settings with new role="${effectiveRole}". userId=${currentId}`);
             return res.status(400).json({ error: "Approver settings can only be set on admin or superuser roles" });
           }
         }
@@ -276,6 +284,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // If only role/name update (no email change)
       if (!body.email || body.email.toLowerCase() === currentId) {
         if (Object.keys(updates).length === 0) {
+          console.warn(`[PATCH /admin/users] 400: no updates. userId=${currentId}, bodyKeys=${JSON.stringify(Object.keys(req.body || {}))}, bodyType=${typeof req.body}`);
           return res.status(400).json({ error: "No updates provided" });
         }
         updates.updatedAt = now;
