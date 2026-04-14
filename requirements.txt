@@ -2,8 +2,8 @@
 #    uv export --locked --package mega-rag-chatbot --group dev --no-hashes --output-file requirements.txt
 aiohappyeyeballs==2.6.1
     # via aiohttp
-aiohttp==3.13.3
-    # via mega-rag-chatbot
+aiohttp==3.13.5
+    # via -r requirements.in
 aiosignal==1.4.0
     # via aiohttp
 annotated-types==0.7.0
@@ -15,22 +15,18 @@ anyio==4.13.0
 attrs==26.1.0
     # via aiohttp
 beautifulsoup4==4.12.2
-    # via mega-rag-chatbot
+    # via -r requirements.in
 blis==1.3.3
     # via thinc
-boolean-py==5.0
-    # via license-expression
 boto3==1.40.26
-    # via mega-rag-chatbot
+    # via -r requirements.in
 botocore==1.40.76
     # via
+    #   -r requirements.in
     #   boto3
-    #   mega-rag-chatbot
     #   s3transfer
 cachecontrol==0.14.4
-    # via
-    #   firebase-admin
-    #   pip-audit
+    # via firebase-admin
 catalogue==2.0.10
     # via
     #   spacy
@@ -42,7 +38,7 @@ certifi==2026.2.25
     #   httpx
     #   pinecone
     #   requests
-cffi==2.0.0 ; platform_python_implementation != 'PyPy'
+cffi==2.0.0
     # via cryptography
 chardet==7.4.0.post1
     # via
@@ -54,20 +50,15 @@ charset-normalizer==3.4.6
     #   requests
 click==8.2.1
     # via
-    #   mega-rag-chatbot
+    #   -r requirements.in
     #   nltk
     #   typer
 cloudpathlib==0.23.0
     # via weasel
 cohere==5.21.1
-    # via mega-rag-chatbot
+    # via -r requirements.in
 colorama==0.4.6
-    # via
-    #   click
-    #   mega-rag-chatbot
-    #   pytest
-    #   tqdm
-    #   wasabi
+    # via -r requirements.in
 confection==1.3.3
     # via
     #   spacy
@@ -77,16 +68,14 @@ contourpy==1.3.3
     # via matplotlib
 cryptography==46.0.6
     # via
+    #   -r requirements.in
     #   google-auth
-    #   mega-rag-chatbot
     #   pdfminer-six
     #   pyjwt
 cssselect==1.4.0
     # via readability-lxml
 cycler==0.12.1
     # via matplotlib
-cyclonedx-python-lib==11.7.0
-    # via pip-audit
 cymem==2.0.13
     # via
     #   preshed
@@ -94,11 +83,9 @@ cymem==2.0.13
     #   thinc
 decorator==4.4.2
     # via moviepy
-defusedxml==0.7.1
-    # via py-serializable
 dill==0.4.0
     # via
-    #   mega-rag-chatbot
+    #   -r requirements.in
     #   multiprocess
 distro==1.9.0
     # via openai
@@ -108,51 +95,50 @@ fastavro==1.12.1
     # via cohere
 filelock==3.25.2
     # via
-    #   cachecontrol
+    #   -r requirements.in
     #   huggingface-hub
-    #   mega-rag-chatbot
     #   transformers
 firebase-admin==7.1.0
-    # via mega-rag-chatbot
+    # via -r requirements.in
 fonttools==4.62.1
     # via matplotlib
 fpdf==1.7.2
-    # via mega-rag-chatbot
+    # via -r requirements.in
 frozenlist==1.7.0
     # via
+    #   -r requirements.in
     #   aiohttp
     #   aiosignal
-    #   mega-rag-chatbot
 fsspec==2024.6.1
     # via
+    #   -r requirements.in
     #   huggingface-hub
-    #   mega-rag-chatbot
 google-analytics-data==0.20.0
-    # via mega-rag-chatbot
-google-api-core==2.25.2
+    # via -r requirements.in
+google-api-core[grpc]==2.25.2
     # via
+    #   -r requirements.in
     #   firebase-admin
     #   google-analytics-data
     #   google-cloud-core
     #   google-cloud-firestore
     #   google-cloud-storage
-    #   mega-rag-chatbot
 google-auth==2.49.1
     # via
+    #   -r requirements.in
     #   google-analytics-data
     #   google-api-core
     #   google-cloud-core
     #   google-cloud-firestore
     #   google-cloud-storage
-    #   mega-rag-chatbot
 google-cloud-core==2.5.0
     # via
     #   google-cloud-firestore
     #   google-cloud-storage
 google-cloud-firestore==2.21.0
     # via
+    #   -r requirements.in
     #   firebase-admin
-    #   mega-rag-chatbot
 google-cloud-storage==3.4.1
     # via firebase-admin
 google-crc32c==1.8.0
@@ -163,46 +149,48 @@ google-resumable-media==2.8.0
     # via google-cloud-storage
 googleapis-common-protos==1.70.0
     # via
+    #   -r requirements.in
     #   google-api-core
     #   grpcio-status
-    #   mega-rag-chatbot
-greenlet==3.3.2
-    # via playwright
+greenlet==3.2.3
+    # via
+    #   -r requirements.in
+    #   playwright
 grpcio==1.73.0
     # via
+    #   -r requirements.in
     #   google-analytics-data
     #   google-api-core
     #   grpcio-status
-    #   mega-rag-chatbot
 grpcio-status==1.73.0
     # via
+    #   -r requirements.in
     #   google-api-core
-    #   mega-rag-chatbot
 h11==0.16.0
     # via
+    #   -r requirements.in
     #   httpcore
-    #   mega-rag-chatbot
 h2==4.3.0
     # via httpx
-hf-xet==1.4.2 ; platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64'
+hf-xet==1.4.2
     # via huggingface-hub
 hpack==4.1.0
     # via h2
 httpcore==1.0.9
     # via
+    #   -r requirements.in
     #   httpx
-    #   mega-rag-chatbot
-httpx==0.28.1
+httpx[http2]==0.28.1
     # via
+    #   -r requirements.in
     #   cohere
     #   firebase-admin
     #   langsmith
-    #   mega-rag-chatbot
     #   openai
     #   weasel
 huggingface-hub==0.33.0
     # via
-    #   mega-rag-chatbot
+    #   -r requirements.in
     #   tokenizers
     #   transformers
 hyperframe==6.1.0
@@ -239,20 +227,18 @@ kiwisolver==1.5.0
     # via matplotlib
 langchain-core==1.2.22
     # via
+    #   -r requirements.in
     #   langchain-openai
     #   langchain-text-splitters
-    #   mega-rag-chatbot
 langchain-openai==1.1.12
-    # via mega-rag-chatbot
+    # via -r requirements.in
 langchain-text-splitters==1.1.1
-    # via mega-rag-chatbot
+    # via -r requirements.in
 langsmith==0.7.22
     # via
+    #   -r requirements.in
     #   langchain-core
-    #   mega-rag-chatbot
-license-expression==30.4.4
-    # via cyclonedx-python-lib
-lxml==6.0.2
+lxml[html-clean]==6.0.2
     # via
     #   lxml-html-clean
     #   readability-lxml
@@ -264,39 +250,39 @@ markupsafe==3.0.3
     # via jinja2
 matplotlib==3.10.8
     # via
-    #   mega-rag-chatbot
+    #   -r requirements.in
     #   seaborn
 mdurl==0.1.2
     # via markdown-it-py
 moviepy==1.0.3
-    # via mega-rag-chatbot
+    # via -r requirements.in
 msgpack==1.1.2
     # via cachecontrol
 multidict==6.4.4
     # via
+    #   -r requirements.in
     #   aiohttp
-    #   mega-rag-chatbot
     #   yarl
 multiprocess==0.70.18
-    # via mega-rag-chatbot
+    # via -r requirements.in
 murmurhash==1.0.15
     # via
     #   preshed
     #   spacy
     #   thinc
 mutagen==1.47.0
-    # via mega-rag-chatbot
+    # via -r requirements.in
 networkx==3.4.2
-    # via mega-rag-chatbot
-nltk==3.9.4
-    # via mega-rag-chatbot
-numpy==2.4.3
+    # via -r requirements.in
+nltk==3.9.3
+    # via -r requirements.in
+numpy==1.26.4
     # via
+    #   -r requirements.in
     #   blis
     #   contourpy
     #   imageio
     #   matplotlib
-    #   mega-rag-chatbot
     #   moviepy
     #   pandas
     #   scikit-learn
@@ -307,17 +293,15 @@ numpy==2.4.3
     #   transformers
 openai==2.30.0
     # via
+    #   -r requirements.in
     #   langchain-openai
-    #   mega-rag-chatbot
 openpyxl==3.1.5
-    # via mega-rag-chatbot
+    # via -r requirements.in
 orjson==3.11.7
     # via
+    #   -r requirements.in
     #   langsmith
-    #   mega-rag-chatbot
     #   pinecone
-packageurl-python==0.17.6
-    # via cyclonedx-python-lib
 packaging==24.2
     # via
     #   huggingface-hub
@@ -325,8 +309,6 @@ packaging==24.2
     #   langsmith
     #   matplotlib
     #   pinecone-plugin-assistant
-    #   pip-audit
-    #   pip-requirements-parser
     #   pipdeptree
     #   pytest
     #   spacy
@@ -335,40 +317,30 @@ packaging==24.2
     #   weasel
 pandas==2.3.0
     # via
-    #   mega-rag-chatbot
+    #   -r requirements.in
     #   seaborn
 pdfminer-six==20251230
     # via
-    #   mega-rag-chatbot
+    #   -r requirements.in
     #   pdfplumber
 pdfplumber==0.11.9
-    # via mega-rag-chatbot
-pillow==12.1.1
+    # via -r requirements.in
+pillow==12.2.0
     # via
     #   imageio
     #   matplotlib
     #   pdfplumber
     #   reportlab
 pinecone==8.1.0
-    # via mega-rag-chatbot
+    # via -r requirements.in
 pinecone-plugin-assistant==3.0.2
     # via pinecone
 pinecone-plugin-interface==0.0.7
     # via pinecone
-pip==26.0.1
-    # via
-    #   pip-api
-    #   pipdeptree
-pip-api==0.0.34
-    # via pip-audit
-pip-audit==2.10.0
-pip-requirements-parser==32.0.1
-    # via pip-audit
 pipdeptree==2.26.1
-platformdirs==4.9.4
-    # via pip-audit
+    # via -r requirements.in
 playwright==1.58.0
-    # via mega-rag-chatbot
+    # via -r requirements.in
 pluggy==1.6.0
     # via pytest
 preshed==3.0.13
@@ -388,28 +360,26 @@ proto-plus==1.27.2
     #   google-cloud-firestore
 protobuf==6.33.6
     # via
+    #   -r requirements.in
     #   google-analytics-data
     #   google-api-core
     #   google-cloud-firestore
     #   googleapis-common-protos
     #   grpcio-status
-    #   mega-rag-chatbot
     #   proto-plus
 psutil==7.2.2
-    # via mega-rag-chatbot
-py-serializable==2.1.0
-    # via cyclonedx-python-lib
+    # via -r requirements.in
 pyasn1==0.6.3
     # via
-    #   mega-rag-chatbot
+    #   -r requirements.in
     #   pyasn1-modules
     #   rsa
 pyasn1-modules==0.4.2
     # via google-auth
-pycparser==3.0 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
+pycparser==3.0
     # via cffi
 pycryptodomex==3.23.0
-    # via mega-rag-chatbot
+    # via -r requirements.in
 pydantic==2.11.10
     # via
     #   cohere
@@ -424,43 +394,45 @@ pydantic-core==2.33.2
     #   cohere
     #   pydantic
 pydub==0.25.1
-    # via mega-rag-chatbot
+    # via -r requirements.in
 pyee==13.0.1
     # via playwright
-pygments==2.19.2
+pygments==2.20.0
     # via
+    #   -r requirements.in
     #   pytest
     #   rich
-pyjwt==2.12.1
+pyjwt[crypto]==2.12.1
     # via
+    #   -r requirements.in
     #   firebase-admin
-    #   mega-rag-chatbot
 pymysql==1.1.1
-    # via mega-rag-chatbot
+    # via -r requirements.in
 pyparsing==3.3.2
-    # via
-    #   matplotlib
-    #   pip-requirements-parser
+    # via matplotlib
 pypdfium2==5.6.0
     # via pdfplumber
 pytest==8.4.0
     # via
+    #   -r requirements.in
     #   pytest-asyncio
     #   pytest-mock
 pytest-asyncio==0.26.0
+    # via -r requirements.in
 pytest-mock==3.15.1
+    # via -r requirements.in
 python-dateutil==2.9.0.post0
     # via
+    #   -r requirements.in
     #   botocore
     #   matplotlib
-    #   mega-rag-chatbot
     #   pandas
     #   pinecone
 python-dotenv==1.1.0
-    # via mega-rag-chatbot
+    # via -r requirements.in
 pytz==2024.1
     # via
-    #   mega-rag-chatbot
+    #   -r requirements.in
     #   pandas
 pyyaml==6.0.3
     # via
@@ -468,26 +440,25 @@ pyyaml==6.0.3
     #   langchain-core
     #   transformers
 readability-lxml==0.8.4.1
-    # via mega-rag-chatbot
+    # via -r requirements.in
 regex==2026.2.28
     # via
     #   nltk
     #   tiktoken
     #   transformers
 reportlab==4.2.5
-    # via mega-rag-chatbot
+    # via -r requirements.in
 requests==2.33.0
     # via
+    #   -r requirements.in
     #   cachecontrol
     #   cohere
     #   google-api-core
     #   google-cloud-storage
     #   huggingface-hub
     #   langsmith
-    #   mega-rag-chatbot
     #   moviepy
     #   pinecone-plugin-assistant
-    #   pip-audit
     #   requests-toolbelt
     #   spacy
     #   tiktoken
@@ -495,28 +466,23 @@ requests==2.33.0
 requests-toolbelt==1.0.0
     # via langsmith
 rich==14.3.3
-    # via
-    #   pip-audit
-    #   typer
+    # via typer
 rsa==4.9.1
-    # via mega-rag-chatbot
+    # via -r requirements.in
 ruff==0.11.13
+    # via -r requirements.in
 s3transfer==0.13.0
     # via
+    #   -r requirements.in
     #   boto3
-    #   mega-rag-chatbot
 safetensors==0.7.0
     # via transformers
 scikit-learn==1.8.0
-    # via mega-rag-chatbot
+    # via -r requirements.in
 scipy==1.17.1
     # via scikit-learn
 seaborn==0.13.2
-    # via mega-rag-chatbot
-setuptools==81.0.0
-    # via
-    #   spacy
-    #   thinc
+    # via -r requirements.in
 shellingham==1.5.4
     # via typer
 six==1.17.0
@@ -525,12 +491,10 @@ smart-open==7.5.1
     # via weasel
 sniffio==1.3.1
     # via openai
-sortedcontainers==2.4.0
-    # via cyclonedx-python-lib
 soupsieve==2.8.3
     # via beautifulsoup4
 spacy==3.8.13
-    # via mega-rag-chatbot
+    # via -r requirements.in
 spacy-legacy==3.0.12
     # via spacy
 spacy-loggers==1.0.5
@@ -542,29 +506,23 @@ srsly==2.5.3
     #   weasel
 tenacity==8.2.2
     # via
+    #   -r requirements.in
     #   langchain-core
-    #   mega-rag-chatbot
 thinc==8.3.13
     # via spacy
 threadpoolctl==3.6.0
     # via scikit-learn
 tiktoken==0.12.0
-    # via
-    #   langchain-openai
-    #   mega-rag-chatbot
+    # via langchain-openai
 tokenizers==0.21.1
     # via
+    #   -r requirements.in
     #   cohere
-    #   mega-rag-chatbot
     #   transformers
-tomli==2.4.1
-    # via pip-audit
-tomli-w==1.2.0
-    # via pip-audit
 tqdm==4.67.1
     # via
+    #   -r requirements.in
     #   huggingface-hub
-    #   mega-rag-chatbot
     #   moviepy
     #   nltk
     #   openai
@@ -572,23 +530,22 @@ tqdm==4.67.1
     #   spacy
     #   transformers
 transformers==4.53.3
-    # via mega-rag-chatbot
+    # via -r requirements.in
 typer==0.16.0
     # via
-    #   mega-rag-chatbot
+    #   -r requirements.in
     #   spacy
     #   weasel
 types-requests==2.33.0.20260327
     # via cohere
 typing-extensions==4.14.0
     # via
+    #   -r requirements.in
     #   aiosignal
     #   anyio
     #   cohere
-    #   cyclonedx-python-lib
     #   huggingface-hub
     #   langchain-core
-    #   mega-rag-chatbot
     #   openai
     #   pinecone
     #   pydantic
@@ -602,8 +559,8 @@ tzdata==2025.3
     # via pandas
 urllib3==2.6.3
     # via
+    #   -r requirements.in
     #   botocore
-    #   mega-rag-chatbot
     #   pinecone
     #   requests
     #   types-requests
@@ -619,16 +576,16 @@ wasabi==1.1.3
 weasel==1.0.0
     # via spacy
 websockets==15.0.1
-    # via mega-rag-chatbot
+    # via -r requirements.in
 wrapt==2.1.2
     # via smart-open
 xxhash==3.6.0
     # via langsmith
 yarl==1.20.1
     # via
+    #   -r requirements.in
     #   aiohttp
-    #   mega-rag-chatbot
 yt-dlp==2026.2.21
-    # via mega-rag-chatbot
+    # via -r requirements.in
 zstandard==0.25.0
     # via langsmith
