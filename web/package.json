@@ -31,7 +31,8 @@
     "emulator": "firebase emulators:start --import ../emulator-data --export-on-exit ../emulator-data --inspect-functions",
     "prepare": "cd .. && command -v husky >/dev/null 2>&1 && husky || true",
     "setup-hooks": "cd .. && husky",
-    "prompt": "tsx -r dotenv/config scripts/manage-prompts.ts"
+    "prompt": "tsx -r dotenv/config scripts/manage-prompts.ts",
+    "knip": "knip"
   },
   "dependencies": {
     "@aws-sdk/client-sts": "^3.1004.0",
@@ -109,7 +110,7 @@
     "@types/js-cookie": "^3.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/lodash": "^4.17.20",
-    "@types/node": "^22.18.9",
+    "@types/node": "^22.19.17",
     "@types/node-fetch": "^2.6.13",
     "@types/progress": "^2.0.7",
     "@types/pug": "^2.0.10",
@@ -139,6 +140,7 @@
     "jest-environment-jsdom": "^29.7.0",
     "jest-fetch-mock": "^3.0.3",
     "js-cookie": "^3.0.5",
+    "knip": "^5.88.1",
     "langchain": "^1.2.30",
     "lint-staged": "^15.5.2",
     "node-fetch": "^2.7.0",

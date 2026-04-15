@@ -20,6 +20,8 @@ process.env.GOOGLE_APPLICATION_CREDENTIALS = JSON.stringify({
 // Mock other environment variables
 process.env.FIRESTORE_EMULATOR_HOST = "localhost:8080";
 process.env.NODE_ENV = "test";
+// uuidUtils / sudoCookieUtils throw at import if unset; server project does not load jest.setup.ts
+process.env.SECRET_KEY = process.env.SECRET_KEY || "test-secret-key-for-jest";
 
 // Mock site configurations
 const mockSiteConfigs = {
@@ -151,6 +153,7 @@ const mockSiteConfigs = {
 process.env.SITE_CONFIG = JSON.stringify(mockSiteConfigs);
 
 // Configure React for testing environments
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- server Jest only transforms .ts/.tsx; CJS keeps this setup loadable
 global.React = require("react");
 
 // Increase the timeout for async operations

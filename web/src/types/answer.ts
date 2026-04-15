@@ -2,6 +2,13 @@
 // It includes structures for answer data and admin actions.
 
 import { Document } from "@langchain/core/documents";
+import {
+  DownvoteIdentityMode,
+  DownvoteOperatorDecision,
+  DownvoteTriageCategory,
+  DownvoteTriageMethod,
+  DownvoteTriageStatus,
+} from "@/types/downvoteFeedback";
 
 // Possible admin actions that can be taken on an answer
 export type AdminAction = "affirmed" | "ignore" | "fixed";
@@ -36,6 +43,22 @@ export type Answer = {
   feedbackComment?: string;
   // Optional timestamp for feedback submission
   feedbackTimestamp?: Timestamp;
+  // Optional append-only feedback event reference
+  feedbackEventId?: string;
+  // Optional identity-sharing state for feedback
+  feedbackIdentityMode?: DownvoteIdentityMode;
+  feedbackIdentityShareRequested?: boolean;
+  feedbackReporterDisplayName?: string | null;
+  // Optional triage metadata mirrored from the feedback event
+  feedbackTriageStatus?: DownvoteTriageStatus;
+  feedbackTriageMethod?: DownvoteTriageMethod;
+  feedbackTriageCategory?: DownvoteTriageCategory;
+  feedbackTriageConfidence?: number;
+  feedbackTriageSummary?: string;
+  feedbackRecommendedAction?: string;
+  feedbackTaskCandidateKey?: string;
+  feedbackNotionTaskUrl?: string;
+  feedbackOperatorDecision?: DownvoteOperatorDecision;
   // Optional AI-generated restated question used for embeddings
   restatedQuestion?: string;
   // Optional star state for the conversation this answer belongs to

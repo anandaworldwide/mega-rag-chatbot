@@ -20,49 +20,58 @@ const createMockDb = (behavior: "normal" | "error" | "unavailable" = "normal") =
               data: () => ({ count: 45 }), // Mock total of 45 downvoted answers
             }),
         }),
-        orderBy: () => ({
-          offset: () => ({
-            limit: () => ({
-              get: () =>
-                Promise.resolve({
-                  docs: [
-                    {
-                      id: "answer1",
-                      data: () => ({
-                        question: "Test question 1",
-                        answer: "Test answer 1",
-                        vote: -1,
-                        timestamp: { toDate: () => new Date("2024-01-01") },
-                        collection: "test",
-                        adminAction: null,
-                        adminActionTimestamp: null,
-                        sources: [],
-                        feedbackReason: "Inaccurate information",
-                        feedbackComment: "The answer contains factual errors",
-                      }),
-                    },
-                    {
-                      id: "answer2",
-                      data: () => ({
-                        question: "Test question 2",
-                        answer: "Test answer 2",
-                        vote: -1,
-                        timestamp: { toDate: () => new Date("2024-01-02") },
-                        collection: "test",
-                        adminAction: "affirmed",
-                        adminActionTimestamp: {
-                          toDate: () => new Date("2024-01-03"),
-                        },
-                        sources: [],
-                        feedbackReason: "Missing context",
-                        feedbackComment: "The answer is misleading without proper context",
-                      }),
-                    },
-                  ],
-                }),
-            }),
-          }),
-        }),
+        orderBy: () => {
+          const result = {
+            get: () =>
+              Promise.resolve({
+                docs: [
+                  {
+                    id: "answer1",
+                    data: () => ({
+                      question: "Test question 1",
+                      answer: "Test answer 1",
+                      vote: -1,
+                      timestamp: { toDate: () => new Date("2024-01-01") },
+                      collection: "test",
+                      adminAction: null,
+                      adminActionTimestamp: null,
+                      sources: [],
+                      feedbackReason: "Inaccurate information",
+                      feedbackComment: "The answer contains factual errors",
+                      feedbackIdentityMode: "identified",
+                      feedbackTriageCategory: "retrieval_bug",
+                      feedbackTriageStatus: "classified",
+                      feedbackTriageConfidence: 0.82,
+                    }),
+                  },
+                  {
+                    id: "answer2",
+                    data: () => ({
+                      question: "Test question 2",
+                      answer: "Test answer 2",
+                      vote: -1,
+                      timestamp: { toDate: () => new Date("2024-01-02") },
+                      collection: "test",
+                      adminAction: "affirmed",
+                      adminActionTimestamp: {
+                        toDate: () => new Date("2024-01-03"),
+                      },
+                      sources: [],
+                      feedbackReason: "Missing context",
+                      feedbackComment: "The answer is misleading without proper context",
+                      feedbackIdentityMode: "anonymous",
+                      feedbackTriageCategory: "unclear",
+                      feedbackTriageStatus: "classified",
+                      feedbackTriageConfidence: 0.4,
+                    }),
+                  },
+                ],
+              }),
+            offset: () => result,
+            limit: () => result,
+          };
+          return result;
+        },
       }),
     };
   };
@@ -189,8 +198,8 @@ describe("Downvoted Answers API", () => {
       expect(res.statusCode).toBe(200);
       const data = res._getJSONData();
       expect(data).toHaveProperty("answers");
-      expect(data).toHaveProperty("totalPages", 3); // 45 total / 20 per page = 3 pages
-      expect(data).toHaveProperty("currentPage", 2);
+      expect(data).toHaveProperty("totalPages", 1);
+      expect(data).toHaveProperty("currentPage", 1);
       expect(data.answers).toHaveLength(2);
       expect(data.answers[0]).toMatchObject({
         id: "answer1",

@@ -79,6 +79,44 @@ exclude-newer-package = { requests = false, aiohttp = false }
 
 **Correct**:
 
+### Server Jest Requires SECRET_KEY For Imports
+
+**Rule**: Some server-side tests import modules that enforce `SECRET_KEY` at module-load time. Set a test secret
+inline when running isolated server tests.
+
+**Wrong**:
+
+```bash
+cd web && npm run test -- --selectProjects=server --testPathPattern=notionTaskClient
+```
+
+**Correct**:
+
+```bash
+cd web && SECRET_KEY=test-secret npm run test -- --selectProjects=server --testPathPattern=notionTaskClient
+```
+
+### Notion Board Lane Is Not Always `status` Or `select`
+
+**Rule**: For Notion board integrations, do not assume the workflow column is named `Status` or typed only as
+`status`/`select`; some boards use `multi_select` and custom property names.
+
+**Wrong**:
+
+```ts
+const statusProperty = entries.find(([, value]) => value.type === "status") || entries.find(([, value]) => value.type === "select");
+if (!statusProperty) throw new Error("Notion database must include a status or select property");
+```
+
+**Correct**:
+
+```ts
+const workflowProperty =
+  workflowCandidates.find(([, value]) => optionNames(value).includes("To Do")) ||
+  workflowCandidates.find(([key]) => isWorkflowLikeName(key)) ||
+  workflowCandidates[0];
+```
+
 ```toml
 [tool.uv]
 exclude-newer = "7 days"

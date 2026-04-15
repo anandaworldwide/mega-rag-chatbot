@@ -17,6 +17,7 @@ function getAvailableSites() {
     const sites = Object.keys(config).map((siteId) => ({
       id: siteId,
       name: config[siteId].name || config[siteId].shortname || siteId,
+      shortname: config[siteId].shortname || siteId,
     }));
 
     // Swap jairam and crystal (indices 2 and 3)
@@ -24,6 +25,13 @@ function getAvailableSites() {
     const crystalIndex = sites.findIndex((s) => s.id === "crystal");
     if (jairamIndex !== -1 && crystalIndex !== -1) {
       [sites[jairamIndex], sites[crystalIndex]] = [sites[crystalIndex], sites[jairamIndex]];
+    }
+
+    // Default local dev site: Luca (ananda) is always option 1
+    const lucaIndex = sites.findIndex((s) => s.id === "ananda");
+    if (lucaIndex > 0) {
+      const [luca] = sites.splice(lucaIndex, 1);
+      sites.unshift(luca);
     }
 
     return sites;
@@ -54,9 +62,11 @@ function promptSiteSelection() {
       output: process.stdout,
     });
 
-    rl.question(`Select a site (1-${sites.length}): `, (answer) => {
+    const defaultLabel = sites[0].shortname || sites[0].name;
+    rl.question(`Select a site (1-${sites.length}, Enter = ${defaultLabel}): `, (answer) => {
       rl.close();
-      const selection = parseInt(answer.trim(), 10);
+      const trimmed = answer.trim();
+      const selection = trimmed === "" ? 1 : parseInt(trimmed, 10);
 
       if (isNaN(selection) || selection < 1 || selection > sites.length) {
         console.error(`\n❌ Invalid selection. Please choose a number between 1 and ${sites.length}.`);

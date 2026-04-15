@@ -24,3 +24,8 @@ export const getModelPerformanceCollectionName = () => {
   const env = getEnvName();
   return `${env}_model_performance`;
 };
+
+export const getDownvoteFeedbackEventsCollectionName = () => {
+  const env = getEnvName();
+  return `${env}_downvote_feedback_events`;
+};

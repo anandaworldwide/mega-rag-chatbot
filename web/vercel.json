@@ -31,6 +31,10 @@
     {
       "path": "/api/admin/model-performance-digest",
       "schedule": "15 14 * * 3,6"
+    },
+    {
+      "path": "/api/admin/downvoteFeedbackDigest",
+      "schedule": "0 15 * * 1"
     }
   ],
   "buildCommand": "npm install dotenv && npm install --include=dev && npm run build-with-api-tests",

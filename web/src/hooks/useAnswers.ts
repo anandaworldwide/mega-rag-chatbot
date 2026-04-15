@@ -7,17 +7,26 @@ import { useQuery, UseQueryOptions, UseQueryResult } from "@tanstack/react-query
 import { queryFetch } from "@/utils/client/reactQueryConfig";
 import { Answer } from "@/types/answer";
 import { fetchWithAuth } from "@/utils/client/tokenManager";
+import { DownvoteAnswerFilters, DownvoteFeedbackCluster } from "@/types/downvoteFeedback";
 
 // Query keys for React Query cache
 export const queryKeys = {
   answers: (page?: number) => ["answers", page].filter(Boolean),
-  downvotedAnswers: (page?: number) => ["downvotedAnswers", page].filter(Boolean),
+  downvotedAnswers: (page: number = 1, filters?: DownvoteAnswerFilters) => ["downvotedAnswers", page, filters ?? {}],
   relatedQuestions: (docId?: string) => ["relatedQuestions", docId].filter(Boolean),
 };
 
 // Response type for the answers query
 export interface AnswersResponse {
   answers: Answer[];
+  totalPages: number;
+  currentPage: number;
+}
+
+export interface DownvotedAnswersResponse {
+  answers: Answer[];
+  groups: DownvoteFeedbackCluster[];
+  totalItems: number;
   totalPages: number;
   currentPage: number;
 }
@@ -60,11 +69,28 @@ export const useAnswers = (
 /**
  * Hook for fetching downvoted answers
  */
-export function useDownvotedAnswers(page: number = 1) {
-  return useQuery({
-    queryKey: queryKeys.downvotedAnswers(page),
+export function useDownvotedAnswers(page: number = 1, filters?: DownvoteAnswerFilters) {
+  return useQuery<DownvotedAnswersResponse, Error>({
+    queryKey: queryKeys.downvotedAnswers(page, filters),
     queryFn: async () => {
-      const response = await fetchWithAuth(`/api/downvotedAnswers?page=${page}`);
+      const params = new URLSearchParams({ page: String(page) });
+      if (filters?.triageStatus && filters.triageStatus !== "all") {
+        params.set("triageStatus", filters.triageStatus);
+      }
+      if (filters?.triageCategory && filters.triageCategory !== "all") {
+        params.set("triageCategory", filters.triageCategory);
+      }
+      if (filters?.feedbackReason && filters.feedbackReason !== "all") {
+        params.set("feedbackReason", filters.feedbackReason);
+      }
+      if (filters?.identityMode && filters.identityMode !== "all") {
+        params.set("identityMode", filters.identityMode);
+      }
+      if (filters?.groupBy && filters.groupBy !== "none") {
+        params.set("groupBy", filters.groupBy);
+      }
+
+      const response = await fetchWithAuth(`/api/downvotedAnswers?${params.toString()}`);
       if (!response.ok) {
         const error = new Error("Failed to fetch downvoted answers") as Error & {
           status?: number;

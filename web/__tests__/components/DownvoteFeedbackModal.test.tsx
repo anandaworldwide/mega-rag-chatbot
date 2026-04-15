@@ -81,7 +81,15 @@ describe("DownvoteFeedbackModal", () => {
     // Submit
     fireEvent.click(screen.getByText("Submit Feedback"));
 
-    expect(mockOnConfirm).toHaveBeenCalledWith("test-doc-id", "Incorrect Information", "Test comment");
+    expect(mockOnConfirm).toHaveBeenCalledWith("test-doc-id", "Incorrect Information", "Test comment", true);
+  });
+
+  it("defaults identity sharing to enabled", () => {
+    render(
+      <DownvoteFeedbackModal isOpen={true} docId="test-doc-id" onConfirm={mockOnConfirm} onCancel={mockOnCancel} />
+    );
+
+    expect(screen.getByRole("checkbox")).toBeChecked();
   });
 
   it("calls onCancel when cancel button is clicked", () => {
@@ -145,5 +153,30 @@ describe("DownvoteFeedbackModal", () => {
 
     // onConfirm should not be called
     expect(mockOnConfirm).not.toHaveBeenCalled();
+  });
+
+  it("shows sending state and disables actions while isSubmitting", () => {
+    const { rerender } = render(
+      <DownvoteFeedbackModal isOpen={true} docId="test-doc-id" onConfirm={mockOnConfirm} onCancel={mockOnCancel} />
+    );
+
+    fireEvent.click(screen.getByLabelText("Incorrect Information"));
+
+    rerender(
+      <DownvoteFeedbackModal
+        isOpen={true}
+        docId="test-doc-id"
+        onConfirm={mockOnConfirm}
+        onCancel={mockOnCancel}
+        isSubmitting={true}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Sending…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(screen.getByText("Sending your feedback…")).toBeInTheDocument();
+    expect(screen.getByLabelText("Incorrect Information")).toBeDisabled();
+    expect(screen.getByLabelText("Optional Comment (max 1000 chars):")).toBeDisabled();
+    expect(screen.getByRole("checkbox")).toBeDisabled();
   });
 });

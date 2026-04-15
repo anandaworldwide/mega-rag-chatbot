@@ -2208,6 +2208,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState<boolean>(false);
   const [currentFeedbackDocId, setCurrentFeedbackDocId] = useState<string | null>(null);
   const [feedbackSubmitError, setFeedbackSubmitError] = useState<string | null>(null);
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState<boolean>(false);
 
   // State for GPT-4.1 regeneration and comparison
   const [regeneratingMessageIndex, setRegeneratingMessageIndex] = useState<number | null>(null);
@@ -2247,13 +2248,14 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   };
 
   // Function to submit feedback - NEW
-  const submitFeedback = async (docId: string, reason: string, comment: string) => {
+  const submitFeedback = async (docId: string, reason: string, comment: string, shareIdentity: boolean) => {
     setFeedbackSubmitError(null); // Clear previous errors before trying
+    setFeedbackSubmitting(true);
     try {
       const response = await fetchWithAuth("/api/vote", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ docId, vote: -1, reason, comment }),
+        body: JSON.stringify({ docId, vote: -1, reason, comment, shareIdentity }),
       });
 
       if (!response.ok) {
@@ -2265,7 +2267,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       setVotes((prev) => ({ ...prev, [docId]: -1 })); // Update UI to show downvote
       setIsFeedbackModalOpen(false); // Close modal
       setCurrentFeedbackDocId(null);
-      logEvent("submit_feedback", "Engagement", reason); // Log feedback event
+      logEvent("submit_feedback", "Engagement", `${reason}:${shareIdentity ? "identified" : "anonymous"}`); // Log feedback event
 
       // Show a success toast
       toast.success("Feedback submitted. Thank you!");
@@ -2274,11 +2276,16 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       const errorMessage = error instanceof Error ? error.message : "An unknown error occurred.";
       setFeedbackSubmitError(errorMessage); // Show error in the modal
       // Keep the modal open for the user to see the error
+    } finally {
+      setFeedbackSubmitting(false);
     }
   };
 
   // Function to cancel feedback - NEW
   const cancelFeedback = () => {
+    if (feedbackSubmitting) {
+      return;
+    }
     setIsFeedbackModalOpen(false);
     setCurrentFeedbackDocId(null);
     setFeedbackSubmitError(null); // Clear any errors shown in modal
@@ -3835,6 +3842,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           onConfirm={submitFeedback}
           onCancel={cancelFeedback}
           error={feedbackSubmitError} // Pass feedback-specific error
+          isSubmitting={feedbackSubmitting}
         />
 
         {/* Render the Model Comparison Feedback Modal */}

@@ -9,7 +9,6 @@
     "other_visitors_reference": "your Gurubhais",
     "chatPlaceholder": "Send a message",
     "allowedFrontEndDomains": [
-      "ask.anandalibrary.org",
       "luca.ananda.org",
       "**-ananda-web-services-projects.vercel.app",
       "localhost:3000",

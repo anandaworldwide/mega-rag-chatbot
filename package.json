@@ -20,9 +20,11 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
+    "@types/node": "^25.6.0",
     "baseline-browser-mapping": "^2.9.5",
     "eslint-plugin-react": "^7.37.5",
-    "lint-staged": "^15.5.2"
+    "lint-staged": "^15.5.2",
+    "typescript": "^6.0.2"
   },
   "keywords": [],
   "engines": {
