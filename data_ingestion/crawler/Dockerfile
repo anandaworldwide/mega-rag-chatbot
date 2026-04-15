@@ -29,8 +29,8 @@ COPY wordpress/analytics/pyproject.toml /app/wordpress/analytics/pyproject.toml
 # Install Python dependencies into a project-local virtual environment
 RUN uv sync --locked --package mega-rag-chatbot-crawler --no-default-groups --no-editable
 
-# Pre-download spaCy model (avoids runtime download on every container start)
-RUN uv run --package mega-rag-chatbot-crawler python -m spacy download en_core_web_sm
+# Pre-download spaCy model (spacy download shells out to pip, which uv doesn't provide)
+RUN uv pip install en_core_web_sm@https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
 
 # Copy crawler code (build context is project root)
 COPY data_ingestion/crawler/ /app/crawler/
