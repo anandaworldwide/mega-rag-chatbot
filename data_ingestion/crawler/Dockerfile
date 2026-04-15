@@ -23,6 +23,8 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/b
 COPY pyproject.toml /app/pyproject.toml
 COPY uv.lock /app/uv.lock
 COPY data_ingestion/crawler/pyproject.toml /app/data_ingestion/crawler/pyproject.toml
+COPY reranking/pyproject.toml /app/reranking/pyproject.toml
+COPY wordpress/analytics/pyproject.toml /app/wordpress/analytics/pyproject.toml
 
 # Install Python dependencies into a project-local virtual environment
 RUN uv sync --locked --package mega-rag-chatbot-crawler --no-default-groups --no-editable

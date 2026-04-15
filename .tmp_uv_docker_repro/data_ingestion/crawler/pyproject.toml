@@ -1,0 +1,25 @@
+[project]
+name = "mega-rag-chatbot-crawler"
+version = "0.1.0"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "beautifulsoup4>=4.12.2",
+    "boto3>=1.38.44",
+    "langchain-core>=1.2.11",
+    "langchain-openai>=1.1.1",
+    "orjson>=3.11.6",
+    "pinecone>=8.0.0",
+    "playwright>=1.55.1",
+    "psutil",
+    "python-dateutil==2.9.0.post0",
+    "python-dotenv==1.1.0",
+    "readability-lxml",
+    "requests>=2.33.0",
+    "spacy>=3.8.11",
+    "tiktoken==0.12.0",
+    "tqdm==4.67.1",
+    "urllib3>=2.6.3",
+]
+
+[tool.uv]
+package = false
