@@ -26,9 +26,9 @@ HEALTH_WEDGE_TIMEOUT = (
 
 def _is_running_in_cloud() -> bool:
     """
-    Heuristic: treat ECS/Fargate runs as "cloud" for log formatting.
+    Heuristic: treat common AWS container environments as "cloud" for log formatting.
 
-    CloudWatch Logs already prefixes each line with a timestamp, so we avoid duplicating it.
+    When logs are shipped to a system that already prefixes timestamps (for example CloudWatch), omit %(asctime)s.
     """
     return bool(
         os.getenv("ECS_CONTAINER_METADATA_URI_V4")

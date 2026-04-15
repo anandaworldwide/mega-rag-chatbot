@@ -1,5 +1,5 @@
 # Dockerfile for Ananda Crawler
-# Builds containerized crawler for ECS Fargate deployment
+# Container image for production Linux VM (Docker + systemd) or local testing
 # Uses Playwright's official image for full browser support
 
 FROM mcr.microsoft.com/playwright/python:v1.57.0-jammy

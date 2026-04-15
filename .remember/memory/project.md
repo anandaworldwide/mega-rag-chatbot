@@ -185,31 +185,20 @@ except ImportError:
 - **Security headers**: CSP, HSTS, X-Frame-Options required
 - **WordPress integration**: Use signed tokens for cross-site communication
 
-### AWS Scheduling (Crawler)
+### Crawler production deployment (dedicated VM)
 
-- Prefer **EventBridge Scheduler** `ScheduleExpressionTimezone` (e.g. `America/Los_Angeles`) over hardcoding UTC cron
-  expressions to avoid DST/UTC conversion mistakes.
-- For the crawler, prefer **one-shot scheduled ECS tasks** with `--max-runtime-minutes` over an always-on ECS service +
-  supervisor loop when you want strict “only run in this window” behavior.
-- For server redeploy/runbook instructions, include `git pull` immediately after the initial `cd` into the repo so the
-  remote box is updated before rebuild/restart commands.
+- Production runs on a **single Linux VM** (for example AWS Lightsail) with Docker, **`DATA_DIR`** on persistent disk,
+  and **systemd** timers for bounded `docker run` crawls — not ECS/Fargate.
+- **Deploy / “build for production”**: on the server, `git pull`, then `docker build` from
+  `data_ingestion/crawler` per [CLOUD-DEPLOYMENT.md](mdc:data_ingestion/crawler/CLOUD-DEPLOYMENT.md); restart the oneshot
+  service or wait for the timer.
+- For server runbooks, include `git pull` immediately after the initial `cd` into the repo so the host is updated before
+  rebuild/restart.
 
-### Crawler Deployment ("build and push to production")
+### SQLite on network filesystems (legacy EFS note)
 
-- When the user says "build and push to production" for the crawler, this means **deploy to AWS ECS**, not git push.
-- **Step 1**: `bash data_ingestion/crawler/bin/build-and-push.sh latest` — builds Docker image for linux/amd64 and
-  pushes to ECR (`ananda-crawler` repo in us-west-1)
-- **Step 2**: `bash data_ingestion/crawler/bin/register-task-definition.sh latest` — registers new ECS task definition
-  revision and updates the EventBridge schedule to use it
-- The next hourly scheduled run automatically picks up the new image
-
-### SQLite on EFS (Network Filesystems)
-
-- **Always use WAL mode** for SQLite on EFS/NFS to prevent "database is locked" and "database disk image is malformed"
-  errors
-- DELETE journal mode is not robust enough for network filesystems with latency
-- Required PRAGMAs: `journal_mode=WAL`, `busy_timeout=60000`, `synchronous=NORMAL`
-- Use longer connection timeouts (60s+) to handle EFS latency spikes
+- If you ever mount queue state over NFS/EFS again: **always use WAL mode**, `busy_timeout=60000`,
+  `synchronous=NORMAL`, and long connection timeouts. Prefer **local disk** on the crawler VM for SQLite.
 
 ### AWS Cost Reporting
 
@@ -258,7 +247,9 @@ except ImportError:
 - **Source-focus UX**: Source focus is persistent until cleared. Keep the colored book icon, but also show the active
   source explicitly in the composer. Post-answer source shortcuts should be hierarchy-aware so users can choose broader
   or narrower levels (for example, book instead of chapter) from the rendered source card
-- **AWS CLI preference**: Use named profiles for different AWS accounts and prefer explicit `--profile ...` on AWS CLI commands for safety
+- **AWS CLI (mandatory for this repo)**: **Always** pass `--profile ananda` on AWS CLI commands for this project’s
+  infrastructure (and verify with `aws sts get-caller-identity --profile ananda`). The default / `personal` profile is a
+  different account; never assume default credentials target Ananda.
 - **System prompts**: Located in `web/site-config/prompts/[site]-base.txt`
 - **UUID identification**: All users have UUIDs (JWT token for login-required, cookies for non-login sites)
 - **UUID utility**: Use `getSecureUUID()` for API endpoints that work with both authenticated and non-authenticated
