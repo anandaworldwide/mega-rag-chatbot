@@ -15,6 +15,9 @@ or two VMs). That duplicates work and risks SQLite corruption.
 ## Architecture (production)
 
 - **Compute**: One Linux VM (Lightsail or equivalent) with Docker
+- **RAM / swap**: Small bundles (for example **2 GB RAM**) can run out of memory quickly with Playwright/Firefox and
+  ingestion workloads. In addition to SSH hardening, plan **swap** (swapfile) on the host so the machine does not wedge
+  under load. See [deploy/vm/README.md](deploy/vm/README.md#lightsail--small-ram-add-swap-recommended).
 - **Image**: Build from [Dockerfile](Dockerfile) (context is `data_ingestion/` — see Dockerfile comments)
 - **State**: Host directory mounted at container `DATA_DIR` (for example `/srv/ananda-crawler` → `/app/data` in
   container)
@@ -32,7 +35,7 @@ or two VMs). That duplicates work and risks SQLite corruption.
   db/           # crawler_queue_<site>.db
   logs/
   env/          # chmod 700; .env.<site> files for --env-file
-  backups/      # optional dated copies of the DB
+  backups/      # dated SQLite backups (see deploy/vm backup timer)
 ```
 
 ## Build the image on the server
@@ -60,17 +63,25 @@ docker run --rm \
 
 Confirm Playwright/Firefox starts, the DB path under `db/`, and outbound HTTPS to the crawl target.
 
-## systemd (sketch)
+## systemd, backups, and monitoring
 
-**Service** (`ananda-crawler.service`): `Type=oneshot`, `ExecStart=` = `docker run --rm` with `-e DATA_DIR=/app/data`,
-`-v /srv/ananda-crawler:/app/data`, `--env-file`, image `ananda-crawler:latest`, and the same `python ... website_crawler.py`
-arguments as production (including `--non-interactive`).
+**Paste-ready units** (crawler timer, daily report, SQLite backup + retention, failure email) live under
+[deploy/vm/](deploy/vm/). Follow [deploy/vm/README.md](deploy/vm/README.md) on the server: install scripts to
+`/usr/local/bin`, copy `*.service` / `*.timer` into `/etc/systemd/system/`, `daemon-reload`, and enable the timers.
 
-**Timer** (`ananda-crawler.timer`): `OnCalendar=` for the desired PT window (for example hourly between 07:00 and 22:00
-local), `Persistent=true`.
+Summary of what those files provide:
 
-After edits: `sudo systemctl daemon-reload`, `sudo systemctl enable --now ananda-crawler.timer`, check with
-`systemctl list-timers`.
+- **Crawl schedule**: `ananda-crawler.service` + `ananda-crawler.timer` — hourly `docker run` in a PT daytime window.
+- **Daily report email**: `ananda-crawler-daily-report.service` + `.timer` — runs `daily_report.py` in the same image
+  (replaces relying on CloudWatch for queue visibility; optional CloudWatch log section in the script stays unused on
+  the VM unless you add AWS creds).
+- **SQLite backups**: `ananda-crawler-backup.service` + `.timer` — calls `ananda-crawler-backup-sqlite.sh`, which uses
+  `sqlite3 ".backup"` into `/srv/ananda-crawler/backups/` and prunes files older than `RETENTION_DAYS` (default **14**).
+- **Failed crawl alert**: `OnFailure=ananda-crawler-failure-notify.service` on the crawl unit sends an ops email via
+  `notify_systemd_failure.py` inside Docker (rebuild the image after pulling that file).
+
+After edits: `sudo systemctl daemon-reload`, `sudo systemctl enable --now ananda-crawler.timer`, and
+`systemctl list-timers 'ananda-crawler*'`.
 
 ## Deploy after code changes
 
@@ -113,8 +124,10 @@ Git history still contains the old shell scripts if you need to reconstruct anyt
 
 ## Related files
 
+- [deploy/vm/](deploy/vm/) — systemd units, backup + failure scripts, install README
 - [Dockerfile](Dockerfile)
 - [website_crawler.py](website_crawler.py) — queue DB path under `DATA_DIR`
 - [lock_manager.py](lock_manager.py) — lock file under `DATA_DIR`
 - [crawler_supervisor.py](crawler_supervisor.py) — optional bounded supervisor pattern
 - [daily_report.py](daily_report.py) — email report; CloudWatch section is optional off AWS
+- [notify_systemd_failure.py](notify_systemd_failure.py) — ops email when the crawl unit fails

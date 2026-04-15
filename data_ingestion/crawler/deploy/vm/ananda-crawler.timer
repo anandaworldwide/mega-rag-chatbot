@@ -1,0 +1,16 @@
+# Install: sudo cp ananda-crawler.timer /etc/systemd/system/
+#          sudo systemctl enable --now ananda-crawler.timer
+#
+# Runs hourly during 07:00–22:00 America/Los_Angeles (adjust OnCalendar as needed).
+
+[Unit]
+Description=Run Ananda crawler on a schedule (PT window)
+
+[Timer]
+OnCalendar=*-*-* 07..22:00:00
+Timezone=America/Los_Angeles
+Persistent=true
+Unit=ananda-crawler.service
+
+[Install]
+WantedBy=timers.target

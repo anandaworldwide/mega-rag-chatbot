@@ -19,4 +19,5 @@
 | `manage_crawler.sh`        | Start/stop/status wrapper for local crawler daemon |
 
 Production deployment on a dedicated VM (Docker + systemd) is documented in
-[../CLOUD-DEPLOYMENT.md](../CLOUD-DEPLOYMENT.md#switching-between-production-vm-and-local).
+[../CLOUD-DEPLOYMENT.md](../CLOUD-DEPLOYMENT.md#switching-between-production-vm-and-local). **systemd unit/timer samples**
+and backup scripts: [../deploy/vm/README.md](../deploy/vm/README.md).

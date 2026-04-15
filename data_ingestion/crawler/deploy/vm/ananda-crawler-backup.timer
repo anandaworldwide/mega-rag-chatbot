@@ -1,0 +1,16 @@
+# Install: sudo cp ananda-crawler-backup.timer /etc/systemd/system/
+#          sudo systemctl enable --now ananda-crawler-backup.timer
+#
+# Default 03:15 PT: after typical crawl windows; tune if your crawl schedule overlaps.
+
+[Unit]
+Description=Nightly SQLite backup for crawler queue
+
+[Timer]
+OnCalendar=*-*-* 03:15:00
+Timezone=America/Los_Angeles
+Persistent=true
+Unit=ananda-crawler-backup.service
+
+[Install]
+WantedBy=timers.target

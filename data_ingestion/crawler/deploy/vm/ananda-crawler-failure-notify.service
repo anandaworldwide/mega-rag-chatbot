@@ -1,0 +1,15 @@
+# Install: sudo cp ananda-crawler-failure-notify.service /etc/systemd/system/
+#          sudo systemctl daemon-reload
+#
+# Triggered when ananda-crawler.service fails (OnFailure= in ananda-crawler.service).
+
+[Unit]
+Description=Email ops when ananda-crawler.service fails
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=docker
+ExecStart=/usr/local/bin/ananda-crawler-notify-failure.sh
+StandardOutput=journal
+StandardError=journal

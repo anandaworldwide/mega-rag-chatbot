@@ -189,6 +189,8 @@ except ImportError:
 
 - Production runs on a **single Linux VM** (for example AWS Lightsail) with Docker, **`DATA_DIR`** on persistent disk,
   and **systemd** timers for bounded `docker run` crawls — not ECS/Fargate.
+- **Lightsail / low RAM**: besides SSH key setup, add **host swap** (swapfile); a 2 GB instance overloaded quickly
+  without it once the crawler container ran. Details: `data_ingestion/crawler/deploy/vm/README.md` (swap section).
 - **Deploy / “build for production”**: on the server, `git pull`, then `docker build` from
   `data_ingestion/crawler` per [CLOUD-DEPLOYMENT.md](mdc:data_ingestion/crawler/CLOUD-DEPLOYMENT.md); restart the oneshot
   service or wait for the timer.

@@ -47,7 +47,7 @@ The crawler can run in two modes:
 
 1. **Local (macOS)**: Uses macOS LaunchAgent for bounded cycles (see [DAEMON_MANAGEMENT.md](DAEMON_MANAGEMENT.md))
 2. **Production (Linux VM)**: Docker on a dedicated host (for example Lightsail) with systemd timers; see
-   [CLOUD-DEPLOYMENT.md](CLOUD-DEPLOYMENT.md)
+   [CLOUD-DEPLOYMENT.md](CLOUD-DEPLOYMENT.md) and committed samples under [deploy/vm/](deploy/vm/).
 
 ### Setup
 

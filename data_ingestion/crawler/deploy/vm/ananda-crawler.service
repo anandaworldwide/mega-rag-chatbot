@@ -1,0 +1,29 @@
+# Install: sudo cp ananda-crawler.service /etc/systemd/system/
+#          sudo systemctl daemon-reload
+#
+# Edit paths, site, image tag, and --max-runtime-minutes to match your VM.
+# Requires: docker, user in the "docker" group (or run root — not recommended).
+
+[Unit]
+Description=Ananda website crawler (bounded Docker run)
+Documentation=file:///path/to/repo/data_ingestion/crawler/CLOUD-DEPLOYMENT.md
+OnFailure=ananda-crawler-failure-notify.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=docker
+ExecStart=/usr/bin/docker run --rm --name ananda-crawler-run \
+  -e DATA_DIR=/app/data \
+  --env-file /srv/ananda-crawler/env/.env.ananda-public \
+  -v /srv/ananda-crawler:/app/data \
+  ananda-crawler:latest \
+  python /app/crawler/website_crawler.py --site ananda-public --max-runtime-minutes 45 --non-interactive
+TimeoutStartSec=7200
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

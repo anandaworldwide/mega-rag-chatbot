@@ -1,0 +1,26 @@
+# Install: sudo cp ananda-crawler-daily-report.service /etc/systemd/system/
+#          sudo systemctl daemon-reload
+#
+# Email report replaces CloudWatch-centric monitoring for queue stats (see daily_report.py).
+
+[Unit]
+Description=Ananda crawler daily email report (Docker)
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=docker
+ExecStart=/usr/bin/docker run --rm \
+  -e DATA_DIR=/app/data \
+  --env-file /srv/ananda-crawler/env/.env.ananda-public \
+  -v /srv/ananda-crawler:/app/data \
+  ananda-crawler:latest \
+  python /app/crawler/daily_report.py --site ananda-public
+TimeoutStartSec=600
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
