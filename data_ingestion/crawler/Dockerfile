@@ -2,7 +2,7 @@
 # Container image for production Linux VM (Docker + systemd) or local testing
 # Uses Playwright's official image for full browser support
 
-FROM mcr.microsoft.com/playwright/python:v1.57.0-jammy
+FROM mcr.microsoft.com/playwright/python:v1.58.0-jammy
 
 # Install build tools and tzdata for zoneinfo support
 ENV DEBIAN_FRONTEND=noninteractive
