@@ -19,6 +19,9 @@ WORKDIR /app
 # Install uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
+# Store uv-managed Python under /app so it's accessible to UID 1000 at runtime
+ENV UV_PYTHON_INSTALL_DIR=/app/.python
+
 # Copy lock and project metadata needed to resolve the crawler environment
 COPY pyproject.toml /app/pyproject.toml
 COPY uv.lock /app/uv.lock
