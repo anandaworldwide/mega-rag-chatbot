@@ -20,4 +20,4 @@ fi
   --env-file "${ENV_FILE}" \
   -v "${DATA_ROOT}:/app/data" \
   "${IMAGE}" \
-  python /app/crawler/notify_systemd_failure.py
+  /app/.venv/bin/python /app/crawler/notify_systemd_failure.py

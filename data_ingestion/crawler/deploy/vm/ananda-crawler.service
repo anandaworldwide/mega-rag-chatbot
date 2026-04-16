@@ -20,7 +20,7 @@ ExecStart=/usr/bin/docker run --rm --name ananda-crawler-run \
   --env-file /srv/ananda-crawler/env/.env.ananda-public \
   -v /srv/ananda-crawler:/app/data \
   ananda-crawler:latest \
-  python /app/crawler/website_crawler.py --site ananda-public --max-runtime-minutes 45 --non-interactive
+  /app/.venv/bin/python /app/crawler/website_crawler.py --site ananda-public --max-runtime-minutes 45 --non-interactive
 TimeoutStartSec=7200
 StandardOutput=journal
 StandardError=journal

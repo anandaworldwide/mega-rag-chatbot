@@ -17,7 +17,7 @@ ExecStart=/usr/bin/docker run --rm \
   --env-file /srv/ananda-crawler/env/.env.ananda-public \
   -v /srv/ananda-crawler:/app/data \
   ananda-crawler:latest \
-  python /app/crawler/daily_report.py --site ananda-public
+  /app/.venv/bin/python /app/crawler/daily_report.py --site ananda-public
 TimeoutStartSec=600
 StandardOutput=journal
 StandardError=journal
