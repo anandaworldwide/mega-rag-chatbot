@@ -2,6 +2,23 @@
 
 ## Critical Lessons Learned
 
+### Docker + uv + Non-Root: Put Managed Python Where UID Can Read
+
+**Rule**: In crawler images, `uv sync` runs as root and defaults to storing the managed CPython under `/root/...`. If the
+image then runs as `USER 1000`, the venv may resolve to a broken interpreter (missing stdlib / `encodings`).
+
+**Wrong**: Relying on default `UV_PYTHON_INSTALL_DIR` under `/root` while `USER` is non-root.
+
+**Correct**: Before `uv sync` in the Dockerfile, set `ENV UV_PYTHON_INSTALL_DIR=/app/.python` (or another path under
+`/app` that gets `chown` with the app tree).
+
+### Playwright Docker Base Image Must Match Locked `playwright` Package
+
+**Wrong**: Base image `mcr.microsoft.com/playwright/python:v1.57.0-jammy` while `uv.lock` installs `playwright==1.58.x`.
+
+**Correct**: Bump the `FROM` tag to the matching minor (e.g. `v1.58.0-jammy`) so bundled browser builds match the Python
+package.
+
 ### Next.js 16 Defaults To Turbopack
 
 **Rule**: Upgrading to Next.js 16 can break repos with custom `webpack` config because `next build` and `next dev` default to Turbopack.
