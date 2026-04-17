@@ -21,14 +21,14 @@ logging.basicConfig(
 
 
 def _get_lock_file_path(site: str) -> str:
-    """Get the appropriate lock file path based on environment.ww
+    """Get the appropriate lock file path based on environment.
 
-    Cloud mode (DATA_DIR set): Use EFS-based lock for cross-container coordination.
-    Local mode: Use /tmp for single-machine PID-based locking.
+    Cloud mode (DATA_DIR set): lock on persistent DATA_DIR (VM disk or similar).
+    Local mode: use /tmp for single-machine PID-based locking.
     """
     data_dir = os.getenv("DATA_DIR")
     if data_dir:
-        # Cloud mode: put lock file on EFS so it's visible across containers
+        # Cloud mode: lock on DATA_DIR so it survives restarts and matches the DB location
         lock_dir = Path(data_dir)
         lock_dir.mkdir(parents=True, exist_ok=True)
         return str(lock_dir / f"crawler_{site}.lock")
@@ -38,7 +38,7 @@ def _get_lock_file_path(site: str) -> str:
 
 
 def _is_cloud_mode() -> bool:
-    """Check if running in cloud mode (ECS with EFS)."""
+    """True when DATA_DIR is set (production container/VM with persistent state)."""
     return bool(os.getenv("DATA_DIR"))
 
 

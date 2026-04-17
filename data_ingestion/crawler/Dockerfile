@@ -40,7 +40,7 @@ COPY data_ingestion/crawler/ /app/crawler/
 COPY data_ingestion/utils/ /app/utils/
 COPY pyutil/ /app/pyutil/
 
-# Create directories for DB and logs (will be mounted from EFS)
+# Create directories for DB and logs (host bind-mount at runtime)
 # Ensure proper ownership for non-root user (UID 1000)
 RUN mkdir -p /app/data/db /app/data/logs && \
     chown -R 1000:1000 /app
@@ -50,8 +50,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH=/app
 
 # Run as non-root user (UID 1000) for security hardening
-# This matches the task definition user setting
 USER 1000:1000
 
-# Default command runs supervisor (can be overridden in task definition)
+# Default command runs supervisor (override via docker run / systemd)
 CMD ["python", "/app/crawler/crawler_supervisor.py", "--site", "ananda-public"]
