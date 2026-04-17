@@ -8,7 +8,7 @@ import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import { getSudoCookie } from "@/utils/server/sudoCookieUtils";
 import { requireSuperuserRoleFromFirestore } from "@/utils/server/authz";
 import { getAnswersCollectionName, getDownvoteFeedbackEventsCollectionName } from "@/utils/server/firestoreUtils";
-import { firestoreGet, firestoreQueryGet, firestoreUpdate } from "@/utils/server/firestoreRetryUtils";
+import { firestoreGetAll, firestoreQueryGet, firestoreUpdate } from "@/utils/server/firestoreRetryUtils";
 import { DownvoteFeedbackEvent } from "@/types/downvoteFeedback";
 import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
 
@@ -66,7 +66,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     let skippedNoEvent = 0;
     let missingEvent = 0;
 
-    for (const answerDoc of answersSnapshot.docs) {
+    const eventsCollection = db.collection(getDownvoteFeedbackEventsCollectionName());
+    const linkedEventIds: string[] = answersSnapshot.docs.map(
+      (d: firebase.firestore.QueryDocumentSnapshot): string => {
+        const answerData = d.data() as Record<string, any>;
+        return typeof answerData.feedbackEventId === "string" ? answerData.feedbackEventId : "";
+      }
+    );
+    const uniqueEventIds = [...new Set(linkedEventIds.filter((id) => id.length > 0))];
+    const eventRefs = uniqueEventIds.map((id) => eventsCollection.doc(id));
+    const eventSnapshots = await firestoreGetAll(db, eventRefs, "batch sync downvote mirror get events", `n=${eventRefs.length}`);
+    const eventDocById = new Map<string, (typeof eventSnapshots)[0]>();
+    uniqueEventIds.forEach((id, index) => {
+      eventDocById.set(id, eventSnapshots[index]);
+    });
+
+    for (const answerDoc of answersSnapshot.docs as firebase.firestore.QueryDocumentSnapshot[]) {
       scanned += 1;
       const answerData = answerDoc.data() as Record<string, any>;
       const eventId = typeof answerData.feedbackEventId === "string" ? answerData.feedbackEventId : "";
@@ -75,12 +90,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         continue;
       }
 
-      const eventDoc = await firestoreGet(
-        db.collection(getDownvoteFeedbackEventsCollectionName()).doc(eventId),
-        "sync downvote mirror get event",
-        eventId
-      );
-      if (!eventDoc.exists) {
+      const eventDoc = eventDocById.get(eventId);
+      if (!eventDoc?.exists) {
         missingEvent += 1;
         continue;
       }

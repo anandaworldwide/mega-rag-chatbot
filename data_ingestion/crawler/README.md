@@ -45,10 +45,9 @@ retrieval-augmented generation (RAG) systems.
 
 The crawler can run in two modes:
 
-1. **Local (macOS)**: Uses macOS LaunchAgent for 24/7 operation
-2. **Cloud (AWS ECS)**: Scheduled execution on AWS Fargate (9am-5pm PT daily)
-
-See [CLOUD-DEPLOYMENT.md](CLOUD-DEPLOYMENT.md) for cloud deployment instructions.
+1. **Local (macOS)**: Uses macOS LaunchAgent for bounded cycles (see [DAEMON_MANAGEMENT.md](DAEMON_MANAGEMENT.md))
+2. **Production (Linux VM)**: Docker on a dedicated host (for example Lightsail) with systemd timers; see
+   [CLOUD-DEPLOYMENT.md](CLOUD-DEPLOYMENT.md) and committed samples under [deploy/vm/](deploy/vm/).
 
 ### Setup
 

@@ -3,10 +3,9 @@
 The web crawler runs as a macOS LaunchAgent daemon that automatically manages the crawling process with bounded
 execution and intelligent restarts.
 
-> **Note**: If you're switching between cloud (AWS ECS) and local (daemon) operation, see the
-> [Switching Between Cloud and Local Operation](../CLOUD-DEPLOYMENT.md#switching-between-cloud-and-local-operation)
-> section in `CLOUD-DEPLOYMENT.md`. **Never run both simultaneously** - this causes duplicate crawling and database
-> conflicts.
+> **Note**: If you're switching between the production VM and local (daemon) operation, see
+> [CLOUD-DEPLOYMENT.md](CLOUD-DEPLOYMENT.md#switching-between-production-vm-and-local). **Never run both simultaneously**
+> — that causes duplicate crawling and database conflicts.
 
 ## Quick Start
 

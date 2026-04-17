@@ -1,0 +1,14 @@
+# Install: sudo cp ananda-crawler-daily-report.timer /etc/systemd/system/
+#          sudo systemctl enable --now ananda-crawler-daily-report.timer
+
+[Unit]
+Description=Daily crawler ops email (PT morning)
+
+[Timer]
+OnCalendar=*-*-* 08:00:00
+Timezone=America/Los_Angeles
+Persistent=true
+Unit=ananda-crawler-daily-report.service
+
+[Install]
+WantedBy=timers.target

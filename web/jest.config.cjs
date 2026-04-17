@@ -85,9 +85,9 @@ const serverConfig = {
   },
   transform: {
     "^.+\\.(ts|tsx)$": [
-      "ts-jest",
+      "babel-jest",
       {
-        tsconfig: "<rootDir>/tsconfig.test.json",
+        presets: [["next/babel", { "preset-env": { targets: { node: "current" } } }]],
       },
     ],
   },

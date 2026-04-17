@@ -2,6 +2,23 @@
 
 ## Critical Lessons Learned
 
+### Docker + uv + Non-Root: Put Managed Python Where UID Can Read
+
+**Rule**: In crawler images, `uv sync` runs as root and defaults to storing the managed CPython under `/root/...`. If the
+image then runs as `USER 1000`, the venv may resolve to a broken interpreter (missing stdlib / `encodings`).
+
+**Wrong**: Relying on default `UV_PYTHON_INSTALL_DIR` under `/root` while `USER` is non-root.
+
+**Correct**: Before `uv sync` in the Dockerfile, set `ENV UV_PYTHON_INSTALL_DIR=/app/.python` (or another path under
+`/app` that gets `chown` with the app tree).
+
+### Playwright Docker Base Image Must Match Locked `playwright` Package
+
+**Wrong**: Base image `mcr.microsoft.com/playwright/python:v1.57.0-jammy` while `uv.lock` installs `playwright==1.58.x`.
+
+**Correct**: Bump the `FROM` tag to the matching minor (e.g. `v1.58.0-jammy`) so bundled browser builds match the Python
+package.
+
 ### Next.js 16 Defaults To Turbopack
 
 **Rule**: Upgrading to Next.js 16 can break repos with custom `webpack` config because `next build` and `next dev` default to Turbopack.
@@ -2491,3 +2508,25 @@ spacing around hierarchy delimiters like `::`.
 
 **Correct**: When resolving a persisted or source-card-selected source scope, normalize both the requested canonical prefix
 and catalog keys before concluding the source is unavailable. Use the normalized-equivalent catalog key if it exists.
+
+### Mistake: Vercel Build Tests Depending on `ts-jest` Runtime
+
+**Wrong**: Keeping a separate Jest server project on `ts-jest` in CI builds where module resolution can fail inside
+`ts-jest-transformer` (commonly reported as `Cannot find module ...` during `jest --selectProjects=server`).
+
+**Correct**: Use `babel-jest` with `next/babel` for server TS test transforms, matching the main Jest config, so build-time
+tests do not depend on `ts-jest` runtime loading.
+
+### Mistake: Babel Jest In CI Injecting `_wrapAsyncGenerator` Into `jest.mock` Factories
+
+**Wrong**: Using `babel-jest` for server TS tests with default `next/babel` targets in CI, which can transpile async
+generators and inject `_wrapAsyncGenerator` helper references inside `jest.mock` factories. Jest hoist then fails with
+`module factory ... out-of-scope variables`.
+
+**Correct**: Keep `babel-jest`, but target current Node explicitly in the server transform:
+
+```js
+presets: [["next/babel", { "preset-env": { targets: { node: "current" } } }]]
+```
+
+This avoids helper injection and keeps CI/Vercel server tests stable.

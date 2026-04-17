@@ -93,12 +93,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     }
 
     const eventData = { id: resolvedEventId, ...(eventDoc.data() as DownvoteFeedbackEvent) };
-    let linkedNotionUrl = typeof notionTaskUrl === "string" && notionTaskUrl.trim() ? notionTaskUrl.trim() : eventData.notionTaskUrl;
+    let linkedNotionUrl =
+      typeof notionTaskUrl === "string" && notionTaskUrl.trim() ? notionTaskUrl.trim() : eventData.notionTaskUrl;
     let linkedNotionId = eventData.notionTaskId;
 
     if (createNotionTask === true) {
       const clusterSnapshot = await firestoreQueryGet(
-        db.collection(getDownvoteFeedbackEventsCollectionName()).where("taskCandidateKey", "==", eventData.taskCandidateKey),
+        db
+          .collection(getDownvoteFeedbackEventsCollectionName())
+          .where("taskCandidateKey", "==", eventData.taskCandidateKey),
         "load downvote feedback cluster for notion task",
         eventData.taskCandidateKey
       );
@@ -107,7 +110,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           ({ id: doc.id, ...(doc.data() as DownvoteFeedbackEvent) }) as DownvoteFeedbackEvent
       );
       const cluster: DownvoteFeedbackCluster =
-        DownvoteFeedbackService.buildClusters(clusterEvents)[0] || DownvoteFeedbackService.buildClusters([eventData])[0];
+        DownvoteFeedbackService.buildClusters(clusterEvents)[0] ||
+        DownvoteFeedbackService.buildClusters([eventData])[0];
 
       const notionClient = new NotionTaskClient();
       if (!notionClient.isConfigured()) {
@@ -145,7 +149,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const answerUpdates: Record<string, unknown> = {};
 
     if (operatorDecision !== undefined) {
-      const nextTriageStatus = operatorDecision === "no_action" ? "ignored" : linkedNotionUrl ? "task_created" : "reviewed";
+      const nextTriageStatus =
+        operatorDecision === "no_action" ? "ignored" : linkedNotionUrl ? "task_created" : "reviewed";
       eventUpdates.operatorDecision = operatorDecision;
       eventUpdates.operatorReviewedAt = firebase.firestore.FieldValue.serverTimestamp();
       eventUpdates.triageStatus = nextTriageStatus;

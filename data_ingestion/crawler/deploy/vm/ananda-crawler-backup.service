@@ -1,0 +1,17 @@
+# Install: sudo cp ananda-crawler-backup.service /etc/systemd/system/
+#          sudo systemctl daemon-reload
+#
+# Installs backup script to /usr/local/bin (see deploy/vm/README.md).
+
+[Unit]
+Description=Backup crawler SQLite database (host sqlite3)
+
+[Service]
+Type=oneshot
+User=ubuntu
+ExecStart=/usr/local/bin/ananda-crawler-backup-sqlite.sh
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

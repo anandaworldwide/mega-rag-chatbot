@@ -252,6 +252,35 @@ export async function firestoreGet<T = any>(
   return retryOnCode14(() => docRef.get(), operationName, context);
 }
 
+/** Max refs per Firestore `getAll` call to stay within RPC limits. */
+const FIRESTORE_GET_ALL_CHUNK_SIZE = 100;
+
+/**
+ * Batch-fetch document snapshots with the same retry behavior as {@link firestoreGet}.
+ * Results are ordered to match the concatenation of each chunk (same order as `docRefs`).
+ */
+export async function firestoreGetAll(
+  firestore: { getAll: (...refs: any[]) => Promise<any[]> },
+  docRefs: any[],
+  operationName: string = "document getAll",
+  context?: string
+): Promise<any[]> {
+  if (docRefs.length === 0) {
+    return [];
+  }
+  const snapshots: any[] = [];
+  for (let i = 0; i < docRefs.length; i += FIRESTORE_GET_ALL_CHUNK_SIZE) {
+    const chunk = docRefs.slice(i, i + FIRESTORE_GET_ALL_CHUNK_SIZE);
+    const batchSnaps = await retryOnCode14(
+      () => firestore.getAll(...chunk),
+      operationName,
+      context !== undefined ? `${context};offset=${i}` : `offset=${i}`
+    );
+    snapshots.push(...batchSnaps);
+  }
+  return snapshots;
+}
+
 /**
  * Wrapper for Firestore document set operations with retry logic
  */

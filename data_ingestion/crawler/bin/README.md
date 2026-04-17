@@ -11,28 +11,13 @@
 | `log_rotate.py`                   | Rotate and compress crawler log files          |
 | `pinecone_health_check.py`        | Verify Pinecone connectivity and index health  |
 
-## AWS/ECS Deployment
-
-| Script                           | Description                                          |
-| -------------------------------- | ---------------------------------------------------- |
-| `aws-setup.sh`                   | One-time AWS infrastructure setup (ECR, ECS cluster) |
-| `build-and-push.sh`              | Build Docker image and push to ECR                   |
-| `register-task-definition.sh`    | Register new ECS task definition revision            |
-| `update-schedule-for-service.sh` | Update EventBridge schedule with new task definition |
-| `setup-spot-capacity.sh`         | Configure Fargate Spot capacity provider             |
-| `create-secrets-json.sh`         | Create AWS Secrets Manager secret from .env file     |
-
-## Database Operations
-
-| Script                          | Description                          |
-| ------------------------------- | ------------------------------------ |
-| `copy-database-to-efs.sh`       | Upload local SQLite DB to EFS mount  |
-| `download-database-from-efs.sh` | Download SQLite DB from EFS to local |
-
 ## Local Operations
 
 | Script                     | Description                                        |
 | -------------------------- | -------------------------------------------------- |
 | `cleanup-docker-images.sh` | Remove old/unused Docker images locally            |
 | `manage_crawler.sh`        | Start/stop/status wrapper for local crawler daemon |
-| `service-control.sh`       | Control crawler LaunchAgent service                |
+
+Production deployment on a dedicated VM (Docker + systemd) is documented in
+[../CLOUD-DEPLOYMENT.md](../CLOUD-DEPLOYMENT.md#switching-between-production-vm-and-local). **systemd unit/timer samples**
+and backup scripts: [../deploy/vm/README.md](../deploy/vm/README.md).

@@ -6,7 +6,7 @@ Generates a daily report of crawler health including:
 - Queue status (pending, processing, completed, failed)
 - URLs processed in last 24 hours
 - Last successful crawl time
-- CloudWatch errors from last 24 hours
+- Optional CloudWatch log errors (last 24 hours) when AWS credentials and log group are available
 
 Usage:
     python -m crawler.daily_report --site ananda-public

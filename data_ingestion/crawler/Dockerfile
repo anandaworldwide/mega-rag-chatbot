@@ -1,8 +1,8 @@
 # Dockerfile for Ananda Crawler
-# Builds containerized crawler for ECS Fargate deployment
+# Container image for production Linux VM (Docker + systemd) or local testing
 # Uses Playwright's official image for full browser support
 
-FROM mcr.microsoft.com/playwright/python:v1.57.0-jammy
+FROM mcr.microsoft.com/playwright/python:v1.58.0-jammy
 
 # Install build tools and tzdata for zoneinfo support
 ENV DEBIAN_FRONTEND=noninteractive
@@ -19,23 +19,28 @@ WORKDIR /app
 # Install uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 
+# Store uv-managed Python under /app so it's accessible to UID 1000 at runtime
+ENV UV_PYTHON_INSTALL_DIR=/app/.python
+
 # Copy lock and project metadata needed to resolve the crawler environment
 COPY pyproject.toml /app/pyproject.toml
 COPY uv.lock /app/uv.lock
 COPY data_ingestion/crawler/pyproject.toml /app/data_ingestion/crawler/pyproject.toml
+COPY reranking/pyproject.toml /app/reranking/pyproject.toml
+COPY wordpress/analytics/pyproject.toml /app/wordpress/analytics/pyproject.toml
 
 # Install Python dependencies into a project-local virtual environment
 RUN uv sync --locked --package mega-rag-chatbot-crawler --no-default-groups --no-editable
 
-# Pre-download spaCy model (avoids runtime download on every container start)
-RUN uv run --package mega-rag-chatbot-crawler python -m spacy download en_core_web_sm
+# Pre-download spaCy model (spacy download shells out to pip, which uv doesn't provide)
+RUN uv pip install en_core_web_sm@https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
 
 # Copy crawler code (build context is project root)
 COPY data_ingestion/crawler/ /app/crawler/
 COPY data_ingestion/utils/ /app/utils/
 COPY pyutil/ /app/pyutil/
 
-# Create directories for DB and logs (will be mounted from EFS)
+# Create directories for DB and logs (host bind-mount at runtime)
 # Ensure proper ownership for non-root user (UID 1000)
 RUN mkdir -p /app/data/db /app/data/logs && \
     chown -R 1000:1000 /app
@@ -45,8 +50,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH=/app
 
 # Run as non-root user (UID 1000) for security hardening
-# This matches the task definition user setting
 USER 1000:1000
 
-# Default command runs supervisor (can be overridden in task definition)
+# Default command runs supervisor (override via docker run / systemd)
 CMD ["python", "/app/crawler/crawler_supervisor.py", "--site", "ananda-public"]
