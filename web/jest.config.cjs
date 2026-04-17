@@ -84,12 +84,7 @@ const serverConfig = {
     "^@/components/(.*)$": "<rootDir>/src/components/$1",
   },
   transform: {
-    "^.+\\.(ts|tsx)$": [
-      "ts-jest",
-      {
-        tsconfig: "<rootDir>/tsconfig.test.json",
-      },
-    ],
+    "^.+\\.(js|jsx|ts|tsx)$": ["babel-jest", { presets: ["next/babel"] }],
   },
   rootDir: ".", // Also set for server config
   roots: ["<rootDir>"], // Root is now web/

@@ -2508,3 +2508,11 @@ spacing around hierarchy delimiters like `::`.
 
 **Correct**: When resolving a persisted or source-card-selected source scope, normalize both the requested canonical prefix
 and catalog keys before concluding the source is unavailable. Use the normalized-equivalent catalog key if it exists.
+
+### Mistake: Vercel Build Tests Depending on `ts-jest` Runtime
+
+**Wrong**: Keeping a separate Jest server project on `ts-jest` in CI builds where module resolution can fail inside
+`ts-jest-transformer` (commonly reported as `Cannot find module ...` during `jest --selectProjects=server`).
+
+**Correct**: Use `babel-jest` with `next/babel` for server TS test transforms, matching the main Jest config, so build-time
+tests do not depend on `ts-jest` runtime loading.

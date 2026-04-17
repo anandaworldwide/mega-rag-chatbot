@@ -136,6 +136,10 @@ except ImportError:
   requirements and imports each one in a subprocess so crashy native modules are reported cleanly
 - **Smoke validation target**: CI should run `uv run --locked python -m pytest -q tests/test_smoke_validation.py --tb=short`
   instead of a keyword selector that can silently match nothing
+- **Vercel build tests**: Prefer `babel-jest` (`next/babel`) for the server Jest project as well, to avoid `ts-jest`
+  transformer resolution failures during `build-with-api-tests`.
+- **Vercel build command hygiene**: Keep `buildCommand` focused on dev-deps install + build; avoid redundant one-off
+  installs like `npm install dotenv` when dotenv is already in `devDependencies`.
 - **Pattern**: Write tests first, add to existing test files when logical
 
 ### CLI Argument Patterns
