@@ -84,7 +84,12 @@ const serverConfig = {
     "^@/components/(.*)$": "<rootDir>/src/components/$1",
   },
   transform: {
-    "^.+\\.(js|jsx|ts|tsx)$": ["babel-jest", { presets: ["next/babel"] }],
+    "^.+\\.(ts|tsx)$": [
+      "babel-jest",
+      {
+        presets: [["next/babel", { "preset-env": { targets: { node: "current" } } }]],
+      },
+    ],
   },
   rootDir: ".", // Also set for server config
   roots: ["<rootDir>"], // Root is now web/

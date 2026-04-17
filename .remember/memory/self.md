@@ -2516,3 +2516,17 @@ and catalog keys before concluding the source is unavailable. Use the normalized
 
 **Correct**: Use `babel-jest` with `next/babel` for server TS test transforms, matching the main Jest config, so build-time
 tests do not depend on `ts-jest` runtime loading.
+
+### Mistake: Babel Jest In CI Injecting `_wrapAsyncGenerator` Into `jest.mock` Factories
+
+**Wrong**: Using `babel-jest` for server TS tests with default `next/babel` targets in CI, which can transpile async
+generators and inject `_wrapAsyncGenerator` helper references inside `jest.mock` factories. Jest hoist then fails with
+`module factory ... out-of-scope variables`.
+
+**Correct**: Keep `babel-jest`, but target current Node explicitly in the server transform:
+
+```js
+presets: [["next/babel", { "preset-env": { targets: { node: "current" } } }]]
+```
+
+This avoids helper injection and keeps CI/Vercel server tests stable.

@@ -138,6 +138,9 @@ except ImportError:
   instead of a keyword selector that can silently match nothing
 - **Vercel build tests**: Prefer `babel-jest` (`next/babel`) for the server Jest project as well, to avoid `ts-jest`
   transformer resolution failures during `build-with-api-tests`.
+- **Server Jest Babel target**: In CI/Vercel server tests, set `next/babel` preset-env target to Node current in
+  `web/jest.config.cjs` to prevent async-generator helper injection (`_wrapAsyncGenerator`) that breaks `jest.mock`
+  hoisting.
 - **Vercel build command hygiene**: Keep `buildCommand` focused on dev-deps install + build; avoid redundant one-off
   installs like `npm install dotenv` when dotenv is already in `devDependencies`.
 - **Pattern**: Write tests first, add to existing test files when logical
