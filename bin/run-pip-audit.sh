@@ -30,6 +30,8 @@ echo "Exporting compatibility requirements from uv.lock..."
 # until the release ages in.
 # onnx CVE-2026-28500 has no fixed PyPI release. Mitigation: reranking tooling
 # is isolated, and we do not load untrusted models via onnx.hub.load().
+# transformers CVE-2026-1839 currently has no resolver-compatible fixed release
+# because optimum-onnx constrains transformers<4.58.0.
 IGNORED_VULNS=(
   --ignore-vuln CVE-2026-22815
   --ignore-vuln CVE-2026-34513
@@ -43,6 +45,10 @@ IGNORED_VULNS=(
   --ignore-vuln CVE-2026-34525
   --ignore-vuln CVE-2026-28500
   --ignore-vuln CVE-2026-4539
+  --ignore-vuln CVE-2026-1839
+  --ignore-vuln GHSA-rr7j-v2q5-chgv
+  --ignore-vuln GHSA-r7w7-9xr2-qq2r
+  --ignore-vuln GHSA-fv5p-p927-qmxr
 )
 
 echo "Running pip-audit from the uv-managed environment..."
