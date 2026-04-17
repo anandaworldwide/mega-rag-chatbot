@@ -194,6 +194,8 @@ except ImportError:
 - **Deploy / “build for production”**: on the server, `git pull`, then `docker build` from
   `data_ingestion/crawler` per [CLOUD-DEPLOYMENT.md](mdc:data_ingestion/crawler/CLOUD-DEPLOYMENT.md); restart the oneshot
   service or wait for the timer.
+- **Playwright base image**: bump the Dockerfile `FROM mcr.microsoft.com/playwright/python:…` tag when `uv.lock` upgrades
+  the `playwright` package so bundled browsers match the Python driver.
 - For server runbooks, include `git pull` immediately after the initial `cd` into the repo so the host is updated before
   rebuild/restart.
 
