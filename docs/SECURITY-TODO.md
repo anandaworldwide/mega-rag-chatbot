@@ -1,6 +1,6 @@
 # Security Triage & Accepted Risks
 
-**Last updated:** 2026-03-18
+**Last updated:** 2026-04-17
 
 This document tracks known vulnerabilities, accepted risks, and triage decisions. See
 [SECURITY-README.md](./SECURITY-README.md) for architecture.
@@ -39,6 +39,10 @@ release is still inside the mandatory seven-day supply-chain cooldown:
 | CVE-2026-34525 | aiohttp  | Same                                                          |
 | CVE-2026-28500 | onnx     | No fixed PyPI version                                         |
 | CVE-2026-4539  | pygments | Fixed in 2.20.0, but release is newer than the 7-day cooldown |
+| GHSA-rr7j-v2q5-chgv | langsmith | Fixed in 0.7.31, but releases >=0.7.31 are newer than the 7-day cooldown |
+| GHSA-r7w7-9xr2-qq2r | langchain-openai | Fixed in 1.1.14, but releases >=1.1.14 are newer than the 7-day cooldown |
+| GHSA-fv5p-p927-qmxr | langchain-text-splitters | Fixed in 1.1.2, but releases >=1.1.2 are newer than the 7-day cooldown |
+| CVE-2026-1839 | transformers | Fixes are in 5.x, but reranking depends on `optimum-onnx 0.1.0` which requires `transformers<4.58.0`; track upgrade before removing ignore |
 
 **Mitigations:** Reranking tooling is isolated; we do not load untrusted ONNX models via `onnx.hub.load()`.
 Cooldown-based ignores should be removed as soon as the fixed release ages past seven days and the lockfile can be
