@@ -11,29 +11,24 @@
 - **Component Libraries:** No major third-party component libraries (like Material-UI or Chakra UI) are in use.
   Components are built using standard HTML elements styled with Tailwind CSS.
 - **Helper Utilities:**
-  - **`clsx` & `tailwind-merge`:** Use the `cn` utility function found in `utils/cn.ts` to conditionally apply classes
-    and intelligently merge Tailwind classes, preventing style conflicts. This is the preferred way to combine static,
-    dynamic, and conditional classes.
+  - **Class composition:** No `clsx` / `tailwind-merge` / `cn` helper is in use. Compose static, dynamic, and
+    conditional classes with template literals (see §2 below).
   - **`@tailwindcss/typography`:** This plugin is available for styling markdown-generated content or blocks of prose.
 
 ## 2. CSS Conventions
 
 - **Utility-First:** Prioritize using Tailwind utility classes directly in the JSX of components.
-- **Conditional/Merged Classes:** Use the `cn` utility (`utils/cn.ts`) for applying classes based on component state,
-  props, or other conditions.
+- **Conditional/Merged Classes:** Compose classes with template literals and inline conditionals. The codebase does
+  not use a `cn`/`clsx` helper — keep it dependency-light.
 
   ```typescript
   // Example usage within a component
-  import { cn } from "@/utils/cn"; // Adjust path as needed
-
-  function MyComponent({ isActive, className }) {
+  function MyComponent({ isActive, className }: { isActive: boolean; className?: string }) {
     return (
       <div
-        className={cn(
-          "base-style p-4 rounded", // Base classes
-          isActive ? "bg-blue-500 text-white" : "bg-gray-200", // Conditional classes
-          className // Classes passed via props
-        )}
+        className={`base-style p-4 rounded ${
+          isActive ? "bg-blue-500 text-white" : "bg-gray-200"
+        } ${className ?? ""}`}
       >
         {/* ... */}
       </div>
@@ -57,14 +52,15 @@
 
 - **Functional Components:** Write components as React functional components.
 - **Hooks:** Use standard React hooks (`useState`, `useEffect`, `useContext`, etc.) for state management and side
-  effects within components. Custom hooks are located in the `hooks/` directory (e.g., `useChat`, `useVote`).
+  effects within components. Custom hooks are located in the `hooks/` directory (e.g., `useChat`,
+  `useMultipleCollections`).
 - **Props:** Components should receive data and configuration via props. Use TypeScript (for `.ts`/`.tsx` files) to
   define prop types for better type safety and documentation.
 - **File Organization:** Place reusable UI components within the `components/` directory. (Further sub-organization
   within this directory might exist but wasn't detailed in the analyzed files). Pages/Views using Next.js App Router
   reside in the `app/` directory.
-- **Styling Application:** Apply styles primarily using the `className` prop with Tailwind utilities and the `cn`
-  helper. Import styles from CSS Modules where necessary.
+- **Styling Application:** Apply styles primarily using the `className` prop with Tailwind utilities, composing
+  conditional classes via template literals. Import styles from CSS Modules where necessary.
 
 ## 4. Accessibility Standards
 
@@ -72,9 +68,8 @@
   navigation, `<label>` for form field labels).
 - **Labels:** Always associate `<label>` elements with their corresponding form controls (`<input>`, `<select>`,
   `<textarea>`) using the `htmlFor` attribute linked to the control's `id`.
-- **ARIA Attributes:** While not heavily used in the sampled `CollectionSelector.jsx`, apply ARIA attributes (`aria-*`)
-  where necessary to enhance accessibility for dynamic content or custom controls, especially when semantic HTML doesn't
-  fully convey the role, state, or properties.
+- **ARIA Attributes:** Apply ARIA attributes (`aria-*`) where necessary to enhance accessibility for dynamic content
+  or custom controls, especially when semantic HTML doesn't fully convey the role, state, or properties.
 - **Keyboard Navigation & Focus:** Ensure all interactive elements are navigable and operable using a keyboard. Maintain
   logical focus order and visible focus indicators (Tailwind's default focus rings are a good starting point).
 - **Linting:** Although `eslint-plugin-jsx-a11y` was not explicitly found in the root `package.json`, adhere to WCAG

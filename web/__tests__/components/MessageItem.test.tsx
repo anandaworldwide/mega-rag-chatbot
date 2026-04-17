@@ -79,15 +79,6 @@ jest.mock("@/components/CopyButton", () => {
   return jest.fn().mockImplementation(() => <button data-testid="copy-button">Copy</button>);
 });
 
-// Mock the useVote hook to avoid actual API calls
-jest.mock("@/hooks/useVote", () => ({
-  useVote: () => ({
-    mutate: jest.fn(),
-    isPending: false,
-    isError: false,
-  }),
-}));
-
 // Mock logEvent to prevent analytics during tests
 jest.mock("@/utils/client/analytics", () => ({
   logEvent: jest.fn(),

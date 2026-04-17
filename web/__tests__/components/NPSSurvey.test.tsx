@@ -25,21 +25,6 @@ jest.mock("@/utils/client/tokenManager", () => ({
   fetchWithAuth: jest.fn((...args) => mockFetchWithAuth(...args)),
 }));
 
-// Mock framer-motion to prevent animation issues in tests
-jest.mock("framer-motion", () => {
-  const actual = jest.requireActual("framer-motion");
-  return {
-    ...actual,
-    motion: {
-      div: ({ children, ...props }: { children: React.ReactNode; [key: string]: unknown }) => (
-        <div data-testid="motion-div" {...props}>
-          {children}
-        </div>
-      ),
-    },
-  };
-});
-
 // Mock window.location
 const mockLocation = {
   href: "https://test.com",

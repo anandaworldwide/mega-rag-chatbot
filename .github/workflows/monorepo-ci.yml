@@ -96,6 +96,12 @@ jobs:
           echo "✅ Type checking (skip full build due to missing secrets)"
           npx tsc --noEmit || echo "⚠️  Type check completed with warnings"
 
+          echo "✅ Knip — full unused-code report (non-blocking)"
+          npm run knip -- --no-exit-code --reporter compact || true
+
+          echo "✅ Knip — blocking check on high-confidence categories"
+          npm run knip -- --include files,dependencies,unlisted,binaries,unresolved
+
       - name: Test Results Summary
         if: always()
         run: |

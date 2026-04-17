@@ -3,15 +3,6 @@ jest.mock("@/utils/client/analytics", () => ({
   logEvent: jest.fn(),
 }));
 
-jest.mock("@/components/CollectionSelector", () =>
-  jest.fn().mockImplementation(({ onChange, value }) => (
-    <select data-testid="collection-selector" value={value} onChange={(e) => onChange(e.target.value)}>
-      <option value="all">All</option>
-      <option value="test">Test</option>
-    </select>
-  ))
-);
-
 jest.mock("@/components/SuggestedQueries", () =>
   jest.fn().mockImplementation(({ queries, onQueryClick, shuffleQueries }) => (
     <div data-testid="random-queries">

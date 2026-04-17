@@ -1,6 +1,37 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "tags": [
-    "-lintignore"
+  "tags": ["-lintignore"],
+  "entry": [
+    "src/config/jest.pre-commit.cjs"
+  ],
+  "ignore": [
+    "__tests__/.templates/**",
+    "scripts/**",
+    "jest-environment-jsdom-with-polyfills.cjs",
+    "jest.setup-server.ts"
+  ],
+  "ignoreBinaries": [
+    "next",
+    "jest",
+    "eslint",
+    "prettier",
+    "dotenv",
+    "tsx",
+    "firebase",
+    "husky",
+    "knip"
+  ],
+  "ignoreDependencies": [
+    "babel-jest",
+    "@testing-library/dom",
+    "browserslist",
+    "dotenv-cli",
+    "eslint-config-next",
+    "husky",
+    "jest-circus",
+    "lint-staged",
+    "prettier",
+    "stylelint",
+    "tsx"
   ]
 }

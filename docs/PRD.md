@@ -113,7 +113,7 @@ authentication, and integration options, including a WordPress plugin.
   - **FR1.3:** Support streaming responses for better perceived performance.
   - **FR1.4:** Maintain conversation history within a session (`chatHistory`).
   - **FR1.5:** Allow users to clear the conversation history.
-  - **FR1.6:** Offer mechanisms for user feedback (e.g., thumbs up/down) on individual answers (`useVote`, `/api/vote`).
+  - **FR1.6:** Offer mechanisms for user feedback (e.g., thumbs up/down) on individual answers (`voteHandler.ts`, `/api/vote`).
   - **FR1.7:** (Optional/Configurable) Support audio playback for answers or source material (`useAudioPlayer`).
 
 - **FR1B: Persistent Conversation History & Management**
@@ -165,11 +165,11 @@ authentication, and integration options, including a WordPress plugin.
     - Feature flags (e.g., `enable_sources`, `enable_related_questions`).
     - UI elements (titles, logos).
   - **FR4.3:** (Client-side) Allow users to select between available data collections if configured
-    (`CollectionSelector.jsx`, `useMultipleCollections.ts`).
+    (`hooks/useMultipleCollections.ts`).
 - **FR5: Authentication & Authorization**
   - **FR5.1:** Secure the chat API endpoint (`/api/chat/v1/route.ts`).
-  - **FR5.2:** Implement JWT-based authentication for API access (`jwtUtils.ts`, `authMiddleware.ts`,
-    `appRouterJwtUtils.ts`).
+  - **FR5.2:** Implement JWT-based authentication for API access (root `middleware.ts`, `jwtUtils.ts`,
+    `apiMiddleware.ts`, `appRouterJwtUtils.ts`).
   - **FR5.3:** Provide endpoints for login (`/api/login`) and potentially token generation (`/api/get-token`,
     `/api/web-token`).
   - **FR5.4:** Support basic password authentication (`passwordUtils.ts`).

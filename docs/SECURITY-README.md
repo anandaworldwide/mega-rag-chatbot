@@ -586,9 +586,9 @@ used.
 
 - **Token Manager**: `/utils/client/tokenManager.ts` manages JWT token lifecycle and includes them in requests.
 - **React Query Configuration**: `/utils/client/reactQueryConfig.ts` includes JWT handling for all API requests.
-- **Auth Hooks**:
+- **Auth Hooks / Utilities**:
   - `useAnswers`: Fetches paginated answers with authentication
-  - `useVote`: Handles voting on messages
+  - `voteHandler.handleVote`: Submits votes on answers via `fetchWithAuth`
 
 #### JWT Authentication Flow
 
@@ -637,18 +637,19 @@ export default withJwtOnlyAuth(handler);
 ##### Using Data Hooks in Components
 
 ```typescript
-// Example of using hooks in a component
+// Example of using hooks + the vote handler in a component
+import { useState } from "react";
 import { useAnswers } from "@/hooks";
+import { handleVote } from "@/utils/client/voteHandler";
 
 function MyComponent() {
-  // Fetch data with authentication
   const { data, isLoading } = useAnswers(1, "mostRecent");
 
-  // Handle voting
-  const voteMutation = useVote();
+  const [votes, setVotes] = useState<Record<string, number>>({});
+  const [voteError, setVoteError] = useState<string | null>(null);
 
-  const handleVote = (answerId, voteType) => {
-    voteMutation.mutate({ answerId, voteType });
+  const onVote = (docId: string, isUpvote: boolean) => {
+    void handleVote(docId, isUpvote, votes, setVotes, setVoteError);
   };
 
   // Rest of component...
