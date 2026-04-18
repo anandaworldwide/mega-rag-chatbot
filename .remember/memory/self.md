@@ -2213,20 +2213,13 @@ python -m pip_audit ...
 
 **Pattern**: In CI scripts, prefer robust command invocation that does not depend on shell-specific user PATH setup.
 
-### 48. Cursor Environment Dockerfile Path Must Be Explicit
+### 48. Cursor Environment Build Paths Are Relative To `.cursor/`
 
-**Problem**: `.cursor/environment.json` using `"dockerfile": "Dockerfile"` can point to a missing/wrong file in this repo, causing the cloud environment to fall back to a base image with incompatible Python (e.g., <3.11).
+**Problem**: Cursor Cloud Agents resolve `build.dockerfile` and `build.context` in `.cursor/environment.json` **relative to the `.cursor/` directory**, not the repo root. Writing them as if they were repo-root relative (e.g., `"dockerfile": ".cursor/Dockerfile"`, `"context": "."`) causes Cursor to look for `.cursor/.cursor/Dockerfile` against a context of `.cursor/`, which fails the Docker build with "We couldn't start the agent's computer / The build process failed. Please check your Dockerfile."
 
-**Wrong**:
+Source: [Cursor Cloud Agent Setup › Important path behavior](https://cursor.com/docs/cloud-agent/setup.md#important-path-behavior).
 
-```json
-"build": {
-  "context": ".",
-  "dockerfile": "Dockerfile"
-}
-```
-
-**Correct**:
+**Wrong** (paths written as if relative to repo root):
 
 ```json
 "build": {
@@ -2235,7 +2228,18 @@ python -m pip_audit ...
 }
 ```
 
-**Pattern**: In this repository, always point Cursor build config to `.cursor/Dockerfile` and add an install-time Python version guard when requirements need Python 3.11+.
+**Correct** (paths relative to `.cursor/`, matching Cursor's canonical example):
+
+```json
+"build": {
+  "dockerfile": "Dockerfile",
+  "context": ".."
+}
+```
+
+This resolves to `context = <repo root>` and `dockerfile = .cursor/Dockerfile`.
+
+**Pattern**: Always use `"dockerfile": "Dockerfile"` and `"context": ".."` for `.cursor/environment.json` build blocks in this repo. Do not prefix `dockerfile` with `.cursor/`. Do not `COPY` the project in the Dockerfile — Cursor checks out the repo itself after the image is built.
 
 ### 49. Lockfiles Must Use Published Package Versions
 
