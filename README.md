@@ -196,6 +196,7 @@ Configure unlimited sites with unique personalities:
 - **Rate Limiting** - Redis-powered request throttling and DDoS protection
 - **CORS Security** - Configurable cross-origin policies per site
 - **Access Control** - Content-level permissions (public/private/restricted)
+- **Email Blacklist** - Superuser-managed, per-site list that blocks logins, invites, and already-active sessions (see [login bootstrap guide](docs/login-bootstrap-guide.md#blocking-users-email-blacklist))
 - **Audit Logging** - Comprehensive chat history and user analytics
 
 ### Rich Media Integration

@@ -717,11 +717,30 @@ Sensitive operations that require Firestore role verification:
 - `/api/admin/pendingUsersCount` - Get pending user count
 - `/api/admin/pendingRequests` - Manage approval requests
 
-**Email blacklist** (superuser only; `requireLogin` sites only):
+#### Email Blacklist
 
-- Storage: S3 object `site-config/{dev|prod}/blacklist/{SITE_ID}.txt` (newline-separated addresses; `#` line comments) using `S3_BUCKET_NAME`.
-- Admin UI: `/admin/blacklist`; API: `GET`/`PUT` `/api/admin/blacklist` (JWT + Firestore superuser).
-- Enforcement: blocks self-service auth (`verifyAccess`, `requestLoginLink`, password login, magic/activation links) and admin invite flows (`addUser`, `resendActivation`, `requestApproval`, approval create-user path, email change) when the site config has `requireLogin: true`.
+Superuser-only, per-site list that blocks specific email addresses from authentication and admin-invite flows. Enforced only on sites with `siteConfig.requireLogin: true`.
+
+##### Storage & admin API
+
+- Storage: plain-text S3 object at `site-config/{dev|prod}/blacklist/{SITE_ID}.txt` (newline-separated emails; blank lines and `#` comments preserved) using `S3_BUCKET_NAME`.
+- Admin UI: `/admin/blacklist` (superuser-gated; nav link hidden otherwise).
+- Admin API: `GET` / `PUT` `/api/admin/blacklist` (JWT + Firestore superuser + rate-limited).
+- `PUT` validates every non-blank, non-comment line as a well-formed email and returns line-level errors if validation fails.
+- Self-blacklist guard: `PUT` rejects any payload that contains the caller's own email to prevent self-lockout.
+- Emails are normalized to `trim().toLowerCase()` everywhere (enforcement, storage, audit logs, Firestore lookups, JWT payloads, email sends).
+
+##### Enforcement points
+
+- Self-service auth: `verifyAccess`, `requestLoginLink`, `login`, `loginWithPassword`, `verifyMagicLink`, `magicLogin` — all return `403 { error: "Access denied. Please contact your administrator." }` for blacklisted emails.
+- Admin invite flows: `addUser`, `resendActivation`, `requestApproval` (approve branch), `pendingRequests` (approve branch), `users/[userId]` (PATCH email change) — return `400 { error: "Email is blacklisted" }`.
+- Active sessions: `withJwtAuth` re-checks the blacklist on every authenticated API call. Blacklisted users have auth cookies cleared (matching `secure` / `sameSite` attributes) and receive `401 { message: "session_revoked" }`; the client forces a logout and redirects to `/login?reason=revoked`.
+
+##### Caching & failure modes
+
+- In-memory cache per `siteId` with a 60-second TTL; admin `PUT` explicitly invalidates on write. Max staleness across serverless instances is ~60s.
+- Fails open on S3 read errors (other than `NoSuchKey`) with a short 5-second retry TTL and an ops alert, so an S3 outage can't lock everyone out. Admin API operations surface S3 errors directly.
+- Every block and session-revocation event is written to the audit log.
 
 #### Usage Pattern
 
