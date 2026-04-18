@@ -124,7 +124,6 @@ export function createMockStreamResponse(
     },
   });
 
-  // Cast the stream to any to avoid type incompatibilities between different ReadableStream implementations
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new Response(stream as any, { status, headers });
+  // Response accepts BodyInit; cast through BodyInit to keep type safety and avoid `any`.
+  return new Response(stream as unknown as BodyInit, { status, headers });
 }
