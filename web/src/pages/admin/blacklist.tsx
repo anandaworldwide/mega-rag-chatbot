@@ -114,7 +114,7 @@ export default function AdminBlacklistPage({ siteConfig }: BlacklistPageProps) {
       <Head>
         <title>Admin · Email blacklist</title>
       </Head>
-      <AdminLayout siteConfig={siteConfig} pageTitle="Email blacklist">
+      <AdminLayout siteConfig={siteConfig} pageTitle="Email blacklist" superuserOnly>
         <div className="max-w-4xl space-y-4">
           <p className="text-sm text-gray-600">
             One email per line. Lines starting with <code className="bg-gray-100 px-1 rounded">#</code> are comments.

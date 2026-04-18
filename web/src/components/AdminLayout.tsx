@@ -10,11 +10,14 @@ import PhotoHeader from "./Header/PhotoHeader";
 import Footer from "./Footer";
 import { SudoProvider } from "@/contexts/SudoContext";
 import { AdminAccessGuidelines } from "./AdminAccessGuidelines";
+import { SuperuserOnlyBadge } from "./SuperuserOnlyBadge";
 
 interface AdminLayoutProps {
   siteConfig: SiteConfig | null;
   children: React.ReactNode;
   pageTitle?: string;
+  /** When true, shows a "Superuser only" affordance (page is gated via isSuperuserPageAllowed). */
+  superuserOnly?: boolean;
 }
 
 interface PendingCounts {
@@ -22,7 +25,7 @@ interface PendingCounts {
   invitations: number;
 }
 
-export function AdminLayout({ siteConfig, children, pageTitle }: AdminLayoutProps) {
+export function AdminLayout({ siteConfig, children, pageTitle, superuserOnly = false }: AdminLayoutProps) {
   const router = useRouter();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [pendingCounts, setPendingCounts] = useState<PendingCounts>({ approvals: 0, invitations: 0 });
@@ -260,6 +263,13 @@ export function AdminLayout({ siteConfig, children, pageTitle }: AdminLayoutProp
               >
                 <span className="material-icons text-sm mr-2">question_answer</span>
                 View All Answers
+                <span
+                  className="material-icons text-xs ml-auto shrink-0 opacity-60"
+                  aria-hidden="true"
+                  title="Superuser only"
+                >
+                  lock
+                </span>
               </Link>
             )}
             {isSuperuser && (
@@ -273,6 +283,13 @@ export function AdminLayout({ siteConfig, children, pageTitle }: AdminLayoutProp
               >
                 <span className="material-icons text-sm mr-2">thumb_down</span>
                 Review Downvotes
+                <span
+                  className="material-icons text-xs ml-auto shrink-0 opacity-60"
+                  aria-hidden="true"
+                  title="Superuser only"
+                >
+                  lock
+                </span>
               </Link>
             )}
 
@@ -287,6 +304,13 @@ export function AdminLayout({ siteConfig, children, pageTitle }: AdminLayoutProp
               >
                 <span className="material-icons text-sm mr-2">email</span>
                 Newsletter Management
+                <span
+                  className="material-icons text-xs ml-auto shrink-0 opacity-60"
+                  aria-hidden="true"
+                  title="Superuser only"
+                >
+                  lock
+                </span>
               </Link>
             )}
             {loginRequired && isSuperuser && (
@@ -300,6 +324,13 @@ export function AdminLayout({ siteConfig, children, pageTitle }: AdminLayoutProp
               >
                 <span className="material-icons text-sm mr-2">block</span>
                 Email Blacklist
+                <span
+                  className="material-icons text-xs ml-auto shrink-0 opacity-60"
+                  aria-hidden="true"
+                  title="Superuser only"
+                >
+                  lock
+                </span>
               </Link>
             )}
             <Link
@@ -346,6 +377,13 @@ export function AdminLayout({ siteConfig, children, pageTitle }: AdminLayoutProp
               >
                 <span className="material-icons text-sm mr-2">schedule</span>
                 Trigger Cron Jobs
+                <span
+                  className="material-icons text-xs ml-auto shrink-0 opacity-60"
+                  aria-hidden="true"
+                  title="Superuser only"
+                >
+                  lock
+                </span>
               </Link>
             )}
           </nav>
@@ -373,7 +411,18 @@ export function AdminLayout({ siteConfig, children, pageTitle }: AdminLayoutProp
                 <span className="material-icons">{isMobileMenuOpen ? "close" : "menu"}</span>
               </button>
               <span className="material-icons text-blue-600 text-xl ml-2">admin_panel_settings</span>
-              <h1 className="ml-2 text-lg font-semibold text-gray-900">{pageTitle || "Admin Dashboard"}</h1>
+              <h1 className="ml-2 text-lg font-semibold text-gray-900 flex items-center gap-1">
+                {pageTitle || "Admin Dashboard"}
+                {superuserOnly && (
+                  <span
+                    className="material-icons text-base text-purple-700 shrink-0"
+                    aria-hidden="true"
+                    title="Only superusers can access this page."
+                  >
+                    lock
+                  </span>
+                )}
+              </h1>
             </div>
           </div>
 
@@ -402,6 +451,11 @@ export function AdminLayout({ siteConfig, children, pageTitle }: AdminLayoutProp
             {/* Main Content */}
             <div className="flex-1 min-w-0">
               <div className="max-w-screen-2xl mx-auto p-6">
+                {superuserOnly && (
+                  <div className="mb-4">
+                    <SuperuserOnlyBadge />
+                  </div>
+                )}
                 {/* Access Guidelines Banner - Dismissible with localStorage persistence */}
                 <AdminAccessGuidelines siteConfig={siteConfig} />
                 {children}

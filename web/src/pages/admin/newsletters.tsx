@@ -808,7 +808,7 @@ For external images: ![Alt text](https://external-site.com/image.jpg)
       <Head>
         <title>Admin · Newsletters</title>
       </Head>
-      <AdminLayout siteConfig={siteConfig} pageTitle="Newsletters">
+      <AdminLayout siteConfig={siteConfig} pageTitle="Newsletters" superuserOnly>
         <div className="max-w-4xl">{mainContent}</div>
       </AdminLayout>
     </>
