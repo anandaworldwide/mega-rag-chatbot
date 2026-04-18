@@ -148,9 +148,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const eventUpdates: Record<string, unknown> = {};
     const answerUpdates: Record<string, unknown> = {};
 
+    // A newly created/reused Notion task from this request should drive triageStatus.
+    // A pre-existing notionTaskUrl on the event must NOT override an explicit operator
+    // decision like "no_action" (Close) or "accept" (Reviewed - no task).
+    const createdOrReusedNotionUrl = createNotionTask === true ? linkedNotionUrl : undefined;
+    const providedNotionUrl =
+      typeof notionTaskUrl === "string" && notionTaskUrl.trim() ? notionTaskUrl.trim() : undefined;
+    const appliedNotionUrl = createdOrReusedNotionUrl || providedNotionUrl;
+    const appliedNotionId = createdOrReusedNotionUrl ? linkedNotionId : undefined;
+
     if (operatorDecision !== undefined) {
       const nextTriageStatus =
-        operatorDecision === "no_action" ? "ignored" : linkedNotionUrl ? "task_created" : "reviewed";
+        operatorDecision === "no_action" ? "ignored" : appliedNotionUrl ? "task_created" : "reviewed";
       eventUpdates.operatorDecision = operatorDecision;
       eventUpdates.operatorReviewedAt = firebase.firestore.FieldValue.serverTimestamp();
       eventUpdates.triageStatus = nextTriageStatus;
@@ -162,11 +171,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       eventUpdates.operatorNote = operatorNote.trim();
     }
 
-    if (linkedNotionUrl) {
-      eventUpdates.notionTaskUrl = linkedNotionUrl;
-      eventUpdates.notionTaskId = linkedNotionId || firebase.firestore.FieldValue.delete();
+    if (appliedNotionUrl) {
+      eventUpdates.notionTaskUrl = appliedNotionUrl;
+      eventUpdates.notionTaskId = appliedNotionId || firebase.firestore.FieldValue.delete();
       eventUpdates.triageStatus = "task_created";
-      answerUpdates.feedbackNotionTaskUrl = linkedNotionUrl;
+      answerUpdates.feedbackNotionTaskUrl = appliedNotionUrl;
       answerUpdates.feedbackTriageStatus = "task_created";
     }
 
