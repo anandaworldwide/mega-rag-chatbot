@@ -146,7 +146,7 @@ export default function AddUsersPage({ siteConfig }: AddUsersPageProps) {
         });
 
         if (!retryRes.ok) {
-          throw new Error(`API call failed after token refresh: ${retryRes.status}`);
+          throw new Error(await extractApiErrorMessage(retryRes));
         }
 
         const data = await retryRes.json();
@@ -157,11 +157,22 @@ export default function AddUsersPage({ siteConfig }: AddUsersPageProps) {
     }
 
     if (!res.ok) {
-      throw new Error(`API call failed: ${res.status}`);
+      throw new Error(await extractApiErrorMessage(res));
     }
 
     const data = await res.json();
     return { data: data as T };
+  }
+
+  async function extractApiErrorMessage(res: Response): Promise<string> {
+    try {
+      const body = await res.clone().json();
+      const msg = body?.error || body?.message;
+      if (typeof msg === "string" && msg.trim()) return msg;
+    } catch {
+      // Body wasn't JSON; fall through to status-based message.
+    }
+    return `API call failed: ${res.status}`;
   }
 
   const handleSubmit = async (e: React.FormEvent) => {

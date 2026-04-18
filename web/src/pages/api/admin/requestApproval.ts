@@ -20,6 +20,7 @@ import {
 import { sanitizeEmail, sanitizeTextInput, sanitizeName } from "@/utils/server/inputSanitization";
 import { getSafeErrorMessage, sanitizeErrorForLogging } from "@/utils/server/errorSanitization";
 import { unescapeName } from "@/utils/shared/nameUtils";
+import { isEmailBlacklisted } from "@/utils/server/blacklist";
 
 const ses = new SESClient({
   region: process.env.AWS_REGION || "us-west-2",
@@ -289,6 +290,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const siteId = process.env.SITE_ID;
     if (!siteId) {
       return res.status(500).json({ error: "SITE_ID environment variable is not configured" });
+    }
+    if (await isEmailBlacklisted(sanitizedRequesterEmail, siteId)) {
+      await writeAuditLog(req, "blacklist_block", sanitizedRequesterEmail.toLowerCase(), {
+        endpoint: "requestApproval",
+      });
+      return res.status(400).json({ error: "Email is blacklisted" });
     }
     const isWhitelisted = await isEmailDomainWhitelisted(sanitizedRequesterEmail, siteId);
 

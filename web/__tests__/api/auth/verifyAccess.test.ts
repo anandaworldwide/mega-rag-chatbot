@@ -73,6 +73,10 @@ jest.mock("@/utils/server/domainWhitelistUtils", () => ({
   isEmailDomainWhitelisted: jest.fn(() => Promise.resolve(false)),
 }));
 
+jest.mock("@/utils/server/blacklist", () => ({
+  isEmailBlacklisted: jest.fn().mockResolvedValue(false),
+}));
+
 describe("Setup file", () => {
   it("should be valid", () => {
     expect(true).toBe(true);
@@ -82,6 +86,21 @@ describe("Setup file", () => {
 describe("/api/auth/verifyAccess", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it("returns access denied when email is blacklisted", async () => {
+    const blacklist = await import("@/utils/server/blacklist");
+    jest.mocked(blacklist.isEmailBlacklisted).mockResolvedValueOnce(true);
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: { email: "bad@example.com" },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(res._getJSONData()).toEqual({ error: "Access denied. Please contact your administrator." });
   });
 
   it("should return 405 for non-POST requests", async () => {

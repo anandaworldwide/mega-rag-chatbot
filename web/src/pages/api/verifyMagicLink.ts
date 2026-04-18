@@ -13,6 +13,8 @@ import { isDevelopment } from "@/utils/env";
 import { createSignedUUIDCookie } from "@/utils/server/uuidUtils";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import type { EmailCategory } from "@/types/user";
+import { isEmailBlacklisted } from "@/utils/server/blacklist";
+import { writeAuditLog } from "@/utils/server/auditLog";
 
 async function compareToken(token: string, hash: string): Promise<boolean> {
   try {
@@ -32,13 +34,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { token, email } = req.body as { token?: string; email?: string };
   if (!token || !email) return res.status(400).json({ error: "Missing token or email" });
 
+  const normalizedVerifyEmail = email.trim().toLowerCase();
+  const siteIdVerify = process.env.SITE_ID;
+  if (siteIdVerify && (await isEmailBlacklisted(normalizedVerifyEmail, siteIdVerify))) {
+    await writeAuditLog(req, "blacklist_block", normalizedVerifyEmail, { endpoint: "verifyMagicLink" });
+    return res.status(403).json({ error: "Access denied. Please contact your administrator." });
+  }
+
   const usersCol = getUsersCollectionName();
-  const userDocRef = db.collection(usersCol).doc(email.toLowerCase());
+  const userDocRef = db.collection(usersCol).doc(normalizedVerifyEmail);
   const UUID_INDEX_COLLECTION = process.env.NODE_ENV === "production" ? "prod_uuid_index" : "dev_uuid_index";
-  const emailLower = email.toLowerCase();
+  const emailLower = normalizedVerifyEmail;
 
   try {
-    const doc = await firestoreGet(userDocRef, "get user for verify", email);
+    const doc = await firestoreGet(userDocRef, "get user for verify", normalizedVerifyEmail);
     if (!doc.exists) return res.status(404).json({ error: "User not found" });
     const data = doc.data() as any;
 
@@ -150,7 +159,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const authToken = jwt.sign(
       {
         client: "web",
-        email: email.toLowerCase(),
+        email: normalizedVerifyEmail,
         role: effectiveRole,
         site: process.env.SITE_ID || "default",
       },

@@ -47,6 +47,11 @@ jest.mock("@/utils/server/auditLog", () => ({
 
 jest.mock("@/utils/server/loadSiteConfig", () => ({
   loadSiteConfig: jest.fn(),
+  loadSiteConfigSync: jest.fn(() => ({ requireLogin: false })),
+}));
+
+jest.mock("@/utils/server/blacklist", () => ({
+  isEmailBlacklisted: jest.fn().mockResolvedValue(false),
 }));
 
 jest.mock("@/utils/server/emailTemplates", () => ({
@@ -92,11 +97,13 @@ describe("/api/admin/pendingRequests", () => {
   const { writeAuditLog } = jest.requireMock("@/utils/server/auditLog");
   const loadSiteConfig = jest.requireMock("@/utils/server/loadSiteConfig");
   const { mockSend } = jest.requireMock("@aws-sdk/client-ses");
+  const blacklistMod = jest.requireMock("@/utils/server/blacklist");
 
   const originalEnv = process.env;
 
   beforeEach(() => {
     jest.clearAllMocks();
+    blacklistMod.isEmailBlacklisted.mockResolvedValue(false);
 
     process.env = {
       ...originalEnv,
@@ -231,6 +238,46 @@ describe("/api/admin/pendingRequests", () => {
 
       expect(res.statusCode).toBe(400);
       expect(res._getJSONData()).toEqual({ error: "Action must be 'approve' or 'deny'" });
+    });
+
+    it("returns 400 when requester is blacklisted on approve", async () => {
+      const mockRequest = {
+        requestId: "req_123",
+        requesterEmail: "bad@example.com",
+        requesterName: "Bad",
+        adminEmail: "admin@example.com",
+        adminName: "Admin",
+        adminLocation: "Here",
+        status: "pending",
+        createdAt: { seconds: 1, nanoseconds: 0 },
+        updatedAt: { seconds: 1, nanoseconds: 0 },
+      };
+
+      genericRateLimiter.mockResolvedValue(true);
+      getTokenFromRequest.mockReturnValue({ email: "admin@example.com", role: "admin" });
+      loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+      blacklistMod.isEmailBlacklisted.mockResolvedValueOnce(true);
+
+      const mockGet = jest.fn().mockResolvedValue({
+        exists: true,
+        data: () => mockRequest,
+      });
+      db.collection.mockReturnValue({
+        doc: jest.fn().mockReturnValue({
+          get: mockGet,
+        }),
+      });
+
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "POST",
+        body: { requestId: "req_123", action: "approve" },
+      });
+
+      await handler(req, res);
+
+      expect(res.statusCode).toBe(400);
+      expect(res._getJSONData()).toEqual({ error: "Email is blacklisted" });
+      expect(db.runTransaction).not.toHaveBeenCalled();
     });
 
     it("should approve a request successfully", async () => {

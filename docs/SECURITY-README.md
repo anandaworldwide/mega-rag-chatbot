@@ -717,6 +717,12 @@ Sensitive operations that require Firestore role verification:
 - `/api/admin/pendingUsersCount` - Get pending user count
 - `/api/admin/pendingRequests` - Manage approval requests
 
+**Email blacklist** (superuser only; `requireLogin` sites only):
+
+- Storage: S3 object `site-config/{dev|prod}/blacklist/{SITE_ID}.txt` (newline-separated addresses; `#` line comments) using `S3_BUCKET_NAME`.
+- Admin UI: `/admin/blacklist`; API: `GET`/`PUT` `/api/admin/blacklist` (JWT + Firestore superuser).
+- Enforcement: blocks self-service auth (`verifyAccess`, `requestLoginLink`, password login, magic/activation links) and admin invite flows (`addUser`, `resendActivation`, `requestApproval`, approval create-user path, email change) when the site config has `requireLogin: true`.
+
 #### Usage Pattern
 
 ```typescript

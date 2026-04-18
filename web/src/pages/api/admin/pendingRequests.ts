@@ -20,6 +20,7 @@ import {
 } from "@/utils/server/userInviteUtils";
 import { unescapeName } from "@/utils/shared/nameUtils";
 import { getDefaultEmailPreferences } from "@/utils/server/emailPreferenceUtils";
+import { isEmailBlacklisted } from "@/utils/server/blacklist";
 
 const ses = new SESClient({
   region: process.env.AWS_REGION || "us-west-2",
@@ -232,6 +233,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Check if already processed
       if (request.status !== "pending") {
         return res.status(400).json({ error: `Request already ${request.status}` });
+      }
+
+      if (action === "approve") {
+        const siteIdPending = process.env.SITE_ID;
+        const requesterLower = request.requesterEmail.toLowerCase();
+        if (siteIdPending && (await isEmailBlacklisted(requesterLower, siteIdPending))) {
+          await writeAuditLog(req, "blacklist_block", requesterLower, {
+            endpoint: "pendingRequests.approve",
+            actor: "admin",
+          });
+          return res.status(400).json({ error: "Email is blacklisted" });
+        }
       }
 
       // Variables to capture transaction results

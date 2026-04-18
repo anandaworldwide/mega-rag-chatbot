@@ -73,6 +73,10 @@ jest.mock("@/utils/server/auditLog", () => ({
   writeAuditLog: jest.fn(),
 }));
 
+jest.mock("@/utils/server/blacklist", () => ({
+  isEmailBlacklisted: jest.fn().mockResolvedValue(false),
+}));
+
 // Mock environment variables
 const originalEnv = process.env;
 beforeAll(() => {
@@ -96,6 +100,22 @@ import { sendActivationEmail, hashInviteToken } from "@/utils/server/userInviteU
 describe("requestLoginLink API", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  it("returns access denied when email is blacklisted", async () => {
+    const blacklist = await import("@/utils/server/blacklist");
+    jest.mocked(blacklist.isEmailBlacklisted).mockResolvedValueOnce(true);
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: { email: "bad@example.com" },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(res._getJSONData()).toEqual({ error: "Access denied. Please contact your administrator." });
+    expect(firestoreGet).not.toHaveBeenCalled();
   });
 
   it("sends login link if user exists and is accepted; stores hashed token with 1h expiry", async () => {

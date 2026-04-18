@@ -10,11 +10,39 @@
 import { NextApiRequest, NextApiResponse } from "next";
 import jwt from "jsonwebtoken";
 import { verifyToken, getTokenFromRequest, withJwtAuth, JwtPayload } from "@/utils/server/jwtUtils";
+import * as blacklistMod from "@/utils/server/blacklist";
+import * as auditLogMod from "@/utils/server/auditLog";
 
 // Mock jsonwebtoken module
 jest.mock("jsonwebtoken", () => ({
   verify: jest.fn(),
 }));
+
+jest.mock("@/utils/server/blacklist", () => ({
+  isEmailBlacklisted: jest.fn().mockResolvedValue(false),
+  checkEmailBlacklist: jest
+    .fn()
+    .mockResolvedValue({ blocked: false, skipped: false, cacheHit: true, fetchMs: 0 }),
+}));
+
+jest.mock("@/utils/server/auditLog", () => ({
+  writeAuditLog: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock("@/utils/server/corsMiddleware", () => ({
+  createErrorCorsHeaders: jest.fn().mockReturnValue({}),
+}));
+
+jest.mock("cookies", () => {
+  return jest.fn().mockImplementation(() => ({
+    set: jest.fn(),
+  }));
+});
+
+const mockCheckEmailBlacklist = blacklistMod.checkEmailBlacklist as jest.MockedFunction<
+  typeof blacklistMod.checkEmailBlacklist
+>;
+const mockWriteAuditLog = auditLogMod.writeAuditLog as jest.MockedFunction<typeof auditLogMod.writeAuditLog>;
 
 describe("JWT Utilities", () => {
   const originalEnv = process.env;
@@ -163,6 +191,102 @@ describe("JWT Utilities", () => {
       expect(mockRes.status).toHaveBeenCalledWith(401);
       expect(mockRes.json).toHaveBeenCalledWith({ error: "No token provided" });
       expect(mockHandler).not.toHaveBeenCalled();
+    });
+
+    it("should revoke session and return 401 session_revoked when email is blacklisted", async () => {
+      process.env.SITE_ID = "login-site";
+      mockCheckEmailBlacklist.mockResolvedValueOnce({
+        blocked: true,
+        skipped: false,
+        cacheHit: true,
+        fetchMs: 0,
+      });
+
+      const mockHandler = jest.fn();
+      const mockReq = {
+        headers: { authorization: "Bearer valid-token" },
+        url: "/api/some/endpoint",
+      } as unknown as NextApiRequest;
+      const mockRes = {
+        setHeader: jest.fn(),
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn(),
+      } as unknown as NextApiResponse;
+
+      const mockPayload: JwtPayload = {
+        client: "web",
+        email: "blocked@example.com",
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 900,
+      };
+      (jwt.verify as jest.Mock).mockReturnValueOnce(mockPayload);
+
+      const wrappedHandler = withJwtAuth(mockHandler);
+      await wrappedHandler(mockReq, mockRes);
+
+      expect(mockCheckEmailBlacklist).toHaveBeenCalledWith("blocked@example.com", "login-site");
+      expect(mockRes.status).toHaveBeenCalledWith(401);
+      expect(mockRes.json).toHaveBeenCalledWith({ message: "session_revoked" });
+      expect(mockWriteAuditLog).toHaveBeenCalledWith(
+        mockReq,
+        "blacklist_session_revoked",
+        "blocked@example.com",
+        expect.objectContaining({ endpoint: "/api/some/endpoint" })
+      );
+      expect(mockHandler).not.toHaveBeenCalled();
+    });
+
+    it("should allow request when email is not blacklisted", async () => {
+      process.env.SITE_ID = "login-site";
+      mockCheckEmailBlacklist.mockResolvedValueOnce({
+        blocked: false,
+        skipped: false,
+        cacheHit: true,
+        fetchMs: 0,
+      });
+
+      const mockHandler = jest.fn();
+      const mockReq = {
+        headers: { authorization: "Bearer valid-token" },
+      } as unknown as NextApiRequest;
+      const mockRes = {} as NextApiResponse;
+
+      const mockPayload: JwtPayload = {
+        client: "web",
+        email: "good@example.com",
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 900,
+      };
+      (jwt.verify as jest.Mock).mockReturnValueOnce(mockPayload);
+
+      const wrappedHandler = withJwtAuth(mockHandler);
+      await wrappedHandler(mockReq, mockRes);
+
+      expect(mockCheckEmailBlacklist).toHaveBeenCalledWith("good@example.com", "login-site");
+      expect(mockHandler).toHaveBeenCalledWith(mockReq, mockRes);
+    });
+
+    it("should skip blacklist check when token has no email (e.g. wordpress client)", async () => {
+      process.env.SITE_ID = "login-site";
+
+      const mockHandler = jest.fn();
+      const mockReq = {
+        headers: { authorization: "Bearer valid-token" },
+      } as unknown as NextApiRequest;
+      const mockRes = {} as NextApiResponse;
+
+      const mockPayload: JwtPayload = {
+        client: "wordpress",
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 900,
+      };
+      (jwt.verify as jest.Mock).mockReturnValueOnce(mockPayload);
+
+      const wrappedHandler = withJwtAuth(mockHandler);
+      await wrappedHandler(mockReq, mockRes);
+
+      expect(mockCheckEmailBlacklist).not.toHaveBeenCalled();
+      expect(mockHandler).toHaveBeenCalled();
     });
 
     it("should pass additional arguments to the handler", async () => {

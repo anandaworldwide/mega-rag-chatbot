@@ -143,6 +143,10 @@ jest.mock("@/services/firebase", () => {
   return { db };
 });
 
+jest.mock("@/utils/server/blacklist", () => ({
+  isEmailBlacklisted: jest.fn().mockResolvedValue(false),
+}));
+
 import handler from "@/pages/api/admin/users/[userId]";
 import { requireAdminRoleFromFirestore, getRequesterRoleFromFirestore } from "@/utils/server/authz";
 
@@ -150,9 +154,14 @@ const mockRequireAdmin = requireAdminRoleFromFirestore as jest.Mock;
 const mockGetRole = getRequesterRoleFromFirestore as jest.Mock;
 
 describe("/api/admin/users/[userId] update user", () => {
+  const originalSiteId = process.env.SITE_ID;
+
   beforeEach(() => {
     jest.clearAllMocks();
+    process.env.SITE_ID = "test-site";
     writeAuditLogSpy.mockClear();
+    const bl = jest.requireMock("@/utils/server/blacklist");
+    bl.isEmailBlacklisted.mockResolvedValue(false);
     // Clear mock database between tests to prevent test pollution
     const mockDb = jest.requireMock("@/services/firebase").db;
     Object.keys(mockDb.__docMap).forEach((key) => delete mockDb.__docMap[key]);
@@ -172,6 +181,14 @@ describe("/api/admin/users/[userId] update user", () => {
       const payload = (jwtUtils.verifyToken as jest.Mock)(req.cookies?.auth || "");
       return payload?.role || "user";
     });
+  });
+
+  afterEach(() => {
+    if (originalSiteId === undefined) {
+      delete process.env.SITE_ID;
+    } else {
+      process.env.SITE_ID = originalSiteId;
+    }
   });
 
   it("GET returns 403 for non-admin/superuser", async () => {
@@ -210,6 +227,28 @@ describe("/api/admin/users/[userId] update user", () => {
     await handler(req, res);
     expect(res.statusCode).toBe(400);
     expect(res._getJSONData()).toEqual({ error: "Invalid email format" });
+  });
+
+  it("rejects PATCH when new email is blacklisted", async () => {
+    const jwtUtils = await import("@/utils/server/jwtUtils");
+    (jwtUtils.verifyToken as jest.Mock).mockReturnValue({ email: "admin@example.com", role: "superuser" });
+
+    const mockDb = jest.requireMock("@/services/firebase").db;
+    mockDb.__docMap["old@example.com"] = { role: "user" };
+
+    const bl = jest.requireMock("@/utils/server/blacklist");
+    bl.isEmailBlacklisted.mockResolvedValueOnce(true);
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "PATCH",
+      query: { userId: "old@example.com" },
+      body: { email: "blocked@example.com" },
+      cookies: { auth: "token" },
+    });
+
+    await handler(req, res);
+    expect(res.statusCode).toBe(400);
+    expect(res._getJSONData()).toEqual({ error: "Email is blacklisted" });
   });
 
   it("enforces per-site uniqueness: 409 when new email already exists", async () => {
