@@ -1,0 +1,37 @@
+# Accepted / policy-exempt vulnerabilities.
+#
+# Only put entries here that fall into one of these two buckets:
+#   1. No fixed release exists upstream (we cannot patch).
+#   2. A fixed release exists but cannot be adopted due to a hard project
+#      constraint (pinned transitive, major version incompatibility, etc.)
+#
+# Do NOT add entries for "a fix exists but it's <7 days old". The audit script
+# auto-detects those via registry publish dates and treats them as
+# informational during the cooldown window. Manually ignoring them here would
+# mask the alert once the fix ages past cooldown.
+#
+# Schema:
+#   id:         vulnerability identifier (CVE-*, GHSA-*, PYSEC-*, or npm advisory id)
+#   package:    affected package name
+#   reason:     human explanation (required)
+#   review_by:  ISO date for forced re-review; the script fails if today >= review_by
+#   mitigation: optional operational mitigation note
+
+python:
+  - id: CVE-2026-28500
+    package: onnx
+    reason: >-
+      No fixed PyPI release. Reranking tooling is isolated and does not load
+      untrusted models via onnx.hub.load().
+    review_by: "2026-07-15"
+    mitigation: "Isolated reranking subgraph; no untrusted model loading."
+
+  - id: CVE-2026-1839
+    package: transformers
+    reason: >-
+      Fixes are in transformers 5.x, but reranking depends on optimum-onnx
+      0.1.0 which pins transformers<4.58.0. Requires coordinated upgrade.
+    review_by: "2026-07-15"
+    mitigation: "Reranking service is isolated; inputs are internal only."
+
+node: []

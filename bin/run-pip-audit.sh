@@ -1,5 +1,18 @@
 #!/usr/bin/env bash
 
+# Local-dev convenience wrapper around the cooldown-aware audit.
+#
+# Without --fix:
+#   Runs bin/cooldown_audit.py which classifies findings against our 7-day
+#   supply-chain cooldown (`exclude-newer = "7 days"`). Exits non-zero only on
+#   findings that are past cooldown AND at or above the high severity threshold.
+#
+# With --fix:
+#   Runs `pip-audit --fix` against each exported requirements file to upgrade
+#   vulnerable packages in place. Note that any upgrade beyond the uv
+#   exclude-newer window will be rejected by `uv sync` until the release ages
+#   past cooldown.
+
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -25,60 +38,33 @@ export PIP_CONFIG_FILE=/dev/null
 echo "Exporting compatibility requirements from uv.lock..."
 "${ROOT_DIR}/bin/export-python-requirements.sh" >/dev/null
 
-# The repo enforces a strict 7-day UV exclude-newer policy. Vulnerabilities
-# whose fixed releases are newer than that cooldown are temporarily ignored
-# until the release ages in.
-# onnx CVE-2026-28500 has no fixed PyPI release. Mitigation: reranking tooling
-# is isolated, and we do not load untrusted models via onnx.hub.load().
-# transformers CVE-2026-1839 currently has no resolver-compatible fixed release
-# because optimum-onnx constrains transformers<4.58.0.
-IGNORED_VULNS=(
-  --ignore-vuln CVE-2026-22815
-  --ignore-vuln CVE-2026-34513
-  --ignore-vuln CVE-2026-34514
-  --ignore-vuln CVE-2026-34515
-  --ignore-vuln CVE-2026-34516
-  --ignore-vuln CVE-2026-34517
-  --ignore-vuln CVE-2026-34518
-  --ignore-vuln CVE-2026-34519
-  --ignore-vuln CVE-2026-34520
-  --ignore-vuln CVE-2026-34525
-  --ignore-vuln CVE-2026-28500
-  --ignore-vuln CVE-2026-4539
-  --ignore-vuln CVE-2026-1839
-  --ignore-vuln GHSA-rr7j-v2q5-chgv
-  --ignore-vuln GHSA-r7w7-9xr2-qq2r
-  --ignore-vuln GHSA-fv5p-p927-qmxr
-)
-
-echo "Running pip-audit from the uv-managed environment..."
-echo "(Ignoring accepted reranking/evaluation-only vulnerabilities)"
-audit_exit_code=0
-
-for req_file in "${REQUIREMENTS_FILES[@]}"; do
-  if [[ ! -f "${req_file}" ]]; then
-    echo "Missing requirements file: ${req_file}"
-    exit 1
-  fi
-
-  echo
-  echo "=== Auditing ${req_file} ==="
-  if [[ "${FIX_MODE}" == "--fix" ]]; then
-    if ! uv run --locked pip-audit --cache-dir "${ROOT_DIR}/.cache/pip-audit" -r "${req_file}" --fix "${IGNORED_VULNS[@]}"; then
+if [[ "${FIX_MODE}" == "--fix" ]]; then
+  audit_exit_code=0
+  for req_file in "${REQUIREMENTS_FILES[@]}"; do
+    if [[ ! -f "${req_file}" ]]; then
+      echo "Missing requirements file: ${req_file}"
+      exit 1
+    fi
+    echo
+    echo "=== pip-audit --fix ${req_file} ==="
+    if ! uv run --locked pip-audit \
+        --cache-dir "${ROOT_DIR}/.cache/pip-audit" \
+        -r "${req_file}" \
+        --fix; then
       audit_exit_code=1
     fi
-  else
-    if ! uv run --locked pip-audit --cache-dir "${ROOT_DIR}/.cache/pip-audit" -r "${req_file}" "${IGNORED_VULNS[@]}"; then
-      audit_exit_code=1
-    fi
-  fi
-done
-
-echo
-if [[ "${audit_exit_code}" -eq 0 ]]; then
-  echo "All pip-audit checks passed."
-  exit 0
+  done
+  exit "${audit_exit_code}"
 fi
 
-echo "One or more pip-audit checks failed."
-exit 1
+mkdir -p "${ROOT_DIR}/.cache/cooldown-audit"
+req_args=()
+for req_file in "${REQUIREMENTS_FILES[@]}"; do
+  req_args+=(--requirements "${req_file}")
+done
+
+echo "Running cooldown-aware pip audit (7-day window)..."
+exec uv run --locked python "${ROOT_DIR}/bin/cooldown_audit.py" python \
+  "${req_args[@]}" \
+  --fail-level high \
+  --json-out "${ROOT_DIR}/.cache/cooldown-audit/python.json"
