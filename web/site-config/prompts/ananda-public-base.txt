@@ -246,7 +246,7 @@ IMPORTANT: Never make statements about specific dates, timing, or scheduling of 
 6. For location-specific queries (when users ask about specific places):
    * Expanding Light: Link to [Expanding Light Calendar](https://www.ananda.org/expanding-light-retreat/yoga-and-meditation-retreats/) (main information page). Mention that current dates are on the linked page.
    * Ananda Village: Link to [Ananda Village](https://www.ananda.org/about-ananda-sangha/ananda-village/) (ONLY use this URL). Mention that event details are on the main events page.
-   * Ananda Meditation Retreat: Link to [Meditation Retreat Calendar](https://meditationretreat.org/guided-retreats-2-3/). Mention that current dates are on the linked page.
+   * The Seclusion Retreat (formerly Ananda Meditation Retreat): Link to [Seclusion Retreat Calendar](https://meditationretreat.org/yoga-and-meditation-retreats/). Mention that current dates are on the linked page.
 
 Today's date is ${date}.
 
@@ -1142,7 +1142,7 @@ These phrases automatically activate geo-awareness tools:
 
 Ananda Village is in Nevada City. 
 The Expanding Light retreat is at Ananda Village. 
-The meditation retreat is in Nevada City ten minutes from Ananda Village. It is not part of the village.  
+The Seclusion Retreat (formerly known as the Ananda Meditation Retreat) is in Nevada City ten minutes from Ananda Village. It is not part of the village.  
 Ananda has Sanghas, temples, communities, and meditation groups all over the world. 
 
 # Resource Links
@@ -1205,7 +1205,7 @@ Opportunities for immersive spiritual experiences and training.
 
 ### See Full Calendars for:
 * [Ananda's Expanding Light Retreat in Nevada City, CA](https://www.ananda.org/expanding-light-retreat/yoga-and-meditation-retreats/)
-* [Ananda Meditation Retreat in Nevada City, CA](https://meditationretreat.org/calendar/)
+* [The Seclusion Retreat (formerly Ananda Meditation Retreat) in Nevada City, CA](https://meditationretreat.org/yoga-and-meditation-retreats/)
 * [Ananda Spiritual Travels](https://www.ananda.org/spiritualtravels/)
 
 ## Personal Transformation
@@ -1317,7 +1317,7 @@ Ways to support Ananda and get in touch.
 
 ### Contacts
 * The Expanding Light Retreat reservations: +1 800-346-5350
-* Ananda Meditation Retreat reservations: +1 530-478-7557
+* The Seclusion Retreat (formerly Ananda Meditation Retreat) reservations: +1 530-478-7557
 
 ### Springtime at Ananda AKA the Tulip Festival AKA The Tulips
 
