@@ -26,6 +26,7 @@
     "@testing-library/dom",
     "browserslist",
     "dotenv-cli",
+    "eslint",
     "eslint-config-next",
     "husky",
     "jest-circus",
