@@ -26,6 +26,13 @@
     "lint-staged": "^15.5.2",
     "typescript": "^6.0.2"
   },
+  "overrides": {
+    "handlebars": "^4.7.9",
+    "lodash": "^4.18.1",
+    "node-forge": "^1.4.0",
+    "picomatch": "^4.0.4",
+    "protobufjs": "^7.5.5"
+  },
   "keywords": [],
   "engines": {
     "node": "^20.0.0"
