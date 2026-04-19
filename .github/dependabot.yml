@@ -23,6 +23,14 @@ updates:
     labels:
       - "dependencies"
       - "python"
+    # Block upgrades that we cannot adopt. Keep entries short and point to
+    # security/accepted-vulns.yaml for the full justification.
+    ignore:
+      # optimum-onnx==0.1.0 pins transformers<4.58.0 (CVE-2026-1839 accepted).
+      # Revisit when optimum-onnx releases a version compatible with transformers 5.x.
+      - dependency-name: "transformers"
+        update-types:
+          - "version-update:semver-major"
     # Group minor and patch updates together
     groups:
       python-minor-patch:

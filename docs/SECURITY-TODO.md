@@ -57,6 +57,31 @@ single root `package-lock.json` and root-level `.npmrc` with
 in one pass. Running from a subdirectory like `web/` walks up to the same
 root lockfile but is redundant, so we standardize on root.
 
+**Install command — always run at root.** `npm ci` from a workspace
+subdirectory (e.g. `cd web && npm ci`) installs only that workspace's
+dependency graph. Packages that npm hoists to the root (like `knip`) will
+then be missing their sibling dependencies, breaking tools like the
+`pre-push` knip check with `ERR_MODULE_NOT_FOUND: typescript`. Run
+`npm ci` from the repo root instead so every workspace and the root's own
+devDependencies are installed together.
+
+### Local dev audit recipe
+
+```bash
+# From repo root
+uv sync --locked --package mega-rag-chatbot --package mega-rag-chatbot-crawler
+npm ci   # root, not cd web
+
+./bin/run-pip-audit.sh                   # Python, cooldown-aware
+uv run --locked python bin/cooldown_audit.py node \
+  --audit-dir . --fail-level high \
+  --json-out .cache/cooldown-audit/node.json
+python bin/security_digest.py \
+  .cache/cooldown-audit/python.json \
+  .cache/cooldown-audit/node.json \
+  --out .cache/cooldown-audit/digest.md
+```
+
 ## Accepting a Vulnerability
 
 Only two valid reasons:
