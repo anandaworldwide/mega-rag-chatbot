@@ -287,6 +287,22 @@ class TestPipAuditAdapter:
 
 
 class TestNpmAuditAdapter:
+    def _run(self, cdaudit, tmp_path, payload):
+        class _Completed:
+            returncode = 1
+            stdout = json.dumps(payload)
+            stderr = ""
+
+        audit_dir = tmp_path / "repo"
+        audit_dir.mkdir()
+        (audit_dir / "package-lock.json").write_text("{}")
+
+        with (
+            patch.object(cdaudit.subprocess, "run", return_value=_Completed()),
+            patch.object(cdaudit, "REPO_ROOT", tmp_path),
+        ):
+            return cdaudit.run_npm_audit("repo")
+
     def test_parses_vulnerabilities_tree(self, cdaudit, tmp_path):
         payload = {
             "vulnerabilities": {
@@ -299,33 +315,243 @@ class TestNpmAuditAdapter:
                             "source": "GHSA-xq3m-2v4x-88gg",
                             "title": "Arbitrary code execution",
                             "url": "https://github.com/advisories/GHSA-xq3m-2v4x-88gg",
+                            "severity": "critical",
                         }
                     ],
                 }
             }
         }
-
-        class _Completed:
-            returncode = 1
-            stdout = json.dumps(payload)
-            stderr = ""
-
-        web_dir = tmp_path / "web"
-        web_dir.mkdir()
-        (web_dir / "package-lock.json").write_text("{}")
-
-        with (
-            patch.object(cdaudit.subprocess, "run", return_value=_Completed()),
-            patch.object(cdaudit, "REPO_ROOT", tmp_path),
-        ):
-            findings = cdaudit.run_npm_audit("web")
-
+        findings = self._run(cdaudit, tmp_path, payload)
         assert len(findings) == 1
         f = findings[0]
         assert f.package == "protobufjs"
         assert f.severity == "critical"
         assert f.fix_versions == ["7.5.5"]
+        assert f.fix_package == "protobufjs"
         assert f.vuln_id == "GHSA-xq3m-2v4x-88gg"
+
+    def test_transitive_vuln_records_fix_package_not_affected(self, cdaudit, tmp_path):
+        """When ``fixAvailable.name != vulnerability key``, the fix package is
+        a different (top-level) dep the user needs to change. The finding
+        must record that as ``fix_package`` so the registry lookup targets
+        the right package."""
+        payload = {
+            "vulnerabilities": {
+                "@google-cloud/firestore": {
+                    "name": "@google-cloud/firestore",
+                    "severity": "low",
+                    "fixAvailable": {
+                        "name": "firebase-admin",
+                        "version": "10.3.0",
+                        "isSemVerMajor": True,
+                    },
+                    "via": [
+                        {
+                            "source": "GHSA-aaaa",
+                            "title": "Transitive prototype pollution",
+                            "severity": "high",
+                        }
+                    ],
+                }
+            }
+        }
+        findings = self._run(cdaudit, tmp_path, payload)
+        assert len(findings) == 1
+        f = findings[0]
+        assert f.package == "@google-cloud/firestore"
+        assert f.fix_package == "firebase-admin"
+        assert f.fix_versions == ["10.3.0"]
+        assert f.fix_is_major is True
+        # Severity must come from the advisory (high), not the top-level (low).
+        assert f.severity == "high"
+
+    def test_boolean_fix_available_true_preserves_target_package(self, cdaudit, tmp_path):
+        """``fixAvailable: true`` means a semver-compatible upgrade of the
+        affected package itself is available. The adapter must record the
+        affected package as ``fix_package`` and leave version unresolved so
+        classification can fetch the current latest."""
+        payload = {
+            "vulnerabilities": {
+                "lodash": {
+                    "name": "lodash",
+                    "severity": "high",
+                    "fixAvailable": True,
+                    "via": [
+                        {
+                            "source": "GHSA-r5fr-rjxr-66jc",
+                            "title": "Code injection in template",
+                            "severity": "high",
+                        }
+                    ],
+                }
+            }
+        }
+        findings = self._run(cdaudit, tmp_path, payload)
+        assert len(findings) == 1
+        f = findings[0]
+        assert f.fix_package == "lodash"
+        assert f.fix_versions == []
+
+    def test_fix_available_false_yields_no_fix_versions(self, cdaudit, tmp_path):
+        payload = {
+            "vulnerabilities": {
+                "onlybad": {
+                    "name": "onlybad",
+                    "severity": "high",
+                    "fixAvailable": False,
+                    "via": [{"source": "GHSA-zzzz", "title": "no fix", "severity": "high"}],
+                }
+            }
+        }
+        findings = self._run(cdaudit, tmp_path, payload)
+        assert findings[0].fix_versions == []
+        assert findings[0].fix_package is None
+
+    def test_transitive_findings_are_deduped(self, cdaudit, tmp_path):
+        """Same advisory surfacing on multiple packages in a chain, with the
+        same fix target, should collapse into one finding."""
+        payload = {
+            "vulnerabilities": {
+                "@tootallnate/once": {
+                    "name": "@tootallnate/once",
+                    "severity": "low",
+                    "fixAvailable": {
+                        "name": "jest-environment-jsdom",
+                        "version": "30.3.0",
+                        "isSemVerMajor": True,
+                    },
+                    "via": [{"source": "GHSA-vpq2", "title": "t", "severity": "moderate"}],
+                },
+                "http-proxy-agent": {
+                    "name": "http-proxy-agent",
+                    "severity": "low",
+                    "fixAvailable": {
+                        "name": "jest-environment-jsdom",
+                        "version": "30.3.0",
+                        "isSemVerMajor": True,
+                    },
+                    "via": [{"source": "GHSA-vpq2", "title": "t", "severity": "moderate"}],
+                },
+            }
+        }
+        findings = self._run(cdaudit, tmp_path, payload)
+        assert len(findings) == 1
+
+    def test_transitive_via_pointers_emit_one_finding(self, cdaudit, tmp_path):
+        """Entries whose ``via`` contains only string pointers to other pkgs
+        (no advisory dict) should still produce exactly one finding."""
+        payload = {
+            "vulnerabilities": {
+                "google-gax": {
+                    "name": "google-gax",
+                    "severity": "low",
+                    "fixAvailable": {
+                        "name": "firebase-admin",
+                        "version": "10.3.0",
+                        "isSemVerMajor": True,
+                    },
+                    "via": ["retry-request", "teeny-request"],
+                }
+            }
+        }
+        findings = self._run(cdaudit, tmp_path, payload)
+        assert len(findings) == 1
+        assert findings[0].fix_package == "firebase-admin"
+
+
+class TestNpmClassification:
+    """Integration-ish tests covering the full classify() path for npm with
+    the new ``fix_package`` / latest-version resolution logic."""
+
+    def _make_finding(self, cdaudit, **overrides):
+        defaults = dict(
+            ecosystem="node",
+            vuln_id="GHSA-x",
+            package="@google-cloud/firestore",
+            installed_version=None,
+            fix_versions=["10.3.0"],
+            fix_package="firebase-admin",
+            severity="high",
+            summary="",
+        )
+        defaults.update(overrides)
+        return cdaudit.Finding(**defaults)
+
+    def test_lookup_uses_fix_package_not_affected_package(self, cdaudit):
+        finding = self._make_finding(cdaudit)
+        now = datetime.now(UTC)
+        publish = (now - timedelta(days=30)).isoformat()
+
+        def _npm_lookup(registry, pkg, version):
+            assert pkg == "firebase-admin"
+            assert version == "10.3.0"
+            return publish
+
+        with patch.object(cdaudit, "npm_fix_publish_date", side_effect=_npm_lookup):
+            cdaudit.classify(
+                [finding],
+                {"python": [], "node": []},
+                registry=_StubRegistry({}),
+                cooldown_days=7,
+                today=now,
+            )
+
+        assert finding.classification == "actionable"
+        assert finding.fix_published_at == publish
+
+    def test_boolean_fix_resolves_via_latest(self, cdaudit):
+        finding = self._make_finding(
+            cdaudit,
+            package="lodash",
+            fix_package="lodash",
+            fix_versions=[],
+        )
+        now = datetime.now(UTC)
+        publish = (now - timedelta(days=30)).isoformat()
+
+        with (
+            patch.object(
+                cdaudit,
+                "npm_latest_version_and_date",
+                return_value=("4.17.24", publish),
+            ),
+            patch.object(cdaudit, "npm_fix_publish_date", return_value=publish),
+        ):
+            cdaudit.classify(
+                [finding],
+                {"python": [], "node": []},
+                registry=_StubRegistry({}),
+                cooldown_days=7,
+                today=now,
+            )
+
+        assert finding.fix_versions == ["4.17.24"]
+        assert finding.classification == "actionable"
+
+    def test_boolean_fix_inside_cooldown_is_informational(self, cdaudit):
+        finding = self._make_finding(
+            cdaudit, package="lodash", fix_package="lodash", fix_versions=[]
+        )
+        now = datetime.now(UTC)
+        fresh = (now - timedelta(days=2)).isoformat()
+
+        with (
+            patch.object(
+                cdaudit,
+                "npm_latest_version_and_date",
+                return_value=("4.17.24", fresh),
+            ),
+            patch.object(cdaudit, "npm_fix_publish_date", return_value=fresh),
+        ):
+            cdaudit.classify(
+                [finding],
+                {"python": [], "node": []},
+                registry=_StubRegistry({}),
+                cooldown_days=7,
+                today=now,
+            )
+
+        assert finding.classification == "in_cooldown"
 
 
 class TestMain:

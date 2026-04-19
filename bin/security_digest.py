@@ -41,16 +41,26 @@ def _render_table(rows: list[dict]) -> list[str]:
     if not rows:
         return ["_None._", ""]
     out = [
-        "| Severity | Package | ID | Fix | Published | Note |",
+        "| Severity | Package | ID | Fix (package@version) | Published | Note |",
         "| --- | --- | --- | --- | --- | --- |",
     ]
     for f in rows:
+        fix_versions = f.get("fix_versions") or []
+        fix_package = f.get("fix_package")
+        if fix_package and fix_versions:
+            fix_cell = f"{fix_package}@{', '.join(fix_versions)}"
+            if f.get("fix_is_major"):
+                fix_cell += " (major)"
+        elif fix_versions:
+            fix_cell = ", ".join(fix_versions)
+        else:
+            fix_cell = "-"
         out.append(
             "| {sev} | {pkg} | {vid} | {fix} | {pub} | {note} |".format(
                 sev=f.get("severity", ""),
                 pkg=f.get("package", ""),
                 vid=f.get("vuln_id", ""),
-                fix=", ".join(f.get("fix_versions") or []) or "-",
+                fix=fix_cell,
                 pub=(f.get("fix_published_at") or "")[:10] or "-",
                 note=(f.get("note") or f.get("accepted_reason") or "").replace(
                     "\n", " "

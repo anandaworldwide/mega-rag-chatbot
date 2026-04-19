@@ -26,7 +26,7 @@ Usage::
         --json-out .cache/cooldown-audit/python.json
 
     bin/cooldown_audit.py node \\
-        --web-dir web \\
+        --audit-dir . \\
         --json-out .cache/cooldown-audit/node.json
 
 Severity threshold defaults to ``high`` (``--fail-level``). Cooldown window
@@ -82,6 +82,14 @@ class Finding:
     severity: str
     summary: str
     advisory_url: str | None = None
+
+    # Which package the user actually has to upgrade to resolve this finding.
+    # For direct vulns this equals ``package``. For transitive vulns ``npm
+    # audit`` points at a different top-level package (e.g. a firebase-admin
+    # downgrade) and that's what we look up in the registry to determine the
+    # fix's publish date.
+    fix_package: str | None = None
+    fix_is_major: bool = False
 
     classification: str = "actionable"
     fix_published_at: str | None = None
@@ -165,15 +173,39 @@ def pypi_fix_publish_date(
     return min(timestamps)
 
 
+def _npm_registry_data(client: RegistryClient, package: str) -> dict | None:
+    url = f"https://registry.npmjs.org/{urllib.parse.quote(package, safe='@/')}"
+    return client.get_json(url)
+
+
 def npm_fix_publish_date(
     client: RegistryClient, package: str, version: str
 ) -> str | None:
-    url = f"https://registry.npmjs.org/{urllib.parse.quote(package, safe='@/')}"
-    data = client.get_json(url)
+    data = _npm_registry_data(client, package)
     if not data:
         return None
-    times = (data.get("time") or {})
+    times = data.get("time") or {}
     return times.get(version)
+
+
+def npm_latest_version_and_date(
+    client: RegistryClient, package: str
+) -> tuple[str | None, str | None]:
+    """Return (version, iso-publish-date) for ``<pkg>``'s ``dist-tags.latest``.
+
+    Used when ``npm audit`` says ``fixAvailable: true`` — the advisory's fix
+    is whatever the current published version of the affected package is,
+    since semver-compatible fixes are applied by ``npm audit fix``.
+    """
+    data = _npm_registry_data(client, package)
+    if not data:
+        return None, None
+    tags = data.get("dist-tags") or {}
+    latest = tags.get("latest")
+    if not latest:
+        return None, None
+    times = data.get("time") or {}
+    return str(latest), times.get(latest)
 
 
 def parse_iso8601(value: str | None) -> datetime | None:
@@ -268,10 +300,52 @@ def run_pip_audit(requirements_files: list[str]) -> list[Finding]:
 # ---------------------------------------------------------------------------
 
 
-def run_npm_audit(web_dir: str) -> list[Finding]:
-    path = REPO_ROOT / web_dir
+def _npm_extract_fix(entry: dict) -> tuple[str | None, str | None, bool]:
+    """Return ``(fix_package, fix_version, is_semver_major)``.
+
+    ``npm audit`` encodes three fix states in ``fixAvailable``:
+
+    * ``False``      — no fix exists
+    * ``True``       — a semver-compatible upgrade of the same package resolves
+                       it; ``npm audit fix`` can apply it
+    * ``{name, version, isSemVerMajor}`` — user must change *that* package
+                       (often a top-level dep higher in the tree) to *that*
+                       version. For transitive vulns this is typically a
+                       different package than the one the advisory is filed
+                       against.
+    """
+    fix_available = entry.get("fixAvailable")
+    if fix_available is False:
+        return None, None, False
+    if fix_available is True:
+        return entry.get("name"), None, False
+    if isinstance(fix_available, dict):
+        return (
+            fix_available.get("name") or entry.get("name"),
+            fix_available.get("version"),
+            bool(fix_available.get("isSemVerMajor")),
+        )
+    return None, None, False
+
+
+def _npm_via_severity(source: dict, fallback: str) -> str:
+    sev = source.get("severity")
+    if sev:
+        return str(sev).lower()
+    return fallback
+
+
+def run_npm_audit(audit_dir: str) -> list[Finding]:
+    """Invoke ``npm audit --json`` in ``audit_dir`` and normalize findings.
+
+    Monorepo note: ``audit_dir`` should be the directory containing the
+    authoritative ``package-lock.json``. In a workspaces setup that is the
+    repo root, and ``npm audit`` there covers every workspace's dependency
+    tree in one pass.
+    """
+    path = REPO_ROOT / audit_dir
     if not path.exists():
-        raise SystemExit(f"web directory not found: {web_dir}")
+        raise SystemExit(f"audit directory not found: {audit_dir}")
 
     proc = subprocess.run(
         ["npm", "audit", "--json"],
@@ -289,48 +363,51 @@ def run_npm_audit(web_dir: str) -> list[Finding]:
     except json.JSONDecodeError as exc:
         raise SystemExit(f"Could not parse npm audit JSON: {exc}") from exc
 
-    findings: list[Finding] = []
-    for pkg_name, entry in (payload.get("vulnerabilities") or {}).items():
-        severity = str(entry.get("severity") or "unknown").lower()
-        fix_available = entry.get("fixAvailable")
-        fix_versions: list[str] = []
-        if isinstance(fix_available, dict) and fix_available.get("version"):
-            fix_versions = [str(fix_available["version"])]
+    # Dedup key: (advisory-id, fix_package, fix_version). Transitive vulns
+    # often surface once per node in the chain with an identical fix path;
+    # collapsing them keeps the digest actionable rather than noisy.
+    seen: dict[tuple[str, str, str], Finding] = {}
 
-        via = entry.get("via") or []
-        seen_ids: set[str] = set()
-        for source in via:
-            if not isinstance(source, dict):
-                continue
-            ident = str(source.get("source") or source.get("url") or source.get("title"))
-            if not ident or ident in seen_ids:
-                continue
-            seen_ids.add(ident)
-            findings.append(
-                Finding(
-                    ecosystem="node",
-                    vuln_id=str(source.get("source") or source.get("url") or ""),
-                    package=pkg_name,
-                    installed_version=None,
-                    fix_versions=fix_versions,
-                    severity=severity,
-                    summary=str(source.get("title") or "").strip(),
-                    advisory_url=str(source.get("url") or ""),
-                )
+    for pkg_name, entry in (payload.get("vulnerabilities") or {}).items():
+        top_severity = str(entry.get("severity") or "unknown").lower()
+        fix_pkg, fix_version, fix_major = _npm_extract_fix(entry)
+
+        advisories: list[dict] = [v for v in (entry.get("via") or []) if isinstance(v, dict)]
+        if not advisories:
+            # All ``via`` entries are strings (pointers to other pkgs); emit a
+            # single finding per top-level vulnerable package.
+            advisories = [
+                {
+                    "source": pkg_name,
+                    "title": f"Transitive vulnerability via {pkg_name}",
+                    "severity": top_severity,
+                    "url": "",
+                }
+            ]
+
+        for source in advisories:
+            advisory_id = str(
+                source.get("source") or source.get("url") or source.get("title") or ""
             )
-        if not seen_ids:
-            findings.append(
-                Finding(
-                    ecosystem="node",
-                    vuln_id=pkg_name,
-                    package=pkg_name,
-                    installed_version=None,
-                    fix_versions=fix_versions,
-                    severity=severity,
-                    summary=f"Vulnerability reported for {pkg_name}",
-                )
+            if not advisory_id:
+                continue
+            key = (advisory_id, fix_pkg or "", fix_version or "")
+            if key in seen:
+                continue
+            seen[key] = Finding(
+                ecosystem="node",
+                vuln_id=advisory_id,
+                package=pkg_name,
+                installed_version=None,
+                fix_versions=[fix_version] if fix_version else [],
+                fix_package=fix_pkg,
+                fix_is_major=fix_major,
+                severity=_npm_via_severity(source, top_severity),
+                summary=str(source.get("title") or "").strip(),
+                advisory_url=str(source.get("url") or "") or None,
             )
-    return findings
+
+    return list(seen.values())
 
 
 # ---------------------------------------------------------------------------
@@ -364,6 +441,61 @@ def _match_accepted(
     return None
 
 
+def _apply_accepted_entry(
+    finding: Finding, accepted_entry: dict[str, Any], now: datetime
+) -> None:
+    review_by = accepted_entry.get("review_by")
+    review_dt = parse_iso8601(str(review_by)) if review_by else None
+    finding.accepted_reason = str(accepted_entry.get("reason") or "").strip()
+    finding.accepted_review_by = str(review_by) if review_by else None
+    if review_dt and review_dt <= now:
+        finding.classification = "actionable"
+        finding.note = f"Accepted entry expired on {review_by}; re-review required."
+    else:
+        finding.classification = "accepted"
+
+
+def _resolve_npm_boolean_fix(finding: Finding, registry: RegistryClient) -> None:
+    """``fixAvailable: true`` → fill in current ``latest`` version as the fix."""
+    if (
+        finding.ecosystem != "node"
+        or finding.fix_versions
+        or not finding.fix_package
+    ):
+        return
+    latest_version, latest_published = npm_latest_version_and_date(
+        registry, finding.fix_package
+    )
+    if latest_version:
+        finding.fix_versions = [latest_version]
+        if latest_published:
+            finding.fix_published_at = latest_published
+
+
+def _publish_dates_for(
+    finding: Finding, registry: RegistryClient
+) -> list[datetime]:
+    lookup_package = (
+        finding.fix_package
+        if finding.ecosystem == "node" and finding.fix_package
+        else finding.package
+    )
+    dates: list[datetime] = []
+    for version in finding.fix_versions:
+        if finding.ecosystem == "python":
+            raw = pypi_fix_publish_date(registry, lookup_package, version)
+        else:
+            raw = npm_fix_publish_date(registry, lookup_package, version)
+        parsed = parse_iso8601(raw)
+        if parsed:
+            dates.append(parsed)
+    if not dates and finding.fix_published_at:
+        parsed = parse_iso8601(finding.fix_published_at)
+        if parsed:
+            dates.append(parsed)
+    return dates
+
+
 def classify(
     findings: list[Finding],
     accepted: dict[str, list[dict[str, Any]]],
@@ -378,18 +510,10 @@ def classify(
     for finding in findings:
         accepted_entry = _match_accepted(finding, accepted.get(finding.ecosystem, []))
         if accepted_entry:
-            review_by = accepted_entry.get("review_by")
-            review_dt = parse_iso8601(str(review_by)) if review_by else None
-            finding.accepted_reason = str(accepted_entry.get("reason") or "").strip()
-            finding.accepted_review_by = str(review_by) if review_by else None
-            if review_dt and review_dt <= now:
-                finding.classification = "actionable"
-                finding.note = (
-                    f"Accepted entry expired on {review_by}; re-review required."
-                )
-            else:
-                finding.classification = "accepted"
+            _apply_accepted_entry(finding, accepted_entry, now)
             continue
+
+        _resolve_npm_boolean_fix(finding, registry)
 
         if not finding.fix_versions:
             finding.classification = "no_fix"
@@ -399,16 +523,7 @@ def classify(
             )
             continue
 
-        publish_dates: list[datetime] = []
-        for version in finding.fix_versions:
-            if finding.ecosystem == "python":
-                raw = pypi_fix_publish_date(registry, finding.package, version)
-            else:
-                raw = npm_fix_publish_date(registry, finding.package, version)
-            parsed = parse_iso8601(raw)
-            if parsed:
-                publish_dates.append(parsed)
-
+        publish_dates = _publish_dates_for(finding, registry)
         if not publish_dates:
             finding.classification = "actionable"
             finding.note = (
@@ -419,10 +534,7 @@ def classify(
 
         earliest = min(publish_dates)
         finding.fix_published_at = earliest.isoformat()
-        if earliest > cutoff:
-            finding.classification = "in_cooldown"
-        else:
-            finding.classification = "actionable"
+        finding.classification = "in_cooldown" if earliest > cutoff else "actionable"
 
     return findings
 
@@ -453,8 +565,14 @@ def render_text(findings: list[Finding], ecosystem: str, fail_level: str) -> str
         bucket_findings = groups.get(bucket, [])
         lines.append(f"{bucket.upper()}: {len(bucket_findings)}")
         for f in bucket_findings:
-            fix = ", ".join(f.fix_versions) if f.fix_versions else "-"
+            fix_target = (
+                f"{f.fix_package}@{', '.join(f.fix_versions)}"
+                if f.fix_package and f.fix_versions
+                else (", ".join(f.fix_versions) if f.fix_versions else "-")
+            )
             extras: list[str] = []
+            if f.fix_is_major:
+                extras.append("major version bump")
             if f.fix_published_at:
                 extras.append(f"fix published {f.fix_published_at[:10]}")
             if f.accepted_reason:
@@ -464,7 +582,7 @@ def render_text(findings: list[Finding], ecosystem: str, fail_level: str) -> str
             extras_str = f" ({'; '.join(extras)})" if extras else ""
             lines.append(
                 f"  - [{f.severity}] {f.package} {f.vuln_id} "
-                f"-> fix {fix}{extras_str}"
+                f"-> fix {fix_target}{extras_str}"
             )
         lines.append("")
     actionable_at_or_above = [
@@ -500,15 +618,23 @@ def render_markdown(findings: list[Finding], ecosystem: str, fail_level: str) ->
             return
         md.append(f"#### {title}")
         md.append("")
-        md.append("| Severity | Package | ID | Fix | Published | Note |")
+        md.append("| Severity | Package | ID | Fix (package@version) | Published | Note |")
         md.append("| --- | --- | --- | --- | --- | --- |")
         for f in items:
+            if f.fix_package and f.fix_versions:
+                fix_cell = f"{f.fix_package}@{', '.join(f.fix_versions)}"
+                if f.fix_is_major:
+                    fix_cell += " (major)"
+            elif f.fix_versions:
+                fix_cell = ", ".join(f.fix_versions)
+            else:
+                fix_cell = "-"
             md.append(
                 "| {sev} | {pkg} | {vid} | {fix} | {pub} | {note} |".format(
                     sev=f.severity,
                     pkg=f.package,
                     vid=f.vuln_id,
-                    fix=", ".join(f.fix_versions) or "-",
+                    fix=fix_cell,
                     pub=(f.fix_published_at or "")[:10] or "-",
                     note=(f.note or f.accepted_reason or "").replace("\n", " "),
                 )
@@ -591,9 +717,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     node_parser = sub.add_parser("node", parents=[common])
     node_parser.add_argument(
+        "--audit-dir",
         "--web-dir",
-        default="web",
-        help="Path (relative to repo root) containing package-lock.json.",
+        dest="audit_dir",
+        default=".",
+        help=(
+            "Directory to run ``npm audit`` in (relative to repo root). In a "
+            "workspaces monorepo this should point at the directory holding "
+            "the authoritative package-lock.json — i.e. the repo root."
+        ),
     )
 
     return parser
@@ -609,7 +741,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.ecosystem == "python":
         findings = run_pip_audit(args.requirements)
     else:
-        findings = run_npm_audit(args.web_dir)
+        findings = run_npm_audit(args.audit_dir)
 
     classify(findings, accepted, cache, cooldown_days=args.cooldown_days)
 

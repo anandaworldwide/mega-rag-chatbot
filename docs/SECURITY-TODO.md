@@ -48,6 +48,15 @@ Fix publish dates are resolved by querying PyPI (`/pypi/<pkg>/<ver>/json`)
 and the npm registry (`/<pkg>`). Results are cached for 6 hours under
 `.cache/cooldown-audit/`.
 
+### Monorepo note
+
+This repo is an npm workspaces monorepo (`web`, `data_ingestion`). There is a
+single root `package-lock.json` and root-level `.npmrc` with
+`min-release-age=7`. Both the nightly audit and the weekly digest run
+`npm audit` from the repo root (`--audit-dir .`), which covers every workspace
+in one pass. Running from a subdirectory like `web/` walks up to the same
+root lockfile but is redundant, so we standardize on root.
+
 ## Accepting a Vulnerability
 
 Only two valid reasons:

@@ -48,8 +48,7 @@ jobs:
       - name: Install Python dependencies
         run: uv sync --locked --package mega-rag-chatbot --package mega-rag-chatbot-crawler
 
-      - name: Install Node dependencies
-        working-directory: ./web
+      - name: Install Node dependencies (workspaces root)
         run: npm ci
 
       - name: Make helper scripts executable
@@ -69,11 +68,11 @@ jobs:
             --fail-level high \
             --json-out .cache/cooldown-audit/python.json
 
-      - name: Node audit (digest only)
+      - name: Node audit (digest only, workspaces root)
         continue-on-error: true
         run: |
           uv run --locked python bin/cooldown_audit.py node \
-            --web-dir web \
+            --audit-dir . \
             --fail-level high \
             --json-out .cache/cooldown-audit/node.json
 
