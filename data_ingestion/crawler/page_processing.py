@@ -37,6 +37,10 @@ def sanitize_for_id(text: str) -> str:
 def create_chunks_from_page(page_content: PageContent, text_splitter) -> list[str]:
     """Create text chunks from page content using the provided text splitter."""
 
+    if not page_content.content or not page_content.content.split():
+        logging.info(f"Skipping zero-word page: {page_content.url}")
+        return []
+
     # Combine title and content with a single newline so the title remains in the
     # same paragraph as the opening content, preventing header-only chunks.
     full_text = f"{page_content.title}\n{page_content.content}"

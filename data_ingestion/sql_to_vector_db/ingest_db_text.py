@@ -1744,6 +1744,13 @@ def _process_document_chunks(post_data: dict, text_splitter) -> tuple[list, int]
     # This ensures clean text for embeddings while preserving original HTML for PDF generation
     content_for_chunking = remove_html_tags(post_data["content"])
 
+    if not content_for_chunking or not content_for_chunking.split():
+        logger.info(
+            f"Skipping zero-word document: {post_data.get('permalink', post_id)} "
+            f"(title: {post_data.get('title', 'N/A')})"
+        )
+        return [], 0
+
     # Create Langchain document and split into chunks
     langchain_doc = Document(
         page_content=content_for_chunking, metadata=document_metadata
