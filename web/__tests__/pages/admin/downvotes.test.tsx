@@ -67,7 +67,8 @@ describe("DownvotesReview", () => {
     });
 
     render(<DownvotesReview siteConfig={mockSiteConfig} />);
-    expect(screen.getByRole("status")).toBeInTheDocument();
+    // Loading spinner and SuperuserOnlyBadge both use role="status"; target the spinner explicitly.
+    expect(screen.getByRole("status", { name: "Loading" })).toBeInTheDocument();
   });
 
   it("renders error state", () => {

@@ -1,0 +1,52 @@
+#!/bin/sh
+# Run knip on the web workspace to catch unused files/deps/unlisted/unresolved
+# BEFORE they hit CI. Runs on push (not commit) because knip is a whole-graph
+# analysis — per-commit would be slow and redundant.
+echo "🔍 Running knip (unused-code audit)..."
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+# Allow skipping in exceptional cases: `SKIP_KNIP=1 git push`
+if [ "${SKIP_KNIP:-0}" = "1" ]; then
+  echo "⏭️  SKIP_KNIP=1 set — skipping knip pre-push check."
+  exit 0
+fi
+
+# Add common Node.js/npm installation paths to PATH
+export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
+
+# Source nvm if available
+if [ -f "$HOME/.nvm/nvm.sh" ]; then
+  . "$HOME/.nvm/nvm.sh"
+  nvm use default >/dev/null 2>&1 || true
+fi
+
+# Prepend web/node_modules/.bin so `knip` resolves
+if [ -d "web/node_modules/.bin" ]; then
+  export PATH="$(pwd)/web/node_modules/.bin:$PATH"
+fi
+
+cd web || exit 1
+
+if ! command -v npm >/dev/null 2>&1 && ! command -v npx >/dev/null 2>&1; then
+  echo "❌ Error: Neither npm nor npx found in PATH. Cannot run knip."
+  echo "   Set SKIP_KNIP=1 to bypass this hook if needed."
+  exit 1
+fi
+
+# Match the CI gate: only fail on high-confidence categories.
+# exports/types are intentionally excluded (noisy; opted out of cleanup).
+if command -v npm >/dev/null 2>&1; then
+  npm run knip --silent -- --include files,dependencies,unlisted,binaries,unresolved
+else
+  npx knip --include files,dependencies,unlisted,binaries,unresolved
+fi
+
+status=$?
+if [ $status -ne 0 ]; then
+  echo ""
+  echo "❌ knip found regressions. Fix them or set SKIP_KNIP=1 to bypass."
+  exit $status
+fi
+
+echo "✅ knip clean."

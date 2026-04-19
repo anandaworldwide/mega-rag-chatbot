@@ -119,7 +119,7 @@ mega-rag-chatbot/
   Python). Standard names like `components`, `utils`, `pages`, `app`, `public`, `styles` are used.
 - **Files:**
   - TypeScript/JavaScript: `camelCase` (e.g., `pineconeClient.ts`) or `kebab-case` (e.g., `get-token.ts`) seem to be
-    used. React components use `PascalCase` (e.g., `CollectionSelector.jsx`). Test files often use `.test.ts` suffix.
+    used. React components use `PascalCase` (e.g., `ChatInput.tsx`, `MessageItem.tsx`). Test files often use `.test.ts` suffix.
   - Python: `snake_case` (e.g., `crawl_authors.py`, `pinecone_utils.py`).
   - CSS: `kebab-case` (e.g., `loading-dots.module.css`) or `PascalCase` for CSS Modules tied to components (e.g.,
     `MarkdownStyles.module.css`).

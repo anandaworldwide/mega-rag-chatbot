@@ -1,85 +1,105 @@
-# Security Triage & Accepted Risks
+# Security Policy & Triage
 
-**Last updated:** 2026-04-17
+This is the static policy doc. Current status (which vulns are blocking, which
+are aging through cooldown) lives in the auto-updated digest issue:
 
-This document tracks known vulnerabilities, accepted risks, and triage decisions. See
-[SECURITY-README.md](./SECURITY-README.md) for architecture.
-
-## Audit Automation
-
-| Check      | Location                 | Threshold            | Behavior                                                                                                               |
-| ---------- | ------------------------ | -------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Python     | `./bin/run-pip-audit.sh` | All                  | Exports compatibility requirements from `uv.lock`, then fails on any vuln except [ignored list](#python-ignored-vulns) |
-| Node.js    | Nightly workflow         | `--audit-level=high` | Fails on high/critical only                                                                                            |
-| Dependabot | GitHub                   | —                    | PRs created automatically                                                                                              |
+- **Current status:** open the pinned issue labeled
+  [`security-status`](https://github.com/anandaworldwide/mega-rag-chatbot/issues?q=is%3Aopen+label%3Asecurity-status).
+  It is refreshed every Monday by `.github/workflows/security-digest.yml`.
+- **Architecture:** [SECURITY-README.md](./SECURITY-README.md)
 
 ## Supply Chain Cooldown
 
-- Python dependencies are resolved through `uv` with `exclude-newer = "7 days"`.
-- Node dependencies use `.npmrc` `min-release-age=7`.
-- This means a security fix published within the last seven days is intentionally deferred until it ages past the
-  cooldown.
+All new upstream releases are gated for **7 days** before we install them:
 
-## Python Ignored Vulns
+| Ecosystem | Gate                                    | Effect                                              |
+| --------- | --------------------------------------- | --------------------------------------------------- |
+| Python    | `pyproject.toml` `exclude-newer = "7 days"` → `uv.lock` `exclude-newer-span = "P7D"` | `uv sync` cannot resolve releases newer than 7 days |
+| Node      | `web/.npmrc` `min-release-age=7`        | `npm ci` refuses packages published <7 days ago     |
+| Dependabot (Python) | `.github/dependabot.yml` `cooldown: default-days: 7` | PRs only open for releases ≥7 days old              |
+| Dependabot (Node)   | `.github/dependabot.yml` `cooldown: default-days: 7` | PRs only open for releases ≥7 days old              |
 
-Defined in `bin/run-pip-audit.sh`. These are accepted because no fix exists for our constraints or because the fixed
-release is still inside the mandatory seven-day supply-chain cooldown:
+**Rule:** Do not add package-specific `exclude-newer` exceptions or bypass the
+cooldown to pull newer releases early, even for security fixes. Handle those
+via the cooldown-aware audit (see below), which defers alerts until the fix
+ages past cooldown.
 
-| ID             | Package  | Reason                                                        |
-| -------------- | -------- | ------------------------------------------------------------- |
-| CVE-2026-22815 | aiohttp  | Fixed in 3.13.4, but release is newer than the 7-day cooldown |
-| CVE-2026-34513 | aiohttp  | Same                                                          |
-| CVE-2026-34514 | aiohttp  | Same                                                          |
-| CVE-2026-34515 | aiohttp  | Same                                                          |
-| CVE-2026-34516 | aiohttp  | Same                                                          |
-| CVE-2026-34517 | aiohttp  | Same                                                          |
-| CVE-2026-34518 | aiohttp  | Same                                                          |
-| CVE-2026-34519 | aiohttp  | Same                                                          |
-| CVE-2026-34520 | aiohttp  | Same                                                          |
-| CVE-2026-34525 | aiohttp  | Same                                                          |
-| CVE-2026-28500 | onnx     | No fixed PyPI version                                         |
-| CVE-2026-4539  | pygments | Fixed in 2.20.0, but release is newer than the 7-day cooldown |
-| GHSA-rr7j-v2q5-chgv | langsmith | Fixed in 0.7.31, but releases >=0.7.31 are newer than the 7-day cooldown |
-| GHSA-r7w7-9xr2-qq2r | langchain-openai | Fixed in 1.1.14, but releases >=1.1.14 are newer than the 7-day cooldown |
-| GHSA-fv5p-p927-qmxr | langchain-text-splitters | Fixed in 1.1.2, but releases >=1.1.2 are newer than the 7-day cooldown |
-| CVE-2026-1839 | transformers | Fixes are in 5.x, but reranking depends on `optimum-onnx 0.1.0` which requires `transformers<4.58.0`; track upgrade before removing ignore |
+## Audit Automation
 
-**Mitigations:** Reranking tooling is isolated; we do not load untrusted ONNX models via `onnx.hub.load()`.
-Cooldown-based ignores should be removed as soon as the fixed release ages past seven days and the lockfile can be
-refreshed under the standard policy.
+| Check                           | Trigger                     | Behavior                                                                                                |
+| ------------------------------- | --------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Cooldown-aware audit (Python)   | Nightly CI (`monorepo-nightly.yml`) | Fails only on `actionable` findings at severity `high`+ — i.e. fix exists AND is ≥7 days old            |
+| Cooldown-aware audit (Node)     | Nightly CI (`monorepo-nightly.yml`) | Same policy                                                                                             |
+| Weekly digest                   | Mondays 09:00 UTC (`security-digest.yml`) | Upserts the pinned `security-status` issue with Actionable / No Fix / In Cooldown / Accepted tables  |
+| Dependabot                      | GitHub                      | Opens PRs for updates ≥7 days old                                                                       |
 
-## npm Vulnerabilities (Current)
+### Classification of findings
 
-**Status:** `npm audit --audit-level=high` passes (0 high/critical). Applied `npm audit fix` for flatted, undici.
+`bin/cooldown_audit.py` assigns one of four states:
 
-### MODERATE (informational, does not block nightly)
+| Classification | Meaning                                                                    | CI effect                                  |
+| -------------- | -------------------------------------------------------------------------- | ------------------------------------------ |
+| `actionable`   | Fix exists and was published ≥7 days ago; severity ≥ threshold            | Fails nightly CI                           |
+| `in_cooldown`  | Fix exists but was published <7 days ago; install tooling defers install  | Informational only; listed in digest       |
+| `no_fix`       | No fixed release exists                                                    | Fails unless listed in accepted-vulns.yaml |
+| `accepted`     | Matches an entry in `security/accepted-vulns.yaml`                        | Informational; auto-expires on `review_by` |
 
-| Package | Issue                                   | Fix                      |
-| ------- | --------------------------------------- | ------------------------ |
-| next    | GHSA-3x4c-7xq6-9pq8 (disk cache growth) | next@16.2.0 – see PR #67 |
+Fix publish dates are resolved by querying PyPI (`/pypi/<pkg>/<ver>/json`)
+and the npm registry (`/<pkg>`). Results are cached for 6 hours under
+`.cache/cooldown-audit/`.
 
-### LOW (deferred)
+### Monorepo note
 
-| Package                | Root cause                                   | Fix                                                 |
-| ---------------------- | -------------------------------------------- | --------------------------------------------------- |
-| firebase-admin         | @tootallnate/once via teeny-request          | firebase-admin 10.3.0 (major downgrade)             |
-| jest-environment-jsdom | jsdom → http-proxy-agent → @tootallnate/once | jest-environment-jsdom 30.3.0 (major) – devDep only |
+This repo is an npm workspaces monorepo (`web`, `data_ingestion`). There is a
+single root `package-lock.json` and root-level `.npmrc` with
+`min-release-age=7`. Both the nightly audit and the weekly digest run
+`npm audit` from the repo root (`--audit-dir .`), which covers every workspace
+in one pass. Running from a subdirectory like `web/` walks up to the same
+root lockfile but is redundant, so we standardize on root.
 
-### MODERATE (informational)
+## Accepting a Vulnerability
 
-| Package | Fix    | Notes                     |
-| ------- | ------ | ------------------------- |
-| next    | 16.2.0 | Major upgrade; see PR #67 |
+Only two valid reasons:
 
-### LOW (defer)
+1. **No fixed release exists.** Upstream has not yet patched.
+2. **A fixed release exists but cannot be adopted** due to a hard constraint
+   (pinned transitive, major-version incompatibility). Document the constraint.
 
-| Package                | Fix    | Notes                        |
-| ---------------------- | ------ | ---------------------------- |
-| firebase-admin         | 10.3.0 | Major downgrade; defer       |
-| jest-environment-jsdom | 30.3.0 | DevDep; major upgrade; defer |
+**Do NOT** add entries for "a fix exists but it's <7 days old". The script
+handles that automatically via the registry publish-date lookup. A manual
+ignore there would mask the alert once the fix ages in.
+
+Edit [`security/accepted-vulns.yaml`](../security/accepted-vulns.yaml):
+
+```yaml
+python:
+  - id: CVE-2026-XXXXX
+    package: examplepkg
+    reason: >-
+      One-line justification plus any operational mitigation.
+    review_by: "YYYY-MM-DD"   # forces re-review; finding becomes actionable after this date
+    mitigation: "Optional operational note."
+node: []
+```
+
+The `review_by` date is mandatory. Once it passes, the script reclassifies
+the finding back to `actionable` so exceptions cannot quietly rot.
 
 ## Triage Workflow
 
-1. **Nightly fails on high/critical** → Fix or document in this file
-2. **Dependabot PR** → Triage: merge (low risk), plan (major), or close with reason
-3. **New vuln** → Add to ignored list with justification, or fix within 2 weeks
+1. **Nightly CI red** → open the linked workflow run. The `Security audit`
+   step summary lists exactly the `actionable` findings. Fix them, or if
+   justified, add to `security/accepted-vulns.yaml` with `review_by`.
+2. **Weekly `security-status` issue updated** → review the *In cooldown*
+   table to anticipate next week's actionable items and plan upgrades.
+3. **Dependabot PR** → merge (low risk), schedule (major), or close with a
+   reason recorded in the PR.
+4. **New CVE with no fix** → add to `security/accepted-vulns.yaml` with a
+   short `review_by` (≤30 days) and a mitigation note.
+
+## Severity policy
+
+Nightly CI fails on **high/critical** findings past cooldown, in both
+ecosystems. `moderate` and `low` are surfaced in the weekly digest only.
+Change `--fail-level` in `.github/workflows/monorepo-nightly.yml` if you
+want a different threshold.

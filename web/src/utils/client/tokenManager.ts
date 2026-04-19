@@ -329,6 +329,31 @@ export async function fetchWithAuth(url: string, options?: RequestInit): Promise
  * Helper function to implement retry logic for fetch requests
  * that might fail due to authentication issues
  */
+async function isSessionRevokedResponse(response: Response): Promise<boolean> {
+  if (response.status !== 401) return false;
+  try {
+    const clone = response.clone();
+    const data = await clone.json();
+    return data?.message === "session_revoked";
+  } catch {
+    return false;
+  }
+}
+
+async function handleSessionRevoked(): Promise<Response> {
+  tokenData = null;
+  try {
+    await fetch("/api/logout", { method: "POST", credentials: "include" });
+  } catch {
+    // Best-effort cookie clear; server already cleared them on the 401 response.
+  }
+  if (window.location.pathname !== "/login") {
+    const fullPath = window.location.pathname + (window.location.search || "");
+    window.location.href = `/login?reason=revoked&redirect=${encodeURIComponent(fullPath)}`;
+  }
+  return new Response("", { status: 401 });
+}
+
 async function fetchWithRetry(url: string, options?: RequestInit, retryCount = 0): Promise<Response> {
   try {
     const authOptions = await withAuth(options);
@@ -338,6 +363,11 @@ async function fetchWithRetry(url: string, options?: RequestInit, retryCount = 0
       credentials: "include",
     };
     const response = await fetch(url, fetchOptions);
+
+    // Session revoked (e.g. email blacklisted server-side): skip retry, force logout + redirect.
+    if (await isSessionRevokedResponse(response)) {
+      return handleSessionRevoked();
+    }
 
     // If we get a 401 Unauthorized, try to refresh the token and retry
     if (response.status === 401 && retryCount < MAX_RETRY_ATTEMPTS) {

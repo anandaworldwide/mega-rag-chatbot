@@ -55,7 +55,21 @@ jest.mock("@/utils/server/firestoreUtils", () => ({
   getUsersCollectionName: jest.fn(() => "test_users"),
 }));
 
+jest.mock("@/utils/server/blacklist", () => ({
+  isEmailBlacklisted: jest.fn().mockResolvedValue(false),
+}));
+
 describe("/api/admin/addUser", () => {
+  const originalEnv = process.env;
+
+  beforeAll(() => {
+    process.env = { ...originalEnv, SITE_ID: "test-site" };
+  });
+
+  afterAll(() => {
+    process.env = originalEnv;
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
   });
@@ -138,6 +152,22 @@ describe("/api/admin/addUser", () => {
       expect.any(Object),
       undefined
     );
+  });
+
+  it("returns 400 when email is blacklisted", async () => {
+    const blacklist = await import("@/utils/server/blacklist");
+    jest.mocked(blacklist.isEmailBlacklisted).mockResolvedValueOnce(true);
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      headers: { "x-test-role": "admin" },
+      body: { email: "bad@example.com" },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res._getJSONData()).toEqual({ error: "Email is blacklisted" });
   });
 
   it("should resend activation for existing pending user", async () => {

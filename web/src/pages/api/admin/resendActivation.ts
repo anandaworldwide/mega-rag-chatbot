@@ -16,6 +16,7 @@ import {
   sendActivationEmail,
 } from "@/utils/server/userInviteUtils";
 import { writeAuditLog } from "@/utils/server/auditLog";
+import { isEmailBlacklisted } from "@/utils/server/blacklist";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   const allowed = await genericRateLimiter(req, res, {
@@ -52,6 +53,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     sanitizedEmail = sanitizeEmail(email, 254);
   } catch (error: any) {
     return res.status(400).json({ error: `Invalid email: ${error.message || "Email validation failed"}` });
+  }
+
+  const siteIdResend = process.env.SITE_ID;
+  if (siteIdResend && (await isEmailBlacklisted(sanitizedEmail, siteIdResend))) {
+    await writeAuditLog(req, "blacklist_block", sanitizedEmail.toLowerCase(), {
+      endpoint: "resendActivation",
+      actor: "admin",
+    });
+    return res.status(400).json({ error: "Email is blacklisted" });
   }
 
   // Validate customMessage if provided

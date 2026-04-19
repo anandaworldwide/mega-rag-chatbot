@@ -65,10 +65,15 @@ jest.mock("@/utils/server/auditLog", () => ({
 
 jest.mock("@/utils/server/loadSiteConfig", () => ({
   loadSiteConfig: jest.fn(),
+  loadSiteConfigSync: jest.fn(() => ({ requireLogin: false })),
 }));
 
 jest.mock("@/utils/server/domainWhitelistUtils", () => ({
   isEmailDomainWhitelisted: jest.fn(() => Promise.resolve(false)),
+}));
+
+jest.mock("@/utils/server/blacklist", () => ({
+  isEmailBlacklisted: jest.fn().mockResolvedValue(false),
 }));
 
 jest.mock("@/utils/server/firestoreUtils", () => ({
@@ -115,6 +120,7 @@ describe("/api/admin/requestApproval", () => {
   const loadSiteConfig = jest.requireMock("@/utils/server/loadSiteConfig");
   const { isEmailDomainWhitelisted } = jest.requireMock("@/utils/server/domainWhitelistUtils");
   const { sendActivationEmail } = jest.requireMock("@/utils/server/userInviteUtils");
+  const blacklistMod = jest.requireMock("@/utils/server/blacklist");
 
   // Store original env vars
   const originalEnv = process.env;
@@ -124,6 +130,7 @@ describe("/api/admin/requestApproval", () => {
 
     // Reset mock implementations to defaults (clearAllMocks only clears call history)
     isEmailDomainWhitelisted.mockResolvedValue(false);
+    blacklistMod.isEmailBlacklisted.mockResolvedValue(false);
 
     // Set required environment variables
     process.env = {
@@ -276,6 +283,27 @@ describe("/api/admin/requestApproval", () => {
 
     expect(res.statusCode).toBe(400);
     expect(res._getJSONData()).toEqual({ error: "Invalid email: Invalid email format" });
+  });
+
+  it("returns 400 when requester email is blacklisted", async () => {
+    genericRateLimiter.mockResolvedValue(true);
+    blacklistMod.isEmailBlacklisted.mockResolvedValueOnce(true);
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: {
+        requesterEmail: "bad@example.com",
+        requesterName: "Test Requester",
+        adminEmail: "admin@example.com",
+        adminName: "Test Admin",
+        adminLocation: "Test City, CA",
+      },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res._getJSONData()).toEqual({ error: "Email is blacklisted" });
   });
 
   it("should create approval request successfully", async () => {

@@ -11,6 +11,8 @@ import { isDevelopment } from "@/utils/env";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreGet } from "@/utils/server/firestoreRetryUtils";
 import { createSignedUUIDCookie } from "@/utils/server/uuidUtils";
+import { isEmailBlacklisted } from "@/utils/server/blacklist";
+import { writeAuditLog } from "@/utils/server/auditLog";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -19,13 +21,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { token, email } = req.body as { token?: string; email?: string };
   if (!token || !email) return res.status(400).json({ error: "Missing token or email" });
 
+  const normalizedMagicEmail = email.trim().toLowerCase();
+  const siteIdMagic = process.env.SITE_ID;
+  if (siteIdMagic && (await isEmailBlacklisted(normalizedMagicEmail, siteIdMagic))) {
+    await writeAuditLog(req, "blacklist_block", normalizedMagicEmail, { endpoint: "magicLogin" });
+    return res.status(403).json({ error: "Access denied. Please contact your administrator." });
+  }
+
   const usersCol = getUsersCollectionName();
-  const userDocRef = db.collection(usersCol).doc(email.toLowerCase());
+  const userDocRef = db.collection(usersCol).doc(normalizedMagicEmail);
   const UUID_INDEX_COLLECTION = process.env.NODE_ENV === "production" ? "prod_uuid_index" : "dev_uuid_index";
-  const emailLower = email.toLowerCase();
+  const emailLower = normalizedMagicEmail;
 
   try {
-    const doc = await firestoreGet(userDocRef, "magic login", email);
+    const doc = await firestoreGet(userDocRef, "magic login", normalizedMagicEmail);
     if (!doc.exists) return res.status(404).json({ error: "User not found" });
     const data = doc.data() as any;
     if (data?.inviteStatus !== "accepted") return res.status(400).json({ error: "Account not activated" });
@@ -108,7 +117,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const authToken = jwt.sign(
       {
         client: "web",
-        email: email.toLowerCase(),
+        email: normalizedMagicEmail,
         role: effectiveRole,
         site: process.env.SITE_ID || "default",
       },

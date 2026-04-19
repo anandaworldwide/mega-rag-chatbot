@@ -21,10 +21,12 @@ across all components.
 
 ### JWT Implementation
 
-- **Token generation**: [web/src/utils/server/jwtUtils.ts](mdc:web/src/utils/server/jwtUtils.ts)
+- **Edge middleware**: [web/middleware.ts](mdc:web/middleware.ts) - Next.js root middleware; verifies JWT cookies on every request and enforces public-path allowlist via `loadSiteConfigSync` + `getAllPublicPaths`
+- **Token generation / Pages Router wrapper**: [web/src/utils/server/jwtUtils.ts](mdc:web/src/utils/server/jwtUtils.ts) - signs tokens and provides `withJwtAuth`
+- **Combined API middleware**: [web/src/utils/server/apiMiddleware.ts](mdc:web/src/utils/server/apiMiddleware.ts) - `withApiMiddleware` pairs JWT auth with rate limiting
 - **App Router auth**: [web/src/utils/server/appRouterJwtUtils.ts](mdc:web/src/utils/server/appRouterJwtUtils.ts)
-- **Middleware**: [web/src/utils/server/authMiddleware.ts](mdc:web/src/utils/server/authMiddleware.ts)
-- **HttpOnly cookies** for secure token storage
+- **Cron auth**: [web/src/utils/server/cronAuthUtils.ts](mdc:web/src/utils/server/cronAuthUtils.ts)
+- **HttpOnly cookies** (`authToken`) for secure token storage
 - **Role-based access control** (admin/user roles)
 
 ### Password Security

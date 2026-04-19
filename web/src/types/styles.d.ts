@@ -15,11 +15,6 @@ declare module '@/styles/MarkdownStyles.module.css' {
   export default classes;
 }
 
-declare module '@/styles/loading-dots.module.css' {
-  const classes: { [key: string]: string };
-  export default classes;
-}
-
 declare module '*.css' {
   const styles: { [key: string]: string };
   export default styles;

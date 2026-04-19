@@ -53,8 +53,7 @@ Chatbot application.
    - A message display area.
    - An input field for questions.
    - A submit button.
-   - (Optional) A selector for choosing a knowledge base/collection (`CollectionSelector.jsx`,
-     `hooks/useMultipleCollections.ts`).
+   - (Optional) A selector for choosing a knowledge base/collection (`hooks/useMultipleCollections.ts`).
    - (Optional) Example/suggested questions (`public/data/.../whole_library_queries.txt`).
 3. **(Optional) Select Collection:** The user might select a specific library or collection to query against.
 4. **Enter Question:** The user types their question into the input field.
@@ -65,7 +64,7 @@ Chatbot application.
      `utils/server/pinecone-client.ts`, `utils/server/makechain.ts`), generates an answer, and streams it back.
    - The frontend displays the answer, potentially showing sources.
 7. **(Optional) Provide Feedback:** The user can provide feedback on the answer using voting buttons
-   (`hooks/useVote.ts`, `pages/api/vote.ts`).
+   (`utils/client/voteHandler.ts`, `pages/api/vote.ts`).
 
 #### B. Authenticated User Flow
 
@@ -101,7 +100,8 @@ If the site is configured to require user login:
 2. **Enter Credentials:** The user provides credentials - a password shared by all users of the site.
 3. **Submit Login:** The user submits the login form, triggering the login API (`pages/api/login.ts`). Authentication
    might involve JWT (`utils/server/jwtUtils.ts`) and password hashing (`utils/server/passwordUtils.ts`). Middleware
-   (`middleware.ts`, `utils/server/authMiddleware.ts`) likely handles session/token validation for subsequent requests.
+   (root `middleware.ts`, `utils/server/apiMiddleware.ts`, `utils/server/jwtUtils.ts`) handles session/token validation
+   for subsequent requests.
 4. **Access Authenticated Features:** Once logged in, the user has access to
    - The main chat interaction page.
    - The All Answers page (if turned on for the site).
@@ -218,8 +218,8 @@ If the site is configured to require user login:
 ### 3. Key Interactions
 
 - **Sending a Chat Message:** Typing text and submitting via button or Enter key (`hooks/useChat.ts`).
-- **Selecting a Collection:** Choosing from a dropdown or list (`components/CollectionSelector.jsx`).
-- **Voting on an Answer:** Clicking thumbs-up/down icons (`hooks/useVote.ts`, `pages/api/vote.ts`).
+- **Selecting a Collection:** Choosing from a dropdown or list (`hooks/useMultipleCollections.ts`).
+- **Voting on an Answer:** Clicking thumbs-up/down icons (`utils/client/voteHandler.ts`, `pages/api/vote.ts`).
 - **Viewing Sources:** Clicking links associated with an answer to see the origin of the information.
 - **Viewing All Answers:** Viewing answers from all users (if turned on for the site).
 - **Viewing Related Questions:** Clicking on suggested follow-up questions.

@@ -10,6 +10,8 @@ import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { db } from "@/services/firebase";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreGet } from "@/utils/server/firestoreRetryUtils";
+import { isEmailBlacklisted } from "@/utils/server/blacklist";
+import { writeAuditLog } from "@/utils/server/auditLog";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   await runMiddleware(req, res, cors);
@@ -63,6 +65,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const sanitizedRedirect = redirect ? decodeURIComponent(redirect.trim()) : "/";
 
     console.log("Received login request for email:", sanitizedEmail, "with redirect:", sanitizedRedirect);
+
+    const siteIdLogin = process.env.SITE_ID;
+    if (siteIdLogin && (await isEmailBlacklisted(sanitizedEmail, siteIdLogin))) {
+      await writeAuditLog(req, "blacklist_block", sanitizedEmail, { endpoint: "login" });
+      return res.status(403).json({ message: "Access denied. Please contact your administrator." });
+    }
 
     if (!db) {
       return res.status(503).json({ message: "Database not available" });

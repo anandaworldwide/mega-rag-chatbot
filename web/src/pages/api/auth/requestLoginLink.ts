@@ -23,6 +23,7 @@ import {
 import { isEmailDomainWhitelisted } from "@/utils/server/domainWhitelistUtils";
 import { writeAuditLog } from "@/utils/server/auditLog";
 import { isDevelopment } from "@/utils/env";
+import { isEmailBlacklisted } from "@/utils/server/blacklist";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -35,11 +36,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const { email, redirect } = req.body as { email?: string; redirect?: string };
   if (!email || typeof email !== "string") return res.status(400).json({ error: "Invalid email" });
 
+  const normalizedEmail = email.trim().toLowerCase();
+  const siteIdForBlacklist = process.env.SITE_ID;
+  if (siteIdForBlacklist && (await isEmailBlacklisted(normalizedEmail, siteIdForBlacklist))) {
+    await writeAuditLog(req, "blacklist_block", normalizedEmail, { endpoint: "requestLoginLink" });
+    return res.status(403).json({ error: "Access denied. Please contact your administrator." });
+  }
+
   const usersCol = getUsersCollectionName();
-  const userDocRef = db.collection(usersCol).doc(email.toLowerCase());
+  const userDocRef = db.collection(usersCol).doc(normalizedEmail);
 
   try {
-    const doc = await firestoreGet(userDocRef, "request login link", email);
+    const doc = await firestoreGet(userDocRef, "request login link", normalizedEmail);
     const now = firebase.firestore.Timestamp.now();
     if (doc.exists) {
       const data = doc.data() as any;
@@ -54,7 +62,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           { merge: true },
           "store login token"
         );
-        await sendLoginEmail(email, token, redirect, req);
+        await sendLoginEmail(normalizedEmail, token, redirect, req);
         return res.status(200).json({ message: "login-link-sent" });
       }
       if (data?.inviteStatus === "pending") {
@@ -68,7 +76,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           { merge: true },
           "update pending user for resend"
         );
-        await sendActivationEmail(email, token, req);
+        await sendActivationEmail(normalizedEmail, token, req);
         return res.status(200).json({ message: "activation-resent" });
       }
     }
@@ -77,7 +85,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!siteId) {
       return res.status(500).json({ error: "SITE_ID environment variable is not configured" });
     }
-    const isWhitelisted = await isEmailDomainWhitelisted(email, siteId);
+    const isWhitelisted = await isEmailDomainWhitelisted(normalizedEmail, siteId);
 
     if (isWhitelisted) {
       // Create user with pending status and send activation email
@@ -87,7 +95,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       await firestoreSet(
         userDocRef,
         {
-          email: email.toLowerCase(),
+          email: normalizedEmail,
           role: "user",
           entitlements: { basic: true },
           inviteStatus: "pending",
@@ -100,8 +108,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         undefined,
         "create user via whitelisted domain"
       );
-      await sendActivationEmail(email, token, req);
-      await writeAuditLog(req, "self_provision_attempt", email.toLowerCase(), {
+      await sendActivationEmail(normalizedEmail, token, req);
+      await writeAuditLog(req, "self_provision_attempt", normalizedEmail, {
         outcome: "created_pending_user_whitelisted",
       });
       return res.status(200).json({ message: "activation-sent", isWhitelisted: true });
@@ -113,7 +121,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     const pendingRequestQuery = await db
       .collection(approvalRequestsCollection)
-      .where("requesterEmail", "==", email.toLowerCase())
+      .where("requesterEmail", "==", normalizedEmail)
       .where("status", "==", "pending")
       .limit(1)
       .get();

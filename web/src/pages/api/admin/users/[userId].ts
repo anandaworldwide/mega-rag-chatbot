@@ -15,6 +15,7 @@ import { deleteFromCache } from "@/utils/server/redisUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
 import { sanitizeName } from "@/utils/server/inputSanitization";
+import { isEmailBlacklisted } from "@/utils/server/blacklist";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Apply rate limiting
@@ -362,6 +363,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const emailRegex = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
       if (!emailRegex.test(newEmail)) {
         return res.status(400).json({ error: "Invalid email format" });
+      }
+
+      const siteIdUserPatch = process.env.SITE_ID;
+      if (siteIdUserPatch && (await isEmailBlacklisted(newEmail, siteIdUserPatch))) {
+        await writeAuditLog(req, "blacklist_block", newEmail, {
+          endpoint: "admin.users.patchEmail",
+          actor: "admin",
+        });
+        return res.status(400).json({ error: "Email is blacklisted" });
       }
 
       await (db as NonNullable<typeof db>).runTransaction(async (tx) => {

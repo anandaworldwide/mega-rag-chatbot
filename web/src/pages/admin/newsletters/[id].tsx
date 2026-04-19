@@ -107,7 +107,7 @@ export default function NewsletterDetailsPage({ siteConfig }: NewsletterDetailsP
         <Head>
           <title>Loading... · Admin</title>
         </Head>
-        <AdminLayout siteConfig={siteConfig} pageTitle="Newsletter Details">
+        <AdminLayout siteConfig={siteConfig} pageTitle="Newsletter Details" superuserOnly>
           <div className="max-w-6xl">
             <div className="text-center py-8">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
@@ -125,7 +125,7 @@ export default function NewsletterDetailsPage({ siteConfig }: NewsletterDetailsP
         <Head>
           <title>Error · Admin</title>
         </Head>
-        <AdminLayout siteConfig={siteConfig} pageTitle="Newsletter Details">
+        <AdminLayout siteConfig={siteConfig} pageTitle="Newsletter Details" superuserOnly>
           <div className="max-w-6xl">
             <div className="text-center py-8">
               <div className="text-red-600 mb-4">
@@ -450,7 +450,7 @@ export default function NewsletterDetailsPage({ siteConfig }: NewsletterDetailsP
       <Head>
         <title>{newsletter.subject} · Admin</title>
       </Head>
-      <AdminLayout siteConfig={siteConfig} pageTitle="Newsletter Details">
+      <AdminLayout siteConfig={siteConfig} pageTitle="Newsletter Details" superuserOnly>
         <div className="max-w-6xl">{mainContent}</div>
       </AdminLayout>
     </>

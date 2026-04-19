@@ -57,6 +57,14 @@ export default function Login({ siteConfig }: LoginProps) {
     }
   }, [step]);
 
+  // Surface a notice when the user was booted due to session revocation.
+  useEffect(() => {
+    if (!router.isReady) return;
+    if (router.query.reason === "revoked") {
+      setInfo("Your session has ended. Please sign in again.");
+    }
+  }, [router.isReady, router.query.reason]);
+
   // Desktop-only autofocus for the password field when on password step
   useEffect(() => {
     if (step !== "password") return;

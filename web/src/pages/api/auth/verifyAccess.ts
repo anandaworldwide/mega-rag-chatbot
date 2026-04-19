@@ -18,6 +18,7 @@ import { isEmailDomainWhitelisted } from "@/utils/server/domainWhitelistUtils";
 import { getDefaultEmailPreferences } from "@/utils/server/emailPreferenceUtils";
 import { sanitizeEmail } from "@/utils/server/inputSanitization";
 import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
+import { isEmailBlacklisted } from "@/utils/server/blacklist";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -42,6 +43,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   const siteId = process.env.SITE_ID;
   if (!siteId) {
     return res.status(500).json({ error: "SITE_ID environment variable is not configured" });
+  }
+  if (await isEmailBlacklisted(sanitizedEmailAddr, siteId)) {
+    await writeAuditLog(req, "blacklist_block", sanitizedEmailAddr.toLowerCase(), {
+      endpoint: "verifyAccess",
+    });
+    return res.status(403).json({ error: "Access denied. Please contact your administrator." });
   }
   const isWhitelisted = await isEmailDomainWhitelisted(sanitizedEmailAddr, siteId);
 

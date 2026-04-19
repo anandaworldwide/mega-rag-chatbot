@@ -39,12 +39,11 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked --package mega-rag-chatbot --package mega-rag-chatbot-crawler
 
-      - name: Install Node.js dependencies
-        working-directory: ./web
+      - name: Install Node.js dependencies (workspaces root)
         run: npm ci
 
       - name: Make helper scripts executable
-        run: chmod +x bin/export-python-requirements.sh bin/run-pip-audit.sh
+        run: chmod +x bin/export-python-requirements.sh bin/run-pip-audit.sh bin/cooldown_audit.py
 
       - name: Verify exported requirements are current
         run: |
@@ -90,19 +89,40 @@ jobs:
           echo "✅ Type checking: Running TypeScript compiler"
           npx tsc --noEmit || echo "⚠️  Type check completed with warnings"
 
-      - name: Dependency Security Audit
+      - name: Export compatibility requirements from uv.lock
+        run: ./bin/export-python-requirements.sh
+
+      - name: Python security audit (cooldown-aware)
+        id: python-audit
         run: |
-          echo "🔒 Running security audits..."
+          uv run --locked python bin/cooldown_audit.py python \
+            --requirements requirements.txt \
+            --requirements reranking/requirements.txt \
+            --requirements data_ingestion/crawler/requirements.txt \
+            --requirements wordpress/analytics/requirements.txt \
+            --fail-level high \
+            --json-out .cache/cooldown-audit/python.json
 
-          echo "✅ Python security audit"
-          ./bin/run-pip-audit.sh
+      - name: Node security audit (cooldown-aware, workspaces root)
+        id: node-audit
+        run: |
+          uv run --locked python bin/cooldown_audit.py node \
+            --audit-dir . \
+            --fail-level high \
+            --json-out .cache/cooldown-audit/node.json
 
-          echo "✅ Node.js security audit (fails on high/critical)"
-          cd web && npm audit --audit-level=high
+      - name: Upload audit artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cooldown-audit-${{ github.run_id }}
+          path: .cache/cooldown-audit/*.json
+          if-no-files-found: ignore
+          retention-days: 30
 
       - name: Notify on Failure
         if: failure()
         run: |
           echo "❌ Monorepo nightly validation failed!"
-          echo "Check the logs above for details."
-          echo "This may indicate dependency issues or breaking changes."
+          echo "Actionable security findings are past the 7-day cooldown window."
+          echo "Review the 'Security audit' summary above for the blocking items."

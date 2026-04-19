@@ -123,7 +123,7 @@ const DownvotesReview = ({ siteConfig }: DownvotesReviewProps) => {
   if (isLoading && !data) {
     return (
       <SudoProvider disableChecks={!!siteConfig?.requireLogin}>
-        <AdminLayout siteConfig={siteConfig} pageTitle="Review Downvotes">
+        <AdminLayout siteConfig={siteConfig} pageTitle="Review Downvotes" superuserOnly>
           <div className="flex justify-center items-center min-h-screen">
             <div
               role="status"
@@ -139,7 +139,7 @@ const DownvotesReview = ({ siteConfig }: DownvotesReviewProps) => {
   if (!siteConfig) {
     return (
       <SudoProvider disableChecks={false}>
-        <AdminLayout siteConfig={null} pageTitle="Review Downvotes">
+        <AdminLayout siteConfig={null} pageTitle="Review Downvotes" superuserOnly>
           <div className="text-red-600">Error: Site configuration not available</div>
         </AdminLayout>
       </SudoProvider>
@@ -149,7 +149,7 @@ const DownvotesReview = ({ siteConfig }: DownvotesReviewProps) => {
   if (error) {
     return (
       <SudoProvider disableChecks={!!siteConfig?.requireLogin}>
-        <AdminLayout siteConfig={siteConfig} pageTitle="Review Downvotes">
+        <AdminLayout siteConfig={siteConfig} pageTitle="Review Downvotes" superuserOnly>
           <div className="text-red-600">
             Error: {error instanceof Error ? error.message : "Failed to fetch downvoted answers"}
           </div>
@@ -354,7 +354,7 @@ const DownvotesReview = ({ siteConfig }: DownvotesReviewProps) => {
         <Head>
           <title>Review Downvotes - Admin</title>
         </Head>
-        <AdminLayout siteConfig={siteConfig} pageTitle="Review Downvotes">
+        <AdminLayout siteConfig={siteConfig} pageTitle="Review Downvotes" superuserOnly>
           <div className="max-w-4xl">{mainContent}</div>
         </AdminLayout>
       </>

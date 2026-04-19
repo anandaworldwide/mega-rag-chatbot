@@ -13,7 +13,18 @@
 
 import { NextApiRequest, NextApiResponse } from "next";
 import jwt, { Algorithm } from "jsonwebtoken";
+import Cookies from "cookies";
 import { createErrorCorsHeaders } from "./corsMiddleware";
+import { writeAuditLog } from "./auditLog";
+import { isDevelopment } from "@/utils/env";
+
+// [auth-perf] Temporary instrumentation to measure overhead of the per-request
+// blacklist check added in withJwtAuth. Remove once we have baseline numbers.
+function nowMs(): number {
+  return typeof performance !== "undefined" && typeof performance.now === "function"
+    ? performance.now()
+    : Date.now();
+}
 
 /**
  * JWT verification options for security
@@ -129,28 +140,105 @@ export function getTokenFromRequest(req: NextApiRequest): JwtPayload {
  * @param handler The API route handler to protect
  * @returns A wrapped handler that performs JWT verification
  */
+/**
+ * Clears all auth-related cookies to force the client into a logged-out state.
+ * Mirrors the cookie set cleared by /api/logout.
+ */
+function clearAuthCookies(req: NextApiRequest, res: NextApiResponse): void {
+  try {
+    // Match the `secure` attribute used when these cookies are originally set
+    // (see magicLogin/verifyMagicLink/loginWithPassword). Browsers per RFC 6265
+    // may reject overwrites that don't match Secure, leaving stale cookies on
+    // the client after session revocation.
+    const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
+    const cookies = new Cookies(req, res, { secure: isSecure });
+    const names = ["authToken", "auth", "isLoggedIn", "uuid", "hasSession"];
+    for (const name of names) {
+      cookies.set(name, "", {
+        expires: new Date(0),
+        path: "/",
+        secure: isSecure,
+        sameSite: "lax",
+      });
+    }
+  } catch (err) {
+    console.error("Failed to clear auth cookies on session revoke:", err);
+  }
+}
+
 export function withJwtAuth(
   handler: (req: NextApiRequest, res: NextApiResponse, ...args: any[]) => Promise<void> | void
 ) {
   return async (req: NextApiRequest, res: NextApiResponse, ...args: any[]) => {
+    // [auth-perf] start-of-middleware timestamp
+    const tStart = nowMs();
+    let jwtMs = 0;
+    let blacklistMs = 0;
+    let cacheHit: boolean | null = null;
+    let fetchMs = 0;
+    let outcome: "ok" | "no_token" | "revoked" | "error" = "ok";
     try {
-      // Get and verify the token
       const token = getTokenFromRequest(req);
+      jwtMs = nowMs() - tStart;
       if (!token) {
-        // Apply CORS headers to error response
         const corsHeaders = createErrorCorsHeaders(req);
         Object.entries(corsHeaders).forEach(([key, value]) => {
           res.setHeader(key, value);
         });
-
+        outcome = "no_token";
+        console.info(
+          `[auth-perf] method=${req.method} url=${req.url} jwtMs=${jwtMs.toFixed(2)} outcome=${outcome}`
+        );
         return res.status(401).json({ error: "Authentication required" });
       }
 
-      // If verification succeeds, call the original handler
+      // Session revocation: boot blacklisted users even if their JWT is still valid.
+      if (token.email) {
+        const siteId = process.env.SITE_ID;
+        if (siteId) {
+          const tBl = nowMs();
+          const { checkEmailBlacklist } = await import("./blacklist");
+          const result = await checkEmailBlacklist(token.email, siteId);
+          blacklistMs = nowMs() - tBl;
+          cacheHit = result.skipped ? null : result.cacheHit;
+          fetchMs = result.fetchMs;
+          if (result.blocked) {
+            clearAuthCookies(req, res);
+            try {
+              await writeAuditLog(req, "blacklist_session_revoked", token.email.toLowerCase(), {
+                endpoint: req.url || "unknown",
+              });
+            } catch (auditErr) {
+              console.error("Failed to write audit log for session revoke:", auditErr);
+            }
+            const corsHeaders = createErrorCorsHeaders(req);
+            Object.entries(corsHeaders).forEach(([key, value]) => {
+              res.setHeader(key, value);
+            });
+            outcome = "revoked";
+            console.info(
+              `[auth-perf] method=${req.method} url=${req.url} jwtMs=${jwtMs.toFixed(2)} ` +
+                `blacklistMs=${blacklistMs.toFixed(2)} cacheHit=${cacheHit} fetchMs=${fetchMs} ` +
+                `totalMs=${(nowMs() - tStart).toFixed(2)} outcome=${outcome}`
+            );
+            return res.status(401).json({ message: "session_revoked" });
+          }
+        }
+      }
+
+      console.info(
+        `[auth-perf] method=${req.method} url=${req.url} jwtMs=${jwtMs.toFixed(2)} ` +
+          `blacklistMs=${blacklistMs.toFixed(2)} cacheHit=${cacheHit} fetchMs=${fetchMs} ` +
+          `totalMs=${(nowMs() - tStart).toFixed(2)} outcome=${outcome}`
+      );
       return handler(req, res, ...args);
     } catch (error) {
-      // If verification fails, return an appropriate error response
+      outcome = "error";
       const message = error instanceof Error ? error.message : "Authentication failed";
+      console.info(
+        `[auth-perf] method=${req.method} url=${req.url} jwtMs=${jwtMs.toFixed(2)} ` +
+          `totalMs=${(nowMs() - tStart).toFixed(2)} outcome=${outcome} msg=${message}`
+      );
       return res.status(401).json({ error: message });
     }
   };

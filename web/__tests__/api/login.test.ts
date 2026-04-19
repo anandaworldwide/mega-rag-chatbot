@@ -83,6 +83,14 @@ jest.mock("jsonwebtoken", () => ({
   verify: jest.fn(),
 }));
 
+jest.mock("@/utils/server/blacklist", () => ({
+  isEmailBlacklisted: jest.fn().mockResolvedValue(false),
+}));
+
+jest.mock("@/utils/server/auditLog", () => ({
+  writeAuditLog: jest.fn().mockResolvedValue(undefined),
+}));
+
 describe("Login API", () => {
   const originalEnv = process.env;
 
@@ -117,6 +125,26 @@ describe("Login API", () => {
 
     expect(res.statusCode).toBe(204);
     expect(res._isEndCalled()).toBe(true);
+  });
+
+  it("returns access denied when email is blacklisted", async () => {
+    process.env.SITE_ID = "test-site";
+    const blacklist = await import("@/utils/server/blacklist");
+    jest.mocked(blacklist.isEmailBlacklisted).mockResolvedValueOnce(true);
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: {
+        email: "blocked@example.com",
+        password: "secret12",
+        redirect: "/",
+      },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(res._getJSONData()).toEqual({ message: "Access denied. Please contact your administrator." });
   });
 
   it("should validate password presence", async () => {

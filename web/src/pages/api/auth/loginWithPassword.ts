@@ -14,6 +14,7 @@ import { isDevelopment } from "@/utils/env";
 import { writeAuditLog } from "@/utils/server/auditLog";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import { createSignedUUIDCookie } from "@/utils/server/uuidUtils";
+import { isEmailBlacklisted } from "@/utils/server/blacklist";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -34,13 +35,20 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!email || typeof email !== "string") return res.status(400).json({ error: "Email is required" });
   if (!password || typeof password !== "string") return res.status(400).json({ error: "Password is required" });
 
+  const normalizedLoginEmail = email.trim().toLowerCase();
+  const siteIdPwd = process.env.SITE_ID;
+  if (siteIdPwd && (await isEmailBlacklisted(normalizedLoginEmail, siteIdPwd))) {
+    await writeAuditLog(req, "blacklist_block", normalizedLoginEmail, { endpoint: "loginWithPassword" });
+    return res.status(403).json({ error: "Access denied. Please contact your administrator." });
+  }
+
   const usersCol = getUsersCollectionName();
-  const userDocRef = db.collection(usersCol).doc(email.toLowerCase());
+  const userDocRef = db.collection(usersCol).doc(normalizedLoginEmail);
   const UUID_INDEX_COLLECTION = isDevelopment() ? "dev_uuid_index" : "prod_uuid_index";
-  const emailLower = email.toLowerCase();
+  const emailLower = normalizedLoginEmail;
 
   try {
-    const doc = await firestoreGet(userDocRef, "password login", email);
+    const doc = await firestoreGet(userDocRef, "password login", normalizedLoginEmail);
     if (!doc.exists) {
       // No user enumeration - return generic error
       await writeAuditLog(req, "user_login_failed", emailLower, {
@@ -151,7 +159,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const authToken = jwt.sign(
       {
         client: "web",
-        email: email.toLowerCase(),
+        email: normalizedLoginEmail,
         role: effectiveRole,
         site: process.env.SITE_ID || "default",
       },

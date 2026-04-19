@@ -47,6 +47,14 @@ jest.mock("@/utils/server/firestoreUtils", () => ({
   getUsersCollectionName: jest.fn(() => "test_users"),
 }));
 
+jest.mock("@/utils/server/blacklist", () => ({
+  isEmailBlacklisted: jest.fn().mockResolvedValue(false),
+}));
+
+jest.mock("@/utils/server/auditLog", () => ({
+  writeAuditLog: jest.fn().mockResolvedValue(undefined),
+}));
+
 describe("/api/verifyMagicLink", () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -65,6 +73,25 @@ describe("/api/verifyMagicLink", () => {
     expect(res._getJSONData()).toEqual({
       error: "Method not allowed",
     });
+  });
+
+  it("returns 403 when email is blacklisted", async () => {
+    process.env.SITE_ID = "test-site";
+    const blacklist = await import("@/utils/server/blacklist");
+    jest.mocked(blacklist.isEmailBlacklisted).mockResolvedValueOnce(true);
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: {
+        token: "some-token",
+        email: "bad@example.com",
+      },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(res._getJSONData()).toEqual({ error: "Access denied. Please contact your administrator." });
   });
 
   it("should return 400 for missing token", async () => {

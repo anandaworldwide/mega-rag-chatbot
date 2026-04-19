@@ -34,10 +34,12 @@ The backend uses **Next.js API routes** with both Pages Router and App Router pa
 
 ### JWT Implementation
 
-- **Utilities**: [web/src/utils/server/jwtUtils.ts](mdc:web/src/utils/server/jwtUtils.ts)
-- **Middleware**: [web/src/utils/server/authMiddleware.ts](mdc:web/src/utils/server/authMiddleware.ts)
+- **Edge middleware**: [web/middleware.ts](mdc:web/middleware.ts) - Next.js root middleware; verifies JWT cookies on every matching request and enforces public-path allowlist
+- **JWT utilities (Pages Router)**: [web/src/utils/server/jwtUtils.ts](mdc:web/src/utils/server/jwtUtils.ts) - `withJwtAuth` wrapper for per-endpoint auth
+- **Combined API middleware**: [web/src/utils/server/apiMiddleware.ts](mdc:web/src/utils/server/apiMiddleware.ts) - `withApiMiddleware` combines JWT auth with rate limiting
 - **App Router utils**: [web/src/utils/server/appRouterJwtUtils.ts](mdc:web/src/utils/server/appRouterJwtUtils.ts)
-- **HttpOnly cookies** for secure token storage
+- **Cron auth**: [web/src/utils/server/cronAuthUtils.ts](mdc:web/src/utils/server/cronAuthUtils.ts) - Shared-secret auth for cron endpoints
+- **HttpOnly cookies** (`authToken`) for secure token storage
 - **Role-based access** (admin/user roles)
 
 ### Password Management

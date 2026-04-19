@@ -134,7 +134,7 @@ const CronJobsPage = ({ siteConfig }: CronJobsPageProps) => {
         <Head>
           <title>Trigger Cron Jobs - Admin</title>
         </Head>
-        <AdminLayout siteConfig={siteConfig} pageTitle="Trigger Cron Jobs">
+        <AdminLayout siteConfig={siteConfig} pageTitle="Trigger Cron Jobs" superuserOnly>
           <div className="max-w-4xl">{mainContent}</div>
         </AdminLayout>
       </>

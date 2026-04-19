@@ -57,7 +57,7 @@ export function MyComponent({ title, isActive = false, className, onAction }: Co
 ### Tailwind CSS Usage
 
 - **Utility-first approach** for most styling needs
-- **Class merging**: Use [web/src/utils/cn.ts](mdc:web/src/utils/cn.ts) for conditional classes
+- **Class merging**: Compose conditional classes with template literals; no `cn`/`clsx` helper is in use
 - **Responsive design**: Mobile-first with Tailwind breakpoints
 - **Dark mode support**: CSS variables in [web/src/styles/globals.css](mdc:web/src/styles/globals.css)
 
@@ -70,15 +70,12 @@ export function MyComponent({ title, isActive = false, className, onAction }: Co
 ### Styling Examples
 
 ```typescript
-import { cn } from "@/utils/cn";
-
-// Conditional styling with cn utility
-const buttonClasses = cn(
-  "px-4 py-2 rounded-md font-medium transition-colors", // Base styles
-  variant === "primary" ? "bg-blue-600 text-white hover:bg-blue-700" : "bg-gray-200 text-gray-900",
-  disabled && "opacity-50 cursor-not-allowed",
-  className // Allow override via props
-);
+// Conditional styling via template literals (matches project convention)
+const buttonClasses = `px-4 py-2 rounded-md font-medium transition-colors ${
+  variant === "primary"
+    ? "bg-blue-600 text-white hover:bg-blue-700"
+    : "bg-gray-200 text-gray-900"
+} ${disabled ? "opacity-50 cursor-not-allowed" : ""} ${className ?? ""}`;
 ```
 
 ## State Management
@@ -89,8 +86,9 @@ const buttonClasses = cn(
 - **Custom hooks**: Located in [web/src/hooks/](mdc:web/src/hooks)
 - **Key hooks**:
   - `useChat` - Chat interface state management
-  - `useVote` - User feedback functionality
   - `useMultipleCollections` - Library switching
+- **Key client utilities**:
+  - `utils/client/voteHandler.ts` (`handleVote`) - Thumbs-up/down submission on answers
 
 ### Context Patterns
 

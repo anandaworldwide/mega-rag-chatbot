@@ -163,7 +163,7 @@ API endpoints are defined in `pages/api/` and `app/api/`. Most endpoints are pro
 
 - **`POST /api/vote`** (`pages/api/vote.ts`)
   - **Purpose:** Records user upvotes or downvotes on chat answers.
-  - **Auth:** Requires JWT authentication (`authMiddleware.ts`).
+  - **Auth:** Requires JWT authentication (`apiMiddleware.ts` / `jwtUtils.ts`).
   - **Logic:** Updates vote counts in Firestore (`firestoreUtils.ts`).
 - **`GET /api/answers`** (`pages/api/answers.ts`)
   - **Purpose:** Retrieves specific answers or question details for admin users.

@@ -117,6 +117,32 @@ From the admin dashboard:
 2. Click **Add User** to invite new users
 3. Assign appropriate roles (`admin` or `user`)
 
+## Blocking Users (Email Blacklist)
+
+Superusers can block specific email addresses from all authentication and admin-invite flows on a per-site basis.
+
+### Accessing the Blacklist Editor
+
+1. Go to **Admin Dashboard** → **Email Blacklist** (visible only to superusers on sites with `requireLogin: true`)
+2. Edit the plain-text list: one email per line, `#` for comments, blank lines allowed
+3. Save — changes propagate within ~60 seconds across serverless instances
+
+### What It Blocks
+
+- **Self-service auth**: password login, magic-link request, magic-link verify, activation links, and new-user access requests all return `403 Access denied. Please contact your administrator.`
+- **Admin-driven flows**: adding users, resending invites, approving pending requests, and changing a user's email all return `Email is blacklisted` to the admin.
+- **Active sessions**: every JWT-authenticated API call re-checks the blacklist. Blacklisted users are booted mid-session — auth cookies are cleared and the client is redirected to `/login?reason=revoked`.
+
+### Storage & Safety
+
+- Stored as a plain-text file in S3 at `site-config/{dev|prod}/blacklist/{SITE_ID}.txt`. You can edit directly in S3 in a pinch; the cache refreshes within 60 seconds.
+- Server validates each line is a well-formed email before saving; invalid lines are reported back with line numbers.
+- Self-blacklist guard: the editor rejects any save that would include your own email (prevents self-lockout).
+- Fails open on S3 errors (with a short 5-second retry TTL and an ops alert) so a bucket outage can't lock everyone out.
+- Every block and session revocation is written to the audit log.
+
+For implementation details and enforcement points, see [SECURITY-README.md](SECURITY-README.md#email-blacklist).
+
 ## Multi-Site Bootstrap
 
 For deployments with multiple sites requiring authentication:
