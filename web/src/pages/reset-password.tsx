@@ -1,12 +1,10 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
-import Head from "next/head";
 import Link from "next/link";
 import { SiteConfig } from "@/types/siteConfig";
 import { PasswordValidation } from "@/types/user";
 import { PasswordStrengthIndicator } from "@/components/PasswordStrengthIndicator";
-import { getSiteName } from "@/utils/client/siteConfig";
-import Layout from "@/components/layout";
+import AuthLayout from "@/components/AuthLayout";
 
 interface ResetPasswordProps {
   siteConfig: SiteConfig | null;
@@ -25,7 +23,6 @@ export default function ResetPasswordPage({ siteConfig }: ResetPasswordProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  // Extract token and email from URL query params
   useEffect(() => {
     if (router.isReady) {
       const { token: tokenParam, email: emailParam } = router.query;
@@ -34,7 +31,6 @@ export default function ResetPasswordPage({ siteConfig }: ResetPasswordProps) {
     }
   }, [router.isReady, router.query]);
 
-  // Validate password strength as user types
   useEffect(() => {
     if (!password) {
       setValidation(null);
@@ -109,115 +105,107 @@ export default function ResetPasswordPage({ siteConfig }: ResetPasswordProps) {
 
   if (success) {
     return (
-      <>
-        <Head>
-          <title>Password Reset Successfully - {getSiteName(siteConfig)}</title>
-        </Head>
-        <Layout siteConfig={siteConfig}>
-          <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">
-            <div className="p-6 bg-white rounded shadow-md max-w-md w-full">
-              <h1 className="mb-4 text-2xl font-semibold text-green-600">Password Reset Successfully!</h1>
-              <p className="mb-6 text-gray-700">
-                Your password has been changed. You can now log in with your new password.
-              </p>
-              <Link
-                href="/login"
-                className="block w-full p-2 bg-blue-500 text-white rounded text-center hover:bg-blue-600"
-              >
-                Go to Login
-              </Link>
-            </div>
-          </div>
-        </Layout>
-      </>
+      <AuthLayout siteConfig={siteConfig} title="Password Reset Successfully">
+        <div className="p-8">
+          <h1 className="mb-4 text-2xl font-semibold text-green-600 lg:text-left">Password Reset Successfully!</h1>
+          <p className="mb-6 text-gray-700 lg:text-left">
+            Your password has been changed. You can now log in with your new password.
+          </p>
+          <Link
+            href="/login"
+            className="block w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-lg shadow-md hover:shadow-lg hover:from-blue-700 hover:to-indigo-700 transform hover:-translate-y-0.5 transition-all duration-200 text-center"
+          >
+            Go to Login
+          </Link>
+        </div>
+      </AuthLayout>
     );
   }
 
   return (
-    <>
-      <Head>
-        <title>Reset Password - {getSiteName(siteConfig)}</title>
-      </Head>
-      <Layout siteConfig={siteConfig}>
-        <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">
-          <div className="p-6 bg-white rounded shadow-md max-w-md w-full">
-            <h1 className="mb-4 text-2xl font-semibold">Reset Your Password</h1>
-            <p className="mb-6 text-gray-600">Enter your new password below.</p>
+    <AuthLayout siteConfig={siteConfig} title="Reset Password">
+      <div className="p-8">
+        <h1 className="mb-3 text-3xl font-bold text-gray-900 lg:text-[32px] lg:leading-tight lg:text-left">
+          Reset Your Password
+        </h1>
+        <p className="mb-6 text-gray-600 lg:text-left">Enter your new password below.</p>
 
-            <form onSubmit={handleSubmit}>
-              <div className="mb-4">
-                <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                  New Password
-                </label>
-                <div className="relative">
-                  <input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="p-2 border border-gray-300 rounded w-full pr-10"
-                    placeholder="Enter your new password"
-                    autoComplete="new-password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
-                    aria-label={showPassword ? "Hide password" : "Show password"}
-                  >
-                    {showPassword ? "Hide" : "Show"}
-                  </button>
-                </div>
-                <PasswordStrengthIndicator validation={validation} password={password} />
-              </div>
-
-              <div className="mb-4">
-                <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
-                  Confirm Password
-                </label>
-                <div className="relative">
-                  <input
-                    id="confirmPassword"
-                    type={showConfirmPassword ? "text" : "password"}
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="p-2 border border-gray-300 rounded w-full pr-10"
-                    placeholder="Confirm your new password"
-                    autoComplete="new-password"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
-                    aria-label={showConfirmPassword ? "Hide password" : "Show password"}
-                  >
-                    {showConfirmPassword ? "Hide" : "Show"}
-                  </button>
-                </div>
-              </div>
-
-              {error && <p className="text-red-500 mb-4 text-sm">{error}</p>}
-
-              <div className="flex flex-col gap-3">
-                <button
-                  type="submit"
-                  className="w-full p-2 bg-blue-500 text-white rounded disabled:opacity-60 hover:bg-blue-600"
-                  disabled={isSubmitting || !validation?.valid}
-                >
-                  {isSubmitting ? "Resetting Password..." : "Reset Password"}
-                </button>
-                <Link
-                  href="/login"
-                  className="w-full p-2 bg-gray-200 text-gray-700 rounded text-center hover:bg-gray-300"
-                >
-                  Back to Login
-                </Link>
-              </div>
-            </form>
+        <form onSubmit={handleSubmit}>
+          <div className="mb-5">
+            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+              New Password
+            </label>
+            <div className="relative">
+              <input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-3 pr-16 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 outline-none"
+                placeholder="Enter your new password"
+                autoComplete="new-password"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                {showPassword ? "Hide" : "Show"}
+              </button>
+            </div>
+            <PasswordStrengthIndicator validation={validation} password={password} />
           </div>
-        </div>
-      </Layout>
-    </>
+
+          <div className="mb-5">
+            <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
+              Confirm Password
+            </label>
+            <div className="relative">
+              <input
+                id="confirmPassword"
+                type={showConfirmPassword ? "text" : "password"}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="w-full px-4 py-3 pr-16 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 outline-none"
+                placeholder="Confirm your new password"
+                autoComplete="new-password"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors"
+                aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+              >
+                {showConfirmPassword ? "Hide" : "Show"}
+              </button>
+            </div>
+          </div>
+
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-red-600 text-sm">{error}</p>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-3">
+            <button
+              type="submit"
+              className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-lg shadow-md hover:shadow-lg hover:from-blue-700 hover:to-indigo-700 transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none"
+              disabled={isSubmitting || !validation?.valid}
+            >
+              {isSubmitting ? "Resetting Password..." : "Reset Password"}
+            </button>
+            <Link
+              href="/login"
+              className="w-full py-2 px-4 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-center"
+            >
+              Back to Login
+            </Link>
+          </div>
+        </form>
+      </div>
+    </AuthLayout>
   );
 }
 

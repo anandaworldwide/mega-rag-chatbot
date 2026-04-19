@@ -1,11 +1,11 @@
 // Activation page: consumes token/email from query, calls /api/verifyMagicLink, sets session cookie
 import React, { useEffect, useState } from "react";
-import Head from "next/head";
 import { useRouter } from "next/router";
 import type { GetServerSideProps } from "next";
 import type { EmailCategory, EmailPreferences } from "@/types/user";
 import type { SiteConfig } from "@/types/siteConfig";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
+import AuthLayout from "@/components/AuthLayout";
 
 interface VerifyPageProps {
   siteConfig: SiteConfig | null;
@@ -66,7 +66,6 @@ export default function VerifyPage({ siteConfig }: VerifyPageProps) {
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          // Handle specific error cases
           if (data?.errorCode === "ALREADY_ACTIVATED") {
             setStatus("already-activated");
             setErrorCode(data.errorCode);
@@ -75,7 +74,6 @@ export default function VerifyPage({ siteConfig }: VerifyPageProps) {
             throw new Error(data?.error || "Activation failed");
           }
         } else {
-          // Pre-populate names if available from approval request
           if (data?.firstName) {
             setFirstName(data.firstName);
           }
@@ -95,7 +93,6 @@ export default function VerifyPage({ siteConfig }: VerifyPageProps) {
     })();
   }, [token, email, status]);
 
-  // After profile save, redirect to home page after 2 seconds
   useEffect(() => {
     if (status !== "success") return;
     const t = setTimeout(() => {
@@ -169,12 +166,11 @@ export default function VerifyPage({ siteConfig }: VerifyPageProps) {
     : "Account verification";
 
   return (
-    <>
-      <Head>
-        <title>Verify Account</title>
-      </Head>
-      <main className="mx-auto max-w-xl p-6">
-        <h1 className="text-2xl font-semibold mb-4">{verificationHeadline}</h1>
+    <AuthLayout siteConfig={siteConfig} title="Verify Account">
+      <div className="p-8">
+        <h1 className="text-3xl font-bold text-gray-900 mb-6 lg:text-[32px] lg:leading-tight lg:text-left">
+          {verificationHeadline}
+        </h1>
         {status === "idle" || status === "activating" ? (
           <div className="text-sm text-gray-700">Verifying your link…</div>
         ) : null}
@@ -182,12 +178,12 @@ export default function VerifyPage({ siteConfig }: VerifyPageProps) {
           <form onSubmit={onSubmitName} className="space-y-4">
             <p className="text-sm text-gray-700">Welcome! Please tell us your name.</p>
             <div>
-              <label htmlFor="firstName" className="block text-sm font-medium mb-1">
+              <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-2">
                 First name
               </label>
               <input
                 id="firstName"
-                className="w-full rounded border px-3 py-2"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 outline-none"
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
                 placeholder="First name"
@@ -195,12 +191,12 @@ export default function VerifyPage({ siteConfig }: VerifyPageProps) {
               />
             </div>
             <div>
-              <label htmlFor="lastName" className="block text-sm font-medium mb-1">
+              <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 mb-2">
                 Last name
               </label>
               <input
                 id="lastName"
-                className="w-full rounded border px-3 py-2"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 outline-none"
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
                 placeholder="Last name"
@@ -208,7 +204,7 @@ export default function VerifyPage({ siteConfig }: VerifyPageProps) {
               />
             </div>
             {enabledEmailTypes.length > 0 ? (
-              <section className="rounded border border-gray-200 p-3">
+              <section className="rounded-lg border border-gray-200 p-3">
                 <div className="mb-2 flex items-center justify-between">
                   <p className="text-sm font-medium">Email preferences</p>
                   <div className="flex items-center gap-2 text-xs">
@@ -261,28 +257,28 @@ export default function VerifyPage({ siteConfig }: VerifyPageProps) {
             ) : null}
             <button
               type="submit"
-              className="inline-flex items-center rounded bg-blue-600 px-4 py-2 text-white disabled:opacity-50"
+              className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-lg shadow-md hover:shadow-lg hover:from-blue-700 hover:to-indigo-700 transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none"
             >
               Continue
             </button>
           </form>
         ) : null}
-        {status === "saving" && <div>Saving your profile…</div>}
+        {status === "saving" && <div className="text-sm text-gray-700">Saving your profile…</div>}
         {status === "success" ? (
-          <div className="rounded border border-green-300 bg-green-50 p-3 text-sm mb-3">
+          <div className="rounded-lg border border-green-300 bg-green-50 p-3 text-sm mb-3">
             {message}
             <div className="mt-1">Redirecting…</div>
           </div>
         ) : null}
         {status === "already-activated" ? (
-          <div className="rounded border border-blue-300 bg-blue-50 p-3 text-sm mb-3">
+          <div className="rounded-lg border border-blue-300 bg-blue-50 p-3 text-sm mb-3">
             <div className="font-medium mb-2">Account Already Activated</div>
             <p className="mb-3">Your account has already been activated and is ready to use.</p>
             <div>
               <p className="mb-3">Please log in with your email address to access your account.</p>
               <button
                 onClick={() => router.push("/login")}
-                className="inline-flex items-center rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+                className="inline-flex items-center px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-lg shadow-md hover:shadow-lg hover:from-blue-700 hover:to-indigo-700 transform hover:-translate-y-0.5 transition-all duration-200"
               >
                 Go to Login Page
               </button>
@@ -290,10 +286,10 @@ export default function VerifyPage({ siteConfig }: VerifyPageProps) {
           </div>
         ) : null}
         {status === "error" ? (
-          <div className="rounded border border-red-300 bg-red-50 p-3 text-sm mb-3">{message}</div>
+          <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm mb-3">{message}</div>
         ) : null}
-      </main>
-    </>
+      </div>
+    </AuthLayout>
   );
 }
 

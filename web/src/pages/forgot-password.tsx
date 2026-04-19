@@ -1,10 +1,8 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/router";
-import Head from "next/head";
 import Link from "next/link";
 import { SiteConfig } from "@/types/siteConfig";
-import { getSiteName } from "@/utils/client/siteConfig";
-import Layout from "@/components/layout";
+import AuthLayout from "@/components/AuthLayout";
 
 interface ForgotPasswordProps {
   siteConfig: SiteConfig | null;
@@ -17,7 +15,6 @@ export default function ForgotPasswordPage({ siteConfig }: ForgotPasswordProps) 
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
 
-  // Pre-fill email from query parameter if present
   useEffect(() => {
     if (router.isReady && router.query.email && typeof router.query.email === "string") {
       setEmail(decodeURIComponent(router.query.email));
@@ -61,84 +58,84 @@ export default function ForgotPasswordPage({ siteConfig }: ForgotPasswordProps) 
 
   if (success) {
     return (
-      <>
-        <Head>
-          <title>Check Your Email - {getSiteName(siteConfig)}</title>
-        </Head>
-        <Layout siteConfig={siteConfig}>
-          <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">
-            <div className="p-6 bg-white rounded shadow-md max-w-md w-full">
-              <h1 className="mb-4 text-2xl font-semibold text-green-600">Check Your Email</h1>
-              <p className="mb-4 text-gray-700">
-                If an account exists with that email address, a password reset link has been sent.
-              </p>
-              <p className="mb-6 text-gray-600 text-sm">
-                The link will expire in one hour. If you don&apos;t see the email, check your spam folder.
-              </p>
-              <Link
-                href="/login"
-                className="block w-full p-2 bg-blue-500 text-white rounded text-center hover:bg-blue-600"
-              >
-                Back to Login
-              </Link>
-            </div>
-          </div>
-        </Layout>
-      </>
+      <AuthLayout siteConfig={siteConfig} title="Check Your Email">
+        <div className="p-8">
+          <h1 className="mb-4 text-2xl font-semibold text-green-600 lg:text-left">Check Your Email</h1>
+          <p className="mb-4 text-gray-700 lg:text-left">
+            If an account exists with that email address, a password reset link has been sent.
+          </p>
+          <p className="mb-6 text-gray-600 text-sm lg:text-left">
+            The link will expire in one hour. If you don&apos;t see the email, check your spam folder.
+          </p>
+          <Link
+            href="/login"
+            className="block w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-lg shadow-md hover:shadow-lg hover:from-blue-700 hover:to-indigo-700 transform hover:-translate-y-0.5 transition-all duration-200 text-center"
+          >
+            Back to Login
+          </Link>
+        </div>
+      </AuthLayout>
     );
   }
 
   return (
-    <>
-      <Head>
-        <title>Forgot Password - {getSiteName(siteConfig)}</title>
-      </Head>
-      <Layout siteConfig={siteConfig}>
-        <div className="flex flex-col items-center justify-center min-h-screen bg-gray-100 p-4">
-          <div className="p-6 bg-white rounded shadow-md max-w-md w-full">
-            <h1 className="mb-4 text-2xl font-semibold">Forgot Your Password?</h1>
-            <p className="mb-6 text-gray-600">
-              Enter your email address and we&apos;ll send you a link to reset your password.
-            </p>
+    <AuthLayout siteConfig={siteConfig} title="Forgot Password">
+      <div className="p-8">
+        <h1 className="mb-3 text-3xl font-bold text-gray-900 lg:text-[32px] lg:leading-tight lg:text-left">
+          Forgot Your Password?
+        </h1>
+        <p className="mb-6 text-gray-600 lg:text-left">
+          Enter your email address and we&apos;ll send you a link to reset your password.
+        </p>
 
-            <form onSubmit={handleSubmit}>
-              <div className="mb-4">
-                <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                  Email Address
-                </label>
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="p-2 border border-gray-300 rounded w-full"
-                  placeholder="Enter your email"
-                  autoComplete="email"
-                />
-              </div>
-
-              {error && <p className="text-red-500 mb-4 text-sm">{error}</p>}
-
-              <div className="flex flex-col gap-3">
-                <button
-                  type="submit"
-                  className="w-full p-2 bg-blue-500 text-white rounded disabled:opacity-60 hover:bg-blue-600"
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? "Sending..." : "Send Reset Link"}
-                </button>
-                <Link
-                  href="/login"
-                  className="w-full p-2 bg-gray-200 text-gray-700 rounded text-center hover:bg-gray-300"
-                >
-                  Back to Login
-                </Link>
-              </div>
-            </form>
+        <form onSubmit={handleSubmit}>
+          <div className="mb-5">
+            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+              Email Address
+            </label>
+            <div className="relative">
+              <input
+                id="email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-4 py-3 pr-11 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 outline-none"
+                placeholder="Enter your email"
+                autoComplete="email"
+              />
+              <span
+                className="material-icons absolute right-3 top-1/2 -translate-y-1/2 text-[#8b3a3a] pointer-events-none"
+                aria-hidden="true"
+              >
+                mail
+              </span>
+            </div>
           </div>
-        </div>
-      </Layout>
-    </>
+
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-red-600 text-sm">{error}</p>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-3">
+            <button
+              type="submit"
+              className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-semibold rounded-lg shadow-md hover:shadow-lg hover:from-blue-700 hover:to-indigo-700 transform hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? "Sending..." : "Send Reset Link"}
+            </button>
+            <Link
+              href="/login"
+              className="w-full py-2 px-4 text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-center"
+            >
+              Back to Login
+            </Link>
+          </div>
+        </form>
+      </div>
+    </AuthLayout>
   );
 }
 

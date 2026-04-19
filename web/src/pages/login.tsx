@@ -2,10 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import { SiteConfig } from "@/types/siteConfig";
 import { getSiteName, getTagline } from "@/utils/client/siteConfig";
-import Image from "next/image";
 import { fetchWithAuth } from "@/utils/client/tokenManager";
 import AdminApproverSelector from "@/components/AdminApproverSelector";
-import FeedbackButton from "@/components/FeedbackButton";
+import AuthLayout from "@/components/AuthLayout";
 import FeedbackModal from "@/components/FeedbackModal";
 
 interface LoginProps {
@@ -284,46 +283,65 @@ export default function Login({ siteConfig }: LoginProps) {
     setInfo("");
   };
 
-  return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
-      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full border border-gray-100 transform transition-all duration-300 hover:shadow-2xl overflow-hidden">
-        {siteConfig?.loginImage && (
-          <div className="flex flex-col items-center pt-8 px-8 pb-4">
-            <div className="relative" style={{ width: "100%", height: "auto" }}>
-              <Image
-                src={`/${siteConfig.loginImage}`}
-                alt="Login Image"
-                width={320}
-                height={320}
-                className="w-full h-auto object-contain drop-shadow-lg"
-                priority
-              />
-            </div>
-          </div>
-        )}
-        <div
-          className={`text-center ${siteConfig?.loginImage ? "px-8 pb-6" : "p-8"} ${siteConfig?.loginImage ? "" : "mb-6"}`}
+  const belowCard = (
+    <>
+      {step === "email" && siteConfig?.siteId === "ananda" && (
+        <p className="mt-6 text-center text-sm text-gray-600 max-w-md px-4">
+          If your email isn&apos;t recognized, we&apos;ll help you request access from an admin.
+        </p>
+      )}
+      {siteConfig?.siteId === "jairam" && (
+        <p className="mt-6 text-center text-sm text-gray-600 max-w-md px-4">
+          For access, please contact the Free Joe Hunt team.
+        </p>
+      )}
+      <p className="mt-6">
+        <a
+          href="https://github.com/anandaworldwide/mega-rag-chatbot"
+          className="text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors"
         >
-          <h1 className="mb-3 text-3xl font-bold text-gray-900">Welcome to {getSiteName(siteConfig)}!</h1>
-          <p className="text-lg text-gray-600 leading-relaxed">{getTagline(siteConfig)}</p>
-        </div>
-        <div className="px-8 pb-8">
-          {step === "email" && (
-            <form onSubmit={submitEmail} aria-busy={isSubmitting}>
-              <div className="mb-5">
-                <label htmlFor="email-input" className="block text-sm font-medium text-gray-700 mb-2">
-                  Email Address
-                </label>
+          Open Source Project
+        </a>
+      </p>
+    </>
+  );
+
+  return (
+    <>
+    <AuthLayout siteConfig={siteConfig} title="Sign In" belowCard={belowCard} priorityImage>
+      <div
+        className={`text-center ${siteConfig?.loginImage ? "px-8 pb-6 lg:pt-8" : "p-8"} ${siteConfig?.loginImage ? "" : "mb-6"}`}
+      >
+        <h1 className="mb-3 text-3xl font-bold text-gray-900 lg:text-[32px] lg:leading-tight lg:text-left">
+          Welcome to {getSiteName(siteConfig)}!
+        </h1>
+        <p className="text-lg text-gray-600 leading-relaxed lg:text-left">{getTagline(siteConfig)}</p>
+      </div>
+      <div className="px-8 pb-8">
+        {step === "email" && (
+          <form onSubmit={submitEmail} aria-busy={isSubmitting}>
+            <div className="mb-5">
+              <label htmlFor="email-input" className="block text-sm font-medium text-gray-700 mb-2">
+                Email Address
+              </label>
+              <div className="relative">
                 <input
                   id="email-input"
                   type="email"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   ref={emailInputRef}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 outline-none"
+                  className="w-full px-4 py-3 pr-11 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 outline-none"
                   placeholder="Enter your email"
                 />
+                <span
+                  className="material-icons absolute right-3 top-1/2 -translate-y-1/2 text-[#8b3a3a] pointer-events-none"
+                  aria-hidden="true"
+                >
+                  mail
+                </span>
               </div>
+            </div>
 
               {error && (
                 <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
@@ -529,33 +547,10 @@ export default function Login({ siteConfig }: LoginProps) {
             </div>
           )}
         </div>
-      </div>
-      {step === "email" && siteConfig?.siteId === "ananda" && (
-        <p className="mt-6 text-center text-sm text-gray-600 max-w-md px-4">
-          If your email isn&apos;t recognized, we&apos;ll help you request access from an admin.
-        </p>
-      )}
-      {siteConfig?.siteId === "jairam" && (
-        <p className="mt-6 text-center text-sm text-gray-600 max-w-md px-4">
-          For access, please contact the Free Joe Hunt team.
-        </p>
-      )}
-      <p className="mt-6">
-        <a
-          href="https://github.com/anandaworldwide/mega-rag-chatbot"
-          className="text-blue-600 hover:text-blue-800 text-sm font-medium transition-colors"
-        >
-          Open Source Project
-        </a>
-      </p>
-
-      {/* Feedback Button */}
-      <FeedbackButton siteConfig={siteConfig} onClick={() => setShowFeedbackModal(true)} />
-
-      {/* Feedback Modal */}
+      </AuthLayout>
       {showFeedbackModal && (
         <FeedbackModal isOpen={showFeedbackModal} onClose={() => setShowFeedbackModal(false)} siteConfig={siteConfig} />
       )}
-    </div>
+    </>
   );
 }
