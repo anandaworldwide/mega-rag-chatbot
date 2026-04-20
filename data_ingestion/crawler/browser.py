@@ -90,6 +90,33 @@ def _handle_retry_delay(attempt: int, max_retries: int, base_delay: int) -> None
         time.sleep(delay)
 
 
+# Resource types that are never needed for text/link extraction on WordPress
+# sites. Blocking them cuts per-page memory (no decoded images, no CSSOM, no
+# font atlases) and bandwidth substantially. BS4 operates on raw HTML, so the
+# DOM text and <a href> enumeration are unaffected. Do not block "script":
+# some pages still reference link URLs from inline JSON/JS and menu-expansion
+# evaluates JS.
+_BLOCKED_RESOURCE_TYPES = frozenset({"image", "media", "font", "stylesheet"})
+
+
+def _block_nonessential_resources(page) -> None:
+    """Install a route interceptor to abort non-text resource requests."""
+
+    def _route_handler(route):
+        try:
+            if route.request.resource_type in _BLOCKED_RESOURCE_TYPES:
+                route.abort()
+            else:
+                route.continue_()
+        except Exception:
+            # Never let a routing error break the crawl; fall through to the
+            # default behavior.
+            with suppress(Exception):
+                route.continue_()
+
+    page.route("**/*", _route_handler)
+
+
 def _launch_browser_instance(
     p, timeout_ms: int, attempt: int, max_retries: int
 ) -> tuple:
@@ -120,6 +147,7 @@ def _launch_browser_instance(
 
     page = browser.new_page()
     page.set_extra_http_headers({"User-Agent": USER_AGENT})
+    _block_nonessential_resources(page)
 
     # Test that browser is actually responsive
     try:
