@@ -59,10 +59,11 @@ class HealthMonitor:
                 memory = psutil.virtual_memory()
                 available_gb = memory.available / 1024**3
 
-                # Only restart for truly critical memory situations in bounded execution
-                if (
-                    memory.percent > 98 or available_gb < 0.2
-                ):  # Very critical thresholds
+                # Trigger graceful shutdown before the kernel starts thrashing.
+                # Sized for a 2 GB host: by the time we hit ~1.65 GB used /
+                # 350 MB free, swap pressure is imminent and sshd/systemd
+                # responsiveness is at risk. earlyoom is the hard backstop.
+                if memory.percent > 90 or available_gb < 0.35:
                     logging.warning(
                         f"Critical memory situation: {memory.percent:.1f}% used ({available_gb:.1f}GB available)"
                     )
@@ -116,13 +117,12 @@ def _check_memory_health() -> list[str]:
     # For bounded execution (45-min runs), we can tolerate higher memory usage since we'll exit soon
     available_gb = memory.available / 1024**3
 
-    if memory.percent > 98:  # Only flag when truly critical (>98% usage)
+    if memory.percent > 90:
         issues.append(
             f"Critical memory usage: {memory.percent:.1f}% used ({available_gb:.1f}GB available)"
         )
-    elif available_gb < 0.2:  # Less than 200MB available - truly critical
+    elif available_gb < 0.35:
         issues.append(f"Critically low memory available: {available_gb:.1f}GB")
-    # Removed high memory pressure warning for bounded execution
 
     return issues
 
