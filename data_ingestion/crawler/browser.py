@@ -103,16 +103,24 @@ def _block_nonessential_resources(page) -> None:
     """Install a route interceptor to abort non-text resource requests."""
 
     def _route_handler(route):
+        # A Playwright route is one-shot: abort()/continue_()/fulfill() are all
+        # terminal. Do NOT attempt a fallback call in the except branch — if
+        # the first call raised after marking the route handled, the second
+        # call would raise "Route is already handled!" and mask the real
+        # failure. Log at debug (these errors are common and expected during
+        # page teardown) and let Playwright's own logic handle the request.
         try:
             if route.request.resource_type in _BLOCKED_RESOURCE_TYPES:
                 route.abort()
             else:
                 route.continue_()
-        except Exception:
-            # Never let a routing error break the crawl; fall through to the
-            # default behavior.
-            with suppress(Exception):
-                route.continue_()
+        except Exception as e:
+            logging.debug(
+                "Route handler error for %s (%s): %s",
+                route.request.url,
+                route.request.resource_type,
+                e,
+            )
 
     page.route("**/*", _route_handler)
 
