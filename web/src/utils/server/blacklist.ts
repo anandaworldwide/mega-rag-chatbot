@@ -24,6 +24,9 @@ type BlacklistCacheEntry = {
 const cacheBySite = new Map<string, BlacklistCacheEntry>();
 
 function getPromptEnvironment(): string {
+  if (process.env.NODE_ENV === "test") {
+    return "dev";
+  }
   const nodeEnv = process.env.NODE_ENV;
   if (nodeEnv === "production" || process.env.VERCEL_ENV === "preview") {
     return "prod";
