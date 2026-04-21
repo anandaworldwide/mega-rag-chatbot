@@ -58,7 +58,7 @@ pydub==0.25.1
 pymysql==1.1.1
 pytest-mock
 python-dateutil==2.9.0.post0
-python-dotenv==1.1.0
+python-dotenv==1.2.2
 pytz==2024.1
 readability-lxml
 requests>=2.33.0  # CVE-2026-25645
