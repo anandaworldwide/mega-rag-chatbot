@@ -165,7 +165,7 @@ pydantic-core==2.33.2
     # via pydantic
 python-dateutil==2.9.0.post0
     # via pinecone
-python-dotenv==1.1.0
+python-dotenv==1.2.2
     # via mega-rag-chatbot-reranking
 pyyaml==6.0.3
     # via

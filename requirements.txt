@@ -2,7 +2,7 @@
 #    uv export --locked --package mega-rag-chatbot --group dev --no-hashes --output-file requirements.txt
 aiohappyeyeballs==2.6.1
     # via aiohttp
-aiohttp==3.13.3
+aiohttp==3.13.5
     # via mega-rag-chatbot
 aiosignal==1.4.0
     # via aiohttp
@@ -237,16 +237,16 @@ jsonpointer==3.1.1
     # via jsonpatch
 kiwisolver==1.5.0
     # via matplotlib
-langchain-core==1.2.28
+langchain-core==1.2.31
     # via
     #   langchain-openai
     #   langchain-text-splitters
     #   mega-rag-chatbot
-langchain-openai==1.1.12
+langchain-openai==1.1.14
     # via mega-rag-chatbot
-langchain-text-splitters==1.1.1
+langchain-text-splitters==1.1.2
     # via mega-rag-chatbot
-langsmith==0.7.22
+langsmith==0.7.32
     # via
     #   langchain-core
     #   mega-rag-chatbot
@@ -427,8 +427,9 @@ pydub==0.25.1
     # via mega-rag-chatbot
 pyee==13.0.1
     # via playwright
-pygments==2.19.2
+pygments==2.20.0
     # via
+    #   mega-rag-chatbot
     #   pytest
     #   rich
 pyjwt==2.12.1
@@ -456,7 +457,7 @@ python-dateutil==2.9.0.post0
     #   mega-rag-chatbot
     #   pandas
     #   pinecone
-python-dotenv==1.1.0
+python-dotenv==1.2.2
     # via mega-rag-chatbot
 pytz==2024.1
     # via

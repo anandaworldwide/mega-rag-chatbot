@@ -82,13 +82,13 @@ jsonpatch==1.33
     # via langchain-core
 jsonpointer==3.1.1
     # via jsonpatch
-langchain-core==1.2.28
+langchain-core==1.2.31
     # via
     #   langchain-openai
     #   mega-rag-chatbot-crawler
-langchain-openai==1.1.12
+langchain-openai==1.1.14
     # via mega-rag-chatbot-crawler
-langsmith==0.7.22
+langsmith==0.7.32
     # via langchain-core
 lxml==6.0.2
     # via
@@ -153,14 +153,14 @@ pydantic-core==2.33.2
     # via pydantic
 pyee==13.0.1
     # via playwright
-pygments==2.19.2
+pygments==2.20.0
     # via rich
 python-dateutil==2.9.0.post0
     # via
     #   botocore
     #   mega-rag-chatbot-crawler
     #   pinecone
-python-dotenv==1.1.0
+python-dotenv==1.2.2
     # via mega-rag-chatbot-crawler
 pyyaml==6.0.3
     # via langchain-core

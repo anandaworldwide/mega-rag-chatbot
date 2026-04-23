@@ -51,6 +51,7 @@ secrets.json
 
 # temporary files
 .temp-*
+.tmp_*/
 
 # vercel
 .vercel
