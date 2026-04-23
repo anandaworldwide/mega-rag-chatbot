@@ -70,7 +70,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Some servers may require specific headers to return CSV instead of HTML redirect
       headers: {
         Accept: "text/csv, application/csv, text/plain, */*",
-        "User-Agent": "Mozilla/5.0 (compatible; AnandaBot/1.0)",
+        // Use a real browser UA: Sucuri/Cloudproxy (fronting ananda.org) challenges
+        // requests whose UA contains "bot" with a 307 HTML cookie/JS challenge that
+        // fetch cannot follow. A realistic UA avoids the WAF rule entirely.
+        "User-Agent":
+          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
       },
     });
 
@@ -133,6 +137,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       csvLength: newCsv.length,
       csvPreview: newCsv.substring(0, 100),
     });
+
+    // Guard against a 200 response that is not actually CSV (e.g. Sucuri/WAF
+    // HTML interstitial). Never overwrite the S3 CSV with non-CSV content.
+    const responseContentType = (response.headers?.get?.("content-type") || "").toLowerCase();
+    const firstLine = newCsv.trimStart().split(/\r?\n/, 1)[0] || "";
+    const looksLikeCsvHeader = /^ID\s*,.*Title.*Description/i.test(firstLine);
+    const contentTypeIsCsv = responseContentType.includes("csv");
+    if (!contentTypeIsCsv && !looksLikeCsvHeader) {
+      console.error(`[download-locations] Response body is not CSV`, {
+        contentType: responseContentType || "(missing)",
+        firstLine: firstLine.substring(0, 200),
+        csvLength: newCsv.length,
+      });
+      throw new Error(
+        `Response not CSV (content-type="${responseContentType || "missing"}", first line did not match CSV header)`
+      );
+    }
 
     // Download from S3
     let currentCsv = "";

@@ -95,7 +95,7 @@ describe("/api/cron/download-locations", () => {
       process.env.LOCATION_DATA_DOWNLOAD_URL = "https://example.com/locations.csv";
       mockFetch.mockResolvedValue({
         ok: true,
-        text: jest.fn().mockResolvedValue("location1,location2"),
+        text: jest.fn().mockResolvedValue("ID,Title,Description\nlocation1,location2"),
       });
 
       // Mock S3 GetObjectCommand - file doesn't exist
@@ -137,7 +137,7 @@ describe("/api/cron/download-locations", () => {
       process.env.LOCATION_DATA_DOWNLOAD_URL = "https://example.com/locations.csv";
       mockFetch.mockResolvedValue({
         ok: true,
-        text: jest.fn().mockResolvedValue("location1,location2"),
+        text: jest.fn().mockResolvedValue("ID,Title,Description\nlocation1,location2"),
       });
 
       // Mock S3 GetObjectCommand - file doesn't exist
@@ -167,7 +167,7 @@ describe("/api/cron/download-locations", () => {
       process.env.LOCATION_DATA_DOWNLOAD_URL = "https://example.com/locations.csv";
       mockFetch.mockResolvedValue({
         ok: true,
-        text: jest.fn().mockResolvedValue("location1,location2"),
+        text: jest.fn().mockResolvedValue("ID,Title,Description\nlocation1,location2"),
       });
       mockS3Client.send.mockRejectedValueOnce({ name: "NoSuchKey" });
 
@@ -248,7 +248,7 @@ describe("/api/cron/download-locations", () => {
   describe("CSV Download and Comparison", () => {
     it("should download CSV and upload to S3 when file doesn't exist", async () => {
       process.env.LOCATION_DATA_DOWNLOAD_URL = "https://example.com/locations.csv";
-      const csvContent = "location1,location2\nlocation3,location4";
+      const csvContent = "ID,Title,Description\nlocation1,location2\nlocation3,location4";
 
       mockFetch.mockResolvedValue({
         ok: true,
@@ -281,7 +281,8 @@ describe("/api/cron/download-locations", () => {
         redirect: "follow",
         headers: {
           Accept: "text/csv, application/csv, text/plain, */*",
-          "User-Agent": "Mozilla/5.0 (compatible; AnandaBot/1.0)",
+          "User-Agent":
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
         },
       });
 
@@ -307,7 +308,7 @@ describe("/api/cron/download-locations", () => {
 
     it("should update S3 when CSV content differs", async () => {
       process.env.LOCATION_DATA_DOWNLOAD_URL = "https://example.com/locations.csv";
-      const newCsvContent = "location1,location2\nlocation3,location4";
+      const newCsvContent = "ID,Title,Description\nlocation1,location2\nlocation3,location4";
       const oldCsvContent = "old1,old2\nold3,old4";
 
       mockFetch.mockResolvedValue({
@@ -352,7 +353,7 @@ describe("/api/cron/download-locations", () => {
 
     it("should skip upload when CSV content is unchanged", async () => {
       process.env.LOCATION_DATA_DOWNLOAD_URL = "https://example.com/locations.csv";
-      const csvContent = "location1,location2\nlocation3,location4";
+      const csvContent = "ID,Title,Description\nlocation1,location2\nlocation3,location4";
 
       mockFetch.mockResolvedValue({
         ok: true,
@@ -389,8 +390,8 @@ describe("/api/cron/download-locations", () => {
 
     it("should handle CSV comparison with whitespace differences", async () => {
       process.env.LOCATION_DATA_DOWNLOAD_URL = "https://example.com/locations.csv";
-      const newCsvContent = "location1,location2\nlocation3,location4";
-      const oldCsvContent = "location1,location2\nlocation3,location4\n"; // Extra newline
+      const newCsvContent = "ID,Title,Description\nlocation1,location2\nlocation3,location4";
+      const oldCsvContent = "ID,Title,Description\nlocation1,location2\nlocation3,location4\n"; // Extra newline
 
       mockFetch.mockResolvedValue({
         ok: true,
@@ -464,7 +465,7 @@ describe("/api/cron/download-locations", () => {
 
       mockFetch.mockResolvedValue({
         ok: true,
-        text: jest.fn().mockResolvedValue("location1,location2"),
+        text: jest.fn().mockResolvedValue("ID,Title,Description\nlocation1,location2"),
       });
 
       // Mock S3 GetObjectCommand - other error
@@ -495,7 +496,7 @@ describe("/api/cron/download-locations", () => {
 
     it("should handle S3 PutObject errors", async () => {
       process.env.LOCATION_DATA_DOWNLOAD_URL = "https://example.com/locations.csv";
-      const csvContent = "location1,location2";
+      const csvContent = "ID,Title,Description\nlocation1,location2";
 
       mockFetch.mockResolvedValue({
         ok: true,
@@ -564,7 +565,7 @@ describe("/api/cron/download-locations", () => {
     it("should use default site ID when SITE_ID is not set", async () => {
       delete process.env.SITE_ID;
       process.env.LOCATION_DATA_DOWNLOAD_URL = "https://example.com/locations.csv";
-      const csvContent = "location1,location2";
+      const csvContent = "ID,Title,Description\nlocation1,location2";
 
       mockFetch.mockResolvedValue({
         ok: true,
