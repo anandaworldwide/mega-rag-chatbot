@@ -2561,3 +2561,18 @@ Pinecone index names, vendor URLs, and operational details in the chat UI.
 
 **Correct**: For infrastructure failures, send a fixed user-safe message even in development, while logging details and
 sending the full context to ops alerts.
+
+### Mistake: Losing Ops Context When Replacing User-Facing Errors
+
+**Wrong**: Replacing a raw infrastructure/configuration error with a safer user-facing message and then emailing only that
+safe message to ops.
+
+**Correct**: Attach structured metadata to the error, such as `code`, `errorType`, and `opsMessage`; show the safe message
+to users, but send `opsMessage` in alert emails.
+
+### Mistake: Matching Error Substrings In The Wrong Order
+
+**Wrong**: Checking a broad substring like `"Failed to fetch"` before a more specific one like `"HTTP 403"`, causing
+`"Failed to fetch token: HTTP 403"` to be misclassified as a network outage.
+
+**Correct**: Match specific status/error codes first, then generic transport failures.

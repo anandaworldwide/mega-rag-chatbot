@@ -1534,7 +1534,7 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
           await sendErrorEmail(
             error,
-            "Chatbot Error",
+            error.errorType || "Chatbot Error",
             chatHistory.length > 0 ? (chatHistory[chatHistory.length - 1]?.userMessage || "No user message") : "No user message"
           );
         } catch (emailError) {
@@ -2742,7 +2742,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const errorData = {
         action: "aichatbot_send_error_email",
         error_type: errorType,
-        error_message: error.message,
+        error_message: error.opsMessage || error.message,
         error_stack: error.stack || "",
         user_message: userMessage,
         user_agent: navigator.userAgent,

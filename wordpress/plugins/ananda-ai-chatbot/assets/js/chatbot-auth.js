@@ -21,6 +21,18 @@ let tokenData = null;
 // Buffer time before expiration to refresh token (30 seconds)
 const EXPIRATION_BUFFER = 30 * 1000;
 
+const CHATBOT_UNAVAILABLE_MESSAGE =
+  'The chatbot is temporarily unavailable. An alert email has been sent to operations about the issue. Please try again later.';
+
+function createChatbotConfigurationError(code, opsMessage) {
+  const error = new Error(CHATBOT_UNAVAILABLE_MESSAGE);
+  error.name = 'ChatbotConfigurationError';
+  error.code = code;
+  error.errorType = 'WordPress Chatbot Configuration Error';
+  error.opsMessage = opsMessage;
+  return error;
+}
+
 /**
  * Retry a function with exponential backoff for network errors
  * @param {Function} fn - Async function to retry
@@ -151,13 +163,25 @@ async function fetchNewToken() {
       let userMessage = errorMessage;
 
       if (errorCode === 'site_mismatch') {
-        userMessage = `Site mismatch: ${errorMessage}. Check the Expected Site ID in plugin settings.`;
+        throw createChatbotConfigurationError(
+          'site_mismatch',
+          `The WordPress chatbot plugin is configured for the wrong backend site. Backend response: ${errorMessage}. Details: ${errorDetails || 'No extra details provided.'} Check the plugin API Base URL and Expected Site ID settings.`,
+        );
       } else if (errorCode === 'token_fetch_failed') {
-        userMessage = `Backend connection failed: ${errorMessage}. Verify API URL and security settings.`;
+        throw createChatbotConfigurationError(
+          'backend_token_auth_failed',
+          `The WordPress chatbot plugin could not obtain a backend JWT. This is commonly caused by a mismatched CHATBOT_BACKEND_SECURE_TOKEN or WP_API_SECRET in wp-config.php after key rotation. Backend response: ${errorMessage}. Details: ${errorDetails || 'No extra details provided.'}`,
+        );
       } else if (errorCode === 'configuration_error') {
-        userMessage = `Configuration error: ${errorMessage}`;
+        throw createChatbotConfigurationError(
+          'wordpress_token_configuration_error',
+          `The WordPress chatbot plugin is missing or has invalid backend authentication configuration. WordPress response: ${errorMessage}. Details: ${errorDetails || 'No extra details provided.'}`,
+        );
       } else if (errorCode === 'internal_error') {
-        userMessage = `Internal error: ${errorMessage}`;
+        throw createChatbotConfigurationError(
+          'wordpress_token_internal_error',
+          `The WordPress chatbot token endpoint hit an internal error while requesting a backend JWT. WordPress response: ${errorMessage}. Details: ${errorDetails || 'No extra details provided.'}`,
+        );
       }
 
       throw new Error(userMessage);
@@ -198,16 +222,22 @@ async function fetchNewToken() {
       );
     }
 
+    if (error.name === 'ChatbotConfigurationError') {
+      throw error;
+    }
+
     // Provide user-friendly error messages based on common error patterns
     let userFriendlyError = error;
 
-    if (error.message.includes('Failed to fetch')) {
-      userFriendlyError = new Error(
-        'Network error: Unable to connect to the chatbot server. Check your internet connection.',
+    if (error.message.includes('HTTP 403')) {
+      userFriendlyError = createChatbotConfigurationError(
+        'wordpress_backend_token_rejected',
+        `The WordPress chatbot backend token request was rejected with HTTP 403 while trying to get a backend JWT. This usually means CHATBOT_BACKEND_SECURE_TOKEN or WP_API_SECRET in wp-config.php does not match the backend SECURE_TOKEN after key rotation. Token URL: ${tokenUrl}. Browser error: ${error.message}.`,
       );
-    } else if (error.message.includes('HTTP 403')) {
-      userFriendlyError = new Error(
-        'Access denied: The server rejected the request. Check your WordPress API URL and security settings.',
+    } else if (error.message.includes('Failed to fetch')) {
+      userFriendlyError = createChatbotConfigurationError(
+        'wordpress_token_endpoint_unreachable',
+        `The WordPress chatbot frontend could not reach the WordPress AJAX token endpoint while trying to get a backend JWT. Token URL: ${tokenUrl}. Browser error: ${error.message}. This can indicate a local WordPress routing/CORS issue, a blocked admin-ajax request, or stale copied plugin files.`,
       );
     } else if (error.message.includes('HTTP 404')) {
       userFriendlyError = new Error(

@@ -108,14 +108,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!isWebFrontend && !isWordPress && !isMobile) {
       console.warn("Invalid secret provided - no match found");
 
-      // If there was an expected site ID, add a hint about site mismatch
       if (expectedSiteId) {
-        console.error(`⚠️ TOKEN VALIDATION FAILED WITH SITE MISMATCH ⚠️`);
-        console.error(`Request expected site "${expectedSiteId}" but this is "${actualSiteId}"`);
-        console.error(`Check WordPress plugin configuration and Vercel URL setting`);
+        if (expectedSiteId !== actualSiteId) {
+          console.error(`⚠️ TOKEN VALIDATION FAILED WITH SITE MISMATCH ⚠️`);
+          console.error(`Request expected site "${expectedSiteId}" but this is "${actualSiteId}"`);
+          console.error(`Check WordPress plugin API URL and Expected Site ID settings`);
+        } else {
+          console.error(`⚠️ TOKEN VALIDATION FAILED WITH INVALID SECRET ⚠️`);
+          console.error(`Request site "${expectedSiteId}" matches backend site, but the shared secret is invalid`);
+          console.error(`Check WordPress CHATBOT_BACKEND_SECURE_TOKEN/WP_API_SECRET against backend SECURE_TOKEN`);
+        }
       }
 
-      return res.status(403).json({ error: "Invalid secret" });
+      return res.status(403).json({ error: "Invalid secret", code: "INVALID_SECRET" });
     }
 
     // Create JWT payload with client identifier and standard timestamps
