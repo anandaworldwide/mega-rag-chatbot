@@ -50,6 +50,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // --- NPS Survey Logic Start ---
+  const ENABLE_NPS_SURVEY = false;
 
   // Helper to get item from localStorage with default value
   function getLocalStorageItem(key, defaultValue) {
@@ -98,6 +99,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Function to increment query count and check NPS trigger conditions
   function handleNpsSurveyCheck() {
+    if (!ENABLE_NPS_SURVEY) {
+      return;
+    }
+
     npsQueryCount++;
     setLocalStorageItem("npsQueryCount", npsQueryCount);
 
@@ -1867,6 +1872,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let npsModalElement = null; // Reference to the modal DOM element
 
   function createNpsModalHtml() {
+    if (!ENABLE_NPS_SURVEY) return;
     if (document.getElementById("nps-survey-modal")) return; // Avoid creating duplicates
 
     const chatWindowElement = document.getElementById("aichatbot-window");
@@ -2155,7 +2161,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // --- NPS Survey Logic: Modal UI End ---
 
   // --- NPS Survey Logic: Modal Creation Call ---
-  createNpsModalHtml();
+  if (ENABLE_NPS_SURVEY) {
+    createNpsModalHtml();
+  }
   // --- NPS Survey Logic: Modal Creation Call End ---
 
   // Track votes
