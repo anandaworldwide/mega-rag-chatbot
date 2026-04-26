@@ -1284,21 +1284,29 @@ document.addEventListener("DOMContentLoaded", () => {
         const messageContent = currentBotMessage.querySelector(".aichatbot-message-content");
         let firstTokenReceived = false;
         let hasContent = false;
+        let streamBuffer = "";
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const chunk = decoder.decode(value);
-          const lines = chunk.split("\n");
+          const chunk = decoder.decode(value, { stream: true });
+          streamBuffer += chunk;
+          const lines = streamBuffer.split("\n");
+          streamBuffer = lines.pop() || "";
 
           // Check if user is near the bottom BEFORE adding the new chunk
           const wasScrolledToBottom = messages.scrollHeight - messages.clientHeight <= messages.scrollTop + 10;
 
           for (const line of lines) {
             if (line.startsWith("data: ")) {
+              let jsonData;
               try {
-                const jsonData = JSON.parse(line.slice(5));
+                jsonData = JSON.parse(line.slice(5));
+              } catch (parseError) {
+                console.error("Error parsing stream JSON:", parseError, line);
+                continue;
+              }
 
                 // Check site ID and source count
                 if (jsonData.siteId && jsonData.siteId !== "ananda-public") {
@@ -1409,7 +1417,28 @@ document.addEventListener("DOMContentLoaded", () => {
                   if (messages.contains(typingIndicator)) {
                     messages.removeChild(typingIndicator);
                   }
-                  throw new Error(jsonData.error);
+                  currentAbortController = null;
+                  sendButton.style.display = "inline-block";
+                  stopButton.style.display = "none";
+                  isStreaming = false;
+
+                  const streamError = new Error(jsonData.error);
+                  handleChatError(streamError, messages, typingIndicator);
+
+                  try {
+                    await sendErrorEmail(
+                      streamError,
+                      "Chatbot Stream Error",
+                      chatHistory.length > 0
+                        ? chatHistory[chatHistory.length - 1]?.userMessage || "No user message"
+                        : "No user message"
+                    );
+                  } catch (emailError) {
+                    console.error("Failed to send stream error email:", emailError);
+                  }
+
+                  console.error("Chatbot stream error:", streamError);
+                  return;
                 }
 
                 // Handle docId - Store it and make vote buttons visible immediately
@@ -1433,9 +1462,6 @@ document.addEventListener("DOMContentLoaded", () => {
                     addVoteButtons(currentBotMessage, docId, false); // false = visible immediately
                   }
                 }
-              } catch (parseError) {
-                console.error("Error parsing JSON:", parseError);
-              }
             }
           }
 

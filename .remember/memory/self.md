@@ -2534,3 +2534,30 @@ presets: [["next/babel", { "preset-env": { targets: { node: "current" } } }]]
 ```
 
 This avoids helper injection and keeps CI/Vercel server tests stable.
+
+### Mistake: Swallowing Stream Errors As Parse Errors
+
+**Wrong**: Throwing on an SSE payload error inside the same `try` block used for `JSON.parse()`, then catching it as a
+parse error. This hides backend stream errors from users.
+
+**Correct**: Scope the parse `try/catch` only around `JSON.parse()`, or handle `jsonData.error` explicitly by rendering
+the error and stopping stream state.
+
+Also buffer decoded stream text across chunks before splitting lines; SSE `data:` JSON can be split across network chunks,
+and parsing each raw chunk independently can drop valid errors or tokens.
+
+### Mistake: Infrastructure Retrieval Errors Becoming No-Sources Responses
+
+**Wrong**: Catching vector retrieval errors, logging them, and continuing with an empty document list. Auth/key/network
+failures then look like legitimate "no matching sources" results.
+
+**Correct**: Re-throw retrieval infrastructure errors so the API can return an accurate sanitized service error, and reserve
+`NoSourcesError` for successful retrievals that actually return zero matches.
+
+### Mistake: Development Mode Leaking Infrastructure Errors To Chat Users
+
+**Wrong**: Using development-mode detailed errors for user-facing SSE payloads when external services fail. This can expose
+Pinecone index names, vendor URLs, and operational details in the chat UI.
+
+**Correct**: For infrastructure failures, send a fixed user-safe message even in development, while logging details and
+sending the full context to ops alerts.

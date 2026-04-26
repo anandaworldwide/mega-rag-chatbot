@@ -671,11 +671,11 @@ Error context: ${error.message}`,
       ).catch((emailError) => {
         console.error("Failed to send OpenAI quota ops alert:", emailError);
       });
-    } else if (error.message.includes("Pinecone")) {
-      // Sanitize error message to prevent API key leakage
-      const safeMessage = getSafeErrorMessage(error, "Error connecting to the search service. Please try again later.");
+    } else if (error.message.includes("Pinecone") || error.name.includes("Pinecone")) {
+      // Keep infrastructure details out of the chat UI even in development.
       sendData({
-        error: safeMessage,
+        error:
+          "The chatbot is temporarily unavailable. An alert email has been sent to operations about the issue. Please try again later.",
       });
 
       // Send ops alert for Pinecone connection failures
