@@ -6,14 +6,14 @@ This module provides utilities for loading and processing site configuration
 from the centralized config.json file. It includes functions for:
 
 1. Loading site-specific configuration
-2. Determining access levels based on file paths
+2. Resolving configured access level keys and numeric values
 3. Managing site-specific settings across the application
 
 Usage:
-    from pyutil.site_config_utils import load_site_config, determine_access_level
+    from pyutil.site_config_utils import load_site_config, get_required_access_level_for_key
 
     config = load_site_config("ananda")
-    access_level = determine_access_level(file_path, config)
+    access_level = get_required_access_level_for_key("kriyaban", config)
 """
 
 import json
@@ -65,58 +65,73 @@ def load_site_config(site_id: str) -> dict[str, Any]:
         return {}
 
 
-def determine_access_level(file_path: str, site_config: dict[str, Any]) -> str:
+def get_required_access_level_for_key(
+    access_level_key: str, site_config: dict[str, Any]
+) -> int:
     """
-    Determine access level based on file path and site configuration.
+    Convert an access-level key/label/legacy value to its numeric required level.
 
-    This function checks the file path against patterns defined in the site
-    configuration's accessLevelPathMap to determine the appropriate access level.
-
-    Args:
-        file_path: Path to the file being processed (can be relative or absolute)
-        site_config: Site configuration dictionary containing accessLevelPathMap
-
-    Returns:
-        Access level string (e.g., 'public', 'kriyaban', 'admin')
-        Returns 'public' as default if no patterns match or if inputs are invalid
-
-    Example:
-        >>> config = {"accessLevelPathMap": {"kriyaban": ["Kriyaban Only"]}}
-        >>> determine_access_level("treasures/Kriyaban Only/file.mp3", config)
-        'kriyaban'
-        >>> determine_access_level("treasures/public/file.mp3", config)
-        'public'
+    Sites without accessControl stay public-compatible and return 0.
     """
-    if not file_path:
-        return "public"
+    if not access_level_key:
+        return 0
 
-    access_level_path_map = site_config.get("accessLevelPathMap", {})
+    access_control = site_config.get("accessControl", {})
+    if not access_control.get("enabled") or not isinstance(
+        access_control.get("levels"), list
+    ):
+        return 0
 
-    if not access_level_path_map:
-        return "public"
-
-    for access_level, path_patterns in access_level_path_map.items():
-        if not isinstance(path_patterns, list):
-            logger.warning(
-                f"Invalid path patterns for access level '{access_level}': expected list"
-            )
+    normalized_access_key = _normalize_access_level_key(access_level_key)
+    for level in access_control["levels"]:
+        if not isinstance(level, dict):
             continue
-
-        for pattern in path_patterns:
-            if not isinstance(pattern, str):
+        accepted_values = [
+            level.get("key"),
+            level.get("label"),
+        ]
+        normalized_values = {
+            _normalize_access_level_key(str(value))
+            for value in accepted_values
+            if value is not None
+        }
+        if normalized_access_key in normalized_values:
+            try:
+                return int(level.get("value", 0))
+            except (TypeError, ValueError):
                 logger.warning(
-                    f"Invalid pattern in access level '{access_level}': expected string"
+                    "Invalid numeric value for access level '%s'", level.get("key")
                 )
-                continue
+                return 0
 
-            # Case-insensitive substring match
-            if pattern.lower() in file_path.lower():
-                logger.debug(
-                    f"File {file_path} matched pattern '{pattern}' -> access_level: {access_level}"
-                )
-                return access_level
+    return 0
 
-    # Default to public if no patterns match
+
+def get_access_level_key_for_required_level(
+    required_access_level: int, site_config: dict[str, Any]
+) -> str:
+    """
+    Convert a numeric required access level to its configured key.
+
+    Unknown values default to public for the legacy string metadata field.
+    Retrieval authorization uses required_access_level.
+    """
+    access_control = site_config.get("accessControl", {})
+    if not access_control.get("enabled") or not isinstance(
+        access_control.get("levels"), list
+    ):
+        return "public"
+
+    for level in access_control["levels"]:
+        if not isinstance(level, dict):
+            continue
+        try:
+            level_value = int(level.get("value", 0))
+        except (TypeError, ValueError):
+            continue
+        if level_value == required_access_level:
+            return str(level.get("key", "public"))
+
     return "public"
 
 
@@ -134,18 +149,10 @@ def get_excluded_access_levels(site_config: dict[str, Any]) -> list:
     return site_config.get("excludedAccessLevels", [])
 
 
-def get_access_level_path_map(site_config: dict[str, Any]) -> dict[str, list]:
-    """
-    Get the access level path mapping from site configuration.
-
-    Args:
-        site_config: Site configuration dictionary
-
-    Returns:
-        Dictionary mapping access levels to path patterns
-        Returns empty dict if no mapping is configured
-    """
-    return site_config.get("accessLevelPathMap", {})
+def _normalize_access_level_key(value: str) -> str:
+    normalized = value.strip().lower().replace("&", "and")
+    chars = [char if char.isalnum() else "_" for char in normalized]
+    return "_".join(filter(None, "".join(chars).split("_")))
 
 
 def validate_site_config(site_config: dict[str, Any]) -> bool:
@@ -161,24 +168,6 @@ def validate_site_config(site_config: dict[str, Any]) -> bool:
     if not isinstance(site_config, dict):
         logger.error("Site configuration must be a dictionary")
         return False
-
-    # Check if accessLevelPathMap is properly structured
-    access_level_path_map = site_config.get("accessLevelPathMap", {})
-    if access_level_path_map and not isinstance(access_level_path_map, dict):
-        logger.error("accessLevelPathMap must be a dictionary")
-        return False
-
-    for access_level, patterns in access_level_path_map.items():
-        if not isinstance(patterns, list):
-            logger.error(f"Patterns for access level '{access_level}' must be a list")
-            return False
-
-        for pattern in patterns:
-            if not isinstance(pattern, str):
-                logger.error(
-                    f"Pattern in access level '{access_level}' must be a string"
-                )
-                return False
 
     # Check if excludedAccessLevels is properly structured
     excluded_levels = site_config.get("excludedAccessLevels", [])

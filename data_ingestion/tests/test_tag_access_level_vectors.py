@@ -108,6 +108,7 @@ class TestSamplePayload:
                 "source": "https://example.com/rubaiyat",
                 "filename": "books/rubaiyat.pdf",
                 "access_level": "public",
+                "required_access_level": 0,
                 "text": "A" * 300,
             },
         )
@@ -117,6 +118,7 @@ class TestSamplePayload:
         assert payload["vector_id"] == matched_vector.vector_id
         assert payload["title"] == "The Rubaiyat of Omar Khayyam"
         assert payload["current_access_level"] == "public"
+        assert payload["current_required_access_level"] == "0"
         assert payload["source"] == "https://example.com/rubaiyat"
         assert payload["filename"] == "books/rubaiyat.pdf"
         assert payload["text_preview"] == ("A" * 25) + "..."
@@ -155,14 +157,28 @@ class TestUpdateCandidates:
 
     def test_get_update_candidates_skips_already_tagged_vectors(self):
         matches = [
-            MatchedVector(vector_id="vec-1", metadata={"access_level": "public"}),
-            MatchedVector(vector_id="vec-2", metadata={"access_level": "kriyaban"}),
+            MatchedVector(
+                vector_id="vec-1",
+                metadata={"access_level": "public", "required_access_level": 0},
+            ),
+            MatchedVector(
+                vector_id="vec-2",
+                metadata={"access_level": "kriyaban", "required_access_level": 200},
+            ),
             MatchedVector(vector_id="vec-3", metadata={}),
+            MatchedVector(
+                vector_id="vec-4",
+                metadata={"access_level": "kriyaban", "required_access_level": 0},
+            ),
         ]
 
-        candidates = get_update_candidates(matches, "kriyaban")
+        candidates = get_update_candidates(matches, "kriyaban", 200)
 
-        assert [candidate.vector_id for candidate in candidates] == ["vec-1", "vec-3"]
+        assert [candidate.vector_id for candidate in candidates] == [
+            "vec-1",
+            "vec-3",
+            "vec-4",
+        ]
 
 
 class TestCliArguments:
@@ -188,6 +204,7 @@ class TestAccessLevelVectorTagger:
             index_name="test-index",
             criteria=MatchCriteria(title_contains="Rubaiyat"),
             target_access_level="minister",
+            target_required_access_level=600,
             fetch_batch_size=20,
             list_batch_size=100,
             use_id_cache=False,
@@ -195,6 +212,7 @@ class TestAccessLevelVectorTagger:
         )
 
         assert tagger.target_access_level == "minister"
+        assert tagger.target_required_access_level == 600
 
     def test_find_matches_uses_vector_id_prefix_for_listing(self):
         prefix = "text||Ananda Library||db||6. Preparation for Kriya Yoga::"
@@ -218,6 +236,7 @@ class TestAccessLevelVectorTagger:
             index_name="ananda-test-index",
             criteria=MatchCriteria(vector_id_prefix=prefix),
             target_access_level="kriyaban",
+            target_required_access_level=200,
             fetch_batch_size=20,
             list_batch_size=100,
             use_id_cache=False,
@@ -239,6 +258,7 @@ class TestAccessLevelVectorTagger:
             index_name="ananda-test-index",
             criteria=MatchCriteria(vector_id_prefix=prefix),
             target_access_level="kriyaban",
+            target_required_access_level=200,
             fetch_batch_size=20,
             list_batch_size=100,
             use_id_cache=True,
@@ -253,3 +273,35 @@ class TestAccessLevelVectorTagger:
         assert first_ids == [matching_id]
         assert second_ids == [matching_id]
         index.list.assert_called_once_with(limit=100, prefix=prefix)
+
+    def test_update_matches_writes_legacy_and_numeric_access_levels(self):
+        index = Mock()
+        matches = [
+            MatchedVector(
+                vector_id="vec-1",
+                metadata={"access_level": "public", "required_access_level": 0},
+            )
+        ]
+
+        tagger = AccessLevelVectorTagger(
+            index=index,
+            index_name="ananda-test-index",
+            criteria=MatchCriteria(title_contains="Rubaiyat"),
+            target_access_level="minister",
+            target_required_access_level=600,
+            fetch_batch_size=20,
+            list_batch_size=100,
+            use_id_cache=False,
+            refresh_id_cache=False,
+        )
+
+        updated = tagger.update_matches(matches)
+
+        assert [match.vector_id for match in updated] == ["vec-1"]
+        index.update.assert_called_once_with(
+            id="vec-1",
+            set_metadata={
+                "access_level": "minister",
+                "required_access_level": 600,
+            },
+        )

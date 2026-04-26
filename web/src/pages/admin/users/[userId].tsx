@@ -29,6 +29,17 @@ interface UserDetail {
   isApprover?: boolean;
   approverLocation?: string | null;
   approverRegion?: string | null;
+  accessLevel?: number | null;
+  accessLevelLabel?: string | null;
+  accessLevelSource?: string | null;
+  manualAccessLevel?: number | null;
+  manualAccessLevelLabel?: string | null;
+  salesforceAccessLevel?: number | null;
+  salesforceAccessLevelLabel?: string | null;
+  lastSalesforceSyncAt?: string | null;
+  salesforceId?: string | null;
+  salesforceMatchStatus?: string | null;
+  salesforceLastLookupError?: string | null;
 }
 
 interface PageProps {
@@ -66,6 +77,8 @@ export default function EditUserPage({ siteConfig }: PageProps) {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [currentUserRole, setCurrentUserRole] = useState<string>("user");
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
+  const [manualAccessLevel, setManualAccessLevel] = useState<number>(0);
   const [isApprover, setIsApprover] = useState<boolean>(false);
   const [approverLocation, setApproverLocation] = useState<string>("");
   const [approverRegion, setApproverRegion] = useState<string>("");
@@ -74,6 +87,7 @@ export default function EditUserPage({ siteConfig }: PageProps) {
     regions: Array<{ name: string; admins: Array<{ name: string; email: string; location: string }> }>;
   } | null>(null);
   const [loadingPreview, setLoadingPreview] = useState<boolean>(false);
+  const [syncingAccess, setSyncingAccess] = useState<boolean>(false);
 
   useEffect(() => {
     async function getTokenAndRole() {
@@ -87,6 +101,7 @@ export default function EditUserPage({ siteConfig }: PageProps) {
         if (profileRes.ok) {
           const profileData = await profileRes.json();
           setCurrentUserRole(profileData?.role || "user");
+          setCurrentUserEmail(typeof profileData?.email === "string" ? profileData.email.toLowerCase() : null);
         }
       } catch (_e) {
         // Ignore profile fetch errors - non-critical
@@ -121,6 +136,7 @@ export default function EditUserPage({ siteConfig }: PageProps) {
         setIsApprover(typeof u.isApprover === "boolean" ? u.isApprover : false);
         setApproverLocation(typeof u.approverLocation === "string" && u.approverLocation ? u.approverLocation : "");
         setApproverRegion(typeof u.approverRegion === "string" && u.approverRegion ? u.approverRegion : "");
+        setManualAccessLevel(typeof u.manualAccessLevel === "number" ? u.manualAccessLevel : 0);
       } catch (e: any) {
         setError(e?.message || "Failed to load user");
       } finally {
@@ -238,6 +254,10 @@ export default function EditUserPage({ siteConfig }: PageProps) {
         updates.role = role;
       }
 
+      if (siteConfig?.accessControl?.enabled && manualAccessLevel !== (user.manualAccessLevel ?? 0)) {
+        updates.manualAccessLevel = manualAccessLevel;
+      }
+
       // Include approver fields if current user is superuser
       if (currentUserRole === "superuser") {
         updates.isApprover = isApprover;
@@ -287,6 +307,7 @@ export default function EditUserPage({ siteConfig }: PageProps) {
       setApproverRegion(
         typeof updatedUser.approverRegion === "string" && updatedUser.approverRegion ? updatedUser.approverRegion : ""
       );
+      setManualAccessLevel(typeof updatedUser.manualAccessLevel === "number" ? updatedUser.manualAccessLevel : 0);
 
       // Refresh approver preview if approver is enabled or if we just updated approver settings
       if (updatedUser.isApprover || isApprover) {
@@ -358,6 +379,77 @@ export default function EditUserPage({ siteConfig }: PageProps) {
       setDeleting(false);
     }
   }
+
+  async function syncSalesforceAccess() {
+    if (!user) return;
+    setSyncingAccess(true);
+    setError(null);
+    setSuccessMsg(null);
+    try {
+      const token = await getToken();
+      if (!token) {
+        throw new Error("Authentication required");
+      }
+
+      const syncRes = await fetchWithAuth("/api/admin/syncUserAccess", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ email: user.email }),
+      });
+      const syncData = await syncRes.json().catch(() => ({}));
+      if (!syncRes.ok) {
+        throw new Error(syncData?.error || "Salesforce sync failed");
+      }
+
+      const refreshedRes = await fetchWithAuth(`/api/admin/users/${encodeURIComponent(user.id)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const refreshedData = await refreshedRes.json().catch(() => ({}));
+      if (!refreshedRes.ok) {
+        throw new Error(refreshedData?.error || "Salesforce sync completed, but refresh failed");
+      }
+
+      const updatedUser = refreshedData.user as UserDetail;
+      setUser(updatedUser);
+      setManualAccessLevel(typeof updatedUser.manualAccessLevel === "number" ? updatedUser.manualAccessLevel : 0);
+      setSuccessMsg("Salesforce access synced.");
+    } catch (e: any) {
+      setError(e?.message || "Failed to sync Salesforce access");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } finally {
+      setSyncingAccess(false);
+    }
+  }
+
+  const accessLevels = siteConfig?.accessControl?.enabled ? siteConfig.accessControl.levels || [] : [];
+  const salesforceOnlyLevels = new Set(siteConfig?.accessControl?.salesforceOnlyLevels || []);
+  const adminMaxManualLevel = siteConfig?.accessControl?.manualAssignmentCaps?.userAdminMaxLevel ?? 0;
+  const superuserAccessLevel = siteConfig?.accessControl?.superuserLevel ?? null;
+  const getAccessLevelDisplayLabel = (level: { label: string; value: number }): string =>
+    superuserAccessLevel !== null && level.value === superuserAccessLevel ? "Superuser" : level.label;
+  const isEditingOwnUser = currentUserEmail !== null && currentUserEmail === user?.email?.toLowerCase();
+  const assignableAccessLevels = accessLevels.filter((level) => {
+    if (currentUserRole === "superuser") return true;
+    return level.value <= adminMaxManualLevel && !salesforceOnlyLevels.has(level.value);
+  });
+  const selectedManualAccessLevelConfig = accessLevels.find((level) => level.value === manualAccessLevel);
+  const previewEffectiveAccess =
+    user?.accessLevelSource === "manual" || user?.accessLevelSource === "default"
+      ? {
+          label: selectedManualAccessLevelConfig
+            ? getAccessLevelDisplayLabel(selectedManualAccessLevelConfig)
+            : user.accessLevelLabel || "Public",
+          level: manualAccessLevel,
+          source: "manual",
+        }
+      : {
+          label: user?.accessLevelLabel || "Public",
+          level: user?.accessLevel ?? null,
+          source: user?.accessLevelSource || "default",
+        };
 
   const mainContent = (
     <>
@@ -509,6 +601,70 @@ export default function EditUserPage({ siteConfig }: PageProps) {
                 </>
               )}
             </div>
+
+            {siteConfig?.accessControl?.enabled && (
+              <div className="rounded border bg-gray-50 p-4">
+                <h3 className="text-base font-semibold mb-3">Library Access</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="font-medium text-gray-700">Effective access:</span>
+                    <div className="mt-1 rounded border bg-white px-3 py-2">
+                      {previewEffectiveAccess.label}
+                      {typeof previewEffectiveAccess.level === "number" && (
+                        <span className="text-gray-500"> ({previewEffectiveAccess.level})</span>
+                      )}
+                    </div>
+                    <p className="mt-1 text-xs text-gray-600">
+                      Source: {previewEffectiveAccess.source}
+                      {user.salesforceAccessLevelLabel ? `, Salesforce: ${user.salesforceAccessLevelLabel}` : ""}
+                    </p>
+                  </div>
+                  <div>
+                    <label htmlFor="manualAccessLevel" className="block text-sm font-medium mb-1">
+                      Manual access level
+                    </label>
+                    <select
+                      id="manualAccessLevel"
+                      className="w-full rounded border px-3 py-2 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                      value={manualAccessLevel}
+                      onChange={(event) => setManualAccessLevel(Number(event.target.value))}
+                      disabled={isEditingOwnUser}
+                    >
+                      {assignableAccessLevels.map((level) => (
+                        <option key={level.key} value={level.value}>
+                          {getAccessLevelDisplayLabel(level)} ({level.value})
+                        </option>
+                      ))}
+                    </select>
+                    <p className="mt-1 text-xs text-gray-600">
+                      {isEditingOwnUser
+                        ? "You cannot change your own access level."
+                        : "Minister and Lightbearer levels are Salesforce-controlled for user admins."}
+                    </p>
+                  </div>
+                </div>
+                {(user.salesforceId || user.lastSalesforceSyncAt || user.salesforceLastLookupError) && (
+                  <div className="mt-3 text-xs text-gray-600">
+                    {user.salesforceId && <div>Salesforce ID: {user.salesforceId}</div>}
+                    {user.salesforceMatchStatus && <div>Salesforce match: {user.salesforceMatchStatus}</div>}
+                    {user.lastSalesforceSyncAt && (
+                      <div>Last Salesforce sync: {new Date(user.lastSalesforceSyncAt).toLocaleString()}</div>
+                    )}
+                    {user.salesforceLastLookupError && (
+                      <div className="text-red-700">Last lookup error: {user.salesforceLastLookupError}</div>
+                    )}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={syncSalesforceAccess}
+                  disabled={syncingAccess}
+                  className="mt-3 rounded border border-blue-600 px-3 py-2 text-sm text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+                >
+                  {syncingAccess ? "Syncing…" : "Sync Salesforce Access"}
+                </button>
+              </div>
+            )}
 
             {/* Approver Settings Section - Only visible for admin/superuser roles */}
             {(role === "admin" || role === "superuser") && (

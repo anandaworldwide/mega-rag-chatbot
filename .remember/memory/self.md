@@ -2498,6 +2498,38 @@ produces misleading low-memory warnings on smaller machines like 2 GB instances.
 **Correct**: Use a relative threshold based on available-memory percentage (for example `<25% free`) so warnings reflect
 actual pressure across different host sizes.
 
+### Mistake: Building Retrieval Filters Without Passing Them To The Retriever
+
+**Wrong**: Constructing a Pinecone/LangChain filter object, passing it through helper signatures, but omitting it from the
+final `vectorStore.asRetriever({ ... })` options. The code looks filtered while retrieval still searches the full index.
+
+**Correct**: Verify the final retriever/search call consumes the filter, e.g. `vectorStore.asRetriever({ k, filter })`, and
+include tests or type checks around the actual call site when changing access-control filters.
+
+### Mistake: Inferring Ingestion Access From Paths
+
+**Wrong**: Deriving content `required_access_level` during ingestion from file paths, folder names, or site-config
+path patterns. That silently makes directory layout an authorization input.
+
+**Correct**: Treat ingestion access metadata as explicit source data: use a command-line value for manually run
+audio/video ingestion, a named source field for SQL/database ingestion, and default missing metadata to public `0`.
+
+### Mistake: Treating Placeholder External IDs As Valid Matches
+
+**Wrong**: Treating placeholder external IDs like `NA`, `N/A`, `none`, or `not_found` as valid match identifiers, then
+letting an external default value override local/manual user state.
+
+**Correct**: Normalize placeholder IDs to `null`, mark the lookup as not found, clear external override fields, and require
+a real external ID before external access values can override manual values.
+
+### Mistake: Patching Around Missing Local NLP Models During Local Dev
+
+**Wrong**: Adding application/test fallbacks for a missing local spaCy model when the intended local-dev path is to install
+the real model and exercise production-like chunking behavior.
+
+**Correct**: Install the spaCy model into the uv-managed environment, e.g. `uv pip install <model-wheel-url>` when
+`python -m spacy download ...` is blocked by pip config. Only add blank-model fallbacks for explicit CI behavior.
+
 ### Mistake: Comparing ISO SQLite Timestamps To `datetime('now')` Without Normalization
 
 **Wrong**: Comparing stored timestamps like `2026-03-28T22:52:29.637057` directly against SQLite `datetime('now')` using

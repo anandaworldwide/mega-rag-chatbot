@@ -6,6 +6,29 @@ This document outlines the implementation plan for a comprehensive site-specific
 Library Chatbot monorepo. The system will replace the current exclusion-based access control with an inclusion-based
 model where each site can define its own access hierarchy.
 
+## Current Implementation Notes
+
+The implemented access-control model uses `web/site-config/config.json` `accessControl` settings rather than the
+earlier draft `accessLevels` object shown below. Each configured level has a `key`, display `label`, and numeric
+`value`; users can retrieve content where their effective access level is greater than or equal to the vector's
+`required_access_level`.
+
+User access is resolved in this order:
+
+1. `superuser` role receives the configured `superuserLevel`.
+2. A valid Salesforce match can provide `salesforceAccessLevel`.
+3. Admin-managed `manualAccessLevel` applies when Salesforce has not matched.
+4. The site's `defaultLevel` applies as the fallback.
+
+Pinecone vectors now carry both legacy `access_level` string metadata and numeric `required_access_level` metadata.
+New ingestion should treat required access as explicit source data: audio/video uses a command-line
+`--required-access-level`, SQL/database ingestion can read a named source column via `--required-access-level-field`,
+and public/default sources write `required_access_level: 0`.
+
+Salesforce integration is optional and site-config gated. When configured with
+`SALESFORCE_ACCESS_LOOKUP_WEBHOOK_URL`, admins can manually sync a user, and the scheduled
+`/api/cron/syncUserAccessLevels` job refreshes due accepted users in bounded batches.
+
 ## Requirements
 
 ### Core Requirements

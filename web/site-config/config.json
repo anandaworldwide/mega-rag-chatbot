@@ -28,9 +28,63 @@
       "ananda.org",
       "Crystal Clarity"
     ],
-    "excludedAccessLevels": ["kriyaban"],
-    "accessLevelPathMap": {
-      "kriyaban": ["Kriyaban Only"]
+    "accessControl": {
+      "enabled": true,
+      "defaultLevel": 0,
+      "superuserLevel": 9999,
+      "originUrl": "https://luca.ananda.org",
+      "manualAssignmentCaps": {
+        "userAdminMaxLevel": 500,
+        "superuserMaxLevel": 9999
+      },
+      "salesforceOnlyLevels": [600, 700],
+      "levels": [
+        {
+          "key": "public",
+          "label": "Public",
+          "value": 0
+        },
+        {
+          "key": "disciple",
+          "label": "Disciple",
+          "value": 100
+        },
+        {
+          "key": "kriyaban",
+          "label": "Kriyaban",
+          "value": 200
+        },
+        {
+          "key": "ananda_library_access",
+          "label": "Ananda Library Access",
+          "value": 300
+        },
+        {
+          "key": "second_kriya",
+          "label": "Second Kriya",
+          "value": 400
+        },
+        {
+          "key": "third_and_fourth_kriya",
+          "label": "Third and Fourth Kriya",
+          "value": 500
+        },
+        {
+          "key": "minister",
+          "label": "Minister",
+          "value": 600
+        },
+        {
+          "key": "lightbearer",
+          "label": "Lightbearer",
+          "value": 700
+        },
+        {
+          "key": "admin",
+          "label": "Superuser",
+          "value": 9999
+        }
+      ]
     },
     "libraryMappings": {
       "Ananda Youtube": {

@@ -283,6 +283,10 @@ export default function AdminPendingUsersPage({ siteConfig }: AdminPendingUsersP
                       {isDemoModeEnabled() ? maskEmail(u.email) : u.email}
                     </span>
                   </div>
+                  <div className="inline-flex w-fit items-center rounded-full bg-yellow-100 px-2.5 py-1 text-xs font-medium text-yellow-800">
+                    Awaiting activation
+                  </div>
+                  <p className="text-xs text-gray-500">Waiting for the user to click their activation email.</p>
                   <div className="grid grid-cols-2 gap-3 text-sm">
                     <div>
                       <div className="text-gray-500 text-xs mb-1">Invited</div>
@@ -322,6 +326,7 @@ export default function AdminPendingUsersPage({ siteConfig }: AdminPendingUsersP
                   <th className="py-3 px-4 font-medium text-gray-900">Email</th>
                   <th className="py-3 px-4 font-medium text-gray-900">Invited</th>
                   <th className="py-3 px-4 font-medium text-gray-900">Expires</th>
+                  <th className="py-3 px-4 font-medium text-gray-900">Status</th>
                   <th className="py-3 px-4 font-medium text-gray-900">Sent By</th>
                   <th className="py-3 px-4 font-medium text-gray-900">Actions</th>
                 </tr>
@@ -334,6 +339,14 @@ export default function AdminPendingUsersPage({ siteConfig }: AdminPendingUsersP
                     </td>
                     <td className="py-3 px-4 text-gray-600">{u.invitedAt || "–"}</td>
                     <td className="py-3 px-4 text-gray-600">{u.expiresAt || "–"}</td>
+                    <td className="py-3 px-4">
+                      <div className="flex flex-col gap-1">
+                        <span className="inline-flex w-fit items-center rounded-full bg-yellow-100 px-2.5 py-1 text-xs font-medium text-yellow-800">
+                          Awaiting activation
+                        </span>
+                        <span className="text-xs text-gray-500">User must click activation email</span>
+                      </div>
+                    </td>
                     <td className="py-3 px-4 text-gray-600">
                       {u.invitedByEmail || u.invitedByName ? (
                         <span>

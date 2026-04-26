@@ -101,7 +101,7 @@ from data_ingestion.utils.s3_utils import S3UploadError, upload_to_s3  # noqa: E
 from pyutil.env_utils import load_env  # noqa: E402
 from pyutil.logging_utils import configure_logging  # noqa: E402
 from pyutil.site_config_utils import (  # noqa: E402
-    determine_access_level,
+    get_access_level_key_for_required_level,
     load_site_config,
 )
 
@@ -430,6 +430,7 @@ def _process_and_store_transcription(
     library_name,
     s3_key,
     site_config,
+    required_access_level,
     site=None,
 ):
     """
@@ -498,11 +499,12 @@ def _process_and_store_transcription(
                 content_type = "video" if is_youtube_video else "audio"
                 source_identifier = url if is_youtube_video else s3_key
 
-                # Load site configuration and determine access level
-                access_level = determine_access_level(file_path, site_config)
+                access_level = get_access_level_key_for_required_level(
+                    required_access_level, site_config
+                )
 
                 logger.debug(
-                    f"Determined access_level='{access_level}' for file: {file_path}"
+                    f"Using access_level='{access_level}', required_access_level={required_access_level} for file: {file_path}"
                 )
 
                 # Use valid_chunks (not original chunks) to ensure proper alignment
@@ -518,6 +520,7 @@ def _process_and_store_transcription(
                     source_identifier,
                     album=album,
                     access_level=access_level,
+                    required_access_level=required_access_level,
                 )
             except Exception as e:
                 error_msg = f"Error processing {'YouTube video' if is_youtube_video else 'file'} {file_name}: {str(e)}"
@@ -581,6 +584,7 @@ def process_file(
     default_author,
     library_name,
     site_config,
+    required_access_level=0,
     is_youtube_video=False,
     youtube_data=None,
     s3_key=None,
@@ -648,6 +652,7 @@ def process_file(
         library_name,
         s3_key,
         site_config,
+        required_access_level,
         site=site,
     )
 
@@ -803,6 +808,7 @@ def process_item(item, args, client, index, site_config):
         default_author=author,
         library_name=library,
         site_config=site_config,
+        required_access_level=args.required_access_level,
         is_youtube_video=is_youtube_video,
         youtube_data=youtube_data,
         s3_key=s3_key,
@@ -1017,6 +1023,12 @@ def merge_reports(reports):
 
 def _parse_arguments():
     """Parse command line arguments."""
+    def non_negative_int(value):
+        parsed_value = int(value)
+        if parsed_value < 0:
+            raise argparse.ArgumentTypeError("must be 0 or greater")
+        return parsed_value
+
     parser = argparse.ArgumentParser(
         description="Audio and video transcription and indexing script",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1047,6 +1059,15 @@ def _parse_arguments():
         "--override-conflicts",
         action="store_true",
         help="Continue processing even if filename conflicts are found",
+    )
+    processing.add_argument(
+        "--required-access-level",
+        type=non_negative_int,
+        default=0,
+        help=(
+            "Numeric access level required to retrieve this audio/video content "
+            "(default: 0/public)."
+        ),
     )
 
     # Queue management options

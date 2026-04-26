@@ -37,7 +37,8 @@ Ready to build your AI assistant? Here's what you'll need:
 
 - **Configure unlimited sites** with unique branding, prompts, and data sources
 - **Production deployments** serving 4 different organizations simultaneously
-- **Granular access control** with user authentication and content-level permissions
+- **Granular access control** with user authentication, content-level permissions, and optional Salesforce access-level
+  sync
 - **White-label ready** with customizable UI, logos, and domain mapping
 
 ### 📚 Universal Content Ingestion

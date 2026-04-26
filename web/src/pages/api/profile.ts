@@ -13,6 +13,8 @@ import { getDefaultEmailPreferences, migrateEmailPreferences } from "@/utils/ser
 import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import type { EmailCategory } from "@/types/user";
+import { buildAccessLevelResponseFields } from "@/utils/server/accessLevelUtils";
+import { syncUserAccessLevelFromSalesforce } from "@/utils/server/salesforceAccessSync";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Rate limit
@@ -91,6 +93,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         dismissedPasswordPromo: typeof data?.dismissedPasswordPromo === "boolean" ? data.dismissedPasswordPromo : false,
         verifiedAt: data?.verifiedAt?.toDate?.() ?? null, // When account was activated
         preferredModel: typeof data?.preferredModel === "string" ? data.preferredModel : null,
+        ...buildAccessLevelResponseFields({ ...data, role }, siteConfig),
       });
     }
 
@@ -243,6 +246,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         } catch (emailError) {
           // Log email error but don't fail the profile update
           console.error("Failed to send welcome email:", emailError);
+        }
+
+        try {
+          const siteConfig = await loadSiteConfig();
+          if (siteConfig?.accessControl?.enabled) {
+            await syncUserAccessLevelFromSalesforce(email, siteConfig);
+          }
+        } catch (accessSyncError) {
+          console.error("Failed to sync Salesforce access after activation:", accessSyncError);
         }
       }
 

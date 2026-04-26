@@ -100,6 +100,8 @@ class TestArgumentParsing(unittest.TestCase):
             "--batch-size",
             "100",
             "--dry-run",
+            "--required-access-level-field",
+            "luca_required_access_level",
         ]
 
         with patch("sys.argv", ["ingest_db_text.py"] + test_args):
@@ -108,6 +110,9 @@ class TestArgumentParsing(unittest.TestCase):
             self.assertTrue(args.keep_data)
             self.assertEqual(args.batch_size, 100)
             self.assertTrue(args.dry_run)
+            self.assertEqual(
+                args.required_access_level_field, "luca_required_access_level"
+            )
 
 
 class TestS3ExclusionRules(unittest.TestCase):
@@ -664,6 +669,73 @@ class TestExclusionRulesIntegration(unittest.TestCase):
             # Should include all posts when no exclusion rules are active
             self.assertEqual(len(processed_data), 1)
             self.assertEqual(processed_data[0]["id"], 1)
+
+    @patch(
+        "data_ingestion.sql_to_vector_db.ingest_db_text.download_exclusion_rules_from_s3"
+    )
+    @patch("data_ingestion.sql_to_vector_db.ingest_db_text.pymysql.connect")
+    def test_fetch_data_uses_required_access_level_field(
+        self, mock_connect, mock_download_rules
+    ):
+        """Test that source DB access-level fields are written to processed metadata."""
+        mock_download_rules.return_value = None
+        mock_connection = MagicMock()
+        mock_cursor = MagicMock()
+        mock_connection.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_connect.return_value = mock_connection
+
+        mock_cursor.fetchall.return_value = [
+            {
+                "ID": 1,
+                "post_content": "<p>Restricted content</p>",
+                "post_name": "restricted-post",
+                "post_title": "Restricted Post",
+                "PARENT_TITLE_1": None,
+                "PARENT_TITLE_2": None,
+                "PARENT_TITLE_3": None,
+                "PARENT_SLUG_1": None,
+                "PARENT_SLUG_2": None,
+                "PARENT_SLUG_3": None,
+                "CHILD_TITLE": "Restricted Post",
+                "post_author": 1,
+                "post_date": datetime(2023, 6, 15),
+                "post_type": "content",
+                "categories": "Kriya",
+                "authors_list": "Test Author",
+                "PARENT3_AUTHOR_ID": 1,
+                "post_parent": 0,
+                "REQUIRED_ACCESS_LEVEL": 200,
+            }
+        ]
+
+        site_config = {
+            "base_url": "https://example.com/",
+            "post_types": ["content"],
+            "category_taxonomy": "library-category",
+        }
+        access_site_config = {
+            "accessControl": {
+                "enabled": True,
+                "levels": [{"key": "kriyaban", "label": "Kriyaban", "value": 200}],
+            }
+        }
+
+        with patch(
+            "data_ingestion.sql_to_vector_db.ingest_db_text.replace_smart_quotes"
+        ) as mock_replace_quotes:
+            mock_replace_quotes.side_effect = lambda x: x
+            processed_data = ingest_db_text.fetch_data(
+                mock_connection,
+                site_config,
+                "Test Library",
+                {1: "Test Author"},
+                "ananda",
+                required_access_level_field="luca_required_access_level",
+                access_site_config=access_site_config,
+            )
+
+        self.assertEqual(processed_data[0]["required_access_level"], 200)
+        self.assertEqual(processed_data[0]["access_level"], "kriyaban")
 
 
 class TestEnvironmentLoading(unittest.TestCase):

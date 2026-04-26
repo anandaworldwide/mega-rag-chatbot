@@ -31,6 +31,8 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
   const [role, setRole] = useState<string>("user");
+  const [accessLevelLabel, setAccessLevelLabel] = useState<string | null>(null);
+  const [accessLevel, setAccessLevel] = useState<number | null>(null);
   const [savingProfile, setSavingProfile] = useState(false);
 
   // Chat preferences state
@@ -124,13 +126,19 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
               setPreferredModel(profile.preferredModel);
               localStorage.setItem("selectedModel", profile.preferredModel);
             }
+            setAccessLevel(typeof profile?.accessLevel === "number" ? profile.accessLevel : null);
+            setAccessLevelLabel(typeof profile?.accessLevelLabel === "string" ? profile.accessLevelLabel : null);
           } else {
             setEmail(null);
             setRole("user");
+            setAccessLevel(null);
+            setAccessLevelLabel(null);
           }
         } catch {
           setEmail(null);
           setRole("user");
+          setAccessLevel(null);
+          setAccessLevelLabel(null);
         }
       } catch (e: any) {
         setMessage(e?.message || "Failed to load settings");
@@ -307,6 +315,12 @@ export default function SettingsPage({ siteConfig }: { siteConfig: SiteConfig | 
                         Superuser
                       </span>
                     )}
+                  </div>
+                )}
+                {accessLevelLabel && (
+                  <div className="mt-3 text-sm text-gray-700">
+                    <span className="font-medium">Library access:</span> {accessLevelLabel}
+                    {accessLevel !== null && <span className="text-gray-500"> ({accessLevel})</span>}
                   </div>
                 )}
               </section>

@@ -27,6 +27,19 @@ python sql_to_vector_db/ingest_db_text.py \
   --library "Ananda Library"
 ```
 
+If the source `wp_posts` table has a numeric column for content access, pass it explicitly:
+
+```bash
+python sql_to_vector_db/ingest_db_text.py \
+  --site ananda \
+  --database anandalib_2025_03_06 \
+  --library "Ananda Library" \
+  --required-access-level-field luca_required_access_level
+```
+
+Missing or blank source values default to public (`required_access_level: 0`). The script also writes the legacy
+`access_level` string for compatibility.
+
 ### Audio & Video Transcription
 
 #### Media File Processing
