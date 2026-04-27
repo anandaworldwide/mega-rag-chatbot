@@ -117,6 +117,19 @@ describe("Admin UI · Edit User page", () => {
     expect((roleSelect as HTMLSelectElement).value).toBe("user");
   });
 
+  it("shows a prominent blacklisted notice when the user is blacklisted", async () => {
+    mockFetchWithAuth
+      .mockResolvedValueOnce(mockProfileResponse())
+      .mockResolvedValueOnce(buildUserResponse({ isBlacklisted: true } as any));
+
+    render(<EditUserPage siteConfig={{ siteId: "test" } as any} />);
+
+    const notice = await screen.findByRole("alert");
+    expect(notice).toHaveTextContent("Blacklisted User");
+    expect(notice).toHaveTextContent("blocked from logging in");
+    expect(notice).toHaveClass("bg-black");
+  });
+
   it("submits form successfully without email change", async () => {
     mockFetchWithAuth
       .mockResolvedValueOnce(mockProfileResponse()) // profile

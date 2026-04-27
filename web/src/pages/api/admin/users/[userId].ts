@@ -56,6 +56,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const doc = await db.collection(usersCol).doc(currentId).get();
       if (!doc.exists) return res.status(404).json({ error: "User not found" });
       const data = doc.data() || {};
+      const siteIdForBlacklist = process.env.SITE_ID || siteConfig?.siteId;
+      const isBlacklisted = siteIdForBlacklist ? await isEmailBlacklisted(currentId, siteIdForBlacklist) : false;
 
       // Fetch user's total question count for all admin roles
       let conversationCount = 0;
@@ -129,6 +131,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           isApprover: typeof (data as any)?.isApprover === "boolean" ? (data as any).isApprover : false,
           approverLocation: typeof (data as any)?.approverLocation === "string" ? (data as any).approverLocation : null,
           approverRegion: typeof (data as any)?.approverRegion === "string" ? (data as any).approverRegion : null,
+          isBlacklisted,
           ...buildAccessLevelResponseFields(data, siteConfig),
         },
       });

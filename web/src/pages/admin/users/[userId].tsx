@@ -40,6 +40,7 @@ interface UserDetail {
   salesforceId?: string | null;
   salesforceMatchStatus?: string | null;
   salesforceLastLookupError?: string | null;
+  isBlacklisted?: boolean;
 }
 
 interface PageProps {
@@ -469,6 +470,19 @@ export default function EditUserPage({ siteConfig }: PageProps) {
         <div className="text-sm text-gray-700">User not found</div>
       ) : (
         <>
+          {user.isBlacklisted && (
+            <div
+              role="alert"
+              className="mb-6 rounded-lg border-2 border-black bg-black p-5 text-white shadow-lg"
+            >
+              <div className="text-xl font-bold uppercase tracking-wide">Blacklisted User</div>
+              <p className="mt-2 text-sm">
+                This email address is on the site blacklist. The user is blocked from logging in or receiving access
+                links until the address is removed from the blacklist.
+              </p>
+            </div>
+          )}
+
           {/* User Information Section */}
           <div className="mb-6 rounded border bg-gray-50 p-4">
             <h2 className="text-lg font-semibold mb-3">User Information</h2>

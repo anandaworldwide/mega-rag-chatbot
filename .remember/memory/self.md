@@ -2642,3 +2642,11 @@ to users, but send `opsMessage` in alert emails.
 
 **Correct**: For npm security fixes in this repo, explicitly select aged versions and verify the resulting `package-lock.json`
 does not contain newer-than-cooldown versions. Use exact root `overrides` for transitive lockfile fixes when needed.
+
+### Mistake: Sending Ops Alerts Without Server Logs
+
+**Wrong**: Sending an operational alert email for an infrastructure failure without also logging the failure in server
+logs. If email delivery works but logs are silent, operators lose the deploy/runtime trail needed for correlation.
+
+**Correct**: In every ops-alert error branch, write a structured `console.error` with sanitized error details before or
+alongside `sendOpsAlert`.

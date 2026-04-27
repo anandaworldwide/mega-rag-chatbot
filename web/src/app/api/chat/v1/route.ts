@@ -681,6 +681,17 @@ Error context: ${error.message}`,
           "The chatbot is temporarily unavailable. An alert email has been sent to operations about the issue. Please try again later.",
       });
 
+      const sanitizedError = sanitizeErrorForLogging(error);
+      console.error("Pinecone vector database connection failed during chat request processing.", {
+        error: sanitizedError.message,
+        name: sanitizedError.name,
+        code: sanitizedError.code,
+        type: sanitizedError.type,
+        errorType: "pinecone_connection_failure",
+        apiEndpoint: "/api/chat/v1",
+        timestamp: new Date().toISOString(),
+      });
+
       // Send ops alert for Pinecone connection failures
       sendOpsAlert(
         `CRITICAL: Pinecone Vector Database Connection Failure`,
