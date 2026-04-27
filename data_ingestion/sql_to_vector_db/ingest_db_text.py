@@ -76,6 +76,7 @@ from reportlab.lib.pdfencrypt import StandardEncryption
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
+from data_ingestion.utils.ingestion_run_logger import IngestionRunLogger
 from data_ingestion.utils.pinecone_utils import generate_vector_id
 from data_ingestion.utils.progress_utils import (
     ProgressConfig,
@@ -2611,6 +2612,18 @@ def _handle_rows(
 def _run_ingestion(args: argparse.Namespace) -> None:
     """Execute the ingestion flow with setup, processing, and teardown."""
     load_environment(args.site)
+    run_logger = IngestionRunLogger.from_environment()
+    run_record = run_logger.start_run(
+        method="sql_database",
+        site=args.site,
+        args=args,
+        source_summary={
+            "database": args.database,
+            "library": args.library_name,
+            "max_records": args.max_records,
+            "required_access_level_field": args.required_access_level_field,
+        },
+    )
     site_config = get_config(args.site)
     access_site_config = load_site_config(args.site)
 
@@ -2619,6 +2632,17 @@ def _run_ingestion(args: argparse.Namespace) -> None:
     processed_doc_ids: set[int] = set()
     processed_count_session = 0
     last_processed_id_session = 0
+    outcome: dict[str, object] = {
+        "database": args.database,
+        "library": args.library_name,
+        "fetched_records": 0,
+        "processed": 0,
+        "skipped": 0,
+        "errors": 0,
+        "last_processed_id": 0,
+        "dry_run": args.dry_run,
+        "no_pinecone": args.no_pinecone,
+    }
 
     try:
         db_connection, pinecone_index = setup_connections_and_index(
@@ -2638,6 +2662,7 @@ def _run_ingestion(args: argparse.Namespace) -> None:
             args.required_access_level_field,
             access_site_config,
         )
+        outcome["fetched_records"] = len(all_rows)
 
         if all_rows:
             (
@@ -2655,6 +2680,15 @@ def _run_ingestion(args: argparse.Namespace) -> None:
                 args.no_pinecone,
                 checkpoint_file,
             )
+            outcome.update(
+                {
+                    "processed": processed_count_session,
+                    "skipped": skipped_count_session,
+                    "errors": error_count_session,
+                    "last_processed_id": last_processed_id_session,
+                    "unique_documents_processed_overall": len(processed_doc_ids),
+                }
+            )
 
             _print_session_summary(
                 processed_count_session,
@@ -2666,6 +2700,7 @@ def _run_ingestion(args: argparse.Namespace) -> None:
             )
         else:
             logger.info("Exiting as no data was fetched.")
+        run_logger.finish_run(run_record, outcome=outcome)
 
     except KeyboardInterrupt:
         logger.info("\nKeyboardInterrupt received. Attempting final checkpoint save...")
@@ -2684,6 +2719,7 @@ def _run_ingestion(args: argparse.Namespace) -> None:
             text_splitter.metrics.print_summary()
 
         logger.info("Exiting due to KeyboardInterrupt.")
+        run_logger.fail_run(run_record, error="KeyboardInterrupt", outcome=outcome)
         sys.exit(1)
     except Exception as e:  # noqa: BLE001 — top-level handler logs and exits
         logger.error("\n--- An unexpected error occurred during the main process ---")
@@ -2707,6 +2743,7 @@ def _run_ingestion(args: argparse.Namespace) -> None:
             logger.info("")
             text_splitter.metrics.print_summary()
 
+        run_logger.fail_run(run_record, error=e, outcome=outcome)
         sys.exit(1)
     finally:
         logger.info("Closing database connection...")

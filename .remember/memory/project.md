@@ -153,8 +153,9 @@ except ImportError:
 - **Pinecone ops scripts**: Prefer `--vector-id-prefix` style selectors over broad title substring matching when the ID
   structure can target the document set directly
 - **Pinecone debug caching**: Cache only listed vector IDs locally for repeated runs; do not cache full mutable metadata
-- **Ingestion access metadata**: Do not infer required content access from file paths or folders. Audio/video ingestion uses an
-  explicit CLI value, SQL/database ingestion reads an explicitly named source field, and missing values default to public `0`.
+- **Ingestion access metadata**: Do not infer required content access from file paths or folders. Audio/video ingestion stores
+  an explicit `--required-access-level` value on queue items from `manage_queue.py`; processing reads it from the queue.
+  SQL/database ingestion reads an explicitly named source field, and missing values default to public `0`.
 - **Site and Environment Pattern**:
   - Always add `--site` argument (required) for loading `.env.[site]` files
   - Add `-e` or `--env` argument with `choices=['dev', 'prod']` and `default='prod'` (or 'dev' if appropriate)

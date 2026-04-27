@@ -96,6 +96,7 @@ from data_ingestion.audio_video.youtube_utils import (  # noqa: E402
     extract_youtube_id,
 )
 from data_ingestion.utils.author_normalization import normalize_author  # noqa: E402
+from data_ingestion.utils.ingestion_run_logger import IngestionRunLogger  # noqa: E402
 from data_ingestion.utils.pinecone_utils import clear_library_vectors  # noqa: E402
 from data_ingestion.utils.s3_utils import S3UploadError, upload_to_s3  # noqa: E402
 from pyutil.env_utils import load_env  # noqa: E402
@@ -797,6 +798,7 @@ def process_item(item, args, client, index, site_config):
     author = item["data"]["author"]
     library = item["data"]["library"]
     s3_key = item["data"].get("s3_key")
+    required_access_level = int(item["data"].get("required_access_level", 0) or 0)
 
     start_time = time.time()
     report = process_file(
@@ -808,7 +810,7 @@ def process_item(item, args, client, index, site_config):
         default_author=author,
         library_name=library,
         site_config=site_config,
-        required_access_level=args.required_access_level,
+        required_access_level=required_access_level,
         is_youtube_video=is_youtube_video,
         youtube_data=youtube_data,
         s3_key=s3_key,
@@ -1023,12 +1025,6 @@ def merge_reports(reports):
 
 def _parse_arguments():
     """Parse command line arguments."""
-    def non_negative_int(value):
-        parsed_value = int(value)
-        if parsed_value < 0:
-            raise argparse.ArgumentTypeError("must be 0 or greater")
-        return parsed_value
-
     parser = argparse.ArgumentParser(
         description="Audio and video transcription and indexing script",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1060,16 +1056,6 @@ def _parse_arguments():
         action="store_true",
         help="Continue processing even if filename conflicts are found",
     )
-    processing.add_argument(
-        "--required-access-level",
-        type=non_negative_int,
-        default=0,
-        help=(
-            "Numeric access level required to retrieve this audio/video content "
-            "(default: 0/public)."
-        ),
-    )
-
     # Queue management options
     queue = parser.add_argument_group("Queue Management")
     queue.add_argument(
@@ -1270,6 +1256,24 @@ def main():
     args = _parse_arguments()
     initialize_environment(args)
     ingest_queue = IngestQueue(queue_dir=args.queue) if args.queue else IngestQueue()
+    run_logger = IngestionRunLogger.from_environment()
+    run_record = run_logger.start_run(
+        method="media_process",
+        site=args.site,
+        args=args,
+        source_summary={
+            "queue": args.queue,
+            "force": args.force,
+            "clear_vectors": args.clear_vectors,
+            "dryrun": args.dryrun,
+        },
+    )
+    outcome = {
+        "queue": args.queue,
+        "force": args.force,
+        "clear_vectors": args.clear_vectors,
+        "dryrun": args.dryrun,
+    }
 
     if args.queue:
         logger.info(f"Using queue: {args.queue}")
@@ -1280,6 +1284,9 @@ def main():
     user_input = input("Is it OK to proceed? (Yes/no): ")
     if user_input.lower() in ["no", "n"]:
         logger.info("Operation aborted by the user.")
+        outcome["aborted_by_user"] = True
+        outcome["queue_status"] = ingest_queue.get_queue_status()
+        run_logger.finish_run(run_record, status="aborted", outcome=outcome)
         sys.exit(0)
 
     try:
@@ -1300,9 +1307,11 @@ def main():
             logger.error(
                 "Please upgrade your Pinecone plan or change the region configuration."
             )
+            run_logger.fail_run(run_record, error=e, outcome=outcome)
             sys.exit(1)
         else:
             # Re-raise other exceptions
+            run_logger.fail_run(run_record, error=e, outcome=outcome)
             raise
 
     overall_report = {
@@ -1333,9 +1342,11 @@ def main():
             logger.error(
                 "Please upgrade your Pinecone plan or change the region configuration."
             )
+            run_logger.fail_run(run_record, error=e, outcome=outcome)
             sys.exit(1)
         else:
             # Re-raise other exceptions
+            run_logger.fail_run(run_record, error=e, outcome=outcome)
             raise
 
     print("\nOverall Processing Report:")
@@ -1348,6 +1359,18 @@ def main():
 
     queue_status = ingest_queue.get_queue_status()
     logger.info(f"Final queue status: {queue_status}")
+    outcome.update(
+        {
+            "processed": overall_report.get("processed", 0),
+            "skipped": overall_report.get("skipped", 0),
+            "errors": overall_report.get("errors", 0),
+            "fully_indexed": overall_report.get("fully_indexed", 0),
+            "private_videos": overall_report.get("private_videos", 0),
+            "warnings": len(overall_report.get("warnings", [])),
+            "queue_status": queue_status,
+        }
+    )
+    run_logger.finish_run(run_record, outcome=outcome)
 
     # Explicitly reset the terminal state
     reset_terminal()

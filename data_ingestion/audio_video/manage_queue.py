@@ -119,6 +119,7 @@ from data_ingestion.audio_video.youtube_utils import (  # noqa: E402
     load_youtube_data_map,
 )
 from data_ingestion.utils.author_normalization import normalize_author  # noqa: E402
+from data_ingestion.utils.ingestion_run_logger import IngestionRunLogger  # noqa: E402
 from pyutil.env_utils import load_env  # noqa: E402
 from pyutil.logging_utils import configure_logging  # noqa: E402
 
@@ -128,6 +129,14 @@ with open(os.path.join(script_dir, "library_config.json")) as f:
     LIBRARY_CONFIG = json.load(f)
 
 logger = logging.getLogger(__name__)
+
+
+def non_negative_int(value):
+    """Parse a non-negative integer CLI value."""
+    parsed_value = int(value)
+    if parsed_value < 0:
+        raise argparse.ArgumentTypeError("must be 0 or greater")
+    return parsed_value
 
 
 def initialize_environment(args):
@@ -166,7 +175,9 @@ def get_unique_files(directory_path):
     return list(unique_files.values())
 
 
-def process_audio_input(input_path, queue, default_author, library, site_id=None):
+def process_audio_input(
+    input_path, queue, default_author, library, site_id=None, required_access_level=0
+):
     """
     Routes audio processing based on input type (single file vs directory).
 
@@ -195,6 +206,7 @@ def process_audio_input(input_path, queue, default_author, library, site_id=None
                     "library": LIBRARY_CONFIG[library],
                     "s3_folder": s3_folder,
                     "s3_key": s3_key,
+                    "required_access_level": required_access_level,
                 },
             )
             if item_id:
@@ -207,13 +219,17 @@ def process_audio_input(input_path, queue, default_author, library, site_id=None
             logger.error(f"Unsupported file type: {input_path}")
             return []
     elif os.path.isdir(input_path):
-        return process_directory(input_path, queue, default_author, library, site_id)
+        return process_directory(
+            input_path, queue, default_author, library, site_id, required_access_level
+        )
     else:
         logger.error(f"Invalid input path: {input_path}")
         return []
 
 
-def process_directory(directory_path, queue, default_author, library, site_id=None):
+def process_directory(
+    directory_path, queue, default_author, library, site_id=None, required_access_level=0
+):
     # Check if the library is in the config file
     if library not in LIBRARY_CONFIG:
         error_msg = f"Error: Library '{library}' not found in library_config.json. Please use a valid library name."
@@ -239,6 +255,7 @@ def process_directory(directory_path, queue, default_author, library, site_id=No
                 "library": LIBRARY_CONFIG[library],
                 "s3_folder": s3_folder,
                 "s3_key": s3_key,
+                "required_access_level": required_access_level,
             },
         )
         if item_id:
@@ -255,6 +272,7 @@ def add_to_queue(args, queue, source=None):
 
     source: Optional playlist URL for tracking video origins in bulk imports
     """
+    added_count = 0
     if args.video:
         youtube_id = extract_youtube_id(args.video)
         if youtube_id:
@@ -266,9 +284,11 @@ def add_to_queue(args, queue, source=None):
                     "author": normalize_author(args.default_author, args.site),
                     "library": args.library,
                     "source": source,  # Tracks origin playlist for duplicate detection
+                    "required_access_level": args.required_access_level,
                 },
             )
             if item_id:
+                added_count += 1
                 logger.info(f"Added YouTube video to queue: {item_id}")
             else:
                 logger.error("Failed to add YouTube video to queue")
@@ -288,9 +308,11 @@ def add_to_queue(args, queue, source=None):
                     "author": normalize_author(args.default_author, args.site),
                     "library": args.library,
                     "source": args.playlist,
+                    "required_access_level": args.required_access_level,
                 },
             )
             if item_id:
+                added_count += 1
                 logger.info(f"Added YouTube video from playlist to queue: {item_id}")
             else:
                 logger.error(f"Failed to add YouTube video to queue: {video['url']}")
@@ -298,15 +320,22 @@ def add_to_queue(args, queue, source=None):
     elif args.audio or args.directory:
         input_path = args.audio or args.directory
         added_items = process_audio_input(
-            input_path, queue, args.default_author, args.library, args.site
+            input_path,
+            queue,
+            args.default_author,
+            args.library,
+            args.site,
+            args.required_access_level,
         )
         if added_items:
+            added_count += len(added_items)
             logger.info(f"Added {len(added_items)} audio file(s) to queue")
         else:
             logger.error(f"Failed to add any audio files from: {input_path}")
 
     else:
         logger.error("No valid input provided for adding to queue")
+    return {"queued": added_count}
 
 
 def truncate_path(file_path, num_dirs=3):
@@ -588,6 +617,7 @@ def process_playlists_file(args, queue):
 
     # Add unique videos to queue with original metadata
     # Use last valid metadata from loop (or None if no valid rows processed)
+    queued_count = 0
     for video in unique_videos:
         args.video = video["url"]
         if default_author is not None:
@@ -595,9 +625,10 @@ def process_playlists_file(args, queue):
         if library is not None:
             args.library = library
         if playlist_url is not None:
-            add_to_queue(args, queue, source=playlist_url)
+            result = add_to_queue(args, queue, source=playlist_url)
         else:
-            add_to_queue(args, queue, source=None)
+            result = add_to_queue(args, queue, source=None)
+        queued_count += int(result.get("queued", 0))
 
     # Log processing summary and duplicates
     logger.info(f"Processed {processed_playlists} playlists")
@@ -605,6 +636,13 @@ def process_playlists_file(args, queue):
     logger.info(f"Unique videos added to queue: {len(unique_videos)}")
 
     _report_duplicates(video_sources, duplicates_removed)
+    return {
+        "processed_playlists": processed_playlists,
+        "videos_found": len(all_videos),
+        "unique_videos": len(unique_videos),
+        "duplicates_removed": duplicates_removed,
+        "queued": queued_count,
+    }
 
 
 def print_queue_status(queue, items=None):
@@ -661,22 +699,24 @@ def process_urls_file(args, queue):
         logger.error("Example file format (one URL per line):")
         logger.error("https://youtu.be/VIDEO_ID1")
         logger.error("https://youtu.be/VIDEO_ID2")
-        return
+        return {"queued": 0, "skipped": 0, "errors": 1}
 
     with open(args.urls_file) as f:
         urls = [line.strip() for line in f if line.strip()]
 
     if not urls:
         logger.error(f"No valid URLs found in {args.urls_file}")
-        return
+        return {"queued": 0, "skipped": 0, "errors": 1}
 
     processed = 0
     skipped = 0
+    errors = 0
 
     for url in urls:
         youtube_id = extract_youtube_id(url)
         if not youtube_id:
             logger.error(f"Invalid YouTube URL: {url}")
+            errors += 1
             continue
 
         # Check if already processed via youtube_data_map
@@ -693,6 +733,7 @@ def process_urls_file(args, queue):
                 "youtube_id": youtube_id,
                 "author": args.default_author,
                 "library": args.library,
+                    "required_access_level": args.required_access_level,
             },
         )
         if item_id:
@@ -703,6 +744,7 @@ def process_urls_file(args, queue):
 
     logger.info(f"Processed {processed} videos")
     logger.info(f"Skipped {skipped} already processed videos")
+    return {"queued": processed, "skipped": skipped, "errors": errors}
 
 
 def _setup_argument_parser():
@@ -758,6 +800,15 @@ def _setup_argument_parser():
     )
     content_required.add_argument(
         "--library", "-L", metavar="NAME", help="Name of the library"
+    )
+    content_required.add_argument(
+        "--required-access-level",
+        type=non_negative_int,
+        default=0,
+        help=(
+            "Numeric access level required to retrieve queued media "
+            "(default: 0/public)."
+        ),
     )
 
     # Queue management arguments
@@ -905,46 +956,55 @@ def _handle_status_operations(args, queue):
         print_queue_status(queue)
     else:
         list_queue_items(queue)
+    return {"operation": "status"}
 
 
 def _handle_single_item_operations(args, queue):
     """Handle single item operations (remove, reprocess)."""
     if args.remove:
         remove_item(queue, args.remove)
+        return {"operation": "remove", "item_id": args.remove}
     else:
         reprocess_item(queue, args.reprocess)
+        return {"operation": "reprocess", "item_id": args.reprocess}
 
 
 def _handle_file_operations(args, queue):
     """Handle file-based operations (playlists, urls)."""
     if args.playlists_file:
-        process_playlists_file(args, queue)
+        outcome = process_playlists_file(args, queue)
+        return {"operation": "playlists_file", **outcome}
     else:
         if not args.default_author or not args.library:
             logger.error(
                 "For adding items, you must specify both --default-author and --library"
             )
             return False
-        process_urls_file(args, queue)
-    return True
+        outcome = process_urls_file(args, queue)
+        return {"operation": "urls_file", **outcome}
 
 
 def _handle_queue_management_operations(args, queue):
     """Handle queue management operations (clear, reprocess_all)."""
     if args.clear:
         clear_queue(queue)
+        return {"operation": "clear"}
     else:
         reprocess_all_items(queue)
+        return {"operation": "reprocess_all"}
 
 
 def _handle_reset_operations(args, queue):
     """Handle reset operations (reprocess_failed, reprocess_processing_items, remove_completed)."""
     if args.reprocess_failed:
         reset_stuck_items(queue)
+        return {"operation": "reprocess_failed"}
     elif args.reprocess_processing_items:
         reset_processing_items(queue)
+        return {"operation": "reprocess_processing_items"}
     else:
         remove_completed_items(queue)
+        return {"operation": "remove_completed"}
 
 
 def _handle_content_addition_operations(args, queue):
@@ -954,8 +1014,52 @@ def _handle_content_addition_operations(args, queue):
             "For adding items, you must specify both --default-author and --library"
         )
         return False
-    add_to_queue(args, queue)
-    return True
+    outcome = add_to_queue(args, queue)
+    return {"operation": _get_queue_operation(args), **outcome}
+
+
+def _get_queue_operation(args):
+    """Return the selected queue operation name."""
+    operation_checks = [
+        ("video", args.video),
+        ("playlist", args.playlist),
+        ("audio", args.audio),
+        ("directory", args.directory),
+        ("urls_file", args.urls_file),
+        ("playlists_file", args.playlists_file),
+        ("status", args.status),
+        ("list", args.list),
+        ("clear", args.clear),
+        ("reprocess_failed", args.reprocess_failed),
+        ("remove_completed", args.remove_completed),
+        ("reprocess", args.reprocess),
+        ("reprocess_all", args.reprocess_all),
+        ("reprocess_processing_items", args.reprocess_processing_items),
+        ("remove", args.remove),
+    ]
+    for operation, selected in operation_checks:
+        if selected:
+            return operation
+    return "unknown"
+
+
+def _build_queue_source_summary(args):
+    """Return source details useful for repeating a media queue operation."""
+    return {
+        "operation": _get_queue_operation(args),
+        "queue": args.queue,
+        "site": args.site,
+        "library": args.library,
+        "default_author": args.default_author,
+        "required_access_level": args.required_access_level,
+        "video": args.video,
+        "playlist": args.playlist,
+        "audio": args.audio,
+        "directory": args.directory,
+        "urls_file": args.urls_file,
+        "playlists_file": args.playlists_file,
+        "item_id": args.remove or args.reprocess,
+    }
 
 
 def _route_operation(args, queue):
@@ -968,23 +1072,19 @@ def _route_operation(args, queue):
     """
     # Status operations
     if args.status or args.list:
-        _handle_status_operations(args, queue)
-        return
+        return _handle_status_operations(args, queue)
 
     # Single item operations
     if args.remove or args.reprocess:
-        _handle_single_item_operations(args, queue)
-        return
+        return _handle_single_item_operations(args, queue)
 
     # File-based operations
     if args.playlists_file or args.urls_file:
-        _handle_file_operations(args, queue)
-        return
+        return _handle_file_operations(args, queue)
 
     # Queue management operations
     if args.clear or args.reprocess_all:
-        _handle_queue_management_operations(args, queue)
-        return
+        return _handle_queue_management_operations(args, queue)
 
     # Reset operations
     if (
@@ -992,16 +1092,15 @@ def _route_operation(args, queue):
         or args.reprocess_processing_items
         or args.remove_completed
     ):
-        _handle_reset_operations(args, queue)
-        return
+        return _handle_reset_operations(args, queue)
 
     # Content addition operations
     if any([args.video, args.playlist, args.audio, args.directory]):
-        _handle_content_addition_operations(args, queue)
-        return
+        return _handle_content_addition_operations(args, queue)
 
     # No valid operation specified
     logger.error("No valid operation specified.")
+    return {"operation": "unknown"}
 
 
 def main():
@@ -1035,9 +1134,31 @@ def main():
     if not _handle_content_validation(args, parser):
         return
 
+    run_logger = IngestionRunLogger.from_environment()
+    run_record = run_logger.start_run(
+        method="media_queue",
+        site=args.site,
+        args=args,
+        source_summary=_build_queue_source_summary(args),
+    )
+    outcome = {}
+
     # Route to appropriate operation handler
     try:
-        _route_operation(args, queue)
+        route_outcome = _route_operation(args, queue)
+        if route_outcome is False:
+            outcome = {
+                "operation": _get_queue_operation(args),
+                "validation_failed": True,
+                "queue_status": queue.get_queue_status(),
+            }
+            run_logger.fail_run(
+                run_record,
+                error="Operation validation failed",
+                outcome=outcome,
+            )
+            return
+        outcome = route_outcome if isinstance(route_outcome, dict) else {}
     except ValueError as e:
         # Don't print traceback for validation errors - the error message has already been logged
         error_msg = str(e)
@@ -1049,13 +1170,20 @@ def main():
             or "Playlist URL is required" in error_msg
             or "playlists file" in error_msg
         ):
+            run_logger.fail_run(run_record, error=e, outcome=outcome)
             return
         else:
+            run_logger.fail_run(run_record, error=e, outcome=outcome)
             # Re-raise other ValueError exceptions that may need full tracebacks
             raise
+    except Exception as e:
+        run_logger.fail_run(run_record, error=e, outcome=outcome)
+        raise
 
     # Display final queue status
     queue_status = queue.get_queue_status()
+    outcome["queue_status"] = queue_status
+    run_logger.finish_run(run_record, outcome=outcome)
     print(f"Queue status: {queue_status}")
 
 

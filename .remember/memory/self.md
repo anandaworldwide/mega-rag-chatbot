@@ -2514,6 +2514,22 @@ path patterns. That silently makes directory layout an authorization input.
 **Correct**: Treat ingestion access metadata as explicit source data: use a command-line value for manually run
 audio/video ingestion, a named source field for SQL/database ingestion, and default missing metadata to public `0`.
 
+### Mistake: Treating Python `sys.argv` As A Copy-Pasteable Command
+
+**Wrong**: Logging only `sys.argv` when an operator needs to rerun a Python script later. `sys.argv[0]` is the script path
+and omits the shell-level launcher such as `python`, so the recorded command may not be directly runnable.
+
+**Correct**: Store a copy-pasteable command separately from raw argv, e.g. prepend `python` to live script argv, and keep
+`raw_argv` plus `python_executable` as audit/debug context.
+
+### Mistake: Treating Boolean Handler Failures As Successful Empty Outcomes
+
+**Wrong**: Converting a handler return value of `False` into `{}` and continuing to success/finalization logging. That
+turns validation failures into completed operational records.
+
+**Correct**: Treat `False` as an explicit terminal failure: log the validation failure, preserve any useful operation
+context, skip success finalization, and add a regression test for the boolean-failure path.
+
 ### Mistake: Treating Placeholder External IDs As Valid Matches
 
 **Wrong**: Treating placeholder external IDs like `NA`, `N/A`, `none`, or `not_found` as valid match identifiers, then
