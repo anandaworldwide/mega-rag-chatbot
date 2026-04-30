@@ -260,7 +260,7 @@ describe("Get Token API", () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(403);
-    expect(res._getJSONData()).toEqual({ error: "Invalid secret" });
+    expect(res._getJSONData()).toEqual({ error: "Invalid secret", code: "INVALID_SECRET" });
   });
 
   it("should handle errors during token generation", async () => {

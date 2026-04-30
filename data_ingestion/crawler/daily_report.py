@@ -328,6 +328,27 @@ def query_cloudwatch_errors(log_group: str, hours: int = 24) -> list[dict[str, A
     return errors
 
 
+def determine_health_status(
+    queue_stats: dict[str, Any],
+    activity: dict[str, Any],
+) -> str:
+    """Determine overall crawler health status from queue stats and activity.
+
+    Returns one of: "HEALTHY", "NEEDS ATTENTION", "UNKNOWN".
+    - HEALTHY if URLs were processed or nothing was ready to process.
+    - NEEDS ATTENTION if URLs were ready but none were processed (crawler may be stuck).
+    - UNKNOWN otherwise (e.g., DB missing/unreadable).
+    """
+    processed_count = activity.get("urls_processed", 0)
+    ready_to_process = queue_stats.get("ready_to_process", 0)
+
+    if processed_count > 0 or ready_to_process == 0:
+        return "HEALTHY"
+    if processed_count == 0 and ready_to_process > 0:
+        return "NEEDS ATTENTION"
+    return "UNKNOWN"
+
+
 def format_report(
     site_id: str,
     queue_stats: dict[str, Any],
@@ -336,22 +357,10 @@ def format_report(
     """Format the daily report email body."""
     report_lines = []
 
-    # Health summary
     report_lines.append("=== Crawler Health Summary ===")
     processed_count = activity.get("urls_processed", 0)
-    ready_to_process = queue_stats.get("ready_to_process", 0)
 
-    # Determine overall health status
-    # HEALTHY if either processed some URLs or nothing was ready to process.
-    # NEEDS ATTENTION if URLs were ready but none were processed.
-    if processed_count > 0 or ready_to_process == 0:
-        status = "HEALTHY"
-    elif processed_count == 0 and ready_to_process > 0:
-        # URLs were ready but nothing was processed - crawler may be stuck
-        status = "NEEDS ATTENTION"
-    else:
-        status = "UNKNOWN"
-
+    status = determine_health_status(queue_stats, activity)
     report_lines.append(f"Status: {status}")
 
     # Convert last crawl time to Pacific
@@ -379,14 +388,25 @@ def format_report(
     return "\n".join(report_lines)
 
 
-def generate_subject_line(site_id: str, ready: int, processed: int) -> str:
-    """Generate email subject line with key metrics."""
+def generate_subject_line(
+    site_id: str, ready: int, processed: int, status: str = "HEALTHY"
+) -> str:
+    """Generate email subject line with key metrics.
+
+    When status is not HEALTHY, a prefix is inserted after the site tag so the
+    condition surfaces in inbox previews, e.g.:
+        "[Vivek] NEEDS ATTENTION - Daily Crawler: 1398 ready | 0 processed"
+    """
     site_shortname = get_site_shortname(site_id)
-    # Format subject with metrics: "[Vivek] Daily Crawler: 142 ready | 87 processed"
-    # Note: We format with site prefix here, and email_ops.py will skip adding dev/prod prefix
-    # since it detects the subject already starts with '['
+    if status == "HEALTHY":
+        status_prefix = ""
+    elif status == "UNKNOWN":
+        status_prefix = "UNKNOWN STATUS - "
+    else:
+        status_prefix = f"{status} - "
+    # email_ops.py skips adding dev/prod prefix since subject starts with '['
     subject = (
-        f"[{site_shortname}] Daily Crawler: "
+        f"[{site_shortname}] {status_prefix}Daily Crawler: "
         f"{ready} ready | {processed} processed"
     )
     return subject
@@ -444,7 +464,8 @@ def main():
     # Use "ready_to_process" count instead of all pending
     ready_count = queue_stats.get("ready_to_process", 0)
     processed_count = activity.get("urls_processed", 0)
-    subject = generate_subject_line(site_id, ready_count, processed_count)
+    status = determine_health_status(queue_stats, activity)
+    subject = generate_subject_line(site_id, ready_count, processed_count, status)
 
     # Send email
     logger.info(f"Sending daily report email with subject: {subject}")
