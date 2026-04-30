@@ -1,0 +1,149 @@
+import { useRouter } from "next/router";
+import { useEffect, useRef, useState } from "react";
+import SalesforceAccessNoticeModal, {
+  AdminApproverRegion,
+  SalesforceAccessNoticeProfile,
+} from "@/components/SalesforceAccessNoticeModal";
+import { SiteConfig } from "@/types/siteConfig";
+import { getEnableSalesforceAccessNotice } from "@/utils/client/siteConfig";
+
+const SALESFORCE_ACCESS_NOTICE_VERSION = 1;
+const NOTICE_SUPPRESSED_PATHS = ["/login", "/magic-login", "/forgot-password", "/reset-password", "/verify"];
+const NOTICE_SUPPRESSED_PATH_PREFIXES = ["/answers/", "/share/"];
+
+interface SalesforceAccessNoticeGateProps {
+  siteConfig: SiteConfig | null;
+}
+
+interface ProfileResponse extends SalesforceAccessNoticeProfile {
+  dismissedSalesforceAccessNotice?: boolean;
+  dismissedSalesforceAccessNoticeVersion?: number | null;
+}
+
+interface AdminApproversResponse {
+  regions?: AdminApproverRegion[];
+}
+
+function shouldSuppressNoticeForPath(path: string): boolean {
+  return NOTICE_SUPPRESSED_PATHS.includes(path) || NOTICE_SUPPRESSED_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
+}
+
+export default function SalesforceAccessNoticeGate({ siteConfig }: SalesforceAccessNoticeGateProps) {
+  const router = useRouter();
+  const [isOpen, setIsOpen] = useState(false);
+  const [profile, setProfile] = useState<ProfileResponse | null>(null);
+  const [adminRegions, setAdminRegions] = useState<AdminApproverRegion[]>([]);
+  const [isLoadingAdmins, setIsLoadingAdmins] = useState(false);
+  const [adminLoadError, setAdminLoadError] = useState<string | null>(null);
+  const [hasCheckedProfile, setHasCheckedProfile] = useState(false);
+  const hasStartedAdminRequestRef = useRef(false);
+
+  const isFeatureEnabled = getEnableSalesforceAccessNotice(siteConfig);
+
+  useEffect(() => {
+    if (!router.isReady || !isFeatureEnabled || hasCheckedProfile) return;
+
+    const currentPath = router.asPath.split("?")[0];
+    if (shouldSuppressNoticeForPath(currentPath)) return;
+
+    let isCancelled = false;
+
+    async function loadProfile() {
+      try {
+        const response = await fetch("/api/profile", { credentials: "include" });
+        if (!response.ok) return;
+
+        const data = (await response.json()) as ProfileResponse;
+        if (isCancelled) return;
+
+        setProfile(data);
+        const dismissedCurrentVersion =
+          data.dismissedSalesforceAccessNotice === true ||
+          (typeof data.dismissedSalesforceAccessNoticeVersion === "number" &&
+            data.dismissedSalesforceAccessNoticeVersion >= SALESFORCE_ACCESS_NOTICE_VERSION);
+
+        if (!dismissedCurrentVersion) {
+          setIsOpen(true);
+        }
+      } catch {
+        // The notice is informational; profile loading failures should not affect the app.
+      } finally {
+        if (!isCancelled) {
+          setHasCheckedProfile(true);
+        }
+      }
+    }
+
+    loadProfile();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [hasCheckedProfile, isFeatureEnabled, router.asPath, router.isReady, siteConfig]);
+
+  useEffect(() => {
+    if (!isOpen || !profile || profile.salesforceMatchStatus === "matched") return;
+    if (adminRegions.length > 0 || hasStartedAdminRequestRef.current || adminLoadError) return;
+
+    let isCancelled = false;
+
+    async function loadAdmins() {
+      hasStartedAdminRequestRef.current = true;
+      setIsLoadingAdmins(true);
+      try {
+        const response = await fetch("/api/admin/approvers", { credentials: "include" });
+        if (!response.ok) {
+          throw new Error("Failed to load Luca administrators.");
+        }
+        const data = (await response.json()) as AdminApproversResponse;
+        if (!isCancelled) {
+          setAdminRegions(Array.isArray(data.regions) ? data.regions : []);
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          setAdminLoadError(error instanceof Error ? error.message : "Failed to load Luca administrators.");
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingAdmins(false);
+        }
+      }
+    }
+
+    loadAdmins();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [adminLoadError, adminRegions.length, isOpen, profile]);
+
+  async function handleClose() {
+    setIsOpen(false);
+
+    try {
+      await fetch("/api/profile", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          dismissedSalesforceAccessNoticeVersion: SALESFORCE_ACCESS_NOTICE_VERSION,
+        }),
+      });
+    } catch {
+      // If dismissal persistence fails, the notice can be shown again next time.
+    }
+  }
+
+  if (!isFeatureEnabled) return null;
+
+  return (
+    <SalesforceAccessNoticeModal
+      isOpen={isOpen}
+      profile={profile}
+      adminRegions={adminRegions}
+      isLoadingAdmins={isLoadingAdmins}
+      adminLoadError={adminLoadError}
+      onClose={handleClose}
+    />
+  );
+}

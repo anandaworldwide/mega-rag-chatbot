@@ -114,5 +114,6 @@ export interface SiteConfig {
   enableWhatsNew?: boolean; // Whether this site has a whats-new.json data file
   enableTipsConfig?: boolean; // Whether this site has a tips-config.json data file
   enabledTasks?: string[]; // Array of task IDs enabled for this site (e.g., ["research", "class-planning"])
+  enableSalesforceAccessNotice?: boolean; // Development-only notice for Salesforce access rollout status
   accessControl?: AccessControlConfig;
 }

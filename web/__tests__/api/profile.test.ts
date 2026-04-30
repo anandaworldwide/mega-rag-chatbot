@@ -2,12 +2,14 @@ import { createMocks } from "node-mocks-http";
 import type { NextApiRequest, NextApiResponse } from "next";
 import handler from "@/pages/api/profile";
 
+const mockUserDocSet = jest.fn().mockResolvedValue({});
+
 // Mock Firebase
 jest.mock("@/services/firebase", () => ({
   db: {
     collection: jest.fn(() => ({
       doc: jest.fn(() => ({
-        set: jest.fn().mockResolvedValue({}),
+        set: mockUserDocSet,
       })),
     })),
   },
@@ -61,6 +63,7 @@ jest.mock("@/utils/server/userInviteUtils", () => ({
 describe("/api/profile", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockUserDocSet.mockResolvedValue({});
   });
 
   it("should transition from activated_pending_profile to accepted when user completes profile", async () => {
@@ -313,5 +316,115 @@ describe("/api/profile", () => {
     expect(consoleSpy).toHaveBeenCalledWith("Failed to send welcome email:", expect.any(Error));
 
     consoleSpy.mockRestore();
+  });
+
+  it("should return Salesforce access notice dismissal fields in profile", async () => {
+    const firestoreRetryUtils = await import("@/utils/server/firestoreRetryUtils");
+    const jwtUtils = await import("@/utils/server/jwtUtils");
+
+    (jwtUtils.verifyToken as jest.MockedFunction<any>).mockReturnValueOnce({
+      email: "test@example.com",
+      role: "user",
+    });
+
+    (firestoreRetryUtils.firestoreGet as jest.MockedFunction<any>).mockResolvedValueOnce({
+      exists: true,
+      data: () => ({
+        uuid: "test-uuid",
+        role: "user",
+        dismissedSalesforceAccessNoticeVersion: 1,
+      }),
+    });
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "GET",
+      headers: {
+        cookie: "auth=valid-jwt-token",
+      },
+    });
+    req.cookies = { auth: "valid-jwt-token" };
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._getJSONData()).toMatchObject({
+      dismissedSalesforceAccessNoticeVersion: 1,
+      dismissedSalesforceAccessNotice: true,
+    });
+  });
+
+  it("should update Salesforce access notice dismissal version", async () => {
+    const firestoreRetryUtils = await import("@/utils/server/firestoreRetryUtils");
+    const jwtUtils = await import("@/utils/server/jwtUtils");
+
+    (jwtUtils.verifyToken as jest.MockedFunction<any>).mockReturnValueOnce({
+      email: "test@example.com",
+      role: "user",
+    });
+
+    (firestoreRetryUtils.firestoreGet as jest.MockedFunction<any>).mockResolvedValueOnce({
+      exists: true,
+      data: () => ({
+        inviteStatus: "accepted",
+        role: "user",
+      }),
+    });
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "PATCH",
+      headers: {
+        cookie: "auth=valid-jwt-token",
+      },
+      body: {
+        dismissedSalesforceAccessNoticeVersion: 1,
+      },
+    });
+    req.cookies = { auth: "valid-jwt-token" };
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(mockUserDocSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        dismissedSalesforceAccessNoticeVersion: 1,
+      }),
+      { merge: true }
+    );
+  });
+
+  it("should reject invalid Salesforce access notice dismissal version", async () => {
+    const firestoreRetryUtils = await import("@/utils/server/firestoreRetryUtils");
+    const jwtUtils = await import("@/utils/server/jwtUtils");
+
+    (jwtUtils.verifyToken as jest.MockedFunction<any>).mockReturnValueOnce({
+      email: "test@example.com",
+      role: "user",
+    });
+
+    (firestoreRetryUtils.firestoreGet as jest.MockedFunction<any>).mockResolvedValueOnce({
+      exists: true,
+      data: () => ({
+        inviteStatus: "accepted",
+        role: "user",
+      }),
+    });
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "PATCH",
+      headers: {
+        cookie: "auth=valid-jwt-token",
+      },
+      body: {
+        dismissedSalesforceAccessNoticeVersion: 2,
+      },
+    });
+    req.cookies = { auth: "valid-jwt-token" };
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res._getJSONData()).toEqual({
+      error: "Invalid dismissedSalesforceAccessNoticeVersion value",
+    });
   });
 });

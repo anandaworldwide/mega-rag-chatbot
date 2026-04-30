@@ -17,6 +17,7 @@ import { useEffect, useState } from "react";
 import AuthErrorBoundary from "@/components/AuthErrorBoundary";
 import SessionExpiredModal from "@/components/SessionExpiredModal";
 import AuthGuard from "@/components/AuthGuard";
+import SalesforceAccessNoticeGate from "@/components/SalesforceAccessNoticeGate";
 import { isPublicEndpoint, isPublicPage } from "@/utils/client/authConfig";
 
 // Configure Inter font
@@ -147,6 +148,7 @@ function MyApp({ Component, pageProps }: CustomAppProps) {
               {!isDevelopment && <GoogleAnalytics trackPageViews />}
               <AuthGuard siteConfig={siteConfig}>
                 <Component {...pageProps} />
+                <SalesforceAccessNoticeGate siteConfig={siteConfig} />
               </AuthGuard>
             </main>
             <ToastContainer />

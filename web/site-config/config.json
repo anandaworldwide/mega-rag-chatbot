@@ -28,6 +28,7 @@
       "ananda.org",
       "Crystal Clarity"
     ],
+    "enableSalesforceAccessNotice": true,
     "accessControl": {
       "enabled": true,
       "defaultLevel": 0,

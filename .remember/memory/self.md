@@ -2650,3 +2650,12 @@ logs. If email delivery works but logs are silent, operators lose the deploy/run
 
 **Correct**: In every ops-alert error branch, write a structured `console.error` with sanitized error details before or
 alongside `sendOpsAlert`.
+
+### Mistake: React Effect Cleanup Cancelling Its Own Async Work
+
+**Wrong**: Include loading state in a `useEffect` dependency list, then set that loading state inside the effect before an
+async request resolves. The state change reruns the effect, triggers cleanup, and can mark the in-flight request as
+cancelled before it updates the UI.
+
+**Correct**: Keep self-mutated loading state out of the dependency list or guard with a separate stable request flag/ref
+so the effect is not cancelled by its own progress update.

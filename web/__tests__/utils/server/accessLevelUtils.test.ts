@@ -104,10 +104,7 @@ describe("accessLevelUtils", () => {
     expect(buildPineconeAccessFilter(500, siteConfig)).toEqual({
       $and: [
         {
-          $or: [
-            { required_access_level: { $exists: false } },
-            { required_access_level: { $lte: 500 } },
-          ],
+          $or: [{ required_access_level: { $exists: false } }, { required_access_level: { $lte: 500 } }],
         },
         {
           access_level: {

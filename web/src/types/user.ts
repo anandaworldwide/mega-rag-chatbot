@@ -55,6 +55,8 @@ export interface User {
   hasPassword?: boolean; // Computed field for client - whether user has password set
   passwordSetAt?: string | null; // When password was first set
   dismissedPasswordPromo?: boolean; // Whether user dismissed the password promotion banner
+  dismissedSalesforceAccessNoticeVersion?: number | null; // Versioned dismissal for Salesforce access notice
+  dismissedSalesforceAccessNotice?: boolean; // Computed API field for the current Salesforce access notice version
   // Access-control fields
   accessLevel?: number | null; // Effective access level, computed for API responses
   accessLevelLabel?: string | null; // Human-readable label for effective access level
