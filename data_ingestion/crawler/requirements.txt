@@ -90,7 +90,7 @@ langchain-openai==1.1.14
     # via mega-rag-chatbot-crawler
 langsmith==0.7.32
     # via langchain-core
-lxml==6.0.2
+lxml==6.1.0
     # via
     #   lxml-html-clean
     #   readability-lxml
