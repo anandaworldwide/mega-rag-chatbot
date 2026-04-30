@@ -1,5 +1,11 @@
-# Dependabot configuration for automatic dependency updates
-# This will create PRs that automatically trigger the Python CI workflows
+# Dependabot configuration.
+# - weekly cadence (security PRs still fire per-advisory, so daily scans
+#   on top of that just duplicate noise)
+# - groups all minor/patch/major updates so security majors don't spawn
+#   solo PRs; enable "Grouped security updates" in repo Settings so the
+#   security feed respects these groups too
+# - single assignment source (reviewers only) to halve notifications
+# - tight PR limits to cap the notification surface
 
 version: 2
 updates:
@@ -7,14 +13,13 @@ updates:
   - package-ecosystem: "uv"
     directory: "/"
     schedule:
-      interval: "daily"
+      interval: "weekly"
+      day: "monday"
       time: "09:00"
     cooldown:
       default-days: 7
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 3
     reviewers:
-      - "anandaworldwide/maintainers"
-    assignees:
       - "anandaworldwide/maintainers"
     commit-message:
       prefix: "deps"
@@ -31,14 +36,14 @@ updates:
       - dependency-name: "transformers"
         update-types:
           - "version-update:semver-major"
-    # Group minor and patch updates together
     groups:
-      python-minor-patch:
+      python-all:
         patterns:
           - "*"
         update-types:
           - "minor"
           - "patch"
+          - "major"
 
   # Node.js dependencies (web directory)
   - package-ecosystem: "npm"
@@ -49,10 +54,8 @@ updates:
       time: "10:00"
     cooldown:
       default-days: 7
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     reviewers:
-      - "anandaworldwide/maintainers"
-    assignees:
       - "anandaworldwide/maintainers"
     commit-message:
       prefix: "deps"
@@ -61,14 +64,14 @@ updates:
     labels:
       - "dependencies"
       - "javascript"
-    # Group minor and patch updates together
     groups:
-      node-minor-patch:
+      node-all:
         patterns:
           - "*"
         update-types:
           - "minor"
           - "patch"
+          - "major"
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
@@ -77,10 +80,8 @@ updates:
       interval: "monthly"
       day: "1"
       time: "09:00"
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 2
     reviewers:
-      - "anandaworldwide/maintainers"
-    assignees:
       - "anandaworldwide/maintainers"
     commit-message:
       prefix: "ci"
@@ -88,3 +89,7 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
+    groups:
+      actions-all:
+        patterns:
+          - "*"

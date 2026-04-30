@@ -229,7 +229,7 @@ export default function AdminPendingUsersPage({ siteConfig }: AdminPendingUsersP
           <div>
             <h1 className="text-2xl font-semibold text-gray-900">Pending User Invitations</h1>
             <p className="text-sm text-gray-600 mt-1">
-              Manage users who have been invited but haven&apos;t completed their activation yet.
+              These are users who have been invited but haven&apos;t completed their activation yet.
             </p>
           </div>
           <div className="text-sm text-gray-600 min-w-0 flex-shrink-0">
