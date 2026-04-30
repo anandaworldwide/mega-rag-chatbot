@@ -50,6 +50,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // --- NPS Survey Logic Start ---
+  const ENABLE_NPS_SURVEY = false;
 
   // Helper to get item from localStorage with default value
   function getLocalStorageItem(key, defaultValue) {
@@ -98,6 +99,10 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Function to increment query count and check NPS trigger conditions
   function handleNpsSurveyCheck() {
+    if (!ENABLE_NPS_SURVEY) {
+      return;
+    }
+
     npsQueryCount++;
     setLocalStorageItem("npsQueryCount", npsQueryCount);
 
@@ -1284,21 +1289,29 @@ document.addEventListener("DOMContentLoaded", () => {
         const messageContent = currentBotMessage.querySelector(".aichatbot-message-content");
         let firstTokenReceived = false;
         let hasContent = false;
+        let streamBuffer = "";
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const chunk = decoder.decode(value);
-          const lines = chunk.split("\n");
+          const chunk = decoder.decode(value, { stream: true });
+          streamBuffer += chunk;
+          const lines = streamBuffer.split("\n");
+          streamBuffer = lines.pop() || "";
 
           // Check if user is near the bottom BEFORE adding the new chunk
           const wasScrolledToBottom = messages.scrollHeight - messages.clientHeight <= messages.scrollTop + 10;
 
           for (const line of lines) {
             if (line.startsWith("data: ")) {
+              let jsonData;
               try {
-                const jsonData = JSON.parse(line.slice(5));
+                jsonData = JSON.parse(line.slice(5));
+              } catch (parseError) {
+                console.error("Error parsing stream JSON:", parseError, line);
+                continue;
+              }
 
                 // Check site ID and source count
                 if (jsonData.siteId && jsonData.siteId !== "ananda-public") {
@@ -1409,7 +1422,28 @@ document.addEventListener("DOMContentLoaded", () => {
                   if (messages.contains(typingIndicator)) {
                     messages.removeChild(typingIndicator);
                   }
-                  throw new Error(jsonData.error);
+                  currentAbortController = null;
+                  sendButton.style.display = "inline-block";
+                  stopButton.style.display = "none";
+                  isStreaming = false;
+
+                  const streamError = new Error(jsonData.error);
+                  handleChatError(streamError, messages, typingIndicator);
+
+                  try {
+                    await sendErrorEmail(
+                      streamError,
+                      "Chatbot Stream Error",
+                      chatHistory.length > 0
+                        ? chatHistory[chatHistory.length - 1]?.userMessage || "No user message"
+                        : "No user message"
+                    );
+                  } catch (emailError) {
+                    console.error("Failed to send stream error email:", emailError);
+                  }
+
+                  console.error("Chatbot stream error:", streamError);
+                  return;
                 }
 
                 // Handle docId - Store it and make vote buttons visible immediately
@@ -1433,9 +1467,6 @@ document.addEventListener("DOMContentLoaded", () => {
                     addVoteButtons(currentBotMessage, docId, false); // false = visible immediately
                   }
                 }
-              } catch (parseError) {
-                console.error("Error parsing JSON:", parseError);
-              }
             }
           }
 
@@ -1503,7 +1534,7 @@ document.addEventListener("DOMContentLoaded", () => {
         try {
           await sendErrorEmail(
             error,
-            "Chatbot Error",
+            error.errorType || "Chatbot Error",
             chatHistory.length > 0 ? (chatHistory[chatHistory.length - 1]?.userMessage || "No user message") : "No user message"
           );
         } catch (emailError) {
@@ -1841,6 +1872,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let npsModalElement = null; // Reference to the modal DOM element
 
   function createNpsModalHtml() {
+    if (!ENABLE_NPS_SURVEY) return;
     if (document.getElementById("nps-survey-modal")) return; // Avoid creating duplicates
 
     const chatWindowElement = document.getElementById("aichatbot-window");
@@ -2129,7 +2161,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // --- NPS Survey Logic: Modal UI End ---
 
   // --- NPS Survey Logic: Modal Creation Call ---
-  createNpsModalHtml();
+  if (ENABLE_NPS_SURVEY) {
+    createNpsModalHtml();
+  }
   // --- NPS Survey Logic: Modal Creation Call End ---
 
   // Track votes
@@ -2708,7 +2742,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const errorData = {
         action: "aichatbot_send_error_email",
         error_type: errorType,
-        error_message: error.message,
+        error_message: error.opsMessage || error.message,
         error_stack: error.stack || "",
         user_message: userMessage,
         user_agent: navigator.userAgent,

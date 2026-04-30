@@ -837,7 +837,7 @@ Error details: ${errorString}`,
                   return docs;
                 } catch (err) {
                   if (sendData) sendData({ log: `[RAG] Error retrieving from library: ${name} ${err}` });
-                  return [];
+                  throw err;
                 }
               });
 
@@ -873,6 +873,7 @@ Error details: ${errorString}`,
         if (sendData) sendData({ log: `[RAG] Documents retrieved: found=${allDocuments.length}` });
       } catch (err) {
         if (sendData) sendData({ log: `[RAG] Error retrieving documents: ${err}` });
+        throw err;
       }
 
       // Check for empty documents IMMEDIATELY - throw error to prevent answering without sources

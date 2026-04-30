@@ -191,6 +191,8 @@ except ImportError:
 
 - **Security headers**: CSP, HSTS, X-Frame-Options required
 - **WordPress integration**: Use signed tokens for cross-site communication
+- **Secret rotation runbook**: Use `docs/secret-rotation.md` as the canonical checklist; rotating backend
+  `SECURE_TOKEN` also requires updating WordPress `CHATBOT_BACKEND_SECURE_TOKEN` or derived `WP_API_SECRET`.
 
 ### Crawler production deployment (dedicated VM)
 
