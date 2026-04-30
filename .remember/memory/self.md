@@ -2576,3 +2576,10 @@ to users, but send `opsMessage` in alert emails.
 `"Failed to fetch token: HTTP 403"` to be misclassified as a network outage.
 
 **Correct**: Match specific status/error codes first, then generic transport failures.
+
+### Mistake: Assuming npm Enforces Dependency Cooldown Settings
+
+**Wrong**: Relying on npm to honor `.npmrc` `min-release-age=7` when running `npm install` / lockfile updates.
+
+**Correct**: For npm security fixes in this repo, explicitly select aged versions and verify the resulting `package-lock.json`
+does not contain newer-than-cooldown versions. Use exact root `overrides` for transitive lockfile fixes when needed.
