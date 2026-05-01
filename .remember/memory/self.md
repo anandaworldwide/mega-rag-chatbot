@@ -2,6 +2,17 @@
 
 ## Critical Lessons Learned
 
+### Lockfile Downgrades Must Include Transitive Metadata
+
+**Rule**: When pinning or downgrading a transitive npm package in `package-lock.json`, update the full resolved dependency
+graph for that package, not just its `version`, `resolved`, and `integrity` fields.
+
+**Wrong**: Change `fast-xml-parser` from `5.7.0` to `5.6.0` while leaving its `5.7.0` dependency metadata such as
+`@nodable/entities@^2.1.0`.
+
+**Correct**: Regenerate or verify the lockfile so the downgraded package's own dependencies match its published manifest
+and run the production build afterward.
+
 ### Docker + uv + Non-Root: Put Managed Python Where UID Can Read
 
 **Rule**: In crawler images, `uv sync` runs as root and defaults to storing the managed CPython under `/root/...`. If the
