@@ -143,8 +143,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // No pending request → ask frontend to show approval request form
     return res.status(200).json({ next: "request-approval", isWhitelisted: false });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    return res.status(500).json({ error: message });
+    console.error("requestLoginLink failed:", err);
+    return res.status(500).json({ error: "Unable to send login link. Please try again later." });
   }
 }
 

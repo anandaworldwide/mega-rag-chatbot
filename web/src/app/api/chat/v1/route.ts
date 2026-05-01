@@ -85,7 +85,7 @@ import {
 } from "@/utils/server/titleCatalog";
 import { buildTitleScopeForPersistence } from "@/utils/server/titleScopePersistence";
 import { TitleScopeSelection } from "@/types/titleScope";
-import { buildPineconeAccessFilter, resolveEffectiveAccessLevelForEmail } from "@/utils/server/accessLevelUtils";
+import { buildPineconeAccessFilterClauses, resolveEffectiveAccessLevelForEmail } from "@/utils/server/accessLevelUtils";
 
 export const runtime = "nodejs";
 export const maxDuration = 240;
@@ -357,10 +357,7 @@ async function setupPineconeAndFilter(
   // Add media type filter
   filter.$and.push({ type: { $in: activeTypes } });
 
-  const accessFilter = buildPineconeAccessFilter(effectiveAccessLevel, siteConfig);
-  if (accessFilter) {
-    filter.$and.push(accessFilter);
-  }
+  filter.$and.push(...buildPineconeAccessFilterClauses(effectiveAccessLevel, siteConfig));
 
   // Apply collection-specific filters only if the collection exists in siteConfig
   if (siteConfig.collectionConfig && siteConfig.collectionConfig[collection]) {

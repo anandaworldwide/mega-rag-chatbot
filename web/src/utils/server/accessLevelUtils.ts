@@ -204,12 +204,12 @@ export function validateManualAccessLevel(
   return { valid: true, level };
 }
 
-export function buildPineconeAccessFilter(
+export function buildPineconeAccessFilterClauses(
   effectiveAccessLevel: number,
   siteConfig: SiteConfig | null | undefined
-): PineconeFilterClause | null {
+): PineconeFilterClause[] {
   if (!isAccessControlEnabled(siteConfig)) {
-    return null;
+    return [];
   }
 
   const blockedLegacyLevels = getConfiguredAccessLevels(siteConfig)
@@ -227,6 +227,18 @@ export function buildPineconeAccessFilter(
 
   if (blockedLegacyLevels.length > 0) {
     clauses.push({ access_level: { $nin: Array.from(new Set(blockedLegacyLevels)) } });
+  }
+
+  return clauses;
+}
+
+export function buildPineconeAccessFilter(
+  effectiveAccessLevel: number,
+  siteConfig: SiteConfig | null | undefined
+): PineconeFilterClause | null {
+  const clauses = buildPineconeAccessFilterClauses(effectiveAccessLevel, siteConfig);
+  if (clauses.length === 0) {
+    return null;
   }
 
   return clauses.length === 1 ? clauses[0] : { $and: clauses };

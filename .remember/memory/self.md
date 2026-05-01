@@ -13,6 +13,22 @@ graph for that package, not just its `version`, `resolved`, and `integrity` fiel
 **Correct**: Regenerate or verify the lockfile so the downgraded package's own dependencies match its published manifest
 and run the production build afterward.
 
+### AWS SDK XML Parsing Breaks With `fast-xml-parser@5.7.0`
+
+**Rule**: Do not force `fast-xml-parser@5.7.0` or `5.7.1` in projects using AWS SDK v3 XML clients such as SES/S3.
+Those versions reject AWS SDK's numeric XML entity registration (`#xD`/`#10`) and can fail response deserialization.
+
+**Wrong**:
+
+```json
+"overrides": {
+  "fast-xml-parser": "5.7.0"
+}
+```
+
+**Correct**: Use a known working aged version such as `5.6.0`, or move to `5.7.2+` only after the repository's dependency
+cooldown permits it.
+
 ### Docker + uv + Non-Root: Put Managed Python Where UID Can Read
 
 **Rule**: In crawler images, `uv sync` runs as root and defaults to storing the managed CPython under `/root/...`. If the
@@ -2505,6 +2521,14 @@ final `vectorStore.asRetriever({ ... })` options. The code looks filtered while 
 
 **Correct**: Verify the final retriever/search call consumes the filter, e.g. `vectorStore.asRetriever({ k, filter })`, and
 include tests or type checks around the actual call site when changing access-control filters.
+
+### Mistake: Nesting Pinecone `$and` Clauses While Composing Filters
+
+**Wrong**: Build a helper filter as `{ $and: [...] }`, then push that object into a parent `$and` array. Pinecone filters do
+not support nested logical operators like `{ $and: [typeFilter, { $and: accessClauses }] }`.
+
+**Correct**: When the caller is already constructing a parent `$and`, have helpers return flat clause arrays and spread them
+into the parent: `{ $and: [typeFilter, ...accessClauses] }`. Keep a separate wrapper helper only for standalone filters.
 
 ### Mistake: Inferring Ingestion Access From Paths
 

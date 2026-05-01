@@ -1,5 +1,6 @@
 import {
   buildPineconeAccessFilter,
+  buildPineconeAccessFilterClauses,
   getAccessLevelLabel,
   getAccessLevelValueForKey,
   resolveEffectiveAccessLevel,
@@ -115,7 +116,29 @@ describe("accessLevelUtils", () => {
     });
   });
 
+  it("builds flat Pinecone access clauses for parent $and filters", () => {
+    const filter = {
+      $and: [{ type: { $in: ["text"] } }, ...buildPineconeAccessFilterClauses(500, siteConfig)],
+    };
+
+    expect(filter).toEqual({
+      $and: [
+        { type: { $in: ["text"] } },
+        {
+          $or: [{ required_access_level: { $exists: false } }, { required_access_level: { $lte: 500 } }],
+        },
+        {
+          access_level: {
+            $nin: ["minister", "lightbearer", "admin"],
+          },
+        },
+      ],
+    });
+    expect(filter.$and.some((clause) => "$and" in clause)).toBe(false);
+  });
+
   it("does not restrict sites without enabled access control", () => {
     expect(buildPineconeAccessFilter(0, { siteId: "crystal" } as SiteConfig)).toBeNull();
+    expect(buildPineconeAccessFilterClauses(0, { siteId: "crystal" } as SiteConfig)).toEqual([]);
   });
 });

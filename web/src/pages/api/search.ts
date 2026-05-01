@@ -16,7 +16,7 @@ import { getFromCache, setInCache } from "@/utils/server/redisUtils";
 import { getSecureUUID } from "@/utils/server/uuidUtils";
 import { updateUserActivity } from "@/utils/server/userActivityUtils";
 import { verifyToken } from "@/utils/server/jwtUtils";
-import { buildPineconeAccessFilter, resolveEffectiveAccessLevelForEmail } from "@/utils/server/accessLevelUtils";
+import { buildPineconeAccessFilterClauses, resolveEffectiveAccessLevelForEmail } from "@/utils/server/accessLevelUtils";
 
 // Hardcoded shared defaults (not per-site config)
 // We fetch a fixed top window for faceting/pagination.
@@ -112,10 +112,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse<SearchResponse 
 
     const userEmail = getAuthenticatedEmail(req);
     const effectiveAccess = await resolveEffectiveAccessLevelForEmail(userEmail, siteConfig);
-    const accessFilter = buildPineconeAccessFilter(effectiveAccess.level, siteConfig);
-    if (accessFilter) {
-      filterConditions.push(accessFilter);
-    }
+    filterConditions.push(...buildPineconeAccessFilterClauses(effectiveAccess.level, siteConfig));
 
     // Add user-provided filters
     if (body.filters) {
