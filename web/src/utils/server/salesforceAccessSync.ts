@@ -18,6 +18,7 @@ interface SalesforceLookupPayload {
   email: string;
   salesforce_id: string;
   origin_url: string;
+  [key: string]: string;
 }
 
 interface SalesforceLookupResponse {
@@ -27,6 +28,30 @@ interface SalesforceLookupResponse {
 }
 
 const SALESFORCE_ACCESS_LOOKUP_WEBHOOK_URL_ENV = "SALESFORCE_ACCESS_LOOKUP_WEBHOOK_URL";
+const SALESFORCE_API_KEY_ENV = "SALESFORCE_API_KEY";
+const SALESFORCE_API_FIELD_NAME_ENV = "SALESFORCE_API_FIELD_NAME";
+export const SALESFORCE_ACCESS_VERIFICATION_MAX_AGE_MS = 3 * 24 * 60 * 60 * 1000;
+
+interface SalesforceApiAuthParameter {
+  fieldName: string;
+  apiKey: string;
+}
+
+export function isSalesforceAccessVerificationDue(
+  userData: Record<string, any> | null | undefined,
+  nowMs: number = Date.now()
+): boolean {
+  if (!userData) return false;
+
+  if (userData.inviteStatus !== "accepted") {
+    return false;
+  }
+
+  const lastSync = toDate(userData.lastSalesforceSyncAt);
+  if (!lastSync) return true;
+
+  return lastSync.getTime() <= nowMs - SALESFORCE_ACCESS_VERIFICATION_MAX_AGE_MS;
+}
 
 export async function syncUserAccessLevelFromSalesforce(
   email: string,
@@ -45,14 +70,23 @@ export async function syncUserAccessLevelFromSalesforce(
 
   const userData = userDoc.data() || {};
   const webhookUrl = getSalesforceWebhookUrl();
+  const apiAuthParameter = getSalesforceApiAuthParameter();
   if (!webhookUrl) {
     const error = "Salesforce access webhook URL is not configured";
+    logSalesforceSyncFailure(normalizedEmail, error);
+    await writeSalesforceSyncFailure(normalizedEmail, error);
+    return { matched: false, error };
+  }
+
+  if (!apiAuthParameter) {
+    const error = "Salesforce API key or API field name is not configured";
+    logSalesforceSyncFailure(normalizedEmail, error);
     await writeSalesforceSyncFailure(normalizedEmail, error);
     return { matched: false, error };
   }
 
   try {
-    const payload = buildSalesforceLookupPayload(normalizedEmail, userData, siteConfig);
+    const payload = buildSalesforceLookupPayload(normalizedEmail, userData, siteConfig, apiAuthParameter);
     const response = await fetch(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -98,6 +132,7 @@ export async function syncUserAccessLevelFromSalesforce(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Salesforce lookup failed";
+    logSalesforceSyncFailure(normalizedEmail, message);
     await writeSalesforceSyncFailure(normalizedEmail, message);
     return { matched: false, error: message };
   }
@@ -106,24 +141,35 @@ export async function syncUserAccessLevelFromSalesforce(
 function buildSalesforceLookupPayload(
   email: string,
   userData: Record<string, any>,
-  siteConfig: SiteConfig
+  siteConfig: SiteConfig,
+  apiAuthParameter: SalesforceApiAuthParameter
 ): SalesforceLookupPayload {
   const salesforceId =
     typeof userData.salesforceId === "string" && userData.salesforceId.trim().length > 0
       ? userData.salesforceId.trim()
       : "NA";
 
-  return {
+  const payload: SalesforceLookupPayload = {
     first_name: typeof userData.firstName === "string" ? userData.firstName : "",
     last_name: typeof userData.lastName === "string" ? userData.lastName : "",
     email,
     salesforce_id: salesforceId,
     origin_url: siteConfig.accessControl?.originUrl || siteConfig.parent_site_url || "",
   };
+
+  payload[apiAuthParameter.fieldName] = apiAuthParameter.apiKey;
+  return payload;
 }
 
 function getSalesforceWebhookUrl(): string | null {
   return process.env[SALESFORCE_ACCESS_LOOKUP_WEBHOOK_URL_ENV]?.trim() || null;
+}
+
+function getSalesforceApiAuthParameter(): SalesforceApiAuthParameter | null {
+  const apiKey = process.env[SALESFORCE_API_KEY_ENV]?.trim();
+  const fieldName = process.env[SALESFORCE_API_FIELD_NAME_ENV]?.trim();
+  if (!apiKey || !fieldName) return null;
+  return { apiKey, fieldName };
 }
 
 function normalizeSalesforceId(value: unknown): string | null {
@@ -135,6 +181,24 @@ function normalizeSalesforceId(value: unknown): string | null {
     return null;
   }
   return trimmedValue;
+}
+
+function toDate(value: any): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value.toDate === "function") return value.toDate();
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return null;
+}
+
+function logSalesforceSyncFailure(email: string, error: string): void {
+  console.error("Salesforce access sync failed", {
+    email,
+    error,
+  });
 }
 
 async function writeSalesforceSyncFailure(email: string, error: string): Promise<void> {

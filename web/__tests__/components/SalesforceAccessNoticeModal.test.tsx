@@ -60,6 +60,7 @@ describe("SalesforceAccessNoticeModal", () => {
           salesforceAccessLevelLabel: "Minister",
           salesforceId: "0031I00000ILXk1QAH",
           salesforceMatchStatus: "matched",
+          salesforceContactEmail: "salesforce-help@example.com",
         }}
         adminRegions={[]}
         isLoadingAdmins={false}
@@ -71,7 +72,10 @@ describe("SalesforceAccessNoticeModal", () => {
     expect(screen.getByText("Current access level")).toBeInTheDocument();
     expect(screen.getAllByText("Minister").length).toBeGreaterThan(0);
     expect(screen.getByText(/Salesforce connection: connected/i)).toBeInTheDocument();
-    expect(screen.getByText(/Salesforce access correction contact \(TBD\)/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "salesforce-help@example.com" })).toHaveAttribute(
+      "href",
+      "mailto:salesforce-help@example.com"
+    );
     expect(screen.getByText(/gradually start seeing more of that restricted material/i)).toBeInTheDocument();
   });
 
@@ -198,6 +202,37 @@ describe("SalesforceAccessNoticeGate", () => {
 
     expect(await screen.findByText("Your Luca access level")).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/profile", { credentials: "include" });
+  });
+
+  it("fires non-blocking Salesforce access verification when the profile is stale", async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          accessLevelLabel: "Public",
+          accessLevelSource: "default",
+          salesforceMatchStatus: "not_found",
+          salesforceId: null,
+          dismissedSalesforceAccessNotice: true,
+          dismissedSalesforceAccessNoticeVersion: 1,
+          salesforceAccessVerificationDue: true,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ success: true }),
+      });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    render(<SalesforceAccessNoticeGate siteConfig={siteConfig} />);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/salesforce/verifyAccess", {
+        method: "POST",
+        credentials: "include",
+      });
+    });
   });
 
   it("does not check for the notice on auth pages", async () => {

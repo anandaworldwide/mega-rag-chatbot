@@ -50,6 +50,23 @@ jest.mock("@/utils/server/jwtUtils", () => ({
   getTokenFromRequest: jest.fn(() => ({ email: "test@example.com", role: "user" })),
 }));
 
+jest.mock("@/utils/server/loadSiteConfig", () => {
+  const siteConfig = {
+    requireLogin: true,
+    accessControl: {
+      enabled: true,
+      levels: [{ key: "public", label: "Public", value: 0 }],
+      defaultLevel: 0,
+      superuserLevel: 9999,
+    },
+  };
+
+  return {
+    loadSiteConfig: jest.fn(() => Promise.resolve(siteConfig)),
+    loadSiteConfigSync: jest.fn(() => siteConfig),
+  };
+});
+
 // Mock audit log
 jest.mock("@/utils/server/auditLog", () => ({
   writeAuditLog: jest.fn().mockResolvedValue({}),
@@ -64,6 +81,7 @@ describe("/api/profile", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockUserDocSet.mockResolvedValue({});
+    process.env.SALESFORCE_CONTACT_EMAIL = "salesforce-help@example.com";
   });
 
   it("should transition from activated_pending_profile to accepted when user completes profile", async () => {
@@ -350,6 +368,113 @@ describe("/api/profile", () => {
     expect(res._getJSONData()).toMatchObject({
       dismissedSalesforceAccessNoticeVersion: 1,
       dismissedSalesforceAccessNotice: true,
+      salesforceContactEmail: "salesforce-help@example.com",
+    });
+  });
+
+  it("should mark Salesforce access verification due when the last sync is older than three days", async () => {
+    const firestoreRetryUtils = await import("@/utils/server/firestoreRetryUtils");
+    const jwtUtils = await import("@/utils/server/jwtUtils");
+    const fourDaysAgo = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000);
+
+    (jwtUtils.verifyToken as jest.MockedFunction<any>).mockReturnValueOnce({
+      email: "test@example.com",
+      role: "user",
+    });
+
+    (firestoreRetryUtils.firestoreGet as jest.MockedFunction<any>).mockResolvedValueOnce({
+      exists: true,
+      data: () => ({
+        uuid: "test-uuid",
+        inviteStatus: "accepted",
+        role: "user",
+        lastSalesforceSyncAt: { toDate: () => fourDaysAgo },
+      }),
+    });
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "GET",
+      headers: {
+        cookie: "auth=valid-jwt-token",
+      },
+    });
+    req.cookies = { auth: "valid-jwt-token" };
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._getJSONData()).toMatchObject({
+      salesforceAccessVerificationDue: true,
+    });
+  });
+
+  it("should not mark Salesforce access verification due when the last sync is fresh", async () => {
+    const firestoreRetryUtils = await import("@/utils/server/firestoreRetryUtils");
+    const jwtUtils = await import("@/utils/server/jwtUtils");
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    (jwtUtils.verifyToken as jest.MockedFunction<any>).mockReturnValueOnce({
+      email: "test@example.com",
+      role: "user",
+    });
+
+    (firestoreRetryUtils.firestoreGet as jest.MockedFunction<any>).mockResolvedValueOnce({
+      exists: true,
+      data: () => ({
+        uuid: "test-uuid",
+        inviteStatus: "accepted",
+        role: "user",
+        lastSalesforceSyncAt: { toDate: () => oneDayAgo },
+      }),
+    });
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "GET",
+      headers: {
+        cookie: "auth=valid-jwt-token",
+      },
+    });
+    req.cookies = { auth: "valid-jwt-token" };
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._getJSONData()).toMatchObject({
+      salesforceAccessVerificationDue: false,
+    });
+  });
+
+  it("should mark Salesforce access verification due when the last sync is missing", async () => {
+    const firestoreRetryUtils = await import("@/utils/server/firestoreRetryUtils");
+    const jwtUtils = await import("@/utils/server/jwtUtils");
+
+    (jwtUtils.verifyToken as jest.MockedFunction<any>).mockReturnValueOnce({
+      email: "test@example.com",
+      role: "user",
+    });
+
+    (firestoreRetryUtils.firestoreGet as jest.MockedFunction<any>).mockResolvedValueOnce({
+      exists: true,
+      data: () => ({
+        uuid: "test-uuid",
+        inviteStatus: "accepted",
+        role: "user",
+      }),
+    });
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "GET",
+      headers: {
+        cookie: "auth=valid-jwt-token",
+      },
+    });
+    req.cookies = { auth: "valid-jwt-token" };
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._getJSONData()).toMatchObject({
+      salesforceAccessVerificationDue: true,
     });
   });
 

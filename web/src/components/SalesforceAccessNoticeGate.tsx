@@ -18,6 +18,7 @@ interface SalesforceAccessNoticeGateProps {
 interface ProfileResponse extends SalesforceAccessNoticeProfile {
   dismissedSalesforceAccessNotice?: boolean;
   dismissedSalesforceAccessNoticeVersion?: number | null;
+  salesforceAccessVerificationDue?: boolean;
 }
 
 interface AdminApproversResponse {
@@ -37,14 +38,16 @@ export default function SalesforceAccessNoticeGate({ siteConfig }: SalesforceAcc
   const [adminLoadError, setAdminLoadError] = useState<string | null>(null);
   const [hasCheckedProfile, setHasCheckedProfile] = useState(false);
   const hasStartedAdminRequestRef = useRef(false);
+  const hasStartedSalesforceVerificationRef = useRef(false);
 
   const isFeatureEnabled = getEnableSalesforceAccessNotice(siteConfig);
 
   useEffect(() => {
+    const currentPath = router.asPath.split("?")[0];
+    const isSuppressedPath = shouldSuppressNoticeForPath(currentPath);
     if (!router.isReady || !isFeatureEnabled || hasCheckedProfile) return;
 
-    const currentPath = router.asPath.split("?")[0];
-    if (shouldSuppressNoticeForPath(currentPath)) return;
+    if (isSuppressedPath) return;
 
     let isCancelled = false;
 
@@ -57,6 +60,16 @@ export default function SalesforceAccessNoticeGate({ siteConfig }: SalesforceAcc
         if (isCancelled) return;
 
         setProfile(data);
+        if (data.salesforceAccessVerificationDue === true && !hasStartedSalesforceVerificationRef.current) {
+          hasStartedSalesforceVerificationRef.current = true;
+          void fetch("/api/salesforce/verifyAccess", {
+            method: "POST",
+            credentials: "include",
+          }).catch(() => {
+            // Verification is opportunistic; failures are recorded server-side.
+          });
+        }
+
         const dismissedCurrentVersion =
           data.dismissedSalesforceAccessNotice === true ||
           (typeof data.dismissedSalesforceAccessNoticeVersion === "number" &&

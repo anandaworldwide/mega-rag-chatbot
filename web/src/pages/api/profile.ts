@@ -14,9 +14,10 @@ import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import type { EmailCategory } from "@/types/user";
 import { buildAccessLevelResponseFields } from "@/utils/server/accessLevelUtils";
-import { syncUserAccessLevelFromSalesforce } from "@/utils/server/salesforceAccessSync";
+import { isSalesforceAccessVerificationDue } from "@/utils/server/salesforceAccessSync";
 
 export const SALESFORCE_ACCESS_NOTICE_VERSION = 1;
+const SALESFORCE_CONTACT_EMAIL_ENV = "SALESFORCE_CONTACT_EMAIL";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Rate limit
@@ -61,6 +62,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Load site config to determine enabled email types
       const siteConfig = await loadSiteConfig();
       const enabledEmailTypes: EmailCategory[] = [];
+      const salesforceAccessVerificationDue =
+        siteConfig?.accessControl?.enabled === true &&
+        isSalesforceAccessVerificationDue({
+          ...data,
+          role,
+        });
 
       // Newsletters are always available for login-required sites
       if (siteConfig?.requireLogin) {
@@ -102,6 +109,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           data.dismissedSalesforceAccessNoticeVersion >= SALESFORCE_ACCESS_NOTICE_VERSION,
         verifiedAt: data?.verifiedAt?.toDate?.() ?? null, // When account was activated
         preferredModel: typeof data?.preferredModel === "string" ? data.preferredModel : null,
+        salesforceContactEmail: process.env[SALESFORCE_CONTACT_EMAIL_ENV]?.trim() || null,
+        salesforceAccessVerificationDue,
         ...buildAccessLevelResponseFields({ ...data, role }, siteConfig),
       });
     }
@@ -280,14 +289,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           console.error("Failed to send welcome email:", emailError);
         }
 
-        try {
-          const siteConfig = await loadSiteConfig();
-          if (siteConfig?.accessControl?.enabled) {
-            await syncUserAccessLevelFromSalesforce(email, siteConfig);
-          }
-        } catch (accessSyncError) {
-          console.error("Failed to sync Salesforce access after activation:", accessSyncError);
-        }
       }
 
       return res.status(200).json({ success: true });

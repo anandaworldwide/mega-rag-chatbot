@@ -5,6 +5,7 @@ export interface SalesforceAccessNoticeProfile {
   salesforceAccessLevelLabel?: string | null;
   salesforceId?: string | null;
   salesforceMatchStatus?: string | null;
+  salesforceContactEmail?: string | null;
 }
 
 export interface AdminApprover {
@@ -53,6 +54,7 @@ export default function SalesforceAccessNoticeModal({
   const effectiveLevel = getDisplayLevel(profile);
   const manualLevel = getManualLevel(profile);
   const salesforceLevel = profile?.salesforceAccessLevelLabel || effectiveLevel;
+  const salesforceContactEmail = profile?.salesforceContactEmail?.trim() || null;
   const regionsWithAdmins = adminRegions.filter((region) => region.admins.length > 0);
 
   return (
@@ -107,8 +109,18 @@ export default function SalesforceAccessNoticeModal({
               <p className="text-sm font-semibold text-green-900">Salesforce connection: connected</p>
               <p className="text-sm text-green-900">Salesforce currently has you at: {salesforceLevel}.</p>
               <p className="text-sm leading-6 text-green-900">
-                If this does not look right, contact the Salesforce access correction contact (TBD) so your Salesforce
-                record can be corrected.
+                If this does not look right,{" "}
+                {salesforceContactEmail ? (
+                  <>
+                    contact{" "}
+                    <a className="font-medium underline" href={`mailto:${salesforceContactEmail}`}>
+                      {salesforceContactEmail}
+                    </a>
+                  </>
+                ) : (
+                  "contact the Salesforce access correction contact"
+                )}{" "}
+                so your Salesforce record can be corrected.
               </p>
             </div>
           ) : (

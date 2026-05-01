@@ -67,6 +67,8 @@ export interface User {
   salesforceId?: string | null;
   salesforceMatchStatus?: "matched" | "not_found" | "error" | "not_checked" | null;
   salesforceLastLookupError?: string | null;
+  salesforceAccessVerificationDue?: boolean; // Computed API field for stale-on-access verification trigger
+  salesforceContactEmail?: string | null; // Computed API field for Salesforce correction contact
   // Admin-specific fields (when needed)
   id?: string; // For admin user detail pages (this will be the email/doc ID)
   conversationCount?: number; // For admin user detail pages
