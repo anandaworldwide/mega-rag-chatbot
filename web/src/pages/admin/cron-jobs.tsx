@@ -85,11 +85,6 @@ const CronJobsPage = ({ siteConfig }: CronJobsPageProps) => {
       description: "Sends daily email digest of model performance metrics for the last 24 hours",
     },
     {
-      name: "Sync User Access Levels",
-      endpoint: "/api/cron/syncUserAccessLevels",
-      description: "Rechecks Luca users against Salesforce and updates stored access sync metadata",
-    },
-    {
       name: "Cleanup Expired Invitations",
       endpoint: "/api/admin/cleanupExpiredInvitations",
       description: "Deletes expired pending account invitations and records audit log entries",

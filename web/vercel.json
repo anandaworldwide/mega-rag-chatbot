@@ -35,10 +35,6 @@
     {
       "path": "/api/admin/downvoteFeedbackDigest",
       "schedule": "0 15 * * 1"
-    },
-    {
-      "path": "/api/cron/syncUserAccessLevels",
-      "schedule": "20 13 * * *"
     }
   ],
   "buildCommand": "npm install --include=dev && npm run build-with-api-tests",

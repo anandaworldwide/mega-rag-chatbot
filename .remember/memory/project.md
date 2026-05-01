@@ -281,8 +281,12 @@ except ImportError:
 - User-facing administrator lists should include admin email addresses, not just names/locations, so users can contact the
   appropriate person directly.
 - Phase I: Implement auth, add/resend, activation, audit logging; no Salesforce dependency
-- Phase II: Salesforce enrichment on activation + nightly (midnight PT) cron; Salesforce is source of truth;
-  auto-up/downgrade; user notified on changes; Ops alerted on repeated sync failures; no local entitlement overrides
+- Phase II: Salesforce enrichment is stale-on-access, not scheduled batch cron: accepted Luca users are re-verified only
+  when they access the app and `lastSalesforceSyncAt` is missing or older than 3 days. Keep this out of shared
+  chat/search access resolution so normal backend calls only read stored Firestore access state. Salesforce remains the
+  source of truth for matched users; no local entitlement overrides.
+- Salesforce webhook auth uses dynamic request-body auth: read `SALESFORCE_API_FIELD_NAME` for the payload field name
+  and `SALESFORCE_API_KEY` for its value; never log the API key.
 - Duplicate handling: per (email, site) — create if none; resend if pending; no-op if already active
 - Bootstrap vetted list: env var `ADMIN_BOOTSTRAP_SUPERUSERS` with comma-separated emails (typically 1–2 superusers)
 - Admin audit tracking: User detail page shows which admin added/approved each user and when (from audit log)

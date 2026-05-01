@@ -430,8 +430,10 @@ can retrieve content when `user.accessLevel >= vector.required_access_level`.
 
 3. **Salesforce Access Sync (`web/src/utils/server/salesforceAccessSync.ts`):**
    - **Manual sync**: `/api/admin/syncUserAccess` refreshes one user's Salesforce-derived access.
-   - **Scheduled sync**: `/api/cron/syncUserAccessLevels` refreshes due accepted users in bounded batches.
-   - **Webhook configuration**: `SALESFORCE_ACCESS_LOOKUP_WEBHOOK_URL` or `MAKE_SALESFORCE_ACCESS_WEBHOOK_URL`.
+   - **Stale-on-access sync**: `/api/salesforce/verifyAccess` refreshes the current user when the last verification is
+     missing or older than three days.
+   - **Webhook configuration**: `SALESFORCE_ACCESS_LOOKUP_WEBHOOK_URL`, `SALESFORCE_API_KEY`, and
+     `SALESFORCE_API_FIELD_NAME`.
    - **Placeholder safety**: Placeholder external IDs such as `NA` or `not_found` are treated as no match.
 
 4. **Migration Support (`bin/tag_access_level_vectors.py`):**
