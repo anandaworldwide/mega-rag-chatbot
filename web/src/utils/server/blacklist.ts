@@ -12,7 +12,7 @@ import { EMAIL_REGEX } from "@/utils/server/emailValidation";
 
 const MAX_EMAIL_LENGTH = 254;
 
-const CACHE_TTL_MS = 60_000;
+const CACHE_TTL_MS = 15 * 60_000;
 const FAIL_OPEN_CACHE_TTL_MS = 5_000;
 
 type BlacklistCacheEntry = {
@@ -236,7 +236,7 @@ export type BlacklistCheckResult = {
 };
 
 /**
- * Rich blacklist check used by session-revocation paths that want perf telemetry.
+ * Rich blacklist check used by session-revocation paths that need cache metadata.
  * skipped=true when the site does not enforce login or inputs are empty (no work done).
  */
 export async function checkEmailBlacklist(email: string, siteId: string): Promise<BlacklistCheckResult> {
