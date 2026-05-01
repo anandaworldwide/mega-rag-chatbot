@@ -4,8 +4,9 @@ import { fileURLToPath } from "url";
 import fs from "fs"; // Import fs for file system checks
 
 export function loadEnv() {
-  // Only load from .env files in development
-  if (process.env.NODE_ENV !== "development") {
+  // Only load from .env files during local development. Vercel provides env vars
+  // through the platform even when test commands temporarily set NODE_ENV.
+  if (process.env.NODE_ENV !== "development" || process.env.VERCEL) {
     return;
   }
 

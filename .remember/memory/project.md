@@ -143,6 +143,8 @@ except ImportError:
   hoisting.
 - **Vercel build command hygiene**: Keep `buildCommand` focused on dev-deps install + build; avoid redundant one-off
   installs like `npm install dotenv` when dotenv is already in `devDependencies`.
+- **Vercel env loading**: Server env loaders must not read local `.env.<site>` files when `process.env.VERCEL` is set,
+  even if a test/build script temporarily sets `NODE_ENV=development`; Vercel provides platform env vars.
 - **Pattern**: Write tests first, add to existing test files when logical
 
 ### CLI Argument Patterns
