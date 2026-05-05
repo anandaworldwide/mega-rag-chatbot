@@ -32,10 +32,6 @@ function getDisplayLevel(profile: SalesforceAccessNoticeProfile | null): string 
   return profile?.accessLevelLabel || "Public";
 }
 
-function getManualLevel(profile: SalesforceAccessNoticeProfile | null): string {
-  return profile?.manualAccessLevelLabel || profile?.accessLevelLabel || "Public";
-}
-
 function isSalesforceConnected(profile: SalesforceAccessNoticeProfile | null): boolean {
   return profile?.salesforceMatchStatus === "matched" && Boolean(profile?.salesforceId);
 }
@@ -52,7 +48,6 @@ export default function SalesforceAccessNoticeModal({
 
   const salesforceConnected = isSalesforceConnected(profile);
   const effectiveLevel = getDisplayLevel(profile);
-  const manualLevel = getManualLevel(profile);
   const salesforceLevel = profile?.salesforceAccessLevelLabel || effectiveLevel;
   const salesforceContactEmail = profile?.salesforceContactEmail?.trim() || null;
   const regionsWithAdmins = adminRegions.filter((region) => region.admins.length > 0);
@@ -88,8 +83,9 @@ export default function SalesforceAccessNoticeModal({
 
         <div className="space-y-5 px-6 py-5">
           <p className="text-sm leading-6 text-gray-700">
-            Luca is starting to use Salesforce access information to decide which restricted library materials can appear
-            in your search and chat results.
+            Luca is starting to use Ananda&apos;s centralized membership records—the same information Ananda maintains for
+            programs across the organization—to decide which restricted library materials can appear in your search and chat
+            results.
           </p>
 
           <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
@@ -97,17 +93,12 @@ export default function SalesforceAccessNoticeModal({
             <p className="mt-1 text-lg font-semibold text-gray-900">{effectiveLevel}</p>
           </div>
 
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-            <p className="text-sm leading-6 text-amber-900">
-              We are still adding access-level metadata across the library. If you have a higher level of access, such as
-              Kriyaban, you will gradually start seeing more of that restricted material in results as content is tagged.
-            </p>
-          </div>
-
           {salesforceConnected ? (
             <div className="space-y-3 rounded-lg border border-green-200 bg-green-50 p-4">
-              <p className="text-sm font-semibold text-green-900">Salesforce connection: connected</p>
-              <p className="text-sm text-green-900">Salesforce currently has you at: {salesforceLevel}.</p>
+              <p className="text-sm font-semibold text-green-900">Membership records: linked</p>
+              <p className="text-sm text-green-900">
+                Your centralized membership shows your access level as: <strong className="font-semibold">{salesforceLevel}</strong>.
+              </p>
               <p className="text-sm leading-6 text-green-900">
                 If this does not look right,{" "}
                 {salesforceContactEmail ? (
@@ -118,24 +109,23 @@ export default function SalesforceAccessNoticeModal({
                     </a>
                   </>
                 ) : (
-                  "contact the Salesforce access correction contact"
+                  "contact Ananda membership support"
                 )}{" "}
-                so your Salesforce record can be corrected.
+                so your membership record can be updated.
               </p>
             </div>
           ) : (
             <div className="space-y-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
-              <div>
-                <p className="text-sm font-semibold text-blue-900">Salesforce connection: not connected</p>
-                <p className="mt-1 text-sm text-blue-900">Your manually assigned Luca access level is: {manualLevel}.</p>
-              </div>
+              <p className="text-sm font-semibold text-blue-900">Membership records: not linked yet</p>
               <p className="text-sm leading-6 text-blue-900">
                 If this does not look right, contact a Luca administrator you know and ask them to set your level
                 appropriately.
               </p>
 
-              <div className="rounded-lg border border-blue-100 bg-white p-4">
-                <h3 className="text-sm font-semibold text-gray-900">Luca administrators</h3>
+              <details className="rounded-lg border border-blue-100 bg-white p-4">
+                <summary className="cursor-pointer text-sm font-semibold text-gray-900 marker:text-blue-700">
+                  Luca administrators
+                </summary>
                 {isLoadingAdmins && <p className="mt-2 text-sm text-gray-600">Loading administrators...</p>}
                 {adminLoadError && <p className="mt-2 text-sm text-red-700">{adminLoadError}</p>}
                 {!isLoadingAdmins && !adminLoadError && regionsWithAdmins.length === 0 && (
@@ -161,9 +151,16 @@ export default function SalesforceAccessNoticeModal({
                     ))}
                   </div>
                 )}
-              </div>
+              </details>
             </div>
           )}
+
+          <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+            <p className="text-sm leading-6 text-amber-900">
+              We are still adding access-level metadata across the library. If you have a higher level of access, such as
+              Kriyaban, you will gradually start seeing more of that restricted material in results as content is tagged.
+            </p>
+          </div>
         </div>
 
         <div className="border-t border-gray-200 bg-gray-50 px-6 py-4">

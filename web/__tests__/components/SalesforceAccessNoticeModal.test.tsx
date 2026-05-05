@@ -50,7 +50,7 @@ const siteConfig = {
 } satisfies SiteConfig;
 
 describe("SalesforceAccessNoticeModal", () => {
-  it("shows Salesforce-connected copy and the progressive content tagging explanation", () => {
+  it("shows linked-membership copy and the progressive content tagging explanation", () => {
     render(
       <SalesforceAccessNoticeModal
         isOpen
@@ -71,7 +71,7 @@ describe("SalesforceAccessNoticeModal", () => {
 
     expect(screen.getByText("Current access level")).toBeInTheDocument();
     expect(screen.getAllByText("Minister").length).toBeGreaterThan(0);
-    expect(screen.getByText(/Salesforce connection: connected/i)).toBeInTheDocument();
+    expect(screen.getByText(/Membership records: linked/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "salesforce-help@example.com" })).toHaveAttribute(
       "href",
       "mailto:salesforce-help@example.com"
@@ -79,7 +79,7 @@ describe("SalesforceAccessNoticeModal", () => {
     expect(screen.getByText(/gradually start seeing more of that restricted material/i)).toBeInTheDocument();
   });
 
-  it("shows manual-level instructions and admin email addresses when Salesforce is not connected", () => {
+  it("shows current access level once and hides admin email addresses behind a disclosure", () => {
     render(
       <SalesforceAccessNoticeModal
         isOpen
@@ -108,11 +108,18 @@ describe("SalesforceAccessNoticeModal", () => {
       />
     );
 
-    expect(screen.getByText(/Salesforce connection: not connected/i)).toBeInTheDocument();
-    expect(screen.getByText(/manually assigned Luca access level is: Kriyaban/i)).toBeInTheDocument();
-    expect(screen.getByText("Admin User")).toBeInTheDocument();
-    expect(screen.getByText("Test City, CA")).toBeInTheDocument();
-    expect(screen.getByText("admin@example.com")).toBeInTheDocument();
+    expect(screen.getByText(/Membership records: not linked yet/i)).toBeInTheDocument();
+    expect(screen.getByText("Current access level")).toBeInTheDocument();
+    expect(screen.getByText("Kriyaban")).toBeInTheDocument();
+    expect(screen.getByText("Admin User")).not.toBeVisible();
+    expect(screen.getByText("Test City, CA")).not.toBeVisible();
+    expect(screen.getByText("admin@example.com")).not.toBeVisible();
+
+    fireEvent.click(screen.getByText("Luca administrators"));
+
+    expect(screen.getByText("Admin User")).toBeVisible();
+    expect(screen.getByText("Test City, CA")).toBeVisible();
+    expect(screen.getByText("admin@example.com")).toBeVisible();
   });
 });
 
@@ -244,7 +251,7 @@ describe("SalesforceAccessNoticeGate", () => {
 
     expect(await screen.findByText("Your Luca access level")).toBeInTheDocument();
     expect(screen.getAllByText("Kriyaban").length).toBeGreaterThan(0);
-    expect(screen.getByText(/Salesforce connection: connected/i)).toBeInTheDocument();
+    expect(screen.getByText(/Membership records: linked/i)).toBeInTheDocument();
 
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledWith("/api/salesforce/verifyAccess", {
