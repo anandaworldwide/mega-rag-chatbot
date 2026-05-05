@@ -51,25 +51,39 @@ export default function SalesforceAccessNoticeGate({ siteConfig }: SalesforceAcc
 
     let isCancelled = false;
 
+    async function fetchProfile(): Promise<ProfileResponse | null> {
+      const response = await fetch("/api/profile", { credentials: "include" });
+      if (!response.ok) return null;
+
+      return (await response.json()) as ProfileResponse;
+    }
+
+    async function verifySalesforceAccess(): Promise<void> {
+      try {
+        await fetch("/api/salesforce/verifyAccess", {
+          method: "POST",
+          credentials: "include",
+        });
+      } catch {
+        // Verification failures are recorded server-side; the notice can still show the last stored profile.
+      }
+    }
+
     async function loadProfile() {
       try {
-        const response = await fetch("/api/profile", { credentials: "include" });
-        if (!response.ok) return;
+        let data = await fetchProfile();
+        if (!data || isCancelled) return;
 
-        const data = (await response.json()) as ProfileResponse;
-        if (isCancelled) return;
-
-        setProfile(data);
         if (data.salesforceAccessVerificationDue === true && !hasStartedSalesforceVerificationRef.current) {
           hasStartedSalesforceVerificationRef.current = true;
-          void fetch("/api/salesforce/verifyAccess", {
-            method: "POST",
-            credentials: "include",
-          }).catch(() => {
-            // Verification is opportunistic; failures are recorded server-side.
-          });
+          await verifySalesforceAccess();
+          if (isCancelled) return;
+
+          data = (await fetchProfile()) || data;
+          if (isCancelled) return;
         }
 
+        setProfile(data);
         const dismissedCurrentVersion =
           data.dismissedSalesforceAccessNotice === true ||
           (typeof data.dismissedSalesforceAccessNoticeVersion === "number" &&

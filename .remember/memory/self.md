@@ -2683,3 +2683,11 @@ cancelled before it updates the UI.
 
 **Correct**: Keep self-mutated loading state out of the dependency list or guard with a separate stable request flag/ref
 so the effect is not cancelled by its own progress update.
+
+### Mistake: Showing User-Facing State Before Required Lazy Refresh Completes
+
+**Wrong**: Render or open a modal from stale profile data while firing the lazy refresh that determines the displayed state
+in the background. The UI can show outdated access, entitlement, or membership information and let the user dismiss it.
+
+**Correct**: For user-facing notices whose content depends on a lazy refresh, await the refresh attempt, refetch or merge
+the updated state, and only then render/open the notice. Keep the blocking scoped to the notice gate, not the whole app.
