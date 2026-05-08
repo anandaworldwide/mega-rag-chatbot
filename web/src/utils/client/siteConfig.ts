@@ -54,9 +54,8 @@ export const getEnableAuthorSelection = (siteConfig: SiteConfig | null) => siteC
 // Check if search page feature is enabled (defaults to false)
 export const getEnableSearchPage = (siteConfig: SiteConfig | null) => siteConfig?.enableSearchPage ?? false;
 
-// Check if the Salesforce access notice is enabled. This feature must never render outside local development.
+// Check if the Salesforce access notice is enabled for this site.
 export const getEnableSalesforceAccessNotice = (siteConfig: SiteConfig | null) =>
-  process.env.NODE_ENV === "development" &&
   siteConfig?.enableSalesforceAccessNotice === true &&
   siteConfig?.accessControl?.enabled === true;
 

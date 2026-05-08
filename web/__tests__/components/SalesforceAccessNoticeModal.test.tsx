@@ -76,7 +76,7 @@ describe("SalesforceAccessNoticeModal", () => {
       "href",
       "mailto:salesforce-help@example.com"
     );
-    expect(screen.getByText(/gradually start seeing more of that restricted material/i)).toBeInTheDocument();
+    expect(screen.getByText(/gradually start seeing more of that material in results as content is tagged/i)).toBeInTheDocument();
   });
 
   it("shows current access level once and hides admin email addresses behind a disclosure", () => {

@@ -84,7 +84,7 @@ export default function SalesforceAccessNoticeModal({
         <div className="space-y-5 px-6 py-5">
           <p className="text-sm leading-6 text-gray-700">
             Luca is starting to use Ananda&apos;s centralized membership records—the same information Ananda maintains for
-            programs across the organization—to decide which restricted library materials can appear in your search and chat
+            programs across the organization—to decide which library materials can appear in your search and chat
             results.
           </p>
 
@@ -157,8 +157,8 @@ export default function SalesforceAccessNoticeModal({
 
           <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
             <p className="text-sm leading-6 text-amber-900">
-              We are still adding access-level metadata across the library. If you have a higher level of access, such as
-              Kriyaban, you will gradually start seeing more of that restricted material in results as content is tagged.
+            We are still adding access-level metadata across the library. If you have a higher level of access, such as
+            Kriyaban, you will gradually start seeing more of that material in results as content is tagged.
             </p>
           </div>
         </div>
