@@ -16,6 +16,27 @@ const MAX_LINK_ID_LENGTH = 500;
 // TTL for email tracking documents
 const EMAIL_TRACKING_TTL_DAYS = 180;
 
+function getRequestHost(req: NextApiRequest): string | undefined {
+  const forwardedHost = req.headers["x-forwarded-host"];
+  const host = forwardedHost || req.headers.host;
+  return Array.isArray(host) ? host[0] : host;
+}
+
+function normalizeRedirectUrl(targetUrl: string, req: NextApiRequest): string {
+  const urlObj = new URL(targetUrl);
+
+  if (urlObj.protocol === "http:" && urlObj.hostname !== "localhost") {
+    const requestHost = getRequestHost(req);
+    const isSameHost = requestHost ? urlObj.host === requestHost : false;
+    if (isSameHost) {
+      urlObj.protocol = "https:";
+      return urlObj.toString();
+    }
+  }
+
+  return targetUrl;
+}
+
 /**
  * Email click tracking endpoint
  * Logs email clicks to Firestore and redirects to the target URL
@@ -84,7 +105,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Decode URL and email
-    const targetUrl = decodeURIComponent(url);
+    let targetUrl = decodeURIComponent(url);
     const userEmail = decodeURIComponent(email).toLowerCase();
     const campaignType = campaign as "onboarding" | "newsletter" | "reengagement" | "specialDay" | "nps";
     const linkType = type as "question" | "cta" | "unsubscribe" | "link" | "score";
@@ -93,6 +114,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Validate URL is safe
     // Newsletter CTAs can link to external URLs since content is admin-curated
     try {
+      targetUrl = normalizeRedirectUrl(targetUrl, req);
       const urlObj = new URL(targetUrl);
 
       // Only allow HTTPS URLs (or HTTP for localhost in development)

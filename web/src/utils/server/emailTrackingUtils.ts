@@ -63,6 +63,20 @@ export type EmailCampaignType = "onboarding" | "newsletter" | "reengagement" | "
  */
 export type EmailLinkType = "question" | "cta" | "unsubscribe" | "link" | "score";
 
+function normalizeEmailUrl(url: string): string {
+  try {
+    const urlObj = new URL(url);
+    if (urlObj.protocol === "http:" && urlObj.hostname !== "localhost") {
+      urlObj.protocol = "https:";
+      return urlObj.toString();
+    }
+  } catch (_error) {
+    return url;
+  }
+
+  return url;
+}
+
 /**
  * Generates a click tracking URL that logs the click before redirecting
  *
@@ -84,11 +98,11 @@ export function generateClickTrackingUrl(
   linkId?: string,
   baseUrl?: string
 ): string {
-  const trackingBase = baseUrl || process.env.NEXT_PUBLIC_BASE_URL || "";
+  const trackingBase = normalizeEmailUrl(baseUrl || process.env.NEXT_PUBLIC_BASE_URL || "");
   const trackingUrl = new URL("/api/email/click", trackingBase);
 
   // URLSearchParams.set() automatically encodes values, so don't double-encode
-  trackingUrl.searchParams.set("url", targetUrl);
+  trackingUrl.searchParams.set("url", normalizeEmailUrl(targetUrl));
   trackingUrl.searchParams.set("email", email);
   trackingUrl.searchParams.set("campaign", campaignType);
   trackingUrl.searchParams.set("campaignId", campaignId.toString());
@@ -115,7 +129,7 @@ export function generateOpenTrackingUrl(
   campaignId: string | number,
   baseUrl?: string
 ): string {
-  const trackingBase = baseUrl || process.env.NEXT_PUBLIC_BASE_URL || "";
+  const trackingBase = normalizeEmailUrl(baseUrl || process.env.NEXT_PUBLIC_BASE_URL || "");
   const trackingUrl = new URL("/api/email/open", trackingBase);
 
   // Generate a signed token to prevent forgery
