@@ -11,6 +11,18 @@ interface CronJobsPageProps {
   siteConfig: SiteConfig | null;
 }
 
+function buildCronResultMessage(data: Record<string, unknown>): string {
+  if (typeof data.message === "string" && data.message.trim().length > 0) {
+    return data.message;
+  }
+
+  const metrics = ["processed", "synced", "failed"]
+    .filter((key) => typeof data[key] === "number")
+    .map((key) => `${key}: ${data[key]}`);
+
+  return metrics.length > 0 ? `Job completed successfully (${metrics.join(", ")})` : "Job completed successfully";
+}
+
 const CronJobsPage = ({ siteConfig }: CronJobsPageProps) => {
   const [loading, setLoading] = useState<Record<string, boolean>>({});
   const [results, setResults] = useState<Record<string, { success: boolean; message: string }>>({});
@@ -40,7 +52,7 @@ const CronJobsPage = ({ siteConfig }: CronJobsPageProps) => {
       if (response.ok) {
         setResults((prev) => ({
           ...prev,
-          [jobName]: { success: true, message: data.message || "Job completed successfully" },
+          [jobName]: { success: true, message: buildCronResultMessage(data) },
         }));
       } else {
         setResults((prev) => ({
@@ -71,6 +83,11 @@ const CronJobsPage = ({ siteConfig }: CronJobsPageProps) => {
       name: "Model Performance Digest",
       endpoint: "/api/admin/model-performance-digest",
       description: "Sends daily email digest of model performance metrics for the last 24 hours",
+    },
+    {
+      name: "Cleanup Expired Invitations",
+      endpoint: "/api/admin/cleanupExpiredInvitations",
+      description: "Deletes expired pending account invitations and records audit log entries",
     },
   ];
 

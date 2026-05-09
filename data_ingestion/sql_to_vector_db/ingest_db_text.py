@@ -41,6 +41,7 @@ Command Line Arguments:
     --overwrite-pdfs: Optional. Force regeneration and upload of PDFs even if they already exist in S3.
     --no-pdf-uploads: Optional. Disable PDF generation and S3 uploads.
     --debug-pdfs: Optional. Enable debug mode for PDF generation.
+    --required-access-level-field: Optional. wp_posts column containing numeric required access level.
 
 Example Usage:
     python ingest_db_text.py --site ananda --database wp_ananda --library-name "Ananda Library" --keep-data
@@ -75,6 +76,7 @@ from reportlab.lib.pdfencrypt import StandardEncryption
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
+from data_ingestion.utils.ingestion_run_logger import IngestionRunLogger
 from data_ingestion.utils.pinecone_utils import generate_vector_id
 from data_ingestion.utils.progress_utils import (
     ProgressConfig,
@@ -90,6 +92,10 @@ from data_ingestion.utils.text_processing import remove_html_tags, replace_smart
 from data_ingestion.utils.text_splitter_utils import SpacyTextSplitter
 from pyutil.env_utils import load_env
 from pyutil.logging_utils import configure_logging
+from pyutil.site_config_utils import (
+    get_access_level_key_for_required_level,
+    load_site_config,
+)
 
 # Configure logging
 configure_logging(debug=True)
@@ -980,6 +986,13 @@ def parse_arguments():
         action="store_true",
         help="Store PDFs locally for debugging instead of uploading to S3.",
     )
+    parser.add_argument(
+        "--required-access-level-field",
+        help=(
+            "Optional wp_posts column containing the numeric required access level "
+            "for each document. Missing/blank values default to 0."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -1243,6 +1256,14 @@ def get_config(site):
 
 
 # --- Data Fetching Logic ---
+def validate_sql_column_name(column_name: str) -> None:
+    """Validate a CLI-provided wp_posts column name before interpolating it into SQL."""
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", column_name):
+        raise ValueError(
+            "--required-access-level-field must be a simple wp_posts column name"
+        )
+
+
 def fetch_authors(db_connection) -> dict[int, str]:
     """Fetches user IDs and display names from the wp_users table."""
     authors = {}
@@ -1305,11 +1326,18 @@ def _construct_sql_query(
     post_types: list[str],
     category_taxonomy: str,
     author_taxonomy: str,
+    required_access_level_field: str | None = None,
     max_records: int = None,
 ) -> tuple[str, list]:
     """Constructs the main SQL query and parameters for fetching posts."""
     # Create placeholders for the SQL query IN clauses
     placeholders = ", ".join(["%s"] * len(post_types))
+    required_access_level_select = ""
+    if required_access_level_field:
+        validate_sql_column_name(required_access_level_field)
+        required_access_level_select = (
+            f"child.`{required_access_level_field}` AS REQUIRED_ACCESS_LEVEL,"
+        )
 
     # Construct the main SQL query to fetch posts, their parent titles (up to 3 levels),
     # associated categories, and associated authors from the specified taxonomies.
@@ -1330,6 +1358,7 @@ def _construct_sql_query(
             child.post_author,                     -- Child User ID (might be unused now)
             child.post_date,
             child.post_type,
+            {required_access_level_select}
             -- Concatenate distinct category names using a unique separator
             GROUP_CONCAT(DISTINCT cat_terms.name SEPARATOR '|||') AS categories,
             -- Concatenate distinct author names using a unique separator
@@ -1354,7 +1383,7 @@ def _construct_sql_query(
         GROUP BY
             -- Group by all selected post fields to ensure one row per post
             child.ID, child.post_content, child.post_name, child.post_parent, PARENT_TITLE_1, PARENT_TITLE_2, PARENT_TITLE_3, PARENT3_AUTHOR_ID,
-            CHILD_TITLE, child.post_author, child.post_date, child.post_type
+            CHILD_TITLE, child.post_author, child.post_date, child.post_type{", REQUIRED_ACCESS_LEVEL" if required_access_level_field else ""}
         ORDER BY
             child.ID -- Order by ID for potentially easier debugging/checkpointing
         """
@@ -1414,6 +1443,21 @@ def _determine_author_name(row: dict) -> str:
     return author_name
 
 
+def parse_required_access_level(value: object) -> int:
+    """Parse a source-provided required access level, defaulting blank/missing values to public."""
+    if value is None or value == "":
+        return 0
+    try:
+        parsed_value = int(value)
+    except (TypeError, ValueError):
+        logger.warning("Invalid required access level %r; defaulting to public", value)
+        return 0
+    if parsed_value < 0:
+        logger.warning("Negative required access level %r; defaulting to public", value)
+        return 0
+    return parsed_value
+
+
 def _build_processed_data_entry(
     row: dict,
     full_title: str,
@@ -1422,8 +1466,10 @@ def _build_processed_data_entry(
     cleaned_content: str,
     category_list: list[str],
     library_name: str,
+    access_site_config: dict,
 ) -> dict:
     """Builds the processed data dictionary for a single post."""
+    required_access_level = parse_required_access_level(row.get("REQUIRED_ACCESS_LEVEL"))
     return {
         "id": row["ID"],  # Original WordPress Post ID
         "title": full_title,
@@ -1432,6 +1478,10 @@ def _build_processed_data_entry(
         "content": cleaned_content,  # The main text content for embedding
         "categories": category_list,  # Associated categories
         "library": library_name,  # Library name for Pinecone metadata filtering
+        "access_level": get_access_level_key_for_required_level(
+            required_access_level, access_site_config
+        ),
+        "required_access_level": required_access_level,
     }
 
 
@@ -1464,8 +1514,12 @@ def fetch_data(
     authors: dict,
     site: str,
     max_records: int = None,
+    required_access_level_field: str | None = None,
+    access_site_config: dict | None = None,
 ) -> list[dict]:
     """Fetches, cleans, and prepares post data from the database for ingestion."""
+    if access_site_config is None:
+        access_site_config = {}
 
     # Download exclusion rules from S3
     logger.info(f"🔍 Loading exclusion rules for site '{site}'...")
@@ -1483,7 +1537,11 @@ def fetch_data(
 
     # Construct SQL query and parameters
     query, params = _construct_sql_query(
-        post_types, category_taxonomy, author_taxonomy, max_records
+        post_types,
+        category_taxonomy,
+        author_taxonomy,
+        required_access_level_field,
+        max_records,
     )
 
     processed_data = []
@@ -1583,6 +1641,7 @@ def fetch_data(
                         cleaned_content,
                         category_list,
                         library_name,
+                        access_site_config,
                     )
                     processed_data.append(processed_entry)
                     progress.update(1)
@@ -1828,6 +1887,10 @@ def _prepare_vector_data(
             "title": post_data["title"],
             "categories": post_data["categories"],
             "text": doc.page_content,
+            "access_level": post_data.get("access_level", "public"),
+            "required_access_level": parse_required_access_level(
+                post_data.get("required_access_level")
+            ),
             "wp_id": post_id,
             "chunk_index": i + 1,
         }
@@ -2113,13 +2176,22 @@ def fetch_all_data(
     library_name: str,
     site: str,
     max_records: int = None,
+    required_access_level_field: str | None = None,
+    access_site_config: dict | None = None,
 ) -> list[dict]:
     """Fetches author and main post data."""
     logger.info("Fetching author data...")
     authors = fetch_authors(db_connection)
     logger.info("Fetching and preparing main post data...")
     all_rows = fetch_data(
-        db_connection, site_config, library_name, authors, site, max_records
+        db_connection,
+        site_config,
+        library_name,
+        authors,
+        site,
+        max_records,
+        required_access_level_field,
+        access_site_config,
     )
     if not all_rows:
         logger.info("No data fetched from the database matching criteria.")
@@ -2540,13 +2612,37 @@ def _handle_rows(
 def _run_ingestion(args: argparse.Namespace) -> None:
     """Execute the ingestion flow with setup, processing, and teardown."""
     load_environment(args.site)
+    run_logger = IngestionRunLogger.from_environment()
+    run_record = run_logger.start_run(
+        method="sql_database",
+        site=args.site,
+        args=args,
+        source_summary={
+            "database": args.database,
+            "library": args.library_name,
+            "max_records": args.max_records,
+            "required_access_level_field": args.required_access_level_field,
+        },
+    )
     site_config = get_config(args.site)
+    access_site_config = load_site_config(args.site)
 
     db_connection = None
     pinecone_index = None
     processed_doc_ids: set[int] = set()
     processed_count_session = 0
     last_processed_id_session = 0
+    outcome: dict[str, object] = {
+        "database": args.database,
+        "library": args.library_name,
+        "fetched_records": 0,
+        "processed": 0,
+        "skipped": 0,
+        "errors": 0,
+        "last_processed_id": 0,
+        "dry_run": args.dry_run,
+        "no_pinecone": args.no_pinecone,
+    }
 
     try:
         db_connection, pinecone_index = setup_connections_and_index(
@@ -2558,8 +2654,15 @@ def _run_ingestion(args: argparse.Namespace) -> None:
         )
 
         all_rows = fetch_all_data(
-            db_connection, site_config, args.library_name, args.site, args.max_records
+            db_connection,
+            site_config,
+            args.library_name,
+            args.site,
+            args.max_records,
+            args.required_access_level_field,
+            access_site_config,
         )
+        outcome["fetched_records"] = len(all_rows)
 
         if all_rows:
             (
@@ -2577,6 +2680,15 @@ def _run_ingestion(args: argparse.Namespace) -> None:
                 args.no_pinecone,
                 checkpoint_file,
             )
+            outcome.update(
+                {
+                    "processed": processed_count_session,
+                    "skipped": skipped_count_session,
+                    "errors": error_count_session,
+                    "last_processed_id": last_processed_id_session,
+                    "unique_documents_processed_overall": len(processed_doc_ids),
+                }
+            )
 
             _print_session_summary(
                 processed_count_session,
@@ -2588,6 +2700,7 @@ def _run_ingestion(args: argparse.Namespace) -> None:
             )
         else:
             logger.info("Exiting as no data was fetched.")
+        run_logger.finish_run(run_record, outcome=outcome)
 
     except KeyboardInterrupt:
         logger.info("\nKeyboardInterrupt received. Attempting final checkpoint save...")
@@ -2606,6 +2719,7 @@ def _run_ingestion(args: argparse.Namespace) -> None:
             text_splitter.metrics.print_summary()
 
         logger.info("Exiting due to KeyboardInterrupt.")
+        run_logger.fail_run(run_record, error="KeyboardInterrupt", outcome=outcome)
         sys.exit(1)
     except Exception as e:  # noqa: BLE001 — top-level handler logs and exits
         logger.error("\n--- An unexpected error occurred during the main process ---")
@@ -2629,6 +2743,7 @@ def _run_ingestion(args: argparse.Namespace) -> None:
             logger.info("")
             text_splitter.metrics.print_summary()
 
+        run_logger.fail_run(run_record, error=e, outcome=outcome)
         sys.exit(1)
     finally:
         logger.info("Closing database connection...")

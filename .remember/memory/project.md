@@ -143,6 +143,8 @@ except ImportError:
   hoisting.
 - **Vercel build command hygiene**: Keep `buildCommand` focused on dev-deps install + build; avoid redundant one-off
   installs like `npm install dotenv` when dotenv is already in `devDependencies`.
+- **Vercel env loading**: Server env loaders must not read local `.env.<site>` files when `process.env.VERCEL` is set,
+  even if a test/build script temporarily sets `NODE_ENV=development`; Vercel provides platform env vars.
 - **Pattern**: Write tests first, add to existing test files when logical
 
 ### CLI Argument Patterns
@@ -153,6 +155,9 @@ except ImportError:
 - **Pinecone ops scripts**: Prefer `--vector-id-prefix` style selectors over broad title substring matching when the ID
   structure can target the document set directly
 - **Pinecone debug caching**: Cache only listed vector IDs locally for repeated runs; do not cache full mutable metadata
+- **Ingestion access metadata**: Do not infer required content access from file paths or folders. Audio/video ingestion stores
+  an explicit `--required-access-level` value on queue items from `manage_queue.py`; processing reads it from the queue.
+  SQL/database ingestion reads an explicitly named source field, and missing values default to public `0`.
 - **Site and Environment Pattern**:
   - Always add `--site` argument (required) for loading `.env.[site]` files
   - Add `-e` or `--env` argument with `choices=['dev', 'prod']` and `default='prod'` (or 'dev' if appropriate)
@@ -275,9 +280,15 @@ except ImportError:
 - Bootstrap first admins via environment-gated route/script
 - Activation links: magic link, single-use, 14-day expiry; resend allowed; no per-admin daily cap
 - Basic entitlements: access to completely unrestricted Pinecone content; site-scoped entitlements and logins
+- User-facing administrator lists should include admin email addresses, not just names/locations, so users can contact the
+  appropriate person directly.
 - Phase I: Implement auth, add/resend, activation, audit logging; no Salesforce dependency
-- Phase II: Salesforce enrichment on activation + nightly (midnight PT) cron; Salesforce is source of truth;
-  auto-up/downgrade; user notified on changes; Ops alerted on repeated sync failures; no local entitlement overrides
+- Phase II: Salesforce enrichment is stale-on-access, not scheduled batch cron: accepted Luca users are re-verified only
+  when they access the app and `lastSalesforceSyncAt` is missing or older than 3 days. Keep this out of shared
+  chat/search access resolution so normal backend calls only read stored Firestore access state. Salesforce remains the
+  source of truth for matched users; no local entitlement overrides.
+- Salesforce webhook auth uses dynamic request-body auth: read `SALESFORCE_API_FIELD_NAME` for the payload field name
+  and `SALESFORCE_API_KEY` for its value; never log the API key.
 - Duplicate handling: per (email, site) — create if none; resend if pending; no-op if already active
 - Bootstrap vetted list: env var `ADMIN_BOOTSTRAP_SUPERUSERS` with comma-separated emails (typically 1–2 superusers)
 - Admin audit tracking: User detail page shows which admin added/approved each user and when (from audit log)

@@ -211,6 +211,7 @@ def store_in_pinecone(
     interrupt_event=None,
     album=None,
     access_level="public",  # New parameter for access control
+    required_access_level=0,
 ):
     """
     Stores vector embeddings with metadata in Pinecone.
@@ -228,7 +229,8 @@ def store_in_pinecone(
         source_identifier: URL for video, S3 key for audio
         interrupt_event: Optional event for graceful shutdown
         album: Optional album/grouping metadata
-        access_level: Access control level (e.g., 'public', 'kriyaban')
+        access_level: Legacy access control level (e.g., 'public', 'kriyaban')
+        required_access_level: Numeric access level required to retrieve the content
 
     Batch Processing:
     - 100 vectors per upsert
@@ -278,6 +280,7 @@ def store_in_pinecone(
             "type": "youtube" if is_youtube_video else "audio",
             "title": title,
             "access_level": access_level,  # Add access level metadata
+            "required_access_level": int(required_access_level or 0),
         }
 
         # Optional metadata based on content type

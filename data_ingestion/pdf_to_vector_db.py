@@ -30,12 +30,17 @@ import logging
 import os
 import re
 import sys
+from typing import TYPE_CHECKING, Any
 
 import pdfplumber
 import psutil
 import tiktoken
-from pinecone import Index
 from tqdm import tqdm
+
+if TYPE_CHECKING:
+    from pinecone import Index
+else:
+    Index = Any
 
 from data_ingestion.utils.checkpoint_utils import pdf_checkpoint_integration
 from data_ingestion.utils.embeddings_utils import OpenAIEmbeddings
@@ -997,6 +1002,8 @@ async def _process_valid_chunk(
         "source": doc.metadata.get("source"),
         "title": doc.metadata.get("title"),
         "text": doc.page_content,
+        "access_level": "public",
+        "required_access_level": 0,
     }
 
     # Add page reference if it was calculated during processing

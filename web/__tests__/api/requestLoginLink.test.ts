@@ -144,6 +144,26 @@ describe("requestLoginLink API", () => {
     expect(res._getJSONData()).toEqual({ message: "login-link-sent" });
   });
 
+  it("returns a generic error when sending the login email fails", async () => {
+    (firestoreGet as unknown as jest.Mock).mockResolvedValueOnce({
+      exists: true,
+      data: () => ({ inviteStatus: "accepted" }),
+    });
+    (sendLoginEmail as jest.Mock).mockRejectedValueOnce(
+      new Error('[EntityReplacer] Invalid character "#" in entity name: "#xD"')
+    );
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: { email: "user@example.com" },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(500);
+    expect(res._getJSONData()).toEqual({ error: "Unable to send login link. Please try again later." });
+  });
+
   it("resends activation if user exists and is pending; stores hashed invite token with 14d expiry", async () => {
     (firestoreGet as unknown as jest.Mock).mockResolvedValueOnce({
       exists: true,

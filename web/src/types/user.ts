@@ -55,6 +55,20 @@ export interface User {
   hasPassword?: boolean; // Computed field for client - whether user has password set
   passwordSetAt?: string | null; // When password was first set
   dismissedPasswordPromo?: boolean; // Whether user dismissed the password promotion banner
+  dismissedSalesforceAccessNoticeVersion?: number | null; // Versioned dismissal for Salesforce access notice
+  dismissedSalesforceAccessNotice?: boolean; // Computed API field for the current Salesforce access notice version
+  // Access-control fields
+  accessLevel?: number | null; // Effective access level, computed for API responses
+  accessLevelLabel?: string | null; // Human-readable label for effective access level
+  accessLevelSource?: "superuser" | "salesforce" | "manual" | "default" | null;
+  manualAccessLevel?: number | null;
+  salesforceAccessLevel?: number | null;
+  lastSalesforceSyncAt?: any;
+  salesforceId?: string | null;
+  salesforceMatchStatus?: "matched" | "not_found" | "error" | "not_checked" | null;
+  salesforceLastLookupError?: string | null;
+  salesforceAccessVerificationDue?: boolean; // Computed API field for stale-on-access verification trigger
+  salesforceContactEmail?: string | null; // Computed API field for Salesforce correction contact
   // Admin-specific fields (when needed)
   id?: string; // For admin user detail pages (this will be the email/doc ID)
   conversationCount?: number; // For admin user detail pages

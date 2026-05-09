@@ -11,6 +11,25 @@ export interface FooterConfig {
   }>;
 }
 
+export interface AccessControlLevelConfig {
+  key: string;
+  label: string;
+  value: number;
+}
+
+export interface AccessControlConfig {
+  enabled?: boolean;
+  levels: AccessControlLevelConfig[];
+  defaultLevel?: number;
+  superuserLevel?: number;
+  manualAssignmentCaps?: {
+    userAdminMaxLevel?: number;
+    superuserMaxLevel?: number;
+  };
+  salesforceOnlyLevels?: number[];
+  originUrl?: string;
+}
+
 export interface SiteConfig {
   siteId: string;
   shortname: string;
@@ -95,4 +114,6 @@ export interface SiteConfig {
   enableWhatsNew?: boolean; // Whether this site has a whats-new.json data file
   enableTipsConfig?: boolean; // Whether this site has a tips-config.json data file
   enabledTasks?: string[]; // Array of task IDs enabled for this site (e.g., ["research", "class-planning"])
+  enableSalesforceAccessNotice?: boolean; // Development-only notice for Salesforce access rollout status
+  accessControl?: AccessControlConfig;
 }

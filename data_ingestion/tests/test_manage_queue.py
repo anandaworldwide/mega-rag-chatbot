@@ -146,6 +146,7 @@ class TestManageQueue:
                 "library": {"name": "test_lib"},
                 "s3_folder": "testlibrary",
                 "s3_key": "public/audio/testlibrary/audio.mp3",
+                "required_access_level": 0,
             },
         )
 
@@ -233,6 +234,7 @@ class TestManageQueue:
         mock_args.directory = None
         mock_args.default_author = "Test Author"
         mock_args.library = "TestLibrary"
+        mock_args.required_access_level = 200
 
         mock_queue = MagicMock()
         mock_queue.add_item.return_value = "queue_item_id"
@@ -252,6 +254,7 @@ class TestManageQueue:
                 "author": "Test Author",
                 "library": "TestLibrary",
                 "source": None,
+                "required_access_level": 200,
             },
         )
 
@@ -273,6 +276,7 @@ class TestManageQueue:
         mock_args.directory = None
         mock_args.default_author = "Test Author"
         mock_args.library = "TestLibrary"
+        mock_args.required_access_level = 200
 
         mock_queue = MagicMock()
         mock_queue.add_item.return_value = "queue_item_id"
@@ -293,6 +297,7 @@ class TestManageQueue:
         assert first_call[0][0] == "youtube_video"
         assert first_call[0][1]["url"] == "https://youtube.com/watch?v=video1"
         assert first_call[0][1]["youtube_id"] == "video1"
+        assert first_call[0][1]["required_access_level"] == 200
         assert (
             first_call[0][1]["source"]
             == "https://youtube.com/playlist?list=test_playlist"
@@ -313,6 +318,7 @@ class TestManageQueue:
         mock_args.default_author = "Test Author"
         mock_args.library = "TestLibrary"
         mock_args.site = "test_site"
+        mock_args.required_access_level = 200
 
         mock_queue = MagicMock()
 
@@ -321,7 +327,12 @@ class TestManageQueue:
 
         # Verify audio processing delegation
         mock_process_audio_input.assert_called_once_with(
-            "/path/to/audio.mp3", mock_queue, "Test Author", "TestLibrary", "test_site"
+            "/path/to/audio.mp3",
+            mock_queue,
+            "Test Author",
+            "TestLibrary",
+            "test_site",
+            200,
         )
 
     def test_add_to_queue_no_valid_input(self):

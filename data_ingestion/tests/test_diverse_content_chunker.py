@@ -12,6 +12,8 @@ import spacy
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from utils.text_splitter_utils import SpacyTextSplitter
 
+os.environ.setdefault("OPENAI_INGEST_EMBEDDINGS_MODEL", "text-embedding-ada-002")
+
 # Load spaCy English model
 try:
     nlp = spacy.load("en_core_web_sm")

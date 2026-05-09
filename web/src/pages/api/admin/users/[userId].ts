@@ -16,6 +16,10 @@ import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
 import { sanitizeName } from "@/utils/server/inputSanitization";
 import { isEmailBlacklisted } from "@/utils/server/blacklist";
+import {
+  buildAccessLevelResponseFields,
+  validateManualAccessLevel,
+} from "@/utils/server/accessLevelUtils";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Apply rate limiting
@@ -48,9 +52,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
 
       const requesterRole = await getRequesterRoleFromFirestore(req);
+      const siteConfig = loadSiteConfigSync();
       const doc = await db.collection(usersCol).doc(currentId).get();
       if (!doc.exists) return res.status(404).json({ error: "User not found" });
       const data = doc.data() || {};
+      const siteIdForBlacklist = process.env.SITE_ID || siteConfig?.siteId;
+      const isBlacklisted = siteIdForBlacklist ? await isEmailBlacklisted(currentId, siteIdForBlacklist) : false;
 
       // Fetch user's total question count for all admin roles
       let conversationCount = 0;
@@ -124,6 +131,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           isApprover: typeof (data as any)?.isApprover === "boolean" ? (data as any).isApprover : false,
           approverLocation: typeof (data as any)?.approverLocation === "string" ? (data as any).approverLocation : null,
           approverRegion: typeof (data as any)?.approverRegion === "string" ? (data as any).approverRegion : null,
+          isBlacklisted,
+          ...buildAccessLevelResponseFields(data, siteConfig),
         },
       });
     } catch (err: any) {
@@ -143,6 +152,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         isApprover?: boolean;
         approverLocation?: string;
         approverRegion?: string;
+        manualAccessLevel?: number | string | null;
       };
       // Critical security fix – verify admin role from Firestore (source of truth)
       // Prevents stale JWT admin roles from granting access after revocation
@@ -156,6 +166,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const updates: Record<string, any> = {};
       const now = firebase.firestore.Timestamp.now();
       const siteConfig = loadSiteConfigSync();
+      const requesterEmail = getRequesterEmail(req);
 
       // Validate role if provided (only superuser can change role)
       if (body.role !== undefined) {
@@ -197,6 +208,19 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           return res.status(400).json({ error: "Invalid newsletter subscription value" });
         }
         updates.newsletterSubscribed = body.newsletterSubscribed;
+      }
+
+      if (body.manualAccessLevel !== undefined) {
+        if (requesterEmail === currentId) {
+          return res.status(403).json({ error: "Admins cannot change their own access level" });
+        }
+
+        const validation = validateManualAccessLevel(body.manualAccessLevel, requesterRole, siteConfig);
+        if (!validation.valid) {
+          return res.status(400).json({ error: validation.error || "Invalid access level" });
+        }
+
+        updates.manualAccessLevel = validation.level;
       }
 
       // Approver fields - only superuser can update, only on admin/superuser roles
@@ -354,6 +378,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             approverLocation:
               typeof (data as any)?.approverLocation === "string" ? (data as any).approverLocation : null,
             approverRegion: typeof (data as any)?.approverRegion === "string" ? (data as any).approverRegion : null,
+            ...buildAccessLevelResponseFields(data, siteConfig),
           },
         });
       }
@@ -506,6 +531,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           isApprover: typeof (out as any)?.isApprover === "boolean" ? (out as any).isApprover : false,
           approverLocation: typeof (out as any)?.approverLocation === "string" ? (out as any).approverLocation : null,
           approverRegion: typeof (out as any)?.approverRegion === "string" ? (out as any).approverRegion : null,
+          ...buildAccessLevelResponseFields(out, siteConfig),
         },
       });
     } catch (err: any) {
@@ -612,6 +638,25 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   return res.status(405).json({ error: "Method not allowed" });
+}
+
+function getRequesterEmail(req: NextApiRequest): string | null {
+  try {
+    const cookieJwt = req.cookies?.["auth"];
+    if (cookieJwt) {
+      const payload: any = verifyToken(cookieJwt);
+      return typeof payload?.email === "string" ? payload.email.toLowerCase() : null;
+    }
+  } catch {
+    // Fall through to header token.
+  }
+
+  try {
+    const headerPayload: any = getTokenFromRequest(req);
+    return typeof headerPayload?.email === "string" ? headerPayload.email.toLowerCase() : null;
+  } catch {
+    return null;
+  }
 }
 
 export default withApiMiddleware(withJwtAuth(handler));

@@ -27,6 +27,19 @@ python sql_to_vector_db/ingest_db_text.py \
   --library "Ananda Library"
 ```
 
+If the source `wp_posts` table has a numeric column for content access, pass it explicitly:
+
+```bash
+python sql_to_vector_db/ingest_db_text.py \
+  --site ananda \
+  --database anandalib_2025_03_06 \
+  --library "Ananda Library" \
+  --required-access-level-field luca_required_access_level
+```
+
+Missing or blank source values default to public (`required_access_level: 0`). The script also writes the legacy
+`access_level` string for compatibility.
+
 ### Audio & Video Transcription
 
 #### Media File Processing
@@ -39,7 +52,8 @@ python audio_video/manage_queue.py \
   --directory bhaktan-talks \
   --site ananda \
   --default-author 'Swami Kriyananda' \
-  --library bhaktan
+  --library bhaktan \
+  --required-access-level 0
 
 # Process transcription queue
 python audio_video/transcribe_and_ingest_media.py --site ananda
@@ -55,11 +69,46 @@ python audio_video/manage_queue.py \
   --playlists-file audio_video/data/youtube-links.xlsx \
   --site ananda \
   --default-author 'Swami Kriyananda' \
-  --library 'Ananda Youtube'
+  --library 'Ananda Youtube' \
+  --required-access-level 0
 
 # Process transcription queue
 python audio_video/transcribe_and_ingest_media.py --site ananda
 ```
+
+Media access metadata is set when content is queued. Use the numeric level from the site's access-control config, for
+example `--required-access-level 200` for Kriyaban-only Luca content.
+
+### Ingestion Run History
+
+Manual non-crawler ingestion commands are recorded in an append-only local JSONL
+ledger at `.cache/ingestion-runs/ingestion_runs.jsonl` by default. This covers:
+
+- SQL/database ingestion via `sql_to_vector_db/ingest_db_text.py`
+- Media queue creation and management via `audio_video/manage_queue.py`
+- Media queue processing via `audio_video/transcribe_and_ingest_media.py`
+
+List the most recent successful runs before starting the next ingestion:
+
+```bash
+python bin/list_ingestion_runs.py --site ananda --status completed
+```
+
+Useful filters:
+
+```bash
+python bin/list_ingestion_runs.py --site ananda --method sql_database
+python bin/list_ingestion_runs.py --site ananda --method media_queue --library bhaktan
+python bin/list_ingestion_runs.py --site ananda --method media_process --index ananda-production
+```
+
+Each record includes a copy-pasteable `command`, raw Python argv, parsed
+arguments, target Pinecone index from the environment, source summary, queue
+status or processing counts, git SHA, and whether the repo was dirty. Set
+`INGESTION_RUN_LOG_PATH` to write or read a different ledger location.
+
+After successful ingestion that adds or changes `metadata.title` values, refresh
+the title catalog using the checklist in `../docs/title-scope-ingestion-guide.md`.
 
 ### Web Content Crawling
 

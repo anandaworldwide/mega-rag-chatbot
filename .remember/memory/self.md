@@ -13,6 +13,22 @@ graph for that package, not just its `version`, `resolved`, and `integrity` fiel
 **Correct**: Regenerate or verify the lockfile so the downgraded package's own dependencies match its published manifest
 and run the production build afterward.
 
+### AWS SDK XML Parsing Breaks With `fast-xml-parser@5.7.0`
+
+**Rule**: Do not force `fast-xml-parser@5.7.0` or `5.7.1` in projects using AWS SDK v3 XML clients such as SES/S3.
+Those versions reject AWS SDK's numeric XML entity registration (`#xD`/`#10`) and can fail response deserialization.
+
+**Wrong**:
+
+```json
+"overrides": {
+  "fast-xml-parser": "5.7.0"
+}
+```
+
+**Correct**: Use a known working aged version such as `5.6.0`, or move to `5.7.2+` only after the repository's dependency
+cooldown permits it.
+
 ### Docker + uv + Non-Root: Put Managed Python Where UID Can Read
 
 **Rule**: In crawler images, `uv sync` runs as root and defaults to storing the managed CPython under `/root/...`. If the
@@ -2498,6 +2514,62 @@ produces misleading low-memory warnings on smaller machines like 2 GB instances.
 **Correct**: Use a relative threshold based on available-memory percentage (for example `<25% free`) so warnings reflect
 actual pressure across different host sizes.
 
+### Mistake: Building Retrieval Filters Without Passing Them To The Retriever
+
+**Wrong**: Constructing a Pinecone/LangChain filter object, passing it through helper signatures, but omitting it from the
+final `vectorStore.asRetriever({ ... })` options. The code looks filtered while retrieval still searches the full index.
+
+**Correct**: Verify the final retriever/search call consumes the filter, e.g. `vectorStore.asRetriever({ k, filter })`, and
+include tests or type checks around the actual call site when changing access-control filters.
+
+### Mistake: Nesting Pinecone `$and` Clauses While Composing Filters
+
+**Wrong**: Build a helper filter as `{ $and: [...] }`, then push that object into a parent `$and` array. Pinecone filters do
+not support nested logical operators like `{ $and: [typeFilter, { $and: accessClauses }] }`.
+
+**Correct**: When the caller is already constructing a parent `$and`, have helpers return flat clause arrays and spread them
+into the parent: `{ $and: [typeFilter, ...accessClauses] }`. Keep a separate wrapper helper only for standalone filters.
+
+### Mistake: Inferring Ingestion Access From Paths
+
+**Wrong**: Deriving content `required_access_level` during ingestion from file paths, folder names, or site-config
+path patterns. That silently makes directory layout an authorization input.
+
+**Correct**: Treat ingestion access metadata as explicit source data: use a command-line value for manually run
+audio/video ingestion, a named source field for SQL/database ingestion, and default missing metadata to public `0`.
+
+### Mistake: Treating Python `sys.argv` As A Copy-Pasteable Command
+
+**Wrong**: Logging only `sys.argv` when an operator needs to rerun a Python script later. `sys.argv[0]` is the script path
+and omits the shell-level launcher such as `python`, so the recorded command may not be directly runnable.
+
+**Correct**: Store a copy-pasteable command separately from raw argv, e.g. prepend `python` to live script argv, and keep
+`raw_argv` plus `python_executable` as audit/debug context.
+
+### Mistake: Treating Boolean Handler Failures As Successful Empty Outcomes
+
+**Wrong**: Converting a handler return value of `False` into `{}` and continuing to success/finalization logging. That
+turns validation failures into completed operational records.
+
+**Correct**: Treat `False` as an explicit terminal failure: log the validation failure, preserve any useful operation
+context, skip success finalization, and add a regression test for the boolean-failure path.
+
+### Mistake: Treating Placeholder External IDs As Valid Matches
+
+**Wrong**: Treating placeholder external IDs like `NA`, `N/A`, `none`, or `not_found` as valid match identifiers, then
+letting an external default value override local/manual user state.
+
+**Correct**: Normalize placeholder IDs to `null`, mark the lookup as not found, clear external override fields, and require
+a real external ID before external access values can override manual values.
+
+### Mistake: Patching Around Missing Local NLP Models During Local Dev
+
+**Wrong**: Adding application/test fallbacks for a missing local spaCy model when the intended local-dev path is to install
+the real model and exercise production-like chunking behavior.
+
+**Correct**: Install the spaCy model into the uv-managed environment, e.g. `uv pip install <model-wheel-url>` when
+`python -m spacy download ...` is blocked by pip config. Only add blank-model fallbacks for explicit CI behavior.
+
 ### Mistake: Comparing ISO SQLite Timestamps To `datetime('now')` Without Normalization
 
 **Wrong**: Comparing stored timestamps like `2026-03-28T22:52:29.637057` directly against SQLite `datetime('now')` using
@@ -2594,3 +2666,28 @@ to users, but send `opsMessage` in alert emails.
 
 **Correct**: For npm security fixes in this repo, explicitly select aged versions and verify the resulting `package-lock.json`
 does not contain newer-than-cooldown versions. Use exact root `overrides` for transitive lockfile fixes when needed.
+
+### Mistake: Sending Ops Alerts Without Server Logs
+
+**Wrong**: Sending an operational alert email for an infrastructure failure without also logging the failure in server
+logs. If email delivery works but logs are silent, operators lose the deploy/runtime trail needed for correlation.
+
+**Correct**: In every ops-alert error branch, write a structured `console.error` with sanitized error details before or
+alongside `sendOpsAlert`.
+
+### Mistake: React Effect Cleanup Cancelling Its Own Async Work
+
+**Wrong**: Include loading state in a `useEffect` dependency list, then set that loading state inside the effect before an
+async request resolves. The state change reruns the effect, triggers cleanup, and can mark the in-flight request as
+cancelled before it updates the UI.
+
+**Correct**: Keep self-mutated loading state out of the dependency list or guard with a separate stable request flag/ref
+so the effect is not cancelled by its own progress update.
+
+### Mistake: Showing User-Facing State Before Required Lazy Refresh Completes
+
+**Wrong**: Render or open a modal from stale profile data while firing the lazy refresh that determines the displayed state
+in the background. The UI can show outdated access, entitlement, or membership information and let the user dismiss it.
+
+**Correct**: For user-facing notices whose content depends on a lazy refresh, await the refresh attempt, refetch or merge
+the updated state, and only then render/open the notice. Keep the blocking scoped to the notice gate, not the whole app.

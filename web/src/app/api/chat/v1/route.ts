@@ -64,6 +64,7 @@ import { StreamingResponseData } from "@/types/StreamingResponseData";
 import { getClientIp } from "@/utils/server/ipUtils";
 import { isDevelopment } from "@/utils/env";
 import { withAppRouterJwtAuth } from "@/utils/server/appRouterJwtUtils";
+import type { JwtPayload } from "@/utils/server/jwtUtils";
 import { ChatMessage, convertChatHistory } from "@/utils/shared/chatHistory";
 import * as corsMiddleware from "@/utils/server/corsMiddleware";
 import { determineActiveMediaTypes } from "@/utils/determineActiveMediaTypes";
@@ -84,6 +85,7 @@ import {
 } from "@/utils/server/titleCatalog";
 import { buildTitleScopeForPersistence } from "@/utils/server/titleScopePersistence";
 import { TitleScopeSelection } from "@/types/titleScope";
+import { buildPineconeAccessFilterClauses, resolveEffectiveAccessLevelForEmail } from "@/utils/server/accessLevelUtils";
 
 export const runtime = "nodejs";
 export const maxDuration = 240;
@@ -337,6 +339,7 @@ async function setupPineconeAndFilter(
   collection: string,
   mediaTypes: Partial<MediaTypes> | undefined,
   siteConfig: SiteConfig,
+  effectiveAccessLevel: number,
   exactTitles?: string[]
 ): Promise<{ index: Index<RecordMetadata>; filter: PineconeFilter }> {
   // Use cached Pinecone index instead of creating a new one each time
@@ -354,11 +357,7 @@ async function setupPineconeAndFilter(
   // Add media type filter
   filter.$and.push({ type: { $in: activeTypes } });
 
-  // Add access level exclusion filter if configured
-  const excludedAccessLevels = (siteConfig as any).excludedAccessLevels;
-  if (excludedAccessLevels && Array.isArray(excludedAccessLevels) && excludedAccessLevels.length > 0) {
-    filter.$and.push({ access_level: { $nin: excludedAccessLevels } });
-  }
+  filter.$and.push(...buildPineconeAccessFilterClauses(effectiveAccessLevel, siteConfig));
 
   // Apply collection-specific filters only if the collection exists in siteConfig
   if (siteConfig.collectionConfig && siteConfig.collectionConfig[collection]) {
@@ -433,6 +432,7 @@ async function setupVectorStoreAndRetriever(
       } as Partial<BaseCallbackHandler>,
     ],
     k: requestedSourceCount,
+    filter,
   });
 
   return { vectorStore, retriever, documentPromise, resolveWithDocuments };
@@ -678,6 +678,17 @@ Error context: ${error.message}`,
           "The chatbot is temporarily unavailable. An alert email has been sent to operations about the issue. Please try again later.",
       });
 
+      const sanitizedError = sanitizeErrorForLogging(error);
+      console.error("Pinecone vector database connection failed during chat request processing.", {
+        error: sanitizedError.message,
+        name: sanitizedError.name,
+        code: sanitizedError.code,
+        type: sanitizedError.type,
+        errorType: "pinecone_connection_failure",
+        apiEndpoint: "/api/chat/v1",
+        timestamp: new Date().toISOString(),
+      });
+
       // Send ops alert for Pinecone connection failures
       sendOpsAlert(
         `CRITICAL: Pinecone Vector Database Connection Failure`,
@@ -751,7 +762,12 @@ Error details: ${error.message}`,
 }
 
 // Add new function near other handlers
-async function handleComparisonRequest(req: NextRequest, requestBody: ComparisonRequestBody, siteConfig: SiteConfig) {
+async function handleComparisonRequest(
+  req: NextRequest,
+  requestBody: ComparisonRequestBody,
+  siteConfig: SiteConfig,
+  effectiveAccessLevel: number
+) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     async start(controller) {
@@ -760,10 +776,11 @@ async function handleComparisonRequest(req: NextRequest, requestBody: Comparison
         controller.enqueue(encoder.encode(`data: ${JSON.stringify({ siteId: siteConfig.siteId })}\n\n`));
 
         // Set up Pinecone and filter
-        const { index } = await setupPineconeAndFilter(
+        const { index, filter } = await setupPineconeAndFilter(
           requestBody.collection || "whole_library",
           requestBody.mediaTypes,
-          siteConfig
+          siteConfig,
+          effectiveAccessLevel
         );
 
         // Set up a manual tracking function to signal "done" to the client
@@ -807,6 +824,7 @@ async function handleComparisonRequest(req: NextRequest, requestBody: Comparison
 
         const retriever = vectorStore.asRetriever({
           k: sourceCount,
+          filter,
         });
 
         // Create chains for both models
@@ -972,16 +990,16 @@ async function handleComparisonRequest(req: NextRequest, requestBody: Comparison
 }
 
 // Apply JWT authentication to the POST handler
-export const POST = withAppRouterJwtAuth(async (req: NextRequest) => {
+export const POST = withAppRouterJwtAuth(async (req: NextRequest, _context: unknown, token: JwtPayload) => {
   // The token has been verified at this point
   // Original POST handler implementation starts here
-  return handleChatRequest(req);
+  return handleChatRequest(req, token);
 });
 
 /**
  * Main handler for chat requests
  */
-async function handleChatRequest(req: NextRequest) {
+async function handleChatRequest(req: NextRequest, token: JwtPayload) {
   // Start timing with stages for component timing
   const timingMetrics: TimingMetrics = {
     startTime: Date.now(),
@@ -1019,6 +1037,7 @@ async function handleChatRequest(req: NextRequest) {
 
   const { sanitizedInput, originalQuestion } = validationResult;
   const effectiveModelName = sanitizedInput.modelOverride || modelName;
+  const effectiveAccess = await resolveEffectiveAccessLevelForEmail(token.email, siteConfig);
 
   // Log task mode for analytics if present
   if (sanitizedInput.taskMode) {
@@ -1029,7 +1048,7 @@ async function handleChatRequest(req: NextRequest) {
   const isComparison = "modelA" in sanitizedInput;
 
   if (isComparison) {
-    return handleComparisonRequest(req, sanitizedInput as ComparisonRequestBody, siteConfig);
+    return handleComparisonRequest(req, sanitizedInput as ComparisonRequestBody, siteConfig, effectiveAccess.level);
   }
 
   const sourceCount = sanitizedInput.sourceCount || 4;
@@ -1183,6 +1202,7 @@ async function handleChatRequest(req: NextRequest) {
           sanitizedInput.collection || "whole_library",
           sanitizedInput.mediaTypes,
           siteConfig,
+          effectiveAccess.level,
           resolvedTitleScope?.exactTitles
         );
         timingMetrics.pineconeSetupComplete = Date.now();

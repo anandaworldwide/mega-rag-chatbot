@@ -210,6 +210,31 @@ describe("isEmailBlacklisted (S3-backed)", () => {
     await expect(isEmailBlacklisted("other@y.com", "login-site")).resolves.toBe(false);
   });
 
+  it("keeps successful S3 reads cached for 15 minutes", async () => {
+    mockSend
+      .mockResolvedValueOnce({
+        Body: Readable.from([Buffer.from("bad@x.com\n")]),
+      })
+      .mockResolvedValueOnce({
+        Body: Readable.from([Buffer.from("")]),
+      });
+    const { isEmailBlacklisted } = await import("@/utils/server/blacklist");
+    const nowSpy = jest.spyOn(Date, "now");
+    const t0 = 1_700_000_000_000;
+
+    nowSpy.mockReturnValue(t0);
+    await expect(isEmailBlacklisted("bad@x.com", "login-site")).resolves.toBe(true);
+
+    nowSpy.mockReturnValue(t0 + 15 * 60_000 - 1);
+    await expect(isEmailBlacklisted("bad@x.com", "login-site")).resolves.toBe(true);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+
+    nowSpy.mockReturnValue(t0 + 15 * 60_000 + 1);
+    await expect(isEmailBlacklisted("bad@x.com", "login-site")).resolves.toBe(false);
+    expect(mockSend).toHaveBeenCalledTimes(2);
+    nowSpy.mockRestore();
+  });
+
   it("treats NoSuchKey as empty list", async () => {
     const err = Object.assign(new Error("not found"), { name: "NoSuchKey" });
     mockSend.mockRejectedValueOnce(err);
@@ -230,7 +255,7 @@ describe("isEmailBlacklisted (S3-backed)", () => {
     await expect(isEmailBlacklisted("bad@x.com", "login-site")).resolves.toBe(false);
     expect(mockSend).toHaveBeenCalledTimes(1);
 
-    // Advance past the 5s fail-open TTL but well under the 60s healthy TTL.
+    // Advance past the 5s fail-open TTL but well under the healthy TTL.
     nowSpy.mockReturnValue(t0 + 10_000);
     await expect(isEmailBlacklisted("bad@x.com", "login-site")).resolves.toBe(true);
     expect(mockSend).toHaveBeenCalledTimes(2);

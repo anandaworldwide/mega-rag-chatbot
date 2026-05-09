@@ -1992,6 +1992,8 @@ class WebsiteCrawler:
                 "title": page_title,
                 "library": self.domain,
                 "text": chunk,
+                "access_level": "public",
+                "required_access_level": 0,
                 "chunk_index": i,
                 "total_chunks": len(chunks),
                 "crawl_timestamp": datetime.now().isoformat(),

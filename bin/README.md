@@ -39,13 +39,16 @@ variants and a canonical name, then updates records in Pinecone to use the canon
 Retroactively tags existing Pinecone vectors with access-level metadata. It scans the index, filters by metadata
 substrings such as title, source, filename, library, and author, and can also narrow candidates by vector ID prefix. It
 prints the number of matching vectors, shows a sample vector, prints a per-source match count breakdown, asks for a
-yes/no confirmation before setting the `access_level` you supply on the command line, and caches listed vector IDs
-locally for faster repeated runs.
+yes/no confirmation before setting both legacy `access_level` and numeric `required_access_level`, and caches listed
+vector IDs locally for faster repeated runs.
 
 #### Usage of tag_access_level_vectors.py
 
 ```bash
-python bin/tag_access_level_vectors.py --site ananda --access-level kriyaban --vector-id-prefix "text||Ananda Library||db||6. Preparation for Kriya Yoga::"
+python bin/tag_access_level_vectors.py \
+  --site ananda \
+  --access-level kriyaban \
+  --vector-id-prefix "text||Ananda Library||db||6. Preparation for Kriya Yoga::"
 ```
 
 ### `count_hallucinated_urls.py`

@@ -33,6 +33,7 @@ from typing import Any
 from pinecone import Pinecone
 
 from pyutil.env_utils import load_env
+from pyutil.site_config_utils import get_required_access_level_for_key, load_site_config
 
 DEFAULT_FETCH_BATCH_SIZE = 20
 DEFAULT_LIST_BATCH_SIZE = 100
@@ -123,6 +124,14 @@ class MatchedVector:
         """Return the current access level, defaulting to public."""
         return str(self.metadata.get("access_level", "public"))
 
+    @property
+    def current_required_access_level(self) -> int:
+        """Return the current numeric access level, defaulting to public."""
+        try:
+            return int(self.metadata.get("required_access_level", 0) or 0)
+        except (TypeError, ValueError):
+            return 0
+
 
 def build_sample_vector_payload(
     matched_vector: MatchedVector, sample_text_chars: int = DEFAULT_SAMPLE_TEXT_CHARS
@@ -142,6 +151,9 @@ def build_sample_vector_payload(
         "source": get_vector_source(matched_vector),
         "filename": str(metadata.get("filename", "")),
         "current_access_level": matched_vector.current_access_level,
+        "current_required_access_level": str(
+            matched_vector.current_required_access_level
+        ),
         "text_preview": text_preview,
     }
 
@@ -164,11 +176,19 @@ def summarize_sources(matches: list[MatchedVector]) -> list[tuple[str, int]]:
 
 
 def get_update_candidates(
-    matches: list[MatchedVector], target_access_level: str
+    matches: list[MatchedVector],
+    target_access_level: str,
+    target_required_access_level: int | None = None,
 ) -> list[MatchedVector]:
     """Return only the matches that still need an access level update."""
     return [
-        match for match in matches if match.current_access_level != target_access_level
+        match
+        for match in matches
+        if match.current_access_level != target_access_level
+        or (
+            target_required_access_level is not None
+            and match.current_required_access_level != target_required_access_level
+        )
     ]
 
 
@@ -181,6 +201,7 @@ class AccessLevelVectorTagger:
         index_name: str,
         criteria: MatchCriteria,
         target_access_level: str,
+        target_required_access_level: int | None,
         fetch_batch_size: int,
         list_batch_size: int,
         use_id_cache: bool,
@@ -190,6 +211,7 @@ class AccessLevelVectorTagger:
         self.index_name = index_name
         self.criteria = criteria
         self.target_access_level = target_access_level
+        self.target_required_access_level = target_required_access_level
         self.fetch_batch_size = fetch_batch_size
         self.list_batch_size = list_batch_size
         self.use_id_cache = use_id_cache
@@ -328,7 +350,9 @@ class AccessLevelVectorTagger:
 
     def update_matches(self, matches: list[MatchedVector]) -> list[MatchedVector]:
         """Update matching vectors to the target access level."""
-        update_candidates = get_update_candidates(matches, self.target_access_level)
+        update_candidates = get_update_candidates(
+            matches, self.target_access_level, self.target_required_access_level
+        )
         if not update_candidates:
             print(
                 f"All matching vectors already have "
@@ -338,13 +362,18 @@ class AccessLevelVectorTagger:
 
         print(
             f"Updating {len(update_candidates)} vector(s) "
-            f"to access_level='{self.target_access_level}'..."
+            f"to access_level='{self.target_access_level}' "
+            f"and required_access_level={self.target_required_access_level}..."
         )
 
         for index, match in enumerate(update_candidates, start=1):
+            metadata_update = {"access_level": self.target_access_level}
+            if self.target_required_access_level is not None:
+                metadata_update["required_access_level"] = self.target_required_access_level
+
             self.index.update(
                 id=match.vector_id,
-                set_metadata={"access_level": self.target_access_level},
+                set_metadata=metadata_update,
             )
             print(
                 f"  Updated {index}/{len(update_candidates)}: {match.vector_id}",
@@ -446,9 +475,12 @@ Examples:
 def print_match_summary(
     matches: list[MatchedVector],
     target_access_level: str,
+    target_required_access_level: int | None = None,
 ) -> None:
     """Print how many vectors matched and how many need updating."""
-    update_candidates = get_update_candidates(matches, target_access_level)
+    update_candidates = get_update_candidates(
+        matches, target_access_level, target_required_access_level
+    )
     already_tagged = len(matches) - len(update_candidates)
 
     print("\nMatch summary")
@@ -477,12 +509,21 @@ def print_source_breakdown(matches: list[MatchedVector]) -> None:
         print(f"  {count}: {source}")
 
 
-def prompt_for_confirmation(update_count: int, target_access_level: str) -> bool:
+def prompt_for_confirmation(
+    update_count: int,
+    target_access_level: str,
+    target_required_access_level: int | None = None,
+) -> bool:
     """Ask the user to confirm the metadata update."""
+    numeric_suffix = (
+        f" and required_access_level={target_required_access_level}"
+        if target_required_access_level is not None
+        else ""
+    )
     confirmation = (
         input(
             f"\nUpdate {update_count} vector(s) to "
-            f"access_level='{target_access_level}'? (yes/No): "
+            f"access_level='{target_access_level}'{numeric_suffix}? (yes/No): "
         )
         .strip()
         .lower()
@@ -494,6 +535,7 @@ def verify_sample_update(
     index: Any,
     updated_vectors: list[MatchedVector],
     target_access_level: str,
+    target_required_access_level: int | None = None,
 ) -> None:
     """Re-fetch one updated vector and verify the metadata change."""
     if not updated_vectors:
@@ -516,16 +558,29 @@ def verify_sample_update(
         dict(verified_vector.metadata) if verified_vector.metadata else {}
     )
     verified_access_level = str(verified_metadata.get("access_level", "public"))
-    if verified_access_level == target_access_level:
+    try:
+        verified_required_access_level = int(
+            verified_metadata.get("required_access_level", 0) or 0
+        )
+    except (TypeError, ValueError):
+        verified_required_access_level = 0
+
+    required_level_matches = (
+        target_required_access_level is None
+        or verified_required_access_level == target_required_access_level
+    )
+    if verified_access_level == target_access_level and required_level_matches:
         print(
             f"Verification passed: sample vector now has "
-            f"access_level='{target_access_level}'."
+            f"access_level='{target_access_level}'"
+            f" and required_access_level={verified_required_access_level}."
         )
         return
 
     print(
         "Warning: Verification could not confirm the update. "
-        f"Expected '{target_access_level}', got '{verified_access_level}'."
+        f"Expected '{target_access_level}'/{target_required_access_level}, "
+        f"got '{verified_access_level}'/{verified_required_access_level}."
     )
 
 
@@ -556,6 +611,10 @@ def main() -> None:
         parser.error("--list-batch-size must be a positive integer.")
 
     load_env(args.site)
+    site_config = load_site_config(args.site)
+    target_required_access_level = get_required_access_level_for_key(
+        args.access_level, site_config
+    )
 
     api_key = os.getenv("PINECONE_API_KEY")
     index_name = args.index_name or os.getenv(
@@ -570,6 +629,7 @@ def main() -> None:
     print(f"Site: {args.site}")
     print(f"Pinecone index: {index_name}")
     print(f"Target access level: {args.access_level}")
+    print(f"Target required access level: {target_required_access_level}")
     if args.vector_id_prefix:
         print(f"Vector ID prefix: {args.vector_id_prefix}")
 
@@ -581,6 +641,7 @@ def main() -> None:
         index_name=index_name,
         criteria=criteria,
         target_access_level=args.access_level,
+        target_required_access_level=target_required_access_level,
         fetch_batch_size=args.fetch_batch_size,
         list_batch_size=args.list_batch_size,
         use_id_cache=not args.no_id_cache,
@@ -592,22 +653,26 @@ def main() -> None:
         print("No matching vectors found. Exiting without changes.")
         return
 
-    print_match_summary(matches, args.access_level)
+    print_match_summary(matches, args.access_level, target_required_access_level)
     print_sample_vector(matches)
     print_source_breakdown(matches)
 
-    update_candidates = get_update_candidates(matches, args.access_level)
+    update_candidates = get_update_candidates(
+        matches, args.access_level, target_required_access_level
+    )
     if not update_candidates:
         return
 
     if not args.yes and not prompt_for_confirmation(
-        len(update_candidates), args.access_level
+        len(update_candidates), args.access_level, target_required_access_level
     ):
         print("Aborted.")
         return
 
     updated_vectors = tagger.update_matches(matches)
-    verify_sample_update(index, updated_vectors, args.access_level)
+    verify_sample_update(
+        index, updated_vectors, args.access_level, target_required_access_level
+    )
 
 
 if __name__ == "__main__":

@@ -16,6 +16,7 @@ import { getFromCache, setInCache } from "@/utils/server/redisUtils";
 import { getSecureUUID } from "@/utils/server/uuidUtils";
 import { updateUserActivity } from "@/utils/server/userActivityUtils";
 import { verifyToken } from "@/utils/server/jwtUtils";
+import { buildPineconeAccessFilterClauses, resolveEffectiveAccessLevelForEmail } from "@/utils/server/accessLevelUtils";
 
 // Hardcoded shared defaults (not per-site config)
 // We fetch a fixed top window for faceting/pagination.
@@ -109,11 +110,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse<SearchResponse 
     // Build filter - use a mutable array then assign to filter
     const filterConditions: Array<Record<string, any>> = [];
 
-    // Add access level exclusion filter if configured
-    const excludedAccessLevels = (siteConfig as any).excludedAccessLevels;
-    if (excludedAccessLevels && Array.isArray(excludedAccessLevels) && excludedAccessLevels.length > 0) {
-      filterConditions.push({ access_level: { $nin: excludedAccessLevels } });
-    }
+    const userEmail = getAuthenticatedEmail(req);
+    const effectiveAccess = await resolveEffectiveAccessLevelForEmail(userEmail, siteConfig);
+    filterConditions.push(...buildPineconeAccessFilterClauses(effectiveAccess.level, siteConfig));
 
     // Add user-provided filters
     if (body.filters) {
@@ -168,7 +167,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse<SearchResponse 
           library: body.filters.library ? [...body.filters.library].sort() : null,
         })
       : "none";
-    const cacheKey = `search:${siteConfig.siteId || "default"}:${normalizedQuery}:${cacheKeyFilters}`;
+    const cacheKey = `search:${siteConfig.siteId || "default"}:access-${effectiveAccess.level}:${normalizedQuery}:${cacheKeyFilters}`;
 
     // Try cache first
     let cachedResponse: SearchResponse | null = null;
@@ -325,3 +324,27 @@ async function handler(req: NextApiRequest, res: NextApiResponse<SearchResponse 
 }
 
 export default withApiMiddleware(handler);
+
+function getAuthenticatedEmail(req: NextApiRequest): string | null {
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith("Bearer ")) {
+    try {
+      const payload = verifyToken(authHeader.substring(7));
+      return typeof payload.email === "string" ? payload.email.toLowerCase() : null;
+    } catch {
+      // Fall through to cookie token.
+    }
+  }
+
+  const authCookie = req.cookies?.["auth"];
+  if (authCookie) {
+    try {
+      const payload = verifyToken(authCookie);
+      return typeof payload.email === "string" ? payload.email.toLowerCase() : null;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}

@@ -13,6 +13,11 @@ import { getDefaultEmailPreferences, migrateEmailPreferences } from "@/utils/ser
 import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import type { EmailCategory } from "@/types/user";
+import { buildAccessLevelResponseFields } from "@/utils/server/accessLevelUtils";
+import { isSalesforceAccessVerificationDue } from "@/utils/server/salesforceAccessSync";
+
+export const SALESFORCE_ACCESS_NOTICE_VERSION = 1;
+const SALESFORCE_CONTACT_EMAIL_ENV = "SALESFORCE_CONTACT_EMAIL";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Rate limit
@@ -57,6 +62,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Load site config to determine enabled email types
       const siteConfig = await loadSiteConfig();
       const enabledEmailTypes: EmailCategory[] = [];
+      const salesforceAccessVerificationDue =
+        siteConfig?.accessControl?.enabled === true &&
+        isSalesforceAccessVerificationDue({
+          ...data,
+          role,
+        });
 
       // Newsletters are always available for login-required sites
       if (siteConfig?.requireLogin) {
@@ -89,8 +100,18 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         enabledEmailTypes,
         hasPassword: !!data?.passwordHash, // Boolean indicating if user has password set
         dismissedPasswordPromo: typeof data?.dismissedPasswordPromo === "boolean" ? data.dismissedPasswordPromo : false,
+        dismissedSalesforceAccessNoticeVersion:
+          typeof data?.dismissedSalesforceAccessNoticeVersion === "number"
+            ? data.dismissedSalesforceAccessNoticeVersion
+            : null,
+        dismissedSalesforceAccessNotice:
+          typeof data?.dismissedSalesforceAccessNoticeVersion === "number" &&
+          data.dismissedSalesforceAccessNoticeVersion >= SALESFORCE_ACCESS_NOTICE_VERSION,
         verifiedAt: data?.verifiedAt?.toDate?.() ?? null, // When account was activated
         preferredModel: typeof data?.preferredModel === "string" ? data.preferredModel : null,
+        salesforceContactEmail: process.env[SALESFORCE_CONTACT_EMAIL_ENV]?.trim() || null,
+        salesforceAccessVerificationDue,
+        ...buildAccessLevelResponseFields({ ...data, role }, siteConfig),
       });
     }
 
@@ -108,6 +129,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           nps?: boolean;
         };
         dismissedPasswordPromo?: boolean;
+        dismissedSalesforceAccessNotice?: boolean;
+        dismissedSalesforceAccessNoticeVersion?: number;
         preferredModel?: string;
       };
       const updates: Record<string, any> = {};
@@ -194,6 +217,27 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         updates.dismissedPasswordPromo = body.dismissedPasswordPromo;
       }
 
+      if (body.dismissedSalesforceAccessNotice !== undefined) {
+        if (typeof body.dismissedSalesforceAccessNotice !== "boolean") {
+          return res.status(400).json({ error: "Invalid dismissedSalesforceAccessNotice value" });
+        }
+        updates.dismissedSalesforceAccessNoticeVersion = body.dismissedSalesforceAccessNotice
+          ? SALESFORCE_ACCESS_NOTICE_VERSION
+          : 0;
+      }
+
+      if (body.dismissedSalesforceAccessNoticeVersion !== undefined) {
+        if (
+          typeof body.dismissedSalesforceAccessNoticeVersion !== "number" ||
+          !Number.isInteger(body.dismissedSalesforceAccessNoticeVersion) ||
+          body.dismissedSalesforceAccessNoticeVersion < 0 ||
+          body.dismissedSalesforceAccessNoticeVersion > SALESFORCE_ACCESS_NOTICE_VERSION
+        ) {
+          return res.status(400).json({ error: "Invalid dismissedSalesforceAccessNoticeVersion value" });
+        }
+        updates.dismissedSalesforceAccessNoticeVersion = body.dismissedSalesforceAccessNoticeVersion;
+      }
+
       if (body.preferredModel !== undefined) {
         if (typeof body.preferredModel !== "string" || body.preferredModel.length > 50) {
           return res.status(400).json({ error: "Invalid preferredModel value" });
@@ -244,6 +288,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           // Log email error but don't fail the profile update
           console.error("Failed to send welcome email:", emailError);
         }
+
       }
 
       return res.status(200).json({ success: true });

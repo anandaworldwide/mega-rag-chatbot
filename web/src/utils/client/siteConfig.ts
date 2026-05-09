@@ -54,6 +54,11 @@ export const getEnableAuthorSelection = (siteConfig: SiteConfig | null) => siteC
 // Check if search page feature is enabled (defaults to false)
 export const getEnableSearchPage = (siteConfig: SiteConfig | null) => siteConfig?.enableSearchPage ?? false;
 
+// Check if the Salesforce access notice is enabled for this site.
+export const getEnableSalesforceAccessNotice = (siteConfig: SiteConfig | null) =>
+  siteConfig?.enableSalesforceAccessNotice === true &&
+  siteConfig?.accessControl?.enabled === true;
+
 // Normalize includedLibraries to a simple string array
 export const getIncludedLibraryNames = (siteConfig: SiteConfig | null): string[] => {
   if (!siteConfig?.includedLibraries) return [];

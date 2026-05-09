@@ -30,6 +30,9 @@ settings.
 - `enableSuggestedQueries`: Boolean to enable/disable suggested queries
 - `enableMediaTypeSelection`: Boolean to enable/disable media type selection
 - `enableAuthorSelection`: Boolean to enable/disable author selection
+- `accessControl`: Optional site-specific access hierarchy. When enabled, `levels` defines numeric access values,
+  `defaultLevel` defines public/default access, `superuserLevel` defines the highest local role level, and
+  `salesforceOnlyLevels` can reserve levels for Salesforce-derived access.
 - `loginImage`: Image to display on the login screen
 
 ## Prompts

@@ -207,6 +207,8 @@ async def test_process_chunk(mock_env):
             "source": "https://test.com",
             "title": "Test Document",
             "text": "Test content",
+            "access_level": "public",
+            "required_access_level": 0,
         }
 
         # Check that wait_for was called (twice: once for embedding, once for upsert)

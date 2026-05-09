@@ -440,7 +440,10 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
 
       {dataLoaded && recentDecisions.length > 0 && (
         <div className="mt-8">
-          <h2 className="text-2xl font-bold mb-4">Recent Decisions</h2>
+          <h2 className="text-2xl font-bold">Recent Approval Decisions</h2>
+          <p className="text-sm text-gray-600 mt-1 mb-4">
+            These are admin review decisions. Approved users may still need to activate their invitation.
+          </p>
           <div className="space-y-4">
             {recentDecisions.map((request) => (
               <div key={request.requestId} className="bg-gray-50 border border-gray-200 rounded-lg p-4">

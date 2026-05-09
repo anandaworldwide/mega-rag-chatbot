@@ -365,7 +365,8 @@ Data is stored across multiple services:
     - `publishedDate`: Publication date.
     - `s3Key`: Path to the audio file in S3 (for audio sources).
     - `startSecond`, `endSecond`: Timestamps for audio/video chunks.
-    - `access_level`: Access control classification (default: "public", or e.g. restricted: "kriyaban").
+    - `required_access_level`: Numeric access level required to retrieve the vector (defaults to `0`/public).
+    - `access_level`: Legacy string access classification retained for compatibility (e.g., `"public"`, `"kriyaban"`).
 
 - **Redis:**
   - Stores key-value pairs for rate limiting, typically mapping an IP address or user ID to a request count within a
@@ -377,86 +378,101 @@ Data is stored across multiple services:
 
 ### Access Control Metadata
 
-The system implements **access level-based content filtering** to exclude restricted content (e.g., Kriyaban-only
-material) from search results based on site configuration.
+The system implements **inclusion-based access level filtering**. Each user resolves to an effective numeric access
+level, and each Pinecone vector can specify the minimum numeric `required_access_level` needed to retrieve it. A user
+can retrieve content when `user.accessLevel >= vector.required_access_level`.
 
-**Metadata Field:**
+**Metadata Fields:**
 
-- **`access_level`**: String field in Pinecone vector metadata
-  - **Default value**: `"public"` (implicit for most content)
-  - **Restricted values**: `"kriyaban"` for Kriyaban-only content
-  - **Extensible**: Additional levels (e.g., `"admin"`, `"staff"`) can be added without code changes
+- **`required_access_level`**: Numeric Pinecone vector metadata used by retrieval filters.
+  - **Default value**: `0` for public content.
+  - **Restricted values**: Site-configured values such as `200` for Kriyaban or `600` for Minister.
+  - **Filtering behavior**: Missing metadata is treated as public for backwards compatibility.
+- **`access_level`**: Legacy string metadata retained for compatibility with older vectors and tooling.
+  - Examples: `"public"`, `"kriyaban"`, `"minister"`.
 
 **Site Configuration (`web/site-config/config.json`):**
 
 ```json
 {
   "ananda": {
-    "excludedAccessLevels": ["kriyaban"],
-    "accessLevelPathMap": {
-      "kriyaban": ["Kriyaban Only"]
+    "accessControl": {
+      "enabled": true,
+      "defaultLevel": 0,
+      "superuserLevel": 9999,
+      "salesforceOnlyLevels": [600, 700],
+      "levels": [{ "key": "public", "label": "Public", "value": 0 }]
     }
   }
 }
 ```
 
-**Data-Driven Access Control:**
+**User Access Sources:**
 
-- **`excludedAccessLevels`**: Array of access levels to exclude from search results
-- **`accessLevelPathMap`**: Maps access levels to file path patterns for automatic classification during ingestion
-- **Path Matching**: Case-insensitive substring matching against file paths
-- **Multi-Site Support**: Each site can define its own access restrictions independently
+- **`superuser` role**: Receives the configured `superuserLevel`.
+- **Salesforce match**: Optional integration writes `salesforceId`, `salesforceAccessLevel`, and sync metadata.
+- **Manual admin assignment**: Admin UI writes `manualAccessLevel` within role-based caps.
+- **Default**: Falls back to the site's `defaultLevel`.
 
 **Implementation Components:**
 
 1. **Ingestion Pipeline (`data_ingestion/`):**
-   - **Path Analysis**: `pyutil/site_config_utils.py` provides `determine_access_level()` function
-   - **Automatic Classification**: Files containing "Kriyaban Only" in path → `access_level="kriyaban"`
-   - **Default Behavior**: All other content → `access_level="public"` (implicit)
-   - **Integration**: `transcribe_and_ingest_media.py` applies access levels during vector upsert
+   - **Explicit metadata**: New ingestion writes `required_access_level` from source data or explicit CLI flags.
+   - **Audio/video**: `transcribe_and_ingest_media.py --required-access-level <number>`.
+   - **SQL/database**: `ingest_db_text.py --required-access-level-field <wp_posts_column>`.
+   - **Public defaults**: PDF and crawler ingestion write `required_access_level: 0`.
 
 2. **Query Filtering (`web/src/app/api/chat/v1/route.ts`):**
-   - **Filter Generation**: `setupPineconeAndFilter()` creates Pinecone filters
-   - **Exclusion Logic**: `{ access_level: { $nin: excludedAccessLevels } }`
-   - **Combined Filters**: Access level restrictions combined with media type and collection filters
-   - **Site-Specific**: Only applies to sites with configured `excludedAccessLevels`
+   - **Filter generation**: `buildPineconeAccessFilter()` creates the access clause.
+   - **Inclusion logic**: Allows missing `required_access_level` or numeric values less than or equal to the user level.
+   - **Legacy compatibility**: Also excludes legacy `access_level` keys above the effective user level.
+   - **Site-specific**: Only applies when `siteConfig.accessControl.enabled` is true.
 
-3. **Migration Support (`bin/tag_access_level_vectors.py`):**
-   - **Bulk Tagging**: Script to retroactively tag existing vectors with a supplied access level
-   - **Targeting Options**: Matches vectors by vector ID prefix or by title, source, filename, library, and author
-     substrings
-   - **Operator Safety**: Prints the match count, a sample vector, and a per-source breakdown, then requires yes/no
-     confirmation before updating
-   - **Debug Performance**: Caches listed vector IDs locally so repeated runs do not have to re-enumerate the same
-     prefix from Pinecone
-   - **Batch Processing**: Handles large vector sets with progress tracking
-   - **Verification**: Confirms successful tagging with detailed logging
+3. **Salesforce Access Sync (`web/src/utils/server/salesforceAccessSync.ts`):**
+   - **Manual sync**: `/api/admin/syncUserAccess` refreshes one user's Salesforce-derived access.
+   - **Stale-on-access sync**: `/api/salesforce/verifyAccess` refreshes the current user when the last verification is
+     missing or older than three days.
+   - **Webhook configuration**: `SALESFORCE_ACCESS_LOOKUP_WEBHOOK_URL`, `SALESFORCE_API_KEY`, and
+     `SALESFORCE_API_FIELD_NAME`.
+   - **Placeholder safety**: Placeholder external IDs such as `NA` or `not_found` are treated as no match.
+
+4. **Migration Support (`bin/tag_access_level_vectors.py`):**
+   - **Bulk tagging**: Retroactively tags existing vectors with both `access_level` and `required_access_level`.
+   - **Targeting options**: Matches vectors by vector ID prefix or title, source, filename, library, and author
+     substrings.
+   - **Operator safety**: Prints match counts, a sample vector, and a source breakdown before updating.
+   - **Verification**: Re-fetches a sample vector to confirm both metadata fields.
 
 **Filter Structure Example:**
 
 ```typescript
-// Generated Pinecone filter for ananda site
 {
   $and: [
-    { type: { $in: ["audio", "text"] } }, // Media type filter
-    { library: { $eq: "Treasures" } }, // Collection filter
-    { access_level: { $nin: ["kriyaban"] } }, // Access level exclusion
+    { type: { $in: ["audio", "text"] } },
+    { library: { $eq: "Treasures" } },
+    {
+      $or: [
+        { required_access_level: { $exists: false } },
+        { required_access_level: { $lte: 500 } },
+      ],
+    },
+    { access_level: { $nin: ["minister", "lightbearer", "admin"] } },
   ];
 }
 ```
 
 **Security Considerations:**
 
-- **Server-Side Enforcement**: Access control applied at the vector database query level
-- **No Client-Side Filtering**: Restricted content never reaches the client
-- **Metadata Integrity**: Access levels set during ingestion and immutable during queries
-- **Site Isolation**: Each site's access restrictions are independent and configurable
+- **Server-side enforcement**: Access control is applied in the vector database query.
+- **No client-side filtering**: Restricted content should never be returned to the browser.
+- **Source-of-truth metadata**: Access metadata is written during ingestion or controlled migration scripts.
+- **Site isolation**: Each site can enable and define its own access hierarchy.
 
 **Testing Coverage:**
 
-- **Unit Tests**: `web/__tests__/api/chat/v1/accessLevelFiltering.test.ts`
-- **Integration Tests**: `web/__tests__/api/chat/v1/kriyabanIntegration.test.ts`
-- **Configuration Tests**: `__tests__/utils/server/siteConfigUtils.test.ts`
+- **Access utilities**: `web/__tests__/utils/server/accessLevelUtils.test.ts`
+- **Retrieval filtering**: `web/__tests__/api/chat/v1/accessLevelFiltering.test.ts`
+- **Ingestion metadata**: `data_ingestion/tests/test_ingest_db_text.py`
 
 ---
 

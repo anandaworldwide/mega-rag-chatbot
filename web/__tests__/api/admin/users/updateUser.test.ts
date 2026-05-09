@@ -206,6 +206,32 @@ describe("/api/admin/users/[userId] update user", () => {
     expect(res._getJSONData()).toEqual({ error: "Unauthorized: Admin privileges required" });
   });
 
+  it("GET includes blacklist status for the user", async () => {
+    const jwtUtils = await import("@/utils/server/jwtUtils");
+    (jwtUtils.verifyToken as jest.Mock).mockReturnValue({ email: "admin@example.com", role: "superuser" });
+
+    const mockDb = jest.requireMock("@/services/firebase").db;
+    mockDb.__docMap["blocked@example.com"] = {
+      email: "blocked@example.com",
+      role: "user",
+    };
+
+    const bl = jest.requireMock("@/utils/server/blacklist");
+    bl.isEmailBlacklisted.mockResolvedValueOnce(true);
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "GET",
+      query: { userId: "blocked@example.com" },
+      cookies: { auth: "token" },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(bl.isEmailBlacklisted).toHaveBeenCalledWith("blocked@example.com", "test-site");
+    expect(res._getJSONData().user.isBlacklisted).toBe(true);
+  });
+
   it("rejects invalid email format with 400", async () => {
     const jwtUtils = await import("@/utils/server/jwtUtils");
     (jwtUtils.verifyToken as jest.Mock).mockReturnValue({ email: "admin@example.com", role: "superuser" });

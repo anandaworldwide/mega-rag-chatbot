@@ -148,6 +148,20 @@ performance alarms and misdirect optimization efforts.
 - `website_crawler.py` - Web content crawling
 - `ingest_db_text.py` - Database content ingestion
 
+### Access-Level Metadata
+
+Ingestion writes both legacy string `access_level` metadata and numeric `required_access_level` metadata to Pinecone.
+The web app uses `required_access_level` for inclusion-based filtering: users can retrieve content when their effective
+access level is greater than or equal to the vector's required level. Missing numeric metadata is treated as public.
+
+- **PDF ingestion**: Defaults to public (`required_access_level: 0`).
+- **Website crawler ingestion**: Defaults to public (`required_access_level: 0`).
+- **Audio/video ingestion**: Accepts an explicit `--required-access-level` value for the batch being processed.
+- **SQL/database ingestion**: Can read a numeric value from a named `wp_posts` column via
+  `--required-access-level-field`; missing or blank values default to `0`.
+
+For existing vectors, `bin/tag_access_level_vectors.py` can update both `access_level` and `required_access_level`.
+
 ### Shared Utilities
 
 - `data_ingestion/utils/spacy_text_splitter.py` - Core chunking logic
