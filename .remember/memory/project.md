@@ -268,10 +268,17 @@ except ImportError:
 - **AWS CLI (mandatory for this repo)**: **Always** pass `--profile ananda` on AWS CLI commands for this project’s
   infrastructure (and verify with `aws sts get-caller-identity --profile ananda`). The default / `personal` profile is a
   different account; never assume default credentials target Ananda.
+- **Vercel CLI (mandatory for Luca/Ananda)**: Use the lowercase `vercel-ananda` shell alias for Ananda Vercel access.
+  Scope project commands to `ananda-web-services-projects/ananda-chatbot`, for example
+  `vercel-ananda list ananda-chatbot --scope ananda-web-services-projects --no-color`. If the alias fails because the
+  global `vercel` binary is missing, shim it in that shell with `vercel() { npm exec --yes vercel -- "$@"; };` before
+  running `vercel-ananda ...`. Never write the token into commands or memory.
 - **System prompts**: Located in `web/site-config/prompts/[site]-base.txt`
 - **UUID identification**: All users have UUIDs (JWT token for login-required, cookies for non-login sites)
 - **UUID utility**: Use `getSecureUUID()` for API endpoints that work with both authenticated and non-authenticated
   users
+- **Email blacklist rollout**: Login-required sites can disable S3-backed email blacklist enforcement with
+  `enableEmailBlacklist: false`; do not assume every login site needs blacklist S3 reads.
 
 ## Authentication and Onboarding (Decisions)
 

@@ -179,6 +179,33 @@ describe("isEmailBlacklisted (S3-backed)", () => {
           header: { logo: "", navItems: [] },
           footer: { links: [] },
         },
+        "disabled-login-site": {
+          name: "D",
+          shortname: "D",
+          tagline: "",
+          greeting: "",
+          parent_site_url: "",
+          parent_site_name: "",
+          help_url: "",
+          help_text: "",
+          collectionConfig: {},
+          libraryMappings: {},
+          enableSuggestedQueries: false,
+          enableMediaTypeSelection: false,
+          enableAuthorSelection: false,
+          welcome_popup_heading: "",
+          other_visitors_reference: "",
+          loginImage: null,
+          requireLogin: true,
+          enableEmailBlacklist: false,
+          allowTemporarySessions: false,
+          allowAllAnswersPage: true,
+          queriesPerUserPerDay: 10,
+          enableModelComparison: false,
+          includedLibraries: [],
+          header: { logo: "", navItems: [] },
+          footer: { links: [] },
+        },
       }),
       SITE_ID: "login-site",
       NODE_ENV: "test",
@@ -197,6 +224,13 @@ describe("isEmailBlacklisted (S3-backed)", () => {
   it("returns false when site does not require login (no S3 call)", async () => {
     const { isEmailBlacklisted } = await import("@/utils/server/blacklist");
     const hit = await isEmailBlacklisted("bad@evil.com", "open-site");
+    expect(hit).toBe(false);
+    expect(mockSend).not.toHaveBeenCalled();
+  });
+
+  it("returns false when login site disables email blacklist (no S3 call)", async () => {
+    const { isEmailBlacklisted } = await import("@/utils/server/blacklist");
+    const hit = await isEmailBlacklisted("bad@evil.com", "disabled-login-site");
     expect(hit).toBe(false);
     expect(mockSend).not.toHaveBeenCalled();
   });

@@ -2,6 +2,14 @@
 
 ## Critical Lessons Learned
 
+### Rate Limiter Fail-Closed Must Send A Response
+
+**Wrong**: Return `false` from an API rate limiter after a backend failure without writing to `NextApiResponse`; callers
+often do `if (!allowed) return`, which leaves requests hanging.
+
+**Correct**: When failing closed with a Pages Router `NextApiResponse`, send an explicit error response (for example
+`503`) before returning `false`.
+
 ### Lockfile Downgrades Must Include Transitive Metadata
 
 **Rule**: When pinning or downgrading a transitive npm package in `package-lock.json`, update the full resolved dependency

@@ -88,6 +88,7 @@ const mockUseRouter = useRouter as jest.MockedFunction<typeof useRouter>;
 
 describe("AdminLayout superuserOnly affordance", () => {
   beforeEach(() => {
+    sessionStorage.clear();
     mockUseRouter.mockReturnValue({
       pathname: "/admin/blacklist",
       query: {},
@@ -96,6 +97,7 @@ describe("AdminLayout superuserOnly affordance", () => {
       replace: jest.fn(),
       events: { on: jest.fn(), off: jest.fn() },
     } as any);
+    global.fetch = jest.fn().mockResolvedValue({ ok: false });
   });
 
   it("shows Superuser only badge when superuserOnly is true", () => {
@@ -120,6 +122,21 @@ describe("AdminLayout superuserOnly affordance", () => {
     expect(screen.queryByRole("status", { name: "Superuser-only page" })).not.toBeInTheDocument();
     expect(screen.queryByText("Superuser only")).not.toBeInTheDocument();
     expect(screen.getByText("Page body")).toBeInTheDocument();
+  });
+
+  it("hides email blacklist nav when a login site disables the blacklist", async () => {
+    sessionStorage.setItem("userRole", JSON.stringify({ role: "superuser", timestamp: Date.now() }));
+    render(
+      <AdminLayout
+        siteConfig={{ ...mockSiteConfig, requireLogin: true, enableEmailBlacklist: false }}
+        pageTitle="Admin"
+      >
+        <p>Page body</p>
+      </AdminLayout>
+    );
+
+    await waitFor(() => expect(screen.getByText("Newsletter Management")).toBeInTheDocument());
+    expect(screen.queryByText("Email Blacklist")).not.toBeInTheDocument();
   });
 });
 

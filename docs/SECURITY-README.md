@@ -719,13 +719,14 @@ Sensitive operations that require Firestore role verification:
 
 #### Email Blacklist
 
-Superuser-only, per-site list that blocks specific email addresses from authentication and admin-invite flows. Enforced only on sites with `siteConfig.requireLogin: true`.
+Superuser-only, per-site list that blocks specific email addresses from authentication and admin-invite flows. Enforced only on sites with `siteConfig.requireLogin: true` and `siteConfig.enableEmailBlacklist !== false`.
 
 ##### Storage & admin API
 
 - Storage: plain-text S3 object at `site-config/{dev|prod}/blacklist/{SITE_ID}.txt` (newline-separated emails; blank lines and `#` comments preserved) using `S3_BUCKET_NAME`.
 - Admin UI: `/admin/blacklist` (superuser-gated; nav link hidden otherwise).
 - Admin API: `GET` / `PUT` `/api/admin/blacklist` (JWT + Firestore superuser + rate-limited).
+- Site config: set `"enableEmailBlacklist": false` to disable all blacklist S3 reads and hide/admin-block blacklist management for a login-required site.
 - `PUT` validates every non-blank, non-comment line as a well-formed email and returns line-level errors if validation fails.
 - Self-blacklist guard: `PUT` rejects any payload that contains the caller's own email to prevent self-lockout.
 - Emails are normalized to `trim().toLowerCase()` everywhere (enforcement, storage, audit logs, Firestore lookups, JWT payloads, email sends).

@@ -57,7 +57,16 @@ describe("/api/admin/blacklist", () => {
     const { req, res } = createMocks({ method: "GET" });
     await handler(req as never, res as never);
     expect(res._getStatusCode()).toBe(403);
-    expect(JSON.parse(res._getData()).error).toContain("login-required sites");
+    expect(JSON.parse(res._getData()).error).toBe("Blacklist is not enabled for this site");
+  });
+
+  it("returns 403 when login site disables email blacklist", async () => {
+    mockLoadSync.mockReturnValue({ requireLogin: true, enableEmailBlacklist: false } as never);
+    const { req, res } = createMocks({ method: "GET" });
+    await handler(req as never, res as never);
+    expect(res._getStatusCode()).toBe(403);
+    expect(JSON.parse(res._getData()).error).toBe("Blacklist is not enabled for this site");
+    expect(mockGetText).not.toHaveBeenCalled();
   });
 
   it("returns 403 for non-superuser", async () => {

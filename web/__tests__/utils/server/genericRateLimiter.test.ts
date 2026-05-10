@@ -26,6 +26,12 @@ jest.mock("@/services/firebase", () => {
     db: {
       collection: mockCollection,
     },
+    getFirebaseCredentialSummary: jest.fn(() => ({
+      siteId: "test-site",
+      projectId: "test-project",
+      clientEmail: "test@example.com",
+      privateKeyId: "test-key-id",
+    })),
     mockCollection,
     mockDoc,
     mockDocRef,

@@ -32,6 +32,7 @@ export function AdminLayout({ siteConfig, children, pageTitle, superuserOnly = f
   const [isSuperuser, setIsSuperuser] = useState(false);
 
   const loginRequired = !!siteConfig?.requireLogin;
+  const emailBlacklistEnabled = loginRequired && siteConfig?.enableEmailBlacklist !== false;
 
   // Fetch pending counts for badges (only for login-required sites)
   useEffect(() => {
@@ -313,7 +314,7 @@ export function AdminLayout({ siteConfig, children, pageTitle, superuserOnly = f
                 </span>
               </Link>
             )}
-            {loginRequired && isSuperuser && (
+            {emailBlacklistEnabled && isSuperuser && (
               <Link
                 href="/admin/blacklist"
                 className={`flex items-center px-3 py-2 text-sm rounded-md ${

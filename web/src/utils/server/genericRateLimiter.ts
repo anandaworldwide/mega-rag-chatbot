@@ -1,4 +1,4 @@
-import { db } from "@/services/firebase";
+import { db, getFirebaseCredentialSummary } from "@/services/firebase";
 import { isDevelopment } from "@/utils/env";
 import { NextApiRequest, NextApiResponse } from "next";
 import { NextRequest, NextResponse } from "next/server";
@@ -29,6 +29,9 @@ export async function genericRateLimiter(
   // If db is not available, deny request to prevent DoS bypass
   if (!db) {
     console.warn("Firestore not available – rate limiting disabled, denying request");
+    if (res && "status" in res && typeof res.status === "function") {
+      res.status(503).json({ error: "Service temporarily unavailable" });
+    }
     return false;
   }
 
@@ -103,14 +106,16 @@ export async function genericRateLimiter(
 
     return result;
   } catch (error) {
-    // Critical security fix – never fail-open on rate limiting
-    // Deny request on any error to prevent DoS bypass
+    if (res && "status" in res && typeof res.status === "function") {
+      res.status(503).json({ error: "Service temporarily unavailable" });
+    }
     if (isCode14Error(error)) {
       console.error("Rate limiter error – denying request to stay safe (Code 14 after retries):", error);
     } else {
       console.error("Rate limiter error – denying request to stay safe", error);
     }
-    return false; // FAIL CLOSED
+    console.error("Rate limiter Firebase credential context", getFirebaseCredentialSummary());
+    return false;
   }
 }
 

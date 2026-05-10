@@ -1,6 +1,6 @@
 /**
  * Per-site email blacklist stored in S3 as plain text (newline-separated).
- * Only enforced when siteConfig.requireLogin is true.
+ * Only enforced when siteConfig.requireLogin is true and enableEmailBlacklist is not false.
  */
 
 import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
@@ -168,7 +168,7 @@ export function invalidateBlacklistCache(siteId: string): void {
 
 function isBlacklistEnforcedForSite(siteId: string): boolean {
   const siteConfig = loadSiteConfigSync(siteId);
-  return !!siteConfig?.requireLogin;
+  return !!siteConfig?.requireLogin && siteConfig.enableEmailBlacklist !== false;
 }
 
 type FetchResult = { emails: Set<string>; failed: boolean };
@@ -237,7 +237,7 @@ export type BlacklistCheckResult = {
 
 /**
  * Rich blacklist check used by session-revocation paths that need cache metadata.
- * skipped=true when the site does not enforce login or inputs are empty (no work done).
+ * skipped=true when the site does not enforce blacklist checks or inputs are empty (no work done).
  */
 export async function checkEmailBlacklist(email: string, siteId: string): Promise<BlacklistCheckResult> {
   const normalized = email.trim().toLowerCase();
@@ -249,7 +249,7 @@ export async function checkEmailBlacklist(email: string, siteId: string): Promis
 }
 
 /**
- * Returns true if email is on the blacklist for this site. Always false if site does not require login.
+ * Returns true if email is on the blacklist for this site. Always false if the site disables blacklist checks.
  * On S3 errors (other than missing object), fails open (false) after ops alert.
  */
 export async function isEmailBlacklisted(email: string, siteId: string): Promise<boolean> {

@@ -272,6 +272,7 @@
     "allowTemporarySessions": false,
     "allowAllAnswersPage": false,
     "requireLogin": true,
+    "enableEmailBlacklist": false,
     "loginImage": null,
     "header": {
       "logo": "jairam-logo.png",

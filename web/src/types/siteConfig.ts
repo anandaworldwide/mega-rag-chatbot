@@ -111,6 +111,7 @@ export interface SiteConfig {
   enableOnboardingEmails?: boolean; // Whether to send onboarding drip emails (requires requireLogin: true)
   enableReengagementEmails?: boolean; // Whether to send re-engagement emails (requires requireLogin: true)
   enableSpecialDayEmails?: boolean; // Whether to send special day/holiday emails (requires requireLogin: true)
+  enableEmailBlacklist?: boolean; // Whether login sites enforce/administer the S3-backed email blacklist
   enableWhatsNew?: boolean; // Whether this site has a whats-new.json data file
   enableTipsConfig?: boolean; // Whether this site has a tips-config.json data file
   enabledTasks?: string[]; // Array of task IDs enabled for this site (e.g., ["research", "class-planning"])

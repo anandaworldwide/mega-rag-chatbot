@@ -8,6 +8,21 @@ const isBuildTime = process.env.NODE_ENV === "production" && process.env.NEXT_PH
 // Initialize Firebase and export the Firestore database
 let db: firebase.firestore.Firestore | null = null;
 
+type FirebaseCredentialSummary = {
+  siteId?: string;
+  projectId?: string;
+  clientEmail?: string;
+  privateKeyId?: string;
+};
+
+let credentialSummary: FirebaseCredentialSummary = {
+  siteId: process.env.SITE_ID,
+};
+
+export function getFirebaseCredentialSummary(): FirebaseCredentialSummary {
+  return { ...credentialSummary, siteId: process.env.SITE_ID };
+}
+
 // Skip initialization during build time
 if (isBuildTime) {
   console.warn("Skipping Firebase initialization during build time");
@@ -27,6 +42,12 @@ if (isBuildTime) {
 
     // Parse the service account JSON - let SyntaxError throw for test scenarios
     const serviceAccount = JSON.parse(serviceAccountJson);
+    credentialSummary = {
+      siteId: process.env.SITE_ID,
+      projectId: serviceAccount.project_id,
+      clientEmail: serviceAccount.client_email,
+      privateKeyId: serviceAccount.private_key_id,
+    };
 
     // Check if this is just an empty JSON object (e.g., '{}' from GitHub Actions)
     // Only handle this case specifically for CI environments
@@ -57,6 +78,9 @@ if (isBuildTime) {
         //   });
         // }
         // Firestore initialized
+        if (process.env.NODE_ENV !== "production") {
+          console.info("Firebase initialized", credentialSummary);
+        }
       }
     }
   } catch (error) {
