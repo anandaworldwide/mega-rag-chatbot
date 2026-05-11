@@ -12,7 +12,7 @@ python-dotenv
 
 # OpenAI embeddings
 langchain-openai
-langchain-core>=1.2.11  # Includes latest langchain-core security fixes.
+langchain-core>=1.3.3  # Includes latest langchain-core security fixes.
 
 # Vector database
 pinecone
@@ -35,4 +35,4 @@ boto3
 # Security fixes
 orjson>=3.11.6  # CVE-2025-67221: recursion DoS fix
 requests>=2.33.0  # CVE-2026-25645
-urllib3>=2.6.3  # CVE-2025-66418, CVE-2025-66471, CVE-2026-21441: Decompression bomb fixes
+urllib3>=2.7.0  # CVE-2025-66418, CVE-2025-66471, CVE-2026-21441: Decompression bomb fixes
