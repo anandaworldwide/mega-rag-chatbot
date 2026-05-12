@@ -178,12 +178,6 @@ export function withJwtAuth(
         if (siteId) {
           const { checkEmailBlacklist } = await import("./blacklist");
           const result = await checkEmailBlacklist(token.email, siteId);
-          if (!result.skipped) {
-            console.info(
-              `[blacklist-cache] cache=${result.cacheHit ? "hit" : "miss"} ` +
-                `method=${req.method ?? "unknown"} url=${req.url ?? "unknown"}`
-            );
-          }
           if (result.blocked) {
             clearAuthCookies(req, res);
             try {
