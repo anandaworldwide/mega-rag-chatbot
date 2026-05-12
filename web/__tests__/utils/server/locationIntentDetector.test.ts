@@ -220,6 +220,31 @@ describe("Location Intent Detector", () => {
     });
   });
 
+  describe("keyword exclusions for Ananda founder initials", () => {
+    beforeEach(() => {
+      process.env.OPENAI_API_KEY = "test-key";
+      // Force the embedding path to be unavailable so any positive result must come
+      // from the keyword pattern matcher, not from semantic similarity.
+      mockFs.existsSync.mockReturnValue(false);
+    });
+
+    it("should NOT trigger location intent for 'SK' (Swami Kriyananda initials)", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("What did SK say about meditation?")).toBe(false);
+      expect(await hasLocationIntentAsync("Did SK write about Kriya yoga?")).toBe(false);
+      expect(await hasLocationIntentAsync("SK teachings on devotion")).toBe(false);
+    });
+
+    it("should NOT trigger location intent for 'PY' (Paramahansa Yogananda initials)", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("What did PY teach about Kriya?")).toBe(false);
+      expect(await hasLocationIntentAsync("PY on the science of religion")).toBe(false);
+      expect(await hasLocationIntentAsync("Did PY meet Sri Yukteswar?")).toBe(false);
+    });
+  });
+
   describe("cache behavior", () => {
     beforeEach(() => {
       process.env.OPENAI_API_KEY = "test-key";

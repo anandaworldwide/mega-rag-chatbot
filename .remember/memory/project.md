@@ -353,6 +353,11 @@ except ImportError:
   `web/src/utils/server/tools/locationLogic.ts` and country-filtered center search (`centers.searchMode: "country"` in tool
   JSON). Proximity questions keep Haversine-ranked results. `executeTool` receives `originalQuestion` from makechain so
   scope works when the model omits `userProvidedLocation`.
+- Location intent keyword matcher in `web/src/utils/server/locationIntentDetector.ts` (`hasLocationKeywordPatterns`)
+  matches ISO alpha-2 country codes via `\b<code>\b` and is gated by an exclusion set (`commonEnglishWords`) for codes
+  that collide with English words or domain terms. Always exclude Ananda-specific initials/mantras here:
+  `om` (mantra), `sk` (Swami Kriyananda), `py` (Paramahansa Yogananda). Add new exclusions to that set when introducing
+  any short initials/abbreviations users will commonly type.
 
 ## Never Do Again
 

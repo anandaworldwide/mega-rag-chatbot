@@ -192,6 +192,8 @@ function hasLocationKeywordPatterns(query: string): boolean {
     "om", // Oman - "om" meditation mantra (critical for spiritual chatbot!)
     "et", // Ethiopia - "et al.", "et cetera"
     "si", // Slovenia - Spanish "sí" (yes), musical note
+    "sk", // Slovakia - "SK" initials for Swami Kriyananda (critical for Ananda chatbot!)
+    "py", // Paraguay - "PY" initials for Paramahansa Yogananda (critical for Ananda chatbot!)
   ]);
 
   const countryCodes = [
