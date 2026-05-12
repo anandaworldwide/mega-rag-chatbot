@@ -2,6 +2,31 @@
 
 ## Critical Lessons Learned
 
+### npm `min-release-age` Is Seconds, Not Days
+
+**Rule**: The `.npmrc` `min-release-age` setting is interpreted by npm in **seconds**, not days. Writing `7` allows
+any package at least 7 seconds old, silently disabling the install-time cooldown. uv's `exclude-newer = "7 days"`
+accepts a duration string, which is the easy source of the confusion.
+
+**Wrong**:
+
+```ini
+# .npmrc
+min-release-age=7
+```
+
+**Correct**:
+
+```ini
+# .npmrc
+min-release-age=604800   # 7 * 24 * 3600
+```
+
+**Sequencing when fixing**: before flipping the value, verify no package currently in `package-lock.json` was
+published inside the new window (look up `time` for each suspect at `https://registry.npmjs.org/<pkg>`); also hold
+any open Dependabot npm PR whose proposed versions are inside the window — once strict cooldown is in place,
+those PRs' `npm ci` will fail until the packages age out, which is the desired behavior but should be expected.
+
 ### Rate Limiter Fail-Closed Must Send A Response
 
 **Wrong**: Return `false` from an API rate limiter after a backend failure without writing to `NextApiResponse`; callers
