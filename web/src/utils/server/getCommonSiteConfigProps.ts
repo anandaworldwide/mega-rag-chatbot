@@ -2,6 +2,7 @@ import { loadSiteConfig } from './loadSiteConfig';
 
 export const getCommonSiteConfigProps = async () => {
   const siteId = process.env.SITE_ID || 'default';
+  const contactEmail = process.env.CONTACT_EMAIL?.trim() || null;
 
   try {
     const siteConfig = await loadSiteConfig(siteId);
@@ -13,6 +14,7 @@ export const getCommonSiteConfigProps = async () => {
     return {
       props: {
         siteConfig,
+        contactEmail,
       },
     };
   } catch (error) {
@@ -20,6 +22,7 @@ export const getCommonSiteConfigProps = async () => {
     return {
       props: {
         siteConfig: null,
+        contactEmail,
         error:
           'Failed to load site configuration. Please notify an administrator.',
       },

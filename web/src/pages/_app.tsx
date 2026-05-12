@@ -30,6 +30,7 @@ const inter = Inter({
 interface CustomAppProps extends AppProps {
   pageProps: {
     siteConfig: SiteConfig | null;
+    contactEmail?: string | null;
   };
 }
 
