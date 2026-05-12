@@ -20,6 +20,7 @@ import { firestoreQueryGet, firestoreSet } from "@/utils/server/firestoreRetryUt
 import { isSubscribedToCategory } from "@/utils/server/emailPreferenceUtils";
 import { sendOnboardingEmail, loadOnboardingTemplate } from "@/utils/server/onboardingEmailUtils";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
+import { isEmailBlacklisted } from "@/utils/server/blacklist";
 
 const createMockTimestampFromMillis = (ms: number) => ({
   seconds: Math.floor(ms / 1000),
@@ -34,6 +35,9 @@ jest.mock("@/utils/server/firestoreRetryUtils");
 jest.mock("@/utils/server/emailPreferenceUtils");
 jest.mock("@/utils/server/onboardingEmailUtils");
 jest.mock("@/utils/server/loadSiteConfig");
+jest.mock("@/utils/server/blacklist", () => ({
+  isEmailBlacklisted: jest.fn().mockResolvedValue(false),
+}));
 jest.mock("@/utils/server/firestoreUtils", () => ({
   getUsersCollectionName: jest.fn().mockReturnValue("test_users"),
 }));
@@ -83,6 +87,7 @@ const mockIsSubscribedToCategory = isSubscribedToCategory as jest.MockedFunction
 const mockSendOnboardingEmail = sendOnboardingEmail as jest.MockedFunction<typeof sendOnboardingEmail>;
 const mockLoadOnboardingTemplate = loadOnboardingTemplate as jest.MockedFunction<typeof loadOnboardingTemplate>;
 const mockLoadSiteConfig = loadSiteConfig as jest.MockedFunction<typeof loadSiteConfig>;
+const mockIsEmailBlacklisted = isEmailBlacklisted as jest.MockedFunction<typeof isEmailBlacklisted>;
 
 describe("/api/cron/processOnboardingEmails", () => {
   const originalEnv = process.env;
@@ -118,6 +123,9 @@ describe("/api/cron/processOnboardingEmails", () => {
 
     // Default mock for firestoreSet
     mockFirestoreSet.mockResolvedValue(undefined);
+
+    // Default: email is not blacklisted
+    mockIsEmailBlacklisted.mockResolvedValue(false);
   });
 
   afterEach(() => {
@@ -283,6 +291,35 @@ describe("/api/cron/processOnboardingEmails", () => {
       await handler(req, res);
 
       expect(mockSendOnboardingEmail).toHaveBeenCalled();
+    });
+
+    it("should skip blacklisted users without sending or starting onboarding", async () => {
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "POST",
+      });
+
+      const mockUserDoc = {
+        id: "blocked@example.com",
+        data: () => ({
+          inviteStatus: "accepted",
+          onboardingCompleted: false,
+        }),
+        ref: { id: "blocked@example.com" },
+      };
+
+      mockFirestoreQueryGet.mockResolvedValue({
+        empty: false,
+        docs: [mockUserDoc],
+      } as any);
+
+      mockIsSubscribedToCategory.mockReturnValue(true);
+      mockIsEmailBlacklisted.mockResolvedValue(true);
+
+      await handler(req, res);
+
+      expect(mockIsEmailBlacklisted).toHaveBeenCalledWith("blocked@example.com", "ananda");
+      expect(mockSendOnboardingEmail).not.toHaveBeenCalled();
+      expect(mockFirestoreSet).not.toHaveBeenCalled();
     });
   });
 

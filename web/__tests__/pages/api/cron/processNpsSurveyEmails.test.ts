@@ -12,6 +12,7 @@ import { sendNpsSurveyEmail, loadNpsSurveyTemplate } from "@/utils/server/npsSur
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { genericRateLimiter as _genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { daysSince } from "@/utils/server/dateUtils";
+import { isEmailBlacklisted } from "@/utils/server/blacklist";
 
 const createMockTimestampFromMillis = (ms: number) => {
   const date = new Date(ms);
@@ -42,6 +43,9 @@ jest.mock("@/utils/server/errorSanitization", () => ({
 }));
 jest.mock("@/utils/server/dateUtils", () => ({
   daysSince: jest.fn(),
+}));
+jest.mock("@/utils/server/blacklist", () => ({
+  isEmailBlacklisted: jest.fn().mockResolvedValue(false),
 }));
 
 // Mock firebase-admin
@@ -86,6 +90,7 @@ const mockSendNpsSurveyEmail = sendNpsSurveyEmail as jest.MockedFunction<typeof 
 const mockLoadNpsSurveyTemplate = loadNpsSurveyTemplate as jest.MockedFunction<typeof loadNpsSurveyTemplate>;
 const mockLoadSiteConfig = loadSiteConfig as jest.MockedFunction<typeof loadSiteConfig>;
 const mockDaysSince = daysSince as jest.MockedFunction<typeof daysSince>;
+const mockIsEmailBlacklisted = isEmailBlacklisted as jest.MockedFunction<typeof isEmailBlacklisted>;
 // genericRateLimiter is mocked
 
 describe("/api/cron/processNpsSurveyEmails", () => {
@@ -146,6 +151,9 @@ describe("/api/cron/processNpsSurveyEmails", () => {
       };
       return callback(mockTransaction);
     });
+
+    // Default: email is not blacklisted
+    mockIsEmailBlacklisted.mockResolvedValue(false);
   });
 
   afterEach(() => {
@@ -321,6 +329,47 @@ describe("/api/cron/processNpsSurveyEmails", () => {
     expect(res.statusCode).toBe(200);
     const data = JSON.parse(res._getData());
     expect(data.sent).toBe(0);
+    expect(mockSendNpsSurveyEmail).not.toHaveBeenCalled();
+  });
+
+  it("should skip blacklisted user without sending NPS survey email", async () => {
+    const mockUserDoc = {
+      id: "blocked@example.com",
+      data: () => ({
+        inviteStatus: "accepted",
+        emailPreferences: { nps: true },
+        lastActivityAt: createMockTimestampFromMillis(oneHourAgo),
+        lastNpsSurveySentAt: createMockTimestampFromMillis(sevenMonthsAgo),
+        verifiedAt: createMockTimestampFromMillis(fifteenDaysAgo),
+        npsSendAttempts: 0,
+      }),
+      ref: { id: "blocked@example.com" },
+    };
+
+    mockFirestoreQueryGet.mockResolvedValue({
+      docs: [mockUserDoc],
+      empty: false,
+      size: 1,
+    } as any);
+
+    mockDaysSince.mockImplementation((timestamp: any) => {
+      if (!timestamp) return 0;
+      const ts = timestamp.toMillis ? timestamp.toMillis() : timestamp;
+      return Math.floor((now - ts) / (24 * 60 * 60 * 1000));
+    });
+
+    mockIsEmailBlacklisted.mockResolvedValue(true);
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    const data = JSON.parse(res._getData());
+    expect(data.sent).toBe(0);
+    expect(mockIsEmailBlacklisted).toHaveBeenCalledWith("blocked@example.com", "ananda");
     expect(mockSendNpsSurveyEmail).not.toHaveBeenCalled();
   });
 

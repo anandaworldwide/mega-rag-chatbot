@@ -280,6 +280,13 @@ except ImportError:
   users
 - **Email blacklist rollout**: Login-required sites can disable S3-backed email blacklist enforcement with
   `enableEmailBlacklist: false`; do not assume every login site needs blacklist S3 reads.
+- **Blacklist suppresses outbound campaigns**: Blacklisted emails must not receive any non-transactional/promotional
+  email — newsletters, onboarding, re-engagement, special day, NPS survey. Enforce by calling
+  `isEmailBlacklisted(email, siteId)` (web/src/utils/server/blacklist.ts) at the per-user iteration in each cron handler
+  alongside the existing `isSubscribedToCategory` check. For newsletters, also filter at queue-build
+  (`sendNewsletter.ts`) and add a defense-in-depth check at batch-send (`processNewsletterBatch.ts`) that marks the
+  queue item `status: "skipped_blacklisted"` so it is not retried and is excluded from sent/failed counters. The
+  blacklist S3 list is cached in-process, so per-user calls are O(1) Set lookups.
 
 ## Authentication and Onboarding (Decisions)
 

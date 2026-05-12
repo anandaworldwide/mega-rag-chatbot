@@ -3,6 +3,7 @@ import { db } from "@/services/firebase";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreQueryGet, firestoreGet, firestoreSet } from "@/utils/server/firestoreRetryUtils";
 import { sendNpsSurveyEmail, loadNpsSurveyTemplate } from "@/utils/server/npsSurveyEmailUtils";
+import { isEmailBlacklisted } from "@/utils/server/blacklist";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
@@ -303,6 +304,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // Double-check subscription (defensive)
         if (userData.emailPreferences?.nps === false) {
           skippedList.push({ email: userEmail, reason: "not subscribed to NPS emails" });
+          continue;
+        }
+
+        // Suppress blacklisted recipients (no-op when site does not enforce blacklist).
+        if (await isEmailBlacklisted(userEmail, siteId)) {
+          skippedList.push({ email: userEmail, reason: "blacklisted" });
           continue;
         }
 

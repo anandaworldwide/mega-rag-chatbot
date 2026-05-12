@@ -22,6 +22,7 @@ import { isSubscribedToCategory } from "@/utils/server/emailPreferenceUtils";
 import { sendSpecialDayEmail, loadSpecialDayTemplate } from "@/utils/server/specialDayEmailUtils";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { getSpecialDaysForDate, generateCampaignId } from "@/config/specialDays";
+import { isEmailBlacklisted } from "@/utils/server/blacklist";
 
 // Mock p-map (ES module) to avoid Jest transformation issues
 jest.mock("p-map", () => ({
@@ -42,6 +43,9 @@ jest.mock("@/utils/server/emailPreferenceUtils");
 jest.mock("@/utils/server/specialDayEmailUtils");
 jest.mock("@/utils/server/loadSiteConfig");
 jest.mock("@/config/specialDays");
+jest.mock("@/utils/server/blacklist", () => ({
+  isEmailBlacklisted: jest.fn().mockResolvedValue(false),
+}));
 jest.mock("@/utils/server/firestoreUtils", () => ({
   getUsersCollectionName: jest.fn().mockReturnValue("test_users"),
 }));
@@ -107,6 +111,7 @@ const mockLoadSpecialDayTemplate = loadSpecialDayTemplate as jest.MockedFunction
 const mockLoadSiteConfig = loadSiteConfig as jest.MockedFunction<typeof loadSiteConfig>;
 const mockGetSpecialDaysForDate = getSpecialDaysForDate as jest.MockedFunction<typeof getSpecialDaysForDate>;
 const mockGenerateCampaignId = generateCampaignId as jest.MockedFunction<typeof generateCampaignId>;
+const mockIsEmailBlacklisted = isEmailBlacklisted as jest.MockedFunction<typeof isEmailBlacklisted>;
 
 describe("/api/cron/processSpecialDayEmails", () => {
   const originalEnv = process.env;
@@ -168,6 +173,9 @@ describe("/api/cron/processSpecialDayEmails", () => {
     };
     mockGetSpecialDaysForDate.mockResolvedValue([mockSpecialDay] as any);
     mockGenerateCampaignId.mockImplementation((id: string, year: number) => `${id}-${year}`);
+
+    // Default: email is not blacklisted
+    mockIsEmailBlacklisted.mockResolvedValue(false);
   });
 
   afterEach(() => {
@@ -240,6 +248,44 @@ describe("/api/cron/processSpecialDayEmails", () => {
     expect(res._getStatusCode()).toBe(200);
     const data = JSON.parse(res._getData());
     expect(data.sent).toBe(0);
+    expect(mockSendSpecialDayEmail).not.toHaveBeenCalled();
+  });
+
+  it("should skip blacklisted users without sending special day email", async () => {
+    const mockUser = {
+      id: "blocked@example.com",
+      inviteStatus: "accepted",
+      emailPreferences: {
+        specialDay: true,
+      },
+      specialDayEmailsSent: [],
+    };
+
+    mockFirestoreQueryGet.mockResolvedValue({
+      docs: [
+        {
+          id: "blocked@example.com",
+          data: () => mockUser,
+          ref: { id: "blocked@example.com" },
+        },
+      ],
+      empty: false,
+      size: 1,
+    } as any);
+
+    mockIsSubscribedToCategory.mockReturnValue(true);
+    mockIsEmailBlacklisted.mockResolvedValue(true);
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "GET",
+    });
+
+    await handler(req, res);
+
+    expect(res._getStatusCode()).toBe(200);
+    const data = JSON.parse(res._getData());
+    expect(data.sent).toBe(0);
+    expect(mockIsEmailBlacklisted).toHaveBeenCalledWith("blocked@example.com", "ananda");
     expect(mockSendSpecialDayEmail).not.toHaveBeenCalled();
   });
 

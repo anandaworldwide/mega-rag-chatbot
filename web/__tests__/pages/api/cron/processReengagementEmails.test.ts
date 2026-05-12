@@ -20,6 +20,7 @@ import { firestoreQueryGet, firestoreGet, firestoreSet } from "@/utils/server/fi
 import { isSubscribedToCategory } from "@/utils/server/emailPreferenceUtils";
 import { sendReengagementEmail, loadReengagementTemplate } from "@/utils/server/reengagementEmailUtils";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
+import { isEmailBlacklisted } from "@/utils/server/blacklist";
 
 const createMockTimestampFromMillis = (ms: number) => ({
   seconds: Math.floor(ms / 1000),
@@ -34,6 +35,9 @@ jest.mock("@/utils/server/firestoreRetryUtils");
 jest.mock("@/utils/server/emailPreferenceUtils");
 jest.mock("@/utils/server/reengagementEmailUtils");
 jest.mock("@/utils/server/loadSiteConfig");
+jest.mock("@/utils/server/blacklist", () => ({
+  isEmailBlacklisted: jest.fn().mockResolvedValue(false),
+}));
 jest.mock("@/utils/server/firestoreUtils", () => ({
   getUsersCollectionName: jest.fn().mockReturnValue("test_users"),
 }));
@@ -90,6 +94,7 @@ const mockIsSubscribedToCategory = isSubscribedToCategory as jest.MockedFunction
 const mockSendReengagementEmail = sendReengagementEmail as jest.MockedFunction<typeof sendReengagementEmail>;
 const mockLoadReengagementTemplate = loadReengagementTemplate as jest.MockedFunction<typeof loadReengagementTemplate>;
 const mockLoadSiteConfig = loadSiteConfig as jest.MockedFunction<typeof loadSiteConfig>;
+const mockIsEmailBlacklisted = isEmailBlacklisted as jest.MockedFunction<typeof isEmailBlacklisted>;
 
 describe("/api/cron/processReengagementEmails", () => {
   const originalEnv = process.env;
@@ -154,6 +159,9 @@ describe("/api/cron/processReengagementEmails", () => {
 
     // Default mock for firestoreSet
     mockFirestoreSet.mockResolvedValue(undefined);
+
+    // Default: email is not blacklisted
+    mockIsEmailBlacklisted.mockResolvedValue(false);
   });
 
   afterEach(() => {
@@ -315,6 +323,39 @@ describe("/api/cron/processReengagementEmails", () => {
 
       expect(res.statusCode).toBe(200);
       expect(mockSendReengagementEmail).not.toHaveBeenCalled();
+    });
+
+    it("should skip blacklisted user without sending re-engagement email", async () => {
+      const mockDoc = {
+        id: "blocked@example.com",
+        data: () => ({
+          inviteStatus: "accepted",
+          emailPreferences: { reengagement: true },
+          reengagementEmailsSent: [],
+          lastLoginAt: createMockTimestampFromMillis(twentyFiveDaysAgo),
+          firstName: "Blocked",
+        }),
+        ref: { id: "blocked@example.com" },
+      };
+
+      mockFirestoreQueryGet.mockResolvedValue({
+        empty: false,
+        docs: [mockDoc],
+      } as any);
+
+      mockIsSubscribedToCategory.mockReturnValue(true);
+      mockIsEmailBlacklisted.mockResolvedValue(true);
+
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "POST",
+      });
+
+      await handler(req, res);
+
+      expect(res.statusCode).toBe(200);
+      expect(mockIsEmailBlacklisted).toHaveBeenCalledWith("blocked@example.com", "ananda");
+      expect(mockSendReengagementEmail).not.toHaveBeenCalled();
+      expect(mockFirestoreSet).not.toHaveBeenCalled();
     });
 
     it("should skip user who already received this campaign", async () => {
