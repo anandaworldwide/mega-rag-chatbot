@@ -149,6 +149,12 @@ describe("SourcesList", () => {
     queriesPerUserPerDay: 100,
     showSourceContent: true,
     showVoting: true,
+    accessControl: {
+      levels: [
+        { key: "public", label: "Public", value: 0 },
+        { key: "kriyaban", label: "Kriyaban", value: 200 },
+      ],
+    },
   };
 
   beforeEach(() => {
@@ -233,6 +239,45 @@ describe("SourcesList", () => {
 
     // Source icon should be displayed
     expect(screen.getByText("description")).toBeInTheDocument();
+  });
+
+  it("shows restricted source access only after the source is expanded", () => {
+    const restrictedSource: Document<DocMetadata> = {
+      ...textSource,
+      metadata: {
+        ...textSource.metadata,
+        required_access_level: 200,
+      },
+    };
+
+    render(<SourcesList sources={[restrictedSource]} siteConfig={mockSiteConfig} />);
+
+    expect(screen.queryByText("Kriyaban only material")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Kriyaban only material")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Test Document").closest("summary")!);
+
+    expect(screen.getByText("Kriyaban only material")).toBeInTheDocument();
+    expect(screen.getAllByText("lock")).toHaveLength(1);
+  });
+
+  it("does not show an access note for public sources", () => {
+    const publicSource: Document<DocMetadata> = {
+      ...textSource,
+      metadata: {
+        ...textSource.metadata,
+        required_access_level: 0,
+        access_level: "public",
+      },
+    };
+
+    render(<SourcesList sources={[publicSource]} siteConfig={mockSiteConfig} />);
+
+    expect(screen.queryByLabelText(/only material/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Test Document").closest("summary")!);
+
+    expect(screen.queryByText(/Restricted source/)).not.toBeInTheDocument();
   });
 
   it("renders audio sources correctly", () => {

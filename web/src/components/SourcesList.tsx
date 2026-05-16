@@ -89,6 +89,14 @@ const buildSourceScopeOptions = (metadata: DocMetadata): SourceScopeOption[] => 
   });
 };
 
+const formatAccessLevelKey = (accessLevel: string): string => {
+  return accessLevel
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+};
+
 interface SourcesListProps {
   sources: Document<DocMetadata>[];
   collectionName?: string | null;
@@ -693,6 +701,61 @@ const SourcesList: React.FC<SourcesListProps> = ({
     return <div className="text-sm text-gray-500 mb-2 italic">by {doc.metadata.author}</div>;
   };
 
+  const getSourceAccessText = (doc: Document<DocMetadata>) => {
+    const requiredLevel = Number(doc.metadata.required_access_level ?? 0);
+    const legacyAccessLevel =
+      doc.metadata.access_level === undefined || doc.metadata.access_level === null
+        ? ""
+        : String(doc.metadata.access_level).trim();
+    const normalizedLegacyAccessLevel = legacyAccessLevel.toLowerCase();
+    const hasRestrictedLegacyAccessLevel =
+      Boolean(legacyAccessLevel) && normalizedLegacyAccessLevel !== "public" && normalizedLegacyAccessLevel !== "0";
+
+    if ((!Number.isFinite(requiredLevel) || requiredLevel <= 0) && !hasRestrictedLegacyAccessLevel) {
+      return null;
+    }
+
+    const configuredLabel =
+      Number.isFinite(requiredLevel) && requiredLevel > 0
+        ? siteConfig?.accessControl?.levels.find((level) => level.value === requiredLevel)?.label
+        : undefined;
+    const fallbackLabel = hasRestrictedLegacyAccessLevel ? formatAccessLevelKey(legacyAccessLevel) : "restricted";
+    const accessLabel = configuredLabel || fallbackLabel;
+    return accessLabel === "restricted" ? "Restricted material" : `${accessLabel} only material`;
+  };
+
+  const renderCollapsedSourceAccessIcon = (doc: Document<DocMetadata>) => {
+    const accessText = getSourceAccessText(doc);
+
+    if (!accessText) {
+      return null;
+    }
+
+    return (
+      <span
+        className="material-icons ml-1.5 mt-1 inline-flex flex-shrink-0 text-[16px] leading-none text-amber-700"
+        aria-label={accessText}
+        title={accessText}
+      >
+        lock
+      </span>
+    );
+  };
+
+  const renderSourceAccessRequirement = (doc: Document<DocMetadata>) => {
+    const accessText = getSourceAccessText(doc);
+
+    if (!accessText) {
+      return null;
+    }
+
+    return (
+      <div className="mb-2 inline-flex rounded-r-full bg-amber-50 py-1 pl-0 pr-2.5 text-xs font-medium text-amber-800">
+        {accessText}
+      </div>
+    );
+  };
+
   // Render a "Go to source" button for text sources
   const renderGoToSourceButton = (doc: Document<DocMetadata>) => {
     const linkUrl = doc.metadata.source;
@@ -808,6 +871,7 @@ const SourcesList: React.FC<SourcesListProps> = ({
                       {doc.metadata.type === "youtube" && renderYouTubePlayer(doc)}
                       {/* Render author name if available */}
                       {renderAuthorName(doc)}
+                      {renderSourceAccessRequirement(doc)}
                       {/* Render source content as markdown with matching passage label */}
                       <div className="text-xs text-gray-400 mb-1 uppercase tracking-wide">Matching Passage</div>
                       <ReactMarkdown
@@ -919,7 +983,10 @@ const SourcesList: React.FC<SourcesListProps> = ({
                             </span>
                             <span className="material-icons text-sm ml-1 flex-shrink-0">{getSourceIcon(doc)}</span>
                             <div className="flex flex-col flex-1 min-w-0 ml-1">
-                              <div className="flex items-center">{renderSourceTitle(doc)}</div>
+                              <div className="flex items-start min-w-0">
+                                {renderSourceTitle(doc)}
+                                {renderCollapsedSourceAccessIcon(doc)}
+                              </div>
                               {doc.metadata.library && doc.metadata.library !== "Default Library" && (
                                 <div className="sm:hidden">{renderLibraryName(doc)}</div>
                               )}
@@ -939,6 +1006,7 @@ const SourcesList: React.FC<SourcesListProps> = ({
                             {doc.metadata && doc.metadata.type === "youtube" && renderYouTubePlayer(doc)}
                             {/* Render author name if available */}
                             {renderAuthorName(doc)}
+                            {renderSourceAccessRequirement(doc)}
                           </>
                         )}
                         {/* Render source content as markdown with matching passage label */}
