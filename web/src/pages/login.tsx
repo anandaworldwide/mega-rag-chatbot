@@ -9,6 +9,7 @@ import FeedbackModal from "@/components/FeedbackModal";
 
 interface LoginProps {
   siteConfig: SiteConfig | null;
+  contactEmail: string | null;
 }
 
 interface PendingRequestInfo {
@@ -18,7 +19,26 @@ interface PendingRequestInfo {
   createdAt: string | null;
 }
 
-export default function Login({ siteConfig }: LoginProps) {
+const SERVER_ERROR_PREFIX = "We're having trouble signing you in due to a server problem.";
+
+function buildSupportErrorMessage(contactEmail: string | null): string {
+  if (contactEmail) {
+    return `${SERVER_ERROR_PREFIX} Please contact support at ${contactEmail} for assistance.`;
+  }
+  return `${SERVER_ERROR_PREFIX} Please contact support for assistance.`;
+}
+
+async function readJsonErrorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const data = await res.json();
+    return data?.error || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export default function Login({ siteConfig, contactEmail }: LoginProps) {
+  const supportErrorMessage = buildSupportErrorMessage(contactEmail);
   const router = useRouter();
   const [step, setStep] = useState<"email" | "password" | "request-approval" | "request-pending">("email");
   const [email, setEmail] = useState("");
@@ -167,9 +187,12 @@ export default function Login({ siteConfig }: LoginProps) {
       } else if (res.status === 429) {
         setError("Too many attempts. Please try again later.");
         setIsSubmitting(false);
+      } else if (res.status >= 500) {
+        setError(supportErrorMessage);
+        setIsSubmitting(false);
       } else {
-        const errorData = await res.json();
-        setError(errorData.error || "Something went wrong");
+        const errorMessage = await readJsonErrorMessage(res, "Something went wrong");
+        setError(errorMessage);
         setIsSubmitting(false);
       }
     } catch (error) {
@@ -218,9 +241,12 @@ export default function Login({ siteConfig }: LoginProps) {
       } else if (res.status === 429) {
         setError("Too many attempts. Please try again later.");
         setIsSubmitting(false);
+      } else if (res.status >= 500) {
+        setError(supportErrorMessage);
+        setIsSubmitting(false);
       } else {
-        const errorData = await res.json();
-        setError(errorData.error || "Invalid email or password");
+        const errorMessage = await readJsonErrorMessage(res, "Invalid email or password");
+        setError(errorMessage);
         setIsSubmitting(false);
       }
     } catch (error) {
@@ -257,9 +283,12 @@ export default function Login({ siteConfig }: LoginProps) {
         setLastSendType("login");
         setStep("email");
         setIsSubmitting(false);
+      } else if (res.status >= 500) {
+        setError(supportErrorMessage);
+        setIsSubmitting(false);
       } else {
-        const errorData = await res.json();
-        setError(errorData.error || "Something went wrong");
+        const errorMessage = await readJsonErrorMessage(res, "Something went wrong");
+        setError(errorMessage);
         setIsSubmitting(false);
       }
     } catch (error) {

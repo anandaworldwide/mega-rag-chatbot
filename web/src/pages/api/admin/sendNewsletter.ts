@@ -6,6 +6,7 @@ import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { requireSuperuserRoleFromFirestore } from "@/utils/server/authz";
 import { withJwtAuth, getTokenFromRequest } from "@/utils/server/jwtUtils";
 import { isSubscribedToCategory } from "@/utils/server/emailPreferenceUtils";
+import { isEmailBlacklisted } from "@/utils/server/blacklist";
 import firebase from "firebase-admin";
 import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
 
@@ -120,7 +121,26 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }))
       .filter((user: { email: string; data: any }) => isSubscribedToCategory(user.data, "newsletters"));
 
-    if (subscribedUsers.length === 0) {
+    // Suppress blacklisted recipients (per-site S3 blacklist; no-op when site does not enforce it).
+    // Blacklist is fetched once per site and cached; per-user calls are O(1) Set lookups.
+    const siteIdForBlacklist = process.env.SITE_ID || "";
+    const blacklistedEmails: string[] = [];
+    const eligibleUsers: { email: string; data: any }[] = [];
+    for (const user of subscribedUsers) {
+      const blocked = await isEmailBlacklisted(user.email, siteIdForBlacklist);
+      if (blocked) {
+        blacklistedEmails.push(user.email);
+      } else {
+        eligibleUsers.push(user);
+      }
+    }
+    if (blacklistedEmails.length > 0) {
+      console.log(
+        `🚫 Newsletter: suppressed ${blacklistedEmails.length} blacklisted recipient(s) at queue time for site ${siteIdForBlacklist}`
+      );
+    }
+
+    if (eligibleUsers.length === 0) {
       const selectedRoleNames = [];
       if (roleSelection.users) selectedRoleNames.push("Users");
       if (roleSelection.admins) selectedRoleNames.push("Admins");
@@ -132,7 +152,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       });
     }
 
-    console.log(`Queueing newsletter for ${subscribedUsers.length} subscribers`);
+    console.log(`Queueing newsletter for ${eligibleUsers.length} subscribers`);
 
     // Generate unique newsletterId
     const newsletterId = db.collection(getNewslettersCollectionName()).doc().id;
@@ -141,7 +161,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Note: We only store per-user data here. Content fields (subject, content, ctaUrl, ctaText)
     // are stored once in the parent newsletter document to avoid redundant storage.
     const batch = db.batch();
-    subscribedUsers.forEach((user: { email: string; data: any }) => {
+    eligibleUsers.forEach((user: { email: string; data: any }) => {
       const queueRef = db!.collection(`${getNewslettersCollectionName()}/${newsletterId}/queueItems`).doc();
       batch.set(queueRef, {
         email: user.email,
@@ -166,7 +186,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       sentBy: adminEmail,
       newsletterId,
       status: "queued",
-      totalQueued: subscribedUsers.length,
+      totalQueued: eligibleUsers.length,
+      blacklistedSuppressed: blacklistedEmails.length,
       sentCount: 0,
       failedCount: 0,
       createdAt: now,
@@ -181,13 +202,15 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     console.log(`📊 Newsletter queued successfully:`, {
       newsletterId,
-      totalQueued: subscribedUsers.length,
+      totalQueued: eligibleUsers.length,
+      blacklistedSuppressed: blacklistedEmails.length,
     });
 
     return res.status(200).json({
       message: "Newsletter queued successfully",
       newsletterId,
-      totalQueued: subscribedUsers.length,
+      totalQueued: eligibleUsers.length,
+      blacklistedSuppressed: blacklistedEmails.length,
     });
   } catch (error: any) {
     // Log sanitized error (prevents API key leakage)

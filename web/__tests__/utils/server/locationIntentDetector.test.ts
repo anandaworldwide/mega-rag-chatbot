@@ -220,6 +220,40 @@ describe("Location Intent Detector", () => {
     });
   });
 
+  describe("keyword exclusions for Ananda founder initials", () => {
+    beforeEach(() => {
+      process.env.OPENAI_API_KEY = "test-key";
+      // Force the embedding path to be unavailable so any positive result must come
+      // from the keyword pattern matcher, not from semantic similarity.
+      mockFs.existsSync.mockReturnValue(false);
+    });
+
+    it("should NOT trigger location intent for 'SK' (Swami Kriyananda initials)", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("What did SK say about meditation?")).toBe(false);
+      expect(await hasLocationIntentAsync("Did SK write about Kriya yoga?")).toBe(false);
+      expect(await hasLocationIntentAsync("SK teachings on devotion")).toBe(false);
+    });
+
+    it("should NOT trigger location intent for 'PY' (Paramahansa Yogananda initials)", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("What did PY teach about Kriya?")).toBe(false);
+      expect(await hasLocationIntentAsync("PY on the science of religion")).toBe(false);
+      expect(await hasLocationIntentAsync("Did PY meet Sri Yukteswar?")).toBe(false);
+    });
+
+    it("should NOT trigger location intent for contractions containing country-code-like fragments", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      const quote =
+        "And you think, oh, it's not as if every time you breathe, it's, that would be ridiculous. And yet, you will notice that there is a correlation. There was a funny thing, we saw the Inspector General the other evening on video with Danny Kaye. It's really quite fun. But at a certain point, Danny Kaye represents a real threat to the counselors, who are all a bunch of crooks. And they've given him a glass of wine to drink, which is poisoned. And they didn't actually give it to him, he took it, and they were about to say, no, no, don't. And somebody said, it's poisoned, it's good.";
+
+      await expect(hasLocationIntentAsync(quote)).resolves.toBe(false);
+    });
+  });
+
   describe("cache behavior", () => {
     beforeEach(() => {
       process.env.OPENAI_API_KEY = "test-key";

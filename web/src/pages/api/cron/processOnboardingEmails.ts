@@ -3,6 +3,7 @@ import { db } from "@/services/firebase";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreQueryGet, firestoreSet } from "@/utils/server/firestoreRetryUtils";
 import { isSubscribedToCategory } from "@/utils/server/emailPreferenceUtils";
+import { isEmailBlacklisted } from "@/utils/server/blacklist";
 import { sendOnboardingEmail, loadOnboardingTemplate } from "@/utils/server/onboardingEmailUtils";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
@@ -119,6 +120,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         if (!isSubscribedToCategory(userData, "onboarding")) {
           console.log(`Skipping ${userEmail} - not subscribed to onboarding emails`);
           skippedList.push({ email: userEmail, reason: "not subscribed to onboarding" });
+          continue;
+        }
+
+        // Suppress blacklisted recipients (no-op when site does not enforce blacklist).
+        if (await isEmailBlacklisted(userEmail, siteId)) {
+          console.log(`Skipping ${userEmail} - email is blacklisted`);
+          skippedList.push({ email: userEmail, reason: "blacklisted" });
           continue;
         }
 

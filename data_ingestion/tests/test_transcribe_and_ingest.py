@@ -18,6 +18,8 @@ from unittest.mock import (
 import pytest
 
 from data_ingestion.audio_video.transcribe_and_ingest_media import (
+    _parse_positive_int,
+    _resolve_worker_count,
     merge_reports,
     preprocess_youtube_video,
     process_file,
@@ -47,6 +49,24 @@ def sample_youtube_data():
             "description": "Test description",
         },
     }
+
+
+def test_resolve_worker_count_preserves_default():
+    with patch(
+        "data_ingestion.audio_video.transcribe_and_ingest_media.cpu_count"
+    ) as mock_cpu_count:
+        mock_cpu_count.return_value = 12
+
+        assert _resolve_worker_count(None) == 4
+
+
+def test_resolve_worker_count_uses_explicit_value():
+    assert _resolve_worker_count(8) == 8
+
+
+def test_parse_positive_int_rejects_zero():
+    with pytest.raises(Exception, match="positive integer"):
+        _parse_positive_int("0")
 
 
 def test_verify_metadata_basic_audio():

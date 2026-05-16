@@ -10,6 +10,7 @@ import { firestoreQueryGet, firestoreUpdate } from "@/utils/server/firestoreRetr
 import { requireSuperuserRoleFromFirestore } from "@/utils/server/authz";
 import { withJwtAuth } from "@/utils/server/jwtUtils";
 import { sendEmail } from "@/utils/server/emailUtils";
+import { isEmailBlacklisted } from "@/utils/server/blacklist";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { getSafeErrorMessage } from "@/utils/server/errorSanitization";
 import { formatFullName } from "@/utils/shared/nameUtils";
@@ -102,6 +103,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     const siteConfig = await loadSiteConfig();
     const siteName = siteConfig?.name || "Ananda Library";
     const siteShortname = siteConfig?.shortname || siteName;
+    const siteIdForBlacklist = siteConfig?.siteId || process.env.SITE_ID || "";
     const jwtSecret = process.env.SECURE_TOKEN;
     const fromEmail = process.env.CONTACT_EMAIL;
 
@@ -151,6 +153,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
         if (!canProcess) {
           return { type: "failed" as const, email: data.email, error: "Item already processed" };
+        }
+
+        // Suppress blacklisted recipients (defense-in-depth: blacklist may have changed
+        // between queue-build and batch-send). Mark item as skipped so it is not retried
+        // and is excluded from sent/failed counters.
+        if (await isEmailBlacklisted(data.email, siteIdForBlacklist)) {
+          await firestoreUpdate(doc.ref, {
+            status: "skipped_blacklisted",
+            updatedAt: firebase.firestore.Timestamp.now(),
+          });
+          return { type: "skipped_blacklisted" as const, email: data.email };
         }
 
         try {
@@ -255,15 +268,24 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Aggregate results from parallel processing
     let sent = 0;
     let failed = 0;
+    let skippedBlacklisted = 0;
     const errors: string[] = [];
 
     for (const result of results) {
       if (result.type === "sent") {
         sent++;
+      } else if (result.type === "skipped_blacklisted") {
+        skippedBlacklisted++;
       } else {
         failed++;
         errors.push(`${result.email}: ${result.error}`);
       }
+    }
+
+    if (skippedBlacklisted > 0) {
+      console.log(
+        `🚫 Newsletter ${newsletterId}: skipped ${skippedBlacklisted} blacklisted recipient(s) at send time`
+      );
     }
 
     // Get remaining count after processing
@@ -275,13 +297,17 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     // Update metadata
     const metaRef = db.collection(getNewslettersCollectionName()).doc(newsletterId);
-    await firestoreUpdate(metaRef, {
+    const metaUpdate: Record<string, any> = {
       sentCount: firebase.firestore.FieldValue.increment(sent),
       failedCount: firebase.firestore.FieldValue.increment(failed),
       status: remaining === 0 ? "completed" : "in_progress",
-    });
+    };
+    if (skippedBlacklisted > 0) {
+      metaUpdate.skippedBlacklistedCount = firebase.firestore.FieldValue.increment(skippedBlacklisted);
+    }
+    await firestoreUpdate(metaRef, metaUpdate);
 
-    return res.status(200).json({ sent, failed, remaining, errors });
+    return res.status(200).json({ sent, failed, skippedBlacklisted, remaining, errors });
   } catch (error: any) {
     // Log sanitized error (prevents API key leakage)
     console.error("Batch processing error:", error instanceof Error ? error.name : "Unknown error");

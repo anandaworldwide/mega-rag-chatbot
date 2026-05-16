@@ -311,6 +311,10 @@ def search_pinecone(term: str, case_sensitive: bool) -> list:
                         ),
                     }
                 )
+                print(
+                    f"  MATCH #{len(matches)}: {vec_id} | {metadata.get('title', 'N/A')} | lib={metadata.get('library', 'N/A')} | access={metadata.get('access_level', 'N/A')}",
+                    flush=True,
+                )
 
         elapsed = time.time() - start_time
         pct = (batch_num / total_batches) * 100

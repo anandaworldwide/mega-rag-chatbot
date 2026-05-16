@@ -3,6 +3,7 @@ import { db } from "@/services/firebase";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreQueryGet, firestoreGet, firestoreSet } from "@/utils/server/firestoreRetryUtils";
 import { isSubscribedToCategory } from "@/utils/server/emailPreferenceUtils";
+import { isEmailBlacklisted } from "@/utils/server/blacklist";
 import { sendReengagementEmail, loadReengagementTemplate } from "@/utils/server/reengagementEmailUtils";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
@@ -191,6 +192,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         // Double-check subscription (defensive)
         if (!isSubscribedToCategory(userData, "reengagement")) {
           skippedList.push({ email: userEmail, reason: "not subscribed to re-engagement" });
+          continue;
+        }
+
+        // Suppress blacklisted recipients (no-op when site does not enforce blacklist).
+        if (await isEmailBlacklisted(userEmail, siteId)) {
+          skippedList.push({ email: userEmail, reason: "blacklisted" });
           continue;
         }
 

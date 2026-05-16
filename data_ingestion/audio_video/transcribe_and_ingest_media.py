@@ -40,6 +40,7 @@ Debug & Logging:
 
 Usage Examples:
   python transcribe_and_ingest_media.py -s ananda
+  python transcribe_and_ingest_media.py -s ananda --workers 8
   python transcribe_and_ingest_media.py -s ananda -f -d
   python transcribe_and_ingest_media.py -s ananda -D
   python transcribe_and_ingest_media.py -s ananda -q queue-bhaktan
@@ -107,6 +108,8 @@ from pyutil.site_config_utils import (  # noqa: E402
 )
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_WORKER_COUNT = 4
 
 
 def reset_terminal():
@@ -1056,6 +1059,16 @@ def _parse_arguments():
         action="store_true",
         help="Continue processing even if filename conflicts are found",
     )
+    processing.add_argument(
+        "--workers",
+        type=_parse_positive_int,
+        default=None,
+        metavar="COUNT",
+        help=(
+            "Number of parallel worker processes. Defaults to min(4, CPU count). "
+            "Explicit values override that default."
+        ),
+    )
     # Queue management options
     queue = parser.add_argument_group("Queue Management")
     queue.add_argument(
@@ -1082,6 +1095,27 @@ def _parse_arguments():
     )
 
     return parser.parse_args()
+
+
+def _parse_positive_int(value: str) -> int:
+    """Parse a positive integer for CLI options."""
+    try:
+        parsed_value = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive integer") from exc
+
+    if parsed_value < 1:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+
+    return parsed_value
+
+
+def _resolve_worker_count(requested_workers):
+    """Return the worker count while preserving the historical default."""
+    if requested_workers is not None:
+        return requested_workers
+
+    return min(DEFAULT_WORKER_COUNT, cpu_count())
 
 
 def _setup_vector_clearing(args, ingest_queue):
@@ -1187,8 +1221,8 @@ def _run_worker_pool_processing(args, overall_report):
     # Use a mutable container to hold the report so the signal handler can access the latest version
     report_container = {"report": overall_report}
 
-    # Limit processes to prevent resource exhaustion
-    num_processes = min(4, cpu_count())
+    num_processes = _resolve_worker_count(args.workers)
+    logger.info(f"Starting media processing with {num_processes} worker processes")
     with Pool(
         processes=num_processes,
         initializer=worker,

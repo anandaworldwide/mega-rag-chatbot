@@ -20,6 +20,7 @@ import { firestoreQueryGet, firestoreSet } from "@/utils/server/firestoreRetryUt
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { requireSuperuserRoleFromFirestore } from "@/utils/server/authz";
 import { isSubscribedToCategory } from "@/utils/server/emailPreferenceUtils";
+import { isEmailBlacklisted } from "@/utils/server/blacklist";
 
 // Mock dependencies
 jest.mock("@/services/firebase");
@@ -27,6 +28,9 @@ jest.mock("@/utils/server/firestoreRetryUtils");
 jest.mock("@/utils/server/genericRateLimiter");
 jest.mock("@/utils/server/authz");
 jest.mock("@/utils/server/emailPreferenceUtils");
+jest.mock("@/utils/server/blacklist", () => ({
+  isEmailBlacklisted: jest.fn().mockResolvedValue(false),
+}));
 jest.mock("@/utils/server/jwtUtils", () => ({
   withJwtAuth: jest.fn((handler) => handler),
   getTokenFromRequest: jest.fn(() => ({ email: "admin@example.com" })),
@@ -68,6 +72,7 @@ const mockRequireSuperuserRoleFromFirestore = requireSuperuserRoleFromFirestore 
   typeof requireSuperuserRoleFromFirestore
 >;
 const mockIsSubscribedToCategory = isSubscribedToCategory as jest.MockedFunction<typeof isSubscribedToCategory>;
+const mockIsEmailBlacklisted = isEmailBlacklisted as jest.MockedFunction<typeof isEmailBlacklisted>;
 
 describe("/api/admin/sendNewsletter", () => {
   beforeEach(() => {
@@ -75,6 +80,7 @@ describe("/api/admin/sendNewsletter", () => {
     mockGenericRateLimiter.mockResolvedValue(true);
     mockRequireSuperuserRoleFromFirestore.mockResolvedValue(undefined);
     mockFirestoreSet.mockResolvedValue(undefined);
+    mockIsEmailBlacklisted.mockResolvedValue(false);
     mockDb.batch = jest.fn().mockReturnValue({
       set: jest.fn(),
       commit: jest.fn().mockResolvedValue(undefined),
@@ -260,6 +266,84 @@ describe("/api/admin/sendNewsletter", () => {
       expect(res.statusCode).toBe(200);
       const data = res._getJSONData();
       expect(data.totalQueued).toBe(1); // Only subscribed user
+    });
+
+    it("should suppress blacklisted emails at queue-build time", async () => {
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "POST",
+        body: {
+          subject: "Test Subject",
+          content: "Test Content",
+        },
+      });
+
+      const subscribedUser = {
+        id: "good@example.com",
+        data: () => ({
+          inviteStatus: "accepted",
+          role: "user",
+          emailPreferences: { newsletters: true },
+        }),
+      };
+
+      const blacklistedUser = {
+        id: "blocked@example.com",
+        data: () => ({
+          inviteStatus: "accepted",
+          role: "user",
+          emailPreferences: { newsletters: true },
+        }),
+      };
+
+      mockFirestoreQueryGet.mockResolvedValue({
+        empty: false,
+        docs: [subscribedUser, blacklistedUser],
+      } as any);
+
+      mockIsSubscribedToCategory.mockReturnValue(true);
+      mockIsEmailBlacklisted.mockImplementation(async (email: string) => email === "blocked@example.com");
+
+      await handler(req, res);
+
+      expect(res.statusCode).toBe(200);
+      const data = res._getJSONData();
+      expect(data.totalQueued).toBe(1);
+      expect(data.blacklistedSuppressed).toBe(1);
+    });
+
+    it("should return error when all subscribed users are blacklisted", async () => {
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "POST",
+        body: {
+          subject: "Test Subject",
+          content: "Test Content",
+        },
+      });
+
+      const subscribedUser = {
+        id: "blocked@example.com",
+        data: () => ({
+          inviteStatus: "accepted",
+          role: "user",
+          emailPreferences: { newsletters: true },
+        }),
+      };
+
+      mockFirestoreQueryGet.mockResolvedValue({
+        empty: false,
+        docs: [subscribedUser],
+      } as any);
+
+      mockIsSubscribedToCategory.mockReturnValue(true);
+      mockIsEmailBlacklisted.mockResolvedValue(true);
+
+      await handler(req, res);
+
+      expect(res.statusCode).toBe(400);
+      expect(res._getJSONData()).toEqual({
+        error: "No newsletter subscribers found",
+        details: expect.stringContaining("no active"),
+      });
     });
 
     it("should return error when no subscribed users found", async () => {

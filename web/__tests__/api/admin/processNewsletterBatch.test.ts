@@ -6,6 +6,7 @@ import * as authz from "@/utils/server/authz";
 import * as genericRateLimiter from "@/utils/server/genericRateLimiter";
 import * as emailUtils from "@/utils/server/emailUtils";
 import * as loadSiteConfig from "@/utils/server/loadSiteConfig";
+import * as blacklist from "@/utils/server/blacklist";
 
 // Mock p-map (ES module) to avoid Jest transformation issues
 jest.mock("p-map", () => ({
@@ -50,6 +51,9 @@ jest.mock("@/utils/server/authz");
 jest.mock("@/utils/server/genericRateLimiter");
 jest.mock("@/utils/server/emailUtils");
 jest.mock("@/utils/server/loadSiteConfig");
+jest.mock("@/utils/server/blacklist", () => ({
+  isEmailBlacklisted: jest.fn().mockResolvedValue(false),
+}));
 jest.mock("firebase-admin", () => ({
   firestore: {
     Timestamp: {
@@ -96,6 +100,7 @@ const mockGenericRateLimiter = genericRateLimiter.genericRateLimiter as jest.Moc
 >;
 const mockSendEmail = emailUtils.sendEmail as jest.MockedFunction<typeof emailUtils.sendEmail>;
 const mockLoadSiteConfig = loadSiteConfig.loadSiteConfig as jest.MockedFunction<typeof loadSiteConfig.loadSiteConfig>;
+const mockIsEmailBlacklisted = blacklist.isEmailBlacklisted as jest.MockedFunction<typeof blacklist.isEmailBlacklisted>;
 
 describe("/api/admin/processNewsletterBatch", () => {
   const originalEnv = process.env;
@@ -113,9 +118,10 @@ describe("/api/admin/processNewsletterBatch", () => {
     mockRequireSuperuserRoleFromFirestore.mockResolvedValue(undefined);
     mockGetNewslettersCollectionName.mockReturnValue("test_newsletters");
     mockGetUsersCollectionName.mockReturnValue("test_users");
-    mockLoadSiteConfig.mockResolvedValue({ name: "Test Site" } as any);
+    mockLoadSiteConfig.mockResolvedValue({ name: "Test Site", siteId: "ananda" } as any);
     mockSendEmail.mockResolvedValue(true);
     mockFirestoreUpdate.mockResolvedValue(undefined);
+    mockIsEmailBlacklisted.mockResolvedValue(false);
 
     // Mock marked function
     const { marked } = jest.requireMock("marked");
@@ -342,12 +348,114 @@ describe("/api/admin/processNewsletterBatch", () => {
     expect(response).toEqual({
       sent: 2,
       failed: 0,
+      skippedBlacklisted: 0,
       remaining: 0,
       errors: [],
     });
 
     // Verify email sending
     expect(mockSendEmail).toHaveBeenCalledTimes(2);
+  });
+
+  it("should skip blacklisted recipients without sending and mark them skipped_blacklisted", async () => {
+    const firebase = jest.requireMock("@/services/firebase");
+
+    const mockNewsletterDoc = {
+      exists: true,
+      data: () => ({
+        subject: "Test Newsletter",
+        content: "Test content",
+      }),
+    };
+
+    const goodItemRefUpdate = jest.fn().mockResolvedValue(undefined);
+    const blockedItemRefUpdate = jest.fn().mockResolvedValue(undefined);
+
+    const mockDocs = [
+      {
+        id: "queue-good",
+        ref: { update: goodItemRefUpdate },
+        data: () => ({
+          email: "good@example.com",
+          firstName: "Good",
+          lastName: "User",
+          attempts: 0,
+          status: "pending",
+        }),
+      },
+      {
+        id: "queue-blocked",
+        ref: { update: blockedItemRefUpdate },
+        data: () => ({
+          email: "blocked@example.com",
+          firstName: "Blocked",
+          lastName: "User",
+          attempts: 0,
+          status: "pending",
+        }),
+      },
+    ];
+
+    const mockNewsletterDocRef = {
+      get: jest.fn().mockResolvedValue(mockNewsletterDoc),
+      update: jest.fn().mockResolvedValue(undefined),
+    };
+
+    firebase.db.collection = jest.fn().mockImplementation(() => ({
+      doc: jest.fn().mockReturnValue(mockNewsletterDocRef),
+      where: jest.fn(() => ({
+        where: jest.fn(() => ({
+          orderBy: jest.fn(() => ({
+            limit: jest.fn(() => ({})),
+          })),
+        })),
+      })),
+    }));
+
+    firebase.db.runTransaction = jest.fn().mockImplementation(async (callback: any) => {
+      const mockTransaction = {
+        get: jest.fn().mockResolvedValue({
+          exists: true,
+          data: () => ({ status: "pending", attempts: 0 }),
+        }),
+        update: jest.fn(),
+      };
+      await callback(mockTransaction);
+    });
+
+    mockFirestoreQueryGet
+      .mockResolvedValueOnce({ docs: mockDocs, size: 2 })
+      .mockResolvedValueOnce({ docs: [], size: 0 });
+
+    mockSendEmail.mockResolvedValue(true);
+    mockIsEmailBlacklisted.mockImplementation(async (email: string) => email === "blocked@example.com");
+
+    const { req, res } = createMocks({
+      method: "POST",
+      body: { newsletterId: "test-newsletter", batchSize: 10 },
+    });
+
+    await handler(req as any, res as any);
+
+    expect(res._getStatusCode()).toBe(200);
+    const response = JSON.parse(res._getData());
+    expect(response).toEqual({
+      sent: 1,
+      failed: 0,
+      skippedBlacklisted: 1,
+      remaining: 0,
+      errors: [],
+    });
+
+    // Email sent only to non-blacklisted recipient
+    expect(mockSendEmail).toHaveBeenCalledTimes(1);
+    expect(mockSendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: "good@example.com" }));
+
+    // Blacklisted item marked as skipped_blacklisted with no retry
+    const blacklistUpdateCall = (mockFirestoreUpdate.mock.calls as any[]).find(
+      (call) => call[1]?.status === "skipped_blacklisted"
+    );
+    expect(blacklistUpdateCall).toBeDefined();
   });
 
   // Note: Complex failure handling tests removed due to extensive mocking requirements.
