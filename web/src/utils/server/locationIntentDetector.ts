@@ -234,7 +234,6 @@ function hasLocationKeywordPatterns(query: string): boolean {
     "cl", // Chile
     "pe", // Peru
     "co", // Colombia
-    "ve", // Venezuela
     "ec", // Ecuador
     "bo", // Bolivia
     "py", // Paraguay
@@ -305,7 +304,7 @@ function hasLocationKeywordPatterns(query: string): boolean {
     if (commonEnglishWords.has(abbrev.toLowerCase())) {
       continue;
     }
-    const pattern = new RegExp(`\\b${abbrev}\\b`, "i");
+    const pattern = new RegExp(`(?<!['’])\\b${abbrev}\\b(?!['’])`, "i");
     if (pattern.test(query)) {
       return true;
     }

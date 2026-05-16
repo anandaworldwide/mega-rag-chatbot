@@ -243,6 +243,15 @@ describe("Location Intent Detector", () => {
       expect(await hasLocationIntentAsync("PY on the science of religion")).toBe(false);
       expect(await hasLocationIntentAsync("Did PY meet Sri Yukteswar?")).toBe(false);
     });
+
+    it("should NOT trigger location intent for contractions containing country-code-like fragments", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      const quote =
+        "And you think, oh, it's not as if every time you breathe, it's, that would be ridiculous. And yet, you will notice that there is a correlation. There was a funny thing, we saw the Inspector General the other evening on video with Danny Kaye. It's really quite fun. But at a certain point, Danny Kaye represents a real threat to the counselors, who are all a bunch of crooks. And they've given him a glass of wine to drink, which is poisoned. And they didn't actually give it to him, he took it, and they were about to say, no, no, don't. And somebody said, it's poisoned, it's good.";
+
+      await expect(hasLocationIntentAsync(quote)).resolves.toBe(false);
+    });
   });
 
   describe("cache behavior", () => {

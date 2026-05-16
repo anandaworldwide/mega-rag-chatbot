@@ -2,6 +2,31 @@
 
 ## Critical Lessons Learned
 
+### Country-Code Regexes Must Avoid Contractions
+
+**Wrong**: Match two-letter country codes with only `\bXX\b` word boundaries. Apostrophes are non-word characters, so
+contractions can create false standalone tokens, e.g. `they've` can match `ve`.
+
+**Correct**: Add apostrophe guards such as `(?<!['’])\bXX\b(?!['’])`, or otherwise tokenize in a way that treats
+contractions as whole words before interpreting short country abbreviations. Remove low-value country abbreviations from
+keyword triggers when they are much more likely to appear as ordinary language fragments than intentional location input.
+
+### Do Not Patch Classifiers With Test-Shaped Allowlists
+
+**Wrong**: Fix a classifier regression by letting only the failing test's known place names or examples through a gate.
+That makes tests pass while breaking real user inputs outside the allowlist.
+
+**Correct**: Preserve the classifier's intended generalization path and fix the narrow faulty heuristic that caused the
+regression. Use allowlists only for truly closed vocabularies.
+
+### Semantic Tests Need Unambiguous Inputs
+
+**Wrong**: Test a specific classifier path with an ambiguous bare term such as a place name that can reasonably be
+answered as either a location lookup or a content question.
+
+**Correct**: Use input that expresses the behavior under test directly, then assert the observable behavior rather than a
+fragile similarity score against broad canonical examples.
+
 ### npm `min-release-age` Is Days, And Requires npm >= 11.5.0
 
 **Rule (units)**: The `.npmrc` `min-release-age` setting is a number of **days**, not seconds. Per the official
