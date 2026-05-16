@@ -629,21 +629,16 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
 
     test.concurrent("should handle location queries with no nearby centers gracefully", async () => {
       console.log(`Running test: should handle location queries with no nearby centers gracefully`);
-      const query = "Antarctica"; // Unlikely to have Ananda centers
+      const query = "Is there an Ananda center in Antarctica?"; // Unlikely to have Ananda centers
 
       const actualResponse = await getVivekLocationResponse(query);
-      const actualEmbedding = await getEmbedding(actualResponse);
 
-      const similarityToLocationResponses = getMaxSimilarity(actualEmbedding, locationResponseEmbeddings);
+      console.log(`Query: "${query}"\nResponse: "${actualResponse}"`);
 
-      console.log(
-        `Query: "${query}"\nResponse: "${actualResponse}"\nSimilarity to Location Responses: ${similarityToLocationResponses}`
-      );
-
-      // Should still be recognized as a location query even if no centers found
-      expect(similarityToLocationResponses).toBeGreaterThan(0.3);
-      // Should mention alternatives or online resources
-      expect(actualResponse.toLowerCase()).toMatch(/online|virtual|website|ananda/);
+      // The streaming prefix is emitted only when geo-awareness classified the query as location intent.
+      expect(actualResponse).toContain("Searching locations");
+      expect(actualResponse.toLowerCase()).toMatch(/antarctica/);
+      expect(actualResponse.toLowerCase()).toMatch(/no ananda centers|nearest ananda|far away|online|virtual|website/);
     });
   });
 });

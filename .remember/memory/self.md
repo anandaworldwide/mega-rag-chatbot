@@ -2,6 +2,53 @@
 
 ## Critical Lessons Learned
 
+### Country-Code Regexes Must Avoid Contractions
+
+**Wrong**: Match two-letter country codes with only `\bXX\b` word boundaries. Apostrophes are non-word characters, so
+contractions can create false standalone tokens, e.g. `they've` can match `ve`.
+
+**Correct**: Add apostrophe guards such as `(?<!['’])\bXX\b(?!['’])`, or otherwise tokenize in a way that treats
+contractions as whole words before interpreting short country abbreviations. Remove low-value country abbreviations from
+keyword triggers when they are much more likely to appear as ordinary language fragments than intentional location input.
+
+### Do Not Patch Classifiers With Test-Shaped Allowlists
+
+**Wrong**: Fix a classifier regression by letting only the failing test's known place names or examples through a gate.
+That makes tests pass while breaking real user inputs outside the allowlist.
+
+**Correct**: Preserve the classifier's intended generalization path and fix the narrow faulty heuristic that caused the
+regression. Use allowlists only for truly closed vocabularies.
+
+### Semantic Tests Need Unambiguous Inputs
+
+**Wrong**: Test a specific classifier path with an ambiguous bare term such as a place name that can reasonably be
+answered as either a location lookup or a content question.
+
+**Correct**: Use input that expresses the behavior under test directly, then assert the observable behavior rather than a
+fragile similarity score against broad canonical examples.
+
+### npm `min-release-age` Is Days, And Requires npm >= 11.5.0
+
+**Rule (units)**: The `.npmrc` `min-release-age` setting is a number of **days**, not seconds. Per the official
+npm 11 docs: "only versions that were available more than the given number of days ago will be installed."
+`min-release-age=7` correctly means a 7-day cooldown. Do not "fix" it to `604800`.
+
+**Rule (version gate)**: The `min-release-age` config was added in **npm 11.5.0** (July 2025). Older npm
+(including 10.x) **silently accepts the key and ignores it** — no warning, no error, `npm config get` happily
+echoes the value back, but installs do not honor the cooldown. Always confirm the runtime npm version, not just
+that `.npmrc` parses, before claiming a cooldown is enforced.
+
+**How to debug "is the cooldown actually on?"**:
+
+1. `npm --version` — needs `>= 11.5.0` for `min-release-age` to do anything.
+2. `npm install <pkg>@<version-published-today>` in a throwaway state. Should fail with a cooldown error on
+   npm 11.5+; will succeed silently on npm 10.x.
+3. Revert with `git checkout package.json package-lock.json`.
+
+**Don't assume a units bug** when an `.npmrc` cooldown appears to do nothing — first check the npm version,
+because a missing-config-key with no warning is the more common failure mode. Cross-check the docs URL for the
+exact major (e.g. `https://docs.npmjs.com/cli/v11/using-npm/config#min-release-age`) before changing values.
+
 ### Rate Limiter Fail-Closed Must Send A Response
 
 **Wrong**: Return `false` from an API rate limiter after a backend failure without writing to `NextApiResponse`; callers
