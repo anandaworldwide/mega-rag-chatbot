@@ -2,8 +2,8 @@ name: Weekly PR Advisor
 
 on:
   schedule:
-    - cron: "0 10 * * 1" # Every Monday at 10:00 UTC
-  workflow_dispatch: # Allows manual trigger from Actions tab
+    - cron: "0 10 * * 1" # Every Monday at 10:00 UTC (1 hour after Security Digest)
+  workflow_dispatch:
 
 jobs:
   advise-prs:
@@ -42,7 +42,10 @@ jobs:
 
             const today = new Date().toISOString().split('T')[0];
             let body = `# 📅 Weekly Dependabot PR Review - ${today}\n\n`;
-            body += `**Repo:** ${context.repo.owner}/${context.repo.repo}\n`;
+
+            // NEW: Reference to Security Digest
+            body += `**Related:** See the pinned **[Dependency security status](https://github.com/anandaworldwide/mega-rag-chatbot/issues?q=is%3Aissue+is%3Aopen+label%3Asecurity-status)** issue (labeled \`security-status\`) for the full weekly audit, cooldown analysis, and overall security posture.\n\n`;
+
             body += `**Policy:** 7-day cooldown on new library versions before merging/installing.\n\n`;
 
             if (prs.length === 0) {
@@ -72,7 +75,7 @@ jobs:
             body += `- Check breaking changes + test before merging.\n`;
             body += `- The cooldown lets issues surface before we install.\n`;
             body += `- Close & let Dependabot recreate if conflicts appear.\n\n`;
-            body += `*Auto-generated every Monday by the Weekly PR Advisor workflow.*`;
+            body += `*Auto-generated every Monday by the Weekly PR Advisor workflow (runs after the Security Digest).*`;
 
             await github.rest.issues.create({
               owner: context.repo.owner,
