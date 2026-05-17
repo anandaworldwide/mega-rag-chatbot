@@ -1,0 +1,84 @@
+name: Weekly PR Advisor
+
+on:
+  schedule:
+    - cron: "0 10 * * 1" # Every Monday at 10:00 UTC
+  workflow_dispatch: # Allows manual trigger from Actions tab
+
+jobs:
+  advise-prs:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: read
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: List open Dependabot PRs
+        id: list-prs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          prs_json=$(gh pr list --state open --json number,title,author,createdAt,url --jq '
+            [.[] | select(.author.login == "dependabot[bot]") | {
+              number: .number,
+              title: .title,
+              createdAt: .createdAt,
+              url: .url,
+              age_days: (((now | strptime("%Y-%m-%dT%H:%M:%SZ")) - (.createdAt | strptime("%Y-%m-%dT%H:%M:%SZ"))) / 86400 | floor)
+            }]
+          ')
+          echo "prs=$prs_json" >> $GITHUB_OUTPUT
+
+      - name: Generate advice and create weekly summary issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            let prs = [];
+            const prsStr = '${{ steps.list-prs.outputs.prs }}' || '[]';
+            try { prs = JSON.parse(prsStr); } catch(e) { console.error(e); prs = []; }
+
+            const today = new Date().toISOString().split('T')[0];
+            let body = `# 📅 Weekly Dependabot PR Review - ${today}\n\n`;
+            body += `**Repo:** ${context.repo.owner}/${context.repo.repo}\n`;
+            body += `**Policy:** 7-day cooldown on new library versions before merging/installing.\n\n`;
+
+            if (prs.length === 0) {
+              body += '✅ **No open Dependabot PRs this week.** Dependencies are current and secure!\n\n';
+            } else {
+              body += `**${prs.length} open Dependabot security PR(s) found.** Handling advice:\n\n`;
+              prs.forEach(pr => {
+                const age = pr.age_days || 0;
+                const ready = age >= 7;
+                const wait = Math.max(0, 7 - age);
+                body += `## PR #${pr.number}: ${pr.title}\n`;
+                body += `- Opened: ${pr.createdAt} (${age} days ago)\n`;
+                body += `- ${pr.url}\n\n`;
+                if (ready) {
+                  body += `✅ **RECOMMENDATION: Review & Merge now**\n`;
+                  body += `7-day cooldown **expired**. Review the diff/release notes, run tests/CI, then merge to patch vulnerabilities.\n\n`;
+                } else {
+                  body += `⏳ **RECOMMENDATION: Wait ${wait} more day(s)**\n`;
+                  body += `New version — respecting the **7-day cooldown**. Review/approve anytime, but **hold the merge** until then.\n\n`;
+                }
+                body += `---\n\n`;
+              });
+            }
+
+            body += `## Standard Guidelines\n`;
+            body += `- Prioritize security PRs.\n`;
+            body += `- Check breaking changes + test before merging.\n`;
+            body += `- The cooldown lets issues surface before we install.\n`;
+            body += `- Close & let Dependabot recreate if conflicts appear.\n\n`;
+            body += `*Auto-generated every Monday by the Weekly PR Advisor workflow.*`;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Weekly Dependabot PR Advisor — ${today}`,
+              body: body,
+              labels: ['dependabot', 'security-update', 'weekly-review']
+            });
+            console.log('Weekly advisor issue created successfully.');
