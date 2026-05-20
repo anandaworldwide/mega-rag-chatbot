@@ -42,6 +42,7 @@ jobs:
 
             const today = new Date().toISOString().split('T')[0];
             let body = `# 📅 Weekly Dependabot PR Review - ${today}\n\n`;
+            body += `@MOWLIV\n\n`;
 
             // NEW: Reference to Security Digest
             body += `**Related:** See the pinned **[Dependency security status](https://github.com/anandaworldwide/mega-rag-chatbot/issues?q=is%3Aissue+is%3Aopen+label%3Asecurity-status)** issue (labeled \`security-status\`) for the full weekly audit, cooldown analysis, and overall security posture.\n\n`;
