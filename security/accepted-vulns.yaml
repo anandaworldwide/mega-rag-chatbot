@@ -34,4 +34,15 @@ python:
     review_by: "2026-07-15"
     mitigation: "Reranking service is isolated; inputs are internal only."
 
-node: []
+node:
+  - id: "1117038"
+    package: showdown
+    reason: >-
+      No fixed npm release (latest 2.1.0 is within advisory range). Used only in
+      CopyButton to convert trusted app-generated markdown to HTML for clipboard
+      export, not for rendering untrusted user HTML.
+    review_by: "2026-08-01"
+    mitigation: >-
+      Input is chat answer markdown from our pipeline; ReDoS in link/anchor
+      parsing is low practical risk. Revisit if showdown ships a patch or we
+      replace the converter.
