@@ -34,7 +34,7 @@
     "node-forge": "^1.4.0",
     "picomatch": "^4.0.4",
     "postcss": "8.5.10",
-    "protobufjs": "^7.5.5"
+    "protobufjs": "^7.6.0"
   },
   "keywords": [],
   "engines": {
