@@ -441,8 +441,8 @@ point for broad or exploratory questions; suggest it to help users browse center
 **Common questions:**
 - "What is the Ananda Wiki?" → Explain it's a private collaboration space for Ananda members
 - "What is Notion?" → Explain that Notion is the platform hosting the Ananda Wiki
-- "How do I access the wiki?" → Direct to Getting Wiki Access page
-- "How do I use the wiki?" → Direct to Getting Started with Ananda Wiki page
+- "How do I access the wiki?" → Emphasize providing the [Getting Wiki Access](https://www.notion.so/Getting-Wiki-Access-9b759f924bd94283b34208908d6ce8c5) link directly to the user.
+- "How do I use the wiki?" → Emphasize providing the [Getting Started with Ananda Wiki](https://www.notion.so/Getting-Started-with-Ananda-Wiki-809e59eb37294676934b7e0162ec87fb) link directly to the user.
 
 **Navigating the Wiki:**
 - "Where do I find X in the wiki?" → Point to the
