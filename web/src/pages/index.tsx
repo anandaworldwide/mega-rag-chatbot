@@ -65,6 +65,7 @@ import {
   TitleScopeSelection,
   TitleScopeSuggestion,
 } from "@/types/titleScope";
+import { parseSseDataLine, readSseStream } from "@/utils/client/sseLineBuffer";
 
 // Custom hook for scroll depth tracking
 function useScrollDepthTracking() {
@@ -1876,27 +1877,17 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       }
 
       const reader = data.getReader();
-      const decoder = new TextDecoder();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          break;
+      await readSseStream(reader, (line) => {
+        if (!line.startsWith("data: ")) {
+          return;
         }
-
-        const chunk = decoder.decode(value);
-        const lines = chunk.split("\n");
-
-        for (const line of lines) {
-          if (line.startsWith("data: ")) {
-            try {
-              const jsonData = JSON.parse(line.slice(5)) as StreamingResponseData;
-              handleStreamingResponse(jsonData);
-            } catch (parseError) {
-              console.error("Error parsing JSON:", parseError);
-            }
-          }
+        try {
+          const jsonData = parseSseDataLine(line) as StreamingResponseData;
+          handleStreamingResponse(jsonData);
+        } catch (parseError) {
+          console.error("Error parsing JSON:", parseError);
         }
-      }
+      });
 
       setLoading(false);
     } catch (error) {
@@ -2360,174 +2351,167 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         });
 
         const reader = response.body.getReader();
-        const decoder = new TextDecoder();
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+        await readSseStream(reader, (line) => {
+          if (!line.startsWith("data: ")) {
+            return;
+          }
+          try {
+            const data = parseSseDataLine(line) as StreamingResponseData;
 
-          const chunk = decoder.decode(value);
-          const lines = chunk.split("\n");
+            if (data.filterConflict) {
+              const filterConflict = data.filterConflict;
+              if (autoApplySourceFocusConflict(filterConflict)) {
+                return;
+              }
+              setFilterConflict(filterConflict);
+              setMessageState((prevState) => {
+                const newMessages = [...prevState.messages];
+                newMessages[messageIndex] = {
+                  ...newMessages[messageIndex],
+                  message: filterConflict.summaryMessage,
+                };
+                const newHistory = [...prevState.history];
+                const historyIndex = messageIndex - 1;
+                if (
+                  historyIndex >= 0 &&
+                  historyIndex < newHistory.length &&
+                  newHistory[historyIndex]?.role === "assistant"
+                ) {
+                  newHistory[historyIndex] = {
+                    ...newHistory[historyIndex],
+                    content: filterConflict.summaryMessage,
+                  };
+                }
+                return {
+                  ...prevState,
+                  messages: newMessages,
+                  history: newHistory,
+                };
+              });
+            }
 
-          for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              try {
-                const data = JSON.parse(line.slice(5));
+            if (data.suggestions && Array.isArray(data.suggestions) && data.suggestions.length > 0) {
+              setMessageState((prevState) => {
+                const newMessages = [...prevState.messages];
+                const targetMessage = newMessages[messageIndex];
+                if (targetMessage?.type === "apiMessage") {
+                  newMessages[messageIndex] = {
+                    ...targetMessage,
+                    suggestions: data.suggestions,
+                  };
+                }
+                return {
+                  ...prevState,
+                  messages: newMessages,
+                };
+              });
+            }
 
-                if (data.filterConflict) {
-                  if (autoApplySourceFocusConflict(data.filterConflict)) {
-                    continue;
-                  }
-                  setFilterConflict(data.filterConflict);
-                  setMessageState((prevState) => {
-                    const newMessages = [...prevState.messages];
-                    newMessages[messageIndex] = {
-                      ...newMessages[messageIndex],
-                      message: data.filterConflict.summaryMessage,
-                    };
-                    const newHistory = [...prevState.history];
-                    const historyIndex = messageIndex - 1;
-                    if (
-                      historyIndex >= 0 &&
-                      historyIndex < newHistory.length &&
-                      newHistory[historyIndex]?.role === "assistant"
-                    ) {
-                      newHistory[historyIndex] = {
-                        ...newHistory[historyIndex],
-                        content: data.filterConflict.summaryMessage,
-                      };
-                    }
-                    return {
-                      ...prevState,
-                      messages: newMessages,
-                      history: newHistory,
-                    };
-                  });
+            if (data.token) {
+              accumulatedResponseRef.current += data.token;
+              setMessageState((prevState) => {
+                const newMessages = [...prevState.messages];
+                newMessages[messageIndex] = {
+                  ...newMessages[messageIndex],
+                  message: accumulatedResponseRef.current,
+                };
+                return {
+                  ...prevState,
+                  messages: newMessages,
+                };
+              });
+            }
+
+            if (data.sourceDocs) {
+              const immutableSourceDocs = Array.isArray(data.sourceDocs) ? [...data.sourceDocs] : [];
+              setMessageState((prevState) => {
+                const newMessages = [...prevState.messages];
+                newMessages[messageIndex] = {
+                  ...newMessages[messageIndex],
+                  sourceDocs: immutableSourceDocs,
+                };
+                return {
+                  ...prevState,
+                  messages: newMessages,
+                };
+              });
+            }
+
+            if (data.docId) {
+              setMessageState((prevState) => {
+                const newMessages = [...prevState.messages];
+                newMessages[messageIndex] = {
+                  ...newMessages[messageIndex],
+                  docId: data.docId,
+                };
+                return {
+                  ...prevState,
+                  messages: newMessages,
+                };
+              });
+            }
+
+            if (data.convId) {
+              const isNewConversation = !currentConvIdRef.current;
+              currentConvIdRef.current = data.convId;
+              setCurrentConvId(data.convId);
+
+              if (isNewConversation) {
+                if (siteConfig?.requireLogin) {
+                  window.history.pushState(null, "", `/chat/${data.convId}`);
+                  pathRef.current = `/chat/${data.convId}`;
                 }
 
-                if (data.suggestions && Array.isArray(data.suggestions) && data.suggestions.length > 0) {
-                  setMessageState((prevState) => {
-                    const newMessages = [...prevState.messages];
-                    const targetMessage = newMessages[messageIndex];
-                    if (targetMessage?.type === "apiMessage") {
-                      newMessages[messageIndex] = {
-                        ...targetMessage,
-                        suggestions: data.suggestions,
-                      };
-                    }
-                    return {
-                      ...prevState,
-                      messages: newMessages,
-                    };
-                  });
+                const questionForSidebar = userMessage.message;
+                if (siteConfig?.requireLogin && sidebarFunctionsRef.current && questionForSidebar) {
+                  const questionWords = questionForSidebar.trim().split(/\s+/);
+                  const tempTitle =
+                    questionWords.length <= 9 ? questionForSidebar : questionWords.slice(0, 9).join(" ") + "...";
+                  sidebarFunctionsRef.current.addNewConversation(data.convId, tempTitle, questionForSidebar);
+                  setCurrentQuestion("");
                 }
-
-                if (data.token) {
-                  accumulatedResponseRef.current += data.token;
-                  setMessageState((prevState) => {
-                    const newMessages = [...prevState.messages];
-                    newMessages[messageIndex] = {
-                      ...newMessages[messageIndex],
-                      message: accumulatedResponseRef.current,
-                    };
-                    return {
-                      ...prevState,
-                      messages: newMessages,
-                    };
-                  });
-                }
-
-                if (data.sourceDocs) {
-                  const immutableSourceDocs = Array.isArray(data.sourceDocs) ? [...data.sourceDocs] : [];
-                  setMessageState((prevState) => {
-                    const newMessages = [...prevState.messages];
-                    newMessages[messageIndex] = {
-                      ...newMessages[messageIndex],
-                      sourceDocs: immutableSourceDocs,
-                    };
-                    return {
-                      ...prevState,
-                      messages: newMessages,
-                    };
-                  });
-                }
-
-                if (data.docId) {
-                  setMessageState((prevState) => {
-                    const newMessages = [...prevState.messages];
-                    newMessages[messageIndex] = {
-                      ...newMessages[messageIndex],
-                      docId: data.docId,
-                    };
-                    return {
-                      ...prevState,
-                      messages: newMessages,
-                    };
-                  });
-                }
-
-                if (data.convId) {
-                  const isNewConversation = !currentConvIdRef.current;
-                  currentConvIdRef.current = data.convId;
-                  setCurrentConvId(data.convId);
-
-                  if (isNewConversation) {
-                    if (siteConfig?.requireLogin) {
-                      window.history.pushState(null, "", `/chat/${data.convId}`);
-                      pathRef.current = `/chat/${data.convId}`;
-                    }
-
-                    const questionForSidebar = userMessage.message;
-                    if (siteConfig?.requireLogin && sidebarFunctionsRef.current && questionForSidebar) {
-                      const questionWords = questionForSidebar.trim().split(/\s+/);
-                      const tempTitle =
-                        questionWords.length <= 9 ? questionForSidebar : questionWords.slice(0, 9).join(" ") + "...";
-                      sidebarFunctionsRef.current.addNewConversation(data.convId, tempTitle, questionForSidebar);
-                      setCurrentQuestion("");
-                    }
-                  }
-                }
-
-                if (data.title && data.convId) {
-                  if (sidebarFunctionsRef.current) {
-                    sidebarFunctionsRef.current.updateConversationTitle(data.convId, data.title);
-                  }
-                  if (data.convId === currentConvIdRef.current) {
-                    setConversationTitle(data.title);
-                  }
-                }
-
-                if (data.done) {
-                  // Update history with the regenerated response at the correct index
-                  // messageIndex is the API message index, history index is messageIndex - 1
-                  // (because history doesn't include the greeting message at index 0)
-                  setMessageState((prevState) => {
-                    const regeneratedMessage = prevState.messages[messageIndex];
-                    const historyIndex = messageIndex - 1;
-                    if (
-                      historyIndex >= 0 &&
-                      historyIndex < prevState.history.length &&
-                      prevState.history[historyIndex]?.role === "assistant" &&
-                      regeneratedMessage?.message
-                    ) {
-                      const updatedHistory = [...prevState.history];
-                      updatedHistory[historyIndex] = {
-                        ...updatedHistory[historyIndex],
-                        content: regeneratedMessage.message,
-                      };
-                      return { ...prevState, history: updatedHistory };
-                    }
-                    return prevState;
-                  });
-                  setLoading(false);
-                  accumulatedResponseRef.current = "";
-                }
-              } catch (e) {
-                console.error("Error parsing SSE data:", e);
               }
             }
+
+            if (data.title && data.convId) {
+              if (sidebarFunctionsRef.current) {
+                sidebarFunctionsRef.current.updateConversationTitle(data.convId, data.title);
+              }
+              if (data.convId === currentConvIdRef.current) {
+                setConversationTitle(data.title);
+              }
+            }
+
+            if (data.done) {
+              // Update history with the regenerated response at the correct index
+              // messageIndex is the API message index, history index is messageIndex - 1
+              // (because history doesn't include the greeting message at index 0)
+              setMessageState((prevState) => {
+                const regeneratedMessage = prevState.messages[messageIndex];
+                const historyIndex = messageIndex - 1;
+                if (
+                  historyIndex >= 0 &&
+                  historyIndex < prevState.history.length &&
+                  prevState.history[historyIndex]?.role === "assistant" &&
+                  regeneratedMessage?.message
+                ) {
+                  const updatedHistory = [...prevState.history];
+                  updatedHistory[historyIndex] = {
+                    ...updatedHistory[historyIndex],
+                    content: regeneratedMessage.message,
+                  };
+                  return { ...prevState, history: updatedHistory };
+                }
+                return prevState;
+              });
+              setLoading(false);
+              accumulatedResponseRef.current = "";
+            }
+          } catch (e) {
+            console.error("Error parsing SSE data:", e);
           }
-        }
+        });
 
         setLoading(false);
       } catch (error) {
@@ -2704,115 +2688,108 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
         // Handle streaming response
         const reader = response.body.getReader();
-        const decoder = new TextDecoder();
         accumulatedResponseRef.current = "";
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value);
-          const lines = chunk.split("\n");
-
-          for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              try {
-                const data = JSON.parse(line.slice(5));
-
-                if (data.filterConflict) {
-                  if (autoApplySourceFocusConflict(data.filterConflict)) {
-                    continue;
-                  }
-                  setFilterConflict(data.filterConflict);
-                  setError(null);
-                  updateMessageState(data.filterConflict.summaryMessage, null);
-                  setMessageState((prevState) => {
-                    const updatedHistory = [...prevState.history];
-                    if (updatedHistory.length > 0 && updatedHistory[updatedHistory.length - 1].role === "assistant") {
-                      updatedHistory[updatedHistory.length - 1] = {
-                        ...updatedHistory[updatedHistory.length - 1],
-                        content: data.filterConflict.summaryMessage,
-                      };
-                    }
-                    return { ...prevState, history: updatedHistory };
-                  });
-                }
-
-                if (data.suggestions && Array.isArray(data.suggestions) && data.suggestions.length > 0) {
-                  setMessageState((prevState) => {
-                    const updatedMessages = [...prevState.messages];
-                    const lastMessage = updatedMessages[updatedMessages.length - 1];
-                    if (lastMessage?.type === "apiMessage") {
-                      updatedMessages[updatedMessages.length - 1] = {
-                        ...lastMessage,
-                        suggestions: data.suggestions,
-                      };
-                    }
-                    return {
-                      ...prevState,
-                      messages: updatedMessages,
-                    };
-                  });
-                }
-
-                if (data.token) {
-                  accumulatedResponseRef.current += data.token;
-                  updateMessageState(accumulatedResponseRef.current, null);
-                }
-
-                if (data.sourceDocs) {
-                  const immutableSourceDocs = Array.isArray(data.sourceDocs) ? [...data.sourceDocs] : [];
-                  setSourceDocs(immutableSourceDocs);
-                  updateMessageState(accumulatedResponseRef.current, immutableSourceDocs);
-                }
-
-                if (data.docId) {
-                  setMessageState((prevState) => {
-                    const updatedMessages = [...prevState.messages];
-                    const lastMessage = updatedMessages[updatedMessages.length - 1];
-                    if (lastMessage.type === "apiMessage") {
-                      updatedMessages[updatedMessages.length - 1] = {
-                        ...lastMessage,
-                        docId: data.docId,
-                      };
-                    }
-                    return {
-                      ...prevState,
-                      messages: updatedMessages,
-                    };
-                  });
-                  setSavedDocId(data.docId);
-                }
-
-                if (data.convId) {
-                  setCurrentConvId(data.convId);
-                }
-
-                if (data.done) {
-                  // Update history with actual assistant response content (critical for reformulation)
-                  setMessageState((prevState) => {
-                    const lastMessage = prevState.messages[prevState.messages.length - 1];
-                    const updatedHistory = [...prevState.history];
-                    if (updatedHistory.length > 0 && lastMessage?.type === "apiMessage" && lastMessage.message) {
-                      // Find the last assistant entry in history and update it
-                      for (let i = updatedHistory.length - 1; i >= 0; i--) {
-                        if (updatedHistory[i].role === "assistant" && updatedHistory[i].content === "") {
-                          updatedHistory[i] = { ...updatedHistory[i], content: lastMessage.message };
-                          break;
-                        }
-                      }
-                    }
-                    return { ...prevState, history: updatedHistory };
-                  });
-                  setLoading(false);
-                  accumulatedResponseRef.current = "";
-                }
-              } catch (e) {
-                console.error("Error parsing SSE data:", e);
-              }
-            }
+        await readSseStream(reader, (line) => {
+          if (!line.startsWith("data: ")) {
+            return;
           }
-        }
+          try {
+            const data = parseSseDataLine(line) as StreamingResponseData;
+
+            if (data.filterConflict) {
+              const filterConflict = data.filterConflict;
+              if (autoApplySourceFocusConflict(filterConflict)) {
+                return;
+              }
+              setFilterConflict(filterConflict);
+              setError(null);
+              updateMessageState(filterConflict.summaryMessage, null);
+              setMessageState((prevState) => {
+                const updatedHistory = [...prevState.history];
+                if (updatedHistory.length > 0 && updatedHistory[updatedHistory.length - 1].role === "assistant") {
+                  updatedHistory[updatedHistory.length - 1] = {
+                    ...updatedHistory[updatedHistory.length - 1],
+                    content: filterConflict.summaryMessage,
+                  };
+                }
+                return { ...prevState, history: updatedHistory };
+              });
+            }
+
+            if (data.suggestions && Array.isArray(data.suggestions) && data.suggestions.length > 0) {
+              setMessageState((prevState) => {
+                const updatedMessages = [...prevState.messages];
+                const lastMessage = updatedMessages[updatedMessages.length - 1];
+                if (lastMessage?.type === "apiMessage") {
+                  updatedMessages[updatedMessages.length - 1] = {
+                    ...lastMessage,
+                    suggestions: data.suggestions,
+                  };
+                }
+                return {
+                  ...prevState,
+                  messages: updatedMessages,
+                };
+              });
+            }
+
+            if (data.token) {
+              accumulatedResponseRef.current += data.token;
+              updateMessageState(accumulatedResponseRef.current, null);
+            }
+
+            if (data.sourceDocs) {
+              const immutableSourceDocs = Array.isArray(data.sourceDocs) ? [...data.sourceDocs] : [];
+              setSourceDocs(immutableSourceDocs);
+              updateMessageState(accumulatedResponseRef.current, immutableSourceDocs);
+            }
+
+            if (data.docId) {
+              setMessageState((prevState) => {
+                const updatedMessages = [...prevState.messages];
+                const lastMessage = updatedMessages[updatedMessages.length - 1];
+                if (lastMessage.type === "apiMessage") {
+                  updatedMessages[updatedMessages.length - 1] = {
+                    ...lastMessage,
+                    docId: data.docId,
+                  };
+                }
+                return {
+                  ...prevState,
+                  messages: updatedMessages,
+                };
+              });
+              setSavedDocId(data.docId);
+            }
+
+            if (data.convId) {
+              setCurrentConvId(data.convId);
+            }
+
+            if (data.done) {
+              // Update history with actual assistant response content (critical for reformulation)
+              setMessageState((prevState) => {
+                const lastMessage = prevState.messages[prevState.messages.length - 1];
+                const updatedHistory = [...prevState.history];
+                if (updatedHistory.length > 0 && lastMessage?.type === "apiMessage" && lastMessage.message) {
+                  // Find the last assistant entry in history and update it
+                  for (let i = updatedHistory.length - 1; i >= 0; i--) {
+                    if (updatedHistory[i].role === "assistant" && updatedHistory[i].content === "") {
+                      updatedHistory[i] = { ...updatedHistory[i], content: lastMessage.message };
+                      break;
+                    }
+                  }
+                }
+                return { ...prevState, history: updatedHistory };
+              });
+              setLoading(false);
+              accumulatedResponseRef.current = "";
+            }
+          } catch (e) {
+            console.error("Error parsing SSE data:", e);
+          }
+        });
 
         setLoading(false);
       } catch (error) {
@@ -2904,52 +2881,45 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setFilterConflict(null);
 
         const reader = response.body.getReader();
-        const decoder = new TextDecoder();
 
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          const chunk = decoder.decode(value);
-          const lines = chunk.split("\n");
-
-          for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              try {
-                const data = JSON.parse(line.slice(5));
-
-                if (data.filterConflict) {
-                  if (autoApplySourceFocusConflict(data.filterConflict)) {
-                    continue;
-                  }
-                  setFilterConflict(data.filterConflict);
-                  setRegeneratedAnswer((prev) =>
-                    prev
-                      ? {
-                          ...prev,
-                          message: data.filterConflict.summaryMessage,
-                        }
-                      : prev
-                  );
-                }
-
-                if (data.token) {
-                  regeneratedAnswerRef.current += data.token;
-                  setRegeneratedAnswer((prev) => ({
-                    ...prev!,
-                    message: regeneratedAnswerRef.current,
-                  }));
-                }
-
-                if (data.done) {
-                  setIsRegenerating(false);
-                }
-              } catch (e) {
-                console.error("Error parsing SSE data:", e);
-              }
-            }
+        await readSseStream(reader, (line) => {
+          if (!line.startsWith("data: ")) {
+            return;
           }
-        }
+          try {
+            const data = parseSseDataLine(line) as StreamingResponseData;
+
+            if (data.filterConflict) {
+              const filterConflict = data.filterConflict;
+              if (autoApplySourceFocusConflict(filterConflict)) {
+                return;
+              }
+              setFilterConflict(filterConflict);
+              setRegeneratedAnswer((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      message: filterConflict.summaryMessage,
+                    }
+                  : prev
+              );
+            }
+
+            if (data.token) {
+              regeneratedAnswerRef.current += data.token;
+              setRegeneratedAnswer((prev) => ({
+                ...prev!,
+                message: regeneratedAnswerRef.current,
+              }));
+            }
+
+            if (data.done) {
+              setIsRegenerating(false);
+            }
+          } catch (e) {
+            console.error("Error parsing SSE data:", e);
+          }
+        });
       } catch (error) {
         console.error("Error regenerating with GPT-4.1:", error);
         toast.error("Failed to regenerate answer. Please try again.");

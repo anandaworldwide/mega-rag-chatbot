@@ -27,7 +27,7 @@ jest.mock("@langchain/openai", () => ({
 // Now import ChatOpenAI - it will be the mocked version
 import { VectorStoreRetriever } from "@langchain/core/vectorstores";
 import { Document } from "@langchain/core/documents";
-import { buildActiveFilterPromptData, makeChain } from "../../../src/utils/server/makechain";
+import { buildActiveFilterPromptData, createStreamingDeadlineGuard, makeChain } from "../../../src/utils/server/makechain";
 import fs from "fs/promises";
 import path from "path";
 import { ChatOpenAI } from "@langchain/openai";
@@ -3061,5 +3061,28 @@ describe("makeChain", () => {
     });
 
     expect(result).toBeDefined();
+  });
+});
+
+describe("createStreamingDeadlineGuard", () => {
+  it("does not enforce a deadline until the first token is streamed", async () => {
+    const guard = createStreamingDeadlineGuard(50);
+    const result = await guard.waitWithDeadline(
+      () => new Promise<string>((resolve) => setTimeout(() => resolve("ok"), 120))
+    );
+    expect(result).toBe("ok");
+  });
+
+  it("enforces the deadline from first token, not from request start", async () => {
+    const guard = createStreamingDeadlineGuard(50);
+    await expect(
+      guard.waitWithDeadline(
+        () =>
+          new Promise((resolve) => {
+            guard.armOnFirstToken();
+            setTimeout(resolve, 200);
+          })
+      )
+    ).rejects.toThrow("Operation timed out after 50ms");
   });
 });

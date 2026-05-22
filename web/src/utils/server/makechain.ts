@@ -187,10 +187,13 @@ export function buildActiveFilterPromptData(
   const enabledMediaTypes = getEnabledSiteMediaTypes(siteConfig);
   const activeMediaTypeLabels = activeMediaTypes ? formatMediaTypeList(activeMediaTypes) : [];
   const enabledMediaTypeLabels = formatMediaTypeList(
-    enabledMediaTypes.reduce<ActiveMediaTypeFilter>((acc: ActiveMediaTypeFilter, mediaType: "text" | "audio" | "youtube") => {
-      acc[mediaType] = true;
-      return acc;
-    }, {})
+    enabledMediaTypes.reduce<ActiveMediaTypeFilter>(
+      (acc: ActiveMediaTypeFilter, mediaType: "text" | "audio" | "youtube") => {
+        acc[mediaType] = true;
+        return acc;
+      },
+      {}
+    )
   );
   const restrictiveMediaTypes =
     activeMediaTypeLabels.length > 0 && !areSameStringSets(activeMediaTypeLabels, enabledMediaTypeLabels)
@@ -1589,6 +1592,51 @@ async function generateFollowUpSuggestions(
   }
 }
 
+const CHAIN_STREAMING_TIMEOUT_MS = process.env.NODE_ENV === "test" ? 1000 : 90000;
+
+export function createStreamingDeadlineGuard(timeoutMs: number) {
+  let armed = false;
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  let activeReject: ((error: Error) => void) | null = null;
+
+  const reset = () => {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+      timeoutHandle = null;
+    }
+    armed = false;
+    activeReject = null;
+  };
+
+  const armOnFirstToken = () => {
+    if (armed || !activeReject) {
+      return;
+    }
+    armed = true;
+    timeoutHandle = setTimeout(() => {
+      activeReject?.(new Error(`Operation timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  };
+
+  const waitWithDeadline = async <T>(operation: () => Promise<T>): Promise<T> => {
+    return new Promise<T>((resolve, reject) => {
+      activeReject = reject;
+
+      operation()
+        .then((value) => {
+          reset();
+          resolve(value);
+        })
+        .catch((error) => {
+          reset();
+          reject(error);
+        });
+    });
+  };
+
+  return { armOnFirstToken, reset, waitWithDeadline };
+}
+
 // Export the setupAndExecuteLanguageModelChain function
 export async function setupAndExecuteLanguageModelChain(
   retriever: ReturnType<PineconeStore["asRetriever"]>,
@@ -1615,9 +1663,9 @@ export async function setupAndExecuteLanguageModelChain(
   model: string;
   temperature: number;
 }> {
-  const TIMEOUT_MS = process.env.NODE_ENV === "test" ? 1000 : 45000;
   const RETRY_DELAY_MS = process.env.NODE_ENV === "test" ? 10 : 1000;
   const MAX_RETRIES = 3;
+  const streamingDeadline = createStreamingDeadlineGuard(CHAIN_STREAMING_TIMEOUT_MS);
 
   let retryCount = 0;
   let lastError: Error | null = null;
@@ -1625,6 +1673,7 @@ export async function setupAndExecuteLanguageModelChain(
 
   while (retryCount < MAX_RETRIES) {
     try {
+      streamingDeadline.reset();
       const modelName = modelOverride || siteConfig?.modelName || "gpt-4o";
       const temperature = siteConfig?.temperature || 0.3;
       const rephraseModelName = "gpt-4.1-mini";
@@ -1690,13 +1739,6 @@ export async function setupAndExecuteLanguageModelChain(
       let markerChecked = false;
       let _suppressSources = false; // Prefixed with _ to indicate intentionally unused (actual suppression via sendData)
 
-      // Create a promise that rejects after timeout
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => {
-          reject(new Error(`Operation timed out after ${TIMEOUT_MS}ms`));
-        }, TIMEOUT_MS);
-      });
-
       const chainPromise = chain.invoke(
         {
           question: sanitizedQuestion,
@@ -1736,6 +1778,7 @@ export async function setupAndExecuteLanguageModelChain(
                       if (!firstTokenTime) {
                         firstTokenTime = Date.now();
                         firstByteTime = Date.now();
+                        streamingDeadline.armOnFirstToken();
                         sendData({
                           token: tokenBuffer,
                           timing: {
@@ -1758,6 +1801,7 @@ export async function setupAndExecuteLanguageModelChain(
                 if (!firstTokenTime) {
                   firstTokenTime = Date.now();
                   firstByteTime = Date.now();
+                  streamingDeadline.armOnFirstToken();
                   sendData({
                     token,
                     timing: {
@@ -1795,7 +1839,7 @@ export async function setupAndExecuteLanguageModelChain(
       );
 
       // The result from chain.invoke will now be an object { answer: AIMessageChunk, sourceDocuments: Document[], question: string }
-      const result = (await Promise.race([chainPromise, timeoutPromise])) as {
+      const result = (await streamingDeadline.waitWithDeadline(() => chainPromise)) as {
         answer: any; // AIMessageChunk object with content property
         sourceDocuments: Document[];
         question: string;
@@ -1809,108 +1853,111 @@ export async function setupAndExecuteLanguageModelChain(
         const { ToolMessage } = await import("@langchain/core/messages");
 
         let currentResponse = result.answer;
-        const allToolMessages = [];
+        const allToolMessages: InstanceType<typeof ToolMessage>[] = [];
         const maxIterations = 5; // Prevent infinite loops
         let iteration = 0;
 
-        while (currentResponse.tool_calls && currentResponse.tool_calls.length > 0 && iteration < maxIterations) {
-          iteration++;
-          console.log(
-            `🔧 Tool execution iteration ${iteration}, processing ${currentResponse.tool_calls.length} tool calls`
-          );
+        await streamingDeadline.waitWithDeadline(async () => {
+          while (currentResponse.tool_calls && currentResponse.tool_calls.length > 0 && iteration < maxIterations) {
+            iteration++;
+            console.log(
+              `🔧 Tool execution iteration ${iteration}, processing ${currentResponse.tool_calls.length} tool calls`
+            );
 
-          // Execute all tool calls in this iteration
-          const toolResults = [];
-          for (const toolCall of currentResponse.tool_calls) {
-            try {
-              console.log(`🔧 Executing tool: ${toolCall.name} with args:`, toolCall.args);
-              const toolResult = await executeTool(toolCall.name, toolCall.args, request!, {
-                originalQuestion: sanitizedQuestion,
-              });
-              toolResults.push({
-                tool_call_id: toolCall.id,
-                content: JSON.stringify(toolResult),
-              });
-              console.log(`✅ Tool ${toolCall.name} executed successfully:`, toolResult);
-            } catch (error) {
-              console.error(`❌ Tool ${toolCall.name} failed:`, error);
-              toolResults.push({
-                tool_call_id: toolCall.id,
-                content: JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
-              });
+            // Execute all tool calls in this iteration
+            const toolResults = [];
+            for (const toolCall of currentResponse.tool_calls) {
+              try {
+                console.log(`🔧 Executing tool: ${toolCall.name} with args:`, toolCall.args);
+                const toolResult = await executeTool(toolCall.name, toolCall.args, request!, {
+                  originalQuestion: sanitizedQuestion,
+                });
+                toolResults.push({
+                  tool_call_id: toolCall.id,
+                  content: JSON.stringify(toolResult),
+                });
+                console.log(`✅ Tool ${toolCall.name} executed successfully:`, toolResult);
+              } catch (error) {
+                console.error(`❌ Tool ${toolCall.name} failed:`, error);
+                toolResults.push({
+                  tool_call_id: toolCall.id,
+                  content: JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
+                });
+              }
             }
+
+            // Create tool messages for this iteration
+            const toolMessages = toolResults.map(
+              (result) =>
+                new ToolMessage({
+                  content: result.content,
+                  tool_call_id: result.tool_call_id,
+                })
+            );
+
+            allToolMessages.push(...toolMessages);
+
+            // Call OpenAI again with tool results - NO SOURCES to avoid confusion
+
+            // Create a tool-free model for final response (no tools binding)
+            const { ChatOpenAI } = await import("@langchain/openai");
+            const toolFreeModel = new ChatOpenAI({
+              temperature: temperature,
+              model: modelName,
+              streaming: true,
+            });
+
+            // Create messages for the tool-free model
+            const { HumanMessage, AIMessage, SystemMessage } = await import("@langchain/core/messages");
+
+            // Get the system prompt for the tool-free model
+            const systemPrompt = await getFullTemplate(siteConfig?.siteId || "ananda-public");
+
+            // Create a proper conversation structure with system prompt
+            const messages = [
+              new SystemMessage(systemPrompt),
+              new HumanMessage(sanitizedQuestion),
+              new AIMessage({ content: "", tool_calls: currentResponse.tool_calls }),
+              ...allToolMessages,
+            ];
+
+            // Get final response from tool-free model with streaming
+            const toolResponse = await toolFreeModel.invoke(messages, {
+              callbacks: [
+                {
+                  handleLLMNewToken(token: string) {
+                    if (!firstTokenTime) {
+                      firstTokenTime = Date.now();
+                      firstByteTime = Date.now();
+                      streamingDeadline.armOnFirstToken();
+                      sendData({
+                        token,
+                        timing: {
+                          firstTokenGenerated: firstTokenTime,
+                          ttfb: firstByteTime && startTime ? firstByteTime - startTime : undefined,
+                        },
+                      });
+                    } else {
+                      sendData({ token });
+                    }
+                    fullResponse += token;
+                    tokensStreamed += token.length;
+                  },
+                } as Partial<BaseCallbackHandler>,
+              ],
+            });
+
+            currentResponse = toolResponse;
+            console.log(`✅ Tool response received for iteration ${iteration}`);
           }
 
-          // Create tool messages for this iteration
-          const toolMessages = toolResults.map(
-            (result) =>
-              new ToolMessage({
-                content: result.content,
-                tool_call_id: result.tool_call_id,
-              })
-          );
+          if (iteration >= maxIterations) {
+            console.warn(`⚠️ Tool execution loop reached max iterations (${maxIterations})`);
+          }
 
-          allToolMessages.push(...toolMessages);
-
-          // Call OpenAI again with tool results - NO SOURCES to avoid confusion
-
-          // Create a tool-free model for final response (no tools binding)
-          const { ChatOpenAI } = await import("@langchain/openai");
-          const toolFreeModel = new ChatOpenAI({
-            temperature: temperature,
-            model: modelName,
-            streaming: true,
-          });
-
-          // Create messages for the tool-free model
-          const { HumanMessage, AIMessage, SystemMessage } = await import("@langchain/core/messages");
-
-          // Get the system prompt for the tool-free model
-          const systemPrompt = await getFullTemplate(siteConfig?.siteId || "ananda-public");
-
-          // Create a proper conversation structure with system prompt
-          const messages = [
-            new SystemMessage(systemPrompt),
-            new HumanMessage(sanitizedQuestion),
-            new AIMessage({ content: "", tool_calls: currentResponse.tool_calls }),
-            ...allToolMessages,
-          ];
-
-          // Get final response from tool-free model with streaming
-          const toolResponse = await toolFreeModel.invoke(messages, {
-            callbacks: [
-              {
-                handleLLMNewToken(token: string) {
-                  if (!firstTokenTime) {
-                    firstTokenTime = Date.now();
-                    firstByteTime = Date.now();
-                    sendData({
-                      token,
-                      timing: {
-                        firstTokenGenerated: firstTokenTime,
-                        ttfb: firstByteTime && startTime ? firstByteTime - startTime : undefined,
-                      },
-                    });
-                  } else {
-                    sendData({ token });
-                  }
-                  fullResponse += token;
-                  tokensStreamed += token.length;
-                },
-              } as Partial<BaseCallbackHandler>,
-            ],
-          });
-
-          currentResponse = toolResponse;
-          console.log(`✅ Tool response received for iteration ${iteration}`);
-        }
-
-        if (iteration >= maxIterations) {
-          console.warn(`⚠️ Tool execution loop reached max iterations (${maxIterations})`);
-        }
-
-        result.answer = currentResponse;
-        console.log(`✅ Tool execution loop completed after ${iteration} iterations`);
+          result.answer = currentResponse;
+          console.log(`✅ Tool execution loop completed after ${iteration} iterations`);
+        });
       }
 
       if (
@@ -1957,6 +2004,7 @@ export async function setupAndExecuteLanguageModelChain(
           if (!firstTokenTime) {
             firstTokenTime = Date.now();
             firstByteTime = Date.now();
+            streamingDeadline.armOnFirstToken();
             sendData({
               token: tokenBuffer,
               timing: {
