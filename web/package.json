@@ -110,7 +110,7 @@
     "jest-circus": "^29.7.0",
     "jest-environment-jsdom": "^29.7.0",
     "jest-fetch-mock": "^3.0.3",
-    "js-cookie": "^3.0.5",
+    "js-cookie": "^3.0.7",
     "jsdom": "^20.0.3",
     "knip": "^5.88.1",
     "lint-staged": "^15.5.2",
