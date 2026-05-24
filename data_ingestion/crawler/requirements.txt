@@ -65,7 +65,7 @@ httpx==0.28.1
     #   langsmith
     #   openai
     #   weasel
-idna==3.11
+idna==3.15
     # via
     #   anyio
     #   httpx
@@ -82,13 +82,15 @@ jsonpatch==1.33
     # via langchain-core
 jsonpointer==3.1.1
     # via jsonpatch
-langchain-core==1.2.31
+langchain-core==1.4.0
     # via
     #   langchain-openai
     #   mega-rag-chatbot-crawler
 langchain-openai==1.1.14
     # via mega-rag-chatbot-crawler
-langsmith==0.7.32
+langchain-protocol==0.0.15
+    # via langchain-core
+langsmith==0.8.5
     # via langchain-core
 lxml==6.1.0
     # via
@@ -228,6 +230,7 @@ typing-extensions==4.14.0
     # via
     #   anyio
     #   langchain-core
+    #   langchain-protocol
     #   openai
     #   pinecone
     #   pydantic
@@ -237,7 +240,7 @@ typing-extensions==4.14.0
     #   typing-inspection
 typing-inspection==0.4.2
     # via pydantic
-urllib3==2.6.3
+urllib3==2.7.0
     # via
     #   botocore
     #   mega-rag-chatbot-crawler
