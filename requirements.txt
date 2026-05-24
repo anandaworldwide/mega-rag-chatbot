@@ -207,7 +207,7 @@ huggingface-hub==0.33.0
     #   transformers
 hyperframe==6.1.0
     # via h2
-idna==3.11
+idna==3.15
     # via
     #   anyio
     #   httpx
@@ -237,16 +237,18 @@ jsonpointer==3.1.1
     # via jsonpatch
 kiwisolver==1.5.0
     # via matplotlib
-langchain-core==1.2.31
+langchain-core==1.4.0
     # via
     #   langchain-openai
     #   langchain-text-splitters
     #   mega-rag-chatbot
 langchain-openai==1.1.14
     # via mega-rag-chatbot
+langchain-protocol==0.0.15
+    # via langchain-core
 langchain-text-splitters==1.1.2
     # via mega-rag-chatbot
-langsmith==0.7.32
+langsmith==0.8.5
     # via
     #   langchain-core
     #   mega-rag-chatbot
@@ -589,6 +591,7 @@ typing-extensions==4.14.0
     #   cyclonedx-python-lib
     #   huggingface-hub
     #   langchain-core
+    #   langchain-protocol
     #   mega-rag-chatbot
     #   openai
     #   pinecone
@@ -602,7 +605,7 @@ typing-inspection==0.4.2
     # via pydantic
 tzdata==2025.3
     # via pandas
-urllib3==2.6.3
+urllib3==2.7.0
     # via
     #   botocore
     #   mega-rag-chatbot
