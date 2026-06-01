@@ -32,18 +32,18 @@ Safety:
     short timeout; timeouts/errors are treated as "unknown" and KEPT (never deleted).
 
 Usage (host venv with repo + .env.<site>):
-    DATA_DIR=/srv/ananda-crawler \\
+    DATA_DIR=/srv/ananda-crawler \
       python data_ingestion/crawler/bin/reconcile_orphaned_vectors.py --site ananda-public
     # then, after reviewing the report/manifest:
-    DATA_DIR=/srv/ananda-crawler \\
+    DATA_DIR=/srv/ananda-crawler \
       python data_ingestion/crawler/bin/reconcile_orphaned_vectors.py --site ananda-public --apply
 
 Usage (inside the crawler Docker image):
-    docker run --rm \\
-      -e DATA_DIR=/app/data \\
-      --env-file /srv/ananda-crawler/env/.env.ananda-public \\
-      -v /srv/ananda-crawler:/app/data \\
-      ananda-crawler:latest \\
+    docker run --rm \
+      -e DATA_DIR=/app/data \
+      --env-file /srv/ananda-crawler/env/.env.ananda-public \
+      -v /srv/ananda-crawler:/app/data \
+      ananda-crawler:latest \
       python /app/crawler/bin/reconcile_orphaned_vectors.py --site ananda-public
 
 Add --skip-http-check to skip the origin entirely (then dead_404 is not computed and
@@ -174,6 +174,16 @@ def classify_orphan(normalized: str, skip_regexes: list) -> str:
     return "ambiguous"
 
 
+def list_crawler_vector_ids(index: Any, prefix: str, sample: int | None) -> list[str]:
+    """List crawler vector IDs for a prefix, optionally truncated to a sample size."""
+    all_ids: list[str] = []
+    for batch in index.list(prefix=prefix):
+        all_ids.extend(batch)
+        if sample and len(all_ids) >= sample:
+            return all_ids[:sample]
+    return all_ids
+
+
 def scan_pinecone_orphans(
     index: Any,
     domain: str,
@@ -186,12 +196,7 @@ def scan_pinecone_orphans(
     prefix = f"text||{normalized_domain}||web||"
 
     print(f"Listing crawler vector IDs (prefix: {prefix}) ...")
-    all_ids: list[str] = []
-    for batch in index.list(prefix=prefix):
-        all_ids.extend(batch)
-        if sample and len(all_ids) >= sample:
-            all_ids = all_ids[:sample]
-            break
+    all_ids = list_crawler_vector_ids(index, prefix, sample)
     print(f"Found {len(all_ids):,} crawler vectors to scan")
 
     orphan_map: dict[str, list[str]] = {}
@@ -266,41 +271,216 @@ def check_ambiguous_liveness(
             done += 1
             if done % 100 == 0:
                 rps = done / (time.time() - t0)
-                print(f"  liveness checked {done}/{len(urls)} ({rps:.1f} req/s)", flush=True)
+                print(
+                    f"  liveness checked {done}/{len(urls)} ({rps:.1f} req/s)",
+                    flush=True,
+                )
     return statuses
 
 
-def main() -> None:
+def build_arg_parser() -> argparse.ArgumentParser:
+    """Construct the CLI argument parser."""
     ap = argparse.ArgumentParser(
         description="Reconcile orphaned Pinecone vectors against the live crawler DB."
     )
     ap.add_argument("--site", required=True, help="Site id (e.g. ananda-public)")
-    ap.add_argument("--apply", action="store_true", help="Delete the orphan vectors (default: dry-run)")
-    ap.add_argument("--skip-http-check", action="store_true",
-                    help="Do not probe the origin; keep all real-content orphans (only delete skip_pattern + tracking_param)")
-    ap.add_argument("--http-rate", type=float, default=3.0, help="Aggregate liveness req/s (default 3)")
-    ap.add_argument("--http-workers", type=int, default=3, help="Concurrent liveness workers (default 3)")
-    ap.add_argument("--http-timeout", type=int, default=20, help="Liveness request timeout seconds (default 20)")
-    ap.add_argument("--fetch-workers", type=int, default=8, help="Concurrent Pinecone fetch workers (default 8)")
-    ap.add_argument("--min-db-urls", type=int, default=1000,
-                    help="Abort if the DB has fewer than N URLs (stale/empty DB guard, default 1000)")
-    ap.add_argument("--max-delete-fraction", type=float, default=0.05,
-                    help="Abort if delete set exceeds this fraction of the TOTAL index vector count unless --force (default 0.05)")
-    ap.add_argument("--force", action="store_true", help="Bypass the max-delete-fraction safety guard")
-    ap.add_argument("--sample", type=int, default=None, help="Only scan first N vectors (testing)")
+    ap.add_argument(
+        "--apply",
+        action="store_true",
+        help="Delete the orphan vectors (default: dry-run)",
+    )
+    ap.add_argument(
+        "--skip-http-check",
+        action="store_true",
+        help="Do not probe the origin; keep all real-content orphans (only delete skip_pattern + tracking_param)",
+    )
+    ap.add_argument(
+        "--http-rate",
+        type=float,
+        default=3.0,
+        help="Aggregate liveness req/s (default 3)",
+    )
+    ap.add_argument(
+        "--http-workers",
+        type=int,
+        default=3,
+        help="Concurrent liveness workers (default 3)",
+    )
+    ap.add_argument(
+        "--http-timeout",
+        type=int,
+        default=20,
+        help="Liveness request timeout seconds (default 20)",
+    )
+    ap.add_argument(
+        "--fetch-workers",
+        type=int,
+        default=8,
+        help="Concurrent Pinecone fetch workers (default 8)",
+    )
+    ap.add_argument(
+        "--min-db-urls",
+        type=int,
+        default=1000,
+        help="Abort if the DB has fewer than N URLs (stale/empty DB guard, default 1000)",
+    )
+    ap.add_argument(
+        "--max-delete-fraction",
+        type=float,
+        default=0.05,
+        help="Abort if delete set exceeds this fraction of the TOTAL index vector count unless --force (default 0.05)",
+    )
+    ap.add_argument(
+        "--force",
+        action="store_true",
+        help="Bypass the max-delete-fraction safety guard",
+    )
+    ap.add_argument(
+        "--sample", type=int, default=None, help="Only scan first N vectors (testing)"
+    )
     ap.add_argument("--json", action="store_true", help="Emit JSON summary")
-    args = ap.parse_args()
+    return ap
 
-    load_environment_for_site(args.site)
 
+def resolve_pinecone_index(args: argparse.Namespace) -> tuple[Any, str, int]:
+    """Resolve the Pinecone index handle, name and total vector count from env."""
     api_key = os.getenv("PINECONE_API_KEY")
     if not api_key:
         print("Error: PINECONE_API_KEY not set")
         sys.exit(1)
-    index_name = os.getenv("PINECONE_INGEST_INDEX_NAME") or os.getenv("PINECONE_INDEX_NAME")
+    index_name = os.getenv("PINECONE_INGEST_INDEX_NAME") or os.getenv(
+        "PINECONE_INDEX_NAME"
+    )
     if not index_name:
         print("Error: PINECONE_INGEST_INDEX_NAME / PINECONE_INDEX_NAME not set")
         sys.exit(1)
+
+    pc = Pinecone(api_key=api_key)
+    index = pc.Index(index_name)
+    try:
+        total_index_vectors = index.describe_index_stats().total_vector_count or 0
+    except Exception as e:
+        print(
+            f"Warning: could not read index stats ({e}); falling back to scanned count for safety guard"
+        )
+        total_index_vectors = 0
+    print(f"Pinecone index: {index_name} (total vectors: {total_index_vectors:,})\n")
+    return index, index_name, total_index_vectors
+
+
+def decide_for_url(cat: str, status: Any, skip_http_check: bool) -> str:
+    """Map a single orphan's category and liveness status to a delete/keep decision."""
+    if cat in ("skip_pattern", "tracking_param"):
+        return cat
+    if skip_http_check:
+        return "keep_unchecked"
+    if status == 404:
+        return "dead_404"
+    if status == 200:
+        return "live"
+    return "keep_unknown"  # timeout/error -> never delete
+
+
+def build_decisions(
+    categories: dict[str, str], statuses: dict[str, Any], skip_http_check: bool
+) -> dict[str, str]:
+    """Build the per-URL delete/keep decision map."""
+    return {
+        u: decide_for_url(cat, statuses.get(u), skip_http_check)
+        for u, cat in categories.items()
+    }
+
+
+def emit_report(
+    args: argparse.Namespace,
+    scanned: int,
+    orphan_map: dict[str, list[str]],
+    decision: dict[str, str],
+    delete_reasons: set[str],
+) -> tuple[list[str], list[str], list[str]]:
+    """Print the reconciliation report and return (delete_urls, delete_ids, keep_urls)."""
+    orphan_vectors = sum(len(v) for v in orphan_map.values())
+    delete_urls = [u for u, d in decision.items() if d in delete_reasons]
+    delete_ids = [vid for u in delete_urls for vid in orphan_map[u]]
+    keep_urls = [u for u, d in decision.items() if d not in delete_reasons]
+
+    by_decision_urls = Counter(decision.values())
+    by_decision_vecs: Counter = Counter()
+    for u, d in decision.items():
+        by_decision_vecs[d] += len(orphan_map[u])
+
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "site": args.site,
+                    "scanned_vectors": scanned,
+                    "orphan_urls": len(orphan_map),
+                    "orphan_vectors": orphan_vectors,
+                    "by_decision": {
+                        k: {"urls": by_decision_urls[k], "vectors": by_decision_vecs[k]}
+                        for k in by_decision_urls
+                    },
+                    "delete_urls": len(delete_urls),
+                    "delete_vectors": len(delete_ids),
+                    "keep_urls": len(keep_urls),
+                },
+                indent=2,
+            )
+        )
+    else:
+        print("\n=== ORPHAN RECONCILIATION ===")
+        for d in (
+            "skip_pattern",
+            "tracking_param",
+            "dead_404",
+            "live",
+            "keep_unknown",
+            "keep_unchecked",
+        ):
+            if by_decision_urls.get(d):
+                tag = "DELETE" if d in delete_reasons else "keep"
+                print(
+                    f"  [{tag:6}] {d:15} {by_decision_urls[d]:6,} urls  {by_decision_vecs[d]:7,} vectors"
+                )
+        print(
+            f"\n  TOTAL DELETE: {len(delete_urls):,} urls  {len(delete_ids):,} vectors"
+        )
+        print(f"  TOTAL KEEP:   {len(keep_urls):,} urls")
+
+    return delete_urls, delete_ids, keep_urls
+
+
+def enforce_delete_guard(
+    delete_ids: list[str],
+    total_index_vectors: int,
+    scanned: int,
+    args: argparse.Namespace,
+) -> None:
+    """Abort if the delete set is an implausibly large fraction of the index."""
+    # Denominator is the total index vector count (matches "X% of Pinecone");
+    # fall back to scanned crawler vectors if stats were unavailable.
+    guard_basis = total_index_vectors or scanned
+    basis_label = "total index" if total_index_vectors else "scanned crawler"
+    if (
+        guard_basis
+        and len(delete_ids) / guard_basis > args.max_delete_fraction
+        and not args.force
+    ):
+        print(
+            f"\nABORT: delete set is {len(delete_ids) / guard_basis:.1%} of {basis_label} vectors "
+            f"({len(delete_ids):,} / {guard_basis:,}; > --max-delete-fraction {args.max_delete_fraction:.0%}). "
+            "Review the manifest; re-run with --force if this is intended (e.g. the one-time "
+            "cleanup of large skip-pattern leaks)."
+        )
+        sys.exit(1)
+
+
+def main() -> None:
+    args = build_arg_parser().parse_args()
+
+    load_environment_for_site(args.site)
+    index, index_name, total_index_vectors = resolve_pinecone_index(args)
 
     config = load_crawler_config(args.site)
     domain = config.get("domain")
@@ -320,15 +500,6 @@ def main() -> None:
         )
         sys.exit(1)
 
-    pc = Pinecone(api_key=api_key)
-    index = pc.Index(index_name)
-    try:
-        total_index_vectors = index.describe_index_stats().total_vector_count or 0
-    except Exception as e:
-        print(f"Warning: could not read index stats ({e}); falling back to scanned count for safety guard")
-        total_index_vectors = 0
-    print(f"Pinecone index: {index_name} (total vectors: {total_index_vectors:,})\n")
-
     orphan_map, scanned = scan_pinecone_orphans(
         index, domain, db_urls, args.fetch_workers, args.sample
     )
@@ -336,87 +507,42 @@ def main() -> None:
     print(f"\nScanned {scanned:,} crawler vectors")
     print(f"Orphan URLs (no DB row): {len(orphan_map):,}  ({orphan_vectors:,} vectors)")
 
-    # Classify
-    categories: dict[str, str] = {u: classify_orphan(u, skip_regexes) for u in orphan_map}
+    categories: dict[str, str] = {
+        u: classify_orphan(u, skip_regexes) for u in orphan_map
+    }
     ambiguous = [u for u, c in categories.items() if c == "ambiguous"]
 
     statuses: dict[str, Any] = {}
     if not args.skip_http_check and ambiguous:
-        print(f"\nLiveness-checking {len(ambiguous):,} real-content orphans "
-              f"(~{args.http_rate:.0f} req/s, GET, polite) ...")
+        print(
+            f"\nLiveness-checking {len(ambiguous):,} real-content orphans "
+            f"(~{args.http_rate:.0f} req/s, GET, polite) ..."
+        )
         statuses = check_ambiguous_liveness(
             ambiguous, args.http_rate, args.http_workers, args.http_timeout
         )
 
-    # Build delete decision per URL
-    decision: dict[str, str] = {}
-    for u, cat in categories.items():
-        if cat in ("skip_pattern", "tracking_param"):
-            decision[u] = cat
-        elif cat == "ambiguous":
-            if args.skip_http_check:
-                decision[u] = "keep_unchecked"
-            elif statuses.get(u) == 404:
-                decision[u] = "dead_404"
-            elif statuses.get(u) == 200:
-                decision[u] = "live"
-            else:
-                decision[u] = "keep_unknown"  # timeout/error -> never delete
-
+    decision = build_decisions(categories, statuses, args.skip_http_check)
     delete_reasons = {"skip_pattern", "tracking_param", "dead_404"}
-    delete_urls = [u for u, d in decision.items() if d in delete_reasons]
-    delete_ids = [vid for u in delete_urls for vid in orphan_map[u]]
-    keep_urls = [u for u, d in decision.items() if d not in delete_reasons]
-
-    # Report
-    by_decision_urls = Counter(decision.values())
-    by_decision_vecs: Counter = Counter()
-    for u, d in decision.items():
-        by_decision_vecs[d] += len(orphan_map[u])
-
-    if args.json:
-        print(json.dumps({
-            "site": args.site,
-            "scanned_vectors": scanned,
-            "orphan_urls": len(orphan_map),
-            "orphan_vectors": orphan_vectors,
-            "by_decision": {k: {"urls": by_decision_urls[k], "vectors": by_decision_vecs[k]}
-                            for k in by_decision_urls},
-            "delete_urls": len(delete_urls),
-            "delete_vectors": len(delete_ids),
-            "keep_urls": len(keep_urls),
-        }, indent=2))
-    else:
-        print("\n=== ORPHAN RECONCILIATION ===")
-        for d in ("skip_pattern", "tracking_param", "dead_404", "live", "keep_unknown", "keep_unchecked"):
-            if by_decision_urls.get(d):
-                tag = "DELETE" if d in delete_reasons else "keep"
-                print(f"  [{tag:6}] {d:15} {by_decision_urls[d]:6,} urls  {by_decision_vecs[d]:7,} vectors")
-        print(f"\n  TOTAL DELETE: {len(delete_urls):,} urls  {len(delete_ids):,} vectors")
-        print(f"  TOTAL KEEP:   {len(keep_urls):,} urls")
+    delete_urls, delete_ids, keep_urls = emit_report(
+        args, scanned, orphan_map, decision, delete_reasons
+    )
 
     # Write manifest next to the DB
     manifest_path = db_path.parent / f"orphan_reconcile_{args.site}.json"
-    manifest_path.write_text(json.dumps({
-        "delete": {u: orphan_map[u] for u in delete_urls},
-        "keep": {u: decision[u] for u in keep_urls},
-        "decisions": decision,
-    }, indent=2))
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "delete": {u: orphan_map[u] for u in delete_urls},
+                "keep": {u: decision[u] for u in keep_urls},
+                "decisions": decision,
+            },
+            indent=2,
+        )
+    )
     print(f"\nManifest written: {manifest_path}")
 
-    # Safety: refuse to delete an implausibly large fraction of the index.
-    # Denominator is the total index vector count (matches "X% of Pinecone");
-    # fall back to scanned crawler vectors if stats were unavailable.
-    guard_basis = total_index_vectors or scanned
-    basis_label = "total index" if total_index_vectors else "scanned crawler"
-    if guard_basis and len(delete_ids) / guard_basis > args.max_delete_fraction and not args.force:
-        print(
-            f"\nABORT: delete set is {len(delete_ids) / guard_basis:.1%} of {basis_label} vectors "
-            f"({len(delete_ids):,} / {guard_basis:,}; > --max-delete-fraction {args.max_delete_fraction:.0%}). "
-            "Review the manifest; re-run with --force if this is intended (e.g. the one-time "
-            "cleanup of large skip-pattern leaks)."
-        )
-        sys.exit(1)
+    enforce_delete_guard(delete_ids, total_index_vectors, scanned, args)
 
     if not args.apply:
         print("\nDry run only. Re-run with --apply to delete the listed vectors.")
