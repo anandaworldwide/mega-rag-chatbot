@@ -2746,3 +2746,16 @@ in the background. The UI can show outdated access, entitlement, or membership i
 
 **Correct**: For user-facing notices whose content depends on a lazy refresh, await the refresh attempt, refetch or merge
 the updated state, and only then render/open the notice. Keep the blocking scoped to the notice gate, not the whole app.
+
+### Mistake: Writing Bulk HTTP-Check Code That Could DoS A Site
+
+**Wrong**: Iterate over thousands of URLs hitting an external/production site with high concurrency and no delay
+(e.g., `ThreadPoolExecutor(max_workers=12)` issuing back-to-back `GET`s). Bursty parallel requests can overwheln the
+origin or trip its WAF/rate-limiter and effectively DoS it.
+
+**Correct**: Be a polite client whenever making many requests to any site we don't fully control. Default to a low,
+bounded request rate (e.g., ~1–3 req/s aggregate) via a small worker pool plus a per-request delay, set a sane timeout,
+send a clear identifying `User-Agent`, and only check the minimum set of URLs needed (skip URLs removable by policy).
+Avoid `HEAD` for liveness checks against WordPress/WAF sites (it can hang); use `GET` with a short timeout and treat
+timeouts/errors as "unknown → take no destructive action". Always confirm the intended rate before launching large
+crawls/scans.

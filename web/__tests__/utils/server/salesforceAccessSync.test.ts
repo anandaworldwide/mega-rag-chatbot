@@ -36,7 +36,18 @@ const siteConfig: any = {
     originUrl: "https://luca.ananda.org",
     levels: [
       { key: "public", label: "Public", value: 0 },
-      { key: "ananda_library_access", label: "Ananda Library Access", value: 300 },
+      { key: "disciple", label: "Disciple", value: 100 },
+      { key: "kriyaban", label: "Kriyaban", value: 200 },
+      { key: "kriyaban_2", label: "Kriyaban 2", value: 300 },
+      { key: "kriyaban_3_and_4", label: "Kriyaban 3 & 4", value: 400 },
+      {
+        key: "ananda_library_regular_access",
+        label: "Ananda Library regular access",
+        value: 500,
+      },
+      { key: "minister", label: "Minister", value: 600 },
+      { key: "lightbearer", label: "Lightbearer", value: 700 },
+      { key: "admin", label: "Superuser", value: 9999 },
     ],
   },
 };

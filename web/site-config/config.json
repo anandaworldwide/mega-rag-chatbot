@@ -56,18 +56,18 @@
           "value": 200
         },
         {
-          "key": "ananda_library_access",
-          "label": "Ananda Library Access",
+          "key": "kriyaban_2",
+          "label": "Kriyaban 2",
           "value": 300
         },
         {
-          "key": "second_kriya",
-          "label": "Second Kriya",
+          "key": "kriyaban_3_and_4",
+          "label": "Kriyaban 3 & 4",
           "value": 400
         },
         {
-          "key": "third_and_fourth_kriya",
-          "label": "Third and Fourth Kriya",
+          "key": "ananda_library_regular_access",
+          "label": "Ananda Library regular access",
           "value": 500
         },
         {
