@@ -59,9 +59,9 @@ except ImportError:
 
 ### Embedding Models
 
-- **Production**: text-embedding-ada-002 (1536D) - proven performance
-- **Avoid**: text-embedding-3-large (3072D) - 84-90% performance degradation
-- **Lesson**: Higher dimensions != better performance for this domain
+- **Production**: text-embedding-3-large (3072D) - current production embedding model
+- **Index naming**: production indexes are dated/model-tagged, e.g. `ananda-2025-06-19--3-large` (ananda-public)
+- **Note**: An earlier memory note claiming ada-002/1536D was production (and that 3-large degrades performance) was incorrect; do not reintroduce it
 
 ### Rate Limiting Implementation
 

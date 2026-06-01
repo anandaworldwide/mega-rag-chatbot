@@ -8,6 +8,7 @@
 | `check_robots_compliance.py`      | Validate URLs against robots.txt rules         |
 | `cleanup_old_pinecone_vectors.py` | Remove stale vectors from Pinecone index       |
 | `delete_by_skip_pattern.py`       | Delete URLs matching configured skip patterns  |
+| `reconcile_orphaned_vectors.py`   | Find/delete Pinecone vectors whose URL has no live crawl_queue row (dry-run by default) |
 | `log_rotate.py`                   | Rotate and compress crawler log files          |
 | `pinecone_health_check.py`        | Verify Pinecone connectivity and index health  |
 
