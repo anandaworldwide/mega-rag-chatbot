@@ -357,7 +357,7 @@ pinecone-plugin-assistant==3.0.2
     # via pinecone
 pinecone-plugin-interface==0.0.7
     # via pinecone
-pip==26.0.1
+pip==26.1.1
     # via
     #   pip-api
     #   pipdeptree
