@@ -2,7 +2,7 @@
 #    uv export --locked --package mega-rag-chatbot --group dev --no-hashes --output-file requirements.txt
 aiohappyeyeballs==2.6.1
     # via aiohttp
-aiohttp==3.13.5
+aiohttp==3.14.0
     # via mega-rag-chatbot
 aiosignal==1.4.0
     # via aiohttp
@@ -357,7 +357,7 @@ pinecone-plugin-assistant==3.0.2
     # via pinecone
 pinecone-plugin-interface==0.0.7
     # via pinecone
-pip==26.1.1
+pip==26.1.2
     # via
     #   pip-api
     #   pipdeptree
@@ -434,7 +434,7 @@ pygments==2.20.0
     #   mega-rag-chatbot
     #   pytest
     #   rich
-pyjwt==2.12.1
+pyjwt==2.13.0
     # via
     #   firebase-admin
     #   mega-rag-chatbot
@@ -585,6 +585,7 @@ types-requests==2.33.0.20260327
     # via cohere
 typing-extensions==4.14.0
     # via
+    #   aiohttp
     #   aiosignal
     #   anyio
     #   cohere
