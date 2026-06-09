@@ -34,6 +34,78 @@ python:
     review_by: "2026-07-15"
     mitigation: "Reranking service is isolated; inputs are internal only."
 
+  - id: PYSEC-2025-211
+    package: transformers
+    reason: >-
+      No fixed release reported by pip-audit. Same constraint as CVE-2026-1839:
+      reranking depends on optimum-onnx 0.1.0 which pins transformers<4.58.0.
+      Requires coordinated transformers 5.x / optimum-onnx upgrade.
+    review_by: "2026-07-15"
+    mitigation: "Reranking service is isolated; inputs are internal only."
+
+  - id: PYSEC-2025-212
+    package: transformers
+    reason: >-
+      No fixed release reported by pip-audit. Same constraint as CVE-2026-1839:
+      reranking depends on optimum-onnx 0.1.0 which pins transformers<4.58.0.
+      Requires coordinated transformers 5.x / optimum-onnx upgrade.
+    review_by: "2026-07-15"
+    mitigation: "Reranking service is isolated; inputs are internal only."
+
+  - id: PYSEC-2025-213
+    package: transformers
+    reason: >-
+      No fixed release reported by pip-audit. Same constraint as CVE-2026-1839:
+      reranking depends on optimum-onnx 0.1.0 which pins transformers<4.58.0.
+      Requires coordinated transformers 5.x / optimum-onnx upgrade.
+    review_by: "2026-07-15"
+    mitigation: "Reranking service is isolated; inputs are internal only."
+
+  - id: PYSEC-2025-214
+    package: transformers
+    reason: >-
+      No fixed release reported by pip-audit. Same constraint as CVE-2026-1839:
+      reranking depends on optimum-onnx 0.1.0 which pins transformers<4.58.0.
+      Requires coordinated transformers 5.x / optimum-onnx upgrade.
+    review_by: "2026-07-15"
+    mitigation: "Reranking service is isolated; inputs are internal only."
+
+  - id: PYSEC-2025-215
+    package: transformers
+    reason: >-
+      No fixed release reported by pip-audit. Same constraint as CVE-2026-1839:
+      reranking depends on optimum-onnx 0.1.0 which pins transformers<4.58.0.
+      Requires coordinated transformers 5.x / optimum-onnx upgrade.
+    review_by: "2026-07-15"
+    mitigation: "Reranking service is isolated; inputs are internal only."
+
+  - id: PYSEC-2025-216
+    package: transformers
+    reason: >-
+      No fixed release reported by pip-audit. Same constraint as CVE-2026-1839:
+      reranking depends on optimum-onnx 0.1.0 which pins transformers<4.58.0.
+      Requires coordinated transformers 5.x / optimum-onnx upgrade.
+    review_by: "2026-07-15"
+    mitigation: "Reranking service is isolated; inputs are internal only."
+
+  - id: PYSEC-2025-217
+    package: transformers
+    reason: >-
+      No fixed release reported by pip-audit. Same constraint as CVE-2026-1839:
+      reranking depends on optimum-onnx 0.1.0 which pins transformers<4.58.0.
+      Requires coordinated transformers 5.x / optimum-onnx upgrade.
+    review_by: "2026-07-15"
+    mitigation: "Reranking service is isolated; inputs are internal only."
+
+  - id: PYSEC-2025-218
+    package: transformers
+    reason: >-
+      No fixed release reported by pip-audit. Same constraint as CVE-2026-1839:
+      reranking depends on optimum-onnx 0.1.0 which pins transformers<4.58.0.
+      Requires coordinated transformers 5.x / optimum-onnx upgrade.
+    review_by: "2026-07-15"
+    mitigation: "Reranking service is isolated; inputs are internal only."
+
 node:
   - id: "1117038"
     package: showdown
