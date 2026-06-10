@@ -48,6 +48,16 @@ Usage (inside the crawler Docker image):
 
 Add --skip-http-check to skip the origin entirely (then dead_404 is not computed and
 real-content orphans are all KEPT; only skip_pattern + tracking_param are deletable).
+
+Weekly production routine (systemd timer on the crawler VM):
+    --apply-if-safe --email-report
+
+  - Scans Pinecone vs the live crawl_queue (SQLite opened read-only; safe alongside the
+    running crawler — no writes, no WAL checkpoint, lock-free concurrent read in WAL mode).
+  - Auto-deletes skip_pattern + tracking_param + dead_404 only when the delete set is
+    within --max-delete-fraction of the total index (default 5%%); never deletes live or
+    keep_unknown; never uses --force.
+  - Emails an ops summary (same channel as daily_report.py).
 """
 
 import argparse
@@ -59,6 +69,7 @@ import sys
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -68,6 +79,14 @@ from urllib.request import Request, urlopen
 import dotenv
 from pinecone import Pinecone
 from tqdm import tqdm
+
+# pyutil lives at repo root (/app in Docker, mega-rag-chatbot/ locally)
+_script = Path(__file__).resolve()
+for _root in (_script.parents[2], _script.parents[3]):
+    if (_root / "pyutil").is_dir():
+        sys.path.insert(0, str(_root))
+        break
+from pyutil.email_ops import get_site_shortname, send_ops_alert_sync  # noqa: E402
 
 TRACKING_PARAM_PREFIXES = ("utm_", "_ga", "_gl", "fbclid", "gclid", "msclkid", "mc_")
 TRACKING_PARAM_EXACT = {"replytocom"}
@@ -119,6 +138,8 @@ def get_db_urls(db_path: Path) -> set[str]:
         sys.exit(1)
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=60.0)
     try:
+        # Belt-and-suspenders: reject any write attempt at the SQLite layer.
+        conn.execute("PRAGMA query_only=ON")
         rows = conn.execute("SELECT DISTINCT url FROM crawl_queue").fetchall()
     finally:
         conn.close()
@@ -290,6 +311,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Delete the orphan vectors (default: dry-run)",
     )
     ap.add_argument(
+        "--apply-if-safe",
+        action="store_true",
+        help="Delete only when the delete set passes --max-delete-fraction (never uses --force); "
+        "skips deletion and reports when the guard would block",
+    )
+    ap.add_argument(
+        "--email-report",
+        action="store_true",
+        help="Send an ops email summary (uses pyutil.email_ops, same as daily_report.py)",
+    )
+    ap.add_argument(
         "--skip-http-check",
         action="store_true",
         help="Do not probe the origin; keep all real-content orphans (only delete skip_pattern + tracking_param)",
@@ -451,6 +483,52 @@ def emit_report(
     return delete_urls, delete_ids, keep_urls
 
 
+@dataclass
+class ReconcileResult:
+    """Structured outcome for reporting and apply-if-safe decisions."""
+
+    site: str
+    index_name: str
+    db_path: Path
+    manifest_path: Path
+    db_url_count: int
+    total_index_vectors: int
+    scanned_vectors: int
+    orphan_url_count: int
+    orphan_vector_count: int
+    delete_urls: list[str]
+    delete_ids: list[str]
+    keep_urls: list[str]
+    decision: dict[str, str]
+    orphan_map: dict[str, list[str]]
+    guard_blocked: bool
+    guard_basis: int
+    guard_basis_label: str
+    applied: bool
+
+
+DELETE_REASONS = frozenset({"skip_pattern", "tracking_param", "dead_404"})
+
+
+def guard_basis_and_label(total_index_vectors: int, scanned: int) -> tuple[int, str]:
+    """Return (denominator, label) for the max-delete-fraction safety guard."""
+    if total_index_vectors:
+        return total_index_vectors, "total index"
+    return scanned, "scanned crawler"
+
+
+def is_guard_blocked(
+    delete_ids: list[str],
+    guard_basis: int,
+    max_delete_fraction: float,
+    force: bool,
+) -> bool:
+    """True when deletion would exceed the configured fraction without --force."""
+    if force or not guard_basis or not delete_ids:
+        return False
+    return len(delete_ids) / guard_basis > max_delete_fraction
+
+
 def enforce_delete_guard(
     delete_ids: list[str],
     total_index_vectors: int,
@@ -458,14 +536,9 @@ def enforce_delete_guard(
     args: argparse.Namespace,
 ) -> None:
     """Abort if the delete set is an implausibly large fraction of the index."""
-    # Denominator is the total index vector count (matches "X% of Pinecone");
-    # fall back to scanned crawler vectors if stats were unavailable.
-    guard_basis = total_index_vectors or scanned
-    basis_label = "total index" if total_index_vectors else "scanned crawler"
-    if (
-        guard_basis
-        and len(delete_ids) / guard_basis > args.max_delete_fraction
-        and not args.force
+    guard_basis, basis_label = guard_basis_and_label(total_index_vectors, scanned)
+    if is_guard_blocked(
+        delete_ids, guard_basis, args.max_delete_fraction, args.force
     ):
         print(
             f"\nABORT: delete set is {len(delete_ids) / guard_basis:.1%} of {basis_label} vectors "
@@ -476,9 +549,117 @@ def enforce_delete_guard(
         sys.exit(1)
 
 
-def main() -> None:
-    args = build_arg_parser().parse_args()
+def delete_orphan_vectors(index: Any, delete_ids: list[str]) -> None:
+    """Delete vectors from Pinecone in batches."""
+    print(f"\nDeleting {len(delete_ids):,} vectors ...")
+    for i in tqdm(range(0, len(delete_ids), 100), desc="Deleting"):
+        index.delete(ids=delete_ids[i : i + 100])
+    print("Deletion complete.")
 
+
+def format_email_subject(result: ReconcileResult) -> str:
+    """Build ops email subject with site shortname."""
+    site_shortname = get_site_shortname(result.site)
+    live_count = sum(1 for u in result.keep_urls if result.decision.get(u) == "live")
+    prefix = "NEEDS REVIEW - " if result.guard_blocked and result.delete_ids else ""
+    deleted_part = (
+        f"{len(result.delete_ids):,} deleted"
+        if result.applied
+        else f"{len(result.delete_ids):,} pending delete"
+    )
+    return (
+        f"[{site_shortname}] {prefix}Orphan reconcile: "
+        f"{deleted_part} | {live_count:,} live orphans"
+    )
+
+
+def format_email_body(result: ReconcileResult) -> str:
+    """Build ops email body from reconciliation results."""
+    by_decision_urls = Counter(result.decision.values())
+    by_decision_vecs: Counter = Counter()
+    for u, d in result.decision.items():
+        by_decision_vecs[d] += len(result.orphan_map[u])
+
+    lines = [
+        "Orphan vector reconciliation (Pinecone vs live crawl_queue)",
+        "",
+        f"Site: {result.site}",
+        f"Pinecone index: {result.index_name} ({result.total_index_vectors:,} total vectors)",
+        f"Live DB: {result.db_path} ({result.db_url_count:,} distinct URLs, read-only scan)",
+        f"Scanned crawler vectors: {result.scanned_vectors:,}",
+        f"Orphans (no DB row): {result.orphan_url_count:,} URLs, {result.orphan_vector_count:,} vectors",
+        "",
+        "By category:",
+    ]
+    for d in (
+        "skip_pattern",
+        "tracking_param",
+        "dead_404",
+        "live",
+        "keep_unknown",
+        "keep_unchecked",
+    ):
+        if by_decision_urls.get(d):
+            tag = "DELETE" if d in DELETE_REASONS else "keep"
+            lines.append(
+                f"  [{tag}] {d}: {by_decision_urls[d]:,} urls, {by_decision_vecs[d]:,} vectors"
+            )
+
+    lines.extend(
+        [
+            "",
+            f"Delete candidates: {len(result.delete_urls):,} urls, {len(result.delete_ids):,} vectors",
+            f"Kept: {len(result.keep_urls):,} urls",
+            "",
+        ]
+    )
+
+    if result.applied:
+        lines.append(f"Action: auto-deleted {len(result.delete_ids):,} vectors (--apply-if-safe).")
+    elif result.guard_blocked and result.delete_ids:
+        pct = len(result.delete_ids) / result.guard_basis if result.guard_basis else 0
+        lines.append(
+            f"Action: deletion SKIPPED — delete set is {pct:.1%} of {result.guard_basis_label} "
+            f"({len(result.delete_ids):,} / {result.guard_basis:,}), above the safety threshold. "
+            "Review the manifest and run manually with --apply --force if intended."
+        )
+    elif result.delete_ids:
+        lines.append(
+            "Action: dry run only (no deletion). Re-run with --apply or use --apply-if-safe on the weekly job."
+        )
+    else:
+        lines.append("Action: nothing to delete.")
+
+    dead_404 = [u for u in result.delete_urls if result.decision.get(u) == "dead_404"]
+    if dead_404:
+        lines.extend(["", "dead_404 URLs (sample):"])
+        for u in sorted(dead_404)[:15]:
+            lines.append(f"  - https://{u} ({len(result.orphan_map[u])} vectors)")
+        if len(dead_404) > 15:
+            lines.append(f"  ... and {len(dead_404) - 15} more")
+
+    lines.extend(
+        [
+            "",
+            f"Manifest: {result.manifest_path}",
+            "",
+            "Note: SQLite was opened read-only (mode=ro + query_only). Safe to run while the crawler is active.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def send_email_report(result: ReconcileResult) -> bool:
+    """Send the reconciliation summary via ops email."""
+    os.environ["SITE_ID"] = result.site
+    subject = format_email_subject(result)
+    body = format_email_body(result)
+    print(f"\nSending ops email: {subject}")
+    return send_ops_alert_sync(subject=subject, message=body)
+
+
+def run_reconciliation(args: argparse.Namespace) -> ReconcileResult:
+    """Scan Pinecone, classify orphans, optionally delete, return structured result."""
     load_environment_for_site(args.site)
     index, index_name, total_index_vectors = resolve_pinecone_index(args)
 
@@ -491,7 +672,7 @@ def main() -> None:
 
     db_path = get_database_path(args.site)
     db_urls = get_db_urls(db_path)
-    print(f"Live DB: {db_path}")
+    print(f"Live DB: {db_path} (read-only)")
     print(f"DB distinct URLs: {len(db_urls):,}")
     if len(db_urls) < args.min_db_urls:
         print(
@@ -507,9 +688,7 @@ def main() -> None:
     print(f"\nScanned {scanned:,} crawler vectors")
     print(f"Orphan URLs (no DB row): {len(orphan_map):,}  ({orphan_vectors:,} vectors)")
 
-    categories: dict[str, str] = {
-        u: classify_orphan(u, skip_regexes) for u in orphan_map
-    }
+    categories = {u: classify_orphan(u, skip_regexes) for u in orphan_map}
     ambiguous = [u for u, c in categories.items() if c == "ambiguous"]
 
     statuses: dict[str, Any] = {}
@@ -523,12 +702,10 @@ def main() -> None:
         )
 
     decision = build_decisions(categories, statuses, args.skip_http_check)
-    delete_reasons = {"skip_pattern", "tracking_param", "dead_404"}
     delete_urls, delete_ids, keep_urls = emit_report(
-        args, scanned, orphan_map, decision, delete_reasons
+        args, scanned, orphan_map, decision, set(DELETE_REASONS)
     )
 
-    # Write manifest next to the DB
     manifest_path = db_path.parent / f"orphan_reconcile_{args.site}.json"
     manifest_path.write_text(
         json.dumps(
@@ -542,17 +719,74 @@ def main() -> None:
     )
     print(f"\nManifest written: {manifest_path}")
 
-    enforce_delete_guard(delete_ids, total_index_vectors, scanned, args)
+    guard_basis, guard_basis_label = guard_basis_and_label(
+        total_index_vectors, scanned
+    )
+    guard_blocked = is_guard_blocked(
+        delete_ids, guard_basis, args.max_delete_fraction, args.force
+    )
 
-    if not args.apply:
-        print("\nDry run only. Re-run with --apply to delete the listed vectors.")
-        return
+    applied = False
+    if args.apply_if_safe:
+        if guard_blocked:
+            print(
+                f"\nApply-if-safe: deletion skipped (delete set exceeds "
+                f"{args.max_delete_fraction:.0%} of {guard_basis_label} vectors)."
+            )
+        elif delete_ids:
+            delete_orphan_vectors(index, delete_ids)
+            applied = True
+        else:
+            print("\nApply-if-safe: nothing to delete.")
+    elif args.apply:
+        enforce_delete_guard(delete_ids, total_index_vectors, scanned, args)
+        if delete_ids:
+            delete_orphan_vectors(index, delete_ids)
+            applied = True
+    elif guard_blocked:
+        print(
+            f"\nDry run: delete set would exceed {args.max_delete_fraction:.0%} "
+            f"of {guard_basis_label} vectors; manual review required."
+        )
+    else:
+        print("\nDry run only. Re-run with --apply or --apply-if-safe to delete.")
 
-    print(f"\nDeleting {len(delete_ids):,} vectors ...")
-    for i in tqdm(range(0, len(delete_ids), 100), desc="Deleting"):
-        index.delete(ids=delete_ids[i : i + 100])
-    print("Deletion complete.")
+    return ReconcileResult(
+        site=args.site,
+        index_name=index_name,
+        db_path=db_path,
+        manifest_path=manifest_path,
+        db_url_count=len(db_urls),
+        total_index_vectors=total_index_vectors,
+        scanned_vectors=scanned,
+        orphan_url_count=len(orphan_map),
+        orphan_vector_count=orphan_vectors,
+        delete_urls=delete_urls,
+        delete_ids=delete_ids,
+        keep_urls=keep_urls,
+        decision=decision,
+        orphan_map=orphan_map,
+        guard_blocked=guard_blocked,
+        guard_basis=guard_basis,
+        guard_basis_label=guard_basis_label,
+        applied=applied,
+    )
+
+
+def main() -> int:
+    args = build_arg_parser().parse_args()
+    if args.apply and args.apply_if_safe:
+        print("Error: use only one of --apply or --apply-if-safe")
+        return 1
+
+    result = run_reconciliation(args)
+
+    if args.email_report and not send_email_report(result):
+        print("Error: failed to send ops email")
+        return 1
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

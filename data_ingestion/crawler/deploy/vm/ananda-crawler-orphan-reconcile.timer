@@ -1,0 +1,14 @@
+# Install: sudo cp ananda-crawler-orphan-reconcile.timer /etc/systemd/system/
+#          sudo systemctl enable --now ananda-crawler-orphan-reconcile.timer
+
+[Unit]
+Description=Weekly orphan vector reconcile (Sunday PT morning)
+
+[Timer]
+OnCalendar=Sun *-*-* 07:00:00
+Timezone=America/Los_Angeles
+Persistent=true
+Unit=ananda-crawler-orphan-reconcile.service
+
+[Install]
+WantedBy=timers.target

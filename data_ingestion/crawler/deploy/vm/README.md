@@ -46,12 +46,15 @@ swap comes up from `/etc/fstab`.
    sudo cp deploy/vm/ananda-crawler.timer /etc/systemd/system/
    sudo cp deploy/vm/ananda-crawler-daily-report.service /etc/systemd/system/
    sudo cp deploy/vm/ananda-crawler-daily-report.timer /etc/systemd/system/
+   sudo cp deploy/vm/ananda-crawler-orphan-reconcile.service /etc/systemd/system/
+   sudo cp deploy/vm/ananda-crawler-orphan-reconcile.timer /etc/systemd/system/
    sudo cp deploy/vm/ananda-crawler-backup.service /etc/systemd/system/
    sudo cp deploy/vm/ananda-crawler-backup.timer /etc/systemd/system/
    sudo cp deploy/vm/ananda-crawler-failure-notify.service /etc/systemd/system/
    sudo systemctl daemon-reload
    sudo systemctl enable --now ananda-crawler.timer
    sudo systemctl enable --now ananda-crawler-daily-report.timer
+   sudo systemctl enable --now ananda-crawler-orphan-reconcile.timer
    sudo systemctl enable --now ananda-crawler-backup.timer
    ```
 
@@ -63,6 +66,7 @@ swap comes up from `/etc/fstab`.
 |---------------|------|
 | `ananda-crawler.service` + `.timer` | Hourly bounded `docker run` crawl (PT window in the timer). |
 | `ananda-crawler-daily-report.service` + `.timer` | Daily `daily_report.py` email (queue / activity; optional CloudWatch section unused on VM). |
+| `ananda-crawler-orphan-reconcile.service` + `.timer` | Weekly `reconcile_orphaned_vectors.py --apply-if-safe --email-report` (read-only DB; auto-delete within 5% guard). |
 | `ananda-crawler-backup.service` + `.timer` | Nightly `sqlite3 .backup` into `/srv/ananda-crawler/backups/`; retention via `RETENTION_DAYS` (default 14) in the script. |
 | `ananda-crawler-failure-notify.service` | Started when `ananda-crawler.service` fails; runs Docker + `notify_systemd_failure.py` to send ops email. |
 
@@ -86,5 +90,6 @@ Override in `ananda-crawler-backup.service` with `Environment=` lines if needed.
 systemctl list-timers 'ananda-crawler*'
 journalctl -u ananda-crawler.service -n 100 --no-pager
 journalctl -u ananda-crawler-daily-report.service -n 50 --no-pager
+journalctl -u ananda-crawler-orphan-reconcile.service -n 50 --no-pager
 journalctl -u ananda-crawler-backup.service -n 20 --no-pager
 ```

@@ -1,0 +1,33 @@
+# Install: sudo cp ananda-crawler-orphan-reconcile.service /etc/systemd/system/
+#          sudo cp ananda-crawler-orphan-reconcile.timer /etc/systemd/system/
+#          sudo systemctl daemon-reload
+#          sudo systemctl enable --now ananda-crawler-orphan-reconcile.timer
+#
+# Weekly orphan reconciliation: read-only SQLite scan (safe alongside the running
+# crawler), auto-delete when within the 5%% safety guard, ops email report.
+
+[Unit]
+Description=Ananda crawler weekly orphan vector reconcile (Docker)
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=docker
+ExecStart=/usr/bin/docker run --rm \
+  -e DATA_DIR=/app/data \
+  -e SITE_ID=ananda-public \
+  --env-file /srv/ananda-crawler/env/.env.ananda-public \
+  -v /srv/ananda-crawler:/app/data \
+  ananda-crawler:latest \
+  /app/.venv/bin/python /app/crawler/bin/reconcile_orphaned_vectors.py \
+    --site ananda-public \
+    --apply-if-safe \
+    --email-report
+TimeoutStartSec=3600
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
