@@ -1,15 +1,19 @@
 # Install: sudo cp ananda-crawler-orphan-reconcile.service /etc/systemd/system/
 #          sudo cp ananda-crawler-orphan-reconcile.timer /etc/systemd/system/
+#          sudo cp ananda-crawler-orphan-reconcile-failure-notify.service /etc/systemd/system/
 #          sudo systemctl daemon-reload
 #          sudo systemctl enable --now ananda-crawler-orphan-reconcile.timer
 #
 # Weekly orphan reconciliation: read-only SQLite scan (safe alongside the running
 # crawler), auto-delete when within the 5%% safety guard, ops email report.
+# TimeoutStartSec=7200 (2h); script stops at 7140s and emails a partial report.
+# OnFailure is intentionally omitted — --email-report covers all outcomes (avoids duplicate ops emails).
 
 [Unit]
 Description=Ananda crawler weekly orphan vector reconcile (Docker)
 After=docker.service network-online.target
 Wants=network-online.target
+SuccessExitStatus=2
 
 [Service]
 Type=oneshot
@@ -24,8 +28,9 @@ ExecStart=/usr/bin/docker run --rm \
   /app/.venv/bin/python /app/crawler/bin/reconcile_orphaned_vectors.py \
     --site ananda-public \
     --apply-if-safe \
-    --email-report
-TimeoutStartSec=3600
+    --email-report \
+    --max-runtime-seconds 7140
+TimeoutStartSec=7200
 StandardOutput=journal
 StandardError=journal
 

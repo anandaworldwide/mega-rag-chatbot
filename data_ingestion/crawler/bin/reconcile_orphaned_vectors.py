@@ -25,11 +25,14 @@ Safety:
   - Dry-run by default; nothing is deleted without --apply.
   - Aborts if the DB looks empty/too small (prevents nuking everything when the DB
     path is wrong) unless --min-db-urls is lowered deliberately.
-  - Aborts if the delete set exceeds --max-delete-fraction of scanned vectors
-    unless --force.
+  - Aborts if the delete set exceeds --max-delete-fraction of the total Pinecone
+    index vector count (falls back to scanned crawler count if stats unavailable)
+    unless --force (not compatible with --apply-if-safe).
   - Polite HTTP liveness checks: GET only (HEAD hangs on the WP/WAF origin),
     bounded aggregate rate (--http-rate, default 3 req/s), identifying User-Agent,
     short timeout; timeouts/errors are treated as "unknown" and KEPT (never deleted).
+  - --max-runtime-seconds (default 7140) stops before the 2h systemd limit and emails
+    a partial report when --email-report is set.
 
 Usage (host venv with repo + .env.<site>):
     DATA_DIR=/srv/ananda-crawler \
@@ -57,19 +60,23 @@ Weekly production routine (systemd timer on the crawler VM):
   - Auto-deletes skip_pattern + tracking_param + dead_404 only when the delete set is
     within --max-delete-fraction of the total index (default 5%%); never deletes live or
     keep_unknown; never uses --force.
-  - Emails an ops summary (same channel as daily_report.py).
+  - Emails an ops summary (same channel as daily_report.py), including on failure/timeout.
 """
+
+from __future__ import annotations
 
 import argparse
 import json
 import os
 import re
+import signal
 import sqlite3
 import sys
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -82,15 +89,105 @@ from tqdm import tqdm
 
 # pyutil lives at repo root (/app in Docker, mega-rag-chatbot/ locally)
 _script = Path(__file__).resolve()
-for _root in (_script.parents[2], _script.parents[3]):
-    if (_root / "pyutil").is_dir():
-        sys.path.insert(0, str(_root))
+for _ancestor in _script.parents:
+    if (_ancestor / "pyutil").is_dir():
+        if str(_ancestor) not in sys.path:
+            sys.path.insert(0, str(_ancestor))
         break
 from pyutil.email_ops import get_site_shortname, send_ops_alert_sync  # noqa: E402
 
 TRACKING_PARAM_PREFIXES = ("utm_", "_ga", "_gl", "fbclid", "gclid", "msclkid", "mc_")
 TRACKING_PARAM_EXACT = {"replytocom"}
 USER_AGENT = "ananda-orphan-reconcile/1.0 (+crawler maintenance)"
+DELETE_REASONS = frozenset({"skip_pattern", "tracking_param", "dead_404"})
+DEFAULT_MAX_RUNTIME_SECONDS = 7140  # 1h59m — buffer before 2h systemd TimeoutStartSec
+MAX_FETCH_ERROR_SAMPLES = 20
+EXIT_GUARD_BLOCKED = 2
+EXIT_TIMEOUT = 124
+
+
+class ReconcileFatalError(Exception):
+    """Non-recoverable configuration or precondition failure."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
+class ReconcileTimeoutError(Exception):
+    """Job exceeded --max-runtime-seconds or received SIGTERM from systemd."""
+
+    def __init__(self, message: str, phase: str) -> None:
+        super().__init__(message)
+        self.message = message
+        self.phase = phase
+
+
+@dataclass
+class RunContext:
+    """Mutable progress shared with the SIGTERM handler for partial reports."""
+
+    args: argparse.Namespace
+    deadline: float | None
+    phase: str = "init"
+    site: str = ""
+    index_name: str = ""
+    db_path: Path | None = None
+    manifest_path: Path | None = None
+    db_url_count: int = 0
+    total_index_vectors: int = 0
+    scanned_vectors: int = 0
+    orphan_map: dict[str, list[str]] = field(default_factory=dict)
+    fetch_failures: int = 0
+    fetch_error_samples: list[str] = field(default_factory=list)
+    unexamined_vectors: int = 0
+    categories: dict[str, str] = field(default_factory=dict)
+    statuses: dict[str, Any] = field(default_factory=dict)
+    email_sent: bool = False
+
+    def check_deadline(self) -> None:
+        if self.deadline is not None and time.monotonic() >= self.deadline:
+            raise ReconcileTimeoutError(
+                f"Exceeded --max-runtime-seconds ({self.args.max_runtime_seconds}s) "
+                f"during phase: {self.phase}",
+                phase=self.phase,
+            )
+
+
+@dataclass
+class ReconcileResult:
+    """Structured outcome for reporting and apply-if-safe decisions."""
+
+    site: str
+    index_name: str
+    db_path: Path | None
+    manifest_path: Path | None
+    db_url_count: int
+    total_index_vectors: int
+    scanned_vectors: int
+    orphan_url_count: int
+    orphan_vector_count: int
+    delete_urls: list[str]
+    delete_ids: list[str]
+    keep_urls: list[str]
+    decision: dict[str, str]
+    orphan_map: dict[str, list[str]]
+    guard_blocked: bool
+    guard_basis: int
+    guard_basis_label: str
+    applied: bool
+    failed: bool = False
+    error_message: str | None = None
+    timed_out: bool = False
+    timeout_phase: str | None = None
+    fetch_failures: int = 0
+    fetch_error_samples: list[str] = field(default_factory=list)
+    unexamined_vectors: int = 0
+    needs_review: bool = False
+    max_runtime_seconds: int = DEFAULT_MAX_RUNTIME_SECONDS
+
+
+_run_context: RunContext | None = None
 
 
 def load_environment_for_site(site: str) -> None:
@@ -127,18 +224,11 @@ def get_database_path(site: str) -> Path:
 
 
 def get_db_urls(db_path: Path) -> set[str]:
-    """Return all normalized URLs currently in crawl_queue.
-
-    Opens the database READ-ONLY (uri mode=ro) so this tool can never write,
-    checkpoint, or create -wal/-shm files. In the crawler's WAL mode this is a
-    lock-free concurrent read and will not contend with the running crawler.
-    """
+    """Return all normalized URLs currently in crawl_queue."""
     if not db_path.exists():
-        print(f"Error: crawler database not found: {db_path}")
-        sys.exit(1)
+        raise ReconcileFatalError(f"crawler database not found: {db_path}")
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=60.0)
     try:
-        # Belt-and-suspenders: reject any write attempt at the SQLite layer.
         conn.execute("PRAGMA query_only=ON")
         rows = conn.execute("SELECT DISTINCT url FROM crawl_queue").fetchall()
     finally:
@@ -152,8 +242,7 @@ def load_crawler_config(site: str) -> dict:
         Path(__file__).parent.parent / "crawler_config" / f"{site}-config.json"
     )
     if not config_file.exists():
-        print(f"Error: crawler config not found: {config_file}")
-        sys.exit(1)
+        raise ReconcileFatalError(f"crawler config not found: {config_file}")
     with open(config_file) as f:
         return json.load(f)
 
@@ -195,14 +284,54 @@ def classify_orphan(normalized: str, skip_regexes: list) -> str:
     return "ambiguous"
 
 
-def list_crawler_vector_ids(index: Any, prefix: str, sample: int | None) -> list[str]:
+def list_crawler_vector_ids(
+    index: Any,
+    prefix: str,
+    sample: int | None,
+    ctx: RunContext | None = None,
+) -> list[str]:
     """List crawler vector IDs for a prefix, optionally truncated to a sample size."""
     all_ids: list[str] = []
     for batch in index.list(prefix=prefix):
+        if ctx is not None:
+            ctx.check_deadline()
         all_ids.extend(batch)
         if sample and len(all_ids) >= sample:
             return all_ids[:sample]
     return all_ids
+
+
+def _parse_fetch_batch(
+    batch_ids: list[str], resp: dict[str, Any]
+) -> tuple[list[tuple[str, str]], int]:
+    """Return ([(vector_id, normalized_url), ...], missing_count)."""
+    out: list[tuple[str, str]] = []
+    missing = 0
+    vectors = resp.get("vectors") or {}
+    for vid in batch_ids:
+        v = vectors.get(vid)
+        if not v:
+            missing += 1
+            continue
+        md = v.get("metadata", {}) or {}
+        src = md.get("source") or md.get("url")
+        if src:
+            out.append((vid, normalize_url(src)))
+        else:
+            missing += 1
+    return out, missing
+
+
+def _fetch_batch_with_retry(index: Any, batch_ids: list[str]) -> list[tuple[str, str]]:
+    """Fetch one batch; retry once on transient Pinecone errors."""
+    last_error: Exception | None = None
+    for _attempt in range(2):
+        try:
+            results, _missing = _parse_fetch_batch(batch_ids, index.fetch(ids=batch_ids))
+            return results
+        except Exception as exc:
+            last_error = exc
+    raise last_error  # type: ignore[misc]
 
 
 def scan_pinecone_orphans(
@@ -211,47 +340,57 @@ def scan_pinecone_orphans(
     db_urls: set[str],
     fetch_workers: int,
     sample: int | None,
+    ctx: RunContext,
 ) -> tuple[dict[str, list[str]], int]:
     """Scan crawler vectors and return ({orphan_url: [vector_ids]}, total_scanned)."""
+    ctx.phase = "pinecone_scan"
+    ctx.check_deadline()
+
     normalized_domain = domain.replace("www.", "")
     prefix = f"text||{normalized_domain}||web||"
 
     print(f"Listing crawler vector IDs (prefix: {prefix}) ...")
-    all_ids = list_crawler_vector_ids(index, prefix, sample)
+    all_ids = list_crawler_vector_ids(index, prefix, sample, ctx)
     print(f"Found {len(all_ids):,} crawler vectors to scan")
 
     orphan_map: dict[str, list[str]] = {}
     scanned = 0
     lock = Lock()
-    batch_size = 10  # long IDs -> small batches avoid 414 errors
-
-    def fetch(batch_ids: list[str]):
-        resp = index.fetch(ids=batch_ids)
-        out = []
-        for vid in batch_ids:
-            v = resp["vectors"].get(vid)
-            if not v:
-                continue
-            md = v.get("metadata", {}) or {}
-            src = md.get("source") or md.get("url")
-            if src:
-                out.append((vid, normalize_url(src)))
-        return out
+    batch_size = 10
 
     batches = [all_ids[i : i + batch_size] for i in range(0, len(all_ids), batch_size)]
     with ThreadPoolExecutor(max_workers=fetch_workers) as ex:
-        futures = [ex.submit(fetch, b) for b in batches]
-        for fut in tqdm(as_completed(futures), total=len(futures), desc="Fetching"):
+        future_to_batch = {ex.submit(_fetch_batch_with_retry, index, b): b for b in batches}
+        for fut in tqdm(
+            as_completed(future_to_batch), total=len(future_to_batch), desc="Fetching"
+        ):
+            ctx.check_deadline()
+            batch_ids = future_to_batch[fut]
             try:
                 results = fut.result()
             except Exception as e:
-                print(f"\nfetch error: {e}")
+                with lock:
+                    ctx.fetch_failures += 1
+                    ctx.unexamined_vectors += len(batch_ids)
+                    msg = f"{type(e).__name__}: {e}"
+                    if len(ctx.fetch_error_samples) < MAX_FETCH_ERROR_SAMPLES:
+                        ctx.fetch_error_samples.append(msg)
+                print(
+                    f"\nfetch error ({ctx.fetch_failures} total, "
+                    f"{ctx.unexamined_vectors:,} unexamined): {e}"
+                )
                 continue
             with lock:
                 for vid, nu in results:
                     scanned += 1
                     if nu not in db_urls:
                         orphan_map.setdefault(nu, []).append(vid)
+                missing = len(batch_ids) - len(results)
+                if missing:
+                    ctx.unexamined_vectors += missing
+
+    ctx.scanned_vectors = scanned
+    ctx.orphan_map = orphan_map
     return orphan_map, scanned
 
 
@@ -270,9 +409,16 @@ def http_status(url_no_scheme: str, timeout: int) -> Any:
 
 
 def check_ambiguous_liveness(
-    urls: list[str], rate: float, workers: int, timeout: int
+    urls: list[str],
+    rate: float,
+    workers: int,
+    timeout: int,
+    ctx: RunContext,
 ) -> dict[str, Any]:
     """Throttled liveness check. Returns {url: status_code}. Polite by design."""
+    ctx.phase = "http_liveness"
+    ctx.check_deadline()
+
     sleep_per_req = (workers / rate) if rate > 0 else 0.0
     statuses: dict[str, Any] = {}
     t0 = time.time()
@@ -287,6 +433,7 @@ def check_ambiguous_liveness(
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futures = [ex.submit(worker, u) for u in urls]
         for fut in as_completed(futures):
+            ctx.check_deadline()
             u, code = fut.result()
             statuses[u] = code
             done += 1
@@ -363,9 +510,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Abort if delete set exceeds this fraction of the TOTAL index vector count unless --force (default 0.05)",
     )
     ap.add_argument(
+        "--max-runtime-seconds",
+        type=int,
+        default=DEFAULT_MAX_RUNTIME_SECONDS,
+        help=f"Stop and email a partial report after N seconds (default {DEFAULT_MAX_RUNTIME_SECONDS})",
+    )
+    ap.add_argument(
         "--force",
         action="store_true",
-        help="Bypass the max-delete-fraction safety guard",
+        help="Bypass the max-delete-fraction safety guard (not allowed with --apply-if-safe)",
     )
     ap.add_argument(
         "--sample", type=int, default=None, help="Only scan first N vectors (testing)"
@@ -374,18 +527,29 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return ap
 
 
+def validate_args(args: argparse.Namespace) -> str | None:
+    """Return an error message if CLI flags are incompatible."""
+    if args.apply and args.apply_if_safe:
+        return "use only one of --apply or --apply-if-safe"
+    if args.apply_if_safe and args.force:
+        return "--force is not allowed with --apply-if-safe"
+    if args.max_runtime_seconds <= 0:
+        return "--max-runtime-seconds must be positive"
+    return None
+
+
 def resolve_pinecone_index(args: argparse.Namespace) -> tuple[Any, str, int]:
     """Resolve the Pinecone index handle, name and total vector count from env."""
     api_key = os.getenv("PINECONE_API_KEY")
     if not api_key:
-        print("Error: PINECONE_API_KEY not set")
-        sys.exit(1)
+        raise ReconcileFatalError("PINECONE_API_KEY not set")
     index_name = os.getenv("PINECONE_INGEST_INDEX_NAME") or os.getenv(
         "PINECONE_INDEX_NAME"
     )
     if not index_name:
-        print("Error: PINECONE_INGEST_INDEX_NAME / PINECONE_INDEX_NAME not set")
-        sys.exit(1)
+        raise ReconcileFatalError(
+            "PINECONE_INGEST_INDEX_NAME / PINECONE_INDEX_NAME not set"
+        )
 
     pc = Pinecone(api_key=api_key)
     index = pc.Index(index_name)
@@ -410,7 +574,7 @@ def decide_for_url(cat: str, status: Any, skip_http_check: bool) -> str:
         return "dead_404"
     if status == 200:
         return "live"
-    return "keep_unknown"  # timeout/error -> never delete
+    return "keep_unknown"
 
 
 def build_decisions(
@@ -429,6 +593,9 @@ def emit_report(
     orphan_map: dict[str, list[str]],
     decision: dict[str, str],
     delete_reasons: set[str],
+    fetch_failures: int,
+    unexamined_vectors: int = 0,
+    silent: bool = False,
 ) -> tuple[list[str], list[str], list[str]]:
     """Print the reconciliation report and return (delete_urls, delete_ids, keep_urls)."""
     orphan_vectors = sum(len(v) for v in orphan_map.values())
@@ -441,6 +608,9 @@ def emit_report(
     for u, d in decision.items():
         by_decision_vecs[d] += len(orphan_map[u])
 
+    if silent:
+        return delete_urls, delete_ids, keep_urls
+
     if args.json:
         print(
             json.dumps(
@@ -449,6 +619,8 @@ def emit_report(
                     "scanned_vectors": scanned,
                     "orphan_urls": len(orphan_map),
                     "orphan_vectors": orphan_vectors,
+                    "fetch_failures": fetch_failures,
+                    "unexamined_vectors": unexamined_vectors,
                     "by_decision": {
                         k: {"urls": by_decision_urls[k], "vectors": by_decision_vecs[k]}
                         for k in by_decision_urls
@@ -462,6 +634,10 @@ def emit_report(
         )
     else:
         print("\n=== ORPHAN RECONCILIATION ===")
+        if fetch_failures:
+            print(f"  Pinecone fetch failures: {fetch_failures:,}")
+        if unexamined_vectors:
+            print(f"  Unexamined vectors (fetch/missing metadata): {unexamined_vectors:,}")
         for d in (
             "skip_pattern",
             "tracking_param",
@@ -481,33 +657,6 @@ def emit_report(
         print(f"  TOTAL KEEP:   {len(keep_urls):,} urls")
 
     return delete_urls, delete_ids, keep_urls
-
-
-@dataclass
-class ReconcileResult:
-    """Structured outcome for reporting and apply-if-safe decisions."""
-
-    site: str
-    index_name: str
-    db_path: Path
-    manifest_path: Path
-    db_url_count: int
-    total_index_vectors: int
-    scanned_vectors: int
-    orphan_url_count: int
-    orphan_vector_count: int
-    delete_urls: list[str]
-    delete_ids: list[str]
-    keep_urls: list[str]
-    decision: dict[str, str]
-    orphan_map: dict[str, list[str]]
-    guard_blocked: bool
-    guard_basis: int
-    guard_basis_label: str
-    applied: bool
-
-
-DELETE_REASONS = frozenset({"skip_pattern", "tracking_param", "dead_404"})
 
 
 def guard_basis_and_label(total_index_vectors: int, scanned: int) -> tuple[int, str]:
@@ -540,28 +689,75 @@ def enforce_delete_guard(
     if is_guard_blocked(
         delete_ids, guard_basis, args.max_delete_fraction, args.force
     ):
-        print(
-            f"\nABORT: delete set is {len(delete_ids) / guard_basis:.1%} of {basis_label} vectors "
-            f"({len(delete_ids):,} / {guard_basis:,}; > --max-delete-fraction {args.max_delete_fraction:.0%}). "
-            "Review the manifest; re-run with --force if this is intended (e.g. the one-time "
-            "cleanup of large skip-pattern leaks)."
+        raise ReconcileFatalError(
+            f"delete set is {len(delete_ids) / guard_basis:.1%} of {basis_label} vectors "
+            f"({len(delete_ids):,} / {guard_basis:,}; > --max-delete-fraction "
+            f"{args.max_delete_fraction:.0%}). Review the manifest; re-run with --force "
+            "if this is intended."
         )
-        sys.exit(1)
 
 
-def delete_orphan_vectors(index: Any, delete_ids: list[str]) -> None:
+def delete_orphan_vectors(index: Any, delete_ids: list[str], ctx: RunContext) -> None:
     """Delete vectors from Pinecone in batches."""
+    ctx.phase = "deleting"
     print(f"\nDeleting {len(delete_ids):,} vectors ...")
     for i in tqdm(range(0, len(delete_ids), 100), desc="Deleting"):
+        ctx.check_deadline()
         index.delete(ids=delete_ids[i : i + 100])
     print("Deletion complete.")
+
+
+def write_manifest(
+    manifest_path: Path,
+    delete_urls: list[str],
+    delete_ids: list[str],
+    keep_urls: list[str],
+    orphan_map: dict[str, list[str]],
+    decision: dict[str, str],
+    applied: bool,
+    guard_blocked: bool,
+    timed_out: bool,
+    unexamined_vectors: int = 0,
+) -> None:
+    """Write manifest after apply decision so on-disk state matches what happened."""
+    deleted_map = (
+        {u: orphan_map[u] for u in delete_urls}
+        if applied
+        else {}
+    )
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "meta": {
+                    "written_at": datetime.now(UTC).isoformat(),
+                    "applied": applied,
+                    "guard_blocked": guard_blocked,
+                    "timed_out": timed_out,
+                    "delete_candidate_urls": len(delete_urls),
+                    "delete_candidate_vectors": len(delete_ids),
+                    "deleted_urls": len(deleted_map),
+                    "deleted_vectors": sum(len(v) for v in deleted_map.values()),
+                    "unexamined_vectors": unexamined_vectors,
+                },
+                "delete_candidates": {u: orphan_map[u] for u in delete_urls},
+                "deleted": deleted_map,
+                "keep": {u: decision[u] for u in keep_urls},
+                "decisions": decision,
+            },
+            indent=2,
+        )
+    )
 
 
 def format_email_subject(result: ReconcileResult) -> str:
     """Build ops email subject with site shortname."""
     site_shortname = get_site_shortname(result.site)
+    if result.failed:
+        return f"[{site_shortname}] FAILED - Orphan reconcile"
+    if result.timed_out:
+        return f"[{site_shortname}] TIMED OUT - Orphan reconcile"
     live_count = sum(1 for u in result.keep_urls if result.decision.get(u) == "live")
-    prefix = "NEEDS REVIEW - " if result.guard_blocked and result.delete_ids else ""
+    prefix = "NEEDS REVIEW - " if result.needs_review else ""
     deleted_part = (
         f"{len(result.delete_ids):,} deleted"
         if result.applied
@@ -573,79 +769,157 @@ def format_email_subject(result: ReconcileResult) -> str:
     )
 
 
-def format_email_body(result: ReconcileResult) -> str:
-    """Build ops email body from reconciliation results."""
-    by_decision_urls = Counter(result.decision.values())
-    by_decision_vecs: Counter = Counter()
-    for u, d in result.decision.items():
-        by_decision_vecs[d] += len(result.orphan_map[u])
+_DECISION_EMAIL_ORDER = (
+    "skip_pattern",
+    "tracking_param",
+    "dead_404",
+    "live",
+    "keep_unknown",
+    "keep_unchecked",
+)
 
-    lines = [
-        "Orphan vector reconciliation (Pinecone vs live crawl_queue)",
+
+def _email_failed_body_lines(result: ReconcileResult) -> list[str]:
+    lines = ["Status: FAILED", f"Error: {result.error_message}", ""]
+    if result.index_name:
+        lines.append(f"Pinecone index: {result.index_name}")
+    if result.db_path:
+        lines.append(f"Live DB: {result.db_path}")
+    lines.extend(
+        [
+            "",
+            "No vectors were deleted. Inspect journalctl on the crawler VM and re-run manually.",
+        ]
+    )
+    return lines
+
+
+def _email_timeout_header_lines(result: ReconcileResult) -> list[str]:
+    return [
+        "Status: TIMED OUT",
+        f"Stopped during phase: {result.timeout_phase or 'unknown'}",
+        f"Runtime limit: {result.max_runtime_seconds}s (--max-runtime-seconds)",
         "",
-        f"Site: {result.site}",
+    ]
+
+
+def _email_summary_lines(result: ReconcileResult) -> list[str]:
+    return [
         f"Pinecone index: {result.index_name} ({result.total_index_vectors:,} total vectors)",
         f"Live DB: {result.db_path} ({result.db_url_count:,} distinct URLs, read-only scan)",
         f"Scanned crawler vectors: {result.scanned_vectors:,}",
         f"Orphans (no DB row): {result.orphan_url_count:,} URLs, {result.orphan_vector_count:,} vectors",
-        "",
-        "By category:",
     ]
-    for d in (
-        "skip_pattern",
-        "tracking_param",
-        "dead_404",
-        "live",
-        "keep_unknown",
-        "keep_unchecked",
-    ):
-        if by_decision_urls.get(d):
-            tag = "DELETE" if d in DELETE_REASONS else "keep"
-            lines.append(
-                f"  [{tag}] {d}: {by_decision_urls[d]:,} urls, {by_decision_vecs[d]:,} vectors"
-            )
 
+
+def _email_fetch_failure_lines(result: ReconcileResult) -> list[str]:
+    lines: list[str] = []
+    if result.fetch_failures:
+        lines.append(f"Pinecone fetch failures: {result.fetch_failures:,}")
+        samples = result.fetch_error_samples[:5]
+        lines.extend(f"  - {sample}" for sample in samples)
+        if result.fetch_failures > len(samples):
+            lines.append("  - ...")
+    if result.unexamined_vectors:
+        lines.append(
+            f"Unexamined vectors (failed fetch or missing metadata): "
+            f"{result.unexamined_vectors:,}"
+        )
+    return lines
+
+
+def _email_category_lines(result: ReconcileResult) -> list[str]:
+    if not result.decision:
+        return []
+    by_decision_urls = Counter(result.decision.values())
+    by_decision_vecs: Counter = Counter()
+    for u, d in result.decision.items():
+        by_decision_vecs[d] += len(result.orphan_map[u])
+    lines = ["", "By category:"]
+    for d in _DECISION_EMAIL_ORDER:
+        if not by_decision_urls.get(d):
+            continue
+        tag = "DELETE" if d in DELETE_REASONS else "keep"
+        lines.append(
+            f"  [{tag}] {d}: {by_decision_urls[d]:,} urls, {by_decision_vecs[d]:,} vectors"
+        )
+    return lines
+
+
+def _email_action_line(result: ReconcileResult) -> str:
+    if result.timed_out:
+        return (
+            "Action: run stopped before completion due to runtime limit. "
+            "Review partial results; re-run manually or increase --max-runtime-seconds."
+        )
+    if result.applied:
+        return (
+            f"Action: auto-deleted {len(result.delete_ids):,} vectors (--apply-if-safe)."
+        )
+    if result.needs_review:
+        pct = len(result.delete_ids) / result.guard_basis if result.guard_basis else 0
+        return (
+            f"Action: deletion SKIPPED — delete set is {pct:.1%} of {result.guard_basis_label} "
+            f"({len(result.delete_ids):,} / {result.guard_basis:,}), above the safety threshold. "
+            "Review the manifest and run manually with --apply --force if intended."
+        )
+    if result.delete_ids:
+        return (
+            "Action: dry run only (no deletion). Re-run with --apply or use "
+            "--apply-if-safe on the weekly job."
+        )
+    return "Action: nothing to delete."
+
+
+def _email_dead_404_lines(result: ReconcileResult) -> list[str]:
+    dead_404 = [u for u in result.delete_urls if result.decision.get(u) == "dead_404"]
+    if not dead_404:
+        return []
+    lines = ["", "dead_404 URLs (sample):"]
+    for u in sorted(dead_404)[:15]:
+        lines.append(f"  - https://{u} ({len(result.orphan_map[u])} vectors)")
+    if len(dead_404) > 15:
+        lines.append(f"  ... and {len(dead_404) - 15} more")
+    return lines
+
+
+def _email_manifest_footer_lines(result: ReconcileResult) -> list[str]:
+    if not result.manifest_path:
+        return []
+    return [
+        "",
+        f"Manifest: {result.manifest_path}",
+    ]
+
+
+def format_email_body(result: ReconcileResult) -> str:
+    """Build ops email body from reconciliation results."""
+    lines = [
+        "Orphan vector reconciliation (Pinecone vs live crawl_queue)",
+        "",
+        f"Site: {result.site}",
+    ]
+    if result.failed:
+        lines.extend(_email_failed_body_lines(result))
+        return "\n".join(lines)
+
+    if result.timed_out:
+        lines.extend(_email_timeout_header_lines(result))
+
+    lines.extend(_email_summary_lines(result))
+    lines.extend(_email_fetch_failure_lines(result))
+    lines.extend(_email_category_lines(result))
     lines.extend(
         [
             "",
             f"Delete candidates: {len(result.delete_urls):,} urls, {len(result.delete_ids):,} vectors",
             f"Kept: {len(result.keep_urls):,} urls",
             "",
+            _email_action_line(result),
         ]
     )
-
-    if result.applied:
-        lines.append(f"Action: auto-deleted {len(result.delete_ids):,} vectors (--apply-if-safe).")
-    elif result.guard_blocked and result.delete_ids:
-        pct = len(result.delete_ids) / result.guard_basis if result.guard_basis else 0
-        lines.append(
-            f"Action: deletion SKIPPED — delete set is {pct:.1%} of {result.guard_basis_label} "
-            f"({len(result.delete_ids):,} / {result.guard_basis:,}), above the safety threshold. "
-            "Review the manifest and run manually with --apply --force if intended."
-        )
-    elif result.delete_ids:
-        lines.append(
-            "Action: dry run only (no deletion). Re-run with --apply or use --apply-if-safe on the weekly job."
-        )
-    else:
-        lines.append("Action: nothing to delete.")
-
-    dead_404 = [u for u in result.delete_urls if result.decision.get(u) == "dead_404"]
-    if dead_404:
-        lines.extend(["", "dead_404 URLs (sample):"])
-        for u in sorted(dead_404)[:15]:
-            lines.append(f"  - https://{u} ({len(result.orphan_map[u])} vectors)")
-        if len(dead_404) > 15:
-            lines.append(f"  ... and {len(dead_404) - 15} more")
-
-    lines.extend(
-        [
-            "",
-            f"Manifest: {result.manifest_path}",
-            "",
-            "Note: SQLite was opened read-only (mode=ro + query_only). Safe to run while the crawler is active.",
-        ]
-    )
+    lines.extend(_email_dead_404_lines(result))
+    lines.extend(_email_manifest_footer_lines(result))
     return "\n".join(lines)
 
 
@@ -658,109 +932,39 @@ def send_email_report(result: ReconcileResult) -> bool:
     return send_ops_alert_sync(subject=subject, message=body)
 
 
-def run_reconciliation(args: argparse.Namespace) -> ReconcileResult:
-    """Scan Pinecone, classify orphans, optionally delete, return structured result."""
-    load_environment_for_site(args.site)
-    index, index_name, total_index_vectors = resolve_pinecone_index(args)
-
-    config = load_crawler_config(args.site)
-    domain = config.get("domain")
-    if not domain:
-        print(f"Error: no domain in crawler config for {args.site}")
-        sys.exit(1)
-    skip_regexes = [re.compile(p) for p in config.get("skip_patterns", [])]
-
-    db_path = get_database_path(args.site)
-    db_urls = get_db_urls(db_path)
-    print(f"Live DB: {db_path} (read-only)")
-    print(f"DB distinct URLs: {len(db_urls):,}")
-    if len(db_urls) < args.min_db_urls:
-        print(
-            f"Error: DB has only {len(db_urls)} URLs (< --min-db-urls {args.min_db_urls}). "
-            "Refusing to classify orphans against a possibly empty/wrong DB."
-        )
-        sys.exit(1)
-
-    orphan_map, scanned = scan_pinecone_orphans(
-        index, domain, db_urls, args.fetch_workers, args.sample
-    )
-    orphan_vectors = sum(len(v) for v in orphan_map.values())
-    print(f"\nScanned {scanned:,} crawler vectors")
-    print(f"Orphan URLs (no DB row): {len(orphan_map):,}  ({orphan_vectors:,} vectors)")
-
-    categories = {u: classify_orphan(u, skip_regexes) for u in orphan_map}
-    ambiguous = [u for u, c in categories.items() if c == "ambiguous"]
-
-    statuses: dict[str, Any] = {}
-    if not args.skip_http_check and ambiguous:
-        print(
-            f"\nLiveness-checking {len(ambiguous):,} real-content orphans "
-            f"(~{args.http_rate:.0f} req/s, GET, polite) ..."
-        )
-        statuses = check_ambiguous_liveness(
-            ambiguous, args.http_rate, args.http_workers, args.http_timeout
-        )
-
-    decision = build_decisions(categories, statuses, args.skip_http_check)
-    delete_urls, delete_ids, keep_urls = emit_report(
-        args, scanned, orphan_map, decision, set(DELETE_REASONS)
-    )
-
-    manifest_path = db_path.parent / f"orphan_reconcile_{args.site}.json"
-    manifest_path.write_text(
-        json.dumps(
-            {
-                "delete": {u: orphan_map[u] for u in delete_urls},
-                "keep": {u: decision[u] for u in keep_urls},
-                "decisions": decision,
-            },
-            indent=2,
-        )
-    )
-    print(f"\nManifest written: {manifest_path}")
-
-    guard_basis, guard_basis_label = guard_basis_and_label(
-        total_index_vectors, scanned
-    )
-    guard_blocked = is_guard_blocked(
-        delete_ids, guard_basis, args.max_delete_fraction, args.force
-    )
-
-    applied = False
-    if args.apply_if_safe:
-        if guard_blocked:
-            print(
-                f"\nApply-if-safe: deletion skipped (delete set exceeds "
-                f"{args.max_delete_fraction:.0%} of {guard_basis_label} vectors)."
-            )
-        elif delete_ids:
-            delete_orphan_vectors(index, delete_ids)
-            applied = True
-        else:
-            print("\nApply-if-safe: nothing to delete.")
-    elif args.apply:
-        enforce_delete_guard(delete_ids, total_index_vectors, scanned, args)
-        if delete_ids:
-            delete_orphan_vectors(index, delete_ids)
-            applied = True
-    elif guard_blocked:
-        print(
-            f"\nDry run: delete set would exceed {args.max_delete_fraction:.0%} "
-            f"of {guard_basis_label} vectors; manual review required."
-        )
-    else:
-        print("\nDry run only. Re-run with --apply or --apply-if-safe to delete.")
-
+def build_result_from_context(
+    ctx: RunContext,
+    *,
+    delete_urls: list[str] | None = None,
+    delete_ids: list[str] | None = None,
+    keep_urls: list[str] | None = None,
+    decision: dict[str, str] | None = None,
+    guard_blocked: bool = False,
+    guard_basis: int = 0,
+    guard_basis_label: str = "",
+    applied: bool = False,
+    failed: bool = False,
+    error_message: str | None = None,
+    timed_out: bool = False,
+    timeout_phase: str | None = None,
+) -> ReconcileResult:
+    """Assemble a ReconcileResult from run progress."""
+    orphan_map = ctx.orphan_map
+    decision = decision or {}
+    delete_urls = delete_urls or []
+    delete_ids = delete_ids or []
+    keep_urls = keep_urls or []
+    needs_review = guard_blocked and bool(delete_ids) and not timed_out and not failed
     return ReconcileResult(
-        site=args.site,
-        index_name=index_name,
-        db_path=db_path,
-        manifest_path=manifest_path,
-        db_url_count=len(db_urls),
-        total_index_vectors=total_index_vectors,
-        scanned_vectors=scanned,
+        site=ctx.site or ctx.args.site,
+        index_name=ctx.index_name,
+        db_path=ctx.db_path,
+        manifest_path=ctx.manifest_path,
+        db_url_count=ctx.db_url_count,
+        total_index_vectors=ctx.total_index_vectors,
+        scanned_vectors=ctx.scanned_vectors,
         orphan_url_count=len(orphan_map),
-        orphan_vector_count=orphan_vectors,
+        orphan_vector_count=sum(len(v) for v in orphan_map.values()),
         delete_urls=delete_urls,
         delete_ids=delete_ids,
         keep_urls=keep_urls,
@@ -770,22 +974,376 @@ def run_reconciliation(args: argparse.Namespace) -> ReconcileResult:
         guard_basis=guard_basis,
         guard_basis_label=guard_basis_label,
         applied=applied,
+        failed=failed,
+        error_message=error_message,
+        timed_out=timed_out,
+        timeout_phase=timeout_phase,
+        fetch_failures=ctx.fetch_failures,
+        fetch_error_samples=list(ctx.fetch_error_samples),
+        unexamined_vectors=ctx.unexamined_vectors,
+        needs_review=needs_review,
+        max_runtime_seconds=ctx.args.max_runtime_seconds,
+    )
+
+
+@dataclass
+class PartialReconcileState:
+    """Delete/keep decisions derived from partial run progress."""
+
+    delete_urls: list[str]
+    delete_ids: list[str]
+    keep_urls: list[str]
+    decision: dict[str, str]
+    guard_blocked: bool
+    guard_basis: int
+    guard_basis_label: str
+
+
+def compute_partial_reconcile_state(ctx: RunContext) -> PartialReconcileState | None:
+    """Build delete candidates from whatever progress is in ctx (for timeout/SIGTERM)."""
+    if not ctx.orphan_map or not ctx.categories:
+        return None
+    args = ctx.args
+    decision = build_decisions(ctx.categories, ctx.statuses, args.skip_http_check)
+    delete_urls, delete_ids, keep_urls = emit_report(
+        args,
+        ctx.scanned_vectors,
+        ctx.orphan_map,
+        decision,
+        set(DELETE_REASONS),
+        ctx.fetch_failures,
+        ctx.unexamined_vectors,
+        silent=True,
+    )
+    guard_basis, guard_basis_label = guard_basis_and_label(
+        ctx.total_index_vectors, ctx.scanned_vectors
+    )
+    guard_blocked = is_guard_blocked(
+        delete_ids,
+        guard_basis,
+        args.max_delete_fraction,
+        args.force,
+    )
+    return PartialReconcileState(
+        delete_urls=delete_urls,
+        delete_ids=delete_ids,
+        keep_urls=keep_urls,
+        decision=decision,
+        guard_blocked=guard_blocked,
+        guard_basis=guard_basis,
+        guard_basis_label=guard_basis_label,
+    )
+
+
+def build_timeout_result(
+    ctx: RunContext,
+    phase: str,
+    message: str,
+) -> ReconcileResult:
+    """Build a timeout result with partial decisions when progress allows."""
+    partial = compute_partial_reconcile_state(ctx)
+    if partial is None:
+        return build_result_from_context(
+            ctx,
+            timed_out=True,
+            timeout_phase=phase,
+            error_message=message,
+        )
+    return build_result_from_context(
+        ctx,
+        delete_urls=partial.delete_urls,
+        delete_ids=partial.delete_ids,
+        keep_urls=partial.keep_urls,
+        decision=partial.decision,
+        guard_blocked=partial.guard_blocked,
+        guard_basis=partial.guard_basis,
+        guard_basis_label=partial.guard_basis_label,
+        timed_out=True,
+        timeout_phase=phase,
+        error_message=message,
+    )
+
+
+def write_partial_timeout_manifest(ctx: RunContext, partial: PartialReconcileState | None) -> None:
+    """Persist partial manifest on timeout when orphan data exists."""
+    if ctx.manifest_path is None or not ctx.orphan_map or partial is None:
+        return
+    write_manifest(
+        ctx.manifest_path,
+        partial.delete_urls,
+        partial.delete_ids,
+        partial.keep_urls,
+        ctx.orphan_map,
+        partial.decision,
+        applied=False,
+        guard_blocked=partial.guard_blocked,
+        timed_out=True,
+        unexamined_vectors=ctx.unexamined_vectors,
+    )
+    print(f"\nPartial manifest written: {ctx.manifest_path}")
+
+
+def compute_exit_code(result: ReconcileResult) -> int:
+    """Map reconciliation outcome to a process exit code."""
+    if result.failed:
+        return 1
+    if result.timed_out:
+        return EXIT_TIMEOUT
+    if result.needs_review:
+        return EXIT_GUARD_BLOCKED
+    return 0
+
+
+def _handle_sigterm(signum: int, frame: Any) -> None:
+    """Send a partial timeout email when systemd/docker stops the container."""
+    del signum, frame
+    ctx = _run_context
+    if ctx is None or ctx.email_sent or not ctx.args.email_report:
+        os._exit(EXIT_TIMEOUT)
+
+    partial = compute_partial_reconcile_state(ctx)
+    write_partial_timeout_manifest(ctx, partial)
+    result = build_timeout_result(
+        ctx,
+        phase=f"{ctx.phase} (SIGTERM)",
+        message="Received SIGTERM (likely systemd TimeoutStartSec)",
+    )
+    ctx.email_sent = True
+    send_email_report(result)
+    os._exit(EXIT_TIMEOUT)
+
+
+def execute_delete_policy(
+    args: argparse.Namespace,
+    index: Any,
+    ctx: RunContext,
+    delete_ids: list[str],
+    guard_blocked: bool,
+    guard_basis_label: str,
+    total_index_vectors: int,
+    scanned: int,
+) -> bool:
+    """Apply --apply-if-safe, --apply, or dry-run messaging; return whether deletion ran."""
+    if args.apply_if_safe:
+        if guard_blocked:
+            print(
+                f"\nApply-if-safe: deletion skipped (delete set exceeds "
+                f"{args.max_delete_fraction:.0%} of {guard_basis_label} vectors)."
+            )
+            return False
+        if not delete_ids:
+            print("\nApply-if-safe: nothing to delete.")
+            return False
+        delete_orphan_vectors(index, delete_ids, ctx)
+        return True
+
+    if args.apply:
+        enforce_delete_guard(delete_ids, total_index_vectors, scanned, args)
+        if delete_ids:
+            delete_orphan_vectors(index, delete_ids, ctx)
+            return True
+        return False
+
+    if guard_blocked:
+        print(
+            f"\nDry run: delete set would exceed {args.max_delete_fraction:.0%} "
+            f"of {guard_basis_label} vectors; manual review required."
+        )
+    else:
+        print("\nDry run only. Re-run with --apply or --apply-if-safe to delete.")
+    return False
+
+
+def run_reconciliation(args: argparse.Namespace, ctx: RunContext) -> ReconcileResult:
+    """Scan Pinecone, classify orphans, optionally delete, return structured result."""
+    global _run_context
+    _run_context = ctx
+
+    if args.email_report:
+        signal.signal(signal.SIGTERM, _handle_sigterm)
+
+    ctx.phase = "environment"
+    load_environment_for_site(args.site)
+    ctx.site = args.site
+
+    index, index_name, total_index_vectors = resolve_pinecone_index(args)
+    ctx.index_name = index_name
+    ctx.total_index_vectors = total_index_vectors
+
+    config = load_crawler_config(args.site)
+    domain = config.get("domain")
+    if not domain:
+        raise ReconcileFatalError(f"no domain in crawler config for {args.site}")
+    skip_regexes = [re.compile(p) for p in config.get("skip_patterns", [])]
+
+    db_path = get_database_path(args.site)
+    ctx.db_path = db_path
+    ctx.manifest_path = db_path.parent / f"orphan_reconcile_{args.site}.json"
+
+    db_urls = get_db_urls(db_path)
+    ctx.db_url_count = len(db_urls)
+    print(f"Live DB: {db_path} (read-only)")
+    print(f"DB distinct URLs: {len(db_urls):,}")
+    if len(db_urls) < args.min_db_urls:
+        raise ReconcileFatalError(
+            f"DB has only {len(db_urls)} URLs (< --min-db-urls {args.min_db_urls}). "
+            "Refusing to classify orphans against a possibly empty/wrong DB."
+        )
+
+    orphan_map, scanned = scan_pinecone_orphans(
+        index, domain, db_urls, args.fetch_workers, args.sample, ctx
+    )
+    orphan_vectors = sum(len(v) for v in orphan_map.values())
+    print(f"\nScanned {scanned:,} crawler vectors")
+    print(f"Orphan URLs (no DB row): {len(orphan_map):,}  ({orphan_vectors:,} vectors)")
+
+    categories = {u: classify_orphan(u, skip_regexes) for u in orphan_map}
+    ctx.categories = categories
+    ambiguous = [u for u, c in categories.items() if c == "ambiguous"]
+
+    statuses: dict[str, Any] = {}
+    if not args.skip_http_check and ambiguous:
+        print(
+            f"\nLiveness-checking {len(ambiguous):,} real-content orphans "
+            f"(~{args.http_rate:.0f} req/s, GET, polite) ..."
+        )
+        statuses = check_ambiguous_liveness(
+            ambiguous, args.http_rate, args.http_workers, args.http_timeout, ctx
+        )
+    ctx.statuses = statuses
+
+    decision = build_decisions(categories, statuses, args.skip_http_check)
+    delete_urls, delete_ids, keep_urls = emit_report(
+        args,
+        scanned,
+        orphan_map,
+        decision,
+        set(DELETE_REASONS),
+        ctx.fetch_failures,
+        ctx.unexamined_vectors,
+    )
+
+    guard_basis, guard_basis_label = guard_basis_and_label(
+        total_index_vectors, scanned
+    )
+    guard_blocked = is_guard_blocked(
+        delete_ids, guard_basis, args.max_delete_fraction, args.force
+    )
+
+    write_manifest(
+        ctx.manifest_path,
+        delete_urls,
+        delete_ids,
+        keep_urls,
+        orphan_map,
+        decision,
+        applied=False,
+        guard_blocked=guard_blocked,
+        timed_out=False,
+        unexamined_vectors=ctx.unexamined_vectors,
+    )
+
+    applied = execute_delete_policy(
+        args,
+        index,
+        ctx,
+        delete_ids,
+        guard_blocked,
+        guard_basis_label,
+        total_index_vectors,
+        scanned,
+    )
+
+    if applied:
+        write_manifest(
+            ctx.manifest_path,
+            delete_urls,
+            delete_ids,
+            keep_urls,
+            orphan_map,
+            decision,
+            applied=True,
+            guard_blocked=guard_blocked,
+            timed_out=False,
+            unexamined_vectors=ctx.unexamined_vectors,
+        )
+    print(f"\nManifest written: {ctx.manifest_path}")
+
+    return build_result_from_context(
+        ctx,
+        delete_urls=delete_urls,
+        delete_ids=delete_ids,
+        keep_urls=keep_urls,
+        decision=decision,
+        guard_blocked=guard_blocked,
+        guard_basis=guard_basis,
+        guard_basis_label=guard_basis_label,
+        applied=applied,
     )
 
 
 def main() -> int:
     args = build_arg_parser().parse_args()
-    if args.apply and args.apply_if_safe:
-        print("Error: use only one of --apply or --apply-if-safe")
+    arg_error = validate_args(args)
+    if arg_error:
+        print(f"Error: {arg_error}")
         return 1
 
-    result = run_reconciliation(args)
+    deadline = (
+        time.monotonic() + args.max_runtime_seconds
+        if args.max_runtime_seconds
+        else None
+    )
+    ctx = RunContext(args=args, deadline=deadline)
+    result: ReconcileResult
 
-    if args.email_report and not send_email_report(result):
-        print("Error: failed to send ops email")
-        return 1
+    try:
+        result = run_reconciliation(args, ctx)
+    except ReconcileTimeoutError as exc:
+        print(f"\nTimeout: {exc.message}")
+        partial = compute_partial_reconcile_state(ctx)
+        write_partial_timeout_manifest(ctx, partial)
+        result = build_timeout_result(ctx, phase=exc.phase, message=exc.message)
+    except ReconcileFatalError as exc:
+        print(f"\nError: {exc.message}")
+        partial = compute_partial_reconcile_state(ctx)
+        if partial is not None and ctx.manifest_path is not None:
+            write_manifest(
+                ctx.manifest_path,
+                partial.delete_urls,
+                partial.delete_ids,
+                partial.keep_urls,
+                ctx.orphan_map,
+                partial.decision,
+                applied=False,
+                guard_blocked=partial.guard_blocked,
+                timed_out=False,
+                unexamined_vectors=ctx.unexamined_vectors,
+            )
+            print(f"\nManifest written: {ctx.manifest_path}")
+        result = build_result_from_context(
+            ctx,
+            delete_urls=partial.delete_urls if partial else [],
+            delete_ids=partial.delete_ids if partial else [],
+            keep_urls=partial.keep_urls if partial else [],
+            decision=partial.decision if partial else {},
+            guard_blocked=partial.guard_blocked if partial else False,
+            guard_basis=partial.guard_basis if partial else 0,
+            guard_basis_label=partial.guard_basis_label if partial else "",
+            failed=True,
+            error_message=exc.message,
+        )
 
-    return 0
+    exit_code = compute_exit_code(result)
+
+    if args.email_report:
+        if _run_context is not None:
+            _run_context.email_sent = True
+        if not send_email_report(result):
+            print("Error: failed to send ops email")
+            return 1
+
+    return exit_code
 
 
 if __name__ == "__main__":

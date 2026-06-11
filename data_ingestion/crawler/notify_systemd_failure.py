@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """
-Send an ops email when the crawler systemd oneshot unit fails.
+Send an ops email when a crawler-related systemd oneshot unit fails.
 
 Intended to be run inside the crawler Docker image (same env as daily_report), e.g.:
 
   docker run --rm -e DATA_DIR=/app/data --env-file ... -v ... ananda-crawler:latest \\
     python /app/crawler/notify_systemd_failure.py
+
+Optional env:
+  SYSTEMD_FAILED_UNIT — unit name for the email body (default: ananda-crawler.service)
 """
 
 from __future__ import annotations
@@ -19,13 +22,14 @@ from pyutil.email_ops import get_site_shortname, send_ops_alert_sync
 def main() -> int:
     site_id = os.environ.get("SITE_ID", "ananda-public")
     os.environ["SITE_ID"] = site_id
+    unit = os.environ.get("SYSTEMD_FAILED_UNIT", "ananda-crawler.service")
     short = get_site_shortname(site_id)
-    subject = f"[{short}] Crawler systemd job failed"
+    subject = f"[{short}] {unit} failed"
     body = (
-        "The ananda-crawler.service unit entered a failed state.\n\n"
+        f"The {unit} unit entered a failed state.\n\n"
         "On the VM, inspect:\n"
-        "  sudo journalctl -u ananda-crawler.service -b -n 200 --no-pager\n"
-        "  sudo systemctl status ananda-crawler.service\n"
+        f"  sudo journalctl -u {unit} -b -n 200 --no-pager\n"
+        f"  sudo systemctl status {unit}\n"
     )
     if send_ops_alert_sync(subject=subject, message=body, error_details=None):
         return 0

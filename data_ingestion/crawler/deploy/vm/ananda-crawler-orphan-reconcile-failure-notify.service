@@ -1,0 +1,16 @@
+# Install: sudo cp ananda-crawler-orphan-reconcile-failure-notify.service /etc/systemd/system/
+#          sudo systemctl daemon-reload
+#
+# Triggered when ananda-crawler-orphan-reconcile.service fails (OnFailure= in that unit).
+
+[Unit]
+Description=Email ops when orphan reconcile systemd job fails
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=docker
+Environment=SYSTEMD_FAILED_UNIT=ananda-crawler-orphan-reconcile.service
+ExecStart=/usr/local/bin/ananda-crawler-notify-failure.sh
+StandardOutput=journal
+StandardError=journal
