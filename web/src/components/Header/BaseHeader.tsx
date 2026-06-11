@@ -265,7 +265,7 @@ export default function BaseHeader({
             {whatsNewAvailable && siteConfig && (
               <WhatsNewDropdown siteConfig={siteConfig} requireLogin={requireLogin} />
             )}
-            <HelpDropdown siteConfig={siteConfig || null} helpUrl={helpUrl} requireLogin={requireLogin} />
+            <HelpDropdown helpUrl={helpUrl} />
             {requireLogin && authReady && (
               <nav className="flex space-x-4">
                 {isLoggedIn ? (

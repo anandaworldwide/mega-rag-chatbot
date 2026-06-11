@@ -125,7 +125,6 @@
     "enableModelComparison": true,
     "showSourceCountSelector": true,
     "enableWhatsNew": true,
-    "enableTipsConfig": true,
     "temperature": 0.4,
     "modelName": "gpt-4o",
     "enableGeoAwareness": true,

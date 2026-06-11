@@ -1,5 +1,4 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { useRouter } from "next/router";
 import { SearchResult } from "@/types/SearchTypes";
 import { highlightQueryTerms } from "@/utils/client/highlightText";
 import { getMappedLibraryName, getLibraryUrl } from "@/utils/client/libraryMappings";
@@ -16,7 +15,6 @@ interface SearchResultItemProps {
 }
 
 export default function SearchResultItem({ result, query }: SearchResultItemProps) {
-  const router = useRouter();
   const [isExpanded, setIsExpanded] = useState(false);
   const [showMediaPlayer, setShowMediaPlayer] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -47,23 +45,6 @@ export default function SearchResultItem({ result, query }: SearchResultItemProp
 
   const formatSimilarityScore = (score: number): string => {
     return `${Math.round(score * 100)}%`;
-  };
-
-  const handleExplainThis = () => {
-    logEvent("search_explain_this", "Search", result.metadata.title || "unknown");
-
-    // Build the explanation request query
-    const title = result.metadata.title || "Unknown Title";
-    const author = result.metadata.author && result.metadata.author !== "Unknown" ? result.metadata.author : null;
-
-    const titleByAuthor = author ? `${title} by ${author}` : title;
-    const question = `Give me a brief summary and one clarifying question I could ask next about "${titleByAuthor}".\n\nContent:\n${result.pageContent}`;
-
-    // Navigate to chat with pre-filled query and auto-submit flag
-    router.push({
-      pathname: "/",
-      query: { q: question, submit: "true" },
-    });
   };
 
   // Normalize source URLs (prepend https:// when missing, support relative paths with library base)
@@ -207,14 +188,6 @@ export default function SearchResultItem({ result, query }: SearchResultItemProp
 
       {/* Actions */}
       <div className="flex flex-wrap gap-2">
-        <button
-          onClick={handleExplainThis}
-          className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors text-sm"
-        >
-          <span className="material-icons text-sm">chat</span>
-          Summarize & Ask
-        </button>
-
         {/* Audio Player button */}
         {result.metadata.type === "audio" && result.metadata.filename && (
           <button
