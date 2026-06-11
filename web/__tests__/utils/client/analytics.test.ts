@@ -36,6 +36,7 @@ describe('analytics utils', () => {
       'test_category',
       'test_label',
       123,
+      undefined,
     );
     expect(event).not.toHaveBeenCalled();
   });
@@ -68,6 +69,24 @@ describe('analytics utils', () => {
       category: 'test_category',
       label: 'test_label',
       value: undefined,
+    });
+  });
+
+  it('forwards optional GA4 event parameters', () => {
+    Object.defineProperty(process, 'env', {
+      value: { ...originalEnv, NODE_ENV: 'production' },
+      writable: true,
+    });
+
+    logEvent('task_popover_submit', 'Tasks', 'research', undefined, {
+      task_id: 'research',
+    });
+
+    expect(event).toHaveBeenCalledWith('task_popover_submit', {
+      category: 'Tasks',
+      label: 'research',
+      value: undefined,
+      task_id: 'research',
     });
   });
 });

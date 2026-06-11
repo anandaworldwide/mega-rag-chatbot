@@ -10,7 +10,7 @@ import { createPortal } from "react-dom";
 import { TaskRegistryEntry, TaskDefinition, TaskStep } from "@/types/taskDefinition";
 import { getEnabledTasks, loadTaskDefinition } from "@/utils/client/taskLoader";
 import { generatePrompt } from "@/utils/client/promptGenerator";
-import { logEvent } from "@/utils/client/analytics";
+import { logEvent, logTaskEvent } from "@/utils/client/analytics";
 import { SiteConfig } from "@/types/siteConfig";
 
 interface TaskPopoverProps {
@@ -118,7 +118,7 @@ export const TaskPopover: React.FC<TaskPopoverProps> = ({ siteConfig, onTaskSubm
   const handleClose = useCallback(() => {
     // Track close event - differentiate between closing from task list vs wizard
     if (selectedTaskId) {
-      logEvent("task_wizard_close", "Tasks", selectedTaskId);
+      logTaskEvent("task_wizard_close", selectedTaskId);
     } else {
       logEvent("task_popover_close", "Tasks", "task_list");
     }
@@ -270,11 +270,13 @@ export const TaskPopover: React.FC<TaskPopoverProps> = ({ siteConfig, onTaskSubm
 
   const handleTaskSelect = (taskId: string) => {
     setSelectedTaskId(taskId);
-    logEvent("task_popover_select", "Tasks", taskId);
+    logTaskEvent("task_popover_select", taskId);
   };
 
   const handleBack = () => {
-    logEvent("task_wizard_back", "Tasks", selectedTaskId || "");
+    if (selectedTaskId) {
+      logTaskEvent("task_wizard_back", selectedTaskId);
+    }
     setIsPositioned(false); // Hide popover while task list loads and position recalculates
     setSelectedTaskId(null);
     setTaskDefinition(null);
@@ -291,7 +293,7 @@ export const TaskPopover: React.FC<TaskPopoverProps> = ({ siteConfig, onTaskSubm
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!taskDefinition || isSubmitting) return;
+    if (!taskDefinition || isSubmitting || !selectedTaskId) return;
 
     // Validate required fields
     const missingFields: string[] = [];
@@ -303,7 +305,7 @@ export const TaskPopover: React.FC<TaskPopoverProps> = ({ siteConfig, onTaskSubm
 
     if (missingFields.length > 0) {
       setFormError(`Please fill in: ${missingFields.join(", ")}`);
-      logEvent("task_wizard_validation_error", "Tasks", selectedTaskId || "", missingFields.length);
+      logTaskEvent("task_wizard_validation_error", selectedTaskId, missingFields.length);
       return;
     }
 
@@ -321,7 +323,7 @@ export const TaskPopover: React.FC<TaskPopoverProps> = ({ siteConfig, onTaskSubm
         authorFilter
       );
 
-      logEvent("task_popover_submit", "Tasks", selectedTaskId || "");
+      logTaskEvent("task_popover_submit", selectedTaskId);
       handleClose();
     } catch (err) {
       console.error("Failed to generate prompt:", err);
