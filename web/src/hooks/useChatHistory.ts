@@ -19,7 +19,7 @@ export interface ChatHistoryItem {
   sources?: string; // JSON string of source documents
   suggestions?:
     | string[]
-    | Array<{ id: string; text: string; type: "deeper" | "broader"; sourceDocId?: string; score?: number }>; // Follow-up question suggestions (legacy string[] or typed)
+    | Array<{ id: string; text: string; type: "deeper" | "broader" | "apply"; sourceDocId?: string; score?: number }>; // Follow-up question suggestions (legacy string[] or typed)
   restatedQuestion?: string; // AI-generated restated question for better context
   isStarred?: boolean; // Star state for this conversation
   // Task wizard state (for persisting structured task conversations)

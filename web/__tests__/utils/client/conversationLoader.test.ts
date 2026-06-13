@@ -68,7 +68,8 @@ describe("conversationLoader", () => {
   it("handles new TypedSuggestion[] format correctly", async () => {
     const typedSuggestions: TypedSuggestion[] = [
       { id: "1", text: "What are examples?", type: "deeper" },
-      { id: "2", text: "Related topics?", type: "broader" },
+      { id: "2", text: "Morning practice for this?", type: "apply" },
+      { id: "3", text: "Related topics?", type: "broader" },
     ];
 
     const mockChats: ChatHistoryItem[] = [
@@ -280,5 +281,85 @@ describe("conversationLoader", () => {
     const suggestions = apiMessage!.suggestions;
     expect(suggestions![0].sourceDocId).toBe("doc-123");
     expect(suggestions![0].score).toBe(0.95);
+  });
+
+  it("defaults invalid suggestion types to deeper on reload", async () => {
+    const mockChats: ChatHistoryItem[] = [
+      {
+        id: "doc1",
+        question: "What is meditation?",
+        answer: "Meditation is...",
+        timestamp: { seconds: Date.now() / 1000 },
+        collection: "test",
+        suggestions: [
+          { id: "1", text: "Valid apply pill", type: "apply" },
+          { id: "2", text: "Invalid type pill", type: "unknown" },
+          { id: "3", text: "Missing type pill" },
+        ] as any,
+      },
+    ];
+
+    (fetchWithAuth as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockChats,
+    });
+
+    const result = await loadConversationByConvId("conv-123");
+    const suggestions = result.messages.find((m) => m.type === "apiMessage")!.suggestions;
+
+    expect(suggestions).toEqual([
+      { id: "1", text: "Valid apply pill", type: "apply" },
+      { id: "2", text: "Invalid type pill", type: "deeper" },
+      { id: "3", text: "Missing type pill", type: "deeper" },
+    ]);
+  });
+
+  it("drops suggestions with empty text on reload", async () => {
+    const mockChats: ChatHistoryItem[] = [
+      {
+        id: "doc1",
+        question: "What is meditation?",
+        answer: "Meditation is...",
+        timestamp: { seconds: Date.now() / 1000 },
+        collection: "test",
+        suggestions: [
+          { id: "1", text: "Keep me", type: "broader" },
+          { id: "2", text: "   ", type: "apply" },
+        ] as any,
+      },
+    ];
+
+    (fetchWithAuth as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockChats,
+    });
+
+    const result = await loadConversationByConvId("conv-123");
+    const suggestions = result.messages.find((m) => m.type === "apiMessage")!.suggestions;
+
+    expect(suggestions).toEqual([{ id: "1", text: "Keep me", type: "broader" }]);
+  });
+
+  it("assigns restored ids for suggestions missing ids on reload", async () => {
+    const mockChats: ChatHistoryItem[] = [
+      {
+        id: "doc1",
+        question: "What is meditation?",
+        answer: "Meditation is...",
+        timestamp: { seconds: Date.now() / 1000 },
+        collection: "test",
+        suggestions: [{ text: "Practice daily?", type: "apply" }] as any,
+      },
+    ];
+
+    (fetchWithAuth as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockChats,
+    });
+
+    const result = await loadConversationByConvId("conv-123");
+    const suggestions = result.messages.find((m) => m.type === "apiMessage")!.suggestions;
+
+    expect(suggestions).toEqual([{ id: "restored-0", text: "Practice daily?", type: "apply" }]);
   });
 });

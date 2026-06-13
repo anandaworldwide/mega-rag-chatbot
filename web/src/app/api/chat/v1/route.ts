@@ -85,6 +85,7 @@ import {
 } from "@/utils/server/titleCatalog";
 import { buildTitleScopeForPersistence } from "@/utils/server/titleScopePersistence";
 import { TitleScopeSelection } from "@/types/titleScope";
+import { TypedSuggestion } from "@/types/Suggestion";
 import { buildPineconeAccessFilterClauses, resolveEffectiveAccessLevelForEmail } from "@/utils/server/accessLevelUtils";
 
 export const runtime = "nodejs";
@@ -454,7 +455,7 @@ async function saveOrUpdateDocument(
   restatedQuestion: string,
   uuid?: string | undefined,
   convId?: string | undefined, // Accept convId from frontend
-  suggestions?: Array<{ id: string; text: string; type: "deeper" | "broader"; sourceDocId?: string; score?: number }>, // Accept typed suggestions for saving
+  suggestions?: TypedSuggestion[], // Accept typed suggestions for saving
   model?: string | undefined, // Model used for this response
   temperature?: number | undefined, // Temperature used for this response
   taskMode?: string, // Task mode (e.g., "class-planning", "research")
@@ -1323,12 +1324,20 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
                 }
               }
               // For follow-up messages, no title generation needed
+
+              // Emit suggestions only after the answers doc exists so interact ownership checks pass.
+              if (suggestions.length > 0) {
+                sendData({ suggestions });
+              }
             }
+
             timingMetrics.documentSaveComplete = Date.now();
           } catch (_saveError) {
             // Silently handle save errors to avoid breaking the chat flow
             timingMetrics.documentSaveComplete = Date.now();
           }
+        } else if (suggestions.length > 0) {
+          sendData({ suggestions });
         }
       } catch (error: unknown) {
         requestStatus = "error";

@@ -1,4 +1,4 @@
-import { logEvent } from '@/utils/client/analytics';
+import { logEvent, logSuggestionPillClick, logSuggestionPillLaneShown } from '@/utils/client/analytics';
 import { event } from 'nextjs-google-analytics';
 
 // Mock nextjs-google-analytics
@@ -87,6 +87,39 @@ describe('analytics utils', () => {
       label: 'research',
       value: undefined,
       task_id: 'research',
+    });
+  });
+
+  it('logs suggestion pill clicks with suggestion_type for GA4 filtering', () => {
+    Object.defineProperty(process, 'env', {
+      value: { ...originalEnv, NODE_ENV: 'production' },
+      writable: true,
+    });
+
+    logSuggestionPillClick('apply', 'A morning practice for this?', 0);
+
+    expect(event).toHaveBeenCalledWith('suggestion_pill_click', {
+      category: 'Engagement',
+      label: 'A morning practice for this?',
+      value: 0,
+      suggestion_type: 'apply',
+    });
+  });
+
+  it('logs suggestion pill lane impressions with suggestion_type and pill_count', () => {
+    Object.defineProperty(process, 'env', {
+      value: { ...originalEnv, NODE_ENV: 'production' },
+      writable: true,
+    });
+
+    logSuggestionPillLaneShown('apply', 2);
+
+    expect(event).toHaveBeenCalledWith('suggestion_pill_shown', {
+      category: 'Engagement',
+      label: 'apply',
+      value: 2,
+      suggestion_type: 'apply',
+      pill_count: 2,
     });
   });
 });

@@ -1,5 +1,6 @@
-import React from "react";
-import { TypedSuggestion } from "@/types/Suggestion";
+import React, { useEffect } from "react";
+import { TypedSuggestion, SuggestionType } from "@/types/Suggestion";
+import { logSuggestionPillLaneShown } from "@/utils/client/analytics";
 
 interface SuggestionPillsProps {
   suggestions: TypedSuggestion[];
@@ -8,13 +9,35 @@ interface SuggestionPillsProps {
 }
 
 const SuggestionPills: React.FC<SuggestionPillsProps> = ({ suggestions, onSuggestionClick, loading = false }) => {
+  const deeperSuggestions = suggestions.filter((s) => s.type === "deeper");
+  const applySuggestions = suggestions.filter((s) => s.type === "apply");
+  const broaderSuggestions = suggestions.filter((s) => s.type === "broader");
+  const suggestionKey = suggestions.map((s) => s.id).join(",");
+
+  useEffect(() => {
+    if (suggestions.length === 0) {
+      return;
+    }
+
+    const lanes: Array<{ type: SuggestionType; count: number }> = [];
+    if (deeperSuggestions.length > 0) {
+      lanes.push({ type: "deeper", count: deeperSuggestions.length });
+    }
+    if (applySuggestions.length > 0) {
+      lanes.push({ type: "apply", count: applySuggestions.length });
+    }
+    if (broaderSuggestions.length > 0) {
+      lanes.push({ type: "broader", count: broaderSuggestions.length });
+    }
+
+    lanes.forEach(({ type, count }) => {
+      logSuggestionPillLaneShown(type, count);
+    });
+  }, [suggestionKey]); // eslint-disable-line react-hooks/exhaustive-deps -- log once per suggestion set
+
   if (suggestions.length === 0) {
     return null;
   }
-
-  // Separate suggestions by type
-  const deeperSuggestions = suggestions.filter((s) => s.type === "deeper");
-  const broaderSuggestions = suggestions.filter((s) => s.type === "broader");
 
   const renderSuggestionButton = (suggestion: TypedSuggestion, position: number) => {
     return (
@@ -48,6 +71,16 @@ const SuggestionPills: React.FC<SuggestionPillsProps> = ({ suggestions, onSugges
           <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Go deeper</h4>
           <div className="flex flex-wrap gap-2">
             {deeperSuggestions.map((suggestion, index) => renderSuggestionButton(suggestion, index))}
+          </div>
+        </div>
+      )}
+
+      {/* Apply suggestions lane */}
+      {applySuggestions.length > 0 && (
+        <div>
+          <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">Take into daily life</h4>
+          <div className="flex flex-wrap gap-2">
+            {applySuggestions.map((suggestion, index) => renderSuggestionButton(suggestion, index))}
           </div>
         </div>
       )}

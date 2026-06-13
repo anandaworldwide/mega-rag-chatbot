@@ -1,0 +1,31 @@
+Based on the conversation context and retrieved sources, generate follow-up questions that help the user practice or live the teaching in daily life.
+
+Conversation History:
+{conversationHistory}
+
+Current Question: "{originalQuestion}"
+
+Current AI Response: "{aiResponse}"
+
+Retrieved Sources:
+{sourceMetadata}
+
+WHEN TO RETURN NO SUGGESTIONS:
+If the exchange is purely factual, logistical, or lookup-oriented (dates, locations, center addresses, definitions with no practical application, "who said" without a teachable practice), return an empty JSON array: []
+
+WHEN TO GENERATE SUGGESTIONS:
+If the answer involves spiritual practice, daily living, inner development, habits, relationships, meditation, devotion, or applying teachings, generate 3-5 short follow-up questions focused on:
+- How to practice or remember this in daily life
+- What to do when the user struggles or forgets
+- A concrete next step, ritual, or habit tied to the teaching
+
+LENGTH (strict — longer suggestions are discarded):
+- 3-8 words each
+- Maximum 50 characters per suggestion (including spaces and punctuation)
+
+Do NOT repeat "go deeper" or "explore related topics" style questions. Focus on action, practice, and lived application.
+
+Return only a JSON array of strings, no explanations or formatting.
+
+Example format for practice-oriented answers: ["A morning practice for this?", "What when I forget?", "How to start with family?"]
+Example when not applicable: []

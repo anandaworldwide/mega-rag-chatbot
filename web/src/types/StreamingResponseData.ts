@@ -26,7 +26,7 @@ export interface StreamingResponseData {
     totalTokens?: number;
     firstTokenGenerated?: number;
   };
-  suggestions?: TypedSuggestion[]; // Follow-up question suggestions as typed items (deeper/broader)
+  suggestions?: TypedSuggestion[]; // Follow-up question suggestions (deeper / apply / broader)
   titleScopeSuggestions?: TitleScopeSuggestion[];
   /** Present when selected source cannot match current author/library/media filters. */
   filterConflict?: TitleScopeFilterConflictPayload;

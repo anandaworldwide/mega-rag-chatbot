@@ -5,7 +5,30 @@
  */
 
 import { NextRequest } from "next/server";
-import { POST } from "@/app/api/suggestions/interact/route";
+
+jest.mock("@/utils/server/appRouterJwtUtils", () => ({
+  withAppRouterJwtAuth: (handler: (req: NextRequest, context: unknown, token: unknown) => Promise<Response>) => {
+    return (req: NextRequest, context?: unknown) =>
+      handler(req, context ?? {}, {
+        client: "web",
+        uuid: "test-user-uuid",
+        iat: 1,
+        exp: 9999999999,
+      });
+  },
+}));
+
+jest.mock("@/utils/server/loadSiteConfig", () => ({
+  loadSiteConfigSync: jest.fn().mockReturnValue({ requireLogin: true, siteId: "ananda" }),
+}));
+
+jest.mock("@/utils/server/corsMiddleware", () => ({
+  addCorsHeaders: jest.fn().mockImplementation((response) => response),
+}));
+
+jest.mock("@/utils/server/conversationOwnershipUtils", () => ({
+  conversationBelongsToUuid: jest.fn().mockResolvedValue(true),
+}));
 
 // Mock Firebase - use a factory function to avoid hoisting issues
 jest.mock("@/services/firebase", () => ({
@@ -37,10 +60,14 @@ jest.mock("@/utils/server/firestoreUtils", () => ({
   getSuggestionsInteractionsCollectionName: jest.fn(() => "prod_suggestions_interactions"),
 }));
 
+import { POST, OPTIONS } from "@/app/api/suggestions/interact/route";
 import { firestoreAdd } from "@/utils/server/firestoreRetryUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { db } from "@/services/firebase";
 import { getSuggestionsInteractionsCollectionName } from "@/utils/server/firestoreUtils";
+import { conversationBelongsToUuid } from "@/utils/server/conversationOwnershipUtils";
+import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
+import * as corsMiddleware from "@/utils/server/corsMiddleware";
 
 describe("/api/suggestions/interact", () => {
   beforeEach(() => {
@@ -50,6 +77,9 @@ describe("/api/suggestions/interact", () => {
   const createMockRequest = (body: any): NextRequest => {
     return {
       json: jest.fn().mockResolvedValue(body),
+      cookies: {
+        get: jest.fn(() => undefined),
+      },
       headers: {
         get: jest.fn((name: string) => {
           if (name === "x-forwarded-for") return "192.168.1.1";
@@ -59,6 +89,37 @@ describe("/api/suggestions/interact", () => {
       },
     } as unknown as NextRequest;
   };
+
+  it("handles OPTIONS preflight with CORS headers", async () => {
+    const req = {
+      headers: {
+        get: jest.fn(() => null),
+      },
+    } as unknown as NextRequest;
+
+    const response = await OPTIONS(req);
+
+    expect(response.status).toBe(204);
+    expect(loadSiteConfigSync).toHaveBeenCalled();
+    expect(corsMiddleware.addCorsHeaders).toHaveBeenCalled();
+  });
+
+  it("returns 403 when conversation does not belong to the user", async () => {
+    (conversationBelongsToUuid as jest.Mock).mockResolvedValueOnce(false);
+
+    const req = createMockRequest({
+      convId: "conv-other-user",
+      suggestionId: "suggestion-456",
+      type: "deeper",
+      position: 0,
+    });
+    const response = await POST(req);
+    const data = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(data.error).toBe("Conversation not found or access denied");
+    expect(firestoreAdd).not.toHaveBeenCalled();
+  });
 
   it("successfully logs a valid suggestion interaction", async () => {
     const mockCollection = {
@@ -105,6 +166,27 @@ describe("/api/suggestions/interact", () => {
     const interactionData = addCall[1];
     expect(interactionData.type).toBe("broader");
     expect(interactionData.position).toBe(1);
+  });
+
+  it("logs apply type suggestions correctly", async () => {
+    const mockBody = {
+      convId: "conv-123",
+      suggestionId: "suggestion-apply-1",
+      type: "apply",
+      position: 0,
+    };
+
+    const req = createMockRequest(mockBody);
+    const response = await POST(req);
+    const data = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(data.success).toBe(true);
+
+    const addCall = (firestoreAdd as jest.Mock).mock.calls[0];
+    const interactionData = addCall[1];
+    expect(interactionData.type).toBe("apply");
+    expect(interactionData.position).toBe(0);
   });
 
   it("includes optional questionHash when provided", async () => {
@@ -279,6 +361,22 @@ describe("/api/suggestions/interact", () => {
     // firestoreAdd signature: (ref, data, ...)
     const interactionData = addCall[1];
     expect(interactionData.questionHash).toBeNull();
+  });
+
+  it("includes userUuid from JWT token in interaction data", async () => {
+    const mockBody = {
+      convId: "conv-123",
+      suggestionId: "suggestion-456",
+      type: "apply",
+      position: 0,
+    };
+
+    const req = createMockRequest(mockBody);
+    await POST(req);
+
+    const addCall = (firestoreAdd as jest.Mock).mock.calls[0];
+    const interactionData = addCall[1];
+    expect(interactionData.userUuid).toBe("test-user-uuid");
   });
 
   it("uses environment-prefixed collection name (prod)", async () => {

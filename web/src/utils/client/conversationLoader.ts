@@ -11,6 +11,7 @@ import { ChatMessage, createChatMessages } from "@/utils/shared/chatHistory";
 import { ChatHistoryItem } from "@/hooks/useChatHistory";
 import { Document } from "@langchain/core/documents";
 import { TypedSuggestion } from "@/types/Suggestion";
+import { normalizeTypedSuggestions } from "@/utils/client/suggestionUtils";
 import { TitleScopeSelection } from "@/types/titleScope";
 
 /** Thrown when the API returns no messages for a convId (stale link, deleted chat, etc.). Not logged as an error. */
@@ -150,34 +151,11 @@ export async function loadConversationByConvId(
       try {
         if (chat.suggestions) {
           if (Array.isArray(chat.suggestions)) {
-            // Check if it's typed suggestions (has objects with 'text' property) or legacy strings
-            if (
-              chat.suggestions.length > 0 &&
-              typeof chat.suggestions[0] === "object" &&
-              "text" in chat.suggestions[0]
-            ) {
-              // Typed suggestions - use as-is
-              suggestions = chat.suggestions as TypedSuggestion[];
-            } else {
-              // Legacy string array - convert to typed format for compatibility
-              suggestions = (chat.suggestions as string[]).map((text, idx) => ({
-                id: `legacy-${idx}`,
-                text,
-                type: "deeper" as const, // Default to deeper for legacy suggestions
-              }));
-            }
+            suggestions = normalizeTypedSuggestions(chat.suggestions);
           } else if (typeof chat.suggestions === "string") {
             const parsed = JSON.parse(chat.suggestions);
             if (Array.isArray(parsed)) {
-              if (parsed.length > 0 && typeof parsed[0] === "object" && "text" in parsed[0]) {
-                suggestions = parsed as TypedSuggestion[];
-              } else {
-                suggestions = (parsed as string[]).map((text: string, idx: number) => ({
-                  id: `legacy-${idx}`,
-                  text,
-                  type: "deeper" as const,
-                }));
-              }
+              suggestions = normalizeTypedSuggestions(parsed);
             }
           }
         }

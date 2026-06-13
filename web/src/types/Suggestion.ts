@@ -1,4 +1,4 @@
-export type SuggestionType = "deeper" | "broader";
+export type SuggestionType = "deeper" | "broader" | "apply";
 
 export interface TypedSuggestion {
   id: string;

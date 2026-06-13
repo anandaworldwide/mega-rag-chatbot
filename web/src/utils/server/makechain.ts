@@ -1314,16 +1314,22 @@ export const makeComparisonChains = async (
   }
 };
 
-// Load follow-up prompt template for a specific type (deeper or broader)
-async function loadFollowUpPrompt(type: "deeper" | "broader", siteId?: string): Promise<string> {
+// Load follow-up prompt template for a specific type (deeper, broader, or apply)
+async function loadFollowUpPrompt(type: "deeper" | "broader" | "apply", siteId?: string): Promise<string> {
   const promptsDir = path.join(process.cwd(), "site-config", "followup-prompts");
+  const attemptedPaths: string[] = [];
 
   // Try site-specific prompt first
   if (siteId) {
     const siteSpecificPath = path.join(promptsDir, `${siteId}-${type}-followup-prompt.txt`);
+    attemptedPaths.push(siteSpecificPath);
     try {
       const sitePrompt = await fs.readFile(siteSpecificPath, "utf-8");
-      return sitePrompt.trim();
+      const trimmed = sitePrompt.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+      console.warn(`Follow-up prompt file is empty, falling back to default: ${siteSpecificPath}`);
     } catch (_error) {
       // Site-specific prompt not found, fall back to default
     }
@@ -1331,48 +1337,18 @@ async function loadFollowUpPrompt(type: "deeper" | "broader", siteId?: string): 
 
   // Try default prompt for type
   const defaultPath = path.join(promptsDir, `${type}-followup-prompt.txt`);
+  attemptedPaths.push(defaultPath);
   try {
     const defaultPrompt = await fs.readFile(defaultPath, "utf-8");
-    return defaultPrompt.trim();
-  } catch (_error) {
-    // If no prompt files exist, use hardcoded fallback
-    if (type === "deeper") {
-      return `Based on the conversation context and retrieved sources, generate 3-5 narrower, more specific follow-up questions that dive deeper into the same topic.
-
-Conversation History:
-{conversationHistory}
-
-Current Question: "{originalQuestion}"
-
-Current AI Response: "{aiResponse}"
-
-Retrieved Sources:
-{sourceMetadata}
-
-Generate 3-5 short, specific follow-up questions (3-8 words each) that explore narrower aspects of the current topic. These should help users understand details, examples, or specific applications that weren't fully covered. Focus on questions that drill down into specifics rather than branching out to new topics.
-
-Return only a JSON array of strings, no explanations or formatting.
-
-Example format: ["Specific examples?", "How does this work in practice?", "What are the details?"]`;
-    } else {
-      return `Based on the conversation context and retrieved sources, generate 3-5 adjacent or related follow-up questions that expand the discussion to related topics.
-
-Conversation History:
-{conversationHistory}
-
-Current Question: "{originalQuestion}"
-
-Current AI Response: "{aiResponse}"
-
-Retrieved Sources:
-{sourceMetadata}
-
-Generate 3-5 short, related follow-up questions (3-8 words each) that explore adjacent topics or broader context. These should help users discover related concepts, connections, or complementary information that expands their understanding beyond the current topic.
-
-Return only a JSON array of strings, no explanations or formatting.
-
-Example format: ["Related topics?", "How does this connect to X?", "What else should I know?"]`;
+    const trimmed = defaultPrompt.trim();
+    if (!trimmed) {
+      throw new Error(`Follow-up prompt file is empty: ${defaultPath}`);
     }
+    return trimmed;
+  } catch (error) {
+    const message = `Failed to load follow-up prompt for type "${type}"${siteId ? ` (site: ${siteId})` : ""}. Attempted: ${attemptedPaths.join(", ")}`;
+    console.error(message, error);
+    throw new Error(message, { cause: error instanceof Error ? error : undefined });
   }
 }
 
@@ -1495,25 +1471,26 @@ export function filterSuggestionsForDiversity(
   return filtered;
 }
 
-// Generate follow-up question suggestions using GPT-3.5-turbo (dual-head: deeper and broader)
-async function generateFollowUpSuggestions(
+// Generate follow-up question suggestions using GPT-4.1-mini (deeper, broader, and apply when configured)
+export async function generateFollowUpSuggestions(
   originalQuestion: string,
   aiResponse: string,
   conversationHistory: ChatMessage[],
   sourceDocuments: Document[],
-  sendData: (data: StreamingResponseData) => void,
-  siteId?: string
+  siteId?: string,
+  enableApplySuggestions = false
 ): Promise<TypedSuggestion[]> {
-  try {
-    // Create a lightweight model for suggestions
-    const suggestionModel = new ChatOpenAI({
-      model: "gpt-4.1-mini",
-      temperature: 0.7,
-      maxTokens: 200,
-    });
+  const includeApplyLane = enableApplySuggestions;
 
-    // Format conversation history for context
-    const formattedHistory = conversationHistory
+  // Create a lightweight model for suggestions
+  const suggestionModel = new ChatOpenAI({
+    model: "gpt-4.1-mini",
+    temperature: 0.7,
+    maxTokens: 200,
+  });
+
+  // Format conversation history for context
+  const formattedHistory = conversationHistory
       .slice(-6) // Last 6 messages (3 Q&A pairs) to avoid token limits
       .map((msg) => {
         const role = msg.role === "user" ? "User" : "AI";
@@ -1521,8 +1498,8 @@ async function generateFollowUpSuggestions(
       })
       .join("\n\n");
 
-    // Format source metadata for context
-    const sourceMetadata = sourceDocuments
+  // Format source metadata for context
+  const sourceMetadata = sourceDocuments
       .slice(0, 3) // Top 3 sources
       .map((doc, idx) => {
         const title = doc.metadata?.title || doc.metadata?.source || `Source ${idx + 1}`;
@@ -1531,65 +1508,95 @@ async function generateFollowUpSuggestions(
       })
       .join("\n");
 
-    // Generate deeper suggestions
-    const deeperPromptTemplate = await loadFollowUpPrompt("deeper", siteId);
-    const deeperPrompt = deeperPromptTemplate
+  const truncatedResponse = aiResponse.length > 2500 ? `${aiResponse.substring(0, 2500)}...` : aiResponse;
+  const historyContext = formattedHistory || "No previous conversation";
+  const sourcesContext = sourceMetadata || "No sources available";
+
+  const buildPrompt = async (type: "deeper" | "broader" | "apply") => {
+    const template = await loadFollowUpPrompt(type, siteId);
+    return template
       .replace("{originalQuestion}", originalQuestion)
-      .replace("{aiResponse}", aiResponse.substring(0, 2500) + "...")
-      .replace("{conversationHistory}", formattedHistory || "No previous conversation")
-      .replace("{sourceMetadata}", sourceMetadata || "No sources available");
+      .replace("{aiResponse}", truncatedResponse)
+      .replace("{conversationHistory}", historyContext)
+      .replace("{sourceMetadata}", sourcesContext);
+  };
 
-    const deeperResponse = await suggestionModel.invoke([{ role: "user", content: deeperPrompt }]);
-    const deeperSuggestions =
-      deeperResponse.content && typeof deeperResponse.content === "string"
-        ? extractJsonArray(deeperResponse.content)
-        : [];
+  const loadLanePrompt = async (type: "deeper" | "broader" | "apply"): Promise<string | null> => {
+    try {
+      return await buildPrompt(type);
+    } catch (error) {
+      console.error(`Failed to load ${type} follow-up prompt; skipping ${type} lane:`, error);
+      return null;
+    }
+  };
 
-    // Generate broader suggestions
-    const broaderPromptTemplate = await loadFollowUpPrompt("broader", siteId);
-    const broaderPrompt = broaderPromptTemplate
-      .replace("{originalQuestion}", originalQuestion)
-      .replace("{aiResponse}", aiResponse.substring(0, 2500) + "...")
-      .replace("{conversationHistory}", formattedHistory || "No previous conversation")
-      .replace("{sourceMetadata}", sourceMetadata || "No sources available");
+  const invokeSuggestion = (prompt: string) =>
+    suggestionModel.invoke([{ role: "user", content: prompt }]).then((response) =>
+      response.content && typeof response.content === "string" ? extractJsonArray(response.content) : []
+    );
 
-    const broaderResponse = await suggestionModel.invoke([{ role: "user", content: broaderPrompt }]);
-    const broaderSuggestions =
-      broaderResponse.content && typeof broaderResponse.content === "string"
-        ? extractJsonArray(broaderResponse.content)
-        : [];
+  const invokeLane = async (prompt: string | null, type: "deeper" | "broader" | "apply"): Promise<string[]> => {
+    if (!prompt) {
+      return [];
+    }
+    try {
+      return await invokeSuggestion(prompt);
+    } catch (error) {
+      console.error(`Failed to generate ${type} follow-up suggestions; skipping ${type} lane:`, error);
+      return [];
+    }
+  };
 
-    // Filter and dedupe suggestions (max 2 per category)
-    const filteredDeeper = filterSuggestionsForDiversity(deeperSuggestions, [], 2, 0.6);
-    const filteredBroader = filterSuggestionsForDiversity(broaderSuggestions, filteredDeeper, 2, 0.6);
+  const [deeperPrompt, broaderPrompt, applyPrompt] = await Promise.all([
+    loadLanePrompt("deeper"),
+    loadLanePrompt("broader"),
+    includeApplyLane ? loadLanePrompt("apply") : Promise.resolve(null),
+  ]);
 
-    // Convert to typed suggestions
-    const typedSuggestions: TypedSuggestion[] = [
-      ...filteredDeeper.map((text, idx) => ({
-        id: uuidv4(),
-        text,
-        type: "deeper" as const,
-        sourceDocId: sourceDocuments[0]?.metadata?.docId,
-        score: 1.0 - idx * 0.1, // Simple scoring based on position
-      })),
-      ...filteredBroader.map((text, idx) => ({
-        id: uuidv4(),
-        text,
-        type: "broader" as const,
-        sourceDocId: sourceDocuments[0]?.metadata?.docId,
-        score: 1.0 - idx * 0.1,
-      })),
-    ];
+  const [deeperSuggestions, broaderSuggestions, applySuggestions] = await Promise.all([
+    invokeLane(deeperPrompt, "deeper"),
+    invokeLane(broaderPrompt, "broader"),
+    includeApplyLane ? invokeLane(applyPrompt, "apply") : Promise.resolve([]),
+  ]);
 
-    // Send suggestions to frontend (post-stream, so this happens after answer completes)
-    sendData({ suggestions: typedSuggestions });
+  // Filter and dedupe suggestions (max 2 per category)
+  const filteredDeeper = filterSuggestionsForDiversity(deeperSuggestions, [], 2, 0.6);
+  const filteredApply = includeApplyLane
+    ? filterSuggestionsForDiversity(applySuggestions, filteredDeeper, 2, 0.6)
+    : [];
+  const filteredBroader = filterSuggestionsForDiversity(
+    broaderSuggestions,
+    [...filteredDeeper, ...filteredApply],
+    2,
+    0.6
+  );
 
-    // Return typed suggestions for saving to database
-    return typedSuggestions;
-  } catch (error) {
-    console.error("Failed to generate follow-up suggestions:", error);
-    return [];
-  }
+  // Convert to typed suggestions (deeper → apply → broader)
+  const typedSuggestions: TypedSuggestion[] = [
+    ...filteredDeeper.map((text, idx) => ({
+      id: uuidv4(),
+      text,
+      type: "deeper" as const,
+      sourceDocId: sourceDocuments[0]?.metadata?.docId,
+      score: 1.0 - idx * 0.1,
+    })),
+    ...filteredApply.map((text, idx) => ({
+      id: uuidv4(),
+      text,
+      type: "apply" as const,
+      sourceDocId: sourceDocuments[0]?.metadata?.docId,
+      score: 1.0 - idx * 0.1,
+    })),
+    ...filteredBroader.map((text, idx) => ({
+      id: uuidv4(),
+      text,
+      type: "broader" as const,
+      sourceDocId: sourceDocuments[0]?.metadata?.docId,
+      score: 1.0 - idx * 0.1,
+    })),
+  ];
+
+  return typedSuggestions;
 }
 
 const CHAIN_STREAMING_TIMEOUT_MS = process.env.NODE_ENV === "test" ? 1000 : 90000;
@@ -2024,29 +2031,28 @@ export async function setupAndExecuteLanguageModelChain(
 
       sendData({ done: true, timing: finalTiming });
 
-      // Generate follow-up suggestions in parallel (non-blocking)
-      if (timingMetrics) {
-        timingMetrics.suggestionsGenerationStart = Date.now();
-      }
+      // Task conversations use task follow-up chips; skip AI follow-up pill generation.
+      let generatedSuggestions: TypedSuggestion[] = [];
+      if (!taskMode) {
+        if (timingMetrics) {
+          timingMetrics.suggestionsGenerationStart = Date.now();
+        }
 
-      const suggestionsPromise = generateFollowUpSuggestions(
-        sanitizedQuestion,
-        fullResponse || result.answer.content,
-        history,
-        result.sourceDocuments, // Pass source documents for context
-        sendData,
-        siteConfig?.siteId
-      ).catch((error) => {
-        console.error("Suggestion generation failed:", error);
-        // Return empty suggestions on failure - graceful degradation
-        return [];
-      });
+        generatedSuggestions = await generateFollowUpSuggestions(
+          sanitizedQuestion,
+          fullResponse || result.answer.content,
+          history,
+          result.sourceDocuments,
+          siteConfig?.siteId,
+          siteConfig?.enableApplySuggestions ?? false
+        ).catch((error) => {
+          console.error("Suggestion generation failed:", error);
+          return [];
+        });
 
-      // Wait for suggestions to complete and capture them for saving
-      const generatedSuggestions = await suggestionsPromise;
-
-      if (timingMetrics) {
-        timingMetrics.suggestionsGenerationComplete = Date.now();
+        if (timingMetrics) {
+          timingMetrics.suggestionsGenerationComplete = Date.now();
+        }
       }
 
       // Use the streamed fullResponse as the authoritative answer since it's what was sent to the frontend

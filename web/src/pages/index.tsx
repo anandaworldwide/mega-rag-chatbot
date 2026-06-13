@@ -32,6 +32,7 @@ import { useChatHistory } from "@/hooks/useChatHistory";
 
 // Utility imports
 import { logEvent } from "@/utils/client/analytics";
+import { recordSuggestionPillClick } from "@/utils/client/suggestionInteraction";
 import { getCollectionQueries } from "@/utils/client/collectionQueries";
 import { handleVote as handleVoteUtil } from "@/utils/client/voteHandler";
 import { SiteConfig } from "@/types/siteConfig";
@@ -1923,35 +1924,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   };
 
   // Function to handle suggestion pill clicks
-  const handleSuggestionClick = async (suggestion: TypedSuggestion, position: number) => {
-    // Track suggestion pill click in Google Analytics with type information
-    // Label includes type prefix (deeper|broader) to enable filtering and comparison
-    // Value is the position (0-indexed) within the lane
-    logEvent("suggestion_pill_click", "Engagement", `${suggestion.type}:${suggestion.text}`, position);
-
-    // Log interaction to backend
-    if (currentConvIdRef.current) {
-      try {
-        await fetchWithAuth("/api/suggestions/interact", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          credentials: "include",
-          body: JSON.stringify({
-            convId: currentConvIdRef.current,
-            suggestionId: suggestion.id,
-            type: suggestion.type,
-            position,
-          }),
-        });
-      } catch (error) {
-        console.error("Failed to log suggestion interaction:", error);
-        // Don't block user action if logging fails
-      }
-    }
-
-    // Submit the suggestion as a new question
+  const handleSuggestionClick = (suggestion: TypedSuggestion, position: number) => {
+    void recordSuggestionPillClick(suggestion, position, currentConvIdRef.current, fetchWithAuth);
     handleSubmit(new Event("submit") as unknown as React.FormEvent, suggestion.text);
   };
 

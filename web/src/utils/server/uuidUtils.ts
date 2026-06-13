@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+import { NextRequest } from "next/server";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import { JwtPayload } from "@/utils/server/jwtUtils";
 import crypto from "crypto";
@@ -183,6 +184,56 @@ export function getSecureUUID(
 
     return { success: true, uuid };
   }
+}
+
+/**
+ * Securely resolves UUID from an App Router request (no cookie migration write).
+ */
+export function getSecureUUIDFromAppRequest(
+  req: NextRequest,
+  userPayload?: JwtPayload
+): { success: true; uuid: string } | { success: false; error: string; statusCode: number } {
+  const siteConfig = loadSiteConfigSync();
+
+  if (siteConfig?.requireLogin) {
+    if (!userPayload?.uuid) {
+      return {
+        success: false,
+        error: "UUID not found in authentication token",
+        statusCode: 400,
+      };
+    }
+    return { success: true, uuid: userPayload.uuid };
+  }
+
+  const rawCookie = req.cookies.get("uuid")?.value;
+  if (!rawCookie) {
+    return {
+      success: false,
+      error: "UUID not found in cookies",
+      statusCode: 400,
+    };
+  }
+
+  const parsed = parseUUIDCookie(rawCookie);
+  if (!parsed) {
+    return {
+      success: false,
+      error: "Invalid UUID cookie format",
+      statusCode: 400,
+    };
+  }
+
+  const { uuid } = parsed;
+  if (!isValidUUID(uuid)) {
+    return {
+      success: false,
+      error: "Invalid UUID format",
+      statusCode: 400,
+    };
+  }
+
+  return { success: true, uuid };
 }
 
 /**

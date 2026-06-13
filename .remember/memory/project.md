@@ -191,6 +191,8 @@ except ImportError:
 
 - **Implementation**: HttpOnly cookies with proper sameSite/secure flags
 - **Location**: `web/src/utils/server/jwtUtils.ts`
+- **App Router API routes**: Wrap POST/GET handlers with `withAppRouterJwtAuth` from `appRouterJwtUtils.ts` (same pattern as `/api/chat/v1`); client-side calls must use `fetchWithAuth` so the Bearer token is sent
+- **Conv-scoped write endpoints**: Resolve UUID via `getSecureUUIDFromAppRequest` and verify ownership with `conversationBelongsToUuid(convId, uuid)` before persisting
 - **Critical**: Always hash passwords with bcrypt
 
 ### CORS and Headers
@@ -251,7 +253,8 @@ except ImportError:
 - **Pinecone namespaces**: One per site
 - **Config location**: `site-config/config.json`
 - **Feature rollout preference**: New user-facing features should be gated by site config and enabled only for the intended site(s), not assumed global
-- **Planning rule**: For major features, explicitly ask the user whether rollout should be global or site-configurable before implementing
+- **Per-site toggles belong in config**: Do **not** hardcode site ID sets/constants (e.g. `Set(["ananda", "crystal"])`) for per-site feature rollout. Add an `enable*` flag to [`web/site-config/config.json`](web/site-config/config.json), extend `SiteConfig` in [`web/src/types/siteConfig.ts`](web/src/types/siteConfig.ts), and read it from `siteConfig` at runtime. Example: `enableApplySuggestions` for the Apply follow-up pill lane.
+- **Planning rule**: For major features, explicitly ask the user whether rollout should be global or site-configurable before implementing. If it is unclear whether a toggle should live in config vs code, **ask the user** rather than defaulting to hardcoded site lists.
 - **Site complexity**: `ananda` / Luca is the deep, feature-rich site; the other sites are intentionally simpler
 - **New chat behavior**: `New Chat` should reset all answer-scope filters globally (collection, libraries, media types, title/source scope, and similar retrieval filters); if persistence is desired later, implement it as explicit user settings/preferences rather than hidden carry-over chat state
 - **Title catalog artifacts**: S3 title-scope artifacts are shared between development and production per site; do not split them by env prefix

@@ -125,6 +125,7 @@
     "enableModelComparison": true,
     "showSourceCountSelector": true,
     "enableWhatsNew": true,
+    "enableApplySuggestions": true,
     "temperature": 0.4,
     "modelName": "gpt-4o",
     "enableGeoAwareness": true,
@@ -211,6 +212,7 @@
       }
     },
     "enableSuggestedQueries": true,
+    "enableApplySuggestions": true,
     "enableMediaTypeSelection": false,
     "enableAuthorSelection": false,
     "enableSearchPage": false,
@@ -330,6 +332,7 @@
     "includedLibraries": ["Crystal Clarity"],
     "libraryMappings": {},
     "enableSuggestedQueries": true,
+    "enableApplySuggestions": true,
     "enableMediaTypeSelection": false,
     "enableAuthorSelection": false,
     "enableSearchPage": false,
