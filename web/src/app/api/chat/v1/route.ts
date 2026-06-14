@@ -63,6 +63,7 @@ import { SiteConfig } from "@/types/siteConfig";
 import { StreamingResponseData } from "@/types/StreamingResponseData";
 import { getClientIp } from "@/utils/server/ipUtils";
 import { isDevelopment } from "@/utils/env";
+import { resolvePersistUuidForRequest } from "@/utils/server/uuidUtils";
 import { withAppRouterJwtAuth } from "@/utils/server/appRouterJwtUtils";
 import type { JwtPayload } from "@/utils/server/jwtUtils";
 import { ChatMessage, convertChatHistory } from "@/utils/shared/chatHistory";
@@ -1054,6 +1055,20 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
   const effectiveModelName = sanitizedInput.modelOverride || modelName;
   const effectiveAccess = await resolveEffectiveAccessLevelForEmail(token.email, siteConfig);
 
+  const persistUuidResult = await resolvePersistUuidForRequest(
+    siteConfig.requireLogin === true,
+    token,
+    sanitizedInput.uuid
+  );
+  if (!persistUuidResult.success) {
+    return corsMiddleware.addCorsHeaders(
+      NextResponse.json({ error: persistUuidResult.error }, { status: persistUuidResult.statusCode }),
+      req,
+      siteConfig
+    );
+  }
+  const persistUuid = persistUuidResult.uuid;
+
   // Log task mode for analytics if present
   if (sanitizedInput.taskMode) {
     console.log(`Task mode: ${sanitizedInput.taskMode}`);
@@ -1287,7 +1302,7 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
               sanitizedInput.history || [],
               clientIP,
               restatedQuestion, // Pass the restated question
-              sanitizedInput.uuid, // Persist client UUID when provided
+              persistUuid, // Must match interact API ownership uuid on login-required sites
               finalConversationId, // Use the final conversation ID
               undefined, // Suggestions saved via patch after parallel generation
               model, // Pass the model used
@@ -1306,20 +1321,18 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
 
             if (savedDocId && suggestions.length > 0) {
               sendData({ suggestions });
-              try {
-                await patchDocumentSuggestions(savedDocId, suggestions);
-              } catch (patchError) {
+              void patchDocumentSuggestions(savedDocId, suggestions).catch((patchError) => {
                 console.warn("Failed to patch suggestions onto saved document:", patchError);
-              }
+              });
             }
 
             if (savedDocId) {
               // Track user activity - await to prevent Vercel from cutting off the operation
               // This is a quick operation and non-critical, so timeout after 3s to avoid blocking
-              if (sanitizedInput.uuid) {
+              if (persistUuid) {
                 try {
                   await Promise.race([
-                    updateUserActivity(sanitizedInput.uuid, "chat-v1-api"),
+                    updateUserActivity(persistUuid, "chat-v1-api"),
                     new Promise((resolve) => setTimeout(resolve, 3000)), // 3s timeout
                   ]);
                 } catch (_activityError) {

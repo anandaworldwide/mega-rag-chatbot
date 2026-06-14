@@ -6,12 +6,14 @@
 
 import { NextRequest } from "next/server";
 
+const TEST_INTERACT_USER_UUID = "123e4567-e89b-12d3-a456-426614174000";
+
 jest.mock("@/utils/server/appRouterJwtUtils", () => ({
   withAppRouterJwtAuth: (handler: (req: NextRequest, context: unknown, token: unknown) => Promise<Response>) => {
     return (req: NextRequest, context?: unknown) =>
       handler(req, context ?? {}, {
         client: "web",
-        uuid: "test-user-uuid",
+        uuid: TEST_INTERACT_USER_UUID,
         iat: 1,
         exp: 9999999999,
       });
@@ -376,7 +378,7 @@ describe("/api/suggestions/interact", () => {
 
     const addCall = (firestoreAdd as jest.Mock).mock.calls[0];
     const interactionData = addCall[1];
-    expect(interactionData.userUuid).toBe("test-user-uuid");
+    expect(interactionData.userUuid).toBe(TEST_INTERACT_USER_UUID);
   });
 
   it("uses environment-prefixed collection name (prod)", async () => {

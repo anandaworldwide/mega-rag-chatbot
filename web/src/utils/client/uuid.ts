@@ -21,6 +21,29 @@ function extractUUIDFromCookie(cookieValue: string | undefined): string | null {
   return cookieValue;
 }
 
+let profileUuid: string | null = null;
+
+/**
+ * Align the client with the authenticated profile uuid (login-required sites).
+ * Keeps chat body, sidebar history, and interact ownership checks on the same uuid.
+ *
+ * Stores the uuid in-memory only. We intentionally do NOT write the cookie here:
+ * the authoritative uuid cookie is HMAC-signed server-side at login, and writing an
+ * unsigned value from the client would diverge from that security model. All client
+ * reads go through getOrCreateUUID, which prefers this in-memory value.
+ */
+export function syncProfileUuid(uuid: string): void {
+  if (!uuid) {
+    return;
+  }
+  profileUuid = uuid;
+}
+
+/** @internal Clears in-memory profile uuid cache (tests only). */
+export function resetProfileUuidCacheForTests(): void {
+  profileUuid = null;
+}
+
 /**
  * Gets or creates UUID from cookies
  *
@@ -30,6 +53,10 @@ function extractUUIDFromCookie(cookieValue: string | undefined): string | null {
  * TODO: Remove migration bridge after June 2026 - only signed cookies supported
  */
 export const getOrCreateUUID = (): string => {
+  if (profileUuid) {
+    return profileUuid;
+  }
+
   const cookieValue = Cookies.get("uuid");
   const uuid = extractUUIDFromCookie(cookieValue);
 

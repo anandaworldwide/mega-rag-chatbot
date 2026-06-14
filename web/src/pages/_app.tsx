@@ -13,6 +13,7 @@ import { getCommonSiteConfigProps } from "@/utils/server/getCommonSiteConfigProp
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/utils/client/reactQueryConfig";
 import { initializeTokenManager } from "@/utils/client/tokenManager";
+import { initializeProfileUuidSync } from "@/utils/client/profileUuidSync";
 import { useEffect, useState } from "react";
 import AuthErrorBoundary from "@/components/AuthErrorBoundary";
 import SessionExpiredModal from "@/components/SessionExpiredModal";
@@ -51,7 +52,10 @@ function MyApp({ Component, pageProps }: CustomAppProps) {
       if (isPublicPage(currentPathNoQuery, siteConfig)) {
         return;
       }
-      initializeTokenManager()
+      Promise.all([
+        initializeTokenManager(),
+        siteConfig.requireLogin ? initializeProfileUuidSync(true) : Promise.resolve(),
+      ])
         .then(() => {
           setAuthInitialized(true);
         })

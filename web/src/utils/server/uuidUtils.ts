@@ -2,6 +2,9 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { NextRequest } from "next/server";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import { JwtPayload } from "@/utils/server/jwtUtils";
+import { db } from "@/services/firebase";
+import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
+import { firestoreGet } from "@/utils/server/firestoreRetryUtils";
 import crypto from "crypto";
 import Cookies from "cookies";
 import { isDevelopment } from "@/utils/env";
@@ -188,11 +191,12 @@ export function getSecureUUID(
 
 /**
  * Securely resolves UUID from an App Router request (no cookie migration write).
+ * Prefer {@link resolveSecureUuidFromAppRequest} for login-required sites.
  */
 export function getSecureUUIDFromAppRequest(
   req: NextRequest,
   userPayload?: JwtPayload
-): { success: true; uuid: string } | { success: false; error: string; statusCode: number } {
+): UuidResolutionResult {
   const siteConfig = loadSiteConfigSync();
 
   if (siteConfig?.requireLogin) {
@@ -206,6 +210,79 @@ export function getSecureUUIDFromAppRequest(
     return { success: true, uuid: userPayload.uuid };
   }
 
+  return resolveUuidFromAppRequestCookie(req);
+}
+
+export type UuidResolutionResult =
+  | { success: true; uuid: string }
+  | { success: false; error: string; statusCode: number };
+
+/**
+ * Resolves the authenticated user's profile UUID for login-required sites.
+ * Uses JWT uuid when present; otherwise loads uuid from the user's Firestore profile.
+ */
+export async function resolveAuthenticatedProfileUuid(token: JwtPayload): Promise<UuidResolutionResult> {
+  if (token.uuid && isValidUUID(token.uuid)) {
+    return { success: true, uuid: token.uuid };
+  }
+
+  const email = typeof token.email === "string" ? token.email.toLowerCase() : null;
+  if (!email) {
+    return {
+      success: false,
+      error: "UUID not found in authentication token",
+      statusCode: 400,
+    };
+  }
+
+  if (!db) {
+    return {
+      success: false,
+      error: "Database not available",
+      statusCode: 503,
+    };
+  }
+
+  const userDoc = await firestoreGet(
+    db.collection(getUsersCollectionName()).doc(email),
+    "resolve authenticated profile uuid",
+    email
+  );
+  const profileUuid = userDoc.exists ? userDoc.data()?.uuid : undefined;
+
+  if (typeof profileUuid === "string" && isValidUUID(profileUuid)) {
+    return { success: true, uuid: profileUuid };
+  }
+
+  return {
+    success: false,
+    error: "User profile UUID not found",
+    statusCode: 400,
+  };
+}
+
+/** Resolves the UUID that should be persisted on answer documents. */
+export async function resolvePersistUuidForRequest(
+  requireLogin: boolean,
+  token: JwtPayload,
+  bodyUuid: string
+): Promise<UuidResolutionResult> {
+  if (requireLogin) {
+    return resolveAuthenticatedProfileUuid(token);
+  }
+
+  if (!bodyUuid || !isValidUUID(bodyUuid)) {
+    return {
+      success: false,
+      error: "UUID is required and must be a valid v4 UUID",
+      statusCode: 400,
+    };
+  }
+
+  return { success: true, uuid: bodyUuid };
+}
+
+function resolveUuidFromAppRequestCookie(req: NextRequest): UuidResolutionResult {
   const rawCookie = req.cookies.get("uuid")?.value;
   if (!rawCookie) {
     return {
@@ -234,6 +311,30 @@ export function getSecureUUIDFromAppRequest(
   }
 
   return { success: true, uuid };
+}
+
+/**
+ * Async App Router UUID resolver. Login-required sites load profile uuid from Firestore
+ * when the JWT omits it; anonymous sites continue to use the signed uuid cookie.
+ */
+export async function resolveSecureUuidFromAppRequest(
+  req: NextRequest,
+  userPayload?: JwtPayload
+): Promise<UuidResolutionResult> {
+  const siteConfig = loadSiteConfigSync();
+
+  if (siteConfig?.requireLogin) {
+    if (!userPayload) {
+      return {
+        success: false,
+        error: "Authentication required",
+        statusCode: 401,
+      };
+    }
+    return resolveAuthenticatedProfileUuid(userPayload);
+  }
+
+  return resolveUuidFromAppRequestCookie(req);
 }
 
 /**

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { fetchWithAuth } from "@/utils/client/tokenManager";
 import { getOrCreateUUID } from "@/utils/client/uuid";
+import { ensureProfileUuidSynced } from "@/utils/client/profileUuidSync";
 import { TitleScopeSelection } from "@/types/titleScope";
 
 export interface ChatHistoryItem {
@@ -60,6 +61,9 @@ export function useChatHistory(limit: number = 20, enabled: boolean = true) {
       setError(null);
 
       try {
+        // Wait for the authenticated profile uuid before reading it, so the first
+        // history fetch on a cold load queries the correct partition (login-required sites).
+        await ensureProfileUuidSynced();
         const uuid = getOrCreateUUID();
 
         // Build URL with pagination cursor for "load more"
@@ -287,6 +291,7 @@ export function useChatHistory(limit: number = 20, enabled: boolean = true) {
       try {
         setStarredLoading(true);
 
+        await ensureProfileUuidSynced();
         const uuid = getOrCreateUUID();
         // Use same limit calculation as regular conversations for consistency
         const messageLimit = limit * 2;

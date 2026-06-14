@@ -2,6 +2,18 @@
 
 ## Critical Lessons Learned
 
+### Login-Required Sites Must Use JWT Profile UUID For Firestore Ownership
+
+**Wrong**: Persist answer docs with client cookie uuid from `getOrCreateUUID()` while `/api/suggestions/interact` verifies
+ownership with JWT profile uuid from `getSecureUUIDFromAppRequest`. When the cookie drifts (cleared/recreated while
+logged in), interact returns 403 even though chat works.
+
+**Correct**: On `requireLogin` sites, chat save must use the authenticated profile uuid (same source as interact), via
+`resolvePersistUuidForRequest`/`resolveAuthenticatedProfileUuid`, which fall back to the Firestore user profile by email
+when the JWT omits `uuid` (fail closed with 400 if still missing — never fall back to client body uuid). Sync client
+cookie via `initializeProfileUuidSync` in `_app` bootstrap and from JWT payload in `tokenManager`; gate chat submit with
+`ensureProfileUuidSynced()`. Emit suggestion pills only after the answers doc is saved so ownership exists before click.
+
 ### Country-Code Regexes Must Avoid Contractions
 
 **Wrong**: Match two-letter country codes with only `\bXX\b` word boundaries. Apostrophes are non-word characters, so
@@ -2759,3 +2771,22 @@ send a clear identifying `User-Agent`, and only check the minimum set of URLs ne
 Avoid `HEAD` for liveness checks against WordPress/WAF sites (it can hang); use `GET` with a short timeout and treat
 timeouts/errors as "unknown → take no destructive action". Always confirm the intended rate before launching large
 crawls/scans.
+
+### Mistake: Jest firebase-admin Mock Missing `firestore.FieldValue` Static
+
+**Wrong**: Mock `firebase-admin` with `firestore: () => ({ FieldValue: {...} })` only. Code that calls
+`fbadmin.firestore.FieldValue.serverTimestamp()` (the static form) throws synchronously, so async save helpers
+reject silently and downstream emits (e.g., streamed `docId`/suggestions) never run — masking the real path under test.
+
+**Correct**: Mirror real firebase-admin by exposing `FieldValue` both on the `firestore()` instance and as a static on
+the function: `const firestore: any = () => ({ ..., FieldValue }); firestore.FieldValue = FieldValue;`. Then route-level
+streaming tests can actually exercise the save → emit ordering instead of trivially passing on a swallowed error.
+
+### Mistake: Client Writing Unsigned Cookie That Server Signs
+
+**Wrong**: Client utility writes the `uuid` cookie directly (`Cookies.set("uuid", value)`) to "align" with the
+authenticated profile, when the authoritative cookie is HMAC-signed server-side at login. This diverges from the signed
+model and any future server-side signature check would reject it.
+
+**Correct**: Keep client-synced identity in-memory only and have all reads prefer it (e.g., `getOrCreateUUID` returns the
+cached profile uuid first). Let the server own the signed cookie; re-sync the in-memory value on bootstrap/token refresh.

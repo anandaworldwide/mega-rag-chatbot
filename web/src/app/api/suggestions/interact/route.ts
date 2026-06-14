@@ -13,7 +13,7 @@ import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { getSuggestionsInteractionsCollectionName } from "@/utils/server/firestoreUtils";
 import { withAppRouterJwtAuth } from "@/utils/server/appRouterJwtUtils";
 import { JwtPayload } from "@/utils/server/jwtUtils";
-import { getSecureUUIDFromAppRequest } from "@/utils/server/uuidUtils";
+import { resolveSecureUuidFromAppRequest } from "@/utils/server/uuidUtils";
 import { conversationBelongsToUuid } from "@/utils/server/conversationOwnershipUtils";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import * as corsMiddleware from "@/utils/server/corsMiddleware";
@@ -58,7 +58,7 @@ async function handleSuggestionInteract(req: NextRequest, _context: unknown, tok
       return jsonResponse(req, { error: "Too many requests. Please wait a moment and try again." }, 429);
     }
 
-    const uuidResult = getSecureUUIDFromAppRequest(req, token);
+    const uuidResult = await resolveSecureUuidFromAppRequest(req, token);
     if (!uuidResult.success) {
       return jsonResponse(req, { error: uuidResult.error }, uuidResult.statusCode);
     }

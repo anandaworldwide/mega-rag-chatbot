@@ -2,7 +2,7 @@
  * Tests for the uuid utility
  */
 
-import { getOrCreateUUID } from '@/utils/client/uuid';
+import { getOrCreateUUID, resetProfileUuidCacheForTests, syncProfileUuid } from '@/utils/client/uuid';
 import Cookies from 'js-cookie';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -21,6 +21,7 @@ describe('uuid', () => {
   beforeEach(() => {
     // Clear all mocks before each test
     jest.clearAllMocks();
+    resetProfileUuidCacheForTests();
 
     // Setup Cookies mock implementation
     (Cookies.get as jest.Mock).mockImplementation(mockGet);
@@ -88,5 +89,26 @@ describe('uuid', () => {
     expect(Cookies.set).toHaveBeenCalledWith('uuid', mockUuidValue, {
       expires: 365,
     });
+  });
+
+  it('returns profile uuid from cache after syncProfileUuid', () => {
+    const profileId = 'profile-uuid-from-auth';
+    mockGet.mockReturnValue('stale-cookie-uuid');
+
+    syncProfileUuid(profileId);
+    const result = getOrCreateUUID();
+
+    expect(result).toBe(profileId);
+    expect(uuidv4).not.toHaveBeenCalled();
+  });
+
+  it('does not write a cookie when syncing the profile uuid', () => {
+    mockGet.mockReturnValue('old-cookie-uuid');
+
+    syncProfileUuid('profile-uuid-from-auth');
+
+    // In-memory only: the signed uuid cookie is owned by the server, not the client.
+    expect(Cookies.set).not.toHaveBeenCalled();
+    expect(getOrCreateUUID()).toBe('profile-uuid-from-auth');
   });
 });

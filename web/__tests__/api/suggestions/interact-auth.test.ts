@@ -48,6 +48,7 @@ jest.mock("@/utils/server/corsMiddleware", () => ({
 }));
 
 process.env.SECURE_TOKEN = "test-secure-token";
+const TEST_AUTH_USER_UUID = "123e4567-e89b-12d3-a456-426614174000";
 
 import { POST } from "@/app/api/suggestions/interact/route";
 import { firestoreAdd } from "@/utils/server/firestoreRetryUtils";
@@ -101,7 +102,7 @@ describe("/api/suggestions/interact JWT authentication", () => {
   });
 
   it("accepts requests with a valid JWT token", async () => {
-    const token = jwt.sign({ client: "web", uuid: "auth-test-uuid" }, process.env.SECURE_TOKEN as string, {
+    const token = jwt.sign({ client: "web", uuid: TEST_AUTH_USER_UUID }, process.env.SECURE_TOKEN as string, {
       expiresIn: "15m",
       algorithm: "HS256",
       issuer: "mega-rag-chatbot",
@@ -117,6 +118,6 @@ describe("/api/suggestions/interact JWT authentication", () => {
     expect(firestoreAdd).toHaveBeenCalled();
 
     const interactionData = (firestoreAdd as jest.Mock).mock.calls[0][1];
-    expect(interactionData.userUuid).toBe("auth-test-uuid");
+    expect(interactionData.userUuid).toBe(TEST_AUTH_USER_UUID);
   });
 });

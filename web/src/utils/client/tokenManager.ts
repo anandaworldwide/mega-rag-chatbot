@@ -1,3 +1,5 @@
+import { syncProfileUuid } from "@/utils/client/uuid";
+
 /**
  * Token Manager
  *
@@ -41,6 +43,21 @@ const MAX_RETRY_ATTEMPTS = 3;
 // Track initialization state
 let isInitializing = false;
 let initializationPromise: Promise<string> | null = null;
+
+function syncUuidFromTokenPayload(token: string): void {
+  if (token.includes("placeholder")) {
+    return;
+  }
+
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    if (typeof payload?.uuid === "string") {
+      syncProfileUuid(payload.uuid);
+    }
+  } catch {
+    // Non-fatal: profile sync also runs from _app bootstrap.
+  }
+}
 
 /**
  * Parse JWT token to get expiration time
@@ -164,6 +181,7 @@ async function fetchNewToken(): Promise<string> {
       token,
       expiresAt: parseJwtExpiration(token),
     };
+    syncUuidFromTokenPayload(token);
 
     return token;
   } catch (error) {

@@ -40,6 +40,15 @@ import jwt from "jsonwebtoken";
 import { POST } from "@/app/api/chat/v1/route";
 import { determineActiveMediaTypes, MediaTypes } from "@/utils/determineActiveMediaTypes";
 import { buildTitleScopeForPersistence } from "@/utils/server/titleScopePersistence";
+import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
+import { firestoreGet } from "@/utils/server/firestoreRetryUtils";
+import { resolvePersistUuidForRequest } from "@/utils/server/uuidUtils";
+
+const TEST_BODY_UUID = "423e4567-e89b-42d3-a456-426614174000";
+const TEST_JWT_UUID = "323e4567-e89b-42d3-a456-426614174000";
+const mockSiteConfig = loadSiteConfigSync() as {
+  requireLogin: boolean;
+};
 
 // Ensure the SECURE_TOKEN env var is set for JWT tests
 process.env.SECURE_TOKEN = "test-jwt-secret-key";
@@ -63,9 +72,13 @@ function generateTestToken(client = "web") {
 }
 
 // Firebase admin must be mocked before importing the route
-jest.mock("firebase-admin", () => ({
-  apps: [{}],
-  firestore: () => ({
+jest.mock("firebase-admin", () => {
+  // Real firebase-admin exposes FieldValue both on the firestore() instance and as a
+  // static (admin.firestore.FieldValue). The route uses the static form, so mirror both.
+  const FieldValue = {
+    serverTimestamp: jest.fn().mockReturnValue("mock-timestamp"),
+  };
+  const firestore = () => ({
     collection: jest.fn((/* collectionName */) => ({
       // Inlined and simplified
       add: jest.fn().mockResolvedValue({ id: "test-id-mocked-inline" }),
@@ -75,15 +88,18 @@ jest.mock("firebase-admin", () => ({
         update: jest.fn().mockResolvedValue(undefined),
       })),
     })),
-    FieldValue: {
-      serverTimestamp: jest.fn().mockReturnValue("mock-timestamp"),
+    FieldValue,
+  });
+  Object.assign(firestore, { FieldValue });
+  return {
+    apps: [{}],
+    firestore,
+    credential: {
+      cert: jest.fn(),
     },
-  }),
-  credential: {
-    cert: jest.fn(),
-  },
-  initializeApp: jest.fn(),
-}));
+    initializeApp: jest.fn(),
+  };
+});
 
 // Mock firebase-admin/firestore
 jest.mock("firebase-admin/firestore", () => ({
@@ -234,6 +250,26 @@ jest.mock("@/utils/server/genericRateLimiter", () => ({
 
 jest.mock("@/utils/server/firestoreUtils", () => ({
   getAnswersCollectionName: jest.fn().mockReturnValue("answers"),
+  getUsersCollectionName: jest.fn().mockReturnValue("test_users"),
+}));
+
+const mockFirestoreAdd = jest.fn().mockResolvedValue({ id: "saved-doc-1" });
+
+jest.mock("@/utils/server/firestoreRetryUtils", () => ({
+  firestoreAdd: (...args: unknown[]) => mockFirestoreAdd(...args),
+  firestoreSet: jest.fn().mockResolvedValue(undefined),
+  firestoreUpdate: jest.fn().mockResolvedValue(undefined),
+  firestoreQueryGet: jest.fn().mockResolvedValue({ empty: true, docs: [] }),
+  firestoreGet: jest.fn(),
+}));
+
+jest.mock("@/utils/server/accessLevelUtils", () => ({
+  resolveEffectiveAccessLevelForEmail: jest.fn().mockResolvedValue({ level: "full" }),
+  buildPineconeAccessFilterClauses: jest.fn().mockReturnValue([]),
+}));
+
+jest.mock("@/utils/server/userActivityUtils", () => ({
+  updateUserActivity: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock("@/utils/env", () => ({
@@ -278,7 +314,7 @@ jest.mock("@/utils/server/appRouterJwtUtils", () => ({
     // For tests, return a function that accepts 1 or 2 arguments to handle both calling patterns
     return function wrappedHandler(req: any, context: any = {}) {
       // Always pass the token regardless of whether context was provided
-      return handler(req, context, { client: "web" });
+      return handler(req, context, (global as any).__TEST_JWT_PAYLOAD__ ?? { client: "web" });
     };
   },
 }));
@@ -1199,5 +1235,149 @@ describe("Retry Mechanism", () => {
     // Clean up
     console.log = originalConsoleLog; // Restore original console.log
     jest.restoreAllMocks(); // Now restore other mocks if any were created by jest.spyOn for other objects
+  });
+
+  describe("suggestion pipeline and persistUuid", () => {
+    afterEach(() => {
+      // Defensive: keep the shared mock config on its default so later tests aren't affected.
+      mockSiteConfig.requireLogin = false;
+    });
+
+    test("resolvePersistUuidForRequest rejects missing profile uuid on login-required sites", async () => {
+      (firestoreGet as jest.Mock).mockResolvedValueOnce({
+        exists: true,
+        data: () => ({}),
+      });
+
+      const result = await resolvePersistUuidForRequest(
+        true,
+        { client: "web", email: "user@example.com", iat: 1, exp: 9999999999 },
+        TEST_BODY_UUID
+      );
+
+      expect(result.success).toBe(false);
+      if (!result.success) {
+        expect(result.statusCode).toBe(400);
+        expect(result.error).toBe("User profile UUID not found");
+      }
+    });
+
+    test("resolvePersistUuidForRequest prefers JWT uuid over body uuid on login-required sites", async () => {
+      const result = await resolvePersistUuidForRequest(
+        true,
+        { client: "web", uuid: TEST_JWT_UUID, email: "user@example.com", iat: 1, exp: 9999999999 },
+        TEST_BODY_UUID
+      );
+
+      expect(result).toEqual({ success: true, uuid: TEST_JWT_UUID });
+    });
+
+    /**
+     * End-to-end coverage of the streaming emit contract: pills are sent only after the
+     * answer document is saved, and never when the save fails.
+     *
+     * NextRequest.json() does not parse a constructed body in the jest/node env, so we
+     * override req.json() to feed the validated body directly to the handler.
+     */
+    function buildStreamingRequest(body: Record<string, unknown>): NextRequest {
+      const req = new NextRequest("https://example.com/api/chat/v1", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://example.com",
+          Authorization: `Bearer ${generateTestToken()}`,
+        },
+      });
+      Object.defineProperty(req, "json", { value: async () => body });
+      return req;
+    }
+
+    async function collectSseObjects(response: Response): Promise<Array<Record<string, unknown>>> {
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let streamDone = false;
+      while (!streamDone) {
+        const { done, value } = await reader.read();
+        streamDone = done;
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+        }
+      }
+      const objects: Array<Record<string, unknown>> = [];
+      for (const line of buffer.split("\n")) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith("data:")) {
+          try {
+            objects.push(JSON.parse(trimmed.slice("data:".length).trim()));
+          } catch {
+            // Ignore non-JSON keepalive/comment frames.
+          }
+        }
+      }
+      return objects;
+    }
+
+    const STREAM_BODY = {
+      question: "What is mindfulness?",
+      collection: "master_swami",
+      history: [],
+      temporarySession: false,
+      mediaTypes: { text: true },
+      sourceCount: 3,
+      uuid: TEST_BODY_UUID,
+    };
+
+    function mockChainWithSuggestions(suggestions: Array<Record<string, unknown>>): void {
+      (makeChainModule.setupAndExecuteLanguageModelChain as jest.Mock).mockImplementationOnce(
+        async (
+          _retriever: unknown,
+          _question: unknown,
+          _history: unknown,
+          sendData: (data: Record<string, unknown>) => void
+        ) => {
+          sendData({ token: "Test response" });
+          sendData({ done: true });
+          return {
+            fullResponse: "Test response",
+            finalDocs: [],
+            restatedQuestion: "What is mindfulness in practice?",
+            suggestionsPromise: Promise.resolve(suggestions),
+            model: "gpt-4",
+            temperature: 0.3,
+          };
+        }
+      );
+    }
+
+    test("emits docId before suggestions once the document is saved", async () => {
+      mockFirestoreAdd.mockResolvedValueOnce({ id: "saved-doc-1" });
+      mockChainWithSuggestions([{ id: "s1", text: "Go deeper?", type: "deeper" }]);
+
+      const response = await POST(buildStreamingRequest(STREAM_BODY));
+      expect(response.status).toBe(200);
+
+      const events = await collectSseObjects(response);
+      const docIdIndex = events.findIndex((e) => typeof e.docId === "string");
+      const suggestionsIndex = events.findIndex((e) => Array.isArray(e.suggestions));
+
+      expect(docIdIndex).toBeGreaterThanOrEqual(0);
+      expect(events[docIdIndex].docId).toBe("saved-doc-1");
+      expect(suggestionsIndex).toBeGreaterThan(docIdIndex);
+      expect(events[suggestionsIndex].suggestions).toHaveLength(1);
+    });
+
+    test("does not emit suggestions when the document save fails", async () => {
+      mockFirestoreAdd.mockRejectedValueOnce(new Error("firestore add failed"));
+      mockChainWithSuggestions([{ id: "s1", text: "Go deeper?", type: "deeper" }]);
+
+      const response = await POST(buildStreamingRequest(STREAM_BODY));
+      expect(response.status).toBe(200);
+
+      const events = await collectSseObjects(response);
+
+      expect(events.some((e) => "docId" in e)).toBe(false);
+      expect(events.some((e) => "suggestions" in e)).toBe(false);
+    });
   });
 });
