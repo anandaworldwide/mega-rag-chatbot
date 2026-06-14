@@ -1666,7 +1666,7 @@ export async function setupAndExecuteLanguageModelChain(
   fullResponse: string;
   finalDocs: Document[];
   restatedQuestion: string;
-  suggestions: TypedSuggestion[];
+  suggestionsPromise: Promise<TypedSuggestion[]>;
   model: string;
   temperature: number;
 }> {
@@ -2032,27 +2032,29 @@ export async function setupAndExecuteLanguageModelChain(
       sendData({ done: true, timing: finalTiming });
 
       // Task conversations use task follow-up chips; skip AI follow-up pill generation.
-      let generatedSuggestions: TypedSuggestion[] = [];
+      let suggestionsPromise: Promise<TypedSuggestion[]> = Promise.resolve([]);
       if (!taskMode) {
         if (timingMetrics) {
           timingMetrics.suggestionsGenerationStart = Date.now();
         }
 
-        generatedSuggestions = await generateFollowUpSuggestions(
+        suggestionsPromise = generateFollowUpSuggestions(
           sanitizedQuestion,
           fullResponse || result.answer.content,
           history,
           result.sourceDocuments,
           siteConfig?.siteId,
           siteConfig?.enableApplySuggestions ?? false
-        ).catch((error) => {
-          console.error("Suggestion generation failed:", error);
-          return [];
-        });
-
-        if (timingMetrics) {
-          timingMetrics.suggestionsGenerationComplete = Date.now();
-        }
+        )
+          .catch((error) => {
+            console.error("Suggestion generation failed:", error);
+            return [];
+          })
+          .finally(() => {
+            if (timingMetrics) {
+              timingMetrics.suggestionsGenerationComplete = Date.now();
+            }
+          });
       }
 
       // Use the streamed fullResponse as the authoritative answer since it's what was sent to the frontend
@@ -2062,7 +2064,7 @@ export async function setupAndExecuteLanguageModelChain(
         fullResponse: fullResponse || result.answer.content, // Prefer streamed content, fallback to result.answer.content
         finalDocs: result.sourceDocuments,
         restatedQuestion: result.question,
-        suggestions: generatedSuggestions, // Include suggestions for saving
+        suggestionsPromise,
         model: modelName, // Return the model used
         temperature: temperature, // Return the temperature used
       };

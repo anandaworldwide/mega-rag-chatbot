@@ -181,6 +181,7 @@ jest.mock("@/utils/server/makechain", () => ({
         },
       ],
       restatedQuestion: "What is the meaning of life in spiritual practice?",
+      suggestionsPromise: Promise.resolve([]),
     });
   }),
   // Mock comparison chains, avoiding recursion completely

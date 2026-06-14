@@ -475,23 +475,7 @@ async function saveOrUpdateDocument(
   const sanitizedOriginalQuestion = sanitizeForLogging(originalQuestion, 4000);
 
   // Sanitize suggestions: remove undefined values (Firestore doesn't accept undefined)
-  const sanitizedSuggestions = suggestions
-    ? suggestions.map((s) => {
-        const sanitized: any = {
-          id: s.id,
-          text: s.text,
-          type: s.type,
-        };
-        // Only include optional fields if they're defined
-        if (s.sourceDocId !== undefined) {
-          sanitized.sourceDocId = s.sourceDocId;
-        }
-        if (s.score !== undefined) {
-          sanitized.score = s.score;
-        }
-        return sanitized;
-      })
-    : [];
+  const sanitizedSuggestions = suggestions ? sanitizeSuggestionsForFirestore(suggestions) : [];
 
   const dataToSave: Record<string, any> = {
     question: sanitizedOriginalQuestion,
@@ -579,6 +563,36 @@ async function saveOrUpdateDocument(
   } catch (_error) {
     return null;
   }
+}
+
+function sanitizeSuggestionsForFirestore(suggestions: TypedSuggestion[]): Record<string, unknown>[] {
+  return suggestions.map((s) => {
+    const sanitized: Record<string, unknown> = {
+      id: s.id,
+      text: s.text,
+      type: s.type,
+    };
+    if (s.sourceDocId !== undefined) {
+      sanitized.sourceDocId = s.sourceDocId;
+    }
+    if (s.score !== undefined) {
+      sanitized.score = s.score;
+    }
+    return sanitized;
+  });
+}
+
+async function patchDocumentSuggestions(docId: string, suggestions: TypedSuggestion[]): Promise<void> {
+  if (!db || suggestions.length === 0) {
+    return;
+  }
+
+  await firestoreUpdate(
+    db.collection(getAnswersCollectionName()).doc(docId),
+    { suggestions: sanitizeSuggestionsForFirestore(suggestions) },
+    "suggestion patch after parallel generation",
+    `docId: ${docId}`
+  );
 }
 
 // Function for handling errors and sending appropriate error messages
@@ -1219,7 +1233,7 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
 
         // Execute the full chain
         timingMetrics.chainExecutionStart = Date.now();
-        const { fullResponse, finalDocs, restatedQuestion, suggestions, model, temperature } =
+        const { fullResponse, finalDocs, restatedQuestion, suggestionsPromise, model, temperature } =
           await setupAndExecuteLanguageModelChain(
             retriever,
             sanitizedInput.question, // Use sanitized question (whitespace normalized) for AI processing
@@ -1259,8 +1273,8 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
               });
             }
 
-            // Always create a new document; pass null as docId
-            const savedDocId = await saveOrUpdateDocument(
+            // Save answer immediately; suggestions are generated in parallel and patched afterward.
+            const savePromise = saveOrUpdateDocument(
               null, // Force creation path
               originalQuestion,
               fullResponse,
@@ -1275,19 +1289,31 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
               restatedQuestion, // Pass the restated question
               sanitizedInput.uuid, // Persist client UUID when provided
               finalConversationId, // Use the final conversation ID
-              suggestions, // Pass suggestions for saving
+              undefined, // Suggestions saved via patch after parallel generation
               model, // Pass the model used
               temperature, // Pass the temperature used
               sanitizedInput.taskMode, // Pass task mode for persistence
               sanitizedInput.taskFollowups, // Pass task follow-ups for persistence
               sanitizedInput.usedTaskFollowups // Pass used task follow-ups for persistence
-            );
+            ).then((savedDocId) => {
+              if (savedDocId) {
+                sendData({ docId: savedDocId });
+              }
+              return savedDocId;
+            });
+
+            const [savedDocId, suggestions] = await Promise.all([savePromise, suggestionsPromise]);
+
+            if (savedDocId && suggestions.length > 0) {
+              sendData({ suggestions });
+              try {
+                await patchDocumentSuggestions(savedDocId, suggestions);
+              } catch (patchError) {
+                console.warn("Failed to patch suggestions onto saved document:", patchError);
+              }
+            }
 
             if (savedDocId) {
-              sendData({
-                docId: savedDocId,
-              });
-
               // Track user activity - await to prevent Vercel from cutting off the operation
               // This is a quick operation and non-critical, so timeout after 3s to avoid blocking
               if (sanitizedInput.uuid) {
@@ -1324,11 +1350,6 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
                 }
               }
               // For follow-up messages, no title generation needed
-
-              // Emit suggestions only after the answers doc exists so interact ownership checks pass.
-              if (suggestions.length > 0) {
-                sendData({ suggestions });
-              }
             }
 
             timingMetrics.documentSaveComplete = Date.now();
@@ -1336,8 +1357,11 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
             // Silently handle save errors to avoid breaking the chat flow
             timingMetrics.documentSaveComplete = Date.now();
           }
-        } else if (suggestions.length > 0) {
-          sendData({ suggestions });
+        } else {
+          const suggestions = await suggestionsPromise;
+          if (suggestions.length > 0) {
+            sendData({ suggestions });
+          }
         }
       } catch (error: unknown) {
         requestStatus = "error";
