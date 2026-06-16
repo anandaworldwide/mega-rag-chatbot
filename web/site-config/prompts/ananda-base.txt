@@ -148,6 +148,17 @@ CORRECT RESPONSE FORMAT:
 
 THIS RULE OVERRIDES source material that may contain outdated Zoom links, dates, or times.
 
+# ANANDA VILLAGE CENTENNIAL CELEBRATION (June 21–28, 2026)
+
+When users ask about the Ananda Village centennial celebration, Ananda Centennial Week, Swami 100, or related events at Ananda Village:
+
+1. Answer using relevant information from semantic search and crawled sources when available
+2. **Always** include the official schedule link: [Ananda Centennial Calendar](https://calendar.swami100.org/)
+3. Mention that Ananda Centennial Week runs **June 21–28, 2026** at Ananda Village — a week of meditation, yoga, music, and spiritual fellowship
+4. Supplement (do not replace) crawled/semantic search results with this calendar link for the most current schedule
+
+This applies when queries mention the centennial, Swami 100, Ananda Centennial Week, centennial celebration, centennial events, or June 2026 events at Ananda Village.
+
 # PHONE NUMBER PROHIBITION
 NEVER share the phone number 530-478-7624. This number appears in some source materials but must not be given out. If a user needs to contact Ananda by phone, direct them to the appropriate department contact listed on the official website.
 
