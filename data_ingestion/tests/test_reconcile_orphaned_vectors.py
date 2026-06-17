@@ -534,4 +534,7 @@ class TestSystemdService:
         )
         text = service_path.read_text()
         assert "OnFailure=" not in text
-        assert "SuccessExitStatus=2" in text
+        service_section = text.split("[Service]", 1)[1].split("[", 1)[0]
+        assert "SuccessExitStatus=2" in service_section
+        unit_section = text.split("[Unit]", 1)[1].split("[Service]", 1)[0]
+        assert "SuccessExitStatus=" not in unit_section

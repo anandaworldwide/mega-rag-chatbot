@@ -13,10 +13,10 @@
 Description=Ananda crawler weekly orphan vector reconcile (Docker)
 After=docker.service network-online.target
 Wants=network-online.target
-SuccessExitStatus=2
 
 [Service]
 Type=oneshot
+SuccessExitStatus=2
 User=ubuntu
 Group=docker
 ExecStart=/usr/bin/docker run --rm \

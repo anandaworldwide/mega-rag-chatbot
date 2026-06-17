@@ -215,6 +215,10 @@ except ImportError:
   the `playwright` package so bundled browsers match the Python driver.
 - For server runbooks, include `git pull` immediately after the initial `cd` into the repo so the host is updated before
   rebuild/restart.
+- **Orphan reconcile timer**: Installing `ananda-crawler-orphan-reconcile.service` alone does not schedule weekly runs;
+  you must also copy `ananda-crawler-orphan-reconcile.timer` and run
+  `sudo systemctl enable --now ananda-crawler-orphan-reconcile.timer`. Put `SuccessExitStatus=2` in the `[Service]` section
+  (not `[Unit]`).
 
 ### SQLite on network filesystems (legacy EFS note)
 
