@@ -22,7 +22,7 @@ import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { NextApiRequest, NextApiResponse } from "next";
 import { useSudo } from "@/contexts/SudoContext";
 import { SudoProvider } from "@/contexts/SudoContext";
-import { useAnswers } from "@/hooks/useAnswers";
+import { useAnswers, AnswersSearchParams } from "@/hooks/useAnswers";
 import { useMutation } from "@tanstack/react-query";
 import { queryFetch } from "@/utils/client/reactQueryConfig";
 import { isAnswersPageAllowed, getAnswersPageErrorMessage } from "@/utils/server/answersPageAuth";
@@ -40,9 +40,25 @@ const AllAnswers = ({ siteConfig, authorizationError, errorMessage }: AllAnswers
 
   // Parse query parameters
   const urlPage = router.query.page ? Number(router.query.page) : 1;
+  const urlSearchQuery = typeof router.query.q === "string" ? router.query.q : "";
+  const urlDaysBack = router.query.daysBack ? Number(router.query.daysBack) : 30;
+
+  const activeSearch = useMemo<AnswersSearchParams | undefined>(() => {
+    const trimmedQuery = urlSearchQuery.trim();
+    if (!trimmedQuery) {
+      return undefined;
+    }
+
+    return {
+      q: trimmedQuery,
+      daysBack: Number.isFinite(urlDaysBack) ? urlDaysBack : 30,
+    };
+  }, [urlSearchQuery, urlDaysBack]);
 
   // UI state
   const [currentPage, setCurrentPage] = useState<number>(1);
+  const [searchInput, setSearchInput] = useState("");
+  const [daysBackInput, setDaysBackInput] = useState("30");
   const [isPageInitialized, setIsPageInitialized] = useState(false);
   const [isChangingPage, setIsChangingPage] = useState(false);
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
@@ -81,7 +97,7 @@ const AllAnswers = ({ siteConfig, authorizationError, errorMessage }: AllAnswers
   }, [siteConfig?.requireLogin, isSudoUser]);
 
   // Use React Query for data fetching with JWT authentication
-  const { data, isLoading, error } = useAnswers(currentPage, {
+  const { data, isLoading, error } = useAnswers(currentPage, activeSearch, {
     enabled: isPageInitialized && router.isReady,
   });
 
@@ -124,6 +140,9 @@ const AllAnswers = ({ siteConfig, authorizationError, errorMessage }: AllAnswers
   // Extract data from query result
   const answersData = useMemo(() => data?.answers || [], [data?.answers]);
   const totalPages = useMemo(() => data?.totalPages || 1, [data?.totalPages]);
+  const totalMatches = data?.totalMatches;
+  const isSearchActive = Boolean(activeSearch?.q);
+  const searchTruncated = Boolean(data?.truncated);
 
   // Delete mutation with React Query
   const deleteMutation = useMutation({
@@ -161,38 +180,83 @@ const AllAnswers = ({ siteConfig, authorizationError, errorMessage }: AllAnswers
       const pageFromUrl = Number(urlPage) || 1;
 
       setCurrentPage(pageFromUrl);
+      setSearchInput(urlSearchQuery);
+      setDaysBackInput(String(Number.isFinite(urlDaysBack) ? urlDaysBack : 30));
       setIsPageInitialized(true);
     }
-  }, [router.isReady, urlPage]);
+  }, [router.isReady, urlPage, urlSearchQuery, urlDaysBack]);
 
-  // Update URL with current page
+  // Update URL with current page and optional search params
   const updateUrl = useCallback(
-    (page: number) => {
-      if (router.isReady) {
-        let path = "/answers";
-        const params = new URLSearchParams();
-
-        if (page !== 1) {
-          params.append("page", page.toString());
-        }
-
-        if (params.toString()) {
-          path += "?" + params.toString();
-        }
-
-        // Use router.push() to create browser history entries for back button navigation
-        router.push(
-          {
-            pathname: "/answers",
-            query: page !== 1 ? { page: page.toString() } : {},
-          },
-          path,
-          { shallow: true }
-        );
+    (page: number, search?: AnswersSearchParams) => {
+      if (!router.isReady) {
+        return;
       }
+
+      const params = new URLSearchParams();
+      const trimmedQuery = search?.q?.trim() || "";
+
+      if (trimmedQuery) {
+        params.set("q", trimmedQuery);
+        params.set("daysBack", String(search?.daysBack ?? 30));
+      }
+
+      if (page !== 1) {
+        params.set("page", page.toString());
+      }
+
+      const query: Record<string, string> = {};
+      if (trimmedQuery) {
+        query.q = trimmedQuery;
+        query.daysBack = String(search?.daysBack ?? 30);
+      }
+      if (page !== 1) {
+        query.page = page.toString();
+      }
+
+      const path = params.toString() ? `/answers?${params.toString()}` : "/answers";
+
+      router.push(
+        {
+          pathname: "/answers",
+          query,
+        },
+        path,
+        { shallow: true }
+      );
     },
     [router]
   );
+
+  const handleSearchSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    const trimmedQuery = searchInput.trim();
+    if (trimmedQuery.length < 2) {
+      alert("Search query must be at least 2 characters.");
+      return;
+    }
+
+    const parsedDaysBack = Number(daysBackInput) || 30;
+    scrollToTop();
+    setIsChangingPage(true);
+    setCurrentPage(1);
+    setInitialLoadComplete(false);
+    hasInitiallyFetched.current = false;
+    updateUrl(1, { q: trimmedQuery, daysBack: parsedDaysBack });
+    logEvent("search_answers", "Admin", trimmedQuery);
+  };
+
+  const handleClearSearch = () => {
+    setSearchInput("");
+    setDaysBackInput("30");
+    scrollToTop();
+    setIsChangingPage(true);
+    setCurrentPage(1);
+    setInitialLoadComplete(false);
+    hasInitiallyFetched.current = false;
+    updateUrl(1);
+  };
 
   // Handle answer deletion (for sudo users only)
   const handleDelete = (answerId: string) => {
@@ -218,7 +282,7 @@ const AllAnswers = ({ siteConfig, authorizationError, errorMessage }: AllAnswers
     scrollToTop();
     setIsChangingPage(true);
     setCurrentPage(newPage);
-    updateUrl(newPage);
+    updateUrl(newPage, activeSearch);
     logEvent("change_answers_page", "UI", `page:${newPage}`);
 
     // React Query will handle the data fetching when currentPage changes
@@ -293,7 +357,70 @@ const AllAnswers = ({ siteConfig, authorizationError, errorMessage }: AllAnswers
                   )}
                 </div>
               ) : (
-                <div key={`${currentPage}-mostRecent`}>
+                <div key={`${currentPage}-${isSearchActive ? activeSearch?.q : "mostRecent"}`}>
+                  <div className="mb-6 rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+                    <form onSubmit={handleSearchSubmit} className="grid gap-4 md:grid-cols-[1fr_auto_auto_auto]">
+                      <label className="text-sm text-gray-700">
+                        <div className="mb-1 font-medium">Search questions</div>
+                        <input
+                          type="search"
+                          value={searchInput}
+                          onChange={(event) => setSearchInput(event.target.value)}
+                          placeholder="e.g. centennial"
+                          className="w-full rounded border border-gray-300 px-3 py-2"
+                        />
+                      </label>
+
+                      <label className="text-sm text-gray-700">
+                        <div className="mb-1 font-medium">Date range</div>
+                        <select
+                          value={daysBackInput}
+                          onChange={(event) => setDaysBackInput(event.target.value)}
+                          className="w-full rounded border border-gray-300 px-3 py-2"
+                        >
+                          <option value="7">Last 7 days</option>
+                          <option value="30">Last 30 days</option>
+                          <option value="90">Last 90 days</option>
+                        </select>
+                      </label>
+
+                      <div className="flex items-end">
+                        <button
+                          type="submit"
+                          disabled={isChangingPage}
+                          className="w-full rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:bg-gray-300"
+                        >
+                          Search
+                        </button>
+                      </div>
+
+                      <div className="flex items-end">
+                        <button
+                          type="button"
+                          onClick={handleClearSearch}
+                          disabled={!isSearchActive && !searchInput.trim()}
+                          className="w-full rounded border border-gray-300 px-4 py-2 text-gray-700 hover:bg-gray-50 disabled:text-gray-400"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    </form>
+
+                    {isSearchActive && !isLoading && !error && (
+                      <div className="mt-4 text-sm text-gray-600">
+                        {totalMatches === 0
+                          ? `No questions matching "${activeSearch?.q}" in the last ${activeSearch?.daysBack ?? 30} days.`
+                          : `${totalMatches} match${totalMatches === 1 ? "" : "es"} in the last ${activeSearch?.daysBack ?? 30} days`}
+                        {searchTruncated && (
+                          <span className="block text-amber-700 mt-1">
+                            Search stopped after scanning {data?.scannedCount?.toLocaleString()} recent answers. Try a
+                            shorter date range or a more specific keyword.
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Error state */}
                   {error && (
                     <div className="text-red-500 text-center my-6">
@@ -343,7 +470,7 @@ const AllAnswers = ({ siteConfig, authorizationError, errorMessage }: AllAnswers
                   {/* Empty state */}
                   {answersData.length === 0 && !isLoading && !error && (
                     <div className="text-center py-8">
-                      <p>No answers found.</p>
+                      <p>{isSearchActive ? `No questions matching "${activeSearch?.q}" in the last ${activeSearch?.daysBack ?? 30} days.` : "No answers found."}</p>
                     </div>
                   )}
 

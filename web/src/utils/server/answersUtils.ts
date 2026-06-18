@@ -10,6 +10,158 @@ import { Document } from "@langchain/core/documents";
 import { DocMetadata } from "@/types/DocMetadata";
 import { firestoreQueryGet } from "@/utils/server/firestoreRetryUtils";
 
+export const ANSWERS_SEARCH_MAX_SCAN = 10000;
+export const ANSWERS_SEARCH_BATCH_SIZE = 500;
+
+export interface SearchAnswersResult {
+  answers: Answer[];
+  totalPages: number;
+  currentPage: number;
+  totalMatches: number;
+  q: string;
+  daysBack: number;
+  scannedCount: number;
+  truncated: boolean;
+}
+
+export function clampDaysBack(daysBack: number): number {
+  if (!Number.isFinite(daysBack)) {
+    return 30;
+  }
+  return Math.min(90, Math.max(1, Math.round(daysBack)));
+}
+
+export function questionMatchesSearch(question: string, searchTerm: string): boolean {
+  return question.toLowerCase().includes(searchTerm.toLowerCase());
+}
+
+export function paginateSearchResults<T>(
+  items: T[],
+  page: number,
+  limit: number
+): { items: T[]; totalPages: number; totalMatches: number } {
+  const totalMatches = items.length;
+  const totalPages = Math.max(1, Math.ceil(totalMatches / limit));
+  const safePage = Math.max(1, page);
+  const offset = (safePage - 1) * limit;
+
+  return {
+    items: items.slice(offset, offset + limit),
+    totalPages,
+    totalMatches,
+  };
+}
+
+export function mapAnswerDocToAnswer(doc: firebase.firestore.QueryDocumentSnapshot): Answer {
+  const data = doc.data();
+  let sources: Document[] = [];
+
+  try {
+    sources = data.sources ? (JSON.parse(data.sources) as Document[]) : [];
+  } catch (e) {
+    if (typeof data.sources === "string" && !data.sources.trim().substring(0, 50).includes("Sources:")) {
+      console.error("Error parsing sources:", e);
+    }
+  }
+
+  return {
+    id: doc.id,
+    question: data.question,
+    answer: data.answer,
+    timestamp: data.timestamp,
+    sources: sources as Document<Record<string, unknown>>[],
+    vote: data.vote,
+    collection: data.collection,
+    ip: data.ip,
+    relatedQuestionsV2: data.relatedQuestionsV2 || [],
+    related_questions: data.related_questions,
+    adminAction: data.adminAction,
+    adminActionTimestamp: data.adminActionTimestamp,
+    history: data.history || undefined,
+    feedbackReason: data.feedbackReason,
+    feedbackComment: data.feedbackComment,
+    feedbackTimestamp: data.feedbackTimestamp,
+    isStarred: data.isStarred || false,
+  } as Answer;
+}
+
+export async function searchAnswersByQuestion(
+  q: string,
+  daysBack: number,
+  page: number,
+  limit: number
+): Promise<SearchAnswersResult> {
+  if (!db) {
+    throw new Error("Database not available");
+  }
+
+  const normalizedQuery = q.trim();
+  const clampedDaysBack = clampDaysBack(daysBack);
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - clampedDaysBack);
+
+  const matches: Answer[] = [];
+  let scannedCount = 0;
+  let truncated = false;
+  let lastDoc: firebase.firestore.QueryDocumentSnapshot | null = null;
+
+  while (true) {
+    let answersQuery = db
+      .collection(getAnswersCollectionName())
+      .where("timestamp", ">=", cutoff)
+      .orderBy("timestamp", "desc")
+      .limit(ANSWERS_SEARCH_BATCH_SIZE);
+
+    if (lastDoc) {
+      answersQuery = answersQuery.startAfter(lastDoc);
+    }
+
+    const snapshot = await firestoreQueryGet(
+      answersQuery,
+      "answers search query",
+      `daysBack: ${clampedDaysBack}, scanned: ${scannedCount}`
+    );
+
+    if (snapshot.empty) {
+      break;
+    }
+
+    for (const doc of snapshot.docs) {
+      scannedCount += 1;
+      const data = doc.data();
+      if (questionMatchesSearch(data.question || "", normalizedQuery)) {
+        matches.push(mapAnswerDocToAnswer(doc));
+      }
+
+      if (scannedCount >= ANSWERS_SEARCH_MAX_SCAN) {
+        truncated = true;
+        break;
+      }
+    }
+
+    if (truncated || snapshot.docs.length < ANSWERS_SEARCH_BATCH_SIZE) {
+      break;
+    }
+
+    lastDoc = snapshot.docs[snapshot.docs.length - 1];
+  }
+
+  const safePage = Math.max(1, page);
+  const safeLimit = Math.max(1, limit);
+  const paginated = paginateSearchResults(matches, safePage, safeLimit);
+
+  return {
+    answers: paginated.items,
+    totalPages: paginated.totalPages,
+    currentPage: safePage,
+    totalMatches: paginated.totalMatches,
+    q: normalizedQuery,
+    daysBack: clampedDaysBack,
+    scannedCount,
+    truncated,
+  };
+}
+
 // Fetches answers from Firestore based on an array of IDs
 // Uses batching to optimize database queries
 export async function getAnswersByIds(ids: string[]): Promise<Answer[]> {

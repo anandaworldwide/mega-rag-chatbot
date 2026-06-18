@@ -9,9 +9,19 @@ import { Answer } from "@/types/answer";
 import { fetchWithAuth } from "@/utils/client/tokenManager";
 import { DownvoteAnswerFilters, DownvoteFeedbackCluster } from "@/types/downvoteFeedback";
 
+export interface AnswersSearchParams {
+  q?: string;
+  daysBack?: number;
+}
+
 // Query keys for React Query cache
 export const queryKeys = {
-  answers: (page?: number) => ["answers", page].filter(Boolean),
+  answers: (page?: number, search?: AnswersSearchParams) => [
+    "answers",
+    page ?? 1,
+    search?.q?.trim() || "",
+    search?.daysBack ?? 30,
+  ],
   downvotedAnswers: (page: number = 1, filters?: DownvoteAnswerFilters) => ["downvotedAnswers", page, filters ?? {}],
   relatedQuestions: (docId?: string) => ["relatedQuestions", docId].filter(Boolean),
 };
@@ -20,7 +30,12 @@ export const queryKeys = {
 export interface AnswersResponse {
   answers: Answer[];
   totalPages: number;
-  currentPage: number;
+  currentPage?: number;
+  totalMatches?: number;
+  q?: string;
+  daysBack?: number;
+  scannedCount?: number;
+  truncated?: boolean;
 }
 
 export interface DownvotedAnswersResponse {
@@ -37,17 +52,31 @@ type AnswersQueryKey = ReturnType<typeof queryKeys.answers>;
  * Hook for fetching paginated answers (sorted by most recent)
  *
  * @param page - Current page number
- * @param options - Additional React Chat options
+ * @param search - Optional keyword search params
+ * @param options - Additional React Query options
  */
 export const useAnswers = (
   page: number = 1,
+  search?: AnswersSearchParams,
   options?: Omit<UseQueryOptions<AnswersResponse, Error, AnswersResponse, AnswersQueryKey>, "queryKey" | "queryFn">
 ): UseQueryResult<AnswersResponse, Error> => {
+  const trimmedQuery = search?.q?.trim() || "";
+  const daysBack = search?.daysBack ?? 30;
+
   return useQuery<AnswersResponse, Error, AnswersResponse, AnswersQueryKey>({
-    queryKey: queryKeys.answers(page),
+    queryKey: queryKeys.answers(page, search),
     queryFn: async () => {
-      const url = `/api/answers?page=${page}&limit=10`;
-      const response = await queryFetch(url, { method: "GET" });
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: "10",
+      });
+
+      if (trimmedQuery) {
+        params.set("q", trimmedQuery);
+        params.set("daysBack", String(daysBack));
+      }
+
+      const response = await queryFetch(`/api/answers?${params.toString()}`, { method: "GET" });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));

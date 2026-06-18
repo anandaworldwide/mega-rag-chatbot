@@ -77,6 +77,8 @@ jest.mock("@/utils/server/firestoreUtils", () => ({
 jest.mock("@/utils/server/answersUtils", () => ({
   getTotalDocuments: jest.fn(),
   getAnswersByIds: jest.fn(),
+  searchAnswersByQuestion: jest.fn(),
+  mapAnswerDocToAnswer: jest.fn(),
 }));
 
 // Mock site config loading
@@ -112,6 +114,8 @@ const mockDb = jest.requireMock("@/services/firebase").db;
 const mockGetSudoCookie = jest.requireMock("@/utils/server/sudoCookieUtils").getSudoCookie;
 const mockGetTotalDocuments = jest.requireMock("@/utils/server/answersUtils").getTotalDocuments;
 const mockGetAnswersByIds = jest.requireMock("@/utils/server/answersUtils").getAnswersByIds;
+const mockSearchAnswersByQuestion = jest.requireMock("@/utils/server/answersUtils").searchAnswersByQuestion;
+const mockMapAnswerDocToAnswer = jest.requireMock("@/utils/server/answersUtils").mapAnswerDocToAnswer;
 const mockLoadSiteConfig = jest.requireMock("@/utils/server/loadSiteConfig").loadSiteConfig;
 const mockLoadSiteConfigSync = jest.requireMock("@/utils/server/loadSiteConfig").loadSiteConfigSync;
 const mockIsAnswersPageAllowed = jest.requireMock("@/utils/server/answersPageAuth").isAnswersPageAllowed;
@@ -130,6 +134,16 @@ describe("Answers API", () => {
       allowPublicAnswersPage: true,
     });
     mockIsAnswersPageAllowed.mockResolvedValue(true);
+    mockMapAnswerDocToAnswer.mockImplementation((doc: { id: string; data: () => Record<string, unknown> }) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        question: data.question,
+        answer: data.answer,
+        timestamp: data.timestamp,
+        sources: [],
+      };
+    });
   });
 
   describe("GET method", () => {
@@ -180,6 +194,63 @@ describe("Answers API", () => {
       expect(res._getJSONData()).toHaveProperty("answers");
       expect(res._getJSONData()).toHaveProperty("totalPages", 2);
       expect(res._getJSONData().answers.length).toBe(2);
+    });
+
+    it("should return search results when q is provided", async () => {
+      mockSearchAnswersByQuestion.mockResolvedValueOnce({
+        answers: [
+          {
+            id: "answer1",
+            question: "Tell me about the centennial",
+            answer: "Test answer",
+            timestamp: { _seconds: 1234567890, _nanoseconds: 0 },
+          },
+        ],
+        totalPages: 1,
+        currentPage: 1,
+        totalMatches: 1,
+        q: "centennial",
+        daysBack: 30,
+        scannedCount: 42,
+        truncated: false,
+      });
+
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "GET",
+        query: {
+          page: "1",
+          limit: "10",
+          q: "centennial",
+          daysBack: "30",
+        },
+      });
+
+      await handler(req, res);
+
+      expect(res.statusCode).toBe(200);
+      expect(mockSearchAnswersByQuestion).toHaveBeenCalledWith("centennial", 30, 1, 10);
+      expect(res._getJSONData()).toMatchObject({
+        totalMatches: 1,
+        q: "centennial",
+        daysBack: 30,
+      });
+    });
+
+    it("should return 400 when search query is too short", async () => {
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "GET",
+        query: {
+          q: "a",
+        },
+      });
+
+      await handler(req, res);
+
+      expect(res.statusCode).toBe(400);
+      expect(res._getJSONData()).toEqual({
+        message: "Search query must be at least 2 characters.",
+      });
+      expect(mockSearchAnswersByQuestion).not.toHaveBeenCalled();
     });
 
     it("should handle error when database is not available", async () => {

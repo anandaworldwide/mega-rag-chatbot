@@ -6,9 +6,8 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { db } from "@/services/firebase";
 import { getSudoCookie } from "@/utils/server/sudoCookieUtils";
 import { getAnswersCollectionName } from "@/utils/server/firestoreUtils";
-import { getTotalDocuments, getAnswersByIds } from "@/utils/server/answersUtils";
+import { getTotalDocuments, getAnswersByIds, searchAnswersByQuestion, mapAnswerDocToAnswer } from "@/utils/server/answersUtils";
 import { Answer } from "@/types/answer";
-import { Document } from "@langchain/core/documents";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { withJwtAuth } from "@/utils/server/jwtUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
@@ -45,46 +44,7 @@ async function getAnswers(page: number, limit: number): Promise<{ answers: Answe
     `offset: ${offset}, limit: ${limit}`
   );
 
-  const answers = answersSnapshot.docs.map((doc: any) => {
-    const data = doc.data();
-    let sources: Document[] = [];
-
-    // Parse sources, handling potential errors
-    try {
-      sources = data.sources ? (JSON.parse(data.sources) as Document[]) : [];
-    } catch (e) {
-      // Very early sources were stored in non-JSON so recognize those and only log an error for other cases
-      if (!data.sources.trim().substring(0, 50).includes("Sources:")) {
-        console.error("Error parsing sources:", e);
-        console.log("data.sources: '" + data.sources + "'");
-        if (!data.sources || data.sources.length === 0) {
-          console.log("data.sources is empty or null");
-        }
-      }
-    }
-
-    // Construct and return the Answer object
-    return {
-      id: doc.id,
-      question: data.question,
-      answer: data.answer,
-      timestamp: data.timestamp,
-      sources: sources as Document<Record<string, unknown>>[],
-      vote: data.vote,
-      collection: data.collection,
-      ip: data.ip,
-
-      relatedQuestionsV2: data.relatedQuestionsV2 || [],
-      related_questions: data.related_questions,
-      adminAction: data.adminAction,
-      adminActionTimestamp: data.adminActionTimestamp,
-      history: data.history || undefined,
-      feedbackReason: data.feedbackReason,
-      feedbackComment: data.feedbackComment,
-      feedbackTimestamp: data.feedbackTimestamp,
-      isStarred: data.isStarred || false,
-    } as Answer;
-  });
+  const answers = answersSnapshot.docs.map((doc: any) => mapAnswerDocToAnswer(doc));
 
   return { answers, totalPages };
 }
@@ -157,11 +117,14 @@ async function handleGetRequest(req: NextApiRequest, res: NextApiResponse) {
     });
   }
 
-  // Apply rate limiting
+  // Apply rate limiting (stricter for keyword search)
+  const searchQuery = typeof req.query.q === "string" ? req.query.q.trim() : "";
+  const isSearchRequest = searchQuery.length > 0;
+
   const isAllowed = await genericRateLimiter(req, res, {
     windowMs: 5 * 60 * 1000, // 5 minutes
-    max: 100, // 100 requests per 5 minutes
-    name: "answers-api",
+    max: isSearchRequest ? 20 : 100,
+    name: isSearchRequest ? "answers-search-api" : "answers-api",
   });
 
   if (!isAllowed) {
@@ -188,14 +151,28 @@ async function handleGetRequest(req: NextApiRequest, res: NextApiResponse) {
 
       res.status(200).json(answers);
     } else {
-      // Handle fetching answers with pagination
-      const { page, limit } = req.query;
-      const pageNumber = parseInt(page as string) || 1; // Default to page 1 if not provided
+      // Handle fetching answers with pagination or keyword search
+      const { page, limit, q, daysBack } = req.query;
+      const pageNumber = parseInt(page as string) || 1;
       const limitNumber = parseInt(limit as string) || 10;
+      const searchTerm = typeof q === "string" ? q.trim() : "";
+
+      if (searchTerm) {
+        if (searchTerm.length < 2) {
+          return res.status(400).json({
+            message: "Search query must be at least 2 characters.",
+          });
+        }
+
+        const daysBackNumber = parseInt(daysBack as string) || 30;
+        const searchResult = await searchAnswersByQuestion(searchTerm, daysBackNumber, pageNumber, limitNumber);
+
+        return res.status(200).json(searchResult);
+      }
 
       const { answers, totalPages } = await getAnswers(pageNumber, limitNumber);
 
-      res.status(200).json({ answers, totalPages });
+      res.status(200).json({ answers, totalPages, currentPage: pageNumber });
     }
   } catch (error: unknown) {
     // Error handling for GET requests

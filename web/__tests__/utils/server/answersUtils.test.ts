@@ -23,6 +23,9 @@ jest.mock("@/services/firebase", () => {
       get: jest.fn(),
       stream: jest.fn(),
       count: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      startAfter: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
     },
   };
 });
@@ -58,7 +61,15 @@ jest.mock("firebase-admin", () => ({
 }));
 
 // Import the functions after mocking dependencies
-import { getAnswersByIds, parseAndRemoveWordsFromSources, getTotalDocuments } from "@/utils/server/answersUtils";
+import {
+  getAnswersByIds,
+  parseAndRemoveWordsFromSources,
+  getTotalDocuments,
+  clampDaysBack,
+  questionMatchesSearch,
+  paginateSearchResults,
+  searchAnswersByQuestion,
+} from "@/utils/server/answersUtils";
 
 // Get the mocked modules after import
 const mockDb = jest.requireMock("@/services/firebase").db;
@@ -243,6 +254,78 @@ describe("answersUtils", () => {
 
       // Restore console.error
       console.error = originalConsoleError;
+    });
+  });
+
+  describe("clampDaysBack", () => {
+    it("should clamp values to 1 through 90", () => {
+      expect(clampDaysBack(0)).toBe(1);
+      expect(clampDaysBack(30)).toBe(30);
+      expect(clampDaysBack(120)).toBe(90);
+      expect(clampDaysBack(Number.NaN)).toBe(30);
+    });
+  });
+
+  describe("questionMatchesSearch", () => {
+    it("should match case-insensitively on question substrings", () => {
+      expect(questionMatchesSearch("Tell me about the Centennial week", "centennial")).toBe(true);
+      expect(questionMatchesSearch("CENTENNIAL events at Ananda Village", "centennial")).toBe(true);
+      expect(questionMatchesSearch("What is meditation?", "centennial")).toBe(false);
+    });
+  });
+
+  describe("paginateSearchResults", () => {
+    it("should paginate filtered results", () => {
+      const items = ["a", "b", "c", "d", "e"];
+      const page1 = paginateSearchResults(items, 1, 2);
+      expect(page1.items).toEqual(["a", "b"]);
+      expect(page1.totalMatches).toBe(5);
+      expect(page1.totalPages).toBe(3);
+
+      const page2 = paginateSearchResults(items, 2, 2);
+      expect(page2.items).toEqual(["c", "d"]);
+    });
+  });
+
+  describe("searchAnswersByQuestion", () => {
+    it("should return matching answers within the date window", async () => {
+      const recentTimestamp = new Date();
+      const oldTimestamp = new Date();
+      oldTimestamp.setDate(oldTimestamp.getDate() - 120);
+
+      const docs = [
+        {
+          id: "recent-match",
+          data: () => ({
+            question: "What is the centennial schedule?",
+            answer: "Answer",
+            timestamp: recentTimestamp,
+            sources: "[]",
+          }),
+        },
+        {
+          id: "recent-miss",
+          data: () => ({
+            question: "What is meditation?",
+            answer: "Answer",
+            timestamp: recentTimestamp,
+            sources: "[]",
+          }),
+        },
+      ];
+
+      mockFirestoreQueryGet.mockResolvedValueOnce({
+        empty: false,
+        docs,
+      });
+
+      const result = await searchAnswersByQuestion("centennial", 30, 1, 10);
+
+      expect(result.totalMatches).toBe(1);
+      expect(result.answers[0].id).toBe("recent-match");
+      expect(result.q).toBe("centennial");
+      expect(result.daysBack).toBe(30);
+      expect(result.truncated).toBe(false);
     });
   });
 
