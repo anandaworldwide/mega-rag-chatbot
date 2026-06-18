@@ -20,7 +20,12 @@
  * - AI suggestion chips for follow-up questions
  */
 
-document.addEventListener("DOMContentLoaded", () => {
+function initChatbot() {
+  // A JS-delay optimizer (e.g. FlyingPress) can replay this script; never
+  // initialize twice or we'd build duplicate UI and event listeners.
+  if (window.aichatbotInitialized) return;
+  window.aichatbotInitialized = true;
+
   // API endpoint paths
   const API_PATHS = {
     CHAT: "/api/chat/v1",
@@ -1162,6 +1167,13 @@ document.addEventListener("DOMContentLoaded", () => {
   async function sendMessage() {
     const message = input.value.trim();
     if (!message) return;
+
+    // Auth module loads first as a hard dependency, but guard against any delay
+    // race so we fail cleanly before mutating the UI rather than throwing mid-send.
+    if (!window.aichatbotAuth || typeof getToken !== "function") {
+      console.error("[Ananda-AI-Chatbot]: Auth module not ready.");
+      return;
+    }
 
     // Test functionality: if message is exactly "hi, this is michel sampil vaitikaitis", trigger error and send email
     if (message === "hi, this is michel sampil vaitikaitis") {
@@ -2578,10 +2590,16 @@ document.addEventListener("DOMContentLoaded", () => {
     bubble.classList.remove("magnetic-ripple-animation-big");
   }
 
-  // Call startAttentionAnimation when the page loads, after bubble is created
-  window.addEventListener("load", () => {
+  // Call startAttentionAnimation when the page loads, after bubble is created.
+  // Guard against a delay optimizer replaying this script after the load event
+  // has already fired (in which case the listener would never run).
+  if (document.readyState === "complete") {
     setTimeout(startAttentionAnimation, 1000); // Small delay to ensure bubble is rendered
-  });
+  } else {
+    window.addEventListener("load", () => {
+      setTimeout(startAttentionAnimation, 1000); // Small delay to ensure bubble is rendered
+    });
+  }
 
   // Stop animation when window is opened, restart when closed
   function setupAnimationToggle() {
@@ -2776,4 +2794,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Initialize search bubble functionality
   initSearchBubble();
-});
+}
+
+// Initialize defensively so the chatbot works even when a JS-delay optimizer
+// (e.g. FlyingPress) replays this script after DOMContentLoaded has fired.
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initChatbot);
+} else {
+  initChatbot();
+}
