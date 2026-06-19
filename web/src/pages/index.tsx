@@ -68,8 +68,19 @@ import {
   TitleScopeSuggestion,
 } from "@/types/titleScope";
 import { parseSseDataLine, readSseStream } from "@/utils/client/sseLineBuffer";
+import {
+  buildFilterExplicitnessPayload,
+  formatTimingMetricsDisplay,
+  generateChatPageTitle,
+  getAutoAppliedSourceFocusAction,
+  getQueriesForCollection,
+  getRepairAllLibrariesSelection,
+  shouldShowSuggestions as computeShouldShowSuggestions,
+  shouldUsePinnedChatShell as computeShouldUsePinnedChatShell,
+} from "@/utils/client/chatPageUtils";
 
-// Custom hook for scroll depth tracking
+export { getRepairAllLibrariesSelection } from "@/utils/client/chatPageUtils";
+
 function useScrollDepthTracking() {
   const [scrollDepthsTracked, setScrollDepthsTracked] = useState<Set<number>>(new Set());
   const [pageLoadTime] = useState<number>(Date.now());
@@ -126,19 +137,6 @@ function useScrollDepthTracking() {
   }, [scrollDepthsTracked, trackFirstInteraction]);
 
   return { trackFirstInteraction };
-}
-
-export function getRepairAllLibrariesSelection(
-  actionLibraries: string[] | undefined,
-  defaultLibraries: string[]
-): string[] {
-  return actionLibraries ? [...actionLibraries] : [...defaultLibraries];
-}
-
-function getAutoAppliedSourceFocusAction(payload: TitleScopeFilterConflictPayload): FilterConflictAction | null {
-  return (
-    payload.actions.find((action) => action.kind === "setCollection" && action.collection === "whole_library") || null
-  );
 }
 
 // Main component for the chat interface
@@ -262,15 +260,13 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     setMediaTypesExplicit(!allOn);
   }, [defaultMediaTypes, mediaTypes]);
 
-  const buildFilterExplicitnessPayload = useCallback(() => {
-    if (!isTitleScopeSelectionEnabled) {
-      return undefined;
-    }
-    return {
-      collection: collectionChanged,
-      libraries: librariesExplicit,
-      mediaTypes: mediaTypesExplicit,
-    };
+  const buildFilterExplicitnessPayloadFn = useCallback(() => {
+    return buildFilterExplicitnessPayload(
+      isTitleScopeSelectionEnabled,
+      collectionChanged,
+      librariesExplicit,
+      mediaTypesExplicit
+    );
   }, [isTitleScopeSelectionEnabled, collectionChanged, librariesExplicit, mediaTypesExplicit]);
 
   const applyFilterConflictAction = useCallback(
@@ -399,14 +395,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
   // Generate page title based on conversation state
   const generatePageTitle = useCallback(() => {
-    const siteName = getSiteName(siteConfig);
-
-    if (conversationTitle) {
-      return `${conversationTitle} - ${siteName}`;
-    }
-
-    // Default title for home page
-    return siteName;
+    return generateChatPageTitle(conversationTitle, getSiteName(siteConfig));
   }, [conversationTitle, siteConfig]);
 
   // Update document title when conversation title changes
@@ -1847,7 +1836,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           mediaTypes,
           selectedLibraries: selectedLibrariesRef.current,
           titleScope: requestTitleScope,
-          filterExplicitness: buildFilterExplicitnessPayload(),
+          filterExplicitness: buildFilterExplicitnessPayloadFn(),
           sourceCount: sourceCountRef.current,
           uuid: getOrCreateUUID(),
           convId: currentConvIdRef.current, // Pass current conversation ID for follow-ups
@@ -2084,34 +2073,16 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
   // Memoized queries for the current collection (flat list for backward compatibility)
   const queriesForCollection = useMemo(() => {
-    if (!collectionQueries[collection as keyof typeof collectionQueries]) {
-      // If the current collection is not found, use the first available collection
-      const firstAvailableCollection = Object.keys(collectionQueries)[0];
-      if (firstAvailableCollection) {
-        return collectionQueries[firstAvailableCollection as keyof typeof collectionQueries];
-      }
-      return [];
-    }
-
-    const queries = collectionQueries[collection as keyof typeof collectionQueries];
-    return queries;
+    return getQueriesForCollection(collection, collectionQueries);
   }, [collection, collectionQueries]);
 
   // Custom hook for managing suggested queries (fallback for non-categorized)
   const { suggestedQueries, shuffleQueries } = useSuggestedQueries(queriesForCollection, 3);
 
   // Helper function to determine if user has completed any Q&A (show suggestions until first Q&A)
-  const shouldShowSuggestions = useMemo(() => {
-    if (!messages || messages.length === 0) return true;
+  const shouldShowSuggestions = useMemo(() => computeShouldShowSuggestions(messages), [messages]);
 
-    // Count user messages (questions)
-    const userMessages = messages.filter((msg) => msg.type === "userMessage");
-
-    // Show suggestions until user has asked at least one question
-    return userMessages.length === 0;
-  }, [messages]);
-
-  const shouldUsePinnedChatShell = Boolean(siteConfig?.requireLogin) || messages.length > 1;
+  const shouldUsePinnedChatShell = computeShouldUsePinnedChatShell(Boolean(siteConfig?.requireLogin), messages.length);
 
   // Function to handle temporary session changes
   const handleTemporarySessionChange = (event: React.MouseEvent<HTMLButtonElement>) => {
@@ -2293,7 +2264,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             selectedLibraries: selectedLibrariesRef.current,
             titleScope:
               isTitleScopeSelectionEnabled && selectedTitleScopeRef.current ? selectedTitleScopeRef.current : undefined,
-            filterExplicitness: buildFilterExplicitnessPayload(),
+            filterExplicitness: buildFilterExplicitnessPayloadFn(),
             sourceCount: apiMessage.sourceDocs?.length || sourceCountRef.current,
             temporarySession: temporarySession,
             uuid: getOrCreateUUID(),
@@ -2509,7 +2480,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       mediaTypes,
       temporarySession,
       isTitleScopeSelectionEnabled,
-      buildFilterExplicitnessPayload,
+      buildFilterExplicitnessPayloadFn,
       siteConfig?.requireLogin,
       setLoading,
       setError,
@@ -2630,7 +2601,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             selectedLibraries: selectedLibrariesRef.current,
             titleScope:
               isTitleScopeSelectionEnabled && selectedTitleScopeRef.current ? selectedTitleScopeRef.current : undefined,
-            filterExplicitness: buildFilterExplicitnessPayload(),
+            filterExplicitness: buildFilterExplicitnessPayloadFn(),
             sourceCount: sourceCountRef.current,
             uuid: getOrCreateUUID(),
             convId: currentConvIdRef.current,
@@ -2796,7 +2767,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       setSavedDocId,
       setCurrentConvId,
       isTitleScopeSelectionEnabled,
-      buildFilterExplicitnessPayload,
+      buildFilterExplicitnessPayloadFn,
       autoApplySourceFocusConflict,
     ]
   );
@@ -2837,7 +2808,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             selectedLibraries: selectedLibrariesRef.current,
             titleScope:
               isTitleScopeSelectionEnabled && selectedTitleScopeRef.current ? selectedTitleScopeRef.current : undefined,
-            filterExplicitness: buildFilterExplicitnessPayload(),
+            filterExplicitness: buildFilterExplicitnessPayloadFn(),
             sourceCount: apiMessage.sourceDocs?.length || sourceCountRef.current,
             temporarySession: temporarySession,
             uuid: getOrCreateUUID(),
@@ -2912,7 +2883,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       mediaTypes,
       temporarySession,
       isTitleScopeSelectionEnabled,
-      buildFilterExplicitnessPayload,
+      buildFilterExplicitnessPayloadFn,
       autoApplySourceFocusConflict,
     ]
   );
@@ -3316,16 +3287,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   }, [highlightMessageIndex, messages.length]);
 
   // Function to format timing metrics for display
-  const formatTimingMetrics = useCallback(() => {
-    if (!timingMetrics) return null;
-
-    const { ttfb, tokensPerSecond } = timingMetrics;
-
-    if (ttfb === undefined || tokensPerSecond === undefined) return null;
-
-    const ttfbSecs = (ttfb / 1000).toFixed(2);
-    return `${ttfbSecs} secs to first character, then ${tokensPerSecond} chars/sec streamed`;
-  }, [timingMetrics]);
+  const formatTimingMetrics = useCallback(() => formatTimingMetricsDisplay(timingMetrics), [timingMetrics]);
 
   // Function to handle scroll behavior and button visibility
   useEffect(() => {

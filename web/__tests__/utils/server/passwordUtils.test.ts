@@ -10,7 +10,20 @@
  * 4. Handle edge cases and invalid inputs gracefully
  */
 
-import { getLastPasswordChangeTimestamp, isTokenValid } from '@/utils/server/passwordUtils';
+import {
+  getLastPasswordChangeTimestamp,
+  isTokenValid,
+  validatePasswordStrength,
+  hashPassword,
+  comparePassword,
+} from '@/utils/server/passwordUtils';
+
+jest.mock('bcryptjs', () => ({
+  hash: jest.fn().mockResolvedValue('hashed-password'),
+  compare: jest.fn(),
+}));
+
+import bcrypt from 'bcryptjs';
 
 describe('passwordUtils', () => {
   // Store original env var to restore after tests
@@ -224,6 +237,69 @@ describe('passwordUtils', () => {
       
       expect(isTokenValid(secondsToken)).toBe(true);
       expect(isTokenValid(millisecondsToken)).toBe(true);
+    });
+  });
+
+  describe('validatePasswordStrength', () => {
+    it('rejects empty password', () => {
+      expect(validatePasswordStrength('')).toEqual({
+        valid: false,
+        message: 'Password is required',
+      });
+    });
+
+    it('rejects non-string password', () => {
+      expect(validatePasswordStrength(null as unknown as string)).toEqual({
+        valid: false,
+        message: 'Password is required',
+      });
+    });
+
+    it('rejects password missing requirements', () => {
+      const result = validatePasswordStrength('short');
+      expect(result.valid).toBe(false);
+      expect(result.message).toContain('at least 8 characters');
+      expect(result.message).toContain('one uppercase letter');
+      expect(result.message).toContain('one number');
+    });
+
+    it('accepts password meeting all requirements', () => {
+      const result = validatePasswordStrength('SecurePass1');
+      expect(result).toEqual({
+        valid: true,
+        message: 'Password meets all requirements',
+        requirements: {
+          minLength: true,
+          hasUppercase: true,
+          hasLowercase: true,
+          hasNumber: true,
+        },
+      });
+    });
+  });
+
+  describe('hashPassword', () => {
+    it('hashes password with bcrypt salt rounds 10', async () => {
+      const result = await hashPassword('SecurePass1');
+      expect(bcrypt.hash).toHaveBeenCalledWith('SecurePass1', 10);
+      expect(result).toBe('hashed-password');
+    });
+  });
+
+  describe('comparePassword', () => {
+    it('returns true when bcrypt compare succeeds', async () => {
+      jest.mocked(bcrypt.compare).mockResolvedValueOnce(true as never);
+      await expect(comparePassword('plain', 'hash')).resolves.toBe(true);
+    });
+
+    it('returns false when bcrypt compare fails', async () => {
+      jest.mocked(bcrypt.compare).mockResolvedValueOnce(false as never);
+      await expect(comparePassword('plain', 'hash')).resolves.toBe(false);
+    });
+
+    it('returns false when bcrypt throws', async () => {
+      jest.mocked(bcrypt.compare).mockRejectedValueOnce(new Error('bcrypt error'));
+      await expect(comparePassword('plain', 'hash')).resolves.toBe(false);
     });
   });
 });

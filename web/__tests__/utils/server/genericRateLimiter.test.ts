@@ -130,6 +130,8 @@ describe("genericRateLimiter", () => {
     });
 
     expect(result).toBe(false); // FAIL CLOSED - security fix
+    expect(mockRes.status).toHaveBeenCalledWith(503);
+    expect(mockRes.json).toHaveBeenCalledWith({ error: "Service temporarily unavailable" });
     expect(consoleWarnSpy).toHaveBeenCalledWith("Firestore not available – rate limiting disabled, denying request");
 
     // Restore db

@@ -137,7 +137,7 @@ jobs:
         working-directory: web
 
       - name: Run a full test with coverage
-        run: npx jest --config=jest.config.cjs --ci
+        run: npm run test:coverage:all -- --ci
         working-directory: web
         env:
           NODE_ENV: test

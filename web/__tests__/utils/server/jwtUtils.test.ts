@@ -312,5 +312,27 @@ describe("JWT Utilities", () => {
 
       expect(mockHandler).toHaveBeenCalledWith(mockReq, mockRes, extraArg);
     });
+
+    it("should return 401 with error message when token verification fails", async () => {
+      const mockHandler = jest.fn();
+      const mockReq = {
+        headers: { authorization: "Bearer bad-token" },
+      } as NextApiRequest;
+      const mockRes = {
+        status: jest.fn().mockReturnThis(),
+        json: jest.fn(),
+      } as unknown as NextApiResponse;
+
+      (jwt.verify as jest.Mock).mockImplementationOnce(() => {
+        throw new Error("Token expired");
+      });
+
+      const wrappedHandler = withJwtAuth(mockHandler);
+      await wrappedHandler(mockReq, mockRes);
+
+      expect(mockRes.status).toHaveBeenCalledWith(401);
+      expect(mockRes.json).toHaveBeenCalledWith({ error: "Invalid or expired token" });
+      expect(mockHandler).not.toHaveBeenCalled();
+    });
   });
 });

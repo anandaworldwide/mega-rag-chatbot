@@ -9,48 +9,13 @@
  * 4. Returns the correct total number of sources
  */
 
-// Import the makechain module to access the calculateSources function
-import * as makechainModule from '@/utils/server/makechain';
+import { calculateSources } from "@/utils/server/ragDocumentUtils";
 
-// Define the interface for library objects
 interface Library {
   name: string;
   weight?: number;
   sources?: number;
 }
-
-// Define the type for the calculateSources function
-type CalculateSourcesFn = (
-  totalSources: number,
-  libraries: Library[],
-) => Library[];
-
-// Access the non-exported calculateSources function using rewire-like approach
-const calculateSourcesFromModule = (makechainModule as Record<string, unknown>)
-  .calculateSources;
-
-// Use the actual function if available, otherwise use our implementation
-const calculateSources: CalculateSourcesFn =
-  typeof calculateSourcesFromModule === 'function'
-    ? (calculateSourcesFromModule as CalculateSourcesFn)
-    : function (totalSources: number, libraries: Library[]): Library[] {
-        if (!libraries || libraries.length === 0) {
-          return [];
-        }
-
-        const totalWeight = libraries.reduce(
-          (sum: number, lib: Library) =>
-            sum + (lib.weight !== undefined ? lib.weight : 1),
-          0,
-        );
-        return libraries.map((lib: Library) => ({
-          name: lib.name,
-          sources:
-            lib.weight !== undefined
-              ? Math.round(totalSources * (lib.weight / totalWeight))
-              : Math.floor(totalSources / libraries.length),
-        }));
-      };
 
 describe('calculateSources', () => {
   test('should distribute sources correctly based on weights', () => {

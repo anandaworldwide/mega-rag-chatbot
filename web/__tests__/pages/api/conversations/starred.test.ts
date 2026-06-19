@@ -172,5 +172,99 @@ describe("/api/conversations/starred", () => {
         pageSize: 20,
       });
     });
+
+    it("should return grouped starred conversations", async () => {
+      mockFirestoreQueryGet.mockResolvedValue({
+        docs: [
+          {
+            data: () => ({
+              convId: "conv-1",
+              title: "Starred chat",
+              question: "Question one",
+              timestamp: { seconds: 2000, toDate: () => new Date("2024-06-02T00:00:00.000Z") },
+              isStarred: true,
+            }),
+          },
+          {
+            data: () => ({
+              convId: "conv-1",
+              title: "Starred chat",
+              question: "Question two",
+              timestamp: { seconds: 1000, toDate: () => new Date("2024-06-01T00:00:00.000Z") },
+              isStarred: true,
+            }),
+          },
+        ],
+      });
+
+      const mockCollection = jest.fn().mockReturnThis();
+      const mockWhere = jest.fn().mockReturnThis();
+      const mockOrderBy = jest.fn().mockReturnThis();
+      const mockLimit = jest.fn().mockReturnThis();
+      mockDb.collection = mockCollection;
+      mockCollection.mockReturnValue({ where: mockWhere, orderBy: mockOrderBy, limit: mockLimit });
+      mockWhere.mockReturnValue({ where: mockWhere, orderBy: mockOrderBy, limit: mockLimit });
+      mockOrderBy.mockReturnValue({ limit: mockLimit, startAfter: jest.fn().mockReturnThis() });
+      mockLimit.mockReturnThis();
+
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "GET",
+        headers: { authorization: "Bearer valid-jwt-token" },
+      });
+
+      await handler(req, res);
+
+      expect(res.statusCode).toBe(200);
+      const body = res._getJSONData();
+      expect(body.conversations).toHaveLength(1);
+      expect(body.conversations[0].convId).toBe("conv-1");
+      expect(body.conversations[0].messageCount).toBe(2);
+      expect(body.conversations[0].isStarred).toBe(true);
+    });
+
+    it("should return 400 when cursor pagination fails", async () => {
+      const mockStartAfter = jest.fn(() => {
+        throw new Error("Invalid cursor");
+      });
+
+      const mockCollection = jest.fn().mockReturnThis();
+      const mockWhere = jest.fn().mockReturnThis();
+      const mockOrderBy = jest.fn().mockReturnThis();
+      const mockLimit = jest.fn().mockReturnThis();
+      mockDb.collection = mockCollection;
+      mockCollection.mockReturnValue({ where: mockWhere, orderBy: mockOrderBy, limit: mockLimit });
+      mockWhere.mockReturnValue({ where: mockWhere, orderBy: mockOrderBy, limit: mockLimit });
+      mockOrderBy.mockReturnValue({ limit: mockLimit, startAfter: mockStartAfter });
+      mockLimit.mockReturnThis();
+
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "GET",
+        headers: { authorization: "Bearer valid-jwt-token" },
+        query: { cursor: "2024-01-01T00:00:00.000Z" },
+      });
+
+      await handler(req, res);
+
+      expect(res.statusCode).toBe(400);
+      expect(res._getJSONData()).toEqual({ error: "Invalid cursor format" });
+    });
+
+    it("should return uuid error when secure uuid lookup fails", async () => {
+      mockGetSecureUUID.mockReturnValue({
+        success: false,
+        statusCode: 400,
+        error: "UUID required",
+      });
+
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "GET",
+        headers: { authorization: "Bearer valid-jwt-token" },
+      });
+
+      await handler(req, res);
+
+      expect(res.statusCode).toBe(400);
+      expect(res._getJSONData()).toEqual({ error: "UUID required" });
+    });
   });
 });

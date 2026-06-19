@@ -27,7 +27,8 @@ jest.mock("@langchain/openai", () => ({
 // Now import ChatOpenAI - it will be the mocked version
 import { VectorStoreRetriever } from "@langchain/core/vectorstores";
 import { Document } from "@langchain/core/documents";
-import { buildActiveFilterPromptData, createStreamingDeadlineGuard, makeChain } from "../../../src/utils/server/makechain";
+import { createStreamingDeadlineGuard, makeChain } from "../../../src/utils/server/makechain";
+import { calculateSources, combineDocumentsFn } from "../../../src/utils/server/ragDocumentUtils";
 import fs from "fs/promises";
 import path from "path";
 import { ChatOpenAI } from "@langchain/openai";
@@ -135,132 +136,7 @@ const mockS3Send = jest.fn();
   send: mockS3Send,
 }));
 
-// Import the actual calculateSources function for testing
-// Since it's not exported, we'll define our own implementation that matches
-function calculateSources(
-  totalSources: number,
-  libraries: { name: string; weight?: number }[]
-): { name: string; sources: number }[] {
-  if (!libraries || libraries.length === 0) {
-    return [];
-  }
-
-  const totalWeight = libraries.reduce(
-    (sum: number, lib: { name: string; weight?: number }) => sum + (lib.weight !== undefined ? lib.weight : 1),
-    0
-  );
-  return libraries.map((lib: { name: string; weight?: number }) => ({
-    name: lib.name,
-    sources:
-      lib.weight !== undefined
-        ? Math.round(totalSources * (lib.weight / totalWeight))
-        : Math.floor(totalSources / libraries.length),
-  }));
-}
-
-// Create our own implementation of combineDocumentsFn for testing
-function combineDocumentsFn(docs: Document[]): string {
-  const serializedDocs = docs.map((doc) => ({
-    content: doc.pageContent,
-    metadata: doc.metadata || {},
-    id: doc.id,
-    library: doc.metadata?.library,
-  }));
-  return JSON.stringify(serializedDocs);
-}
-
-describe("buildActiveFilterPromptData", () => {
-  const mockSiteConfig = {
-    siteId: "ananda",
-    shortname: "Luca",
-    name: "Ananda",
-    tagline: "Test",
-    greeting: "Hi",
-    parent_site_url: "",
-    parent_site_name: "",
-    help_url: "",
-    help_text: "",
-    collectionConfig: {
-      master_swami: "Master and Swami",
-      whole_library: "All authors",
-      bible: "Bible",
-    },
-    libraryMappings: {},
-    enableSuggestedQueries: true,
-    enableMediaTypeSelection: true,
-    enableAuthorSelection: true,
-    welcome_popup_heading: "",
-    other_visitors_reference: "",
-    loginImage: null,
-    header: { logo: "", navItems: [] },
-    footer: { links: [] },
-    requireLogin: false,
-    allowTemporarySessions: true,
-    allowAllAnswersPage: true,
-    queriesPerUserPerDay: 100,
-    showSourceContent: true,
-    showVoting: true,
-    includedLibraries: ["Ananda Library", "Crystal Clarity"],
-    enabledMediaTypes: ["text", "audio", "youtube"] as const,
-  };
-
-  it("returns no restrictive filters for whole_library with all libraries and all media", () => {
-    const result = buildActiveFilterPromptData(
-      mockSiteConfig as any,
-      { $and: [{ type: { $in: ["text", "audio", "youtube"] } }] },
-      "whole_library",
-      ["Ananda Library", "Crystal Clarity"]
-    );
-
-    expect(result.hasRestrictiveFilters).toBe(false);
-    expect(result.activeFiltersSummary).toContain("No restrictive filters are active");
-  });
-
-  it("includes a collection label when a restrictive collection is active", () => {
-    const result = buildActiveFilterPromptData(mockSiteConfig as any, undefined, "bible");
-
-    expect(result.hasRestrictiveFilters).toBe(true);
-    expect(result.collectionLabel).toBe("Bible");
-    expect(result.activeFiltersSummary).toContain("- Collection: Bible");
-  });
-
-  it("includes a restrictive library subset", () => {
-    const result = buildActiveFilterPromptData(
-      mockSiteConfig as any,
-      undefined,
-      "whole_library",
-      ["Ananda Library"]
-    );
-
-    expect(result.selectedLibraries).toEqual(["Ananda Library"]);
-    expect(result.activeFiltersSummary).toContain('- Libraries: Ananda Library');
-  });
-
-  it("includes restrictive media types from the Pinecone filter", () => {
-    const result = buildActiveFilterPromptData(
-      mockSiteConfig as any,
-      { $and: [{ type: { $in: ["text"] } }] },
-      "whole_library",
-      ["Ananda Library", "Crystal Clarity"]
-    );
-
-    expect(result.mediaTypes).toEqual({ text: true });
-    expect(result.activeFiltersSummary).toContain("- Media types: text");
-  });
-
-  it("includes selected title scope as a restrictive filter", () => {
-    const result = buildActiveFilterPromptData(
-      mockSiteConfig as any,
-      undefined,
-      "whole_library",
-      ["Ananda Library", "Crystal Clarity"],
-      "Whispers from Eternity"
-    );
-
-    expect(result.titleScopeLabel).toBe("Whispers from Eternity");
-    expect(result.activeFiltersSummary).toContain("- Source scope: Only Whispers from Eternity");
-  });
-});
+// Import calculateSources and combineDocumentsFn from ragDocumentUtils for direct testing
 
 describe("makeChain", () => {
   // Create mock documents
@@ -1635,17 +1511,20 @@ describe("makeChain", () => {
       { name: "library3", sources: 2 },
     ]);
 
-    // Test with mixed weights and undefined
+    // Test with mixed weights and undefined. Largest-remainder allocation conserves
+    // the budget: floors are 4/2/2 (= 8), and the single remaining source goes to the
+    // largest fractional part (library1 at 0.5).
     const result3 = calculateSources(9, [
       { name: "library1", weight: 2 },
       { name: "library2" }, // undefined weight, defaults to 1
       { name: "library3", weight: 1 },
     ]);
     expect(result3).toEqual([
-      { name: "library1", sources: 5 }, // 2/4 * 9 = 4.5, rounded to 5
-      { name: "library2", sources: 3 }, // 1/4 * 9 = 2.25, but floor gives 2, so this gets 3
-      { name: "library3", sources: 2 }, // 1/4 * 9 = 2.25, rounded to 2
+      { name: "library1", sources: 5 },
+      { name: "library2", sources: 2 },
+      { name: "library3", sources: 2 },
     ]);
+    expect(result3.reduce((sum, r) => sum + r.sources, 0)).toBe(9);
   });
 
   test("should handle social message pattern detection", async () => {

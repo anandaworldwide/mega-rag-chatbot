@@ -2,37 +2,17 @@ import { render, screen, fireEvent, act } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import { useCallback, useState } from 'react';
 
-// Mock timing metrics formatter function extracted from pages/index.tsx
-const formatTimingMetrics = (
-  timingMetrics: {
-    ttfb?: number;
-    total?: number;
-    tokensPerSecond?: number;
-    totalTokens?: number;
-  } | null,
-) => {
-  if (!timingMetrics) return null;
+import { formatTimingMetricsDisplay } from "@/utils/client/chatPageUtils";
 
-  const { ttfb, tokensPerSecond, totalTokens } = timingMetrics;
-
-  if (ttfb === undefined || tokensPerSecond === undefined) return null;
-
-  const ttfbSecs = (ttfb / 1000).toFixed(2);
-  return `${ttfbSecs} secs to first character, then ${tokensPerSecond} chars/sec streamed (${totalTokens} total)`;
-};
-
-// Simple component to test the formatting
 const TimingDisplay = ({
   timing,
 }: {
   timing: {
     ttfb?: number;
-    total?: number;
     tokensPerSecond?: number;
-    totalTokens?: number;
   } | null;
 }) => {
-  const formattedTiming = formatTimingMetrics(timing);
+  const formattedTiming = formatTimingMetricsDisplay(timing);
   if (!formattedTiming) return null;
   return <div data-testid="timing-display">{formattedTiming}</div>;
 };
@@ -40,18 +20,15 @@ const TimingDisplay = ({
 describe('Timing Metrics Display', () => {
   test('formats timing metrics correctly', () => {
     const timingData = {
-      ttfb: 1500, // 1.5 seconds
-      total: 5000, // 5 seconds
+      ttfb: 1500,
       tokensPerSecond: 50,
-      totalTokens: 175,
     };
 
     render(<TimingDisplay timing={timingData} />);
 
-    // The formatted string should be: "1.50 secs to first character, then 50 chars/sec streamed (175 total)"
     const display = screen.getByTestId('timing-display');
     expect(display).toHaveTextContent(
-      '1.50 secs to first character, then 50 chars/sec streamed (175 total)',
+      '1.50 secs to first character, then 50 chars/sec streamed',
     );
   });
 
@@ -64,11 +41,8 @@ describe('Timing Metrics Display', () => {
   });
 
   test('handles incomplete timing data', () => {
-    // Missing tokensPerSecond
     const incompleteData = {
       ttfb: 1500,
-      total: 5000,
-      totalTokens: 175,
     };
 
     render(<TimingDisplay timing={incompleteData} />);
@@ -81,34 +55,28 @@ describe('Timing Metrics Display', () => {
   test('handles edge cases: zero values', () => {
     const zeroData = {
       ttfb: 0,
-      total: 1000,
       tokensPerSecond: 0,
-      totalTokens: 0,
     };
 
     render(<TimingDisplay timing={zeroData} />);
 
-    // Even with zeros, it should display
     const display = screen.getByTestId('timing-display');
     expect(display).toHaveTextContent(
-      '0.00 secs to first character, then 0 chars/sec streamed (0 total)',
+      '0.00 secs to first character, then 0 chars/sec streamed',
     );
   });
 
   test('handles edge cases: extremely large values', () => {
     const largeData = {
-      ttfb: 10000, // 10 seconds
-      total: 60000, // 1 minute
+      ttfb: 10000,
       tokensPerSecond: 9999,
-      totalTokens: 500000,
     };
 
     render(<TimingDisplay timing={largeData} />);
 
-    // It should format large values correctly
     const display = screen.getByTestId('timing-display');
     expect(display).toHaveTextContent(
-      '10.00 secs to first character, then 9999 chars/sec streamed (500000 total)',
+      '10.00 secs to first character, then 9999 chars/sec streamed',
     );
   });
 });
@@ -117,17 +85,13 @@ describe('Timing Metrics Display', () => {
 const StatefulTimingComponent = () => {
   const [timingMetrics, setTimingMetrics] = useState<{
     ttfb?: number;
-    total?: number;
     tokensPerSecond?: number;
-    totalTokens?: number;
   } | null>(null);
 
   const updateTiming = useCallback(() => {
     setTimingMetrics({
       ttfb: 2000,
-      total: 8000,
       tokensPerSecond: 100,
-      totalTokens: 600,
     });
   }, []);
 
@@ -138,7 +102,7 @@ const StatefulTimingComponent = () => {
       </button>
       {timingMetrics && (
         <div data-testid="timing-display">
-          {formatTimingMetrics(timingMetrics)}
+          {formatTimingMetricsDisplay(timingMetrics)}
         </div>
       )}
     </div>
@@ -163,7 +127,7 @@ describe('Stateful Timing Component', () => {
     const display = screen.getByTestId('timing-display');
     expect(display).toBeInTheDocument();
     expect(display).toHaveTextContent(
-      '2.00 secs to first character, then 100 chars/sec streamed (600 total)',
+      '2.00 secs to first character, then 100 chars/sec streamed',
     );
   });
 });

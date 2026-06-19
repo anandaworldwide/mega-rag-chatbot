@@ -4,7 +4,7 @@
  * Tests the Jaccard similarity and diversity filtering functions used in suggestion generation.
  */
 
-import { jaccardSimilarity, filterSuggestionsForDiversity } from "@/utils/server/makechain";
+import { jaccardSimilarity, filterSuggestionsForDiversity } from "@/utils/server/suggestionDiversity";
 
 describe("jaccardSimilarity", () => {
   it("returns 1.0 for identical strings", () => {

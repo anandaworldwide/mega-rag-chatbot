@@ -1,85 +1,87 @@
 /** @jest-environment node */
 
+jest.mock("@aws-sdk/client-s3", () => ({
+  S3Client: jest.fn(() => ({ send: jest.fn() })),
+  GetObjectCommand: jest.fn(),
+}));
+
 import {
-  computeTitleScopeFilterConflictPayload,
-  normalizeTitleScopeInput,
   normalizeTitleScopeSegment,
+  normalizeTitleScopeInput,
   rankTitleScopeSuggestions,
+  getIncludedLibraryNames,
+  computeTitleScopeFilterConflictPayload,
+  clearTitleCatalogCache,
 } from "@/utils/server/titleCatalog";
+import type { TitleCatalogLookupEntry } from "@/types/titleScope";
 import type { SiteConfig } from "@/types/siteConfig";
-import { TitleCatalogLookupEntry } from "@/types/titleScope";
 
-const dummyAvailability = {
-  libraries: [] as string[],
-  mediaTypes: ["text"] as const,
-  collectionsWithVectors: ["whole_library"] as const,
-};
+function makeEntry(overrides: Partial<TitleCatalogLookupEntry> = {}): TitleCatalogLookupEntry {
+  return {
+    canonicalPrefix: "Autobiography of a Yogi",
+    normalizedPrefix: "autobiography of a yogi",
+    normalizedSearchText: "autobiography of a yogi",
+    depth: 1,
+    fullTitleCount: 10,
+    vectorCount: 100,
+    availability: {
+      libraries: ["Ananda Library"],
+      mediaTypes: ["text"],
+      collectionsWithVectors: ["whole_library"],
+    },
+    ...overrides,
+  } as TitleCatalogLookupEntry;
+}
 
-describe("titleCatalog matching", () => {
-  const entries: TitleCatalogLookupEntry[] = [
-    {
-      canonicalPrefix: "Lessons in Meditation",
-      normalizedPrefix: "lessons in meditation",
-      normalizedSearchText: "lessons in meditation",
-      normalizedLevels: ["lessons in meditation"],
-      depth: 1,
-      terminalSegment: "Lessons in Meditation",
-      normalizedTerminalSegment: "lessons in meditation",
-      fullTitleCount: 12,
-      vectorCount: 240,
-      availability: { ...dummyAvailability, libraries: ["Ananda Library"] },
-    },
-    {
-      canonicalPrefix: "The Essence of Bhagavad Gita",
-      normalizedPrefix: "essence of bhagavad gita",
-      normalizedSearchText: "essence of bhagavad gita",
-      normalizedLevels: ["essence of bhagavad gita"],
-      depth: 1,
-      terminalSegment: "The Essence of Bhagavad Gita",
-      normalizedTerminalSegment: "essence of bhagavad gita",
-      fullTitleCount: 18,
-      vectorCount: 360,
-      availability: { ...dummyAvailability, libraries: ["Ananda Library"] },
-    },
-    {
-      canonicalPrefix: "Bible:: Old Testament:: Book of Genesis",
-      normalizedPrefix: "bible :: old testament :: book of genesis",
-      normalizedSearchText: "bible old testament book of genesis",
-      normalizedLevels: ["bible", "old testament", "book of genesis"],
-      depth: 3,
-      terminalSegment: "Book of Genesis",
-      normalizedTerminalSegment: "book of genesis",
-      fullTitleCount: 50,
-      vectorCount: 1200,
-      availability: { ...dummyAvailability, libraries: ["Ananda Library"] },
-    },
-  ];
+const siteConfig = {
+  collectionConfig: { whole_library: "All authors", master_swami: "Master and Swami" },
+  includedLibraries: ["Ananda Library", "Treasures"],
+  enabledMediaTypes: ["text", "audio", "youtube"],
+} as unknown as SiteConfig;
 
-  it("normalizes leading articles and punctuation", () => {
-    expect(normalizeTitleScopeSegment("The Essence of Bhagavad Gita")).toBe("essence of bhagavad gita");
-    expect(normalizeTitleScopeInput("Bible :: Genesis")).toBe("bible :: genesis");
+describe("normalizeTitleScopeSegment", () => {
+  it("strips accents, articles, and punctuation", () => {
+    expect(normalizeTitleScopeSegment("The Autobiography!")).toBe("autobiography");
+    expect(normalizeTitleScopeSegment("Crème Brûlée")).toBe("creme brulee");
+  });
+});
+
+describe("normalizeTitleScopeInput", () => {
+  it("normalizes multi-level :: input", () => {
+    expect(normalizeTitleScopeInput("The Book :: A Chapter")).toBe("book :: chapter");
+  });
+});
+
+describe("rankTitleScopeSuggestions", () => {
+  it("returns an empty list for an empty query", () => {
+    expect(rankTitleScopeSuggestions([makeEntry()], "")).toEqual([]);
   });
 
-  it("matches partial book titles", () => {
-    const suggestions = rankTitleScopeSuggestions(entries, "essence of Bhagavad Gita");
-    expect(suggestions[0]?.canonicalPrefix).toBe("The Essence of Bhagavad Gita");
+  it("ranks an exact match highest", () => {
+    const results = rankTitleScopeSuggestions([makeEntry()], "Autobiography of a Yogi");
+    expect(results[0].matchType).toBe("exact");
   });
 
-  it("matches ordered tokens across hierarchy levels", () => {
-    const suggestions = rankTitleScopeSuggestions(entries, "Bible Genesis");
-    expect(suggestions[0]?.canonicalPrefix).toBe("Bible:: Old Testament:: Book of Genesis");
-    expect(suggestions[0]?.matchType).toBe("ordered_tokens");
+  it("detects contains matches", () => {
+    const results = rankTitleScopeSuggestions([makeEntry()], "Yogi");
+    expect(results[0].matchType).toBe("contains");
   });
 
-  it("prefers exact matches when available", () => {
-    const suggestions = rankTitleScopeSuggestions(entries, "Lessons in Meditation");
-    expect(suggestions[0]?.canonicalPrefix).toBe("Lessons in Meditation");
-    expect(suggestions[0]?.matchType).toBe("exact");
+  it("detects ordered-token matches", () => {
+    const entry = makeEntry({ normalizedSearchText: "autobiography great yogi master" });
+    const results = rankTitleScopeSuggestions([entry], "autobiography yogi");
+    expect(results[0].matchType).toBe("ordered_tokens");
+  });
+
+  it("dedupes by canonical prefix and respects the limit", () => {
+    const entries = [makeEntry(), makeEntry(), makeEntry({ canonicalPrefix: "Other", normalizedPrefix: "other", normalizedSearchText: "other yogi" })];
+    const results = rankTitleScopeSuggestions(entries, "yogi", 1);
+    expect(results).toHaveLength(1);
   });
 
   it("ranks parent work above chapter prefixes for short substring queries", () => {
     const bookAndChapters: TitleCatalogLookupEntry[] = [
-      {
+      makeEntry({
         canonicalPrefix: "Whispers from Eternity",
         normalizedPrefix: "whispers from eternity",
         normalizedSearchText: "whispers from eternity",
@@ -89,9 +91,8 @@ describe("titleCatalog matching", () => {
         normalizedTerminalSegment: "whispers from eternity",
         fullTitleCount: 120,
         vectorCount: 5000,
-        availability: { ...dummyAvailability, libraries: ["Ananda Library"] },
-      },
-      {
+      } as Partial<TitleCatalogLookupEntry>),
+      makeEntry({
         canonicalPrefix: "Whispers from Eternity:: Chapter 3",
         normalizedPrefix: "whispers from eternity :: chapter 3",
         normalizedSearchText: "whispers from eternity chapter 3",
@@ -101,80 +102,84 @@ describe("titleCatalog matching", () => {
         normalizedTerminalSegment: "chapter 3",
         fullTitleCount: 1,
         vectorCount: 80,
-        availability: { ...dummyAvailability, libraries: ["Ananda Library"] },
-      },
+      } as Partial<TitleCatalogLookupEntry>),
     ];
     const suggestions = rankTitleScopeSuggestions(bookAndChapters, "whispers");
     expect(suggestions[0]?.canonicalPrefix).toBe("Whispers from Eternity");
     expect(suggestions[1]?.canonicalPrefix).toBe("Whispers from Eternity:: Chapter 3");
   });
+
+  it("matches ordered tokens across hierarchy levels", () => {
+    const entry = makeEntry({
+      canonicalPrefix: "Bible:: Old Testament:: Book of Genesis",
+      normalizedPrefix: "bible :: old testament :: book of genesis",
+      normalizedSearchText: "bible old testament book of genesis",
+      normalizedLevels: ["bible", "old testament", "book of genesis"],
+      depth: 3,
+      terminalSegment: "Book of Genesis",
+      normalizedTerminalSegment: "book of genesis",
+    } as Partial<TitleCatalogLookupEntry>);
+    const suggestions = rankTitleScopeSuggestions([entry], "Bible Genesis");
+    expect(suggestions[0]?.canonicalPrefix).toBe("Bible:: Old Testament:: Book of Genesis");
+    expect(suggestions[0]?.matchType).toBe("ordered_tokens");
+  });
+});
+
+describe("getIncludedLibraryNames", () => {
+  it("handles string and object library entries", () => {
+    expect(getIncludedLibraryNames(siteConfig)).toEqual(["Ananda Library", "Treasures"]);
+    expect(
+      getIncludedLibraryNames({ includedLibraries: [{ name: "Lib A" }, "Lib B"] } as unknown as SiteConfig)
+    ).toEqual(["Lib A", "Lib B"]);
+  });
 });
 
 describe("computeTitleScopeFilterConflictPayload", () => {
-  const baseSiteConfig = {
-    siteId: "ananda",
-    collectionConfig: {
-      master_swami: "Master and Swami",
-      whole_library: "All authors",
-    },
-    includedLibraries: [{ name: "Ananda Library" }, { name: "Crystal Clarity" }],
-    enabledMediaTypes: ["text", "audio", "youtube"] as const,
-  } as unknown as SiteConfig;
-
-  const entryWithAvailability = {
-    canonicalPrefix: "The Yugas",
-    normalizedPrefix: "yugas",
-    normalizedSearchText: "yugas",
-    normalizedLevels: ["yugas"],
-    depth: 1,
-    terminalSegment: "The Yugas",
-    normalizedTerminalSegment: "yugas",
-    fullTitleCount: 1,
-    vectorCount: 10,
-    availability: {
-      libraries: ["Crystal Clarity"],
-      mediaTypes: ["text"],
-      collectionsWithVectors: ["whole_library"],
-    },
-  };
-
   it("returns null when filters are compatible", () => {
-    const result = computeTitleScopeFilterConflictPayload(entryWithAvailability, baseSiteConfig, {
+    const payload = computeTitleScopeFilterConflictPayload(makeEntry(), siteConfig, {
       collection: "whole_library",
-      selectedLibraries: ["Crystal Clarity"],
-      mediaTypes: { text: true, audio: false, youtube: false },
+      selectedLibraries: [],
+      mediaTypes: undefined,
     });
-    expect(result).toBeNull();
+    expect(payload).toBeNull();
   });
 
-  it("detects master_swami vs non-master source", () => {
-    const result = computeTitleScopeFilterConflictPayload(entryWithAvailability, baseSiteConfig, {
+  it("flags a master_swami collection conflict", () => {
+    const payload = computeTitleScopeFilterConflictPayload(makeEntry(), siteConfig, {
       collection: "master_swami",
-      selectedLibraries: ["Crystal Clarity"],
-      mediaTypes: { text: true, audio: true, youtube: true },
+      selectedLibraries: [],
+      mediaTypes: undefined,
     });
-    expect(result?.type).toBe("filter_conflict");
-    expect(result?.reasons.some((r) => r.includes("Master and Swami"))).toBe(true);
-    expect(result?.actions.find((a) => a.kind === "repairAll")).toBeDefined();
+    expect(payload).not.toBeNull();
+    expect(payload?.actions.some((a) => a.kind === "setCollection")).toBe(true);
   });
 
-  it("detects library mismatch", () => {
-    const result = computeTitleScopeFilterConflictPayload(entryWithAvailability, baseSiteConfig, {
+  it("flags a library conflict when no selected library overlaps", () => {
+    const payload = computeTitleScopeFilterConflictPayload(makeEntry(), siteConfig, {
       collection: "whole_library",
-      selectedLibraries: ["Ananda Library"],
-      mediaTypes: { text: true, audio: true, youtube: true },
+      selectedLibraries: ["Unrelated Library"],
+      mediaTypes: undefined,
     });
-    expect(result?.type).toBe("filter_conflict");
-    expect(result?.reasons.some((r) => r.includes("libraries"))).toBe(true);
+    expect(payload?.actions.some((a) => a.kind === "setLibraries")).toBe(true);
   });
 
-  it("detects media type mismatch", () => {
-    const result = computeTitleScopeFilterConflictPayload(entryWithAvailability, baseSiteConfig, {
-      collection: "whole_library",
-      selectedLibraries: ["Crystal Clarity"],
-      mediaTypes: { text: false, audio: true, youtube: false },
+  it("flags a media type conflict", () => {
+    const entry = makeEntry({
+      availability: { libraries: ["Ananda Library"], mediaTypes: ["audio"], collectionsWithVectors: ["whole_library"] },
     });
-    expect(result?.type).toBe("filter_conflict");
-    expect(result?.reasons.some((r) => r.toLowerCase().includes("media"))).toBe(true);
+    const payload = computeTitleScopeFilterConflictPayload(entry, siteConfig, {
+      collection: "whole_library",
+      selectedLibraries: [],
+      mediaTypes: { text: true },
+    });
+    expect(payload?.actions.some((a) => a.kind === "setMediaTypes")).toBe(true);
+    expect(payload?.actions.some((a) => a.kind === "clearTitleScope")).toBe(true);
+  });
+});
+
+describe("clearTitleCatalogCache", () => {
+  it("clears a single site and the whole cache without throwing", () => {
+    expect(() => clearTitleCatalogCache("ananda")).not.toThrow();
+    expect(() => clearTitleCatalogCache()).not.toThrow();
   });
 });

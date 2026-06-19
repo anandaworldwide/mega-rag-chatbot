@@ -254,4 +254,64 @@ describe("/api/verifyMagicLink", () => {
     const cookies = res.getHeaders()["set-cookie"] as string[] | undefined;
     expect(cookies).toBeUndefined();
   });
+
+  it("should return 400 for expired activation link", async () => {
+    const firestoreRetryUtils = await import("@/utils/server/firestoreRetryUtils");
+
+    (firestoreRetryUtils.firestoreGet as jest.MockedFunction<any>).mockResolvedValueOnce({
+      exists: true,
+      data: () => ({
+        email: "test@example.com",
+        inviteStatus: "pending",
+        inviteTokenHash: "hashed-token",
+        inviteExpiresAt: { toMillis: () => Date.now() - 1000 },
+        role: "user",
+      }),
+    });
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: {
+        token: "valid-token",
+        email: "test@example.com",
+      },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res._getJSONData()).toEqual({ error: "Link expired" });
+  });
+
+  it("should return 400 for invalid account status", async () => {
+    const firestoreRetryUtils = await import("@/utils/server/firestoreRetryUtils");
+
+    (firestoreRetryUtils.firestoreGet as jest.MockedFunction<any>).mockResolvedValueOnce({
+      exists: true,
+      data: () => ({
+        email: "test@example.com",
+        inviteStatus: "revoked",
+        inviteTokenHash: "hashed-token",
+        inviteExpiresAt: { toMillis: () => Date.now() + 86400000 },
+        role: "user",
+      }),
+    });
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: {
+        token: "valid-token",
+        email: "test@example.com",
+      },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res._getJSONData()).toEqual({
+      error: "Invalid account status",
+      errorCode: "INVALID_STATUS",
+      userStatus: "revoked",
+    });
+  });
 });

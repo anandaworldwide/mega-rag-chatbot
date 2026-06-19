@@ -2,6 +2,36 @@
 
 ## Critical Lessons Learned
 
+### Coverage % Is Driven By The Denominator — Target A Logic Subset, Not A Huge Global Pool
+
+**Wrong**: Chase a global coverage target (e.g. 70%) across all of `src/` when the denominator is huge (~22k statements)
+and dominated by render-heavy React page/component shells. Each small unit-test extraction (40–100 statements) moves the
+global number by only ~0.2–0.4pp, so progress feels stuck despite real, clean tests. Also wrong: write a new test file
+for code already exercised by an existing suite (e.g. a parallel `toolsServices.test.ts` when `tools/services.test.ts`
+already covers those classes) — merged max-per-file coverage means it adds ~0.
+
+**Correct**: Before writing tests, compute the gap with data: read `coverage/coverage-summary.json`, sum statements,
+and rank files by uncovered count. Define a "logic-bearing" subset (`utils/`, `hooks/`, `services/`, `contexts/`,
+`pages/api/`, `app/api/`) and enforce a stricter bar on it via a shared module (`web/scripts/logic-subset.mjs`) used by
+both `merge-coverage.mjs` (report) and `check-coverage-thresholds.mjs` (gate), keeping a lower global floor for the
+render-heavy shells. Target the highest-uncovered logic files first. Verify each file's marginal gain with a coverage
+re-run; if a file barely moves, an existing test already covers it — extend that test instead of duplicating.
+
+### Testing Next.js API Handlers Wrapped In Middleware
+
+**Wrong**: Fully `jest.mock("@/utils/server/jwtUtils")` for a handler exported as `withApiMiddleware(withJwtAuth(handler))`
+— the wrapper becomes an auto-mock returning undefined and the route never runs. Also wrong: `jest.mock("@/services/firebase")`
+without a factory — jest auto-mock loads the real module to read its shape, which executes `firebase.apps.length` and
+crashes unless the `firebase-admin` mock includes `apps`.
+
+**Correct**: Mock the wrappers as pass-throughs with a factory: `jest.mock("@/utils/server/jwtUtils", () => ({ withJwtAuth: (h) => h }))`
+and `jest.mock("@/utils/server/apiMiddleware", () => ({ withApiMiddleware: (h) => h }))`. Mock `@/services/firebase` with a
+factory: `jest.mock("@/services/firebase", () => ({ db: { collection: jest.fn() } }))`. Give the `firebase-admin` mock a
+complete shape: `{ apps: [{}], initializeApp, credential: { cert }, firestore: Object.assign(() => ({}), { FieldValue: { delete, serverTimestamp }, Timestamp: { now, fromDate } }) }`.
+Drive handlers with `node-mocks-http` `createMocks` and assert `res.statusCode`. For `skipAuth: true` handlers (own JWT
+checks via Bearer header), the middleware passes through in test env; for sudo-gated admin handlers, mock `getSudoCookie`
+and `loadSiteConfigSync` (`requireLogin: false`) to take the sudo branch.
+
 ### Login-Required Sites Must Use JWT Profile UUID For Firestore Ownership
 
 **Wrong**: Persist answer docs with client cookie uuid from `getOrCreateUUID()` while `/api/suggestions/interact` verifies
@@ -2800,3 +2830,53 @@ star/clone/interact endpoints.
 **Correct**: Treat signed `uuid` cookie as authoritative for anonymous sites once present; keep provisional uuid only until
 bootstrap. After `/api/web-token`, call `syncUuidFromSignedCookie()` and gate chat/history with `ensureAnonymousUuidSynced()`
 (or `ensureVisitorUuidReady`) so body uuid matches cookie-gated APIs.
+
+### Mistake: Jest Client+Server Coverage Merge Double-Counts
+
+**Wrong**: Default Istanbul merge of client and server `coverage-final.json` files inflates totals because the two runs
+instrument different subsets with different statement maps.
+
+**Correct**: Use max-per-file merge (`web/scripts/merge-coverage.mjs`) — for each file path, keep whichever run has the
+higher hit ratio. Run via `npm run test:coverage:all`.
+
+### Mistake: Downvote Feedback Reason Strings Are Display Labels
+
+**Wrong**: Use snake_case keys like `"incorrect_information"` in tests for `DownvoteFeedbackService.isValidFeedbackReason`.
+
+**Correct**: Use exact values from `DOWNVOTE_FEEDBACK_REASONS` in `web/src/types/downvoteFeedback.ts` (e.g.
+`"Incorrect Information"`).
+
+### Pattern: Extract Pure Logic From Mega-Files For Unit Tests
+
+**Wrong**: Duplicate helper implementations inside test files (e.g. local `calculateSources` copy) or rely on
+non-exported functions in `index.tsx` / `makechain.ts`.
+
+**Correct**: Move pure helpers to focused modules (`ragDocumentUtils.ts`, `activeFilterPrompt.ts`,
+`suggestionParsing.ts`, `chatPageUtils.ts`) and test those directly. Re-export from original entry points when
+backward compatibility is needed.
+
+### Mistake: Overwriting An Existing Test File With `Write`
+
+**Wrong**: Use `Write` to create a "new" test (e.g. `titleCatalog.test.ts`) without checking `git status` —
+silently replacing an existing suite and dropping real behavioral cases.
+
+**Correct**: Check whether the path already exists first. Extend the existing file with `StrReplace`, or diff
+against `HEAD` (`git show HEAD:<path>`) to confirm no test cases are lost before replacing.
+
+### Mistake: Tests That Encode A Bug; Per-Item Rounding That Breaks A Sum Invariant
+
+**Wrong**: Allocate a budget with independent `Math.round`/`Math.floor` per item (e.g. old `calculateSources`
+mixed `round` for weighted libs and `floor(total/len)` for unweighted), then write a test asserting the
+budget-violating output (9 sources distributed as 5/3/2 = 10).
+
+**Correct**: Use largest-remainder (Hamilton) allocation so allocations always sum to the total; treat missing
+weights consistently (as 1); guard `totalWeight <= 0`. Tests must assert the invariant
+(`sum(parts) === total`), not the buggy observed values.
+
+### Pattern: Coverage/CI Gates Should Fail Loud, Not Fail Open
+
+**Wrong**: `computeLogicSubsetPct` returns `pct: 100` when `total === 0`, so a broken path matcher silently
+passes the gate. Stripping `/web/src/` before normalizing `\\` also fails on Windows paths.
+
+**Correct**: Normalize separators before path stripping; `throw` when the subset matches 0 statements. Clean the
+coverage dir before runs (`scripts/clean-coverage.mjs`) so stale per-file data can't skew merged totals.
