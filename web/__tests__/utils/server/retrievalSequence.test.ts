@@ -12,52 +12,49 @@ import { Document } from "@langchain/core/documents";
 import fs from "fs/promises";
 import path from "path";
 
+// Defined outside jest.mock so async generators are not transpiled inside the hoisted factory
+// (breaks under NODE_ENV=development when Babel emits _wrapAsyncGenerator).
+class MockChatOpenAI {
+  static lc_name() {
+    return "ChatOpenAI";
+  }
+  lc_runnable = true;
+  lc_namespace = ["langchain", "chat_models", "openai"];
+  lc_serializable = true;
+
+  constructor(_args: any) {}
+
+  bind() {
+    return this;
+  }
+
+  async invoke(_input: any) {
+    return { content: "mock response" };
+  }
+
+  async batch(_inputs: any[]) {
+    return [{ content: "mock response" }];
+  }
+
+  async *stream(_input: any) {
+    yield { content: "mock response" };
+  }
+
+  pipe(_runnable: any) {
+    return this;
+  }
+
+  async *transform(_generator: any) {
+    yield { content: "mock response" };
+  }
+}
+
 // Mock dependencies
 jest.mock("fs/promises");
 jest.mock("path");
-jest.mock("@langchain/openai", () => {
-  // Create a mock that implements LangChain's Runnable interface
-  class MockChatOpenAI {
-    // Required for LangChain to recognize this as a Runnable
-    static lc_name() {
-      return "ChatOpenAI";
-    }
-    lc_runnable = true;
-    lc_namespace = ["langchain", "chat_models", "openai"];
-    lc_serializable = true;
-
-    constructor(_args: any) {}
-
-    bind() {
-      return this;
-    }
-
-    // Runnable-compatible interface used by LangChain sequences
-    async invoke(_input: any) {
-      return { content: "mock response" };
-    }
-
-    // Required by RunnableSequence
-    async batch(_inputs: any[]) {
-      return [{ content: "mock response" }];
-    }
-
-    async *stream(_input: any) {
-      yield { content: "mock response" };
-    }
-
-    pipe(_runnable: any) {
-      return this;
-    }
-
-    // Required for transform operations
-    async *transform(_generator: any) {
-      yield { content: "mock response" };
-    }
-  }
-
-  return { ChatOpenAI: MockChatOpenAI };
-});
+jest.mock("@langchain/openai", () => ({
+  ChatOpenAI: MockChatOpenAI,
+}));
 
 describe("Document Retrieval Logic", () => {
   // Default site configuration with templates

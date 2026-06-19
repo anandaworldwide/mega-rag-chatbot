@@ -13,13 +13,30 @@
  */
 
 // Mock @langchain/openai at the very top - before ALL imports
-// Provide default implementation so makechain.ts gets a working mock
+// Provide default implementation so makechain.ts gets a working mock.
+// Use a mock*-prefixed helper (Jest allows these in hoisted factories) and avoid
+// async generators inside jest.mock — Babel emits _wrapAsyncGenerator which breaks
+// when NODE_ENV=development.
+function mockChatOpenAIStream() {
+  let sent = false;
+  return {
+    [Symbol.asyncIterator]() {
+      return this;
+    },
+    async next() {
+      if (!sent) {
+        sent = true;
+        return { value: { text: "Mock token" }, done: false };
+      }
+      return { done: true, value: undefined };
+    },
+  };
+}
+
 jest.mock("@langchain/openai", () => ({
   ChatOpenAI: jest.fn().mockImplementation(() => ({
     invoke: jest.fn().mockResolvedValue({ content: "Mock response" }),
-    stream: jest.fn().mockImplementation(async function* () {
-      yield { text: "Mock token" };
-    }),
+    stream: jest.fn().mockImplementation(() => mockChatOpenAIStream()),
     bind: jest.fn().mockReturnThis(),
   })),
 }));

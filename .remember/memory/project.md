@@ -71,6 +71,14 @@ except ImportError:
 
 ## Development Workflow
 
+### Vercel CLI (Ananda production)
+
+- Use the shell alias **`vercel-ananda`** (all lowercase) for Ananda Web Services deployments — not `--scope
+  vercel-ananda` (that slug does not exist as a team scope).
+- `vercel-ananda` is a bash alias that injects the Ananda team token; plain `vercel` uses personal credentials and
+  cannot access `ananda-web-services-projects/ananda-chatbot`.
+- Inspect failed builds: `vercel-ananda inspect <deployment-url> --logs`
+
 ### Local Next dev (`web`)
 
 - `npm run dev` with no site argument lists sites in `web/scripts/dev.js`; **Enter** defaults to Luca (`ananda`), which is always option **1**.

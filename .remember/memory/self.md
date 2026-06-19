@@ -2873,6 +2873,17 @@ budget-violating output (9 sources distributed as 5/3/2 = 10).
 weights consistently (as 1); guard `totalWeight <= 0`. Tests must assert the invariant
 (`sum(parts) === total`), not the buggy observed values.
 
+### Mistake: Async Generators Inside Hoisted `jest.mock()` Factories
+
+**Wrong**: Use `async function* () { yield ... }` or `async *stream()` inside a `jest.mock()` factory callback.
+Under `NODE_ENV=development`, Babel transpiles these to `_wrapAsyncGenerator`, which Jest rejects as an
+out-of-scope variable in the hoisted mock factory. Passes locally without `NODE_ENV=development`; fails on
+Vercel (`build-with-api-tests` sets it).
+
+**Correct**: Move async-generator mocks outside the factory (e.g. a `MockChatOpenAI` class at module scope
+referenced from `jest.mock`), or use a manual async iterator without generator syntax. Jest allows
+`mock*`-prefixed helpers referenced from hoisted factories.
+
 ### Pattern: Coverage/CI Gates Should Fail Loud, Not Fail Open
 
 **Wrong**: `computeLogicSubsetPct` returns `pct: 100` when `total === 0`, so a broken path matcher silently
