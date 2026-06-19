@@ -31,7 +31,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (!db) return res.status(503).json({ error: "Database not available" });
 
   try {
-    const authCookie = req.cookies?.["auth"];
+    const authCookie = req.cookies?.["authToken"];
     if (!authCookie) return res.status(401).json({ error: "Not authenticated" });
 
     let payload: any;

@@ -1,12 +1,18 @@
 import {
   ensureProfileUuidSynced,
+  ensureVisitorUuidReady,
   initializeProfileUuidSync,
   resetProfileUuidSyncForTests,
 } from "@/utils/client/profileUuidSync";
 import { syncProfileUuid } from "@/utils/client/uuid";
 
+jest.mock("@/utils/client/tokenManager", () => ({
+  ensureAnonymousUuidSynced: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock("@/utils/client/uuid", () => ({
   syncProfileUuid: jest.fn(),
+  syncUuidFromSignedCookie: jest.fn(),
 }));
 
 describe("profileUuidSync", () => {
@@ -77,5 +83,29 @@ describe("profileUuidSync", () => {
     await Promise.all([initPromise, ensurePromise]);
 
     expect(syncProfileUuid).toHaveBeenCalledWith("profile-uuid-456");
+  });
+
+  it("ensureVisitorUuidReady bootstraps anonymous uuid then profile sync on login-required sites", async () => {
+    const { ensureAnonymousUuidSynced } = jest.requireMock("@/utils/client/tokenManager");
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ uuid: "profile-uuid-789" }),
+    });
+
+    await initializeProfileUuidSync(true);
+    await ensureVisitorUuidReady(true);
+
+    expect(ensureAnonymousUuidSynced).toHaveBeenCalled();
+    expect(syncProfileUuid).toHaveBeenCalledWith("profile-uuid-789");
+  });
+
+  it("ensureVisitorUuidReady only bootstraps anonymous uuid on public sites", async () => {
+    const { ensureAnonymousUuidSynced } = jest.requireMock("@/utils/client/tokenManager");
+
+    await ensureVisitorUuidReady(false);
+
+    expect(ensureAnonymousUuidSynced).toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });

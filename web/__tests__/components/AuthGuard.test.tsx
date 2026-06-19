@@ -356,12 +356,12 @@ describe("AuthGuard", () => {
       expect(initializeTokenManager).toHaveBeenCalled();
     });
 
-    it("handles browser session restoration with auth cookie", async () => {
+    it("handles browser session restoration with hasSession cookie", async () => {
       (initializeTokenManager as jest.Mock).mockResolvedValue(undefined);
       (isAuthenticated as jest.Mock).mockReturnValue(false);
       (isAuthenticated as jest.Mock).mockReturnValueOnce(true);
 
-      document.cookie = "auth=jwt-token-here";
+      document.cookie = "hasSession=1";
 
       render(
         <AuthGuard siteConfig={mockSiteConfig}>

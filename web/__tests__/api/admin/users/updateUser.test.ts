@@ -1,6 +1,14 @@
 import { createMocks } from "node-mocks-http";
 import type { NextApiRequest, NextApiResponse } from "next";
 
+const setCookieMock = jest.fn();
+jest.mock("cookies", () =>
+  jest.fn().mockImplementation(() => ({
+    set: setCookieMock,
+    get: jest.fn(),
+  }))
+);
+
 // Mock JWT wrapper to no-op
 jest.mock("@/utils/server/jwtUtils", () => ({
   withJwtAuth: (handler: any) => handler,
@@ -169,7 +177,7 @@ describe("/api/admin/users/[userId] update user", () => {
     // Set up authz mocks to check JWT role by default
     mockRequireAdmin.mockImplementation(async (req: any) => {
       const jwtUtils = await import("@/utils/server/jwtUtils");
-      const payload = (jwtUtils.verifyToken as jest.Mock)(req.cookies?.auth || "");
+      const payload = (jwtUtils.verifyToken as jest.Mock)(req.cookies?.authToken || "");
       const role = payload?.role || "user";
       if (role !== "admin" && role !== "superuser") {
         throw new Error("Unauthorized: Admin privileges required");
@@ -178,7 +186,7 @@ describe("/api/admin/users/[userId] update user", () => {
 
     mockGetRole.mockImplementation(async (req: any) => {
       const jwtUtils = await import("@/utils/server/jwtUtils");
-      const payload = (jwtUtils.verifyToken as jest.Mock)(req.cookies?.auth || "");
+      const payload = (jwtUtils.verifyToken as jest.Mock)(req.cookies?.authToken || "");
       return payload?.role || "user";
     });
   });
@@ -198,7 +206,7 @@ describe("/api/admin/users/[userId] update user", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "GET",
       query: { userId: "target@example.com" },
-      cookies: { auth: "token" },
+      cookies: { authToken: "token" },
     });
 
     await handler(req, res);
@@ -222,7 +230,7 @@ describe("/api/admin/users/[userId] update user", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "GET",
       query: { userId: "blocked@example.com" },
-      cookies: { auth: "token" },
+      cookies: { authToken: "token" },
     });
 
     await handler(req, res);
@@ -247,7 +255,7 @@ describe("/api/admin/users/[userId] update user", () => {
       method: "PATCH",
       query: { userId: "old@example.com" },
       body: { email: "not-an-email" },
-      cookies: { auth: "token" },
+      cookies: { authToken: "token" },
     });
 
     await handler(req, res);
@@ -269,7 +277,7 @@ describe("/api/admin/users/[userId] update user", () => {
       method: "PATCH",
       query: { userId: "old@example.com" },
       body: { email: "blocked@example.com" },
-      cookies: { auth: "token" },
+      cookies: { authToken: "token" },
     });
 
     await handler(req, res);
@@ -297,7 +305,7 @@ describe("/api/admin/users/[userId] update user", () => {
       method: "PATCH",
       query: { userId: "old@example.com" },
       body: { email: "seed@example.com" },
-      cookies: { auth: "token" },
+      cookies: { authToken: "token" },
     });
     await handler(req, res);
     expect(res.statusCode).toBe(409);
@@ -320,7 +328,7 @@ describe("/api/admin/users/[userId] update user", () => {
       method: "PATCH",
       query: { userId: "from@example.com" },
       body: { email: "to@example.com" },
-      cookies: { auth: "token" },
+      cookies: { authToken: "token" },
     });
     await handler(req, res);
     expect(res.statusCode).toBe(200);
@@ -361,7 +369,7 @@ describe("/api/admin/users/[userId] update user", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "PATCH",
       query: { userId: "old@example.com" },
-      cookies: { auth: "token" },
+      cookies: { authToken: "token" },
       body: {
         email: "new@example.com",
         firstName: "New",
@@ -411,7 +419,7 @@ describe("/api/admin/users/[userId] update user", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "PATCH",
       query: { userId: "target@example.com" },
-      cookies: { auth: "token" },
+      cookies: { authToken: "token" },
       body: { role: "admin" },
     });
     await handler(req, res);
@@ -438,7 +446,7 @@ describe("/api/admin/users/[userId] update user", () => {
     const adminReq = createMocks<NextApiRequest, NextApiResponse>({
       method: "GET",
       query: { userId: "target@example.com" },
-      cookies: { auth: "token" },
+      cookies: { authToken: "token" },
     });
 
     await handler(adminReq.req, adminReq.res);
@@ -464,7 +472,7 @@ describe("/api/admin/users/[userId] update user", () => {
     const superReq = createMocks<NextApiRequest, NextApiResponse>({
       method: "GET",
       query: { userId: "target@example.com" },
-      cookies: { auth: "token" },
+      cookies: { authToken: "token" },
     });
 
     await handler(superReq.req, superReq.res);
@@ -476,6 +484,7 @@ describe("/api/admin/users/[userId] update user", () => {
   });
 
   it("should update JWT cookie when admin changes their own email", async () => {
+    setCookieMock.mockClear();
     // Mock JWT token verification to return admin@example.com as the requester
     const mockVerifyToken = jest.requireMock("@/utils/server/jwtUtils").verifyToken;
     mockVerifyToken.mockReturnValue({
@@ -504,7 +513,7 @@ describe("/api/admin/users/[userId] update user", () => {
       method: "PATCH",
       query: { userId: "admin@example.com" },
       body: { email: "newadmin@example.com" },
-      cookies: { auth: "mock-jwt-token" },
+      cookies: { authToken: "mock-jwt-token" },
       headers: { "x-forwarded-proto": "https" },
     });
 
@@ -520,15 +529,22 @@ describe("/api/admin/users/[userId] update user", () => {
     expect(mockDb.__docMap["newadmin@example.com"].email).toBeUndefined();
 
     // Verify JWT cookie was updated
-    const setCookieHeaders = res.getHeaders()["set-cookie"] as string[];
-    expect(setCookieHeaders).toBeDefined();
-    expect(setCookieHeaders.length).toBeGreaterThan(0);
-
-    const authCookie = setCookieHeaders.find((cookie) => cookie.startsWith("auth="));
-    expect(authCookie).toBeDefined();
-    expect(authCookie).toContain("HttpOnly");
-    expect(authCookie).toContain("Secure");
-    expect(authCookie).toContain("SameSite=Lax");
+    expect(setCookieMock).toHaveBeenCalledWith(
+      "authToken",
+      expect.any(String),
+      expect.objectContaining({
+        httpOnly: true,
+        path: "/",
+      })
+    );
+    expect(setCookieMock).toHaveBeenCalledWith(
+      "hasSession",
+      "1",
+      expect.objectContaining({
+        httpOnly: false,
+        path: "/",
+      })
+    );
 
     // Verify audit log was written
     expect(writeAuditLogSpy).toHaveBeenCalledWith(expect.anything(), "admin_change_email", "admin@example.com", {

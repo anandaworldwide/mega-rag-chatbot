@@ -336,7 +336,7 @@ function getAuthenticatedEmail(req: NextApiRequest): string | null {
     }
   }
 
-  const authCookie = req.cookies?.["auth"];
+  const authCookie = req.cookies?.["authToken"];
   if (authCookie) {
     try {
       const payload = verifyToken(authCookie);

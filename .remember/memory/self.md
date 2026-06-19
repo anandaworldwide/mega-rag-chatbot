@@ -2790,3 +2790,13 @@ model and any future server-side signature check would reject it.
 
 **Correct**: Keep client-synced identity in-memory only and have all reads prefer it (e.g., `getOrCreateUUID` returns the
 cached profile uuid first). Let the server own the signed cookie; re-sync the in-memory value on bootstrap/token refresh.
+
+### Mistake: Anonymous Provisional UUID Diverges From Server-Signed Cookie
+
+**Wrong**: Client generates a provisional in-memory uuid before `/api/web-token` runs, caches it in `profileUuid`, and
+continues using it for chat body persistence while `ensureAnonymousVisitorUuidCookie` sets a different signed cookie for
+star/clone/interact endpoints.
+
+**Correct**: Treat signed `uuid` cookie as authoritative for anonymous sites once present; keep provisional uuid only until
+bootstrap. After `/api/web-token`, call `syncUuidFromSignedCookie()` and gate chat/history with `ensureAnonymousUuidSynced()`
+(or `ensureVisitorUuidReady`) so body uuid matches cookie-gated APIs.

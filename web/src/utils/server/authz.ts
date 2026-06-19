@@ -17,7 +17,7 @@ export function getRequesterRole(req: NextApiRequest): Role {
 
   try {
     // Prefer cookie when available
-    const cookieJwt = req.cookies?.["auth"];
+    const cookieJwt = req.cookies?.["authToken"];
     if (cookieJwt) {
       const payload: any = verifyToken(cookieJwt);
       const role = typeof payload?.role === "string" ? (payload.role as string).toLowerCase() : "user";
@@ -84,7 +84,7 @@ export async function getRequesterRoleFromFirestore(req: NextApiRequest): Promis
     let email: string | undefined;
 
     try {
-      const cookieJwt = req.cookies?.["auth"];
+      const cookieJwt = req.cookies?.["authToken"];
       if (cookieJwt) {
         const payload: any = verifyToken(cookieJwt);
         email = typeof payload?.email === "string" ? payload.email.toLowerCase() : undefined;

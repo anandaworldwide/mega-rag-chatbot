@@ -6,6 +6,14 @@ import { writeAuditLog } from "@/utils/server/auditLog";
 import { sendEmailChangeConfirmationEmails } from "@/utils/server/userEmailChangeUtils";
 import bcrypt from "bcryptjs";
 
+const setCookieMock = jest.fn();
+jest.mock("cookies", () =>
+  jest.fn().mockImplementation(() => ({
+    set: setCookieMock,
+    get: jest.fn(),
+  }))
+);
+
 // Mock dependencies
 jest.mock("firebase-admin", () => ({
   firestore: {
@@ -41,6 +49,9 @@ const mockBcryptCompare = bcrypt.compare as jest.MockedFunction<typeof bcrypt.co
 describe("/api/verifyEmailChange", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    setCookieMock.mockClear();
+    process.env.SECURE_TOKEN = "test-jwt-secret";
+    process.env.SITE_ID = "test";
 
     // Default mocks
     mockWriteAuditLog.mockResolvedValue();
@@ -226,6 +237,7 @@ describe("/api/verifyEmailChange", () => {
     const { req, res } = createMocks({
       method: "POST",
       body: { token: "valid-token", email: "new@example.com" },
+      headers: { "x-forwarded-proto": "https" },
     });
 
     await handler(req as unknown as NextApiRequest, res as unknown as NextApiResponse);
@@ -235,6 +247,23 @@ describe("/api/verifyEmailChange", () => {
     expect(responseData.success).toBe(true);
     expect(responseData.newEmail).toBe("new@example.com");
     expect(responseData.message).toBe("Email address updated successfully");
+
+    expect(setCookieMock).toHaveBeenCalledWith(
+      "authToken",
+      expect.any(String),
+      expect.objectContaining({
+        httpOnly: true,
+        path: "/",
+      })
+    );
+    expect(setCookieMock).toHaveBeenCalledWith(
+      "hasSession",
+      "1",
+      expect.objectContaining({
+        httpOnly: false,
+        path: "/",
+      })
+    );
 
     expect(mockSendEmailChangeConfirmationEmails).toHaveBeenCalledWith("user@example.com", "new@example.com");
 

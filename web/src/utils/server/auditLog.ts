@@ -28,7 +28,7 @@ export async function writeAuditLog(
     let role: string | undefined;
 
     try {
-      const cookieJwt = req.cookies?.["auth"];
+      const cookieJwt = req.cookies?.["authToken"];
       if (cookieJwt) {
         const payload: any = verifyToken(cookieJwt);
         email = typeof payload?.email === "string" ? payload.email : undefined;

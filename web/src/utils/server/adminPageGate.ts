@@ -31,7 +31,7 @@ export async function isAdminPageAllowed(
   const requireLogin = !!siteConfig?.requireLogin;
   if (requireLogin) {
     try {
-      const cookieJwt = req.cookies?.["auth"];
+      const cookieJwt = req.cookies?.["authToken"];
       if (!cookieJwt) {
         console.log("[isAdminPageAllowed] No auth cookie found");
         return false;
@@ -74,7 +74,7 @@ export async function isSuperuserPageAllowed(
   const requireLogin = !!siteConfig?.requireLogin;
   if (requireLogin) {
     try {
-      const cookieJwt = req.cookies?.["auth"];
+      const cookieJwt = req.cookies?.["authToken"];
       if (!cookieJwt) return false;
       const payload: any = verifyToken(cookieJwt);
       const role = typeof payload?.role === "string" ? (payload.role as string).toLowerCase() : "user";

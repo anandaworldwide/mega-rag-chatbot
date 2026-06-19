@@ -136,7 +136,7 @@ describe("/api/admin/users/[userId] approver settings authorization", () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "PATCH",
         query: { userId: "target@example.com" },
-        cookies: { auth: "token" },
+        cookies: { authToken: "token" },
         body: { isApprover: true },
       });
 
@@ -158,7 +158,7 @@ describe("/api/admin/users/[userId] approver settings authorization", () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "PATCH",
         query: { userId: "target@example.com" },
-        cookies: { auth: "token" },
+        cookies: { authToken: "token" },
         body: { approverLocation: "Nevada City, CA" },
       });
 
@@ -180,7 +180,7 @@ describe("/api/admin/users/[userId] approver settings authorization", () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "PATCH",
         query: { userId: "target@example.com" },
-        cookies: { auth: "token" },
+        cookies: { authToken: "token" },
         body: { approverRegion: "United States" },
       });
 
@@ -202,7 +202,7 @@ describe("/api/admin/users/[userId] approver settings authorization", () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "PATCH",
         query: { userId: "target@example.com" },
-        cookies: { auth: "token" },
+        cookies: { authToken: "token" },
         body: {
           isApprover: true,
           approverLocation: "Nevada City, CA",
@@ -230,7 +230,7 @@ describe("/api/admin/users/[userId] approver settings authorization", () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "PATCH",
         query: { userId: "target@example.com" },
-        cookies: { auth: "token" },
+        cookies: { authToken: "token" },
         body: { isApprover: true },
       });
 
@@ -253,7 +253,7 @@ describe("/api/admin/users/[userId] approver settings authorization", () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "PATCH",
         query: { userId: "target@example.com" },
-        cookies: { auth: "token" },
+        cookies: { authToken: "token" },
         body: { approverLocation: "Nevada City, CA" },
       });
 
@@ -276,7 +276,7 @@ describe("/api/admin/users/[userId] approver settings authorization", () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "PATCH",
         query: { userId: "target@example.com" },
-        cookies: { auth: "token" },
+        cookies: { authToken: "token" },
         body: { approverRegion: "United States" },
       });
 
@@ -299,7 +299,7 @@ describe("/api/admin/users/[userId] approver settings authorization", () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "PATCH",
         query: { userId: "target@example.com" },
-        cookies: { auth: "token" },
+        cookies: { authToken: "token" },
         body: {
           isApprover: true,
           approverLocation: "Nevada City, CA",
@@ -328,7 +328,7 @@ describe("/api/admin/users/[userId] approver settings authorization", () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "PATCH",
         query: { userId: "target@example.com" },
-        cookies: { auth: "token" },
+        cookies: { authToken: "token" },
         body: {
           isApprover: true,
           approverLocation: "Nevada City, CA",
@@ -359,7 +359,7 @@ describe("/api/admin/users/[userId] approver settings authorization", () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "PATCH",
         query: { userId: "target@example.com" },
-        cookies: { auth: "token" },
+        cookies: { authToken: "token" },
         body: { isApprover: true },
       });
 
@@ -383,7 +383,7 @@ describe("/api/admin/users/[userId] approver settings authorization", () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "PATCH",
         query: { userId: "target@example.com" },
-        cookies: { auth: "token" },
+        cookies: { authToken: "token" },
         body: { approverLocation: "Nevada City, CA" },
       });
 
@@ -407,7 +407,7 @@ describe("/api/admin/users/[userId] approver settings authorization", () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "PATCH",
         query: { userId: "target@example.com" },
-        cookies: { auth: "token" },
+        cookies: { authToken: "token" },
         body: { approverRegion: "United States" },
       });
 
@@ -433,7 +433,7 @@ describe("/api/admin/users/[userId] approver settings authorization", () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "PATCH",
         query: { userId: "target@example.com" },
-        cookies: { auth: "token" },
+        cookies: { authToken: "token" },
         body: { isApprover: "true" }, // String instead of boolean
       });
 
@@ -457,7 +457,7 @@ describe("/api/admin/users/[userId] approver settings authorization", () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "PATCH",
         query: { userId: "target@example.com" },
-        cookies: { auth: "token" },
+        cookies: { authToken: "token" },
         body: { approverLocation: longLocation },
       });
 
@@ -483,7 +483,7 @@ describe("/api/admin/users/[userId] approver settings authorization", () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "PATCH",
         query: { userId: "target@example.com" },
-        cookies: { auth: "token" },
+        cookies: { authToken: "token" },
         body: { approverRegion: longRegion },
       });
 
@@ -509,7 +509,7 @@ describe("/api/admin/users/[userId] approver settings authorization", () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "PATCH",
         query: { userId: "target@example.com" },
-        cookies: { auth: "token" },
+        cookies: { authToken: "token" },
         body: { approverLocation: maxLengthLocation },
       });
 
@@ -534,7 +534,7 @@ describe("/api/admin/users/[userId] approver settings authorization", () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "PATCH",
         query: { userId: "target@example.com" },
-        cookies: { auth: "token" },
+        cookies: { authToken: "token" },
         body: { approverRegion: maxLengthRegion },
       });
 
@@ -557,7 +557,7 @@ describe("/api/admin/users/[userId] approver settings authorization", () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "PATCH",
         query: { userId: "target@example.com" },
-        cookies: { auth: "token" },
+        cookies: { authToken: "token" },
         body: { approverLocation: "  Nevada City, CA  " },
       });
 
@@ -580,7 +580,7 @@ describe("/api/admin/users/[userId] approver settings authorization", () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "PATCH",
         query: { userId: "target@example.com" },
-        cookies: { auth: "token" },
+        cookies: { authToken: "token" },
         body: { approverRegion: "  United States  " },
       });
 
@@ -603,7 +603,7 @@ describe("/api/admin/users/[userId] approver settings authorization", () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "PATCH",
         query: { userId: "target@example.com" },
-        cookies: { auth: "token" },
+        cookies: { authToken: "token" },
         body: { approverLocation: "   " }, // Only whitespace
       });
 
@@ -626,7 +626,7 @@ describe("/api/admin/users/[userId] approver settings authorization", () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "PATCH",
         query: { userId: "target@example.com" },
-        cookies: { auth: "token" },
+        cookies: { authToken: "token" },
         body: { approverRegion: "   " }, // Only whitespace
       });
 

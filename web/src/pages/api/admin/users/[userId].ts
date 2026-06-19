@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import firebase from "firebase-admin";
 import jwt from "jsonwebtoken";
+import Cookies from "cookies";
 import { db } from "@/services/firebase";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { withJwtAuth, getTokenFromRequest, verifyToken } from "@/utils/server/jwtUtils";
@@ -429,7 +430,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
       // Check if admin is changing their own email and update JWT cookie if so
       try {
-        const cookieJwt = req.cookies?.["auth"];
+        const cookieJwt = req.cookies?.["authToken"];
         if (cookieJwt) {
           const payload: any = verifyToken(cookieJwt);
           const requesterEmail = typeof payload?.email === "string" ? payload.email.toLowerCase() : null;
@@ -451,11 +452,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
                 audience: "mega-rag-chatbot-users",
               });
 
-              // Set the updated auth cookie
               const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
-              res.setHeader("Set-Cookie", [
-                `auth=${newAuthToken}; HttpOnly; ${isSecure ? "Secure; " : ""}SameSite=Lax; Path=/; Max-Age=${180 * 24 * 60 * 60}`,
-              ]);
+              const cookies = new Cookies(req, res, { secure: isSecure });
+              const maxAge = 180 * 24 * 60 * 60 * 1000;
+              cookies.set("authToken", newAuthToken, {
+                httpOnly: true,
+                sameSite: "lax",
+                secure: isSecure,
+                maxAge,
+                path: "/",
+              });
+              cookies.set("hasSession", "1", {
+                httpOnly: false,
+                sameSite: "lax",
+                secure: isSecure,
+                maxAge,
+                path: "/",
+              });
             }
           }
         }
@@ -577,7 +590,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
       // Prevent self-deletion - check both cookie and header tokens
       try {
-        const cookieJwt = req.cookies?.["auth"];
+        const cookieJwt = req.cookies?.["authToken"];
         let requesterEmail: string | null = null;
 
         if (cookieJwt) {
@@ -642,7 +655,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
 function getRequesterEmail(req: NextApiRequest): string | null {
   try {
-    const cookieJwt = req.cookies?.["auth"];
+    const cookieJwt = req.cookies?.["authToken"];
     if (cookieJwt) {
       const payload: any = verifyToken(cookieJwt);
       return typeof payload?.email === "string" ? payload.email.toLowerCase() : null;

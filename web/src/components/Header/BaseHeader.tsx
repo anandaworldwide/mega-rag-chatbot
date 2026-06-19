@@ -44,14 +44,9 @@ export default function BaseHeader({
   enableSearchPage = false,
 }: BaseHeaderProps) {
   const router = useRouter();
-  // Fast initial state from cookie presence to avoid flicker; will be reconciled after init
-  // Check for hasSession (client-readable indicator) or legacy isLoggedIn during migration until June 2026.
-  // Note: authToken and auth cookies are HttpOnly and cannot be read from JavaScript
   const [isLoggedIn, setIsLoggedIn] = useState(() => {
     if (typeof document === "undefined") return false;
-    return (
-      document.cookie.includes("hasSession=") || document.cookie.includes("isLoggedIn=true") // Legacy fallback during migration
-    );
+    return document.cookie.includes("hasSession=");
   });
   const [authReady, setAuthReady] = useState(false);
   const [whatsNewAvailable, setWhatsNewAvailable] = useState(false);
@@ -65,13 +60,8 @@ export default function BaseHeader({
 
   // Keep auth state in sync without extra network calls
   useEffect(() => {
-    // Check for hasSession (client-readable indicator) or legacy isLoggedIn during migration until June 2026.
-    // Note: authToken and auth cookies are HttpOnly and cannot be read from JavaScript
     const hasAuthCookie = (): boolean => {
-      return (
-        typeof document !== "undefined" &&
-        (document.cookie.includes("hasSession=") || document.cookie.includes("isLoggedIn=true")) // Legacy fallback during migration until June 2026.
-      );
+      return typeof document !== "undefined" && document.cookie.includes("hasSession=");
     };
 
     const updateAuthState = async () => {

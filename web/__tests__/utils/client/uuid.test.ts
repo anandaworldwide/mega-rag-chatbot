@@ -2,7 +2,12 @@
  * Tests for the uuid utility
  */
 
-import { getOrCreateUUID, resetProfileUuidCacheForTests, syncProfileUuid } from '@/utils/client/uuid';
+import {
+  getOrCreateUUID,
+  resetProfileUuidCacheForTests,
+  syncProfileUuid,
+  syncUuidFromSignedCookie,
+} from '@/utils/client/uuid';
 import Cookies from 'js-cookie';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -15,8 +20,8 @@ jest.mock('uuid', () => ({
 describe('uuid', () => {
   // Mock implementations
   const mockGet = jest.fn();
-  const mockSet = jest.fn();
   const mockUuidValue = '123e4567-e89b-12d3-a456-426614174000';
+  const serverSignedUuid = '423e4567-e89b-42d3-a456-426614174000';
 
   beforeEach(() => {
     // Clear all mocks before each test
@@ -25,26 +30,24 @@ describe('uuid', () => {
 
     // Setup Cookies mock implementation
     (Cookies.get as jest.Mock).mockImplementation(mockGet);
-    (Cookies.set as jest.Mock).mockImplementation(mockSet);
 
     // Setup UUID mock to return a consistent value
     (uuidv4 as jest.Mock).mockReturnValue(mockUuidValue);
   });
 
-  it('should return existing UUID from cookies if present', () => {
-    const existingUuid = 'existing-uuid-value';
-    mockGet.mockReturnValue(existingUuid);
+  it('should return existing UUID from signed cookies if present', () => {
+    const existingUuid = '123e4567-e89b-12d3-a456-426614174000';
+    const signedCookie = `${existingUuid}--deadbeef`;
+    mockGet.mockReturnValue(signedCookie);
 
     const result = getOrCreateUUID();
 
     expect(result).toBe(existingUuid);
     expect(Cookies.get).toHaveBeenCalledWith('uuid');
     expect(uuidv4).not.toHaveBeenCalled();
-    expect(Cookies.set).not.toHaveBeenCalled();
   });
 
-  it('should create a new UUID if none exists in cookies', () => {
-    // Simulate no existing cookie
+  it('should create a new in-memory UUID if no signed cookie exists', () => {
     mockGet.mockReturnValue(undefined);
 
     const result = getOrCreateUUID();
@@ -52,43 +55,65 @@ describe('uuid', () => {
     expect(result).toBe(mockUuidValue);
     expect(Cookies.get).toHaveBeenCalledWith('uuid');
     expect(uuidv4).toHaveBeenCalledTimes(1);
-    expect(Cookies.set).toHaveBeenCalledWith('uuid', mockUuidValue, {
-      expires: 365,
-    });
+    expect(Cookies.set).not.toHaveBeenCalled();
   });
 
-  it('should create a new UUID if cookie value is empty string', () => {
+  it('should create a new in-memory UUID if cookie value is empty string', () => {
     mockGet.mockReturnValue('');
 
     const result = getOrCreateUUID();
 
     expect(result).toBe(mockUuidValue);
     expect(uuidv4).toHaveBeenCalledTimes(1);
-    expect(Cookies.set).toHaveBeenCalledWith('uuid', mockUuidValue, {
-      expires: 365,
-    });
+    expect(Cookies.set).not.toHaveBeenCalled();
   });
 
-  it('should create a new UUID if cookie value is null', () => {
+  it('should create a new in-memory UUID if cookie value is null', () => {
     mockGet.mockReturnValue(null);
 
     const result = getOrCreateUUID();
 
     expect(result).toBe(mockUuidValue);
     expect(uuidv4).toHaveBeenCalledTimes(1);
-    expect(Cookies.set).toHaveBeenCalledWith('uuid', mockUuidValue, {
-      expires: 365,
-    });
+    expect(Cookies.set).not.toHaveBeenCalled();
   });
 
-  it('should set the cookie with 1 year expiration', () => {
-    mockGet.mockReturnValue(undefined);
+  it('should ignore unsigned legacy cookies and create a new in-memory UUID', () => {
+    mockGet.mockReturnValue('unsigned-legacy-uuid');
 
+    const result = getOrCreateUUID();
+
+    expect(result).toBe(mockUuidValue);
+    expect(uuidv4).toHaveBeenCalledTimes(1);
+    expect(Cookies.set).not.toHaveBeenCalled();
+  });
+
+  it('prefers signed cookie over provisional in-memory uuid after server bootstrap', () => {
+    mockGet.mockReturnValue(undefined);
+    expect(getOrCreateUUID()).toBe(mockUuidValue);
+
+    mockGet.mockReturnValue(`${serverSignedUuid}--deadbeef`);
+    expect(getOrCreateUUID()).toBe(serverSignedUuid);
+    expect(uuidv4).toHaveBeenCalledTimes(1);
+  });
+
+  it('syncUuidFromSignedCookie aligns client with server-signed cookie', () => {
+    mockGet.mockReturnValue(undefined);
     getOrCreateUUID();
 
-    expect(Cookies.set).toHaveBeenCalledWith('uuid', mockUuidValue, {
-      expires: 365,
-    });
+    mockGet.mockReturnValue(`${serverSignedUuid}--deadbeef`);
+    expect(syncUuidFromSignedCookie()).toBe(serverSignedUuid);
+    expect(getOrCreateUUID()).toBe(serverSignedUuid);
+  });
+
+  it('adopts re-signed legacy uuid once server sets signed cookie format', () => {
+    const legacyUuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    mockGet.mockReturnValue(legacyUuid);
+    expect(getOrCreateUUID()).toBe(mockUuidValue);
+
+    mockGet.mockReturnValue(`${legacyUuid}--cafebabe`);
+    expect(syncUuidFromSignedCookie()).toBe(legacyUuid);
+    expect(getOrCreateUUID()).toBe(legacyUuid);
   });
 
   it('returns profile uuid from cache after syncProfileUuid', () => {
@@ -100,6 +125,13 @@ describe('uuid', () => {
 
     expect(result).toBe(profileId);
     expect(uuidv4).not.toHaveBeenCalled();
+  });
+
+  it('prefers auth profile uuid over signed cookie', () => {
+    syncProfileUuid('profile-uuid-from-auth');
+    mockGet.mockReturnValue(`${serverSignedUuid}--deadbeef`);
+
+    expect(getOrCreateUUID()).toBe('profile-uuid-from-auth');
   });
 
   it('does not write a cookie when syncing the profile uuid', () => {

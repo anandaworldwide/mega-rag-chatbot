@@ -66,9 +66,7 @@ export default function AuthGuard({ children, siteConfig }: AuthGuardProps) {
           }
 
           // Not authenticated but no error thrown - check for cookies indicating possible session restoration
-          // Check for hasSession (client-readable indicator) or legacy isLoggedIn during migration
-          // Note: authToken and auth cookies are HttpOnly and cannot be read from JavaScript
-          const hasAuthCookie = document.cookie.includes("hasSession=") || document.cookie.includes("isLoggedIn=true"); // Legacy fallback during migration until June 2026.
+          const hasAuthCookie = document.cookie.includes("hasSession=");
 
           if (hasAuthCookie && attempt < MAX_AUTH_ATTEMPTS) {
             // Has cookies but not authenticated - might be stale state, retry

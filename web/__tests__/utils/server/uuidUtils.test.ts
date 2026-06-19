@@ -5,21 +5,24 @@ import { JwtPayload } from "@/utils/server/jwtUtils";
 // Set SECRET_KEY before importing uuidUtils (required for module initialization)
 process.env.SECRET_KEY = process.env.SECRET_KEY || "test-secret-key-for-jest";
 
-// Mock Cookies library for migration test
 const mockSetCookie = jest.fn();
-jest.mock("cookies", () => {
-  return jest.fn().mockImplementation(() => ({
+jest.mock("cookies", () =>
+  jest.fn().mockImplementation(() => ({
     set: mockSetCookie,
     get: jest.fn(),
-  }));
-});
-
-// Mock isDevelopment to return true for tests
+  }))
+);
 jest.mock("@/utils/env", () => ({
   isDevelopment: jest.fn().mockReturnValue(true),
 }));
 
-import { getSecureUUID, createSignedUUIDCookie } from "@/utils/server/uuidUtils";
+import {
+  getSecureUUID,
+  createSignedUUIDCookie,
+  ensureAnonymousVisitorUuidCookie,
+  resolveSecureUuidFromAppRequest,
+} from "@/utils/server/uuidUtils";
+import { NextRequest } from "next/server";
 
 // Mock dependencies
 jest.mock("@/utils/server/loadSiteConfig");
@@ -128,54 +131,48 @@ describe("uuidUtils", () => {
         });
       });
 
-      it("should upgrade unsigned UUID cookie to signed format (migration)", () => {
+      it("should reject unsigned UUID cookies", () => {
         const testUUID = "123e4567-e89b-12d3-a456-426614174000";
-        const { req, res } = createMocks({
-          method: "POST",
-          cookies: { uuid: testUUID }, // Unsigned cookie
-          headers: {
-            "x-forwarded-proto": "http", // Simulate non-HTTPS for testing
-          },
-        });
-
-        const result = getSecureUUID(req as any, res as any);
-
-        // Should successfully return UUID
-        expect(result).toEqual({
-          success: true,
-          uuid: testUUID,
-        });
-
-        // Should have called cookies.set to upgrade to signed cookie
-        expect(mockSetCookie).toHaveBeenCalledTimes(1);
-        expect(mockSetCookie).toHaveBeenCalledWith(
-          "uuid",
-          expect.stringContaining(testUUID),
-          expect.objectContaining({
-            httpOnly: false,
-            sameSite: "lax",
-            secure: false, // Because x-forwarded-proto is http
-            maxAge: 180 * 24 * 60 * 60 * 1000, // 180 days
-            path: "/",
-          })
-        );
-
-        // Verify the cookie value is properly signed
-        const cookieValue = mockSetCookie.mock.calls[0][1] as string;
-        expect(cookieValue).toContain("--");
-        const [uuid, signature] = cookieValue.split("--");
-        expect(uuid).toBe(testUUID);
-        expect(signature).toMatch(/^[0-9a-f]{64}$/i); // HMAC-SHA256 hex signature (64 hex chars)
-
-        // Verify signature is correct by creating a new signed cookie and comparing
-        const expectedSignedCookie = createSignedUUIDCookie(testUUID);
-        expect(cookieValue).toBe(expectedSignedCookie);
-      });
-
-      it("should reject invalid UUID format", () => {
         const { req } = createMocks({
           method: "POST",
-          cookies: { uuid: "not-a-valid-uuid" },
+          cookies: { uuid: testUUID },
+        });
+
+        const result = getSecureUUID(req as any);
+
+        expect(result).toEqual({
+          success: false,
+          error: "Invalid UUID cookie format",
+          statusCode: 400,
+        });
+      });
+
+      it("should reject signed cookies with invalid signatures", () => {
+        const testUUID = "123e4567-e89b-12d3-a456-426614174000";
+        const invalidSignature = "a".repeat(64);
+        const invalidSignedCookie = `${testUUID}--${invalidSignature}`;
+
+        const { req } = createMocks({
+          method: "POST",
+          cookies: { uuid: invalidSignedCookie },
+        });
+
+        const result = getSecureUUID(req as any);
+
+        expect(result).toEqual({
+          success: false,
+          error: "Invalid UUID cookie signature",
+          statusCode: 400,
+        });
+      });
+
+      it("should reject invalid UUID format in signed cookies", () => {
+        const invalidUuid = "not-a-valid-uuid";
+        const signedCookie = createSignedUUIDCookie(invalidUuid);
+
+        const { req } = createMocks({
+          method: "POST",
+          cookies: { uuid: signedCookie },
         });
 
         const result = getSecureUUID(req as any);
@@ -185,37 +182,6 @@ describe("uuidUtils", () => {
           error: "Invalid UUID format",
           statusCode: 400,
         });
-      });
-
-      it("should handle signed cookie with invalid signature (migration fallback)", () => {
-        const testUUID = "123e4567-e89b-12d3-a456-426614174000";
-        // Create invalid signature with correct length (64 hex chars) but wrong value
-        const invalidSignature = "a".repeat(64); // 64 'a' characters
-        const invalidSignedCookie = `${testUUID}--${invalidSignature}`;
-
-        const { req, res } = createMocks({
-          method: "POST",
-          cookies: { uuid: invalidSignedCookie },
-          headers: {
-            "x-forwarded-proto": "http",
-          },
-        });
-
-        // During migration period, invalid signatures fall back to unsigned handling
-        // After June 2026, this should reject. For now, it will try to upgrade.
-        const result = getSecureUUID(req as any, res as any);
-
-        // Should still work during migration (treats as unsigned and upgrades)
-        expect(result.success).toBe(true);
-        expect(result).toEqual({
-          success: true,
-          uuid: testUUID,
-        });
-
-        // Should have upgraded to properly signed cookie
-        expect(mockSetCookie).toHaveBeenCalledTimes(1);
-        const cookieValue = mockSetCookie.mock.calls[0][1] as string;
-        expect(cookieValue).toBe(createSignedUUIDCookie(testUUID));
       });
 
       it("should return error when cookie UUID is missing", () => {
@@ -249,10 +215,11 @@ describe("uuidUtils", () => {
       });
 
       it("should ignore JWT payload and use cookies for anonymous sites", () => {
-        const cookieUUID = "123e4567-e89b-12d3-a456-426614174000";
+        const testUUID = "123e4567-e89b-12d3-a456-426614174000";
+        const signedCookie = createSignedUUIDCookie(testUUID);
         const { req } = createMocks({
           method: "POST",
-          cookies: { uuid: cookieUUID },
+          cookies: { uuid: signedCookie },
         });
 
         const userPayload: JwtPayload = {
@@ -268,7 +235,7 @@ describe("uuidUtils", () => {
 
         expect(result).toEqual({
           success: true,
-          uuid: cookieUUID, // Should use cookie, not JWT
+          uuid: testUUID,
         });
       });
     });
@@ -278,16 +245,17 @@ describe("uuidUtils", () => {
         mockLoadSiteConfigSync.mockReturnValue(null as any);
 
         const validUUID = "123e4567-e89b-12d3-a456-426614174000";
+        const signedCookie = createSignedUUIDCookie(validUUID);
         const { req } = createMocks({
           method: "POST",
-          cookies: { uuid: validUUID },
+          cookies: { uuid: signedCookie },
         });
 
         const result = getSecureUUID(req as any);
 
         expect(result).toEqual({
           success: true,
-          uuid: validUUID, // Should default to cookie behavior
+          uuid: validUUID,
         });
       });
 
@@ -298,17 +266,150 @@ describe("uuidUtils", () => {
         } as any);
 
         const validUUID = "123e4567-e89b-12d3-a456-426614174000";
+        const signedCookie = createSignedUUIDCookie(validUUID);
         const { req } = createMocks({
           method: "POST",
-          cookies: { uuid: validUUID },
+          cookies: { uuid: signedCookie },
         });
 
         const result = getSecureUUID(req as any);
 
         expect(result).toEqual({
           success: true,
-          uuid: validUUID, // Should default to cookie behavior
+          uuid: validUUID,
         });
+      });
+    });
+  });
+
+  describe("ensureAnonymousVisitorUuidCookie", () => {
+    beforeEach(() => {
+      mockLoadSiteConfigSync.mockReturnValue({
+        requireLogin: false,
+        siteId: "ananda-public",
+      } as any);
+    });
+
+    it("sets a signed uuid cookie when none exists", () => {
+      const { req, res } = createMocks({
+        method: "GET",
+        cookies: {},
+        headers: { "x-forwarded-proto": "http" },
+      });
+
+      ensureAnonymousVisitorUuidCookie(req as any, res as any);
+
+      expect(mockSetCookie).toHaveBeenCalledTimes(1);
+      expect(mockSetCookie.mock.calls[0][0]).toBe("uuid");
+      expect(mockSetCookie.mock.calls[0][1]).toMatch(/^[0-9a-f-]{36}--[0-9a-f]{64}$/i);
+    });
+
+    it("re-signs legacy unsigned uuid cookies", () => {
+      const legacyUuid = "123e4567-e89b-12d3-a456-426614174000";
+      const { req, res } = createMocks({
+        method: "GET",
+        cookies: { uuid: legacyUuid },
+        headers: { "x-forwarded-proto": "http" },
+      });
+
+      ensureAnonymousVisitorUuidCookie(req as any, res as any);
+
+      expect(mockSetCookie).toHaveBeenCalledTimes(1);
+      expect(mockSetCookie.mock.calls[0][1]).toBe(createSignedUUIDCookie(legacyUuid));
+    });
+
+    it("does not overwrite a valid signed uuid cookie", () => {
+      const testUUID = "123e4567-e89b-12d3-a456-426614174000";
+      const { req, res } = createMocks({
+        method: "GET",
+        cookies: { uuid: createSignedUUIDCookie(testUUID) },
+      });
+
+      ensureAnonymousVisitorUuidCookie(req as any, res as any);
+
+      expect(mockSetCookie).not.toHaveBeenCalled();
+    });
+
+    it("skips login-required sites", () => {
+      mockLoadSiteConfigSync.mockReturnValue({
+        requireLogin: true,
+        siteId: "ananda",
+      } as any);
+
+      const { req, res } = createMocks({ method: "GET", cookies: {} });
+      ensureAnonymousVisitorUuidCookie(req as any, res as any);
+
+      expect(mockSetCookie).not.toHaveBeenCalled();
+    });
+
+    it("skips when authToken cookie is present", () => {
+      const { req, res } = createMocks({
+        method: "GET",
+        cookies: { authToken: "logged-in-token" },
+      });
+
+      ensureAnonymousVisitorUuidCookie(req as any, res as any);
+
+      expect(mockSetCookie).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("resolveSecureUuidFromAppRequest", () => {
+    beforeEach(() => {
+      mockLoadSiteConfigSync.mockReturnValue({
+        requireLogin: false,
+        siteId: "ananda-public",
+      } as any);
+    });
+
+    it("rejects unsigned uuid cookies", async () => {
+      const req = {
+        cookies: {
+          get: (name: string) => (name === "uuid" ? { value: "123e4567-e89b-12d3-a456-426614174000" } : undefined),
+        },
+      } as unknown as NextRequest;
+
+      const result = await resolveSecureUuidFromAppRequest(req);
+
+      expect(result).toEqual({
+        success: false,
+        error: "Invalid UUID cookie format",
+        statusCode: 400,
+      });
+    });
+
+    it("accepts valid signed uuid cookies", async () => {
+      const testUUID = "123e4567-e89b-12d3-a456-426614174000";
+      const signedCookie = createSignedUUIDCookie(testUUID);
+      const req = {
+        cookies: {
+          get: (name: string) => (name === "uuid" ? { value: signedCookie } : undefined),
+        },
+      } as unknown as NextRequest;
+
+      const result = await resolveSecureUuidFromAppRequest(req);
+
+      expect(result).toEqual({
+        success: true,
+        uuid: testUUID,
+      });
+    });
+
+    it("rejects invalid uuid cookie signatures", async () => {
+      const testUUID = "123e4567-e89b-12d3-a456-426614174000";
+      const req = {
+        cookies: {
+          get: (name: string) =>
+            name === "uuid" ? { value: `${testUUID}--${"a".repeat(64)}` } : undefined,
+        },
+      } as unknown as NextRequest;
+
+      const result = await resolveSecureUuidFromAppRequest(req);
+
+      expect(result).toEqual({
+        success: false,
+        error: "Invalid UUID cookie signature",
+        statusCode: 400,
       });
     });
   });

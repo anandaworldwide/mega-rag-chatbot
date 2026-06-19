@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { fetchWithAuth } from "@/utils/client/tokenManager";
 import { getOrCreateUUID } from "@/utils/client/uuid";
+import { ensureAnonymousUuidSynced } from "@/utils/client/tokenManager";
 import { ensureProfileUuidSynced } from "@/utils/client/profileUuidSync";
 import { TitleScopeSelection } from "@/types/titleScope";
 
@@ -61,8 +62,7 @@ export function useChatHistory(limit: number = 20, enabled: boolean = true) {
       setError(null);
 
       try {
-        // Wait for the authenticated profile uuid before reading it, so the first
-        // history fetch on a cold load queries the correct partition (login-required sites).
+        await ensureAnonymousUuidSynced();
         await ensureProfileUuidSynced();
         const uuid = getOrCreateUUID();
 
@@ -291,6 +291,7 @@ export function useChatHistory(limit: number = 20, enabled: boolean = true) {
       try {
         setStarredLoading(true);
 
+        await ensureAnonymousUuidSynced();
         await ensureProfileUuidSynced();
         const uuid = getOrCreateUUID();
         // Use same limit calculation as regular conversations for consistency

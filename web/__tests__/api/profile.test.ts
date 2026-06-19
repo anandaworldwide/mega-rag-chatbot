@@ -108,7 +108,7 @@ describe("/api/profile", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "PATCH",
       headers: {
-        cookie: "auth=valid-jwt-token",
+        cookie: "authToken=valid-jwt-token",
       },
       body: {
         firstName: "John",
@@ -117,7 +117,7 @@ describe("/api/profile", () => {
     });
 
     // Set up cookies object for req
-    req.cookies = { auth: "valid-jwt-token" };
+    req.cookies = { authToken: "valid-jwt-token" };
 
     await handler(req, res);
 
@@ -154,7 +154,7 @@ describe("/api/profile", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "PATCH",
       headers: {
-        cookie: "auth=valid-jwt-token",
+        cookie: "authToken=valid-jwt-token",
       },
       body: {
         firstName: "John",
@@ -163,7 +163,7 @@ describe("/api/profile", () => {
     });
 
     // Set up cookies object for req
-    req.cookies = { auth: "valid-jwt-token" };
+    req.cookies = { authToken: "valid-jwt-token" };
 
     await handler(req, res);
 
@@ -206,7 +206,7 @@ describe("/api/profile", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "PATCH",
       headers: {
-        cookie: "auth=valid-jwt-token",
+        cookie: "authToken=valid-jwt-token",
       },
       body: {
         firstName: "Jane",
@@ -215,7 +215,7 @@ describe("/api/profile", () => {
     });
 
     // Set up cookies object for req
-    req.cookies = { auth: "valid-jwt-token" };
+    req.cookies = { authToken: "valid-jwt-token" };
 
     await handler(req, res);
 
@@ -258,7 +258,7 @@ describe("/api/profile", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "PATCH",
       headers: {
-        cookie: "auth=valid-jwt-token",
+        cookie: "authToken=valid-jwt-token",
       },
       body: {
         firstName: "A".repeat(101), // Too long
@@ -267,7 +267,7 @@ describe("/api/profile", () => {
     });
 
     // Set up cookies object for req
-    req.cookies = { auth: "valid-jwt-token" };
+    req.cookies = { authToken: "valid-jwt-token" };
 
     await handler(req, res);
 
@@ -307,7 +307,7 @@ describe("/api/profile", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "PATCH",
       headers: {
-        cookie: "auth=valid-jwt-token",
+        cookie: "authToken=valid-jwt-token",
       },
       body: {
         firstName: "John",
@@ -316,7 +316,7 @@ describe("/api/profile", () => {
     });
 
     // Set up cookies object for req
-    req.cookies = { auth: "valid-jwt-token" };
+    req.cookies = { authToken: "valid-jwt-token" };
 
     // Spy on console.error to verify error logging
     const consoleSpy = jest.spyOn(console, "error").mockImplementation(() => {});
@@ -357,10 +357,10 @@ describe("/api/profile", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "GET",
       headers: {
-        cookie: "auth=valid-jwt-token",
+        cookie: "authToken=valid-jwt-token",
       },
     });
-    req.cookies = { auth: "valid-jwt-token" };
+    req.cookies = { authToken: "valid-jwt-token" };
 
     await handler(req, res);
 
@@ -395,10 +395,10 @@ describe("/api/profile", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "GET",
       headers: {
-        cookie: "auth=valid-jwt-token",
+        cookie: "authToken=valid-jwt-token",
       },
     });
-    req.cookies = { auth: "valid-jwt-token" };
+    req.cookies = { authToken: "valid-jwt-token" };
 
     await handler(req, res);
 
@@ -431,10 +431,10 @@ describe("/api/profile", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "GET",
       headers: {
-        cookie: "auth=valid-jwt-token",
+        cookie: "authToken=valid-jwt-token",
       },
     });
-    req.cookies = { auth: "valid-jwt-token" };
+    req.cookies = { authToken: "valid-jwt-token" };
 
     await handler(req, res);
 
@@ -465,10 +465,10 @@ describe("/api/profile", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "GET",
       headers: {
-        cookie: "auth=valid-jwt-token",
+        cookie: "authToken=valid-jwt-token",
       },
     });
-    req.cookies = { auth: "valid-jwt-token" };
+    req.cookies = { authToken: "valid-jwt-token" };
 
     await handler(req, res);
 
@@ -498,13 +498,13 @@ describe("/api/profile", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "PATCH",
       headers: {
-        cookie: "auth=valid-jwt-token",
+        cookie: "authToken=valid-jwt-token",
       },
       body: {
         dismissedSalesforceAccessNoticeVersion: 1,
       },
     });
-    req.cookies = { auth: "valid-jwt-token" };
+    req.cookies = { authToken: "valid-jwt-token" };
 
     await handler(req, res);
 
@@ -537,13 +537,13 @@ describe("/api/profile", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "PATCH",
       headers: {
-        cookie: "auth=valid-jwt-token",
+        cookie: "authToken=valid-jwt-token",
       },
       body: {
         dismissedSalesforceAccessNoticeVersion: 2,
       },
     });
-    req.cookies = { auth: "valid-jwt-token" };
+    req.cookies = { authToken: "valid-jwt-token" };
 
     await handler(req, res);
 

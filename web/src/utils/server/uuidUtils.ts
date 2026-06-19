@@ -9,8 +9,9 @@ import crypto from "crypto";
 import Cookies from "cookies";
 import { isDevelopment } from "@/utils/env";
 
+const UUID_COOKIE_MAX_AGE_MS = 180 * 24 * 60 * 60 * 1000;
+
 // UUID cookie signing using HMAC-SHA256 with SECRET_KEY
-// TODO: Remove migration bridge after June 2026 - only accept signed cookies
 if (!process.env.SECRET_KEY) {
   throw new Error(
     "SECRET_KEY environment variable is required. Application cannot start without proper encryption key."
@@ -67,29 +68,67 @@ export function createSignedUUIDCookie(uuid: string): string {
 }
 
 /**
+ * Ensures anonymous visitors on public sites have a signed uuid cookie.
+ * Called from /api/web-token during app bootstrap so cookie-based endpoints work
+ * without client-side unsigned cookie writes.
+ */
+export function ensureAnonymousVisitorUuidCookie(req: NextApiRequest, res: NextApiResponse): void {
+  const siteConfig = loadSiteConfigSync();
+  if (siteConfig?.requireLogin) {
+    return;
+  }
+
+  if (req.cookies?.["authToken"]) {
+    return;
+  }
+
+  const rawCookie = req.cookies?.["uuid"];
+  const parsed = rawCookie ? parseUUIDCookie(rawCookie) : null;
+  if (parsed?.isValidSignature && isValidUUID(parsed.uuid)) {
+    return;
+  }
+
+  let uuid: string;
+  if (rawCookie && isValidUUID(rawCookie)) {
+    uuid = rawCookie;
+  } else if (parsed && isValidUUID(parsed.uuid)) {
+    uuid = parsed.uuid;
+  } else {
+    uuid = crypto.randomUUID();
+  }
+
+  try {
+    const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
+    const cookies = new Cookies(req, res, { secure: isSecure });
+    cookies.set("uuid", createSignedUUIDCookie(uuid), {
+      httpOnly: false,
+      sameSite: "lax",
+      secure: isSecure,
+      maxAge: UUID_COOKIE_MAX_AGE_MS,
+      path: "/",
+    });
+  } catch (error) {
+    console.warn("Failed to set signed uuid cookie for anonymous visitor:", error);
+  }
+}
+
+/**
  * Parses and verifies a signed UUID cookie
- * @param cookieValue - The cookie value (may be signed or unsigned for migration)
- * @returns Object with uuid and isValidSignature flag
+ * @param cookieValue - The signed cookie value ({uuid}--{signature})
+ * @returns Object with uuid and isValidSignature flag, or null if malformed
  */
 function parseUUIDCookie(cookieValue: string): { uuid: string; isValidSignature: boolean } | null {
-  if (!cookieValue) {
+  if (!cookieValue || !cookieValue.includes("--")) {
     return null;
   }
 
-  // Check if cookie is signed (contains "--" separator)
-  if (cookieValue.includes("--")) {
-    const [uuid, signature] = cookieValue.split("--");
-    if (!uuid || !signature) {
-      return null;
-    }
-
-    // Verify signature
-    const isValid = verifyUUIDSignature(uuid, signature);
-    return { uuid, isValidSignature: isValid };
+  const [uuid, signature] = cookieValue.split("--");
+  if (!uuid || !signature) {
+    return null;
   }
 
-  // Unsigned cookie (legacy) - return as-is for migration support
-  return { uuid: cookieValue, isValidSignature: false };
+  const isValid = verifyUUIDSignature(uuid, signature);
+  return { uuid, isValidSignature: isValid };
 }
 
 /**
@@ -100,10 +139,9 @@ function parseUUIDCookie(cookieValue: string): { uuid: string; isValidSignature:
  *
  * For anonymous sites (requireLogin: false):
  * - Uses UUID from cookies (signed with HMAC to prevent spoofing)
- * - TODO: Remove migration bridge after June 2026 - only accept signed cookies
  *
  * @param req - Next.js API request object
- * @param res - Next.js API response object (optional, needed for cookie migration)
+ * @param res - Next.js API response object (optional, retained for call-site compatibility)
  * @param userPayload - Verified JWT payload (if authenticated)
  * @returns Object with success/error status and UUID or error message
  */
@@ -135,7 +173,6 @@ export function getSecureUUID(
       };
     }
 
-    // Parse cookie (handles both signed and unsigned for migration)
     const parsed = parseUUIDCookie(rawCookie);
     if (!parsed) {
       return {
@@ -147,7 +184,6 @@ export function getSecureUUID(
 
     const { uuid, isValidSignature } = parsed;
 
-    // Validate UUID format
     if (!isValidUUID(uuid)) {
       return {
         success: false,
@@ -156,41 +192,20 @@ export function getSecureUUID(
       };
     }
 
-    // TODO: Remove migration bridge after June 2026
-    // Migration: If unsigned cookie found, silently upgrade to signed cookie
-    if (!isValidSignature && res) {
-      try {
-        const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
-        const cookies = new Cookies(req, res, { secure: isSecure });
-        const signedCookie = createSignedUUIDCookie(uuid);
-        cookies.set("uuid", signedCookie, {
-          httpOnly: false, // Needed for client-side access
-          sameSite: "lax",
-          secure: isSecure,
-          maxAge: 180 * 24 * 60 * 60 * 1000, // 180 days
-          path: "/",
-        });
-      } catch (migrationError) {
-        // Silently fail migration - user can still use unsigned cookie during migration
-        console.warn("Failed to migrate UUID cookie to signed format:", migrationError);
-      }
+    if (!isValidSignature) {
+      return {
+        success: false,
+        error: "Invalid UUID cookie signature",
+        statusCode: 400,
+      };
     }
-
-    // After June 2026: Only accept signed cookies
-    // if (!isValidSignature) {
-    //   return {
-    //     success: false,
-    //     error: "Invalid UUID cookie signature",
-    //     statusCode: 400,
-    //   };
-    // }
 
     return { success: true, uuid };
   }
 }
 
 /**
- * Securely resolves UUID from an App Router request (no cookie migration write).
+ * Securely resolves UUID from an App Router request.
  * Prefer {@link resolveSecureUuidFromAppRequest} for login-required sites.
  */
 export function getSecureUUIDFromAppRequest(
@@ -301,11 +316,19 @@ function resolveUuidFromAppRequestCookie(req: NextRequest): UuidResolutionResult
     };
   }
 
-  const { uuid } = parsed;
+  const { uuid, isValidSignature } = parsed;
   if (!isValidUUID(uuid)) {
     return {
       success: false,
       error: "Invalid UUID format",
+      statusCode: 400,
+    };
+  }
+
+  if (!isValidSignature) {
+    return {
+      success: false,
+      error: "Invalid UUID cookie signature",
       statusCode: 400,
     };
   }

@@ -30,7 +30,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   try {
-    const authCookie = req.cookies?.["auth"];
+    const authCookie = req.cookies?.["authToken"];
     if (!authCookie) return res.status(401).json({ error: "Not authenticated" });
 
     let payload: any;

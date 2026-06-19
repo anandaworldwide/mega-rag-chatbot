@@ -95,7 +95,7 @@ describe("/api/admin/users/[userId] DELETE user", () => {
     // Set up authz mocks to check JWT role by default
     mockRequireAdmin.mockImplementation(async (req: any) => {
       const jwtUtils = await import("@/utils/server/jwtUtils");
-      const payload = (jwtUtils.verifyToken as jest.Mock)(req.cookies?.auth || "");
+      const payload = (jwtUtils.verifyToken as jest.Mock)(req.cookies?.authToken || "");
       const role = payload?.role || "user";
       if (role !== "admin" && role !== "superuser") {
         throw new Error("Unauthorized: Admin privileges required");
@@ -104,7 +104,7 @@ describe("/api/admin/users/[userId] DELETE user", () => {
 
     mockGetRole.mockImplementation(async (req: any) => {
       const jwtUtils = await import("@/utils/server/jwtUtils");
-      const payload = (jwtUtils.verifyToken as jest.Mock)(req.cookies?.auth || "");
+      const payload = (jwtUtils.verifyToken as jest.Mock)(req.cookies?.authToken || "");
       return payload?.role || "user";
     });
   });
@@ -117,7 +117,7 @@ describe("/api/admin/users/[userId] DELETE user", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "DELETE",
       query: { userId: "target@example.com" },
-      cookies: { auth: "token" },
+      cookies: { authToken: "token" },
     });
 
     await handler(req, res);
@@ -137,7 +137,7 @@ describe("/api/admin/users/[userId] DELETE user", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "DELETE",
       query: { userId: "nonexistent@example.com" },
-      cookies: { auth: "token" },
+      cookies: { authToken: "token" },
     });
 
     await handler(req, res);
@@ -163,7 +163,7 @@ describe("/api/admin/users/[userId] DELETE user", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "DELETE",
       query: { userId: "admin@example.com" },
-      cookies: { auth: "token" },
+      cookies: { authToken: "token" },
     });
 
     await handler(req, res);
@@ -220,7 +220,7 @@ describe("/api/admin/users/[userId] DELETE user", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "DELETE",
       query: { userId: "target@example.com" },
-      cookies: { auth: "token" },
+      cookies: { authToken: "token" },
     });
 
     await handler(req, res);
@@ -280,7 +280,7 @@ describe("/api/admin/users/[userId] DELETE user", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "DELETE",
       query: { userId: "target@example.com" },
-      cookies: { auth: "token" },
+      cookies: { authToken: "token" },
     });
 
     await handler(req, res);
@@ -324,7 +324,7 @@ describe("/api/admin/users/[userId] DELETE user", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "DELETE",
       query: { userId: "target@example.com" },
-      cookies: { auth: "token" },
+      cookies: { authToken: "token" },
     });
 
     await handler(req, res);

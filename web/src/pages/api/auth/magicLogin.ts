@@ -130,8 +130,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
     );
 
-    // Set HTTP-only and client-readable cookies for authentication/session
-    cookies.set("auth", authToken, {
+    cookies.set("authToken", authToken, {
       httpOnly: true,
       sameSite: "lax",
       secure: isSecure,
@@ -148,25 +147,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       path: "/",
     });
 
-    // TODO: Remove migration bridge after June 2026 - only set authToken
-    // Set both auth and authToken cookies during migration period
-    // auth: legacy cookie for backward compatibility
-    cookies.set("auth", authToken, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: isSecure,
-      maxAge: 180 * 24 * 60 * 60 * 1000,
-      path: "/",
-    });
-    // authToken: new cookie name
-    cookies.set("authToken", authToken, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: isSecure,
-      maxAge: 180 * 24 * 60 * 60 * 1000,
-      path: "/",
-    });
-    // Set client-readable session indicator (allows JS to detect auth cookies exist)
     cookies.set("hasSession", "1", {
       httpOnly: false,
       sameSite: "lax",

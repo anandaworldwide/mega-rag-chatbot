@@ -136,7 +136,7 @@ describe("/api/admin/users/[userId] role change authorization", () => {
     // Set up authz mocks to check JWT role by default
     mockRequireAdmin.mockImplementation(async (req: any) => {
       const jwtUtils = await import("@/utils/server/jwtUtils");
-      const payload = (jwtUtils.verifyToken as jest.Mock)(req.cookies?.auth || "");
+      const payload = (jwtUtils.verifyToken as jest.Mock)(req.cookies?.authToken || "");
       const role = payload?.role || "user";
       if (role !== "admin" && role !== "superuser") {
         throw new Error("Unauthorized: Admin privileges required");
@@ -145,7 +145,7 @@ describe("/api/admin/users/[userId] role change authorization", () => {
 
     mockGetRole.mockImplementation(async (req: any) => {
       const jwtUtils = await import("@/utils/server/jwtUtils");
-      const payload = (jwtUtils.verifyToken as jest.Mock)(req.cookies?.auth || "");
+      const payload = (jwtUtils.verifyToken as jest.Mock)(req.cookies?.authToken || "");
       return payload?.role || "user";
     });
   });
@@ -167,7 +167,7 @@ describe("/api/admin/users/[userId] role change authorization", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "PATCH",
       query: { userId: targetEmail },
-      cookies: { auth: "token" },
+      cookies: { authToken: "token" },
       body: { role: "admin" },
     });
 
@@ -193,7 +193,7 @@ describe("/api/admin/users/[userId] role change authorization", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "PATCH",
       query: { userId: "target@example.com" },
-      cookies: { auth: "token" },
+      cookies: { authToken: "token" },
       body: { role: "superuser" },
     });
 
@@ -216,7 +216,7 @@ describe("/api/admin/users/[userId] role change authorization", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "PATCH",
       query: { userId: targetEmail },
-      cookies: { auth: "token" },
+      cookies: { authToken: "token" },
       body: {
         role: "admin",
         isApprover: true,
@@ -248,7 +248,7 @@ describe("/api/admin/users/[userId] role change authorization", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "PATCH",
       query: { userId: targetEmail },
-      cookies: { auth: "token" },
+      cookies: { authToken: "token" },
       body: {
         isApprover: true,
         approverLocation: "Portland",
@@ -274,7 +274,7 @@ describe("/api/admin/users/[userId] role change authorization", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "PATCH",
       query: { userId: "target@example.com" },
-      cookies: { auth: "token" },
+      cookies: { authToken: "token" },
       body: { role: "owner" },
     });
 

@@ -75,7 +75,7 @@ describe("auditLog", () => {
           "x-forwarded-for": "192.168.1.100, 10.0.0.1",
         },
         cookies: {
-          auth: "valid-jwt-token",
+          authToken: "valid-jwt-token",
         },
       });
 
@@ -102,7 +102,7 @@ describe("auditLog", () => {
       const { req } = createMocks<NextApiRequest, NextApiResponse>({
         method: "POST",
         cookies: {
-          auth: "valid-jwt-token",
+          authToken: "valid-jwt-token",
         },
       });
 
@@ -136,7 +136,7 @@ describe("auditLog", () => {
           "x-forwarded-for": "192.168.1.100",
         },
         cookies: {
-          auth: "valid-jwt-token",
+          authToken: "valid-jwt-token",
         },
       });
 
@@ -163,7 +163,7 @@ describe("auditLog", () => {
       const { req } = createMocks<NextApiRequest, NextApiResponse>({
         method: "POST",
         cookies: {
-          auth: "valid-jwt-token",
+          authToken: "valid-jwt-token",
         },
       });
 
@@ -193,7 +193,7 @@ describe("auditLog", () => {
           "x-forwarded-for": "  192.168.1.100  , 10.0.0.1",
         },
         cookies: {
-          auth: "valid-jwt-token",
+          authToken: "valid-jwt-token",
         },
       });
 
@@ -219,7 +219,7 @@ describe("auditLog", () => {
           "x-forwarded-for": "192.168.1.100",
         },
         cookies: {
-          auth: "valid-jwt-token",
+          authToken: "valid-jwt-token",
         },
       });
 
@@ -241,7 +241,7 @@ describe("auditLog", () => {
           "x-forwarded-for": "192.168.1.100",
         },
         cookies: {
-          auth: "valid-jwt-token",
+          authToken: "valid-jwt-token",
         },
       });
 
@@ -286,7 +286,7 @@ describe("auditLog", () => {
           "x-forwarded-for": "192.168.1.100",
         },
         cookies: {
-          auth: "valid-jwt-token",
+          authToken: "valid-jwt-token",
         },
       });
 
@@ -308,7 +308,7 @@ describe("auditLog", () => {
           "x-forwarded-for": "192.168.1.100",
         },
         cookies: {
-          auth: "valid-jwt-token",
+          authToken: "valid-jwt-token",
         },
       });
 
@@ -338,7 +338,7 @@ describe("auditLog", () => {
           "x-forwarded-for": "192.168.1.100",
         },
         cookies: {
-          auth: "invalid-jwt-token",
+          authToken: "invalid-jwt-token",
         },
       });
 

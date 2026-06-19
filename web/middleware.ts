@@ -33,7 +33,7 @@ const performSecurityChecks = (req: NextRequest, url: URL) => {
   }
 
   // Check for SQL injection attempts in query parameters
-  const sqlInjectionPattern = /(\\%27)|(\')|(\\-\\-)|(\\%23)|(#)/i;
+  const sqlInjectionPattern = /(\\%27)|(')|(\\-\\-)|(\\%23)|(#)/i;
   if (sqlInjectionPattern.test(url.search)) {
     logSuspiciousActivity(req, "Potential SQL injection attempt in query parameters");
   }
@@ -75,7 +75,7 @@ const performSecurityChecks = (req: NextRequest, url: URL) => {
   }
 
   // Check for potential XSS attempts in query parameters
-  const xssPattern = new RegExp("<script\\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>", "gi");
+  const xssPattern = new RegExp("<script\\b[^<]*(?:(?!</script>)<[^<]*)*</script>", "gi");
   if (xssPattern.test(decodeURIComponent(url.search))) {
     logSuspiciousActivity(req, "Potential XSS attempt in query parameters");
   }
@@ -133,13 +133,7 @@ export function middleware(req: NextRequest) {
     !url.pathname.match(/\\.(png|jpg|jpeg|gif|ico|svg|css|js)$/); // Allow common static file types
 
   if (pathname_is_private && requireLogin) {
-    // TODO: Remove migration bridge after June 2026
-    // Check for both new authToken and legacy auth cookies for migration compatibility
-    const authToken = req.cookies.get("authToken");
-    const authJwt = req.cookies.get("auth");
-
-    // Prefer authToken, fall back to auth cookie
-    const jwtCookie = authToken || authJwt;
+    const jwtCookie = req.cookies.get("authToken");
     const jwtSecret = process.env.SECURE_TOKEN;
 
     let authFailed = false;
@@ -156,7 +150,7 @@ export function middleware(req: NextRequest) {
         });
         // JWT is valid, authentication succeeds
         authFailed = false;
-      } catch (jwtError) {
+      } catch {
         // JWT verification failed
         authFailed = true;
       }

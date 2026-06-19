@@ -74,11 +74,11 @@ describe("/api/salesforce/verifyAccess", () => {
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "POST",
       headers: {
-        cookie: "auth=valid-jwt-token",
+        cookie: "authToken=valid-jwt-token",
       },
       body,
     });
-    req.cookies = { auth: "valid-jwt-token" };
+    req.cookies = { authToken: "valid-jwt-token" };
     return { req, res };
   }
 

@@ -1,3 +1,4 @@
+import { ensureAnonymousUuidSynced } from "@/utils/client/tokenManager";
 import { syncProfileUuid } from "@/utils/client/uuid";
 
 let initPromise: Promise<void> | null = null;
@@ -46,6 +47,14 @@ export function ensureProfileUuidSynced(): Promise<void> {
   }
 
   return initPromise ?? Promise.resolve();
+}
+
+/** Waits for web-token bootstrap and profile sync before uuid-dependent requests. */
+export async function ensureVisitorUuidReady(requireLogin: boolean): Promise<void> {
+  await ensureAnonymousUuidSynced();
+  if (requireLogin) {
+    await ensureProfileUuidSynced();
+  }
 }
 
 /** @internal Test-only helper */

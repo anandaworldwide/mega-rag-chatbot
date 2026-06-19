@@ -70,10 +70,8 @@ describe("Logout API", () => {
 
     await handler(req, res);
 
-    // Verify cookies are cleared (authToken, auth, isLoggedIn, uuid, hasSession)
-    expect(setCookieMock).toHaveBeenCalledTimes(5);
+    expect(setCookieMock).toHaveBeenCalledTimes(3);
 
-    // First call should clear authToken cookie
     expect(setCookieMock.mock.calls[0][0]).toBe("authToken");
     expect(setCookieMock.mock.calls[0][1]).toBe("");
     expect(setCookieMock.mock.calls[0][2]).toEqual(
@@ -82,8 +80,7 @@ describe("Logout API", () => {
       })
     );
 
-    // Second call should clear auth cookie
-    expect(setCookieMock.mock.calls[1][0]).toBe("auth");
+    expect(setCookieMock.mock.calls[1][0]).toBe("uuid");
     expect(setCookieMock.mock.calls[1][1]).toBe("");
     expect(setCookieMock.mock.calls[1][2]).toEqual(
       expect.objectContaining({
@@ -91,8 +88,7 @@ describe("Logout API", () => {
       })
     );
 
-    // Third call should clear isLoggedIn cookie
-    expect(setCookieMock.mock.calls[2][0]).toBe("isLoggedIn");
+    expect(setCookieMock.mock.calls[2][0]).toBe("hasSession");
     expect(setCookieMock.mock.calls[2][1]).toBe("");
     expect(setCookieMock.mock.calls[2][2]).toEqual(
       expect.objectContaining({
@@ -100,25 +96,6 @@ describe("Logout API", () => {
       })
     );
 
-    // Fourth call should clear uuid cookie
-    expect(setCookieMock.mock.calls[3][0]).toBe("uuid");
-    expect(setCookieMock.mock.calls[3][1]).toBe("");
-    expect(setCookieMock.mock.calls[3][2]).toEqual(
-      expect.objectContaining({
-        expires: expect.any(Date),
-      })
-    );
-
-    // Fifth call should clear hasSession cookie (client-readable session indicator)
-    expect(setCookieMock.mock.calls[4][0]).toBe("hasSession");
-    expect(setCookieMock.mock.calls[4][1]).toBe("");
-    expect(setCookieMock.mock.calls[4][2]).toEqual(
-      expect.objectContaining({
-        expires: expect.any(Date),
-      })
-    );
-
-    // Verify response
     expect(res.statusCode).toBe(200);
     expect(res._getJSONData()).toEqual({
       message: "Logged out",
@@ -135,13 +112,9 @@ describe("Logout API", () => {
 
     await handler(req, res);
 
-    // For the default implementation, secure is not explicitly set
-    // so we just verify the cookies were set
-    expect(setCookieMock).toHaveBeenCalledTimes(5);
+    expect(setCookieMock).toHaveBeenCalledTimes(3);
     expect(setCookieMock.mock.calls[0][0]).toBe("authToken");
-    expect(setCookieMock.mock.calls[1][0]).toBe("auth");
-    expect(setCookieMock.mock.calls[2][0]).toBe("isLoggedIn");
-    expect(setCookieMock.mock.calls[3][0]).toBe("uuid");
-    expect(setCookieMock.mock.calls[4][0]).toBe("hasSession");
+    expect(setCookieMock.mock.calls[1][0]).toBe("uuid");
+    expect(setCookieMock.mock.calls[2][0]).toBe("hasSession");
   });
 });

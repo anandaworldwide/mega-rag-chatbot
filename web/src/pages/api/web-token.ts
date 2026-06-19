@@ -30,6 +30,20 @@ import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreGet } from "@/utils/server/firestoreRetryUtils";
 import { isDevelopment } from "@/utils/env";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
+import { ensureAnonymousVisitorUuidCookie } from "@/utils/server/uuidUtils";
+
+function clearInvalidAuthCookies(req: NextApiRequest, res: NextApiResponse): void {
+  const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
+  const cookies = new Cookies(req, res, { secure: isSecure });
+  cookies.set("authToken", "", {
+    expires: new Date(0),
+    path: "/",
+  });
+  cookies.set("hasSession", "", {
+    expires: new Date(0),
+    path: "/",
+  });
+}
 
 /**
  * API handler for the web token endpoint
@@ -59,16 +73,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Authorization decisions are made by downstream endpoints (chat API, contact form, etc.)
     // This endpoint is a token factory, not an authorization gatekeeper
 
-    // TODO: Remove migration bridge after June 2026
-    // Check for both new authToken and legacy auth cookies for migration compatibility
     const authToken = req.cookies["authToken"];
-    const authJwt = req.cookies["auth"];
 
-    // Prefer authToken, fall back to auth cookie
-    const tokenToVerify = authToken || authJwt;
-
-    // If there's an auth cookie, verify and migrate it
-    if (tokenToVerify) {
+    if (authToken) {
       try {
         const jwtSecret = process.env.SECURE_TOKEN;
         if (!jwtSecret) {
@@ -76,87 +83,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           return res.status(500).json({ error: "Server configuration error" });
         }
 
-        // Verify the JWT token with security options
-        jwt.verify(tokenToVerify, jwtSecret, {
+        jwt.verify(authToken, jwtSecret, {
           algorithms: ["HS256"],
           issuer: "mega-rag-chatbot",
           audience: "mega-rag-chatbot-users",
         });
-
-        // TODO: Remove migration bridge after June 2026
-        // Migration: If we have auth cookie but no authToken, migrate it
-        // This is a silent migration - if it fails, continue anyway
-        try {
-          if (authJwt && !authToken && res) {
-            const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
-            const cookies = new Cookies(req, res, { secure: isSecure });
-            cookies.set("authToken", authJwt, {
-              httpOnly: true,
-              secure: isSecure,
-              sameSite: "lax",
-              maxAge: 180 * 24 * 60 * 60 * 1000, // 180 days
-              path: "/",
-            });
-            // Set client-readable session indicator during migration
-            cookies.set("hasSession", "1", {
-              httpOnly: false,
-              secure: isSecure,
-              sameSite: "lax",
-              maxAge: 180 * 24 * 60 * 60 * 1000, // 180 days
-              path: "/",
-            });
-          }
-        } catch (migrationError) {
-          // Silently fail migration - user can still use auth cookie
-          console.warn("Failed to migrate auth cookie to authToken:", migrationError);
-        }
       } catch (jwtError) {
-        // Invalid auth cookie - handle based on site configuration
         const siteConfig = loadSiteConfigSync();
         const requiresLogin = siteConfig?.requireLogin === true;
 
+        clearInvalidAuthCookies(req, res);
+
         if (requiresLogin) {
-          // Site requires login - invalid cookie means unauthorized access
-          // Clear the bad cookies and return 401
-          const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
-          const cookies = new Cookies(req, res, { secure: isSecure });
-          // TODO: Remove migration bridge after June 2026 - only clear authToken
-          cookies.set("authToken", "", {
-            expires: new Date(0),
-            path: "/",
-          });
-          cookies.set("auth", "", {
-            expires: new Date(0),
-            path: "/",
-          });
-          // Clear client-readable session indicator to prevent stale state
-          cookies.set("hasSession", "", {
-            expires: new Date(0),
-            path: "/",
-          });
           return res.status(401).json({ error: "Authentication required" });
-        } else {
-          // Site doesn't require login - clear bad cookies and continue with anonymous token
-          const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
-          const cookies = new Cookies(req, res, { secure: isSecure });
-          // TODO: Remove migration bridge after June 2026 - only clear authToken
-          cookies.set("authToken", "", {
-            expires: new Date(0),
-            path: "/",
-          });
-          cookies.set("auth", "", {
-            expires: new Date(0),
-            path: "/",
-          });
-          // Clear client-readable session indicator to prevent stale state
-          cookies.set("hasSession", "", {
-            expires: new Date(0),
-            path: "/",
-          });
-          // Log warning but continue with anonymous token
-          const errorMsg = jwtError instanceof Error ? jwtError.message : String(jwtError);
-          console.warn(`Invalid auth cookie in web-token request (cleared): ${errorMsg}`);
         }
+
+        const errorMsg = jwtError instanceof Error ? jwtError.message : String(jwtError);
+        console.warn(`Invalid auth cookie in web-token request (cleared): ${errorMsg}`);
       }
     }
 
@@ -172,14 +115,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       iat: Math.floor(Date.now() / 1000),
     };
 
-    // TODO: Remove migration bridge after June 2026 - only check authToken
-    // Check for authToken or legacy auth cookie and add user info if present and valid
-    const authCookie = req.cookies?.["authToken"] || req.cookies?.["auth"];
+    const authCookie = req.cookies?.["authToken"];
     if (authCookie) {
       try {
         const userPayload = verifyToken(authCookie) as any;
         if (userPayload?.email && db) {
-          // Get user's UUID from their profile
           const userDoc = await firestoreGet(
             db.collection(getUsersCollectionName()).doc(userPayload.email),
             "get user UUID for JWT",
@@ -190,59 +130,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
             const userData = userDoc.data();
             payload.email = userPayload.email;
             payload.role = userPayload.role || userData?.role || "user";
-            payload.uuid = userData?.uuid; // Include UUID in JWT payload
+            payload.uuid = userData?.uuid;
           }
         }
       } catch (_error) {
-        // If auth cookie is invalid (e.g., expired, wrong issuer), handle based on site config
-        // Note: Signature errors are already handled in the first check above
         const siteConfig = loadSiteConfigSync();
         const requiresLogin = siteConfig?.requireLogin === true;
 
+        clearInvalidAuthCookies(req, res);
+
         if (requiresLogin) {
-          // Site requires login - invalid cookie means unauthorized access
-          // Clear the bad cookies and return 401
-          const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
-          const cookies = new Cookies(req, res, { secure: isSecure });
-          // TODO: Remove migration bridge after June 2026 - only clear authToken
-          cookies.set("authToken", "", {
-            expires: new Date(0),
-            path: "/",
-          });
-          cookies.set("auth", "", {
-            expires: new Date(0),
-            path: "/",
-          });
-          // Clear client-readable session indicator to prevent stale state
-          cookies.set("hasSession", "", {
-            expires: new Date(0),
-            path: "/",
-          });
           return res.status(401).json({ error: "Authentication required" });
-        } else {
-          // Site doesn't require login - clear bad cookies and continue with anonymous token
-          const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
-          const cookies = new Cookies(req, res, { secure: isSecure });
-          // TODO: Remove migration bridge after June 2026 - only clear authToken
-          cookies.set("authToken", "", {
-            expires: new Date(0),
-            path: "/",
-          });
-          cookies.set("auth", "", {
-            expires: new Date(0),
-            path: "/",
-          });
-          // Clear client-readable session indicator to prevent stale state
-          cookies.set("hasSession", "", {
-            expires: new Date(0),
-            path: "/",
-          });
-          // Continue with anonymous token - already logged warning in first check if signature error
         }
       }
     }
 
-    // Create a JWT token with the conditional payload
+    ensureAnonymousVisitorUuidCookie(req, res);
+
     try {
       const webToken = jwt.sign(payload, process.env.SECURE_TOKEN, {
         expiresIn: "15m",
@@ -256,7 +160,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return res.status(500).json({ error: "Failed to create token" });
     }
   } catch (error) {
-    // Log errors for debugging but avoid exposing implementation details to clients
     console.error("Error in web token endpoint:", error);
     return res.status(500).json({ error: "Internal Server Error" });
   }

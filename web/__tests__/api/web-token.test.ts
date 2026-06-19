@@ -213,12 +213,11 @@ describe("/api/web-token", () => {
     expect(passwordUtils.isTokenValid).not.toHaveBeenCalled();
   });
 
-  it("should accept auth JWT cookie when login is required", async () => {
+  it("should accept authToken JWT cookie when login is required", async () => {
     // Site requires login
     (loadSiteConfigSync as jest.Mock).mockReturnValue({ requireLogin: true });
 
-    // Provide JWT cookie (legacy auth cookie)
-    (req as any).cookies = { auth: "valid-jwt-cookie" };
+    (req as any).cookies = { authToken: "valid-jwt-cookie" };
 
     // jwt.verify should succeed
     (jwt.verify as unknown as jest.Mock).mockReturnValue({ client: "web", exp: Math.floor(Date.now() / 1000) + 900 });
@@ -304,7 +303,42 @@ describe("/api/web-token", () => {
     expect(jsonMock).toHaveBeenCalledWith({ token: "test-jwt-token" });
     // Verify cookies were cleared
     expect(setCookieMock).toHaveBeenCalledWith("authToken", "", expect.objectContaining({ expires: expect.any(Date) }));
-    expect(setCookieMock).toHaveBeenCalledWith("auth", "", expect.objectContaining({ expires: expect.any(Date) }));
+    expect(setCookieMock).toHaveBeenCalledWith("hasSession", "", expect.objectContaining({ expires: expect.any(Date) }));
+  });
+
+  it("should set signed uuid cookie for anonymous visitors on public sites", async () => {
+    (loadSiteConfigSync as jest.Mock).mockReturnValue({
+      requireLogin: false,
+    });
+
+    req.cookies = {};
+    setCookieMock.mockClear();
+
+    await handler(req as NextApiRequest, res as NextApiResponse);
+
+    expect(statusMock).toHaveBeenCalledWith(200);
+    expect(setCookieMock).toHaveBeenCalledWith(
+      "uuid",
+      expect.stringMatching(/^[0-9a-f-]{36}--[0-9a-f]{64}$/i),
+      expect.objectContaining({
+        httpOnly: false,
+        path: "/",
+      })
+    );
+  });
+
+  it("should not set uuid cookie on login-required sites without auth", async () => {
+    (loadSiteConfigSync as jest.Mock).mockReturnValue({
+      requireLogin: true,
+    });
+
+    req.cookies = {};
+    setCookieMock.mockClear();
+
+    await handler(req as NextApiRequest, res as NextApiResponse);
+
+    const uuidSetCalls = setCookieMock.mock.calls.filter((call) => call[0] === "uuid" && call[1] !== "");
+    expect(uuidSetCalls).toHaveLength(0);
   });
 
   it("should return 401 when invalid auth cookie present on login-required site", async () => {
@@ -328,6 +362,6 @@ describe("/api/web-token", () => {
     expect(jsonMock).toHaveBeenCalledWith({ error: "Authentication required" });
     // Verify cookies were cleared
     expect(setCookieMock).toHaveBeenCalledWith("authToken", "", expect.objectContaining({ expires: expect.any(Date) }));
-    expect(setCookieMock).toHaveBeenCalledWith("auth", "", expect.objectContaining({ expires: expect.any(Date) }));
+    expect(setCookieMock).toHaveBeenCalledWith("hasSession", "", expect.objectContaining({ expires: expect.any(Date) }));
   });
 });

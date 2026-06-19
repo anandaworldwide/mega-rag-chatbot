@@ -1,4 +1,4 @@
-import { syncProfileUuid } from "@/utils/client/uuid";
+import { syncProfileUuid, syncUuidFromSignedCookie } from "@/utils/client/uuid";
 
 /**
  * Token Manager
@@ -111,19 +111,16 @@ export class AuthenticationError extends Error {
  * AuthGuard to implement retry logic before deciding to redirect.
  */
 async function fetchNewToken(): Promise<string> {
-  // Helper function to detect any auth cookie presence
-  // Note: authToken and auth are HttpOnly, so we check hasSession (client-readable indicator)
+  // authToken is HttpOnly; hasSession is the client-readable session indicator.
   function hasAnyAuthCookie(): boolean {
-    return (
-      document.cookie.includes("hasSession=") || document.cookie.includes("isLoggedIn=true") // Legacy fallback during migration until June 2026.
-    );
+    return document.cookie.includes("hasSession=");
   }
 
   try {
     // Fetch a JWT token from the server
     // The token will contain user info if the user is logged in (has valid auth cookie)
     // or will be anonymous (no user info) if not logged in
-    // Include credentials to send cookies (authToken/auth) with the request
+    // Include credentials to send HttpOnly authToken cookie with the request
     const response = await fetch("/api/web-token", {
       credentials: "include",
     });
@@ -182,6 +179,7 @@ async function fetchNewToken(): Promise<string> {
       expiresAt: parseJwtExpiration(token),
     };
     syncUuidFromTokenPayload(token);
+    syncUuidFromSignedCookie();
 
     return token;
   } catch (error) {
@@ -207,8 +205,6 @@ async function fetchNewToken(): Promise<string> {
   }
 }
 
-// TODO: Post-bridge (June 2026), simplify hasAnyAuthCookie() to check only hasSession presence (drop legacy isLoggedIn)
-
 /**
  * Initialize the token manager and fetch the first token
  * This should be called early in the app lifecycle
@@ -224,13 +220,7 @@ export async function initializeTokenManager(): Promise<string> {
     return tokenData!.token;
   }
 
-  // For browser session restoration scenarios (mobile or desktop reboot), always force a fresh token fetch
-  // if we detect that we might be in a restored session (no in-memory token but auth cookies exist)
-  // Check for hasSession (client-readable indicator) or legacy isLoggedIn during migration
-  // Note: authToken and auth cookies are HttpOnly and cannot be read from JavaScript
-  const hasAuthCookies =
-    typeof document !== "undefined" &&
-    (document.cookie.includes("hasSession=") || document.cookie.includes("isLoggedIn=true")); // Legacy fallback during migration
+  const hasAuthCookies = typeof document !== "undefined" && document.cookie.includes("hasSession=");
 
   if (!tokenData && hasAuthCookies) {
     console.log("Browser session restoration detected - forcing fresh token fetch");
@@ -285,6 +275,18 @@ export function isAuthenticated(): boolean {
   }
 
   return false;
+}
+
+/**
+ * Ensures anonymous visitors have a signed uuid cookie before chat or cookie-gated API calls.
+ * Awaits /api/web-token (which sets the cookie) and aligns in-memory uuid with the cookie.
+ */
+export async function ensureAnonymousUuidSynced(): Promise<void> {
+  if (typeof window === "undefined") {
+    return;
+  }
+  await getToken();
+  syncUuidFromSignedCookie();
 }
 
 /**

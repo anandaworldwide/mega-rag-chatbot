@@ -8,6 +8,8 @@ import { writeAuditLog } from "@/utils/server/auditLog";
 import bcrypt from "bcryptjs";
 import { sendEmailChangeConfirmationEmails } from "@/utils/server/userEmailChangeUtils";
 import jwt from "jsonwebtoken";
+import Cookies from "cookies";
+import { isDevelopment } from "@/utils/env";
 
 async function compareToken(token: string, hash: string): Promise<boolean> {
   try {
@@ -119,10 +121,23 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           audience: "mega-rag-chatbot-users",
         });
 
-        // Set the updated auth cookie
-        res.setHeader("Set-Cookie", [
-          `auth=${newAuthToken}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${180 * 24 * 60 * 60}`,
-        ]);
+        const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
+        const cookies = new Cookies(req, res, { secure: isSecure });
+        const maxAge = 180 * 24 * 60 * 60 * 1000;
+        cookies.set("authToken", newAuthToken, {
+          httpOnly: true,
+          sameSite: "lax",
+          secure: isSecure,
+          maxAge,
+          path: "/",
+        });
+        cookies.set("hasSession", "1", {
+          httpOnly: false,
+          sameSite: "lax",
+          secure: isSecure,
+          maxAge,
+          path: "/",
+        });
       }
     } catch (cookieError) {
       console.error("Failed to update auth cookie after email change:", cookieError);

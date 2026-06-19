@@ -56,7 +56,7 @@ import { TypedSuggestion } from "@/types/Suggestion";
 import { SudoProvider, useSudo } from "@/contexts/SudoContext";
 import { fetchWithAuth, isAuthenticated, initializeTokenManager } from "@/utils/client/tokenManager";
 import { getOrCreateUUID } from "@/utils/client/uuid";
-import { ensureProfileUuidSynced } from "@/utils/client/profileUuidSync";
+import { ensureVisitorUuidReady } from "@/utils/client/profileUuidSync";
 import { ConversationNotFoundError, loadConversationByConvId } from "@/utils/client/conversationLoader";
 import { getGreeting } from "@/utils/client/siteConfig";
 import { SidebarFunctions, SidebarRefetch } from "@/components/ChatHistorySidebar";
@@ -1724,9 +1724,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     e.preventDefault();
     if (submittedQuery.trim() === "") return;
 
-    if (siteConfig?.requireLogin) {
-      await ensureProfileUuidSynced();
-    }
+    await ensureVisitorUuidReady(siteConfig?.requireLogin === true);
 
     // Capture if this is a task submission before resetting (needed to reset sourceCount after API call)
     const wasTaskSubmission = isTaskSubmissionRef.current;

@@ -4,24 +4,24 @@ import Cookies from "js-cookie";
 /**
  * Extracts UUID from signed cookie format
  * Format: {uuid}--{signature}
- * TODO: Remove migration bridge after June 2026 - only signed cookies supported
  */
 function extractUUIDFromCookie(cookieValue: string | undefined): string | null {
-  if (!cookieValue) {
+  if (!cookieValue || !cookieValue.includes("--")) {
     return null;
   }
 
-  // Check if cookie is signed (contains "--" separator)
-  if (cookieValue.includes("--")) {
-    const [uuid] = cookieValue.split("--");
-    return uuid || null;
-  }
-
-  // Unsigned cookie (legacy) - return as-is for migration support
-  return cookieValue;
+  const [uuid] = cookieValue.split("--");
+  return uuid || null;
 }
 
-let profileUuid: string | null = null;
+function readSignedUuidFromCookie(): string | null {
+  return extractUUIDFromCookie(Cookies.get("uuid"));
+}
+
+/** UUID from authenticated profile sync (login-required sites). Takes precedence over cookies. */
+let authProfileUuid: string | null = null;
+/** Client-generated UUID used only until /api/web-token sets a signed cookie. */
+let provisionalUuid: string | null = null;
 
 /**
  * Align the client with the authenticated profile uuid (login-required sites).
@@ -36,37 +36,48 @@ export function syncProfileUuid(uuid: string): void {
   if (!uuid) {
     return;
   }
-  profileUuid = uuid;
+  authProfileUuid = uuid;
+  provisionalUuid = null;
+}
+
+/**
+ * Align the client with the server-signed uuid cookie set by /api/web-token or login.
+ * Clears any provisional in-memory uuid so cookie-based endpoints match chat persistence.
+ */
+export function syncUuidFromSignedCookie(): string | null {
+  const uuid = readSignedUuidFromCookie();
+  if (uuid) {
+    provisionalUuid = null;
+  }
+  return uuid;
 }
 
 /** @internal Clears in-memory profile uuid cache (tests only). */
 export function resetProfileUuidCacheForTests(): void {
-  profileUuid = null;
+  authProfileUuid = null;
+  provisionalUuid = null;
 }
 
 /**
- * Gets or creates UUID from cookies
+ * Gets or creates UUID for the current session.
  *
- * Note: Client-side UUID cookies should be set server-side with signatures.
- * This function handles reading both signed and unsigned cookies for migration.
- *
- * TODO: Remove migration bridge after June 2026 - only signed cookies supported
+ * Priority: authenticated profile uuid > signed cookie > provisional in-memory uuid.
+ * The server signs cookies via Set-Cookie on /api/web-token and login paths.
  */
 export const getOrCreateUUID = (): string => {
-  if (profileUuid) {
-    return profileUuid;
+  if (authProfileUuid) {
+    return authProfileUuid;
   }
 
-  const cookieValue = Cookies.get("uuid");
-  const uuid = extractUUIDFromCookie(cookieValue);
-
-  if (!uuid) {
-    // Generate new UUID - will be signed when set server-side
-    // Client-side setting is for backward compatibility only
-    const newUuid = uuidv4();
-    Cookies.set("uuid", newUuid, { expires: 365 });
-    return newUuid;
+  const cookieUuid = readSignedUuidFromCookie();
+  if (cookieUuid) {
+    return cookieUuid;
   }
 
-  return uuid;
+  if (provisionalUuid) {
+    return provisionalUuid;
+  }
+
+  provisionalUuid = uuidv4();
+  return provisionalUuid;
 };

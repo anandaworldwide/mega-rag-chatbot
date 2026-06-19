@@ -144,7 +144,7 @@ function clearAuthCookies(req: NextApiRequest, res: NextApiResponse): void {
     // the client after session revocation.
     const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
     const cookies = new Cookies(req, res, { secure: isSecure });
-    const names = ["authToken", "auth", "isLoggedIn", "uuid", "hasSession"];
+    const names = ["authToken", "uuid", "hasSession"];
     for (const name of names) {
       cookies.set(name, "", {
         expires: new Date(0),

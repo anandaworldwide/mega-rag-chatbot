@@ -85,7 +85,7 @@ describe("Audit Log Security", () => {
           "x-forwarded-for": "192.168.1.100",
         },
         cookies: {
-          auth: "valid-jwt-token",
+          authToken: "valid-jwt-token",
         },
       });
 
@@ -108,7 +108,7 @@ describe("Audit Log Security", () => {
           "x-forwarded-for": "192.168.1.100",
         },
         cookies: {
-          auth: "valid-jwt-token",
+          authToken: "valid-jwt-token",
         },
       });
 
@@ -131,7 +131,7 @@ describe("Audit Log Security", () => {
           "x-request-id": "req-12345",
         },
         cookies: {
-          auth: "valid-jwt-token",
+          authToken: "valid-jwt-token",
         },
       });
 
@@ -199,7 +199,7 @@ describe("Audit Log Security", () => {
           "x-request-id": "trace-abc123",
         },
         cookies: {
-          auth: "valid-jwt-token",
+          authToken: "valid-jwt-token",
         },
       });
 
