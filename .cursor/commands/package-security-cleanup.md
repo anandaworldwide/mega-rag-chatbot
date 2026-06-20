@@ -1,14 +1,6 @@
----
-name: package-security-cleanup
-description:
-  Investigate and resolve package security issues, nightly build failures, and dependency vulnerabilities in accordance
-  with project security policy.
-disable-model-invocation: true
----
-
 # Package Security Cleanup
 
-This skill is responsible for triaging and recommending actions on any issues related to package security and dependency
+This command triages and recommends actions on any issues related to package security and dependency
 maintenance. When invoked:
 
 1. **Investigate Issues:**
