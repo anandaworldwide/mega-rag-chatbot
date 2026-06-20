@@ -76,8 +76,9 @@ jest.mock("@/hooks/useSuggestedQueries", () => ({
   }),
 }));
 
-// Mock getCollectionQueries
+// Mock getCollectionQueries; keep resolveSuggestedQueriesCollectionKey from the real module
 jest.mock("@/utils/client/collectionQueries", () => ({
+  ...jest.requireActual("@/utils/client/collectionQueries"),
   getCollectionQueries: jest.fn().mockResolvedValue([]),
   getCategorizedQueries: jest.fn().mockResolvedValue(null),
 }));

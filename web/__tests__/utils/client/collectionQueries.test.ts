@@ -169,5 +169,25 @@ describe("collectionQueries", () => {
       // Total: 4 calls (2 per site)
       expect(mockFetch).toHaveBeenCalledTimes(4);
     });
+
+    it("aliases auto collection to master_swami query files", async () => {
+      mockFetch
+        .mockResolvedValueOnce({ ok: true, text: async () => "ms1\nms2" })
+        .mockResolvedValueOnce({ ok: true, text: async () => "ms1\nms2" })
+        .mockResolvedValueOnce({ ok: true, text: async () => "all1\nall2" })
+        .mockResolvedValueOnce({ ok: true, text: async () => "all1\nall2" });
+
+      const collectionConfig = {
+        auto: "Auto (recommended)",
+        master_swami: "Master and Swami",
+        whole_library: "All authors",
+      };
+
+      const result = await getCollectionQueries("ananda", collectionConfig);
+
+      expect(result.auto).toEqual(["ms1", "ms2"]);
+      expect(result.master_swami).toEqual(["ms1", "ms2"]);
+      expect(mockFetch).not.toHaveBeenCalledWith("/data/ananda/auto_queries.txt");
+    });
   });
 });

@@ -17,6 +17,7 @@ import {
   getEnableAuthorSelection,
   getEnabledMediaTypes,
   getCollectionsConfig,
+  getDefaultCollectionKey,
 } from "@/utils/client/siteConfig";
 import { logEvent } from "@/utils/client/analytics";
 import { useLibraryStats } from "@/hooks/useLibraryStats";
@@ -84,7 +85,7 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
       youtube: siteEnabledMediaTypes.includes("youtube"),
     };
 
-    const defaultCollection = Object.keys(collectionsConfig)[0] || "";
+    const defaultCollection = getDefaultCollectionKey(siteConfig);
 
     // Check media types (treat "none checked" as "all enabled checked")
     const mediaTypesChanged =
@@ -135,7 +136,6 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
     selectedLibraries,
     sourceCount,
     siteConfig,
-    collectionsConfig,
     availableLibraries,
   ]);
 
@@ -150,6 +150,10 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
   // Helper function to get collection count
   const getCollectionCount = (collectionKey: string): number => {
     if (!stats?.authors) return 0;
+
+    if (collectionKey === "auto") {
+      return 0;
+    }
 
     if (collectionKey === "master_swami") {
       return (stats.authors["Paramhansa Yogananda"] || 0) + (stats.authors["Swami Kriyananda"] || 0);
@@ -318,7 +322,7 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
     }
 
     // Reset collection
-    const defaultCollection = Object.keys(collectionsConfig)[0] || "";
+    const defaultCollection = getDefaultCollectionKey(siteConfig);
     if (showAuthorSelection && collection !== defaultCollection) {
       handleCollectionChange(defaultCollection);
     }

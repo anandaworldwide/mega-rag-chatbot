@@ -48,10 +48,27 @@ import { SiteConfig as AppSiteConfig } from "@/types/siteConfig";
 import { ChatMessage, convertChatHistory } from "@/utils/shared/chatHistory";
 import { NextRequest } from "next/server";
 import { sendOpsAlert } from "./emailOps";
-import { buildActiveFilterPromptData } from "./activeFilterPrompt";
+import { buildActiveFilterPromptData, logAuthorScopeDebug, type ActiveFilterPromptData } from "./activeFilterPrompt";
 import { calculateSources, combineDocumentsFn } from "./ragDocumentUtils";
 import { extractJsonArray } from "./suggestionParsing";
 import { filterSuggestionsForDiversity } from "./suggestionDiversity";
+import { AuthorScopeHint, AuthorScopeMode } from "./authorConstants";
+import { resolveAuthorScope } from "./authorScopeResolver";
+import {
+  allocateAuthorBlendSlots,
+  buildLibraryFilter,
+  buildMasterSwamiFilter,
+  buildNamedAuthorFilter,
+  retrieveWithAuthorScopeBlend,
+} from "./authorScopeRetrieval";
+import { getCondenseTemplateWithAuthorScope, invokeRephraseWithAuthorScope } from "./rephraseWithAuthorScope";
+
+export function isAutoAuthorScopeActive(
+  siteConfig?: AppSiteConfig | null,
+  selectedCollectionKey?: string
+): boolean {
+  return siteConfig?.enableAutoAuthorScope === true && selectedCollectionKey === "auto";
+}
 
 export { buildActiveFilterPromptData } from "./activeFilterPrompt";
 export { jaccardSimilarity, filterSuggestionsForDiversity } from "./suggestionDiversity";
@@ -85,7 +102,7 @@ type AnswerChainInput = {
   tool_messages?: any[]; // Added for tool execution messages
 };
 
-export type CollectionKey = "master_swami" | "whole_library";
+export type CollectionKey = "auto" | "master_swami" | "whole_library";
 
 interface TemplateContent {
   content?: string;
@@ -344,6 +361,8 @@ Examples of location clarifications that should be reformulated:
 Follow Up Input: {question}
 Standalone question:`;
 
+const CONDENSE_TEMPLATE_WITH_AUTHOR_SCOPE = getCondenseTemplateWithAuthorScope(CONDENSE_TEMPLATE);
+
 // Retrieves documents from a specific library using vector similarity search
 // Supports additional filtering beyond library selection
 async function retrieveDocumentsByLibrary(
@@ -378,6 +397,78 @@ async function retrieveDocumentsByLibrary(
   return documents;
 }
 
+function refreshActiveFilterPromptData(
+  target: ActiveFilterPromptData,
+  siteConfig: AppSiteConfig | null | undefined,
+  baseFilter: Record<string, unknown> | undefined,
+  selectedCollectionKey: string | undefined,
+  selectedLibraries: string[] | undefined,
+  selectedTitleScopeLabel: string | undefined,
+  namedAuthor?: string
+): void {
+  const refreshed = buildActiveFilterPromptData(
+    siteConfig,
+    baseFilter,
+    selectedCollectionKey,
+    selectedLibraries,
+    selectedTitleScopeLabel,
+    namedAuthor
+  );
+  target.activeFiltersSummary = refreshed.activeFiltersSummary;
+  target.hasRestrictiveFilters = refreshed.hasRestrictiveFilters;
+  target.collectionLabel = refreshed.collectionLabel;
+  target.selectedLibraries = refreshed.selectedLibraries;
+  target.mediaTypes = refreshed.mediaTypes;
+  target.titleScopeLabel = refreshed.titleScopeLabel;
+}
+
+async function runStandardRetrieval(
+  retriever: VectorStoreRetriever,
+  question: string,
+  sourceCount: number,
+  searchFilter: Record<string, unknown> | undefined,
+  includedLibraries: Array<string | { name: string; weight?: number }>,
+  sendData?: (data: StreamingResponseData) => void,
+  loggedLibraries?: Set<string>
+): Promise<Document[]> {
+  const allDocuments: Document[] = [];
+
+  if (!includedLibraries || includedLibraries.length === 0) {
+    const docs = await retriever.vectorStore.similaritySearch(question, sourceCount, searchFilter);
+    allDocuments.push(...docs);
+    return allDocuments;
+  }
+
+  const hasWeights = includedLibraries.some((lib) => typeof lib === "object" && lib !== null);
+  if (hasWeights) {
+    const sourcesDistribution = calculateSources(
+      sourceCount,
+      includedLibraries as { name: string; weight?: number }[]
+    );
+    if (sendData) {
+      sendData({ log: `[RAG] Weighted source distribution: ${JSON.stringify(sourcesDistribution)}` });
+    }
+    const retrievalPromises = sourcesDistribution
+      .filter(({ sources }) => sources > 0)
+      .map(async ({ name, sources }) => {
+        const docs = await retrieveDocumentsByLibrary(retriever, name, sources, question, searchFilter);
+        if (sendData) sendData({ log: `[RAG] Retrieved ${docs.length} docs from library: ${name}` });
+        loggedLibraries?.add(name);
+        return docs;
+      });
+    const docsArrays = await Promise.all(retrievalPromises);
+    docsArrays.forEach((docs) => allDocuments.push(...docs));
+    return allDocuments;
+  }
+
+  const libraryNames = includedLibraries.map((lib) => (typeof lib === "string" ? lib : lib.name));
+  const finalFilter = buildLibraryFilter(libraryNames, searchFilter);
+  const docs = await retriever.vectorStore.similaritySearch(question, sourceCount, finalFilter);
+  if (sendData) sendData({ log: `[RAG] Retrieved ${docs.length} docs from combined libraries` });
+  allDocuments.push(...docs);
+  return allDocuments;
+}
+
 // Main chain creation function that sets up the complete conversational QA system
 // Supports multiple models, weighted library access, and site-specific configurations
 export const makeChain = async (
@@ -405,6 +496,8 @@ export const makeChain = async (
   let answerModel: BaseLanguageModel; // Renamed for clarity
   let rephraseModel: BaseLanguageModel; // New model for rephrasing
   let isLocationQuery = false; // Flag to track if this is a location query
+  let capturedAuthorScopeHint: AuthorScopeHint = "default";
+  const useAutoAuthorScope = isAutoAuthorScopeActive(siteConfig, selectedCollectionKey);
 
   // Get site ID from siteConfig if available
   const siteId = siteConfig?.siteId || process.env.SITE_ID;
@@ -648,69 +741,94 @@ Error details: ${errorString}`,
       }
 
       const allDocuments: Document[] = [];
+      let resolvedNamedAuthor: string | undefined;
       try {
         if (sendData) sendData({ log: `[RAG] Retrieving documents: requested=${sourceCount}` });
-        // If no libraries specified or they don't have weights, use a single query
-        if (!includedLibraries || includedLibraries.length === 0) {
-          const docs = await retriever.vectorStore.similaritySearch(input.question, sourceCount, baseFilter);
-          allDocuments.push(...docs);
+
+        // Only treat "auto" as a blend trigger when the site has opted in. Otherwise a stray
+        // collection="auto" from a non-auto site must fall back to whole_library, not blend.
+        let collectionMode: AuthorScopeMode;
+        if (useAutoAuthorScope) {
+          collectionMode = "auto";
+        } else if (selectedCollectionKey === "master_swami" || selectedCollectionKey === "whole_library") {
+          collectionMode = selectedCollectionKey;
         } else {
-          // Check if we have weights
-          const hasWeights = includedLibraries.some((lib) => typeof lib === "object" && lib !== null);
-
-          if (hasWeights) {
-            // Use the weighted distribution with parallel queries only when we have weights
-            const sourcesDistribution = calculateSources(
-              sourceCount,
-              includedLibraries as { name: string; weight?: number }[]
-            );
-            if (sendData)
-              sendData({ log: `[RAG] Weighted source distribution: ${JSON.stringify(sourcesDistribution)}` });
-            const retrievalPromises = sourcesDistribution
-              .filter(({ sources }) => sources > 0)
-              .map(async ({ name, sources }) => {
-                try {
-                  const docs = await retrieveDocumentsByLibrary(retriever, name, sources, input.question, baseFilter);
-                  if (sendData) sendData({ log: `[RAG] Retrieved ${docs.length} docs from library: ${name}` });
-                  if (!loggedLibraries.has(name)) {
-                    loggedLibraries.add(name);
-                  }
-                  return docs;
-                } catch (err) {
-                  if (sendData) sendData({ log: `[RAG] Error retrieving from library: ${name} ${err}` });
-                  throw err;
-                }
-              });
-
-            // Wait for all retrievals to complete in parallel
-            const docsArrays = await Promise.all(retrievalPromises);
-            docsArrays.forEach((docs) => {
-              allDocuments.push(...docs);
-            });
-          } else {
-            // If all libraries have equal weight or no weights, use a single query with library filter
-            const libraryNames = includedLibraries.map((lib) => (typeof lib === "string" ? lib : lib.name));
-            let finalFilter: Record<string, unknown>;
-            const libraryFilter = { library: { $in: libraryNames } };
-            if (baseFilter) {
-              if ("$and" in baseFilter) {
-                finalFilter = {
-                  ...baseFilter,
-                  $and: [...(baseFilter.$and as Array<Record<string, unknown>>), libraryFilter],
-                };
-              } else {
-                finalFilter = {
-                  $and: [baseFilter, libraryFilter],
-                };
-              }
-            } else {
-              finalFilter = libraryFilter;
-            }
-            const docs = await retriever.vectorStore.similaritySearch(input.question, sourceCount, finalFilter);
-            if (sendData) sendData({ log: `[RAG] Retrieved ${docs.length} docs from combined libraries` });
-            allDocuments.push(...docs);
-          }
+          collectionMode = "whole_library";
         }
+
+        const scopeDescriptor = resolveAuthorScope({
+          question: input.question,
+          scopeHint: capturedAuthorScopeHint,
+          siteConfig,
+          collectionMode,
+        });
+
+        if (scopeDescriptor.kind === "named") {
+          resolvedNamedAuthor = scopeDescriptor.author;
+          refreshActiveFilterPromptData(
+            activeFilterPromptData,
+            siteConfig,
+            baseFilter,
+            selectedCollectionKey,
+            selectedLibraries,
+            selectedTitleScopeLabel,
+            scopeDescriptor.author
+          );
+        }
+
+        if (useAutoAuthorScope) {
+          const blendSlots =
+            scopeDescriptor.kind === "blend"
+              ? allocateAuthorBlendSlots(sourceCount, scopeDescriptor.masterSwamiWeight)
+              : undefined;
+          logAuthorScopeDebug(
+            {
+              question: input.question,
+              selectedCollectionKey,
+              collectionMode,
+              scopeHint: capturedAuthorScopeHint,
+              scopeDescriptor,
+              activeFilterPromptData,
+              blendSlots,
+            },
+            sendData
+          );
+        }
+
+        if (scopeDescriptor.kind === "blend") {
+          const libraryNames =
+            includedLibraries.length > 0
+              ? includedLibraries.map((lib) => (typeof lib === "string" ? lib : lib.name))
+              : undefined;
+          const blendedDocs = await retrieveWithAuthorScopeBlend(
+            retriever,
+            input.question,
+            sourceCount,
+            baseFilter,
+            scopeDescriptor.masterSwamiWeight,
+            libraryNames
+          );
+          allDocuments.push(...blendedDocs);
+        } else {
+          let searchFilter = baseFilter;
+          if (scopeDescriptor.kind === "named") {
+            searchFilter = buildNamedAuthorFilter(scopeDescriptor.author, baseFilter);
+          } else if (scopeDescriptor.kind === "hard" && scopeDescriptor.collection === "master_swami") {
+            searchFilter = buildMasterSwamiFilter(baseFilter);
+          }
+
+          const docs = await runStandardRetrieval(
+            retriever,
+            input.question,
+            sourceCount,
+            searchFilter,
+            includedLibraries,
+            sendData,
+            loggedLibraries
+          );
+          allDocuments.push(...docs);
+        }
+
         if (sendData) sendData({ log: `[RAG] Documents retrieved: found=${allDocuments.length}` });
       } catch (err) {
         if (sendData) sendData({ log: `[RAG] Error retrieving documents: ${err}` });
@@ -724,11 +842,17 @@ Error details: ${errorString}`,
         console.warn(warningMsg);
         if (sendData) sendData({ log: warningMsg });
 
-        // Throw NoSourcesError with filter information
+        // NoSourcesError tells the user which filters produced zero hits. Fixed collections
+        // (master_swami, bible, etc.) populate collectionLabel; Auto mode has no fixed label
+        // because retrieval may blend Master/Swami with broad results or narrow to a query-matched
+        // author. When resolveAuthorScope picked a named author, pass that through so the error
+        // reflects the effective filter rather than a generic "Auto" label.
         throw new NoSourcesError("No sources found for your query with the current chat options.", {
           libraries: activeFilterPromptData.selectedLibraries,
           mediaTypes: activeFilterPromptData.mediaTypes,
-          collection: activeFilterPromptData.collectionLabel,
+          collection:
+            activeFilterPromptData.collectionLabel ??
+            (resolvedNamedAuthor ? `Author: ${resolvedNamedAuthor}` : undefined),
           titleScope: activeFilterPromptData.titleScopeLabel,
         });
       }
@@ -1060,7 +1184,26 @@ Error details: ${errorString}`,
         // Get the reformulated standalone question
         let standaloneQuestion: string;
         try {
-          standaloneQuestion = await standaloneQuestionChain.invoke(input);
+          if (useAutoAuthorScope && input.chat_history.length > 0) {
+            const rephraseResult = await invokeRephraseWithAuthorScope(
+              rephraseModel,
+              {
+                chat_history: input.chat_history,
+                question: input.question,
+              },
+              CONDENSE_TEMPLATE_WITH_AUTHOR_SCOPE,
+              input.question
+            );
+            standaloneQuestion = rephraseResult.standaloneQuestion;
+            capturedAuthorScopeHint = rephraseResult.authorScope;
+            if (sendData) {
+              sendData({ log: `[RAG] Author scope hint: ${capturedAuthorScopeHint}` });
+            }
+          } else if (input.chat_history.length > 0) {
+            standaloneQuestion = await standaloneQuestionChain.invoke(input);
+          } else {
+            standaloneQuestion = input.question;
+          }
         } catch (invokeError) {
           console.error("Error in standaloneQuestionChain.invoke:", invokeError);
           // Fallback to original question on error

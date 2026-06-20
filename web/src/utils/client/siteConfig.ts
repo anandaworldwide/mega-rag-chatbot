@@ -51,6 +51,19 @@ export const getEnableMediaTypeSelection = (siteConfig: SiteConfig | null) =>
 // Check if author selection feature is enabled (defaults to false)
 export const getEnableAuthorSelection = (siteConfig: SiteConfig | null) => siteConfig?.enableAuthorSelection ?? false;
 
+// Check if automatic author scope blending is enabled (defaults to false)
+export const getEnableAutoAuthorScope = (siteConfig: SiteConfig | null) =>
+  siteConfig?.enableAutoAuthorScope === true;
+
+// Default collection key when auto author scope is enabled
+export const getDefaultCollectionKey = (siteConfig: SiteConfig | null): string => {
+  if (getEnableAutoAuthorScope(siteConfig)) {
+    return "auto";
+  }
+  const collections = getCollectionsConfig(siteConfig);
+  return Object.keys(collections)[0] || "whole_library";
+};
+
 // Check if search page feature is enabled (defaults to false)
 export const getEnableSearchPage = (siteConfig: SiteConfig | null) => siteConfig?.enableSearchPage ?? false;
 

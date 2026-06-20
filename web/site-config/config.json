@@ -17,6 +17,7 @@
     "help_url": "https://anandafamily.notion.site/luca-help",
     "help_text": "Help",
     "collectionConfig": {
+      "auto": "Auto (recommended)",
       "master_swami": "Master and Swami",
       "whole_library": "All authors"
     },
@@ -104,6 +105,16 @@
     "enableSuggestedQueries": true,
     "enableMediaTypeSelection": true,
     "enableAuthorSelection": true,
+    "enableAutoAuthorScope": true,
+    "authorScopeBlend": {
+      "masterSwamiWeight": 0.7,
+      "broadMasterSwamiWeight": 0.3
+    },
+    "authorAliases": {
+      "asha": "Asha Nayaswami",
+      "devi": "Devi Novak",
+      "jyotish": "Jyotish Novak"
+    },
     "enableTitleScopeSelection": true,
     "enableSearchPage": true,
     "requireLogin": true,

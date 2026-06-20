@@ -42,6 +42,7 @@ import {
   getEnableMediaTypeSelection,
   getEnableAuthorSelection,
   getEnabledMediaTypes,
+  getDefaultCollectionKey,
 } from "@/utils/client/siteConfig";
 import { DEFAULT_MODEL } from "@/config/modelOptions";
 import { Document } from "@langchain/core/documents";
@@ -176,10 +177,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   // State variables for various features and UI elements
   const [isMaintenanceMode] = useState<boolean>(false);
   const [viewOnlyMode, setViewOnlyMode] = useState<boolean>(false);
-  const [collection, setCollection] = useState(() => {
-    const collections = getCollectionsConfig(siteConfig);
-    return Object.keys(collections)[0] || "";
-  });
+  const [collection, setCollection] = useState(() => getDefaultCollectionKey(siteConfig));
   const [collectionChanged, setCollectionChanged] = useState<boolean>(false);
   const [query, setQuery] = useState<string>("");
   const [temporarySession, setTemporarySession] = useState<boolean>(false);
@@ -207,10 +205,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const [librariesExplicit, setLibrariesExplicit] = useState(false);
   const [mediaTypesExplicit, setMediaTypesExplicit] = useState(false);
   const isTitleScopeSelectionEnabled = Boolean(siteConfig?.enableTitleScopeSelection);
-  const defaultCollection = useMemo(() => {
-    const collections = getCollectionsConfig(siteConfig);
-    return Object.keys(collections)[0] || "whole_library";
-  }, [siteConfig]);
+  const defaultCollection = useMemo(() => getDefaultCollectionKey(siteConfig), [siteConfig]);
   const defaultMediaTypes = useMemo(() => {
     const enabledTypes = getEnabledMediaTypes(siteConfig);
     return {
@@ -2054,7 +2049,11 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
           // Try to load categorized queries for current collection
           const { getCategorizedQueries } = await import("@/utils/client/collectionQueries");
-          const categorized = await getCategorizedQueries(siteConfig.siteId, collection);
+          const categorized = await getCategorizedQueries(
+            siteConfig.siteId,
+            collection,
+            siteConfig.collectionConfig
+          );
           if (categorized && isMounted) {
             setCategorizedQueries(categorized);
           } else {
@@ -2073,8 +2072,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
   // Memoized queries for the current collection (flat list for backward compatibility)
   const queriesForCollection = useMemo(() => {
-    return getQueriesForCollection(collection, collectionQueries);
-  }, [collection, collectionQueries]);
+    return getQueriesForCollection(collection, collectionQueries, siteConfig?.collectionConfig);
+  }, [collection, collectionQueries, siteConfig?.collectionConfig]);
 
   // Custom hook for managing suggested queries (fallback for non-categorized)
   const { suggestedQueries, shuffleQueries } = useSuggestedQueries(queriesForCollection, 3);

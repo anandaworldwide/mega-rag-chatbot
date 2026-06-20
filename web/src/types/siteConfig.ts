@@ -54,6 +54,12 @@ export interface SiteConfig {
   enableSuggestedQueries: boolean;
   enableMediaTypeSelection: boolean;
   enableAuthorSelection: boolean;
+  enableAutoAuthorScope?: boolean;
+  authorScopeBlend?: {
+    masterSwamiWeight?: number;
+    broadMasterSwamiWeight?: number;
+  };
+  authorAliases?: Record<string, string>;
   enableTitleScopeSelection?: boolean;
   enableSearchPage?: boolean;
   welcome_popup_heading: string;

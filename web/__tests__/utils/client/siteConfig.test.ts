@@ -21,6 +21,8 @@ import {
   getEnabledMediaTypes,
   getCollectionsConfig,
   getShowRelatedQuestions,
+  getEnableAutoAuthorScope,
+  getDefaultCollectionKey,
 } from "@/utils/client/siteConfig";
 import { SiteConfig } from "@/types/siteConfig";
 
@@ -87,6 +89,8 @@ describe("siteConfig utils", () => {
       expect(getEnabledMediaTypes(null)).toEqual(["text", "audio", "youtube"]);
       expect(getCollectionsConfig(null)).toEqual({});
       expect(getShowRelatedQuestions(null)).toBe(true);
+      expect(getEnableAutoAuthorScope(null)).toBe(false);
+      expect(getDefaultCollectionKey(null)).toBe("whole_library");
     });
   });
 
@@ -123,6 +127,36 @@ describe("siteConfig utils", () => {
       expect(getAllowAllAnswersPage(mockSiteConfig)).toBe(true);
       expect(getEnabledMediaTypes(mockSiteConfig)).toEqual(["text", "audio"]);
       expect(getCollectionsConfig(mockSiteConfig)).toEqual({ test: "test" });
+    });
+  });
+
+  describe("auto author scope helpers", () => {
+    it("returns auto as default collection when enableAutoAuthorScope is true", () => {
+      const autoConfig = {
+        ...mockSiteConfig,
+        enableAutoAuthorScope: true,
+        collectionConfig: {
+          auto: "Auto (recommended)",
+          master_swami: "Master and Swami",
+          whole_library: "All authors",
+        },
+      } as SiteConfig;
+
+      expect(getEnableAutoAuthorScope(autoConfig)).toBe(true);
+      expect(getDefaultCollectionKey(autoConfig)).toBe("auto");
+    });
+
+    it("returns first collection key when auto author scope is disabled", () => {
+      const config = {
+        ...mockSiteConfig,
+        collectionConfig: {
+          master_swami: "Master and Swami",
+          whole_library: "All authors",
+        },
+      } as SiteConfig;
+
+      expect(getEnableAutoAuthorScope(config)).toBe(false);
+      expect(getDefaultCollectionKey(config)).toBe("master_swami");
     });
   });
 

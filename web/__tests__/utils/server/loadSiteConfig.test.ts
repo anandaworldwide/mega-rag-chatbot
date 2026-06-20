@@ -200,6 +200,45 @@ describe("loadSiteConfig", () => {
       expect(config).toBeNull();
       expect(console.error).toHaveBeenCalled();
     });
+
+    it("warns when auto author scope is enabled with weighted libraries", async () => {
+      jest.spyOn(console, "warn").mockImplementation(() => {});
+      process.env.SITE_CONFIG = JSON.stringify({
+        "conflict-site": {
+          name: "Conflict Site",
+          shortname: "Conflict",
+          tagline: "Test",
+          greeting: "Hello",
+          parent_site_url: "",
+          parent_site_name: "",
+          help_url: "",
+          help_text: "",
+          collectionConfig: {},
+          libraryMappings: {},
+          enableSuggestedQueries: false,
+          enableMediaTypeSelection: false,
+          enableAuthorSelection: true,
+          enableAutoAuthorScope: true,
+          welcome_popup_heading: "",
+          other_visitors_reference: "",
+          loginImage: null,
+          requireLogin: false,
+          allowTemporarySessions: true,
+          allowAllAnswersPage: true,
+          queriesPerUserPerDay: 10,
+          includedLibraries: [
+            { name: "ananda.org", weight: 67 },
+            { name: "Crystal Clarity", weight: 33 },
+          ],
+          header: { logo: "", navItems: [] },
+          footer: { links: [] },
+        },
+      });
+
+      await loadSiteConfig("conflict-site");
+
+      expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("enableAutoAuthorScope=true"));
+    });
   });
 
   describe("loadSiteConfigSync", () => {

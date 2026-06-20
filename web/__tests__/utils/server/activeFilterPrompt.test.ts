@@ -1,6 +1,10 @@
 /** @jest-environment node */
 
-import { buildActiveFilterPromptData, extractMediaTypeFilter } from "@/utils/server/activeFilterPrompt";
+import {
+  buildActiveFilterPromptData,
+  extractMediaTypeFilter,
+  formatAuthorScopeDebugLog,
+} from "@/utils/server/activeFilterPrompt";
 
 const mockSiteConfig = {
   siteId: "ananda",
@@ -78,5 +82,63 @@ describe("buildActiveFilterPromptData", () => {
 
     expect(result.titleScopeLabel).toBe("Whispers from Eternity");
     expect(result.activeFiltersSummary).toContain("- Source scope: Only Whispers from Eternity");
+  });
+
+  it("describes automatic author scope for auto collection", () => {
+    const autoSiteConfig = {
+      ...mockSiteConfig,
+      collectionConfig: {
+        auto: "Auto (recommended)",
+        master_swami: "Master and Swami",
+        whole_library: "All authors",
+      },
+    };
+
+    const result = buildActiveFilterPromptData(autoSiteConfig as any, undefined, "auto");
+
+    expect(result.activeFiltersSummary).toContain("- Author scope: Automatic (Master and Swami preferred)");
+    expect(result.activeFiltersSummary).not.toContain("- Collection:");
+  });
+
+  it("includes focused author when named author scope is resolved", () => {
+    const result = buildActiveFilterPromptData(
+      mockSiteConfig as any,
+      undefined,
+      "auto",
+      undefined,
+      undefined,
+      "Asha Nayaswami"
+    );
+
+    expect(result.activeFiltersSummary).toContain("- Focused author: Asha Nayaswami");
+  });
+});
+
+describe("formatAuthorScopeDebugLog", () => {
+  it("includes retrieval decision and active filter prompt lines", () => {
+    const activeFilterPromptData = buildActiveFilterPromptData(
+      mockSiteConfig as any,
+      undefined,
+      "auto",
+      undefined,
+      undefined,
+      "Asha Nayaswami"
+    );
+
+    const message = formatAuthorScopeDebugLog({
+      question: "Tell me about Lightbearer",
+      selectedCollectionKey: "auto",
+      collectionMode: "auto",
+      scopeHint: "broad",
+      scopeDescriptor: { kind: "named", author: "Asha Nayaswami" },
+      activeFilterPromptData,
+      blendSlots: undefined,
+    });
+
+    expect(message).toContain("[AuthorScope]");
+    expect(message).toContain('UI collection key: auto');
+    expect(message).toContain('LLM scope hint: broad');
+    expect(message).toContain('named author "Asha Nayaswami"');
+    expect(message).toContain("- Focused author: Asha Nayaswami");
   });
 });

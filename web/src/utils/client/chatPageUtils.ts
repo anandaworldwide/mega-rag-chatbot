@@ -22,10 +22,17 @@ export function shouldShowSuggestions(messages: ExtendedAIMessage[]): boolean {
   return userMessages.length === 0;
 }
 
+import { resolveSuggestedQueriesCollectionKey } from "@/utils/client/collectionQueries";
+
 export function getQueriesForCollection(
   collection: string,
-  collectionQueries: Record<string, string[]>
+  collectionQueries: Record<string, string[]>,
+  collectionConfig?: Record<string, string> | null
 ): string[] {
+  const resolvedCollection = resolveSuggestedQueriesCollectionKey(collection, collectionConfig);
+  if (collectionQueries[resolvedCollection]) {
+    return collectionQueries[resolvedCollection];
+  }
   if (!collectionQueries[collection]) {
     const firstAvailableCollection = Object.keys(collectionQueries)[0];
     if (firstAvailableCollection) {

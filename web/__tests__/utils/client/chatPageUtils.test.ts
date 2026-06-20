@@ -79,6 +79,20 @@ describe("getQueriesForCollection", () => {
     expect(getQueriesForCollection("missing", queries)).toEqual(["Query A"]);
   });
 
+  it("maps auto collection to master_swami queries when configured", () => {
+    const autoQueries = {
+      auto: ["(Suggested queries not set up yet)"],
+      master_swami: ["Query A", "Query B"],
+    };
+    const collectionConfig = {
+      auto: "Auto (recommended)",
+      master_swami: "Master and Swami",
+      whole_library: "All authors",
+    };
+
+    expect(getQueriesForCollection("auto", autoQueries, collectionConfig)).toEqual(["Query A", "Query B"]);
+  });
+
   it("returns empty array when no collections exist", () => {
     expect(getQueriesForCollection("missing", {})).toEqual([]);
   });

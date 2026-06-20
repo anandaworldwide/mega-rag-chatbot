@@ -30,6 +30,27 @@ settings.
 - `enableSuggestedQueries`: Boolean to enable/disable suggested queries
 - `enableMediaTypeSelection`: Boolean to enable/disable media type selection
 - `enableAuthorSelection`: Boolean to enable/disable author selection
+- `enableAutoAuthorScope`: Boolean (Luca only) to enable automatic per-query author scope with Master/Swami-weighted
+  blended retrieval. When enabled, add an `auto` entry to `collectionConfig` and default the UI to that option.
+- `authorScopeBlend`: Optional weights for auto mode (`masterSwamiWeight`, `broadMasterSwamiWeight`) controlling the
+  quota split between Master/Swami-filtered retrieval and whole-library retrieval.
+- `authorAliases`: Optional map of lowercase aliases (author first names or nicknames) to canonical Pinecone
+  author display names for deterministic named-author detection. Do not map shared surnames (e.g. `nayaswami`) or generic
+  entitlement terms (e.g. `lightbearer`) to a single author.
+
+### Auto author scope behavior (Luca)
+
+When `enableAutoAuthorScope` is enabled:
+
+- The **web UI** defaults to `collection: "auto"` and sends that value to `/api/chat/v1`.
+- **API clients** (WordPress plugin, direct API calls) that omit `collection` fall back to `"whole_library"` in
+  [`web/src/app/api/chat/v1/route.ts`](../src/app/api/chat/v1/route.ts). They do **not** receive auto blend unless they
+  explicitly send `"auto"`. This preserves backward compatibility for integrations that never sent a collection field.
+- **First message in a conversation** skips the rephrase/author-scope LLM call (no chat history yet). Scope uses
+  deterministic alias matching plus the default blend weights. Follow-up messages piggyback author-scope classification
+  on the rephrase call.
+- **Book-title / full author-list matching** is deferred: deterministic scope currently uses `authorAliases` only.
+  Wiring `knownAuthors` from Firestore stats or title-catalog metadata is a follow-up if alias coverage is insufficient.
 - `accessControl`: Optional site-specific access hierarchy. When enabled, `levels` defines numeric access values,
   `defaultLevel` defines public/default access, `superuserLevel` defines the highest local role level, and
   `salesforceOnlyLevels` can reserve levels for Salesforce-derived access.

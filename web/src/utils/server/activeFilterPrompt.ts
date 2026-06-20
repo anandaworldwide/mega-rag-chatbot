@@ -1,4 +1,6 @@
 import type { SiteConfig as AppSiteConfig } from "@/types/siteConfig";
+import type { StreamingResponseData } from "@/types/StreamingResponseData";
+import type { AuthorScopeDescriptor, AuthorScopeHint, AuthorScopeMode } from "@/utils/server/authorConstants";
 
 type ActiveMediaTypeFilter = { text?: boolean; audio?: boolean; youtube?: boolean };
 
@@ -82,17 +84,24 @@ export function buildActiveFilterPromptData(
   baseFilter?: Record<string, unknown>,
   selectedCollectionKey?: string,
   selectedLibraries?: string[],
-  selectedTitleScopeLabel?: string
+  selectedTitleScopeLabel?: string,
+  namedAuthor?: string
 ): ActiveFilterPromptData {
   const lines: string[] = [];
   const allLibraryNames = getSiteLibraryNames(siteConfig);
   const collectionLabel =
-    selectedCollectionKey && selectedCollectionKey !== "whole_library"
+    selectedCollectionKey && selectedCollectionKey !== "whole_library" && selectedCollectionKey !== "auto"
       ? siteConfig?.collectionConfig?.[selectedCollectionKey] || selectedCollectionKey
       : undefined;
 
-  if (collectionLabel) {
+  if (selectedCollectionKey === "auto") {
+    lines.push("- Author scope: Automatic (Master and Swami preferred)");
+  } else if (collectionLabel) {
     lines.push(`- Collection: ${collectionLabel}`);
+  }
+
+  if (namedAuthor) {
+    lines.push(`- Focused author: ${namedAuthor}`);
   }
 
   const restrictiveLibraries =
@@ -138,4 +147,61 @@ export function buildActiveFilterPromptData(
     mediaTypes: restrictiveMediaTypes,
     titleScopeLabel: selectedTitleScopeLabel,
   };
+}
+
+function describeScopeDescriptor(descriptor: AuthorScopeDescriptor): string {
+  switch (descriptor.kind) {
+    case "blend":
+      return `blend (Master/Swami weight=${descriptor.masterSwamiWeight}, broad weight=${1 - descriptor.masterSwamiWeight})`;
+    case "named":
+      return `named author "${descriptor.author}" (hard Pinecone author filter)`;
+    case "hard":
+      return `hard collection "${descriptor.collection}" (no blend)`;
+  }
+}
+
+/** Server-side debug lines for manual author-scope testing. */
+export function formatAuthorScopeDebugLog(input: {
+  question: string;
+  selectedCollectionKey?: string;
+  collectionMode: AuthorScopeMode;
+  scopeHint: AuthorScopeHint;
+  scopeDescriptor: AuthorScopeDescriptor;
+  activeFilterPromptData: ActiveFilterPromptData;
+  blendSlots?: { masterSwamiSlots: number; broadSlots: number };
+}): string {
+  const lines: string[] = [
+    "[AuthorScope] ── retrieval decision ──",
+    `  question: "${input.question.slice(0, 120)}${input.question.length > 120 ? "…" : ""}"`,
+    `  UI collection key: ${input.selectedCollectionKey ?? "(none)"}`,
+    `  collection mode: ${input.collectionMode}`,
+    `  LLM scope hint: ${input.scopeHint}${input.scopeHint === "default" && input.collectionMode === "auto" ? " (first turn or rephrase unavailable)" : ""}`,
+    `  resolved retrieval: ${describeScopeDescriptor(input.scopeDescriptor)}`,
+  ];
+
+  if (input.scopeDescriptor.kind === "blend" && input.blendSlots) {
+    lines.push(
+      `  blend slots: Master/Swami=${input.blendSlots.masterSwamiSlots}, broad=${input.blendSlots.broadSlots}`
+    );
+  }
+
+  lines.push("[AuthorScope] ── LLM prompt filter summary (activeFiltersSummary) ──");
+  for (const promptLine of input.activeFilterPromptData.activeFiltersSummary.split("\n")) {
+    lines.push(`  ${promptLine}`);
+  }
+
+  return lines.join("\n");
+}
+
+export function logAuthorScopeDebug(
+  input: Parameters<typeof formatAuthorScopeDebugLog>[0],
+  sendData?: (data: StreamingResponseData) => void
+): void {
+  const message = formatAuthorScopeDebugLog(input);
+  console.log(message);
+  if (sendData) {
+    for (const line of message.split("\n")) {
+      sendData({ log: line });
+    }
+  }
 }

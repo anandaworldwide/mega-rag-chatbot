@@ -46,6 +46,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Document } from "@langchain/core/documents";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { PineconeStore } from "@langchain/pinecone";
+import { MASTER_SWAMI_AUTHORS } from "@/utils/server/authorConstants";
 import { makeChain, setupAndExecuteLanguageModelChain, NoSourcesError } from "@/utils/server/makechain";
 import { getCachedPineconeIndex } from "@/utils/server/pinecone-client";
 
@@ -363,10 +364,10 @@ async function setupPineconeAndFilter(
 
   // Apply collection-specific filters only if the collection exists in siteConfig
   if (siteConfig.collectionConfig && siteConfig.collectionConfig[collection]) {
-    // Apply collection-specific filters based on the collection name
+    // Auto mode resolves author scope per query in makechain; do not hard-filter here.
     if (collection === "master_swami") {
       filter.$and.push({
-        author: { $in: ["Paramhansa Yogananda", "Swami Kriyananda"] },
+        author: { $in: [...MASTER_SWAMI_AUTHORS] },
       });
     }
   }

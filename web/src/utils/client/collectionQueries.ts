@@ -3,6 +3,21 @@ import { loadCategorizedQueries, CategorizedQueries } from "./categorizedQueries
 let cachedQueries: Record<string, Record<string, string[]>> | null = null;
 let cachedCategorizedQueries: Record<string, Record<string, CategorizedQueries | null>> | null = null;
 
+/** Auto mode has no query file; reuse Master/Swami prompts when available. */
+export function resolveSuggestedQueriesCollectionKey(
+  collectionKey: string,
+  collectionConfig?: Record<string, string> | null
+): string {
+  if (collectionKey !== "auto") {
+    return collectionKey;
+  }
+  if (collectionConfig && "master_swami" in collectionConfig) {
+    return "master_swami";
+  }
+  const fallbackKey = Object.keys(collectionConfig ?? {}).find((key) => key !== "auto");
+  return fallbackKey || "whole_library";
+}
+
 export async function loadQueries(siteId: string, collection: string): Promise<string[]> {
   if (cachedQueries && cachedQueries[siteId] && cachedQueries[siteId][collection]) {
     return cachedQueries[siteId][collection];
@@ -86,14 +101,24 @@ export async function loadQueries(siteId: string, collection: string): Promise<s
 /**
  * Get categorized queries for a collection if available
  */
-export async function getCategorizedQueries(siteId: string, collection: string): Promise<CategorizedQueries | null> {
+export async function getCategorizedQueries(
+  siteId: string,
+  collection: string,
+  collectionConfig?: Record<string, string> | null
+): Promise<CategorizedQueries | null> {
+  const resolvedCollection = resolveSuggestedQueriesCollectionKey(collection, collectionConfig);
+
   // Check cache first
-  if (cachedCategorizedQueries && cachedCategorizedQueries[siteId] && cachedCategorizedQueries[siteId][collection]) {
-    return cachedCategorizedQueries[siteId][collection];
+  if (
+    cachedCategorizedQueries &&
+    cachedCategorizedQueries[siteId] &&
+    cachedCategorizedQueries[siteId][resolvedCollection]
+  ) {
+    return cachedCategorizedQueries[siteId][resolvedCollection];
   }
 
   // Try to load
-  const categorized = await loadCategorizedQueries(siteId, collection);
+  const categorized = await loadCategorizedQueries(siteId, resolvedCollection);
 
   if (categorized) {
     if (!cachedCategorizedQueries) {
@@ -102,7 +127,7 @@ export async function getCategorizedQueries(siteId: string, collection: string):
     if (!cachedCategorizedQueries[siteId]) {
       cachedCategorizedQueries[siteId] = {};
     }
-    cachedCategorizedQueries[siteId][collection] = categorized;
+    cachedCategorizedQueries[siteId][resolvedCollection] = categorized;
   }
 
   return categorized;
@@ -115,7 +140,15 @@ export async function getCollectionQueries(siteId: string, collectionConfig: Rec
 
   const queries: Record<string, string[]> = {};
   for (const [key] of Object.entries(collectionConfig)) {
+    if (key === "auto") {
+      continue;
+    }
     queries[key] = await loadQueries(siteId, key);
+  }
+
+  if ("auto" in collectionConfig) {
+    const sourceKey = resolveSuggestedQueriesCollectionKey("auto", collectionConfig);
+    queries.auto = queries[sourceKey] ?? (await loadQueries(siteId, sourceKey));
   }
 
   if (!cachedQueries) {
