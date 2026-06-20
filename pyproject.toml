@@ -10,7 +10,7 @@ dependencies = [
     "click==8.2.1",
     "colorama==0.4.6",
     "cohere>=5.0.0",
-    "cryptography>=48.0.1,<49",
+    "cryptography>=49.0.0,<50",
     "dill==0.4.0",
     "filelock>=3.20.1",
     "firebase-admin==7.1.0",
