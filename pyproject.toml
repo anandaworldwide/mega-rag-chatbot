@@ -10,7 +10,7 @@ dependencies = [
     "click==8.2.1",
     "colorama==0.4.6",
     "cohere>=5.0.0",
-    "cryptography>=46.0.6",
+    "cryptography>=48.0.1,<49",
     "dill==0.4.0",
     "filelock>=3.20.1",
     "firebase-admin==7.1.0",
@@ -77,7 +77,7 @@ dependencies = [
     "urllib3>=2.7.0",
     "websockets==15.0.1",
     "yarl==1.20.1",
-    "yt-dlp==2026.2.21",
+    "yt-dlp==2026.6.9",
 ]
 
 [dependency-groups]

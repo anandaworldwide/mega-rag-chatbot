@@ -18,6 +18,14 @@
 #   mitigation: optional operational mitigation note
 
 python:
+  - id: CVE-2025-3000
+    package: torch
+    reason: >-
+      No fixed PyPI release reported by pip-audit. Reranking tooling is isolated
+      and does not load untrusted models or arbitrary checkpoints from users.
+    review_by: "2026-07-15"
+    mitigation: "Isolated reranking subgraph; internal-only model inputs."
+
   - id: CVE-2026-28500
     package: onnx
     reason: >-

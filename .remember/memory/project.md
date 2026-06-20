@@ -141,6 +141,11 @@ except ImportError:
   and `./bin/run-pip-audit.sh`
 - **Aged-in security fixes**: if an allowed upgraded package does not move when running `uv lock`, use
   `uv lock --upgrade-package <name>` before exporting requirements and rerunning `./bin/run-pip-audit.sh`
+- **Minimum security fix for cryptography**: Pin `cryptography>=48.0.1,<49` in `pyproject.toml` / `requirements.in` so
+  `uv lock --upgrade-package cryptography` resolves to the minimum past-cooldown fix line (48.x), not a major jump to 49.x.
+- **Root `npm audit fix --package-lock-only`**: May refresh more than the target advisory (e.g. transitive `@babel/*`
+  bumps alongside `form-data`). Accept the broader lockfile churn only after `cd web && npm run test:all` passes (verified
+  2026-06-20 for `form-data@4.0.6` nightly unblock).
 - **Import sweep behavior**: `bin/import_sweep.py requirements.txt` validates only direct dependencies from exported
   requirements and imports each one in a subprocess so crashy native modules are reported cleanly
 - **Smoke validation target**: CI should run `uv run --locked python -m pytest -q tests/test_smoke_validation.py --tb=short`
