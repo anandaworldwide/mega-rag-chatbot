@@ -112,8 +112,17 @@
     },
     "authorAliases": {
       "asha": "Asha Nayaswami",
+      "bharat": "Joseph Bharat Cornell",
+      "catherine": "Catherine Kairavi",
+      "dambara": "Dambara Begley",
       "devi": "Devi Novak",
-      "jyotish": "Jyotish Novak"
+      "hriman": "Nayaswami Hriman McGilloway",
+      "jyotish": "Jyotish Novak",
+      "nalini": "Nalini Graeber",
+      "padma": "Nayaswami Padma McGilloway",
+      "parvati": "Nayaswami Parvati Hansen",
+      "savitri": "Savitri Simpson",
+      "shivani": "Shivani Lucki"
     },
     "enableTitleScopeSelection": true,
     "enableSearchPage": true,
