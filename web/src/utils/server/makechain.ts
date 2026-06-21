@@ -55,7 +55,6 @@ import { filterSuggestionsForDiversity } from "./suggestionDiversity";
 import { AuthorScopeHint, AuthorScopeMode } from "./authorConstants";
 import { resolveAuthorScope } from "./authorScopeResolver";
 import {
-  allocateAuthorBlendSlots,
   buildLibraryFilter,
   buildMasterSwamiFilter,
   buildNamedAuthorFilter,
@@ -776,11 +775,7 @@ Error details: ${errorString}`,
           );
         }
 
-        if (useAutoAuthorScope) {
-          const blendSlots =
-            scopeDescriptor.kind === "blend"
-              ? allocateAuthorBlendSlots(sourceCount, scopeDescriptor.masterSwamiWeight)
-              : undefined;
+        if (useAutoAuthorScope && scopeDescriptor.kind !== "blend") {
           logAuthorScopeDebug(
             {
               question: input.question,
@@ -789,7 +784,6 @@ Error details: ${errorString}`,
               scopeHint: capturedAuthorScopeHint,
               scopeDescriptor,
               activeFilterPromptData,
-              blendSlots,
             },
             sendData
           );
@@ -800,14 +794,28 @@ Error details: ${errorString}`,
             includedLibraries.length > 0
               ? includedLibraries.map((lib) => (typeof lib === "string" ? lib : lib.name))
               : undefined;
-          const blendedDocs = await retrieveWithAuthorScopeBlend(
+          const { documents: blendedDocs, debug: blendRetrievalDebug } = await retrieveWithAuthorScopeBlend(
             retriever,
             input.question,
             sourceCount,
             baseFilter,
-            scopeDescriptor.masterSwamiWeight,
+            scopeDescriptor.masterSwamiBoost,
             libraryNames
           );
+          if (useAutoAuthorScope) {
+            logAuthorScopeDebug(
+              {
+                question: input.question,
+                selectedCollectionKey,
+                collectionMode,
+                scopeHint: capturedAuthorScopeHint,
+                scopeDescriptor,
+                activeFilterPromptData,
+                blendRetrieval: blendRetrievalDebug,
+              },
+              sendData
+            );
+          }
           allDocuments.push(...blendedDocs);
         } else {
           let searchFilter = baseFilter;

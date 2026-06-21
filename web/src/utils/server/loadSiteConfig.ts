@@ -13,8 +13,8 @@ export function warnAutoAuthorScopeConfigConflict(siteConfig: SiteConfig): void 
     console.warn(
       `[site-config] Site "${siteConfig.siteId}" has enableAutoAuthorScope=true AND weighted includedLibraries ` +
         "(one or more libraries define a numeric `weight`). These two retrieval strategies are mutually exclusive: " +
-        "auto author-scope blends results by author quota (Master/Swami vs. broad), while weighted libraries blend " +
-        "results by library quota. Combining both would require a two-dimensional quota split that is not implemented.\n" +
+        "auto author-scope runs relevance-first retrieval with a Master/Swami score boost (B1), while weighted libraries " +
+        "blend results by per-library quotas. Combining both would require a two-dimensional split that is not implemented.\n" +
         "  Effect: auto author-scope blending is BYPASSED for this site. Retrieval falls back to a hard " +
         "Master/Swami author filter (collection \"master_swami\"), so the per-library weights still apply but the " +
         "broad/non-Master-Swami content the auto scope was meant to surface will NOT be retrieved. The LLM " +
@@ -23,6 +23,27 @@ export function warnAutoAuthorScopeConfigConflict(siteConfig: SiteConfig): void 
         "or (b) set enableAutoAuthorScope=false if per-library weighting is the intended behavior."
     );
   }
+}
+
+const DEPRECATED_AUTHOR_SCOPE_BLEND_KEYS = ["masterSwamiWeight", "broadMasterSwamiWeight"] as const;
+
+/** Fails startup when auto author scope is enabled but authorScopeBlend still uses pre-B1 weight keys. */
+export function assertAuthorScopeBlendConfig(siteConfig: SiteConfig): void {
+  if (siteConfig.enableAutoAuthorScope !== true || !siteConfig.authorScopeBlend) {
+    return;
+  }
+
+  const blend = siteConfig.authorScopeBlend as Record<string, unknown>;
+  const deprecatedKeys = DEPRECATED_AUTHOR_SCOPE_BLEND_KEYS.filter((key) => key in blend);
+  if (deprecatedKeys.length === 0) {
+    return;
+  }
+
+  throw new Error(
+    `[site-config] Site "${siteConfig.siteId}" has enableAutoAuthorScope=true but authorScopeBlend still uses ` +
+      `deprecated key(s): ${deprecatedKeys.join(", ")}. ` +
+      "Replace masterSwamiWeight with masterSwamiBoost and broadMasterSwamiWeight with broadMasterSwamiBoost."
+  );
 }
 
 /**
@@ -54,6 +75,7 @@ function parseSiteConfig(siteId: string = "default"): SiteConfig | null {
       enableModelComparison: siteConfig.enableModelComparison || false,
     } as SiteConfig;
 
+    assertAuthorScopeBlendConfig(parsedConfig);
     warnAutoAuthorScopeConfigConflict(parsedConfig);
     return parsedConfig;
   } catch (error) {

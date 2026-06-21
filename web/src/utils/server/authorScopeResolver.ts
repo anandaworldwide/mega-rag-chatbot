@@ -71,15 +71,22 @@ export function findExplicitAuthorMatch(
   return null;
 }
 
-export function getDefaultMasterSwamiWeight(
-  scopeHint: AuthorScopeHint,
-  siteConfig?: SiteConfig | null
-): number {
-  const blend = siteConfig?.authorScopeBlend;
-  if (scopeHint === "broad") {
-    return blend?.broadMasterSwamiWeight ?? 0.3;
+const MIN_MASTER_SWAMI_BOOST = 0;
+const MAX_MASTER_SWAMI_BOOST = 1;
+
+/** Clamps configured boost δ to [0, 1] before it is applied to similarity scores. */
+export function clampMasterSwamiBoost(boost: number): number {
+  if (!Number.isFinite(boost)) {
+    return MIN_MASTER_SWAMI_BOOST;
   }
-  return blend?.masterSwamiWeight ?? 0.7;
+  return Math.min(MAX_MASTER_SWAMI_BOOST, Math.max(MIN_MASTER_SWAMI_BOOST, boost));
+}
+
+export function getMasterSwamiBoost(scopeHint: AuthorScopeHint, siteConfig?: SiteConfig | null): number {
+  const blend = siteConfig?.authorScopeBlend;
+  const rawBoost =
+    scopeHint === "broad" ? (blend?.broadMasterSwamiBoost ?? 0.08) : (blend?.masterSwamiBoost ?? 0.2);
+  return clampMasterSwamiBoost(rawBoost);
 }
 
 export function resolveAuthorScope(input: ResolveAuthorScopeInput): AuthorScopeDescriptor {
@@ -104,6 +111,6 @@ export function resolveAuthorScope(input: ResolveAuthorScopeInput): AuthorScopeD
 
   return {
     kind: "blend",
-    masterSwamiWeight: getDefaultMasterSwamiWeight(scopeHint, siteConfig),
+    masterSwamiBoost: getMasterSwamiBoost(scopeHint, siteConfig),
   };
 }

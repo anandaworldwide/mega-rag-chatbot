@@ -1,13 +1,13 @@
 /** @jest-environment node */
 
-import { findExplicitAuthorMatch, resolveAuthorScope } from "@/utils/server/authorScopeResolver";
+import { findExplicitAuthorMatch, clampMasterSwamiBoost, getMasterSwamiBoost, resolveAuthorScope } from "@/utils/server/authorScopeResolver";
 import type { SiteConfig } from "@/types/siteConfig";
 
 const baseSiteConfig = {
   enableAutoAuthorScope: true,
   authorScopeBlend: {
-    masterSwamiWeight: 0.7,
-    broadMasterSwamiWeight: 0.3,
+    masterSwamiBoost: 0.2,
+    broadMasterSwamiBoost: 0.08,
   },
   authorAliases: {
     asha: "Asha Nayaswami",
@@ -60,8 +60,40 @@ describe("findExplicitAuthorMatch", () => {
   });
 });
 
+describe("getMasterSwamiBoost", () => {
+  it("returns default and broad boost values from config", () => {
+    expect(getMasterSwamiBoost("default", baseSiteConfig)).toBe(0.2);
+    expect(getMasterSwamiBoost("broad", baseSiteConfig)).toBe(0.08);
+  });
+
+  it("falls back to built-in defaults when config is missing", () => {
+    expect(getMasterSwamiBoost("default", null)).toBe(0.2);
+    expect(getMasterSwamiBoost("broad", null)).toBe(0.08);
+  });
+
+  it("clamps configured boost values to the range 0..1", () => {
+    const extremeConfig = {
+      ...baseSiteConfig,
+      authorScopeBlend: {
+        masterSwamiBoost: 5,
+        broadMasterSwamiBoost: -0.5,
+      },
+    } as SiteConfig;
+
+    expect(getMasterSwamiBoost("default", extremeConfig)).toBe(1);
+    expect(getMasterSwamiBoost("broad", extremeConfig)).toBe(0);
+  });
+});
+
+describe("clampMasterSwamiBoost", () => {
+  it("returns 0 for non-finite values", () => {
+    expect(clampMasterSwamiBoost(Number.NaN)).toBe(0);
+    expect(clampMasterSwamiBoost(Number.POSITIVE_INFINITY)).toBe(0);
+  });
+});
+
 describe("resolveAuthorScope", () => {
-  it("returns blend with default weight for auto mode", () => {
+  it("returns blend with default boost for auto mode", () => {
     const result = resolveAuthorScope({
       question: "What is meditation?",
       scopeHint: "default",
@@ -69,10 +101,10 @@ describe("resolveAuthorScope", () => {
       collectionMode: "auto",
     });
 
-    expect(result).toEqual({ kind: "blend", masterSwamiWeight: 0.7 });
+    expect(result).toEqual({ kind: "blend", masterSwamiBoost: 0.2 });
   });
 
-  it("returns blend with broad weight when scope hint is broad", () => {
+  it("returns blend with lower boost when scope hint is broad", () => {
     const result = resolveAuthorScope({
       question: "What is meditation?",
       scopeHint: "broad",
@@ -80,7 +112,7 @@ describe("resolveAuthorScope", () => {
       collectionMode: "auto",
     });
 
-    expect(result).toEqual({ kind: "blend", masterSwamiWeight: 0.3 });
+    expect(result).toEqual({ kind: "blend", masterSwamiBoost: 0.08 });
   });
 
   it("returns named scope when Asha is explicitly mentioned", () => {

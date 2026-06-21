@@ -132,7 +132,7 @@ describe("formatAuthorScopeDebugLog", () => {
       scopeHint: "broad",
       scopeDescriptor: { kind: "named", author: "Asha Nayaswami" },
       activeFilterPromptData,
-      blendSlots: undefined,
+      blendRetrieval: undefined,
     });
 
     expect(message).toContain("[AuthorScope]");
@@ -140,5 +140,41 @@ describe("formatAuthorScopeDebugLog", () => {
     expect(message).toContain('LLM scope hint: broad');
     expect(message).toContain('named author "Asha Nayaswami"');
     expect(message).toContain("- Focused author: Asha Nayaswami");
+  });
+
+  it("includes blend boost and ranked source scores when provided", () => {
+    const activeFilterPromptData = buildActiveFilterPromptData(mockSiteConfig as any, undefined, "auto");
+
+    const message = formatAuthorScopeDebugLog({
+      question: "What is the Inner Renewal Retreat?",
+      selectedCollectionKey: "auto",
+      collectionMode: "auto",
+      scopeHint: "default",
+      scopeDescriptor: { kind: "blend", masterSwamiBoost: 0.2 },
+      activeFilterPromptData,
+      blendRetrieval: {
+        masterSwamiBoost: 0.2,
+        fetchCount: 12,
+        rankedSamples: [
+          {
+            author: undefined,
+            library: "ananda.org",
+            rawScore: 0.84,
+            boostedScore: 0.84,
+          },
+          {
+            author: "Swami Kriyananda",
+            library: "Treasures",
+            rawScore: 0.55,
+            boostedScore: 0.66,
+          },
+        ],
+      },
+    });
+
+    expect(message).toContain('resolved retrieval: blend (Master/Swami score boost δ=0.2)');
+    expect(message).toContain("blend fetch window: 12");
+    expect(message).toContain("ananda.org");
+    expect(message).toContain("0.8400 → 0.8400");
   });
 });

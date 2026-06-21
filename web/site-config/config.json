@@ -107,8 +107,8 @@
     "enableAuthorSelection": true,
     "enableAutoAuthorScope": true,
     "authorScopeBlend": {
-      "masterSwamiWeight": 0.7,
-      "broadMasterSwamiWeight": 0.3
+      "masterSwamiBoost": 0.2,
+      "broadMasterSwamiBoost": 0.08
     },
     "authorAliases": {
       "asha": "Asha Nayaswami",

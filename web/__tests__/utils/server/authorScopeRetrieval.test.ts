@@ -3,22 +3,17 @@
 import type { Document } from "@langchain/core/documents";
 import type { VectorStoreRetriever } from "@langchain/core/vectorstores";
 import {
-  allocateAuthorBlendSlots,
+  applyMasterSwamiScoreBoost,
   buildMasterSwamiFilter,
   buildNamedAuthorFilter,
+  computeBlendFetchCount,
   dedupeDocuments,
-  mergeAuthorBlendResults,
+  isMasterSwamiAuthor,
+  rankBoostedDocuments,
   retrieveWithAuthorScopeBlend,
 } from "@/utils/server/authorScopeRetrieval";
 
 describe("authorScopeRetrieval helpers", () => {
-  it("allocates author blend slots proportionally", () => {
-    expect(allocateAuthorBlendSlots(10, 0.7)).toEqual({
-      masterSwamiSlots: 7,
-      broadSlots: 3,
-    });
-  });
-
   it("builds master swami filter on top of base filter", () => {
     const filter = buildMasterSwamiFilter({ $and: [{ type: { $in: ["text"] } }] });
     expect(filter.$and).toEqual(
@@ -45,76 +40,102 @@ describe("authorScopeRetrieval helpers", () => {
     expect(dedupeDocuments(docs, 2).map((doc) => doc.id)).toEqual(["1", "2"]);
   });
 
-  it("runs parallel M/S and broad similaritySearch calls for blend retrieval", async () => {
+  it("identifies Master/Swami authors", () => {
+    expect(isMasterSwamiAuthor("Paramhansa Yogananda")).toBe(true);
+    expect(isMasterSwamiAuthor("Asha Nayaswami")).toBe(false);
+  });
+
+  it("applies multiplicative score boost only to Master/Swami docs", () => {
     const msDoc: Document = { pageContent: "ms", metadata: { author: "Paramhansa Yogananda" }, id: "ms" };
-    const broadDoc: Document = { pageContent: "broad", metadata: {}, id: "broad" };
-    const similaritySearch = jest
-      .fn()
-      .mockResolvedValueOnce([msDoc])
-      .mockResolvedValueOnce([broadDoc]);
+    const broadDoc: Document = { pageContent: "broad", metadata: { library: "ananda.org" }, id: "broad" };
 
-    const retriever = {
-      vectorStore: { similaritySearch },
-    } as unknown as VectorStoreRetriever;
-
-    const docs = await retrieveWithAuthorScopeBlend(
-      retriever,
-      "What is meditation?",
-      4,
-      { $and: [{ type: { $in: ["text"] } }] },
-      0.7
+    const boosted = applyMasterSwamiScoreBoost(
+      [
+        [msDoc, 0.5],
+        [broadDoc, 0.8],
+      ],
+      0.2
     );
 
-    expect(similaritySearch).toHaveBeenCalledTimes(2);
-    expect(JSON.stringify(similaritySearch.mock.calls[0][2])).toContain("Paramhansa Yogananda");
-    expect(JSON.stringify(similaritySearch.mock.calls[1][2])).not.toContain('"author"');
-    expect(docs.map((doc) => doc.id)).toEqual(["ms", "broad"]);
+    expect(boosted).toEqual([
+      [msDoc, 0.6],
+      [broadDoc, 0.8],
+    ]);
   });
 
-  it("backfills from the Master/Swami leg when the broad leg overlaps", async () => {
-    // sourceCount=4 -> masterSwamiSlots=3, broadSlots=1. The broad leg's top doc duplicates an
-    // M/S doc, so without backfill the result would shrink to 3.
-    const msDocs: Document[] = [
-      { pageContent: "m1", metadata: { author: "Paramhansa Yogananda" }, id: "m1" },
-      { pageContent: "m2", metadata: { author: "Swami Kriyananda" }, id: "m2" },
-      { pageContent: "m3", metadata: { author: "Paramhansa Yogananda" }, id: "m3" },
-      { pageContent: "m4", metadata: { author: "Swami Kriyananda" }, id: "m4" },
-    ];
-    const broadDocs: Document[] = [{ pageContent: "m1", metadata: { author: "Paramhansa Yogananda" }, id: "m1" }];
+  it("leaves scores unchanged when boost is zero", () => {
+    const msDoc: Document = { pageContent: "ms", metadata: { author: "Swami Kriyananda" }, id: "ms" };
+    const input: Array<[Document, number]> = [[msDoc, 0.75]];
 
-    const similaritySearch = jest.fn().mockResolvedValueOnce(msDocs).mockResolvedValueOnce(broadDocs);
-    const retriever = { vectorStore: { similaritySearch } } as unknown as VectorStoreRetriever;
-
-    const docs = await retrieveWithAuthorScopeBlend(retriever, "How does meditation discipline the mind?", 4, undefined, 0.7);
-
-    expect(similaritySearch.mock.calls[0][1]).toBe(4);
-    expect(similaritySearch.mock.calls[1][1]).toBe(4);
-    expect(docs).toHaveLength(4);
-    expect(docs.map((doc) => doc.id)).toEqual(["m1", "m2", "m3", "m4"]);
-  });
-});
-
-describe("mergeAuthorBlendResults", () => {
-  const ms = (id: string): Document => ({ pageContent: id, metadata: { author: "Paramhansa Yogananda" }, id });
-  const broad = (id: string): Document => ({ pageContent: id, metadata: { author: "Other" }, id });
-
-  it("honors quotas when legs are disjoint", () => {
-    const merged = mergeAuthorBlendResults([ms("a"), ms("b"), ms("c")], [broad("x"), broad("y")], 3, 1, 4);
-    expect(merged.map((doc) => doc.id)).toEqual(["a", "b", "c", "x"]);
+    expect(applyMasterSwamiScoreBoost(input, 0)).toEqual(input);
   });
 
-  it("backfills lost slots when broad overlaps Master/Swami", () => {
-    const merged = mergeAuthorBlendResults([ms("a"), ms("b"), ms("c"), ms("d")], [ms("a")], 3, 1, 4);
-    expect(merged.map((doc) => doc.id)).toEqual(["a", "b", "c", "d"]);
+  it("ranks boosted documents by adjusted score and dedupes", () => {
+    const msDoc: Document = { pageContent: "ms", metadata: { author: "Paramhansa Yogananda" }, id: "ms" };
+    const eventDoc: Document = { pageContent: "event", metadata: { library: "ananda.org" }, id: "event" };
+
+    const ranked = rankBoostedDocuments(
+      [
+        [msDoc, 0.6],
+        [eventDoc, 0.85],
+      ],
+      2
+    );
+
+    expect(ranked.map((doc) => doc.id)).toEqual(["event", "ms"]);
   });
 
-  it("returns fewer than sourceCount only when unique docs are exhausted", () => {
-    const merged = mergeAuthorBlendResults([ms("a")], [ms("a")], 3, 1, 4);
-    expect(merged.map((doc) => doc.id)).toEqual(["a"]);
+  it("over-fetches candidates for blend retrieval", () => {
+    expect(computeBlendFetchCount(4)).toBe(12);
+    expect(computeBlendFetchCount(10)).toBe(30);
   });
 
-  it("does not pull broad docs when broadSlots is zero", () => {
-    const merged = mergeAuthorBlendResults([ms("a"), ms("b")], [broad("x")], 4, 0, 4);
-    expect(merged.map((doc) => doc.id)).toEqual(["a", "b"]);
+  it("runs a single similaritySearchWithScore and applies boost ranking", async () => {
+    const msDoc: Document = { pageContent: "ms", metadata: { author: "Paramhansa Yogananda" }, id: "ms" };
+    const eventDoc: Document = { pageContent: "event", metadata: { library: "ananda.org" }, id: "event" };
+    const similaritySearchWithScore = jest.fn().mockResolvedValue([
+      [msDoc, 0.82],
+      [eventDoc, 0.8],
+    ]);
+
+    const retriever = {
+      vectorStore: { similaritySearchWithScore },
+    } as unknown as VectorStoreRetriever;
+
+    const { documents, debug } = await retrieveWithAuthorScopeBlend(
+      retriever,
+      "What is the centennial celebration schedule?",
+      2,
+      { $and: [{ type: { $in: ["text"] } }] },
+      0.2
+    );
+
+    expect(similaritySearchWithScore).toHaveBeenCalledTimes(1);
+    expect(similaritySearchWithScore.mock.calls[0][1]).toBe(12);
+    expect(JSON.stringify(similaritySearchWithScore.mock.calls[0][2])).not.toContain('"author"');
+    expect(documents.map((doc) => doc.id)).toEqual(["ms", "event"]);
+    expect(debug.masterSwamiBoost).toBe(0.2);
+    expect(debug.rankedSamples[0]?.boostedScore).toBeCloseTo(0.984);
+  });
+
+  it("lets a highly relevant non-M/S doc outrank weak Master/Swami matches", async () => {
+    const weakMs: Document = { pageContent: "weak", metadata: { author: "Swami Kriyananda" }, id: "weak-ms" };
+    const programDoc: Document = {
+      pageContent: "program",
+      metadata: { library: "ananda.org", title: "Spiritual Counseling Training" },
+      id: "program",
+    };
+    const similaritySearchWithScore = jest.fn().mockResolvedValue([
+      [weakMs, 0.55],
+      [programDoc, 0.84],
+    ]);
+
+    const retriever = {
+      vectorStore: { similaritySearchWithScore },
+    } as unknown as VectorStoreRetriever;
+
+    const { documents } = await retrieveWithAuthorScopeBlend(retriever, "Ananda Spiritual Counseling training", 1, undefined, 0.2);
+
+    expect(documents.map((doc) => doc.id)).toEqual(["program"]);
   });
 });

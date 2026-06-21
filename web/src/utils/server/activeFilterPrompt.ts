@@ -1,6 +1,7 @@
 import type { SiteConfig as AppSiteConfig } from "@/types/siteConfig";
 import type { StreamingResponseData } from "@/types/StreamingResponseData";
 import type { AuthorScopeDescriptor, AuthorScopeHint, AuthorScopeMode } from "@/utils/server/authorConstants";
+import type { AuthorScopeBlendRetrievalDebug } from "@/utils/server/authorScopeRetrieval";
 
 type ActiveMediaTypeFilter = { text?: boolean; audio?: boolean; youtube?: boolean };
 
@@ -152,7 +153,7 @@ export function buildActiveFilterPromptData(
 function describeScopeDescriptor(descriptor: AuthorScopeDescriptor): string {
   switch (descriptor.kind) {
     case "blend":
-      return `blend (Master/Swami weight=${descriptor.masterSwamiWeight}, broad weight=${1 - descriptor.masterSwamiWeight})`;
+      return `blend (Master/Swami score boost δ=${descriptor.masterSwamiBoost})`;
     case "named":
       return `named author "${descriptor.author}" (hard Pinecone author filter)`;
     case "hard":
@@ -168,7 +169,7 @@ export function formatAuthorScopeDebugLog(input: {
   scopeHint: AuthorScopeHint;
   scopeDescriptor: AuthorScopeDescriptor;
   activeFilterPromptData: ActiveFilterPromptData;
-  blendSlots?: { masterSwamiSlots: number; broadSlots: number };
+  blendRetrieval?: AuthorScopeBlendRetrievalDebug;
 }): string {
   const lines: string[] = [
     "[AuthorScope] ── retrieval decision ──",
@@ -179,10 +180,18 @@ export function formatAuthorScopeDebugLog(input: {
     `  resolved retrieval: ${describeScopeDescriptor(input.scopeDescriptor)}`,
   ];
 
-  if (input.scopeDescriptor.kind === "blend" && input.blendSlots) {
-    lines.push(
-      `  blend slots: Master/Swami=${input.blendSlots.masterSwamiSlots}, broad=${input.blendSlots.broadSlots}`
-    );
+  if (input.blendRetrieval) {
+    lines.push(`  blend fetch window: ${input.blendRetrieval.fetchCount} candidates`);
+    if (input.blendRetrieval.rankedSamples.length > 0) {
+      lines.push("  blend top sources (raw → boosted score):");
+      for (const sample of input.blendRetrieval.rankedSamples) {
+        const authorLabel = sample.author ?? "(no author)";
+        const libraryLabel = sample.library ?? "(unknown library)";
+        lines.push(
+          `    - ${authorLabel} | ${libraryLabel} | ${sample.rawScore.toFixed(4)} → ${sample.boostedScore.toFixed(4)}`
+        );
+      }
+    }
   }
 
   lines.push("[AuthorScope] ── LLM prompt filter summary (activeFiltersSummary) ──");

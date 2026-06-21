@@ -30,10 +30,14 @@ settings.
 - `enableSuggestedQueries`: Boolean to enable/disable suggested queries
 - `enableMediaTypeSelection`: Boolean to enable/disable media type selection
 - `enableAuthorSelection`: Boolean to enable/disable author selection
-- `enableAutoAuthorScope`: Boolean (Luca only) to enable automatic per-query author scope with Master/Swami-weighted
-  blended retrieval. When enabled, add an `auto` entry to `collectionConfig` and default the UI to that option.
-- `authorScopeBlend`: Optional weights for auto mode (`masterSwamiWeight`, `broadMasterSwamiWeight`) controlling the
-  quota split between Master/Swami-filtered retrieval and whole-library retrieval.
+- `enableAutoAuthorScope`: Boolean (Luca only) to enable automatic per-query author scope with relevance-first
+  retrieval and a configurable Master/Swami score boost. When enabled, add an `auto` entry to `collectionConfig` and
+  default the UI to that option.
+- `authorScopeBlend`: Optional boost factors for auto mode (`masterSwamiBoost`, `broadMasterSwamiBoost`). Auto blend
+  runs one broad similarity search, then multiplies Master/Swami document scores by `(1 + δ)` before ranking. Default
+  δ is `0.2`; broad follow-up hint uses `0.08`. Deprecated keys `masterSwamiWeight` / `broadMasterSwamiWeight` cause
+  startup failure when `enableAutoAuthorScope` is true. See [author-scope-benchmark.md](../../docs/author-scope-benchmark.md)
+  for manual regression queries.
 - `authorAliases`: Optional map of lowercase aliases (author first names or nicknames) to canonical Pinecone
   author display names for deterministic named-author detection. Do not map shared surnames (e.g. `nayaswami`) or generic
   entitlement terms (e.g. `lightbearer`) to a single author.
@@ -47,7 +51,7 @@ When `enableAutoAuthorScope` is enabled:
   [`web/src/app/api/chat/v1/route.ts`](../src/app/api/chat/v1/route.ts). They do **not** receive auto blend unless they
   explicitly send `"auto"`. This preserves backward compatibility for integrations that never sent a collection field.
 - **First message in a conversation** skips the rephrase/author-scope LLM call (no chat history yet). Scope uses
-  deterministic alias matching plus the default blend weights. Follow-up messages piggyback author-scope classification
+  deterministic alias matching plus the default blend boost. Follow-up messages piggyback author-scope classification
   on the rephrase call.
 - **Book-title / full author-list matching** is deferred: deterministic scope currently uses `authorAliases` only.
   Wiring `knownAuthors` from Firestore stats or title-catalog metadata is a follow-up if alias coverage is insufficient.
