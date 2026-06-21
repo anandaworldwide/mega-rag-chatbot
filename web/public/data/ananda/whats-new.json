@@ -1,7 +1,12 @@
 {
-  "version": 6,
+  "version": 7,
   "wikiUrl": "https://anandafamily.notion.site/What-s-new-with-Luca-2ed7781078bc80c79438c02ea27ec710",
   "entries": [
+    {
+      "date": "2026-06-20",
+      "title": "Auto (recommended) Author Selection",
+      "description": "Luca now defaults to Auto (recommended) in the author filter. For each question, Luca finds the most relevant sources across all authors, with a gentle preference for Master and Swami when that fits. Mention a teacher by name—such as Asha—and Luca focuses on that author. You can still choose Master and Swami or All authors from the filter anytime."
+    },
     {
       "date": "2026-03-27",
       "title": "Source Focus",
