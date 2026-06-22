@@ -1,7 +1,12 @@
 {
-  "version": 7,
+  "version": 8,
   "wikiUrl": "https://anandafamily.notion.site/What-s-new-with-Luca-2ed7781078bc80c79438c02ea27ec710",
   "entries": [
+    {
+      "date": "2026-06-21",
+      "title": "More Relevant Sources, Clearer Limits",
+      "description": "Luca now sets aside weakly-matched sources so answers lean on genuinely relevant material instead of loosely-related filler. And when your filters—libraries, media types, or a focused source or author—leave nothing to match, Luca tells you exactly which filter is limiting the results and suggests broadening it, rather than guessing or inventing quotes."
+    },
     {
       "date": "2026-06-20",
       "title": "Auto (recommended) Author Selection",

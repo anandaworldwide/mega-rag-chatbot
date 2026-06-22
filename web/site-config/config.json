@@ -110,6 +110,7 @@
       "masterSwamiBoost": 0.2,
       "broadMasterSwamiBoost": 0.08
     },
+    "minRetrievalScore": 0.5,
     "authorAliases": {
       "asha": "Asha Nayaswami",
       "bharat": "Joseph Bharat Cornell",

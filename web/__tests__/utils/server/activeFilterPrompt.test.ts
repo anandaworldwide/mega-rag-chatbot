@@ -2,6 +2,8 @@
 
 import {
   buildActiveFilterPromptData,
+  buildActiveFiltersSummaryForGeneration,
+  EMPTY_RETRIEVAL_FILTER_HINT,
   extractMediaTypeFilter,
   formatAuthorScopeDebugLog,
 } from "@/utils/server/activeFilterPrompt";
@@ -111,6 +113,42 @@ describe("buildActiveFilterPromptData", () => {
     );
 
     expect(result.activeFiltersSummary).toContain("- Focused author: Asha Nayaswami");
+  });
+});
+
+describe("buildActiveFiltersSummaryForGeneration", () => {
+  it("appends the empty-retrieval hint when restrictive filters return no documents", () => {
+    const data = buildActiveFilterPromptData(mockSiteConfig as any, undefined, "bible");
+    expect(data.hasRestrictiveFilters).toBe(true);
+
+    const summary = buildActiveFiltersSummaryForGeneration(data, true);
+
+    expect(summary).toContain("- Collection: Bible");
+    expect(summary).toContain(`- ${EMPTY_RETRIEVAL_FILTER_HINT}`);
+  });
+
+  it("does not append the hint when documents were retrieved", () => {
+    const data = buildActiveFilterPromptData(mockSiteConfig as any, undefined, "bible");
+
+    const summary = buildActiveFiltersSummaryForGeneration(data, false);
+
+    expect(summary).toBe(data.activeFiltersSummary);
+    expect(summary).not.toContain(EMPTY_RETRIEVAL_FILTER_HINT);
+  });
+
+  it("does not append the hint when no restrictive filters are active", () => {
+    const data = buildActiveFilterPromptData(
+      mockSiteConfig as any,
+      { $and: [{ type: { $in: ["text", "audio", "youtube"] } }] },
+      "whole_library",
+      ["Ananda Library", "Crystal Clarity"]
+    );
+    expect(data.hasRestrictiveFilters).toBe(false);
+
+    const summary = buildActiveFiltersSummaryForGeneration(data, true);
+
+    expect(summary).toBe(data.activeFiltersSummary);
+    expect(summary).not.toContain(EMPTY_RETRIEVAL_FILTER_HINT);
   });
 });
 

@@ -677,6 +677,46 @@ describe("SourcesList", () => {
     expect(screen.getByText("Admin: Show sources")).toBeInTheDocument();
   });
 
+  it("shows retrieval scores for admin users when present in metadata", () => {
+    const scoredSource: Document<DocMetadata> = {
+      ...textSource,
+      metadata: {
+        ...textSource.metadata,
+        retrievalScore: 0.623,
+      },
+    };
+
+    render(
+      <SourcesList
+        sources={[scoredSource]}
+        siteConfig={{ ...mockSiteConfig, minRetrievalScore: 0.5 }}
+        isSudoAdmin={true}
+      />
+    );
+
+    expect(screen.getByText("0.623")).toBeInTheDocument();
+  });
+
+  it("hides retrieval scores from non-admin users", () => {
+    const scoredSource: Document<DocMetadata> = {
+      ...textSource,
+      metadata: {
+        ...textSource.metadata,
+        retrievalScore: 0.623,
+      },
+    };
+
+    render(
+      <SourcesList
+        sources={[scoredSource]}
+        siteConfig={{ ...mockSiteConfig, minRetrievalScore: 0.5 }}
+        isSudoAdmin={false}
+      />
+    );
+
+    expect(screen.queryByText("0.623")).not.toBeInTheDocument();
+  });
+
   it("does not make YouTube source titles clickable to prevent bypassing inline player", () => {
     render(<SourcesList sources={[youtubeSource]} />);
 

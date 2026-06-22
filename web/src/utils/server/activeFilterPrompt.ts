@@ -150,6 +150,27 @@ export function buildActiveFilterPromptData(
   };
 }
 
+/** Soft, in-chat hint appended to activeFiltersSummary when restrictive filters retrieve zero documents. */
+export const EMPTY_RETRIEVAL_FILTER_HINT =
+  "No library sources matched your current filters. Before answering, tell the user that nothing matched these " +
+  "active filters, name the limiting filter(s) above, and suggest broadening or turning them off. You may then offer " +
+  "general guidance, but do not invent or paraphrase quotes, teachings, or citations.";
+
+/**
+ * Returns the activeFiltersSummary for generation, appending {@link EMPTY_RETRIEVAL_FILTER_HINT}
+ * when restrictive filters produced zero retrieved documents. Phrased as assistant context so the
+ * model can soften its answer — not an error banner.
+ */
+export function buildActiveFiltersSummaryForGeneration(
+  data: ActiveFilterPromptData,
+  retrievalReturnedNoDocuments: boolean
+): string {
+  if (retrievalReturnedNoDocuments && data.hasRestrictiveFilters) {
+    return `${data.activeFiltersSummary}\n- ${EMPTY_RETRIEVAL_FILTER_HINT}`;
+  }
+  return data.activeFiltersSummary;
+}
+
 function describeScopeDescriptor(descriptor: AuthorScopeDescriptor): string {
   switch (descriptor.kind) {
     case "blend":

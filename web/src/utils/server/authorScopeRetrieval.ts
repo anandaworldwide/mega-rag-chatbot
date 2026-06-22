@@ -1,6 +1,7 @@
 import type { Document } from "@langchain/core/documents";
 import type { VectorStoreRetriever } from "@langchain/core/vectorstores";
 import { MASTER_SWAMI_AUTHORS } from "@/utils/server/authorConstants";
+import { attachRetrievalScore, filterScoredDocuments, type RelevanceStats } from "@/utils/server/retrievalRelevance";
 
 export function mergeFilterClauses(
   baseFilter: Record<string, unknown> | undefined,
@@ -148,17 +149,33 @@ export async function retrieveWithAuthorScopeBlend(
   sourceCount: number,
   baseFilter: Record<string, unknown> | undefined,
   masterSwamiBoost: number,
-  libraryNames?: string[]
-): Promise<{ documents: Document[]; debug: AuthorScopeBlendRetrievalDebug }> {
+  libraryNames?: string[],
+  minRetrievalScore?: number
+): Promise<{ documents: Document[]; debug: AuthorScopeBlendRetrievalDebug; relevance: RelevanceStats }> {
   const scopedBase = libraryNames?.length ? buildLibraryFilter(libraryNames, baseFilter) : baseFilter;
   const fetchCount = computeBlendFetchCount(sourceCount);
 
   const rawResults = await retriever.vectorStore.similaritySearchWithScore(question, fetchCount, scopedBase);
-  const boostedResults = applyMasterSwamiScoreBoost(rawResults, masterSwamiBoost);
-  const documents = rankBoostedDocuments(boostedResults, sourceCount);
+  const rawHitCount = rawResults.length;
+  const topScore = rawHitCount > 0 ? Math.max(...rawResults.map(([, score]) => score)) : null;
+
+  const passingResults =
+    minRetrievalScore !== undefined
+      ? filterScoredDocuments(rawResults, minRetrievalScore).passing
+      : rawResults;
+  const rejectedLowRelevance = rawHitCount - passingResults.length;
+
+  const boostedResults = applyMasterSwamiScoreBoost(passingResults, masterSwamiBoost);
+  const rankedDocuments = rankBoostedDocuments(boostedResults, sourceCount);
+  const rawScoreByKey = new Map(passingResults.map(([doc, score]) => [getDocumentKey(doc), score]));
+  const documents = rankedDocuments.map((doc) => {
+    const rawScore = rawScoreByKey.get(getDocumentKey(doc));
+    return rawScore != null ? attachRetrievalScore(doc, rawScore) : doc;
+  });
 
   return {
     documents,
     debug: buildBlendRetrievalDebug(rawResults, boostedResults, documents, masterSwamiBoost, fetchCount),
+    relevance: { rawHitCount, rejectedLowRelevance, topScore },
   };
 }

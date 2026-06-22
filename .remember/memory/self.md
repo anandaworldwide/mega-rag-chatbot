@@ -2891,3 +2891,22 @@ passes the gate. Stripping `/web/src/` before normalizing `\\` also fails on Win
 
 **Correct**: Normalize separators before path stripping; `throw` when the subset matches 0 statements. Clean the
 coverage dir before runs (`scripts/clean-coverage.mjs`) so stale per-file data can't skew merged totals.
+
+### Mistake: Jest console spy retains call history across tests
+
+**Wrong**:
+```ts
+it("does not warn ...", () => {
+  jest.spyOn(console, "warn").mockImplementation(() => {});
+  doThing();
+  expect(console.warn).not.toHaveBeenCalledWith(...); // can see calls leaked from a prior test
+});
+```
+
+**Correct**: Capture the spy in a local var and clear it before exercising the code under test, then assert on the local spy:
+```ts
+const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+warnSpy.mockClear();
+doThing();
+expect(warnSpy).not.toHaveBeenCalledWith(...);
+```

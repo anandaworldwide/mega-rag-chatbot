@@ -47,7 +47,7 @@ import { Document } from "@langchain/core/documents";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { PineconeStore } from "@langchain/pinecone";
 import { MASTER_SWAMI_AUTHORS } from "@/utils/server/authorConstants";
-import { makeChain, setupAndExecuteLanguageModelChain, NoSourcesError } from "@/utils/server/makechain";
+import { makeChain, setupAndExecuteLanguageModelChain } from "@/utils/server/makechain";
 import { getCachedPineconeIndex } from "@/utils/server/pinecone-client";
 
 import { getPineconeIndexName } from "@/utils/server/pinecone-config";
@@ -601,55 +601,7 @@ async function patchDocumentSuggestions(docId: string, suggestions: TypedSuggest
 function handleError(error: unknown, sendData: (data: StreamingResponseData) => void) {
   if (error instanceof Error) {
     // Handle specific error cases
-    if (error instanceof NoSourcesError) {
-      // Build actionable error message based on active filters as a chat response
-      let message = "I couldn't find matching sources under your current chat filters. ";
-      const suggestions: string[] = [];
-
-      if (error.filters.libraries && error.filters.libraries.length > 0) {
-        if (error.filters.libraries.length === 1) {
-          message += `You're searching only in "${error.filters.libraries[0]}". `;
-          suggestions.push("Try selecting additional libraries");
-        } else {
-          message += `You're searching only in these libraries: ${error.filters.libraries.join(", ")}. `;
-          suggestions.push("Try broadening your library selection");
-        }
-      }
-
-      if (error.filters.mediaTypes) {
-        const activeTypes = Object.entries(error.filters.mediaTypes)
-          .filter(([, isActive]) => isActive)
-          .map(([type]) => type);
-
-        if (activeTypes.length > 0 && activeTypes.length < 3) {
-          const typeNames = activeTypes.map((t) => (t === "youtube" ? "video" : t));
-          message += `You're only searching ${typeNames.join(" and ")} content. `;
-          suggestions.push("Try including other media types");
-        }
-      }
-
-      if (error.filters.collection) {
-        message += `You're filtering by collection: "${error.filters.collection}". That filter may exclude the teachings you're asking about. `;
-        suggestions.push("Try switching or clearing your collection filter");
-      }
-
-      if (error.filters.titleScope) {
-        message += `You're searching only within "${error.filters.titleScope}". `;
-        suggestions.push("Try clearing or broadening the selected source.");
-      }
-
-      if (suggestions.length > 0) {
-        message += "\n\nSuggestions:\n";
-        suggestions.forEach((suggestion) => {
-          message += `• ${suggestion}\n`;
-        });
-      } else {
-        message += "Please adjust or reset your chat options and try again.";
-      }
-
-      // Send as error message
-      sendData({ error: message });
-    } else if (error.name === "PineconeNotFoundError") {
+    if (error.name === "PineconeNotFoundError") {
       sendData({
         error: "The specified Pinecone index does not exist. Please notify your administrator.",
       });

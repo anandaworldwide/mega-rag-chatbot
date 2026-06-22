@@ -25,6 +25,21 @@ export function warnAutoAuthorScopeConfigConflict(siteConfig: SiteConfig): void 
   }
 }
 
+/** Warns when minRetrievalScore is set outside the usable (0, 1] cosine range (likely a config typo). */
+export function warnMinRetrievalScoreRange(siteConfig: SiteConfig): void {
+  const score = siteConfig.minRetrievalScore;
+  if (score == null) {
+    return;
+  }
+  if (!Number.isFinite(score) || score < 0 || score > 1) {
+    console.warn(
+      `[site-config] Site "${siteConfig.siteId}" has minRetrievalScore=${score}, which is outside the valid ` +
+        "cosine-similarity range [0, 1]. It will be clamped; a value <= 0 disables the relevance cutoff entirely. " +
+        "Use a value between 0 and 1 (e.g. 0.5), or omit the key to disable the cutoff."
+    );
+  }
+}
+
 const DEPRECATED_AUTHOR_SCOPE_BLEND_KEYS = ["masterSwamiWeight", "broadMasterSwamiWeight"] as const;
 
 /** Fails startup when auto author scope is enabled but authorScopeBlend still uses pre-B1 weight keys. */
@@ -77,6 +92,7 @@ function parseSiteConfig(siteId: string = "default"): SiteConfig | null {
 
     assertAuthorScopeBlendConfig(parsedConfig);
     warnAutoAuthorScopeConfigConflict(parsedConfig);
+    warnMinRetrievalScoreRange(parsedConfig);
     return parsedConfig;
   } catch (error) {
     console.error("Error parsing site config:", error);

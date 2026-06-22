@@ -38,6 +38,11 @@ settings.
   δ is `0.2`; broad follow-up hint uses `0.08`. Deprecated keys `masterSwamiWeight` / `broadMasterSwamiWeight` cause
   startup failure when `enableAutoAuthorScope` is true. See [author-scope-benchmark.md](../../docs/author-scope-benchmark.md)
   for manual regression queries.
+- `minRetrievalScore`: Optional cosine similarity floor for chat retrieval (e.g. `0.5` on Luca). Documents below the
+  floor are dropped before ranking; if none pass, retrieval continues with empty context and the LLM may still
+  answer from the system prompt (e.g. Wiki, Luca identity). Omit the key (or set `0`) to disable the cutoff — every
+  cosine score is `>= 0`, so a floor of `0` never rejects anything. Values are clamped to `[0, 1]`; out-of-range
+  values log a startup warning. Tune using debug logs (`[RAG] Relevance cutoff: min=…, topScore=…, rejected=…`).
 - `authorAliases`: Optional map of lowercase aliases (author first names or nicknames) to canonical Pinecone
   author display names for deterministic named-author detection. Do not map shared surnames (e.g. `nayaswami`) or generic
   entitlement terms (e.g. `lightbearer`) to a single author.

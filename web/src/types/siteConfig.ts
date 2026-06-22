@@ -61,6 +61,8 @@ export interface SiteConfig {
     /** Lower boost when the LLM scope hint is broad. Default 0.08. */
     broadMasterSwamiBoost?: number;
   };
+  /** Minimum Pinecone cosine similarity for chat retrieval; omit to disable relevance cutoff. */
+  minRetrievalScore?: number;
   authorAliases?: Record<string, string>;
   enableTitleScopeSelection?: boolean;
   enableSearchPage?: boolean;

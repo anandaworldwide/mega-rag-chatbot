@@ -48,7 +48,12 @@ import { SiteConfig as AppSiteConfig } from "@/types/siteConfig";
 import { ChatMessage, convertChatHistory } from "@/utils/shared/chatHistory";
 import { NextRequest } from "next/server";
 import { sendOpsAlert } from "./emailOps";
-import { buildActiveFilterPromptData, logAuthorScopeDebug, type ActiveFilterPromptData } from "./activeFilterPrompt";
+import {
+  buildActiveFilterPromptData,
+  buildActiveFiltersSummaryForGeneration,
+  logAuthorScopeDebug,
+  type ActiveFilterPromptData,
+} from "./activeFilterPrompt";
 import { calculateSources, combineDocumentsFn } from "./ragDocumentUtils";
 import { extractJsonArray } from "./suggestionParsing";
 import { filterSuggestionsForDiversity } from "./suggestionDiversity";
@@ -61,6 +66,14 @@ import {
   retrieveWithAuthorScopeBlend,
 } from "./authorScopeRetrieval";
 import { getCondenseTemplateWithAuthorScope, invokeRephraseWithAuthorScope } from "./rephraseWithAuthorScope";
+import {
+  formatRelevanceCutoffLog,
+  getMinRetrievalScore,
+  mergeRelevanceStats,
+  resolveNoSourcesReason,
+  similaritySearchWithRelevance,
+  type RelevanceStats,
+} from "./retrievalRelevance";
 
 export function isAutoAuthorScopeActive(
   siteConfig?: AppSiteConfig | null,
@@ -71,22 +84,6 @@ export function isAutoAuthorScopeActive(
 
 export { buildActiveFilterPromptData } from "./activeFilterPrompt";
 export { jaccardSimilarity, filterSuggestionsForDiversity } from "./suggestionDiversity";
-
-// Custom error for when no sources are found
-export class NoSourcesError extends Error {
-  constructor(
-    message: string,
-    public filters: {
-      libraries?: string[];
-      mediaTypes?: { text?: boolean; audio?: boolean; youtube?: boolean };
-      collection?: string;
-      titleScope?: string;
-    }
-  ) {
-    super(message);
-    this.name = "NoSourcesError";
-  }
-}
 
 // S3 client for loading remote templates and configurations
 const s3Client = new S3Client({
@@ -369,8 +366,9 @@ async function retrieveDocumentsByLibrary(
   libraryName: string,
   k: number,
   query: string,
-  baseFilter?: Record<string, unknown>
-): Promise<Document[]> {
+  baseFilter?: Record<string, unknown>,
+  minRetrievalScore?: number
+) {
   const libraryFilter = { library: libraryName };
 
   let finalFilter: Record<string, unknown>;
@@ -392,8 +390,11 @@ async function retrieveDocumentsByLibrary(
     finalFilter = libraryFilter;
   }
 
-  const documents = await retriever.vectorStore.similaritySearch(query, k, finalFilter);
-  return documents;
+  return similaritySearchWithRelevance(retriever.vectorStore, query, k, finalFilter, minRetrievalScore);
+}
+
+function emptyRelevanceStats(): RelevanceStats {
+  return { rawHitCount: 0, rejectedLowRelevance: 0, topScore: null };
 }
 
 function refreshActiveFilterPromptData(
@@ -428,14 +429,21 @@ async function runStandardRetrieval(
   searchFilter: Record<string, unknown> | undefined,
   includedLibraries: Array<string | { name: string; weight?: number }>,
   sendData?: (data: StreamingResponseData) => void,
-  loggedLibraries?: Set<string>
-): Promise<Document[]> {
+  loggedLibraries?: Set<string>,
+  minRetrievalScore?: number
+): Promise<{ documents: Document[]; relevance: RelevanceStats }> {
   const allDocuments: Document[] = [];
+  let relevance = emptyRelevanceStats();
 
   if (!includedLibraries || includedLibraries.length === 0) {
-    const docs = await retriever.vectorStore.similaritySearch(question, sourceCount, searchFilter);
-    allDocuments.push(...docs);
-    return allDocuments;
+    const result = await similaritySearchWithRelevance(
+      retriever.vectorStore,
+      question,
+      sourceCount,
+      searchFilter,
+      minRetrievalScore
+    );
+    return { documents: result.documents, relevance: result };
   }
 
   const hasWeights = includedLibraries.some((lib) => typeof lib === "object" && lib !== null);
@@ -450,22 +458,37 @@ async function runStandardRetrieval(
     const retrievalPromises = sourcesDistribution
       .filter(({ sources }) => sources > 0)
       .map(async ({ name, sources }) => {
-        const docs = await retrieveDocumentsByLibrary(retriever, name, sources, question, searchFilter);
-        if (sendData) sendData({ log: `[RAG] Retrieved ${docs.length} docs from library: ${name}` });
+        const result = await retrieveDocumentsByLibrary(
+          retriever,
+          name,
+          sources,
+          question,
+          searchFilter,
+          minRetrievalScore
+        );
+        if (sendData) sendData({ log: `[RAG] Retrieved ${result.documents.length} docs from library: ${name}` });
         loggedLibraries?.add(name);
-        return docs;
+        return result;
       });
-    const docsArrays = await Promise.all(retrievalPromises);
-    docsArrays.forEach((docs) => allDocuments.push(...docs));
-    return allDocuments;
+    const resultArrays = await Promise.all(retrievalPromises);
+    resultArrays.forEach((result) => {
+      allDocuments.push(...result.documents);
+      relevance = mergeRelevanceStats(relevance, result);
+    });
+    return { documents: allDocuments, relevance };
   }
 
   const libraryNames = includedLibraries.map((lib) => (typeof lib === "string" ? lib : lib.name));
   const finalFilter = buildLibraryFilter(libraryNames, searchFilter);
-  const docs = await retriever.vectorStore.similaritySearch(question, sourceCount, finalFilter);
-  if (sendData) sendData({ log: `[RAG] Retrieved ${docs.length} docs from combined libraries` });
-  allDocuments.push(...docs);
-  return allDocuments;
+  const result = await similaritySearchWithRelevance(
+    retriever.vectorStore,
+    question,
+    sourceCount,
+    finalFilter,
+    minRetrievalScore
+  );
+  if (sendData) sendData({ log: `[RAG] Retrieved ${result.documents.length} docs from combined libraries` });
+  return { documents: result.documents, relevance: result };
 }
 
 // Main chain creation function that sets up the complete conversational QA system
@@ -496,6 +519,9 @@ export const makeChain = async (
   let rephraseModel: BaseLanguageModel; // New model for rephrasing
   let isLocationQuery = false; // Flag to track if this is a location query
   let capturedAuthorScopeHint: AuthorScopeHint = "default";
+  // Set inside the retrieval step so the generation prompt can soften its answer when
+  // restrictive filters yield no documents (see buildActiveFiltersSummaryForGeneration).
+  let retrievalReturnedNoDocuments = false;
   const useAutoAuthorScope = isAutoAuthorScopeActive(siteConfig, selectedCollectionKey);
 
   // Get site ID from siteConfig if available
@@ -730,6 +756,7 @@ Error details: ${errorString}`,
   // Runnable sequence for retrieving documents
   const retrievalSequence = RunnableSequence.from([
     async (input: AnswerChainInput) => {
+      retrievalReturnedNoDocuments = false;
       // Early return for location queries - skip Pinecone entirely for performance
       if (isLocationQuery) {
         if (sendData) {
@@ -740,7 +767,8 @@ Error details: ${errorString}`,
       }
 
       const allDocuments: Document[] = [];
-      let resolvedNamedAuthor: string | undefined;
+      const minRetrievalScore = getMinRetrievalScore(siteConfig);
+      let retrievalRelevance = emptyRelevanceStats();
       try {
         if (sendData) sendData({ log: `[RAG] Retrieving documents: requested=${sourceCount}` });
 
@@ -763,7 +791,6 @@ Error details: ${errorString}`,
         });
 
         if (scopeDescriptor.kind === "named") {
-          resolvedNamedAuthor = scopeDescriptor.author;
           refreshActiveFilterPromptData(
             activeFilterPromptData,
             siteConfig,
@@ -794,14 +821,17 @@ Error details: ${errorString}`,
             includedLibraries.length > 0
               ? includedLibraries.map((lib) => (typeof lib === "string" ? lib : lib.name))
               : undefined;
-          const { documents: blendedDocs, debug: blendRetrievalDebug } = await retrieveWithAuthorScopeBlend(
+          const { documents: blendedDocs, debug: blendRetrievalDebug, relevance: blendRelevance } =
+            await retrieveWithAuthorScopeBlend(
             retriever,
             input.question,
             sourceCount,
             baseFilter,
             scopeDescriptor.masterSwamiBoost,
-            libraryNames
+            libraryNames,
+            minRetrievalScore
           );
+          retrievalRelevance = blendRelevance;
           if (useAutoAuthorScope) {
             logAuthorScopeDebug(
               {
@@ -825,15 +855,17 @@ Error details: ${errorString}`,
             searchFilter = buildMasterSwamiFilter(baseFilter);
           }
 
-          const docs = await runStandardRetrieval(
+          const { documents: docs, relevance: standardRelevance } = await runStandardRetrieval(
             retriever,
             input.question,
             sourceCount,
             searchFilter,
             includedLibraries,
             sendData,
-            loggedLibraries
+            loggedLibraries,
+            minRetrievalScore
           );
+          retrievalRelevance = standardRelevance;
           allDocuments.push(...docs);
         }
 
@@ -843,101 +875,38 @@ Error details: ${errorString}`,
         throw err;
       }
 
-      // Check for empty documents IMMEDIATELY - throw error to prevent answering without sources
-      // This must happen BEFORE any sendData calls to prevent the LLM from receiving empty context
+      // No retrieved documents: continue to generation with empty context so the system
+      // prompt can still answer (e.g. Ananda Wiki, Luca identity). Log for admin debugging.
       if (allDocuments.length === 0) {
-        const warningMsg = `⚠️ NO SOURCES: No documents retrieved for question: "${input.question.substring(0, 100)}..."`;
+        retrievalReturnedNoDocuments = true;
+        const reason = resolveNoSourcesReason(retrievalRelevance);
+        const warningMsg =
+          reason === "low_relevance"
+            ? `⚠️ NO SOURCES: All ${retrievalRelevance.rawHitCount} retrieved documents were below minRetrievalScore (${minRetrievalScore}) for question: "${input.question.substring(0, 100)}..."`
+            : `⚠️ NO SOURCES: No documents retrieved for question: "${input.question.substring(0, 100)}..."`;
         console.warn(warningMsg);
-        if (sendData) sendData({ log: warningMsg });
-
-        // NoSourcesError tells the user which filters produced zero hits. Fixed collections
-        // (master_swami, bible, etc.) populate collectionLabel; Auto mode has no fixed label
-        // because retrieval may blend Master/Swami with broad results or narrow to a query-matched
-        // author. When resolveAuthorScope picked a named author, pass that through so the error
-        // reflects the effective filter rather than a generic "Auto" label.
-        throw new NoSourcesError("No sources found for your query with the current chat options.", {
-          libraries: activeFilterPromptData.selectedLibraries,
-          mediaTypes: activeFilterPromptData.mediaTypes,
-          collection:
-            activeFilterPromptData.collectionLabel ??
-            (resolvedNamedAuthor ? `Author: ${resolvedNamedAuthor}` : undefined),
-          titleScope: activeFilterPromptData.titleScopeLabel,
-        });
+        if (sendData) {
+          sendData({ log: warningMsg });
+          if (reason === "low_relevance" && minRetrievalScore !== undefined) {
+            sendData({ log: formatRelevanceCutoffLog(minRetrievalScore, retrievalRelevance) });
+          }
+          sendData({ sourceDocs: [] });
+        }
+        if (resolveDocs) {
+          resolveDocs([]);
+        }
+        return allDocuments;
       }
 
       if (sendData) {
-        // DEBUG: Add extensive logging for sources debugging
         try {
-          // DEBUG: Check for problematic content that could break JSON serialization
-          const problematicSources = allDocuments.filter((doc, index) => {
-            try {
-              JSON.stringify(doc);
-              return false;
-            } catch (e) {
-              const errorMsg1 = `❌ SOURCES ERROR: Document ${index} failed individual serialization: ${e}`;
-              console.error(errorMsg1);
-              sendData({ log: errorMsg1 });
-
-              const errorMsg2 = `❌ SOURCES ERROR: Problematic document structure: ${JSON.stringify({
-                hasPageContent: !!doc.pageContent,
-                pageContentLength: doc.pageContent?.length,
-                hasMetadata: !!doc.metadata,
-                metadataKeys: doc.metadata ? Object.keys(doc.metadata) : [],
-                metadataSize: doc.metadata ? JSON.stringify(doc.metadata).length : 0,
-              })}`;
-              console.error(errorMsg2);
-              sendData({ log: errorMsg2 });
-              return true;
-            }
-          });
-
-          if (problematicSources.length > 0) {
-            const errorMsg = `❌ SOURCES ERROR: ${problematicSources.length} documents have serialization issues`;
-            console.error(errorMsg);
-            sendData({ log: errorMsg });
-          }
-
-          // Test JSON serialization before sending
-          const serializedTest = JSON.stringify(allDocuments);
-          const serializedSize = new Blob([serializedTest]).size;
-
-          if (serializedSize > 1000000) {
-            // 1MB threshold
-            const warningMsg1 = `⚠️ SOURCES WARNING: Large sources payload detected: ${serializedSize} bytes`;
-            console.warn(warningMsg1);
-            sendData({ log: warningMsg1 });
-
-            const warningMsg2 = `⚠️ SOURCES WARNING: This could cause JSON serialization to fail in SSE transmission`;
-            console.warn(warningMsg2);
-            sendData({ log: warningMsg2 });
-          }
-
-          // Test if sources can be parsed back
-          const parseTest = JSON.parse(serializedTest);
-          if (!Array.isArray(parseTest) || parseTest.length !== allDocuments.length) {
-            const errorMsg = `❌ SOURCES ERROR: Serialization round-trip failed!`;
-            console.error(errorMsg);
-            sendData({ log: errorMsg });
-          }
-
+          // Validate serialization before streaming so a bad document falls back cleanly
+          // to an empty source list instead of breaking the SSE stream. Route-level sendData
+          // also guards serialization.
+          JSON.stringify(allDocuments);
           sendData({ sourceDocs: allDocuments });
         } catch (serializationError) {
-          const errorMsg1 = `❌ SOURCES ERROR: Failed to serialize/send sources: ${serializationError}`;
-          console.error(errorMsg1);
-          sendData({ log: errorMsg1 });
-
-          const errorMsg2 = `❌ SOURCES ERROR: This is likely THE BUG - answer will stream but sources will be missing`;
-          console.error(errorMsg2);
-          sendData({ log: errorMsg2 });
-
-          const errorMsg3 = `❌ SOURCES ERROR: Error details: ${JSON.stringify({
-            name: serializationError instanceof Error ? serializationError.name : "Unknown",
-            message: serializationError instanceof Error ? serializationError.message : String(serializationError),
-            documentCount: allDocuments.length,
-          })}`;
-          console.error(errorMsg3);
-          sendData({ log: errorMsg3 });
-          // Send empty array as fallback
+          console.error("Failed to serialize source documents for streaming:", serializationError);
           sendData({ sourceDocs: [] });
         }
       }
@@ -1133,7 +1102,10 @@ Error details: ${errorString}`,
       context: input.retrievalOutput.combinedContent,
       chat_history: input.originalInput.chat_history,
       question: input.originalInput.question,
-      activeFiltersSummary: activeFilterPromptData.activeFiltersSummary,
+      activeFiltersSummary: buildActiveFiltersSummaryForGeneration(
+        activeFilterPromptData,
+        retrievalReturnedNoDocuments
+      ),
       documents: input.retrievalOutput.documents, // Pass documents along
     }),
     fullAnswerGenerationChain, // This now takes the mapped input and produces { answer, sourceDocuments }
@@ -1939,11 +1911,6 @@ export async function setupAndExecuteLanguageModelChain(
         temperature: temperature, // Return the temperature used
       };
     } catch (error) {
-      // Don't retry NoSourcesError - it's a user-facing error that won't be fixed by retrying
-      if (error instanceof NoSourcesError) {
-        throw error;
-      }
-
       // Don't retry if we've already streamed tokens - we can't undo what's been sent
       // Retrying would cause garbled/interleaved responses
       if (tokensStreamed > 0) {

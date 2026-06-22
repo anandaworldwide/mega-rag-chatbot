@@ -138,4 +138,58 @@ describe("authorScopeRetrieval helpers", () => {
 
     expect(documents.map((doc) => doc.id)).toEqual(["program"]);
   });
+
+  it("attaches raw retrievalScore metadata on blend results", async () => {
+    const msDoc: Document = { pageContent: "ms", metadata: { author: "Paramhansa Yogananda" }, id: "ms" };
+    const eventDoc: Document = { pageContent: "event", metadata: { library: "ananda.org" }, id: "event" };
+    const similaritySearchWithScore = jest.fn().mockResolvedValue([
+      [msDoc, 0.82],
+      [eventDoc, 0.8],
+    ]);
+
+    const retriever = {
+      vectorStore: { similaritySearchWithScore },
+    } as unknown as VectorStoreRetriever;
+
+    const { documents } = await retrieveWithAuthorScopeBlend(
+      retriever,
+      "What is the centennial celebration schedule?",
+      2,
+      undefined,
+      0.2,
+      undefined,
+      0.5
+    );
+
+    expect(documents[0]?.metadata.retrievalScore).toBe(0.82);
+    expect(documents[1]?.metadata.retrievalScore).toBe(0.8);
+  });
+
+  it("drops below-floor documents before boost ranking", async () => {
+    const weakMs: Document = { pageContent: "weak", metadata: { author: "Swami Kriyananda" }, id: "weak-ms" };
+    const noiseDoc: Document = { pageContent: "noise", metadata: { library: "ananda.org" }, id: "noise" };
+    const similaritySearchWithScore = jest.fn().mockResolvedValue([
+      [weakMs, 0.45],
+      [noiseDoc, 0.32],
+    ]);
+
+    const retriever = {
+      vectorStore: { similaritySearchWithScore },
+    } as unknown as VectorStoreRetriever;
+
+    const { documents, relevance } = await retrieveWithAuthorScopeBlend(
+      retriever,
+      "rhinoceros alligator sushi",
+      2,
+      undefined,
+      0.2,
+      undefined,
+      0.5
+    );
+
+    expect(documents).toHaveLength(0);
+    expect(relevance.rawHitCount).toBe(2);
+    expect(relevance.rejectedLowRelevance).toBe(2);
+    expect(relevance.topScore).toBe(0.45);
+  });
 });

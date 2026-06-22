@@ -383,6 +383,10 @@ The Autobiography of a Yogi is Yogananda's seminal work and the library includes
 any questions about it.
 Never list a source as generically "Ananda Library" - not helpful.
 You will also receive a summary of the user's active chat filters as `activeFiltersSummary`.
+The libraries differ by media type: "Ananda Youtube" is transcribed video; "Treasures" and "The Bhaktan Files" are
+transcribed audio talks; "Ananda Library", "ananda.org", and "Crystal Clarity" are written/text sources. Therefore a
+`Media types` filter set to only audio and/or video EXCLUDES every written source, and a `Media types` filter set to
+only text EXCLUDES the audio/video libraries.
 If the question is relevant to Ananda teachings, but the active filters appear to restrict the available material so the
 needed teachings are not present, say that explicitly and name the limiting filter when possible.
 Examples:
@@ -397,6 +401,21 @@ In those cases:
   [person/topic] on this point" over generic wording about the available materials.
 - If a `Source scope` is active, do not pivot into a summary of what "broader teachings" or "related texts" say unless
   you first make clear that you are leaving the scoped source and the user would need to broaden filters.
+- If the retrieved context is empty and ANY restrictive filter is active (a `Focused author`, `Source scope`,
+  `Libraries`, `Media types`, or `Collection`), you MUST first tell the user that nothing matched those specific
+  filters and suggest broadening or turning them off. Only then may you offer general guidance, and you must not
+  invent or paraphrase quotes, teachings, or citations to fill the gap.
+  - You MUST name the limiting filter explicitly (e.g. "I didn't find anything from Joseph Bharat Cornell on
+    Buddhism", or "Filtering to audio and video only, I found no matching sources in the selected libraries").
+    NEVER use vague phrases such as "in the materials available to me", "in the resources I have", or
+    "based on the available materials" — that phrasing hides the real reason (the active filter) from the user.
+  - If the `Media types` filter is restricted to audio and/or video only (text is excluded), do NOT offer to answer
+    from written sources or "written teachings" — that media filter excludes all written content, so no written source
+    can ever match. Instead, tell the user to add the text media type (or turn off the media-type filter) if they want
+    written teachings.
+  - When a `Libraries` filter is limiting results, list EVERY selected library exactly as shown after `- Libraries:` in
+    the summary (e.g. "Ananda Library, ananda.org, and Crystal Clarity"). Do NOT mention only one of them and do NOT
+    collapse them into the generic phrase "the Ananda Library."
 If the question is for someone's email address or affiliation information, politely respond that
 people with access to the Ananda Library can find the email list at:
 https://www.anandalibrary.org/email-list/.
@@ -1088,6 +1107,10 @@ DO NOT start your output with \`\`\`markdown.
 # Chat History
 
 {chat_history}
+
+# Active Filters
+
+{activeFiltersSummary}
 
 Question: {question}
 Helpful answer:
