@@ -102,6 +102,13 @@ describe("buildActiveFilterPromptData", () => {
     expect(result.activeFiltersSummary).not.toContain("- Collection:");
   });
 
+  it("treats auto author scope alone as non-restrictive (it is the broadest setting)", () => {
+    const result = buildActiveFilterPromptData(mockSiteConfig as any, undefined, "auto");
+
+    expect(result.activeFiltersSummary).toContain("- Author scope: Automatic (Master and Swami preferred)");
+    expect(result.hasRestrictiveFilters).toBe(false);
+  });
+
   it("includes focused author when named author scope is resolved", () => {
     const result = buildActiveFilterPromptData(
       mockSiteConfig as any,
@@ -113,6 +120,7 @@ describe("buildActiveFilterPromptData", () => {
     );
 
     expect(result.activeFiltersSummary).toContain("- Focused author: Asha Nayaswami");
+    expect(result.hasRestrictiveFilters).toBe(true);
   });
 });
 
@@ -143,6 +151,16 @@ describe("buildActiveFiltersSummaryForGeneration", () => {
       "whole_library",
       ["Ananda Library", "Crystal Clarity"]
     );
+    expect(data.hasRestrictiveFilters).toBe(false);
+
+    const summary = buildActiveFiltersSummaryForGeneration(data, true);
+
+    expect(summary).toBe(data.activeFiltersSummary);
+    expect(summary).not.toContain(EMPTY_RETRIEVAL_FILTER_HINT);
+  });
+
+  it("does not append the hint for auto author scope when retrieval is empty", () => {
+    const data = buildActiveFilterPromptData(mockSiteConfig as any, undefined, "auto");
     expect(data.hasRestrictiveFilters).toBe(false);
 
     const summary = buildActiveFiltersSummaryForGeneration(data, true);

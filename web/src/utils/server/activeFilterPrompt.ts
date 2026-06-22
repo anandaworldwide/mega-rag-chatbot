@@ -89,6 +89,10 @@ export function buildActiveFilterPromptData(
   namedAuthor?: string
 ): ActiveFilterPromptData {
   const lines: string[] = [];
+  // Auto author scope is the BROADEST setting (all authors, gentle Master/Swami boost), so it is
+  // surfaced for context but must NOT count as restrictive — otherwise an empty retrieval would
+  // wrongly tell the user to "broaden or turn off" a filter they never narrowed.
+  let restrictiveFilterCount = 0;
   const allLibraryNames = getSiteLibraryNames(siteConfig);
   const collectionLabel =
     selectedCollectionKey && selectedCollectionKey !== "whole_library" && selectedCollectionKey !== "auto"
@@ -99,10 +103,12 @@ export function buildActiveFilterPromptData(
     lines.push("- Author scope: Automatic (Master and Swami preferred)");
   } else if (collectionLabel) {
     lines.push(`- Collection: ${collectionLabel}`);
+    restrictiveFilterCount++;
   }
 
   if (namedAuthor) {
     lines.push(`- Focused author: ${namedAuthor}`);
+    restrictiveFilterCount++;
   }
 
   const restrictiveLibraries =
@@ -111,6 +117,7 @@ export function buildActiveFilterPromptData(
       : undefined;
   if (restrictiveLibraries && restrictiveLibraries.length > 0) {
     lines.push(`- Libraries: ${restrictiveLibraries.join(", ")}`);
+    restrictiveFilterCount++;
   }
 
   const activeMediaTypes = extractMediaTypeFilter(baseFilter);
@@ -131,10 +138,12 @@ export function buildActiveFilterPromptData(
       : undefined;
   if (restrictiveMediaTypes) {
     lines.push(`- Media types: ${formatMediaTypeList(restrictiveMediaTypes).join(", ")}`);
+    restrictiveFilterCount++;
   }
 
   if (selectedTitleScopeLabel) {
     lines.push(`- Source scope: Only ${selectedTitleScopeLabel}`);
+    restrictiveFilterCount++;
   }
 
   return {
@@ -142,7 +151,7 @@ export function buildActiveFilterPromptData(
       lines.length > 0
         ? `Current active filters:\n${lines.join("\n")}`
         : "Current active filters:\n- No restrictive filters are active.",
-    hasRestrictiveFilters: lines.length > 0,
+    hasRestrictiveFilters: restrictiveFilterCount > 0,
     collectionLabel,
     selectedLibraries: restrictiveLibraries,
     mediaTypes: restrictiveMediaTypes,
