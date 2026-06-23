@@ -2895,6 +2895,7 @@ coverage dir before runs (`scripts/clean-coverage.mjs`) so stale per-file data c
 ### Mistake: Jest console spy retains call history across tests
 
 **Wrong**:
+
 ```ts
 it("does not warn ...", () => {
   jest.spyOn(console, "warn").mockImplementation(() => {});
@@ -2904,9 +2905,32 @@ it("does not warn ...", () => {
 ```
 
 **Correct**: Capture the spy in a local var and clear it before exercising the code under test, then assert on the local spy:
+
 ```ts
 const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
 warnSpy.mockClear();
 doThing();
 expect(warnSpy).not.toHaveBeenCalledWith(...);
 ```
+
+### Mistake: Running data_ingestion Python scripts from `data_ingestion/` cwd
+
+**Wrong**:
+
+```bash
+cd data_ingestion
+uv run python pdf_to_vector_db.py --site jairam --file-path media/pdf-docs/...
+uv run python -c "from sql_to_pdf.db_to_pdfs import set_pdf_metadata; ..."
+```
+
+**Correct**:
+
+```bash
+cd /path/to/mega-rag-chatbot
+uv run python data_ingestion/pdf_to_vector_db.py \
+  --site jairam \
+  --file-path data_ingestion/media/pdf-docs/...
+```
+
+Scripts import `data_ingestion.*` and `pyutil.*`; repo root must be on `PYTHONPATH` (via `uv run` from root). Use
+`data_ingestion/...` paths for `--file-path`, not `media/...` relative to `data_ingestion/`.

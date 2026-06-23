@@ -188,6 +188,34 @@ except ImportError:
     load_env(args.site)  # Loads .env.[site] file
     ```
 
+### Python ingestion scripts: run from repo root
+
+- **Rule**: Run `data_ingestion/` Python scripts from the **monorepo root** with `uv run python data_ingestion/...`, not
+  from inside `data_ingestion/`. Many scripts import `data_ingestion.*` and `pyutil.*`; running from `data_ingestion/`
+  causes `ModuleNotFoundError: No module named 'data_ingestion'`.
+- **Applies to**: `pdf_to_vector_db.py`, `sql_to_vector_db/ingest_db_text.py`, imports from `sql_to_pdf/db_to_pdfs.py`,
+  and similar top-level ingestion entrypoints.
+- **Wrong** (from `data_ingestion/`):
+
+  ```bash
+  cd data_ingestion
+  uv run python pdf_to_vector_db.py --site jairam --file-path media/pdf-docs/exhibit-j-only ...
+  ```
+
+- **Correct** (from repo root):
+
+  ```bash
+  cd /path/to/mega-rag-chatbot
+  uv run python data_ingestion/pdf_to_vector_db.py \
+    --site jairam \
+    --file-path data_ingestion/media/pdf-docs/exhibit-j-only \
+    --library-name "Free Joe Hunt" \
+    --keep-data
+  ```
+
+- **Note**: `data_ingestion/README.md` examples that `cd data_ingestion` first are stale for these imports; prefer root
+  invocation until those docs are updated.
+
 ### Running Cron Jobs from Command Line
 
 - **Authentication**: Cron endpoints use `withJwtOrCronAuth` which checks User-Agent header
