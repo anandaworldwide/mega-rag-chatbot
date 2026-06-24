@@ -301,6 +301,9 @@ except ImportError:
 - **Per-site toggles belong in config**: Do **not** hardcode site ID sets/constants (e.g. `Set(["ananda", "crystal"])`) for per-site feature rollout. Add an `enable*` flag to [`web/site-config/config.json`](web/site-config/config.json), extend `SiteConfig` in [`web/src/types/siteConfig.ts`](web/src/types/siteConfig.ts), and read it from `siteConfig` at runtime. Example: `enableApplySuggestions` for the Apply follow-up pill lane.
 - **Planning rule**: For major features, explicitly ask the user whether rollout should be global or site-configurable before implementing. If it is unclear whether a toggle should live in config vs code, **ask the user** rather than defaulting to hardcoded site lists.
 - **Site complexity**: `ananda` / Luca is the deep, feature-rich site; the other sites are intentionally simpler
+- **Luca vs Vivek framing**: When describing Luca, emphasize devotees/members on the spiritual path—not private library
+  access or membership tiers. Any regular devotee is welcome (discipleship not required). Vivek serves public visitors
+  with introductory information on ananda.org.
 - **New chat behavior**: `New Chat` should reset all answer-scope filters globally (collection, libraries, media types, title/source scope, and similar retrieval filters); if persistence is desired later, implement it as explicit user settings/preferences rather than hidden carry-over chat state
 - **Title catalog artifacts**: S3 title-scope artifacts are shared between development and production per site; do not split them by env prefix
 - **Title catalog lookup.json**: Every entry must include per-prefix `availability` (libraries, mediaTypes,
