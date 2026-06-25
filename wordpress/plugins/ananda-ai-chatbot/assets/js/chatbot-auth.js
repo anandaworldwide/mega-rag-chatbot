@@ -47,6 +47,10 @@ async function retryOnNetworkError(fn, maxRetries = 3, baseDelay = 1000) {
       return await fn();
     } catch (error) {
       lastError = error;
+      // User-initiated cancel (e.g. Stop button) — never retry
+      if (error.name === 'AbortError') {
+        throw error;
+      }
       // Only retry on network/fetch errors
       if (!error.message?.includes('Failed to fetch') && !(error instanceof TypeError)) {
         throw error; // Non-network error: fail immediately
@@ -288,12 +292,14 @@ async function fetchWithAuth(url, options = {}) {
     Authorization: `Bearer ${token}`,
   };
 
-  // Make the request with credentials included
-  return fetch(url, {
+  const requestOptions = {
     ...options,
     headers,
     credentials: 'include', // Include cookies for CORS
-  });
+  };
+
+  // Retry transient browser network failures (same policy as token fetch)
+  return retryOnNetworkError(async () => fetch(url, requestOptions));
 }
 
 // Export to global scope for WordPress frontend
