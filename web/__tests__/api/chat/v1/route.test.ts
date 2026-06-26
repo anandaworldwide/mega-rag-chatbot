@@ -268,6 +268,12 @@ jest.mock("@/utils/server/accessLevelUtils", () => ({
   buildPineconeAccessFilterClauses: jest.fn().mockReturnValue([]),
 }));
 
+jest.mock("@/utils/server/chatRequestIdempotency", () => ({
+  ...jest.requireActual("@/utils/server/chatRequestIdempotency"),
+  acquireChatRequestLock: jest.fn().mockResolvedValue("skipped"),
+  releaseChatRequestLock: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock("@/utils/server/userActivityUtils", () => ({
   updateUserActivity: jest.fn().mockResolvedValue(undefined),
 }));
@@ -450,6 +456,62 @@ describe("Chat API Route", () => {
       // Verify error message is about collection
       const responseData = await response.json();
       expect(responseData.error).toContain("Collection must be a string value");
+    });
+
+    test("rejects duplicate clientRequestId with 409", async () => {
+      const { acquireChatRequestLock } = jest.requireMock("@/utils/server/chatRequestIdempotency");
+      (acquireChatRequestLock as jest.Mock).mockResolvedValueOnce("duplicate");
+
+      const body = {
+        question: "Test question",
+        collection: "master_swami",
+        uuid: TEST_BODY_UUID,
+        clientRequestId: "523e4567-e89b-42d3-a456-426614174000",
+        history: [],
+        temporarySession: false,
+        mediaTypes: { text: true },
+      };
+
+      const req = new NextRequest("https://example.com/api/chat/v1", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://example.com",
+          Authorization: `Bearer ${generateTestToken("wordpress")}`,
+        },
+      });
+      Object.defineProperty(req, "json", { value: async () => body });
+
+      const response = await POST(req);
+      expect(response.status).toBe(409);
+      const data = await response.json();
+      expect(data.error).toBe("duplicate_request");
+    });
+
+    test("rejects invalid clientRequestId values", async () => {
+      const body = {
+        question: "Test question",
+        collection: "master_swami",
+        uuid: TEST_BODY_UUID,
+        clientRequestId: "not-a-uuid",
+        history: [],
+        temporarySession: false,
+        mediaTypes: { text: true },
+      };
+
+      const req = new NextRequest("https://example.com/api/chat/v1", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://example.com",
+        },
+      });
+      Object.defineProperty(req, "json", { value: async () => body });
+
+      const response = await POST(req);
+      expect(response.status).toBe(400);
+      const data = await response.json();
+      expect(data.error).toContain("clientRequestId");
     });
 
     test("sanitizes input for XSS prevention", async () => {

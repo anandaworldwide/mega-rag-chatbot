@@ -1441,30 +1441,33 @@ export async function generateFollowUpSuggestions(
   return typedSuggestions;
 }
 
-const CHAIN_STREAMING_TIMEOUT_MS = process.env.NODE_ENV === "test" ? 1000 : 90000;
+const CHAIN_STREAMING_IDLE_TIMEOUT_MS = process.env.NODE_ENV === "test" ? 1000 : 90000;
 
-export function createStreamingDeadlineGuard(timeoutMs: number) {
-  let armed = false;
+export function createStreamingDeadlineGuard(idleTimeoutMs: number) {
   let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   let activeReject: ((error: Error) => void) | null = null;
 
-  const reset = () => {
+  const clearIdleTimer = () => {
     if (timeoutHandle) {
       clearTimeout(timeoutHandle);
       timeoutHandle = null;
     }
-    armed = false;
+  };
+
+  const reset = () => {
+    clearIdleTimer();
     activeReject = null;
   };
 
-  const armOnFirstToken = () => {
-    if (armed || !activeReject) {
+  /** (Re)arm idle watchdog — call on each token or tool activity while streaming. */
+  const touchStreamingActivity = () => {
+    if (!activeReject) {
       return;
     }
-    armed = true;
+    clearIdleTimer();
     timeoutHandle = setTimeout(() => {
-      activeReject?.(new Error(`Operation timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
+      activeReject?.(new Error(`Operation timed out after ${idleTimeoutMs}ms of inactivity`));
+    }, idleTimeoutMs);
   };
 
   const waitWithDeadline = async <T>(operation: () => Promise<T>): Promise<T> => {
@@ -1483,7 +1486,7 @@ export function createStreamingDeadlineGuard(timeoutMs: number) {
     });
   };
 
-  return { armOnFirstToken, reset, waitWithDeadline };
+  return { touchStreamingActivity, armOnFirstToken: touchStreamingActivity, reset, waitWithDeadline };
 }
 
 // Export the setupAndExecuteLanguageModelChain function
@@ -1514,7 +1517,7 @@ export async function setupAndExecuteLanguageModelChain(
 }> {
   const RETRY_DELAY_MS = process.env.NODE_ENV === "test" ? 10 : 1000;
   const MAX_RETRIES = 3;
-  const streamingDeadline = createStreamingDeadlineGuard(CHAIN_STREAMING_TIMEOUT_MS);
+  const streamingDeadline = createStreamingDeadlineGuard(CHAIN_STREAMING_IDLE_TIMEOUT_MS);
 
   let retryCount = 0;
   let lastError: Error | null = null;
@@ -1627,7 +1630,7 @@ export async function setupAndExecuteLanguageModelChain(
                       if (!firstTokenTime) {
                         firstTokenTime = Date.now();
                         firstByteTime = Date.now();
-                        streamingDeadline.armOnFirstToken();
+                        streamingDeadline.touchStreamingActivity();
                         sendData({
                           token: tokenBuffer,
                           timing: {
@@ -1636,6 +1639,7 @@ export async function setupAndExecuteLanguageModelChain(
                           },
                         });
                       } else {
+                        streamingDeadline.touchStreamingActivity();
                         sendData({ token: tokenBuffer });
                       }
                       fullResponse += tokenBuffer;
@@ -1650,7 +1654,7 @@ export async function setupAndExecuteLanguageModelChain(
                 if (!firstTokenTime) {
                   firstTokenTime = Date.now();
                   firstByteTime = Date.now();
-                  streamingDeadline.armOnFirstToken();
+                  streamingDeadline.touchStreamingActivity();
                   sendData({
                     token,
                     timing: {
@@ -1659,24 +1663,28 @@ export async function setupAndExecuteLanguageModelChain(
                     },
                   });
                 } else {
+                  streamingDeadline.touchStreamingActivity();
                   sendData({ token });
                 }
                 fullResponse += token;
                 tokensStreamed += token.length;
               },
               async handleToolStart(tool: any, input: string) {
+                streamingDeadline.touchStreamingActivity();
                 console.log(`🔧 Tool called: ${tool.name} with input: ${JSON.stringify(input)}`);
                 if (sendData) {
                   sendData({ log: `[TOOL] Calling ${tool.name}`, toolResponse: true });
                 }
               },
               async handleToolEnd(output: string) {
+                streamingDeadline.touchStreamingActivity();
                 console.log(`🔧 Tool output: ${output}`);
                 if (sendData) {
                   sendData({ log: `[TOOL] Tool execution completed`, toolResponse: true });
                 }
               },
               async handleToolError(error: Error) {
+                streamingDeadline.touchStreamingActivity();
                 console.error(`🔧 Tool error: ${error.message}`);
                 if (sendData) {
                   sendData({ log: `[TOOL] Tool error: ${error.message}`, toolResponse: true });
@@ -1709,6 +1717,7 @@ export async function setupAndExecuteLanguageModelChain(
         await streamingDeadline.waitWithDeadline(async () => {
           while (currentResponse.tool_calls && currentResponse.tool_calls.length > 0 && iteration < maxIterations) {
             iteration++;
+            streamingDeadline.touchStreamingActivity();
             console.log(
               `🔧 Tool execution iteration ${iteration}, processing ${currentResponse.tool_calls.length} tool calls`
             );
@@ -1778,7 +1787,7 @@ export async function setupAndExecuteLanguageModelChain(
                     if (!firstTokenTime) {
                       firstTokenTime = Date.now();
                       firstByteTime = Date.now();
-                      streamingDeadline.armOnFirstToken();
+                      streamingDeadline.touchStreamingActivity();
                       sendData({
                         token,
                         timing: {
@@ -1787,6 +1796,7 @@ export async function setupAndExecuteLanguageModelChain(
                         },
                       });
                     } else {
+                      streamingDeadline.touchStreamingActivity();
                       sendData({ token });
                     }
                     fullResponse += token;
@@ -1853,7 +1863,7 @@ export async function setupAndExecuteLanguageModelChain(
           if (!firstTokenTime) {
             firstTokenTime = Date.now();
             firstByteTime = Date.now();
-            streamingDeadline.armOnFirstToken();
+            streamingDeadline.touchStreamingActivity();
             sendData({
               token: tokenBuffer,
               timing: {
@@ -1862,6 +1872,7 @@ export async function setupAndExecuteLanguageModelChain(
               },
             });
           } else {
+            streamingDeadline.touchStreamingActivity();
             sendData({ token: tokenBuffer });
           }
           fullResponse += tokenBuffer;
@@ -1915,7 +1926,7 @@ export async function setupAndExecuteLanguageModelChain(
       // Retrying would cause garbled/interleaved responses
       if (tokensStreamed > 0) {
         console.error("Operation failed after streaming began. Cannot retry without corrupting response.", error);
-        sendData({ error: "Operation timed out after partial response. Please try again." });
+        sendData({ error: "The response stalled before finishing. Please try again." });
         throw error;
       }
 

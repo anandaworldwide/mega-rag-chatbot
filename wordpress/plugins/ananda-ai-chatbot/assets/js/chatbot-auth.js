@@ -33,6 +33,28 @@ function createChatbotConfigurationError(code, opsMessage) {
   return error;
 }
 
+function isRetryableNetworkError(error) {
+  if (!error || error.name === 'AbortError') {
+    return false;
+  }
+
+  const message = typeof error.message === 'string' ? error.message : '';
+  return (
+    message.includes('Failed to fetch') ||
+    message.includes('NetworkError') ||
+    message.includes('Load failed') ||
+    message.includes('Network request failed')
+  );
+}
+
+function isPostRetryAllowed(method, idempotencyKey) {
+  const normalizedMethod = (method || 'GET').toUpperCase();
+  if (normalizedMethod === 'GET' || normalizedMethod === 'HEAD') {
+    return true;
+  }
+  return Boolean(idempotencyKey);
+}
+
 /**
  * Retry a function with exponential backoff for network errors
  * @param {Function} fn - Async function to retry
@@ -51,8 +73,7 @@ async function retryOnNetworkError(fn, maxRetries = 3, baseDelay = 1000) {
       if (error.name === 'AbortError') {
         throw error;
       }
-      // Only retry on network/fetch errors
-      if (!error.message?.includes('Failed to fetch') && !(error instanceof TypeError)) {
+      if (!isRetryableNetworkError(error)) {
         throw error; // Non-network error: fail immediately
       }
       if (attempt === maxRetries - 1) {
@@ -283,23 +304,32 @@ async function getToken() {
  * @returns {Promise<Response>} - Fetch response
  */
 async function fetchWithAuth(url, options = {}) {
+  const { idempotencyKey, ...fetchOptions } = options;
   const token = await getToken();
 
   // Ensure headers object exists
   const headers = {
     'Content-Type': 'application/json',
-    ...options.headers,
+    ...fetchOptions.headers,
     Authorization: `Bearer ${token}`,
   };
 
   const requestOptions = {
-    ...options,
+    ...fetchOptions,
     headers,
     credentials: 'include', // Include cookies for CORS
   };
 
-  // Retry transient browser network failures (same policy as token fetch)
-  return retryOnNetworkError(async () => fetch(url, requestOptions));
+  const executeFetch = () => fetch(url, requestOptions);
+  const method = fetchOptions.method || 'GET';
+
+  // POST side effects are only retried when the caller supplies an idempotency key
+  // that the backend deduplicates (see clientRequestId on /api/chat/v1).
+  if (isPostRetryAllowed(method, idempotencyKey)) {
+    return retryOnNetworkError(executeFetch);
+  }
+
+  return executeFetch();
 }
 
 // Export to global scope for WordPress frontend
@@ -307,6 +337,11 @@ async function fetchWithAuth(url, options = {}) {
 window.aichatbotAuth = {
   getToken,
   fetchWithAuth,
+  __testing__: {
+    isRetryableNetworkError,
+    isPostRetryAllowed,
+    retryOnNetworkError,
+  },
   // For testing: Force session to expire
   forceSessionExpired: function () {
     // Create and throw the same error that would happen with a real HTTP auth expiration

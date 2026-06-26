@@ -3279,7 +3279,7 @@ describe("makeChain", () => {
 });
 
 describe("createStreamingDeadlineGuard", () => {
-  it("does not enforce a deadline until the first token is streamed", async () => {
+  it("does not enforce a deadline until streaming activity begins", async () => {
     const guard = createStreamingDeadlineGuard(50);
     const result = await guard.waitWithDeadline(
       () => new Promise<string>((resolve) => setTimeout(() => resolve("ok"), 120))
@@ -3287,16 +3287,62 @@ describe("createStreamingDeadlineGuard", () => {
     expect(result).toBe("ok");
   });
 
-  it("enforces the deadline from first token, not from request start", async () => {
+  it("enforces idle deadline after streaming activity stops", async () => {
     const guard = createStreamingDeadlineGuard(50);
     await expect(
       guard.waitWithDeadline(
         () =>
           new Promise((resolve) => {
-            guard.armOnFirstToken();
+            guard.touchStreamingActivity();
             setTimeout(resolve, 200);
           })
       )
-    ).rejects.toThrow("Operation timed out after 50ms");
+    ).rejects.toThrow("Operation timed out after 50ms of inactivity");
+  });
+
+  it("does not timeout while streaming activity continues", async () => {
+    const guard = createStreamingDeadlineGuard(50);
+    const result = await guard.waitWithDeadline(
+      () =>
+        new Promise<string>((resolve) => {
+          guard.touchStreamingActivity();
+          setTimeout(() => {
+            guard.touchStreamingActivity();
+            setTimeout(() => resolve("ok"), 30);
+          }, 30);
+        })
+    );
+    expect(result).toBe("ok");
+  });
+
+  it("keeps armOnFirstToken as an alias for touchStreamingActivity", () => {
+    const guard = createStreamingDeadlineGuard(50);
+    expect(guard.armOnFirstToken).toBe(guard.touchStreamingActivity);
+  });
+});
+
+describe("setupAndExecuteLanguageModelChain streaming deadline", () => {
+  it("allows steady token activity beyond a single idle window", async () => {
+    jest.useFakeTimers();
+    const { createStreamingDeadlineGuard } = await import("../../../src/utils/server/makechain");
+    const guard = createStreamingDeadlineGuard(50);
+
+    const resultPromise = guard.waitWithDeadline(
+      () =>
+        new Promise<string>((resolve) => {
+          guard.touchStreamingActivity();
+          setTimeout(() => {
+            guard.touchStreamingActivity();
+            setTimeout(() => {
+              guard.touchStreamingActivity();
+              setTimeout(() => resolve("completed"), 30);
+            }, 30);
+          }, 30);
+        })
+    );
+
+    await jest.runAllTimersAsync();
+    await expect(resultPromise).resolves.toBe("completed");
+    jest.useRealTimers();
   });
 });

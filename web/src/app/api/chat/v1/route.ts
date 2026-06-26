@@ -89,6 +89,11 @@ import { buildTitleScopeForPersistence } from "@/utils/server/titleScopePersiste
 import { TitleScopeSelection } from "@/types/titleScope";
 import { TypedSuggestion } from "@/types/Suggestion";
 import { buildPineconeAccessFilterClauses, resolveEffectiveAccessLevelForEmail } from "@/utils/server/accessLevelUtils";
+import {
+  acquireChatRequestLock,
+  isValidClientRequestId,
+  releaseChatRequestLock,
+} from "@/utils/server/chatRequestIdempotency";
 
 export const runtime = "nodejs";
 export const maxDuration = 240;
@@ -150,6 +155,7 @@ interface ChatRequestBody {
   taskMode?: string; // optional task mode for analytics (e.g., "class-planning", "research")
   taskFollowups?: string[]; // available task follow-up suggestions
   usedTaskFollowups?: string[]; // follow-ups that have been used
+  clientRequestId?: string; // optional idempotency key for retried POST requests
   filterExplicitness?: {
     collection?: boolean;
     libraries?: boolean;
@@ -249,6 +255,18 @@ async function validateAndPreprocessInput(
     return corsMiddleware.addCorsHeaders(response, req, siteConfig);
   }
   const sanitizedUuid = rawUuid;
+
+  const rawClientRequestId =
+    typeof requestBody.clientRequestId === "string" ? requestBody.clientRequestId.trim() : undefined;
+  if (rawClientRequestId && !isValidClientRequestId(rawClientRequestId)) {
+    const response = NextResponse.json(
+      { error: "clientRequestId must be a valid v4 UUID when provided" },
+      { status: 400 }
+    );
+    return corsMiddleware.addCorsHeaders(response, req, siteConfig);
+  }
+  const sanitizedClientRequestId = rawClientRequestId;
+
   const titleScope: unknown = requestBody.titleScope;
   if (titleScope !== undefined && titleScope !== null) {
     if (!siteConfig.enableTitleScopeSelection) {
@@ -309,6 +327,7 @@ async function validateAndPreprocessInput(
       ...requestBody,
       question: sanitizedQuestion,
       uuid: sanitizedUuid,
+      clientRequestId: sanitizedClientRequestId,
       filterExplicitness,
     },
     originalQuestion,
@@ -1036,6 +1055,22 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
 
   const sourceCount = sanitizedInput.sourceCount || 4;
   const clientIP = getClientIp(req);
+  const clientRequestId = sanitizedInput.clientRequestId;
+
+  const chatRequestLock = await acquireChatRequestLock(siteConfig.siteId || "unknown", clientRequestId);
+  if (chatRequestLock === "duplicate") {
+    return corsMiddleware.addCorsHeaders(
+      NextResponse.json(
+        {
+          error: "duplicate_request",
+          message: "This message is already being processed. Please wait a moment before trying again.",
+        },
+        { status: 409 }
+      ),
+      req,
+      siteConfig
+    );
+  }
 
   // Set up streaming response
   const encoder = new TextEncoder();
@@ -1385,6 +1420,10 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
 
         // Log comprehensive performance metrics
         await logPerformanceMetrics(timingMetrics, performanceContext);
+
+        if (chatRequestLock === "acquired") {
+          await releaseChatRequestLock(siteConfig.siteId || "unknown", clientRequestId);
+        }
 
         if (!isControllerClosed) {
           controller.close();

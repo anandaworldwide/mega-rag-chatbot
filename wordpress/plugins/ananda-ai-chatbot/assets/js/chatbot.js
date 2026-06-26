@@ -1248,15 +1248,18 @@ function initChatbot() {
 
       // Create new abort controller for this request
       currentAbortController = new AbortController();
+      const clientRequestId = generateUUID();
 
       // Make API call
       const response = await window.aichatbotAuth.fetchWithAuth(`${getBaseUrl()}${API_PATHS.CHAT}`, {
         method: "POST",
+        idempotencyKey: clientRequestId,
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           question: message,
+          clientRequestId,
           history: chatHistory
             .slice(0, -1)
             .map((item) => {

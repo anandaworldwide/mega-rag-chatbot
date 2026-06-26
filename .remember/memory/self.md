@@ -2726,6 +2726,15 @@ the error and stopping stream state.
 Also buffer decoded stream text across chunks before splitting lines; SSE `data:` JSON can be split across network chunks,
 and parsing each raw chunk independently can drop valid errors or tokens.
 
+### Mistake: Fixed Streaming Deadline From First Token
+
+**Wrong**: Arm a single timeout at first streamed token and never reset it. Long-but-healthy answers (90s+ total with steady
+token flow) hit "Operation timed out after partial response" even though generation never stalled.
+
+**Correct**: Use an **idle** watchdog in `createStreamingDeadlineGuard`: call `armOnFirstToken()` on every token and on tool
+activity so the timer resets while progress continues. Still fail closed if nothing arrives for `CHAIN_STREAMING_IDLE_TIMEOUT_MS`
+(90s prod). Route `maxDuration` is 240s — headroom remains for long sessions.
+
 ### Mistake: Infrastructure Retrieval Errors Becoming No-Sources Responses
 
 **Wrong**: Catching vector retrieval errors, logging them, and continuing with an empty document list. Auth/key/network
