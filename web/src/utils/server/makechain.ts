@@ -1884,9 +1884,18 @@ export async function setupAndExecuteLanguageModelChain(
 
       sendData({ done: true, timing: finalTiming });
 
-      // Task conversations use task follow-up chips; skip AI follow-up pill generation.
+      // Task conversations use task follow-up chips; location queries skip Go deeper/broader/daily-life pills.
       let suggestionsPromise: Promise<TypedSuggestion[]> = Promise.resolve([]);
-      if (!taskMode) {
+      let skipFollowUpSuggestionsForLocation = false;
+      if (siteConfig?.enableGeoAwareness && sanitizedQuestion) {
+        try {
+          skipFollowUpSuggestionsForLocation = await hasLocationIntentAsync(sanitizedQuestion);
+        } catch (error) {
+          console.warn("Failed to check location intent for follow-up suppression:", error);
+        }
+      }
+
+      if (!taskMode && !skipFollowUpSuggestionsForLocation) {
         if (timingMetrics) {
           timingMetrics.suggestionsGenerationStart = Date.now();
         }
