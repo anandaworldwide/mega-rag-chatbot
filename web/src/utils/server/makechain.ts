@@ -1526,6 +1526,13 @@ export async function setupAndExecuteLanguageModelChain(
   while (retryCount < MAX_RETRIES) {
     try {
       streamingDeadline.reset();
+      let isLocationQuery = false;
+      const trackStreamingData = (data: StreamingResponseData) => {
+        if (data.isLocationQuery) {
+          isLocationQuery = true;
+        }
+        sendData(data);
+      };
       const modelName = modelOverride || siteConfig?.modelName || "gpt-4o";
       const temperature = siteConfig?.temperature || 0.3;
       const rephraseModelName = "gpt-4.1-mini";
@@ -1564,7 +1571,7 @@ export async function setupAndExecuteLanguageModelChain(
         { model: modelName, temperature },
         sourceCount,
         filter,
-        sendData,
+        trackStreamingData,
         undefined,
         { model: rephraseModelName, temperature: rephraseTemperature },
         temporarySession,
@@ -1886,16 +1893,7 @@ export async function setupAndExecuteLanguageModelChain(
 
       // Task conversations use task follow-up chips; location queries skip Go deeper/broader/daily-life pills.
       let suggestionsPromise: Promise<TypedSuggestion[]> = Promise.resolve([]);
-      let skipFollowUpSuggestionsForLocation = false;
-      if (siteConfig?.enableGeoAwareness && sanitizedQuestion) {
-        try {
-          skipFollowUpSuggestionsForLocation = await hasLocationIntentAsync(sanitizedQuestion);
-        } catch (error) {
-          console.warn("Failed to check location intent for follow-up suppression:", error);
-        }
-      }
-
-      if (!taskMode && !skipFollowUpSuggestionsForLocation) {
+      if (!taskMode && !isLocationQuery) {
         if (timingMetrics) {
           timingMetrics.suggestionsGenerationStart = Date.now();
         }
