@@ -26,6 +26,9 @@ DEFAULT_URLS = (
     "https://www.ananda.org/blog/the-spiritual-eye/",
     "https://www.ananda.org/blog/hospice-yogananda-meditation/",
     "https://www.ananda.org/",
+    "https://www.ananda.org/blog/",
+    "https://www.ananda.org/meditation/",
+    "https://www.ananda.org/yogapedia/aparaprakriti/",
 )
 
 USER_AGENT = (
