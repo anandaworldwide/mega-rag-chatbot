@@ -252,6 +252,22 @@ describe("Location Intent Detector", () => {
 
       await expect(hasLocationIntentAsync(quote)).resolves.toBe(false);
     });
+
+    it("should NOT trigger location intent for historical place questions", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("How did Paramahansa Yogananda choose Los Angeles")).toBe(false);
+      expect(await hasLocationIntentAsync("Why did Yogananda settle in California")).toBe(false);
+      expect(await hasLocationIntentAsync("When did Ananda move to Nevada City")).toBe(false);
+    });
+
+    it("should still trigger location intent for center lookup queries with place names", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("Where is the Ananda center in Los Angeles")).toBe(true);
+      expect(await hasLocationIntentAsync("Find a meditation group near Los Angeles")).toBe(true);
+      expect(await hasLocationIntentAsync("How do I get to the Los Angeles center")).toBe(true);
+    });
   });
 
   describe("cache behavior", () => {
