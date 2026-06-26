@@ -96,9 +96,46 @@ class TestAuthorExtraction(unittest.TestCase):
         <html><head>
           <meta name="author" content="Nabha Cosley" />
           <script>var dataLayer_content = {"pagePostType":"frontpage"};</script>
-        </head><body class="home page"><h1>Welcome</h1></body></html>
+        </head><body class="home page">
+          <div class="ananda-x-entry-subtitle">AUDIO ONLY</div>
+          <h1>Welcome</h1>
+        </body></html>
         """
         self.assertIsNone(extract_author_from_html(html, site_id="ananda-public"))
+
+    def test_extracts_static_page_byline_without_post_type(self):
+        html = """
+        <html><head>
+          <meta name="author" content="steve" />
+          <script>var dataLayer_content = {"pagePostType":"page",
+          "pagePostType2":"single-page"};</script>
+        </head><body class="page">
+          <div class="ananda-x-entry-subtitle">by Nayaswami Bharat</div>
+          <p>Article body</p>
+        </body></html>
+        """
+        self.assertEqual(
+            extract_author_from_html(html, site_id="ananda-public"),
+            "Nayaswami Bharat",
+        )
+
+    def test_extracts_ask_page_byline(self):
+        html = """
+        <html><head>
+          <meta name="author" content="Ananda Sangha Worldwide" />
+          <script>var dataLayer_content = {"pagePostType":"ask",
+          "pagePostType2":"single-ask"};</script>
+        </head><body class="single single-ask">
+          <div class="h4 h-author mtn">
+            By <a href="https://www.ananda.org/author/jayadev/"> Tyagi Jayadev</a>
+          </div>
+          <p>Answer body</p>
+        </body></html>
+        """
+        self.assertEqual(
+            extract_author_from_html(html, site_id="ananda-public"),
+            "Tyagi Jayadev",
+        )
 
     def test_returns_none_for_navigation_page_with_meta_author(self):
         html = """

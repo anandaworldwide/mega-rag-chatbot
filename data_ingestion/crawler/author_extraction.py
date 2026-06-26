@@ -17,11 +17,20 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 BYLINE_PATTERN = re.compile(r"^by\s+(.+)$", re.IGNORECASE)
-PAGE_POST_TYPE_PATTERN = re.compile(r'"pagePostType"\s*:\s*"post"')
-PAGE_POST_TYPE2_PATTERN = re.compile(r'"pagePostType2"\s*:\s*"single-post"')
+
+PAGE_POST_TYPE_PATTERN = re.compile(r'"pagePostType"\s*:\s*"([^"]+)"')
+PAGE_POST_TYPE2_PATTERN = re.compile(r'"pagePostType2"\s*:\s*"([^"]+)"')
+
+# Page types whose meta/JSON-LD author tags reflect real authorship.
+META_AUTHOR_PAGE_TYPES = frozenset({"post", "ask"})
+META_AUTHOR_PAGE_TYPES2 = frozenset({"single-post", "single-ask"})
+
+# Page types that should never use meta/JSON-LD author fallback.
+EXCLUDED_META_PAGE_TYPES = frozenset({"frontpage", "bloghome", "yogapedia"})
 
 BYLINE_SELECTORS = (
     ".ananda-x-entry-subtitle",
+    ".h-author",
     ".entry-subtitle",
     ".post-subtitle",
     ".byline",
@@ -34,11 +43,30 @@ ARTICLE_SCHEMA_TYPES = frozenset({"Article", "BlogPosting", "NewsArticle"})
 
 def _parse_byline(text: str) -> str | None:
     """Parse 'by Author Name' text into an author name."""
-    match = BYLINE_PATTERN.match(text.strip())
+    normalized_text = re.sub(r"\s+", " ", text.strip())
+    match = BYLINE_PATTERN.match(normalized_text)
     if not match:
         return None
     author = match.group(1).strip()
     return author or None
+
+
+def _body_classes(soup: BeautifulSoup) -> list[str]:
+    body = soup.body
+    if not body:
+        return []
+    classes = body.get("class") or []
+    return classes if isinstance(classes, list) else []
+
+
+def _page_post_type(html: str) -> str | None:
+    match = PAGE_POST_TYPE_PATTERN.search(html)
+    return match.group(1) if match else None
+
+
+def _page_post_type2(html: str) -> str | None:
+    match = PAGE_POST_TYPE2_PATTERN.search(html)
+    return match.group(1) if match else None
 
 
 def _iter_json_ld_items(soup: BeautifulSoup) -> list[dict[str, Any]]:
@@ -80,25 +108,34 @@ def _has_json_ld_article(soup: BeautifulSoup) -> bool:
     return False
 
 
-def is_article_page(soup: BeautifulSoup, html: str = "") -> bool:
+def is_meta_author_eligible(soup: BeautifulSoup, html: str = "") -> bool:
     """
-    Return True when the page is a single article, not an index or nav page.
+    Return True when meta tags or JSON-LD may carry a real author name.
 
-    On ananda.org, blog posts are WordPress `post` entries with `single-post`
-    body classes and Article JSON-LD. Index pages such as the homepage, blog
-    archive, yogapedia landing page, and static navigation pages are excluded.
+    Visible bylines are handled separately and can appear on static pages.
+    Meta/JSON-LD fallback is limited to blog posts and ask pages so index,
+    yogapedia, and site-wide editor tags are ignored.
     """
-    body = soup.body
-    if body:
-        classes = body.get("class") or []
-        if isinstance(classes, list) and "single-post" in classes:
-            return True
+    classes = _body_classes(soup)
+    if "single-post" in classes or "single-ask" in classes:
+        return True
 
     if html:
-        if PAGE_POST_TYPE_PATTERN.search(html) or PAGE_POST_TYPE2_PATTERN.search(html):
+        page_type = _page_post_type(html)
+        page_type2 = _page_post_type2(html)
+        if page_type in EXCLUDED_META_PAGE_TYPES:
+            return False
+        if page_type in META_AUTHOR_PAGE_TYPES:
+            return True
+        if page_type2 in META_AUTHOR_PAGE_TYPES2:
             return True
 
     return _has_json_ld_article(soup)
+
+
+def is_article_page(soup: BeautifulSoup, html: str = "") -> bool:
+    """Backward-compatible alias for meta/JSON-LD author eligibility checks."""
+    return is_meta_author_eligible(soup, html)
 
 
 def _author_from_schema_item(author_value: Any) -> str | None:
@@ -156,32 +193,37 @@ def _extract_visible_byline(soup: BeautifulSoup) -> str | None:
     return None
 
 
+def _normalize_author_name(author: str, site_id: str | None) -> str | None:
+    normalized = normalize_author(author, site_id)
+    return normalized if normalized != "Unknown" else None
+
+
 def extract_author_from_soup(
     soup: BeautifulSoup, site_id: str | None = None, html: str = ""
 ) -> str | None:
     """
     Extract and normalize an author name from parsed HTML.
 
-    Only single article pages are attributed. Index, archive, and navigation
-    pages return None even when they contain site-wide author meta tags.
+    Visible bylines such as '.ananda-x-entry-subtitle' or '.h-author' are
+    checked on every page using a strict 'by Author Name' pattern. This
+    captures blog posts, static articles, and ask answers without attributing
+    index pages that use the same subtitle element for labels like 'AUDIO ONLY'.
 
-    Priority on article pages:
-      1. Visible byline elements (for example, '.ananda-x-entry-subtitle')
-      2. JSON-LD Article author metadata
-      3. HTML meta author tags
+    Meta tags and JSON-LD are used only as fallback on blog posts and ask
+    pages where site-wide editor tags would otherwise be misleading.
     """
-    if not is_article_page(soup, html):
+    visible_author = _extract_visible_byline(soup)
+    if visible_author:
+        return _normalize_author_name(visible_author, site_id)
+
+    if not is_meta_author_eligible(soup, html):
         return None
 
-    for extractor in (
-        _extract_visible_byline,
-        _extract_json_ld_author,
-        _extract_meta_author,
-    ):
+    for extractor in (_extract_json_ld_author, _extract_meta_author):
         author = extractor(soup)
         if author:
-            normalized = normalize_author(author, site_id)
-            if normalized != "Unknown":
+            normalized = _normalize_author_name(author, site_id)
+            if normalized:
                 return normalized
 
     return None
