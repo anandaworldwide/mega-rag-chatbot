@@ -110,7 +110,8 @@ def _update_pinecone_vectors(
     if deleted_count > 0:
         logging.info(f"Cleared {deleted_count} old vectors from Pinecone for: {url}")
 
-    embeddings = crawler.create_embeddings(chunks, url, title)
+    author = content.metadata.get("author") if content.metadata else None
+    embeddings = crawler.create_embeddings(chunks, url, title, author=author)
     upsert_to_pinecone(embeddings, pinecone_index, index_name)
     logging.debug(f"Successfully processed and upserted: {url}")
     logging.debug(f"Created {len(chunks)} chunks, {len(embeddings)} embeddings.")
