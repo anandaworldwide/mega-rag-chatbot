@@ -12,7 +12,9 @@ from bs4 import BeautifulSoup
 try:
     from data_ingestion.utils.author_normalization import normalize_author
 except ImportError:
-    from utils.author_normalization import normalize_author  # type: ignore[import-not-found]
+    from utils.author_normalization import (
+        normalize_author,  # type: ignore[import-not-found]
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +41,14 @@ BYLINE_SELECTORS = (
 )
 
 ARTICLE_SCHEMA_TYPES = frozenset({"Article", "BlogPosting", "NewsArticle"})
+
+# Site-wide WordPress meta author values — not real page authorship.
+SITE_WIDE_META_AUTHORS = frozenset(
+    {
+        "ananda sangha worldwide",
+        "ananda",
+    }
+)
 
 
 def _parse_byline(text: str) -> str | None:
@@ -100,14 +110,6 @@ def _schema_type_matches(schema_type: Any, allowed_types: frozenset[str]) -> boo
     return schema_type in allowed_types
 
 
-def _has_json_ld_article(soup: BeautifulSoup) -> bool:
-    """Return True when the page includes schema.org Article metadata."""
-    for item in _iter_json_ld_items(soup):
-        if _schema_type_matches(item.get("@type"), ARTICLE_SCHEMA_TYPES):
-            return True
-    return False
-
-
 def is_meta_author_eligible(soup: BeautifulSoup, html: str = "") -> bool:
     """
     Return True when meta tags or JSON-LD may carry a real author name.
@@ -130,7 +132,7 @@ def is_meta_author_eligible(soup: BeautifulSoup, html: str = "") -> bool:
         if page_type2 in META_AUTHOR_PAGE_TYPES2:
             return True
 
-    return _has_json_ld_article(soup)
+    return False
 
 
 def is_article_page(soup: BeautifulSoup, html: str = "") -> bool:
@@ -188,12 +190,16 @@ def _extract_visible_byline(soup: BeautifulSoup) -> str | None:
             author = _parse_byline(text)
             if author:
                 return author
-            if selector == "[rel='author']" and text:
-                return text
     return None
 
 
+def _is_site_wide_meta_author(author: str) -> bool:
+    return author.strip().lower() in SITE_WIDE_META_AUTHORS
+
+
 def _normalize_author_name(author: str, site_id: str | None) -> str | None:
+    if _is_site_wide_meta_author(author):
+        return None
     normalized = normalize_author(author, site_id)
     return normalized if normalized != "Unknown" else None
 

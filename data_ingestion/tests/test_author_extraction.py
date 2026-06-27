@@ -41,7 +41,9 @@ class TestAuthorExtraction(unittest.TestCase):
         self.assertFalse(is_article_page(soup, html))
 
     def test_extracts_visible_byline(self):
-        html = article_html(body='<div class="ananda-x-entry-subtitle">by Maitri Jones</div>')
+        html = article_html(
+            body='<div class="ananda-x-entry-subtitle">by Maitri Jones</div>'
+        )
         self.assertEqual(
             extract_author_from_html(html, site_id="ananda-public"),
             "Maitri Jones",
@@ -82,13 +84,12 @@ class TestAuthorExtraction(unittest.TestCase):
             "Tyagi Jayadev",
         )
 
-    def test_normalizes_generic_org_author(self):
+    def test_ignores_site_wide_org_meta_author(self):
         html = article_html(
             head='<meta name="author" content="Ananda Sangha Worldwide" />'
         )
-        self.assertEqual(
+        self.assertIsNone(
             extract_author_from_html(html, site_id="ananda-public"),
-            "Swami Kriyananda",
         )
 
     def test_returns_none_for_homepage_even_with_meta_author(self):
@@ -137,6 +138,21 @@ class TestAuthorExtraction(unittest.TestCase):
             "Tyagi Jayadev",
         )
 
+    def test_ignores_rel_author_without_by_prefix(self):
+        html = article_html(
+            body='<span rel="author">Editorial Team</span><p>Article body</p>'
+        )
+        self.assertIsNone(extract_author_from_html(html, site_id="ananda-public"))
+
+    def test_extracts_rel_author_with_by_prefix(self):
+        html = article_html(
+            body='<a rel="author" href="/author/jayadev/">by Tyagi Jayadev</a>'
+        )
+        self.assertEqual(
+            extract_author_from_html(html, site_id="ananda-public"),
+            "Tyagi Jayadev",
+        )
+
     def test_returns_none_for_navigation_page_with_meta_author(self):
         html = """
         <html><head>
@@ -166,6 +182,21 @@ class TestAuthorExtraction(unittest.TestCase):
         )
         self.assertIsNone(extract_author_from_html(html, site_id="ananda-public"))
 
+    def test_returns_none_for_navigation_page_with_article_json_ld(self):
+        schema = {
+            "@context": "https://schema.org",
+            "@type": "Article",
+            "author": {"name": "Nabha Cosley"},
+        }
+        html = f"""
+        <html><head>
+          <meta name="author" content="Nabha Cosley" />
+          <script type="application/ld+json">{json.dumps(schema)}</script>
+          <script>var dataLayer_content = {{"pagePostType":"page"}};</script>
+        </head><body class="page"><h1>Meditation</h1></body></html>
+        """
+        self.assertIsNone(extract_author_from_html(html, site_id="ananda-public"))
+
     def test_detects_article_via_datalayer_only(self):
         html = f"""
         <html><head>{ARTICLE_DATALAYER}
@@ -175,6 +206,67 @@ class TestAuthorExtraction(unittest.TestCase):
         self.assertEqual(
             extract_author_from_html(html, site_id="ananda-public"),
             "Tyagi Jayadev",
+        )
+
+
+class TestPageProcessingAuthorPropagation(unittest.TestCase):
+    def test_update_pinecone_vectors_passes_author_to_create_embeddings(self):
+        from unittest.mock import MagicMock
+
+        from data_ingestion.crawler.config import PageContent
+        from data_ingestion.crawler.page_processing import (
+            _process_page_content,
+            _update_pinecone_vectors,
+        )
+
+        crawler = MagicMock()
+        crawler.text_splitter.split_text.return_value = ["chunk one"]
+        crawler.should_process_content.return_value = True
+        crawler.remove_url_from_pinecone.return_value = 0
+        crawler.create_embeddings.return_value = [{"id": "vec-1", "values": [], "metadata": {}}]
+
+        content = PageContent(
+            url="https://www.ananda.org/blog/example/",
+            title="Example Post",
+            content="Article body with enough words to chunk.",
+            metadata={"type": "text", "source": "https://www.ananda.org/blog/example/", "author": "Tyagi Jayadev"},
+        )
+
+        _update_pinecone_vectors(
+            crawler,
+            MagicMock(),
+            "test-index",
+            content.url,
+            ["chunk one"],
+            content.title,
+            author="Tyagi Jayadev",
+        )
+        crawler.create_embeddings.assert_called_once_with(
+            ["chunk one"],
+            content.url,
+            content.title,
+            author="Tyagi Jayadev",
+        )
+
+        crawler.reset_mock()
+        crawler.create_embeddings.return_value = [{"id": "vec-1", "values": [], "metadata": {}}]
+
+        pages_inc, restart_inc, rate_limit = _process_page_content(
+            content,
+            [],
+            content.url,
+            crawler,
+            MagicMock(),
+            "test-index",
+        )
+
+        self.assertEqual(pages_inc, 1)
+        self.assertFalse(rate_limit)
+        crawler.create_embeddings.assert_called_once_with(
+            ["chunk one"],
+            content.url,
+            content.title,
+            author="Tyagi Jayadev",
         )
 
 

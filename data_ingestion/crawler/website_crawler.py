@@ -1759,7 +1759,7 @@ class WebsiteCrawler:
 
         author = extract_author_from_html(html_content, site_id=self.site_id)
         if author:
-            logging.debug(f"Extracted author: {author}")
+            logging.info(f"Extracted author '{author}' from {url}")
 
         clean_text = self.clean_content(html_content)
         logging.debug(f"Cleaned text length: {len(clean_text)}")

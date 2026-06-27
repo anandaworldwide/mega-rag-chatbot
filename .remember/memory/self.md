@@ -2943,3 +2943,22 @@ uv run python data_ingestion/pdf_to_vector_db.py \
 
 Scripts import `data_ingestion.*` and `pyutil.*`; repo root must be on `PYTHONPATH` (via `uv run` from root). Use
 `data_ingestion/...` paths for `--file-path`, not `media/...` relative to `data_ingestion/`.
+
+### Mistake: Referencing caller scope variable inside helper without passing it
+
+**Wrong**:
+
+```python
+def _update_pinecone_vectors(crawler, url, chunks, title):
+    author = content.metadata.get("author")  # NameError: content not in scope
+```
+
+**Correct**: Pass the needed value from the caller that owns it:
+
+```python
+def _update_pinecone_vectors(..., author: str | None = None):
+    embeddings = crawler.create_embeddings(..., author=author)
+
+author = content.metadata.get("author") if content.metadata else None
+_update_pinecone_vectors(..., author=author)
+```
