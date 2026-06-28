@@ -2942,6 +2942,7 @@ uv run python data_ingestion/pdf_to_vector_db.py \
 ```
 
 Scripts import `data_ingestion.*` and `pyutil.*`; repo root must be on `PYTHONPATH` (via `uv run` from root). Use
+`PYTHONPATH=${{ github.workspace }}` (or `.`) in GitHub Actions workflows that run `bin/*.py` scripts importing `pyutil`.
 `data_ingestion/...` paths for `--file-path`, not `media/...` relative to `data_ingestion/`.
 
 ### Mistake: Referencing caller scope variable inside helper without passing it
