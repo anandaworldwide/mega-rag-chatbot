@@ -2962,3 +2962,39 @@ def _update_pinecone_vectors(..., author: str | None = None):
 author = content.metadata.get("author") if content.metadata else None
 _update_pinecone_vectors(..., author=author)
 ```
+
+### Mistake: Firestore author-index timeout returns empty alias map
+
+**Wrong**:
+
+```typescript
+} catch (error) {
+  return EMPTY_INDEX; // drops author_mappings.json variants too
+}
+```
+
+**Correct**: Fall back to mappings-only index when Firestore fails:
+
+```typescript
+} catch (error) {
+  return buildIndexFromAuthorKeys([], siteId);
+}
+```
+
+### Mistake: Per-vector Pinecone metadata updates at scale
+
+**Wrong**: Query vector IDs, then `index.update(id=..., set_metadata=...)` in a loop (slow; query responses can exceed size limits if values included).
+
+**Correct**: Use Pinecone filter-based bulk update (up to 100k/request):
+
+```python
+while True:
+    matched = index.update(filter={"author": {"$eq": alt}}, set_metadata={"author": canonical}, dry_run=True).matched_records
+    if not matched:
+        break
+    index.update(filter={"author": {"$eq": alt}}, set_metadata={"author": canonical})
+```
+
+Use `dry_run=True` on filter updates for accurate counts (not capped like query top_k).
+Pace filter updates to Pinecone's 5/sec metadata-update limit (`FilterUpdateRateLimiter`, default 0.21s).
+Retry with exponential backoff on HTTP 429.
