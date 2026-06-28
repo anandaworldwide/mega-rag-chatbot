@@ -47,9 +47,17 @@ Weekly Cron Setup:
 import argparse
 import json
 import os
+import sys
 import time
 from collections import Counter
 from datetime import datetime, timezone
+from pathlib import Path
+
+# Ensure the repo root is importable when this script is run by file path
+# (Python puts bin/ on sys.path[0], not the repo root, so `pyutil` would be missing).
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 import firebase_admin
 from firebase_admin import credentials, firestore

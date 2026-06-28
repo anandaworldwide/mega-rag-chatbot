@@ -9,7 +9,6 @@ jobs:
   refresh-stats:
     runs-on: ubuntu-latest
     env:
-      PYTHONPATH: ${{ github.workspace }}
       GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
       PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
       PINECONE_INGEST_INDEX_NAME: ${{ secrets.PINECONE_INGEST_INDEX_NAME }}
