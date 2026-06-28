@@ -2941,9 +2941,28 @@ uv run python data_ingestion/pdf_to_vector_db.py \
   --file-path data_ingestion/media/pdf-docs/...
 ```
 
-Scripts import `data_ingestion.*` and `pyutil.*`; repo root must be on `PYTHONPATH` (via `uv run` from root). Use
-`PYTHONPATH=${{ github.workspace }}` (or `.`) in GitHub Actions workflows that run `bin/*.py` scripts importing `pyutil`.
+Scripts import `data_ingestion.*` and `pyutil.*`; repo root must be on `PYTHONPATH` (via `uv run` from root). When a
+`bin/*.py` script is run by file path (e.g. `uv run python bin/foo.py`), Python puts `bin/` on `sys.path[0]`, NOT the
+repo root, so `pyutil`/`data_ingestion` imports fail even though `python -c "import pyutil"` works (cwd is on path).
+Robust fix: bootstrap the repo root inside the script —
+`sys.path.insert(0, str(Path(__file__).resolve().parents[1]))` before the first first-party import.
 `data_ingestion/...` paths for `--file-path`, not `media/...` relative to `data_ingestion/`.
+
+### Mistake: GitHub Actions job can't see secrets that live on an Environment
+
+**Wrong**: Reference `${{ secrets.PINECONE_INGEST_INDEX_NAME }}` in a job with no `environment:`. This repo's Pinecone/
+Google secrets are **GitHub Environment** secrets (Vercel-created envs like `Production-ananda-library-chatbot`), not repo
+secrets (`gh secret list` shows only `CLOUDWAYS_SSH_KEY`). Without `environment:`, every `secrets.*` resolves to empty →
+script fails with `... environment variable not set`. The UI shows env secrets as blank on edit (mask), which looks like
+"unset". Diagnose with `gh api repos/{owner}/{repo}/environments --jq '.environments[].name'` then
+`gh secret list --env <name>`.
+
+**Correct**: Declare the environment on the job: `environment: Production-ananda-library-chatbot`. Watch for deployment
+protection rules (required reviewers) that can pause scheduled runs.
+
+Also: `workflow_dispatch` runs the workflow + checked-out code from the committed ref, never local uncommitted edits;
+re-running a failed run replays the same commit. Commit+push and start a fresh run to pick up changes. A traceback whose
+line number doesn't match your edited file is proof the runner is on an older commit.
 
 ### Mistake: Referencing caller scope variable inside helper without passing it
 
