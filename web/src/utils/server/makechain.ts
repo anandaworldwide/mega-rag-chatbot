@@ -58,6 +58,7 @@ import { calculateSources, combineDocumentsFn } from "./ragDocumentUtils";
 import { extractJsonArray } from "./suggestionParsing";
 import { filterSuggestionsForDiversity } from "./suggestionDiversity";
 import { AuthorScopeHint, AuthorScopeMode } from "./authorConstants";
+import { getAuthorScopeIndex } from "./authorIndex";
 import { resolveAuthorScope } from "./authorScopeResolver";
 import {
   buildLibraryFilter,
@@ -783,11 +784,17 @@ Error details: ${errorString}`,
           collectionMode = "whole_library";
         }
 
+        const authorScopeIndex = useAutoAuthorScope
+          ? await getAuthorScopeIndex(siteId)
+          : { canonicalAuthors: [], aliasIndex: {} };
+
         const scopeDescriptor = resolveAuthorScope({
           question: input.question,
           scopeHint: capturedAuthorScopeHint,
           siteConfig,
           collectionMode,
+          knownAuthors: authorScopeIndex.canonicalAuthors,
+          generatedAliasIndex: authorScopeIndex.aliasIndex,
         });
 
         if (scopeDescriptor.kind === "named") {
@@ -811,6 +818,10 @@ Error details: ${errorString}`,
               scopeHint: capturedAuthorScopeHint,
               scopeDescriptor,
               activeFilterPromptData,
+              authorIndexSize: {
+                authors: authorScopeIndex.canonicalAuthors.length,
+                aliases: Object.keys(authorScopeIndex.aliasIndex).length,
+              },
             },
             sendData
           );
@@ -842,6 +853,10 @@ Error details: ${errorString}`,
                 scopeDescriptor,
                 activeFilterPromptData,
                 blendRetrieval: blendRetrievalDebug,
+                authorIndexSize: {
+                  authors: authorScopeIndex.canonicalAuthors.length,
+                  aliases: Object.keys(authorScopeIndex.aliasIndex).length,
+                },
               },
               sendData
             );

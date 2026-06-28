@@ -200,6 +200,7 @@ export function formatAuthorScopeDebugLog(input: {
   scopeDescriptor: AuthorScopeDescriptor;
   activeFilterPromptData: ActiveFilterPromptData;
   blendRetrieval?: AuthorScopeBlendRetrievalDebug;
+  authorIndexSize?: { authors: number; aliases: number };
 }): string {
   const lines: string[] = [
     "[AuthorScope] ── retrieval decision ──",
@@ -209,6 +210,12 @@ export function formatAuthorScopeDebugLog(input: {
     `  LLM scope hint: ${input.scopeHint}${input.scopeHint === "default" && input.collectionMode === "auto" ? " (first turn or rephrase unavailable)" : ""}`,
     `  resolved retrieval: ${describeScopeDescriptor(input.scopeDescriptor)}`,
   ];
+
+  if (input.authorIndexSize) {
+    lines.push(
+      `  author index loaded: ${input.authorIndexSize.authors} canonical authors, ${input.authorIndexSize.aliases} alias tokens`
+    );
+  }
 
   if (input.blendRetrieval) {
     lines.push(`  blend fetch window: ${input.blendRetrieval.fetchCount} candidates`);

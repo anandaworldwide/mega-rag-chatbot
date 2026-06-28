@@ -1,0 +1,24 @@
+name: Weekly Library Stats
+
+on:
+  schedule:
+    - cron: "0 9 * * 0"
+  workflow_dispatch: {}
+
+jobs:
+  refresh-stats:
+    runs-on: ubuntu-latest
+    env:
+      GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
+      PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
+      PINECONE_INGEST_INDEX_NAME: ${{ secrets.PINECONE_INGEST_INDEX_NAME }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+      - run: uv sync --locked
+      - name: Satisfy load_env file check (values come from env above)
+        run: touch .env.ananda
+      - name: Write library stats to Firestore
+        run: uv run python bin/vector_db_stats.py --site ananda --env prod --write-firestore

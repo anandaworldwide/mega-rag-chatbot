@@ -17,19 +17,64 @@ Required Environment Variables (in .env.[site]):
 Usage:
     python clean_pinecone_authors.py --site ananda --dry-run
     python clean_pinecone_authors.py --site ananda
+    python clean_pinecone_authors.py --site ananda --sample-size 3
 """
 
 import argparse
 import json
 import logging
 import os
+import time
 from collections import defaultdict
 
 from dotenv import load_dotenv
 from pinecone import Pinecone
-from tqdm import tqdm
+from pinecone.exceptions import PineconeApiException
 
 logger = logging.getLogger(__name__)
+
+# Pinecone serverless limit: 5 filter-based metadata updates per second per namespace.
+DEFAULT_FILTER_UPDATE_INTERVAL_SEC = 0.21
+MAX_FILTER_UPDATE_RETRIES = 8
+
+
+class FilterUpdateRateLimiter:
+    """Paces filter-based index.update calls to stay under Pinecone rate limits."""
+
+    def __init__(self, min_interval_sec: float = DEFAULT_FILTER_UPDATE_INTERVAL_SEC):
+        self.min_interval_sec = min_interval_sec
+        self._last_call_at = 0.0
+
+    def wait(self) -> None:
+        if self.min_interval_sec <= 0:
+            return
+        now = time.monotonic()
+        elapsed = now - self._last_call_at
+        if elapsed < self.min_interval_sec:
+            time.sleep(self.min_interval_sec - elapsed)
+        self._last_call_at = time.monotonic()
+
+
+def _filter_update(index, rate_limiter: FilterUpdateRateLimiter, **kwargs):
+    """Call index.update with pacing and retry on HTTP 429."""
+    for attempt in range(MAX_FILTER_UPDATE_RETRIES):
+        rate_limiter.wait()
+        try:
+            return index.update(**kwargs)
+        except PineconeApiException as exc:
+            if exc.status != 429:
+                raise
+            if attempt == MAX_FILTER_UPDATE_RETRIES - 1:
+                raise
+            backoff = min(30.0, 1.0 * (2**attempt))
+            logger.warning(
+                "Pinecone filter update rate limited (429); retrying in %.1fs (attempt %d/%d)",
+                backoff,
+                attempt + 1,
+                MAX_FILTER_UPDATE_RETRIES,
+            )
+            time.sleep(backoff)
+    raise RuntimeError("Unreachable: filter update retry loop exhausted")
 
 
 def load_env(site_id: str) -> None:
@@ -136,12 +181,79 @@ def load_author_mappings(site_id: str) -> dict[str, list[str]]:
         return {}
 
 
+def _author_eq_filter(author_name: str) -> dict[str, dict[str, str]]:
+    return {"author": {"$eq": author_name}}
+
+
+def _embedding_dimension() -> int:
+    return int(os.getenv("OPENAI_EMBEDDINGS_DIMENSION", "3072"))
+
+
+def _dummy_query_vector() -> list[float]:
+    return [0.0] * _embedding_dimension()
+
+
+def _query_author_vector_ids(index, author_name: str, top_k: int) -> list[str]:
+    """Return vector IDs whose metadata author exactly matches author_name."""
+    query_response = index.query(
+        vector=_dummy_query_vector(),
+        top_k=top_k,
+        filter=_author_eq_filter(author_name),
+        include_metadata=False,
+        include_values=False,
+    )
+    return [match.id for match in query_response.matches]
+
+
+def _count_vectors_by_author(
+    index, author_name: str, rate_limiter: FilterUpdateRateLimiter
+) -> int:
+    """Return how many vectors match an exact author metadata value."""
+    response = _filter_update(
+        index,
+        rate_limiter,
+        filter=_author_eq_filter(author_name),
+        set_metadata={"author": author_name},
+        dry_run=True,
+    )
+    return int(getattr(response, "matched_records", 0) or 0)
+
+
+def _bulk_replace_author_metadata(
+    index,
+    alt_name: str,
+    canonical_name: str,
+    rate_limiter: FilterUpdateRateLimiter,
+) -> int:
+    """
+    Replace author metadata for all vectors matching alt_name.
+
+    Uses Pinecone filter-based bulk update (up to 100,000 records per request).
+    """
+    updated_total = 0
+
+    while True:
+        response = _filter_update(
+            index,
+            rate_limiter,
+            filter=_author_eq_filter(alt_name),
+            set_metadata={"author": canonical_name},
+        )
+        matched = int(getattr(response, "matched_records", 0) or 0)
+        if matched == 0:
+            break
+        updated_total += matched
+
+    return updated_total
+
+
 def find_and_replace_authors(
     index,
     alternative_names: list[str],
     canonical_name: str,
     dry_run: bool = True,
-    batch_size: int = 100,
+    sample_size: int = 3,
+    rate_limiter: FilterUpdateRateLimiter | None = None,
 ) -> dict[str, int]:
     """
     Find and replace author names in Pinecone metadata.
@@ -151,61 +263,46 @@ def find_and_replace_authors(
         alternative_names: List of alternative author names to search for
         canonical_name: The standardized name to replace alternatives with
         dry_run: If True, only count matches without making changes
-        batch_size: Number of records to update in each batch
+        sample_size: Number of sample vectors to show in dry-run output
 
     Returns:
         Dict mapping each alternative name to the number of matches found
 
     Note:
-        Uses a dummy vector for querying since we only care about metadata.
-        Updates are performed in batches to avoid overwhelming the API.
+        Uses Pinecone filter-based bulk update for writes (up to 100k vectors per
+        request). Discovery for dry-run counts also uses filter dry_run so results
+        are not capped like metadata queries. Filter updates are paced to Pinecone's
+        5 requests/second limit for metadata updates.
     """
     stats = {name: 0 for name in alternative_names}
+    limiter = rate_limiter or FilterUpdateRateLimiter()
 
     for alt_name in alternative_names:
-        # Query using exact match on author field
-        query_response = index.query(
-            vector=[0]
-            * int(
-                os.getenv("OPENAI_EMBEDDINGS_DIMENSION", "1536")
-            ),  # dummy vector since we only care about metadata
-            top_k=10000,  # maximum number of matches to return
-            filter={"author": {"$eq": alt_name}},
-            include_metadata=True,
-            include_values=True,  # Make sure we get the vector values
+        if dry_run:
+            match_count = _count_vectors_by_author(index, alt_name, limiter)
+            stats[alt_name] = match_count
+            if match_count == 0:
+                continue
+
+            sample_ids = _query_author_vector_ids(
+                index, alt_name, top_k=max(sample_size, 1)
+            )
+            if sample_ids:
+                sample_response = index.fetch(ids=sample_ids[:sample_size])
+                print(f"\nSample changes for '{alt_name}':")
+                for vector_id, vector in sample_response.vectors.items():
+                    metadata = dict(vector.metadata or {})
+                    print(f"  ID: {vector_id}")
+                    print(f"  Current metadata author: {metadata.get('author')}")
+                    updated = {**metadata, "author": canonical_name}
+                    print(f"  Would change author to: {updated.get('author')}\n")
+                if match_count > sample_size:
+                    print(f"  ... and {match_count - sample_size} more similar changes")
+            continue
+
+        stats[alt_name] = _bulk_replace_author_metadata(
+            index, alt_name, canonical_name, limiter
         )
-
-        matches = query_response.matches
-        stats[alt_name] = len(matches)
-
-        if dry_run and matches:
-            # In dry run, show sample of changes that would be made
-            print(f"\nSample changes for '{alt_name}':")
-            for match in matches[:3]:  # Show first 3 examples
-                print(f"  ID: {match.id}")
-                print(f"  Current metadata: {match.metadata}")
-                new_metadata = match.metadata.copy()
-                new_metadata["author"] = canonical_name
-                print(f"  Would change to: {new_metadata}\n")
-            if len(matches) > 3:
-                print(f"  ... and {len(matches) - 3} more similar changes")
-
-        elif not dry_run and matches:
-            # Process updates in batches with progress bar
-            for i in tqdm(
-                range(0, len(matches), batch_size), desc=f"Updating {alt_name}"
-            ):
-                batch = matches[i : i + batch_size]
-                update_ops = []
-
-                for match in batch:
-                    # Create update operation, preserving all metadata except author
-                    metadata = match.metadata.copy()
-                    metadata["author"] = canonical_name
-                    # Use the vector values from the query response
-                    update_ops.append((match.id, match.values, metadata))
-
-                index.upsert(vectors=update_ops)
 
     return stats
 
@@ -233,6 +330,21 @@ def main():
         help="Perform a dry run without making changes",
     )
     parser.add_argument("--index-name", help="Override the index name from env file")
+    parser.add_argument(
+        "--sample-size",
+        type=int,
+        default=3,
+        help="Number of sample vectors to show during dry run (default: 3)",
+    )
+    parser.add_argument(
+        "--update-interval",
+        type=float,
+        default=DEFAULT_FILTER_UPDATE_INTERVAL_SEC,
+        help=(
+            "Minimum seconds between Pinecone filter metadata updates "
+            f"(default: {DEFAULT_FILTER_UPDATE_INTERVAL_SEC}, limit is 5/sec)"
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -249,6 +361,7 @@ def main():
     # Initialize Pinecone with new API
     pc = get_pinecone_client()
     index = get_index(pc, args.index_name)
+    rate_limiter = FilterUpdateRateLimiter(min_interval_sec=args.update_interval)
 
     # Process each canonical name and its variants
     all_stats: dict[str, int] = {}
@@ -263,7 +376,12 @@ def main():
         print(f"{'=' * 70}")
 
         stats = find_and_replace_authors(
-            index, variants, canonical_name, dry_run=args.dry_run
+            index,
+            variants,
+            canonical_name,
+            dry_run=args.dry_run,
+            sample_size=args.sample_size,
+            rate_limiter=rate_limiter,
         )
 
         # Merge stats
