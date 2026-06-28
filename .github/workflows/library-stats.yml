@@ -8,6 +8,8 @@ on:
 jobs:
   refresh-stats:
     runs-on: ubuntu-latest
+    # Pinecone/Google secrets live on this GitHub Environment, not at repo level.
+    environment: Production-ananda-library-chatbot
     env:
       GOOGLE_APPLICATION_CREDENTIALS: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
       PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
