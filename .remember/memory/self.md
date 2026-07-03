@@ -3018,3 +3018,17 @@ while True:
 Use `dry_run=True` on filter updates for accurate counts (not capped like query top_k).
 Pace filter updates to Pinecone's 5/sec metadata-update limit (`FilterUpdateRateLimiter`, default 0.21s).
 Retry with exponential backoff on HTTP 429.
+
+**`ananda` and `ananda-public` share the same Pinecone index** (`PINECONE_INDEX_NAME=ananda-2025-06-19--3-large` in
+both `.env.ananda` and `.env.ananda-public`). Metadata cleanup scripts like `bin/clean_pinecone_authors.py` only need to
+run once per shared index — do not re-run per site when sites share `PINECONE_INDEX_NAME`.
+
+### Mistake: Crawler Docker image missing author_mappings.json
+
+**Wrong**: Rely on monorepo-relative path `data_ingestion/utils/../../web/site-config/author_mappings.json` inside the
+crawler container. The Dockerfile copies `utils/` to `/app/utils/` but not `web/site-config/`, so production crawls log
+"Author mappings file not found" and skip canonical author normalization.
+
+**Correct**: COPY `web/site-config/author_mappings.json` into the image at `/app/web/site-config/author_mappings.json`
+and resolve via `resolve_author_mappings_path()` (env override → container path → monorepo path). After deploy, run
+`bin/clean_pinecone_authors.py --site ananda-public --dry-run` then without `--dry-run` to fix existing Pinecone metadata.
