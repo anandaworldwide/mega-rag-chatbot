@@ -56,43 +56,6 @@ def resolve_author_mappings_path() -> str:
     return module_relative
 
 
-def _debug_mappings_resolution() -> str:
-    """
-    Build a diagnostic string describing every candidate path considered by
-    resolve_author_mappings_path(), whether each exists, and directory listings
-    of their parent dirs. Used to debug production path-resolution failures.
-    """
-    env_value = os.environ.get("AUTHOR_MAPPINGS_PATH")
-    module_relative = _module_relative_mappings_path()
-
-    candidates = [
-        ("AUTHOR_MAPPINGS_PATH env", env_value),
-        ("container path", _CONTAINER_MAPPINGS_PATH),
-        ("module-relative path", module_relative),
-    ]
-
-    lines = [
-        f"__file__={os.path.abspath(__file__)}",
-        f"cwd={os.getcwd()}",
-    ]
-
-    for label, candidate in candidates:
-        if not candidate:
-            lines.append(f"{label}: <unset>")
-            continue
-        exists = os.path.isfile(candidate)
-        lines.append(f"{label}: {candidate} (exists={exists})")
-        if not exists:
-            parent = os.path.dirname(candidate)
-            try:
-                listing = sorted(os.listdir(parent))
-            except OSError as e:
-                listing = [f"<listdir failed: {e}>"]
-            lines.append(f"  parent dir {parent} contents: {listing}")
-
-    return " | ".join(lines)
-
-
 def _load_author_mappings(site_id: str) -> dict[str, str]:
     """
     Load author mappings for a specific site from web/site-config/author_mappings.json.
@@ -128,8 +91,7 @@ def _load_author_mappings(site_id: str) -> dict[str, str]:
         config_path = resolve_author_mappings_path()
         logger.warning(
             f"Author mappings file not found at {config_path}, "
-            f"using empty mapping for site '{site_id}'. "
-            f"Debug: {_debug_mappings_resolution()}"
+            f"using empty mapping for site '{site_id}'"
         )
         _author_mapping_cache[site_id] = {}
         return {}
