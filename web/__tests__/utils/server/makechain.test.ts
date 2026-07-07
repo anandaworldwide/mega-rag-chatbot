@@ -102,6 +102,14 @@ jest.mock("@langchain/core/runnables", () => {
       from: jest.fn().mockImplementation((steps) => ({
         steps,
         invoke: jest.fn().mockImplementation(async (input) => {
+          // Execute function-only pipelines (e.g. retrieval sequence)
+          if (Array.isArray(steps) && steps.length > 0 && steps.every((step) => typeof step === "function")) {
+            let value: unknown = input;
+            for (const step of steps) {
+              value = await step(value);
+            }
+            return value;
+          }
           // For the standalone question converter chain (3 steps: prompt, model, parser)
           if (Array.isArray(steps) && steps.length === 3) {
             return "Converted standalone question";
@@ -167,6 +175,63 @@ describe("makeChain", () => {
       metadata: { library: "library2", source: "source2" },
     }),
   ];
+
+  function createScoredVectorStoreMock(
+    docs: Document[],
+    options?: { scores?: number[]; withScoreError?: Error }
+  ) {
+    const pairs: Array<[Document, number]> = docs.map((doc, index) => [doc, options?.scores?.[index] ?? 0.9]);
+    return {
+      similaritySearch: jest.fn().mockResolvedValue(docs),
+      similaritySearchWithScore: options?.withScoreError
+        ? jest.fn().mockRejectedValue(options.withScoreError)
+        : jest.fn().mockResolvedValue(pairs),
+    };
+  }
+
+  function getRetrievalSequenceFromMakeChain() {
+    const fromMock = jest.requireMock("@langchain/core/runnables").RunnableSequence.from as jest.Mock;
+    // The retrieval sequence is the only RunnableSequence built from exactly two function steps
+    // (the async retriever step + the doc-combiner step). Fail loudly if that assumption changes
+    // so this helper never silently targets a different sequence.
+    const matches = fromMock.mock.calls
+      .map((call, index) => ({ steps: call[0], index }))
+      .filter(
+        ({ steps }) =>
+          Array.isArray(steps) && steps.length === 2 && steps.every((step: unknown) => typeof step === "function")
+      );
+    if (matches.length === 0) {
+      throw new Error("retrieval sequence (2 function steps) not found in RunnableSequence.from calls");
+    }
+    if (matches.length > 1) {
+      throw new Error(
+        `expected exactly one 2-function-step RunnableSequence (the retrieval sequence), found ${matches.length}`
+      );
+    }
+    return fromMock.mock.results[matches[0].index]?.value;
+  }
+
+  // Returns the answerChain's field-mapping step (the function that builds the prompt input,
+  // including activeFiltersSummary). Identified by its leading object step keyed by retrievalOutput.
+  function getAnswerChainMappingFromMakeChain() {
+    const fromMock = jest.requireMock("@langchain/core/runnables").RunnableSequence.from as jest.Mock;
+    const matches = fromMock.mock.calls.filter(
+      (call) =>
+        Array.isArray(call[0]) &&
+        call[0].length === 3 &&
+        typeof call[0][0] === "object" &&
+        call[0][0] !== null &&
+        "retrievalOutput" in call[0][0] &&
+        typeof call[0][1] === "function"
+    );
+    if (matches.length !== 1) {
+      throw new Error(`expected exactly one answerChain mapping sequence, found ${matches.length}`);
+    }
+    return matches[0][0][1] as (input: {
+      retrievalOutput: { combinedContent: string; documents: Document[] };
+      originalInput: { question: string; chat_history: string };
+    }) => { activeFiltersSummary: string };
+  }
 
   // Create mock retriever
   let mockRetriever: jest.Mocked<VectorStoreRetriever>;
@@ -1066,9 +1131,7 @@ describe("makeChain", () => {
 
     // Mock retriever
     const mockRetriever = {
-      vectorStore: {
-        similaritySearch: jest.fn().mockResolvedValue(mockDocuments),
-      },
+      vectorStore: createScoredVectorStoreMock(mockDocuments),
     } as any;
 
     // Create sendData function that captures all streaming data
@@ -1146,9 +1209,7 @@ describe("makeChain", () => {
 
     // Mock retriever
     const mockRetriever = {
-      vectorStore: {
-        similaritySearch: jest.fn().mockResolvedValue(mockDocuments),
-      },
+      vectorStore: createScoredVectorStoreMock(mockDocuments),
     } as any;
 
     // Create sendData function that captures all streaming data
@@ -1687,9 +1748,7 @@ describe("makeChain", () => {
     const { setupAndExecuteLanguageModelChain } = await import("../../../src/utils/server/makechain");
 
     const mockRetriever = {
-      vectorStore: {
-        similaritySearch: jest.fn().mockResolvedValue(mockDocuments),
-      },
+      vectorStore: createScoredVectorStoreMock(mockDocuments),
     } as any;
 
     const sendData = jest.fn();
@@ -1945,11 +2004,8 @@ describe("makeChain", () => {
   });
 
   test("should handle retrieval errors gracefully", async () => {
-    // Mock retriever to throw an error
     const errorRetriever = {
-      vectorStore: {
-        similaritySearch: jest.fn().mockRejectedValue(new Error("Retrieval failed")),
-      },
+      vectorStore: createScoredVectorStoreMock([], { withScoreError: new Error("Retrieval failed") }),
     } as any;
 
     const sendData = jest.fn();
@@ -1992,9 +2048,7 @@ describe("makeChain", () => {
     });
 
     const largeDocRetriever = {
-      vectorStore: {
-        similaritySearch: jest.fn().mockResolvedValue([largeMockDocument]),
-      },
+      vectorStore: createScoredVectorStoreMock([largeMockDocument]),
     } as any;
 
     const sendData = jest.fn();
@@ -2038,9 +2092,7 @@ describe("makeChain", () => {
     (problematicDoc.metadata as any).circular.self = problematicDoc.metadata;
 
     const problematicRetriever = {
-      vectorStore: {
-        similaritySearch: jest.fn().mockResolvedValue([problematicDoc]),
-      },
+      vectorStore: createScoredVectorStoreMock([problematicDoc]),
     } as any;
 
     const sendData = jest.fn();
@@ -2211,9 +2263,7 @@ describe("makeChain", () => {
     const { setupAndExecuteLanguageModelChain } = await import("../../../src/utils/server/makechain");
 
     const mockRetriever = {
-      vectorStore: {
-        similaritySearch: jest.fn().mockResolvedValue(mockDocuments),
-      },
+      vectorStore: createScoredVectorStoreMock(mockDocuments),
     } as any;
 
     const sendData = jest.fn();
@@ -2279,9 +2329,7 @@ describe("makeChain", () => {
     };
 
     const mockRetriever = {
-      vectorStore: {
-        similaritySearch: jest.fn().mockResolvedValue(mockDocuments),
-      },
+      vectorStore: createScoredVectorStoreMock(mockDocuments),
     } as any;
 
     const sendData = jest.fn();
@@ -2452,11 +2500,14 @@ describe("makeChain", () => {
     // Mock retriever to fail for specific library
     const selectiveErrorRetriever = {
       vectorStore: {
-        similaritySearch: jest.fn().mockImplementation((query, k, filter) => {
-          if (filter && filter.library === "library1") {
-            throw new Error("Library1 retrieval failed");
+        ...createScoredVectorStoreMock(mockDocuments),
+        similaritySearchWithScore: jest.fn().mockImplementation((_query, _k, filter) => {
+          if (JSON.stringify(filter ?? {}).includes("library1")) {
+            return Promise.reject(new Error("Library1 retrieval failed"));
           }
-          return Promise.resolve(mockDocuments);
+          return Promise.resolve(
+            mockDocuments.map((doc, index) => [doc, 0.9 - index * 0.05] as [Document, number])
+          );
         }),
       },
     } as any;
@@ -2601,15 +2652,11 @@ describe("makeChain", () => {
     const sendData = jest.fn();
     const resolveDocs = jest.fn();
 
-    // Test with retriever that throws different types of errors
+    // Test with retriever whose scored search rejects, exercising graceful error handling
     const errorRetriever = {
-      vectorStore: {
-        similaritySearch: jest
-          .fn()
-          .mockRejectedValueOnce(new Error("Network timeout"))
-          .mockRejectedValueOnce(new Error("Rate limit exceeded"))
-          .mockResolvedValueOnce(mockDocuments),
-      },
+      vectorStore: createScoredVectorStoreMock(mockDocuments, {
+        withScoreError: new Error("Network timeout"),
+      }),
     } as any;
 
     const chain = await makeChain(
@@ -2751,16 +2798,11 @@ describe("makeChain", () => {
   test("should handle setupAndExecuteLanguageModelChain with complex error scenarios", async () => {
     const { setupAndExecuteLanguageModelChain } = await import("../../../src/utils/server/makechain");
 
-    // Mock retriever with complex error behavior
+    // Mock retriever whose scored search rejects, exercising graceful multi-failure handling
     const complexErrorRetriever = {
-      vectorStore: {
-        similaritySearch: jest
-          .fn()
-          .mockRejectedValueOnce(new Error("Timeout"))
-          .mockRejectedValueOnce(new Error("Rate limit"))
-          .mockRejectedValueOnce(new Error("Connection failed"))
-          .mockResolvedValueOnce([]), // Empty result
-      },
+      vectorStore: createScoredVectorStoreMock(mockDocuments, {
+        withScoreError: new Error("Connection failed"),
+      }),
     } as any;
 
     const sendData = jest.fn();
@@ -2795,28 +2837,26 @@ describe("makeChain", () => {
     const resolveDocs = jest.fn();
 
     // Test with documents having problematic metadata
-    const problematicRetriever = {
-      vectorStore: {
-        similaritySearch: jest.fn().mockResolvedValue([
-          new Document({
-            pageContent: "Content with circular metadata",
-            metadata: {
-              library: "test-lib",
-              source: "test-source",
-              circular: null, // Will be set to circular reference
-              bigInt: BigInt(123), // BigInt values
-              symbol: Symbol("test"), // Symbol values
-              func: () => "function", // Function values
-              date: new Date("2024-01-01"), // Date objects
-            },
-          }),
-        ]),
-      },
-    } as any;
-
+    const problematicDocs = [
+      new Document({
+        pageContent: "Content with circular metadata",
+        metadata: {
+          library: "test-lib",
+          source: "test-source",
+          circular: null, // Will be set to circular reference
+          bigInt: BigInt(123), // BigInt values
+          symbol: Symbol("test"), // Symbol values
+          func: () => "function", // Function values
+          date: new Date("2024-01-01"), // Date objects
+        },
+      }),
+    ];
     // Create circular reference
-    const docs = await problematicRetriever.vectorStore.similaritySearch();
-    docs[0].metadata.circular = docs[0].metadata; // Circular reference
+    (problematicDocs[0].metadata as any).circular = problematicDocs[0].metadata;
+
+    const problematicRetriever = {
+      vectorStore: createScoredVectorStoreMock(problematicDocs),
+    } as any;
 
     const chain = await makeChain(
       problematicRetriever,
@@ -2870,14 +2910,12 @@ describe("makeChain", () => {
 
     // Test with documents containing special characters
     const specialCharRetriever = {
-      vectorStore: {
-        similaritySearch: jest.fn().mockResolvedValue([
-          new Document({
-            pageContent: "Content with special chars: !@#$%^&*()_+-=[]{}|;':\",./<>? and unicode: 🌟✨🎯💡🚀",
-            metadata: { library: "test-lib", source: "special-chars" },
-          }),
-        ]),
-      },
+      vectorStore: createScoredVectorStoreMock([
+        new Document({
+          pageContent: "Content with special chars: !@#$%^&*()_+-=[]{}|;':\",./<>? and unicode: 🌟✨🎯💡🚀",
+          metadata: { library: "test-lib", source: "special-chars" },
+        }),
+      ]),
     } as any;
 
     const chain = await makeChain(
@@ -2958,10 +2996,290 @@ describe("makeChain", () => {
 
     expect(result).toBeDefined();
   });
+
+  describe("retrieval relevance cutoff", () => {
+    it("returns empty documents when all scores are below minRetrievalScore", async () => {
+      const weakDoc = new Document({
+        pageContent: "weak",
+        metadata: { library: "library1", source: "weak" },
+      });
+      mockRetriever.vectorStore = createScoredVectorStoreMock([weakDoc], { scores: [0.32] }) as any;
+
+      const sendData = jest.fn();
+      const siteConfig = { ...mockSiteConfig, minRetrievalScore: 0.5, includedLibraries: [] };
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        sendData,
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        siteConfig
+      );
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      const result = await retrievalSequence.invoke({ question: "blender", chat_history: "" });
+
+      expect(result).toEqual({
+        documents: [],
+        combinedContent: "[]",
+      });
+      expect(sendData).toHaveBeenCalledWith({ sourceDocs: [] });
+      expect(sendData).toHaveBeenCalledWith(
+        expect.objectContaining({
+          log: expect.stringContaining("below minRetrievalScore"),
+        })
+      );
+    });
+
+    it("returns scored documents when hits pass minRetrievalScore", async () => {
+      mockRetriever.vectorStore = createScoredVectorStoreMock(mockDocuments, { scores: [0.82, 0.71] }) as any;
+      const sendData = jest.fn();
+      const siteConfig = { ...mockSiteConfig, minRetrievalScore: 0.5, includedLibraries: [] };
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        2,
+        undefined,
+        sendData,
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        siteConfig
+      );
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      const result = await retrievalSequence.invoke({ question: "meditation", chat_history: "" });
+
+      expect(result.documents).toHaveLength(2);
+      expect(result.documents[0]?.metadata?.retrievalScore).toBe(0.82);
+      expect(result.documents[1]?.metadata?.retrievalScore).toBe(0.71);
+    });
+
+    it("returns empty documents when Pinecone returns no hits", async () => {
+      mockRetriever.vectorStore = createScoredVectorStoreMock([]) as any;
+      const sendData = jest.fn();
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        sendData,
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        { ...mockSiteConfig, minRetrievalScore: 0.5, includedLibraries: [] }
+      );
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      const result = await retrievalSequence.invoke({ question: "wiki", chat_history: "" });
+
+      expect(result.documents).toEqual([]);
+      expect(sendData).toHaveBeenCalledWith({ sourceDocs: [] });
+    });
+
+    it("propagates similaritySearchWithScore failures from retrieval", async () => {
+      mockRetriever.vectorStore = createScoredVectorStoreMock([], {
+        withScoreError: new Error("Pinecone down"),
+      }) as any;
+      const sendData = jest.fn();
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        sendData,
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        mockSiteConfig
+      );
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      await expect(retrievalSequence.invoke({ question: "test", chat_history: "" })).rejects.toThrow("Pinecone down");
+    });
+
+    it("returns empty documents when all auto-blend hits are below minRetrievalScore", async () => {
+      const weakDoc = new Document({
+        pageContent: "weak blend hit",
+        metadata: { library: "library1", source: "weak", author: "Author A" },
+      });
+      mockRetriever.vectorStore = createScoredVectorStoreMock([weakDoc], { scores: [0.31] }) as any;
+
+      const sendData = jest.fn();
+      const siteConfig = {
+        ...mockSiteConfig,
+        enableAutoAuthorScope: true,
+        includedLibraries: [],
+        minRetrievalScore: 0.5,
+      };
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        sendData,
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        siteConfig,
+        undefined,
+        undefined,
+        "auto" // selectedCollectionKey triggers the auto author-scope blend
+      );
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      const result = await retrievalSequence.invoke({ question: "blend cutoff", chat_history: "" });
+
+      expect(result).toEqual({ documents: [], combinedContent: "[]" });
+      expect(sendData).toHaveBeenCalledWith({ sourceDocs: [] });
+      expect(sendData).toHaveBeenCalledWith(
+        expect.objectContaining({ log: expect.stringContaining("below minRetrievalScore") })
+      );
+    });
+
+    it("applies the cutoff within the auto-blend, keeping only passing docs with raw scores", async () => {
+      const passDoc = new Document({
+        pageContent: "relevant teaching",
+        metadata: { library: "library1", source: "pass", author: "Author A" },
+      });
+      const failDoc = new Document({
+        pageContent: "off-topic content",
+        metadata: { library: "library1", source: "fail", author: "Author B" },
+      });
+      mockRetriever.vectorStore = createScoredVectorStoreMock([passDoc, failDoc], {
+        scores: [0.62, 0.4],
+      }) as any;
+
+      const sendData = jest.fn();
+      const siteConfig = {
+        ...mockSiteConfig,
+        enableAutoAuthorScope: true,
+        includedLibraries: [],
+        minRetrievalScore: 0.5,
+      };
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        sendData,
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        siteConfig,
+        undefined,
+        undefined,
+        "auto"
+      );
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      const result = await retrievalSequence.invoke({ question: "blend pass", chat_history: "" });
+
+      expect(result.documents).toHaveLength(1);
+      expect(result.documents[0]?.metadata?.source).toBe("pass");
+      // Raw (pre-boost) cosine score is attached for admin debugging
+      expect(result.documents[0]?.metadata?.retrievalScore).toBe(0.62);
+    });
+
+    it("injects the empty-retrieval hint into activeFiltersSummary under restrictive filters", async () => {
+      mockRetriever.vectorStore = createScoredVectorStoreMock([]) as any; // zero hits
+      const sendData = jest.fn();
+      const siteConfig = { ...mockSiteConfig, includedLibraries: [] };
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        sendData,
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        siteConfig,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "Whispers from Eternity" // selectedTitleScopeLabel => restrictive filter
+      );
+
+      // Running retrieval first sets the closure flag that the mapping step reads.
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      await retrievalSequence.invoke({ question: "anything", chat_history: "" });
+
+      const mapping = getAnswerChainMappingFromMakeChain();
+      const mapped = mapping({
+        retrievalOutput: { combinedContent: "[]", documents: [] },
+        originalInput: { question: "anything", chat_history: "" },
+      });
+
+      expect(mapped.activeFiltersSummary).toContain("- Source scope: Only Whispers from Eternity");
+      expect(mapped.activeFiltersSummary).toContain("No library sources matched your current filters");
+    });
+
+    it("omits the empty-retrieval hint when documents are retrieved", async () => {
+      mockRetriever.vectorStore = createScoredVectorStoreMock(mockDocuments, { scores: [0.82, 0.71] }) as any;
+      const sendData = jest.fn();
+      const siteConfig = { ...mockSiteConfig, includedLibraries: [] };
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        sendData,
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        siteConfig,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "Whispers from Eternity"
+      );
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      await retrievalSequence.invoke({ question: "meditation", chat_history: "" });
+
+      const mapping = getAnswerChainMappingFromMakeChain();
+      const mapped = mapping({
+        retrievalOutput: { combinedContent: "docs", documents: mockDocuments },
+        originalInput: { question: "meditation", chat_history: "" },
+      });
+
+      expect(mapped.activeFiltersSummary).not.toContain("No library sources matched your current filters");
+    });
+  });
 });
 
 describe("createStreamingDeadlineGuard", () => {
-  it("does not enforce a deadline until the first token is streamed", async () => {
+  it("does not enforce a deadline until streaming activity begins", async () => {
     const guard = createStreamingDeadlineGuard(50);
     const result = await guard.waitWithDeadline(
       () => new Promise<string>((resolve) => setTimeout(() => resolve("ok"), 120))
@@ -2969,16 +3287,62 @@ describe("createStreamingDeadlineGuard", () => {
     expect(result).toBe("ok");
   });
 
-  it("enforces the deadline from first token, not from request start", async () => {
+  it("enforces idle deadline after streaming activity stops", async () => {
     const guard = createStreamingDeadlineGuard(50);
     await expect(
       guard.waitWithDeadline(
         () =>
           new Promise((resolve) => {
-            guard.armOnFirstToken();
+            guard.touchStreamingActivity();
             setTimeout(resolve, 200);
           })
       )
-    ).rejects.toThrow("Operation timed out after 50ms");
+    ).rejects.toThrow("Operation timed out after 50ms of inactivity");
+  });
+
+  it("does not timeout while streaming activity continues", async () => {
+    const guard = createStreamingDeadlineGuard(50);
+    const result = await guard.waitWithDeadline(
+      () =>
+        new Promise<string>((resolve) => {
+          guard.touchStreamingActivity();
+          setTimeout(() => {
+            guard.touchStreamingActivity();
+            setTimeout(() => resolve("ok"), 30);
+          }, 30);
+        })
+    );
+    expect(result).toBe("ok");
+  });
+
+  it("keeps armOnFirstToken as an alias for touchStreamingActivity", () => {
+    const guard = createStreamingDeadlineGuard(50);
+    expect(guard.armOnFirstToken).toBe(guard.touchStreamingActivity);
+  });
+});
+
+describe("setupAndExecuteLanguageModelChain streaming deadline", () => {
+  it("allows steady token activity beyond a single idle window", async () => {
+    jest.useFakeTimers();
+    const { createStreamingDeadlineGuard } = await import("../../../src/utils/server/makechain");
+    const guard = createStreamingDeadlineGuard(50);
+
+    const resultPromise = guard.waitWithDeadline(
+      () =>
+        new Promise<string>((resolve) => {
+          guard.touchStreamingActivity();
+          setTimeout(() => {
+            guard.touchStreamingActivity();
+            setTimeout(() => {
+              guard.touchStreamingActivity();
+              setTimeout(() => resolve("completed"), 30);
+            }, 30);
+          }, 30);
+        })
+    );
+
+    await jest.runAllTimersAsync();
+    await expect(resultPromise).resolves.toBe("completed");
+    jest.useRealTimers();
   });
 });

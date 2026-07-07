@@ -46,7 +46,7 @@ export interface RedisConfig {
 
 export interface RedisClientInterface {
   get<T = string>(key: string): Promise<T | null>;
-  set(key: string, value: string, options?: { ex?: number }): Promise<string | null>;
+  set(key: string, value: string, options?: { ex?: number; nx?: boolean }): Promise<string | null>;
   del(key: string): Promise<number>;
   ping(): Promise<string>;
 }
@@ -54,6 +54,11 @@ export interface RedisClientInterface {
 export interface CacheService {
   getFromCache<T>(key: string): Promise<T | null>;
   setInCache(key: string, value: string | number | boolean | null | object, expiration?: number): Promise<void>;
+  setInCacheIfNotExists(
+    key: string,
+    value: string | number | boolean | null | object,
+    expiration?: number
+  ): Promise<boolean>;
   deleteFromCache(key: string): Promise<void>;
   isAvailable(): boolean;
   clearCache?(): Promise<void>;
@@ -235,6 +240,32 @@ export class RedisCacheService implements CacheService {
     }
   }
 
+  async setInCacheIfNotExists(
+    key: string,
+    value: string | number | boolean | null | object,
+    expiration: number = this.defaultExpiration
+  ): Promise<boolean> {
+    try {
+      validateCacheKey(key);
+
+      if (expiration < 0) {
+        throw new Error("Cache expiration must be non-negative");
+      }
+
+      const redisClient = await this.initializeRedis();
+      if (!redisClient) {
+        return true;
+      }
+
+      const serializedValue = sanitizeCacheValue(value);
+      const result = await redisClient.set(key, serializedValue, { ex: expiration, nx: true });
+      return result === "OK";
+    } catch (error) {
+      console.error(`Error setting cache key '${key}' with NX:`, error);
+      return true;
+    }
+  }
+
   async deleteFromCache(key: string): Promise<void> {
     try {
       validateCacheKey(key);
@@ -288,6 +319,15 @@ export async function setInCache(
 ): Promise<void> {
   const service = getGlobalCacheService();
   return service.setInCache(key, value, expiration);
+}
+
+export async function setInCacheIfNotExists(
+  key: string,
+  value: string | number | boolean | null | object,
+  expiration: number = CACHE_EXPIRATION
+): Promise<boolean> {
+  const service = getGlobalCacheService();
+  return service.setInCacheIfNotExists(key, value, expiration);
 }
 
 export async function deleteFromCache(key: string): Promise<void> {

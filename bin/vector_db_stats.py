@@ -47,9 +47,17 @@ Weekly Cron Setup:
 import argparse
 import json
 import os
+import sys
 import time
 from collections import Counter
 from datetime import datetime, timezone
+from pathlib import Path
+
+# Ensure the repo root is importable when this script is run by file path
+# (Python puts bin/ on sys.path[0], not the repo root, so `pyutil` would be missing).
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -303,6 +311,66 @@ def print_stats(stats, library_doc_counts):
                 print(f"  {item}: {count:,}")
 
 
+def _initialize_firebase_admin(env: str) -> None:
+    """Initialize Firebase Admin from GOOGLE_APPLICATION_CREDENTIALS (idempotent)."""
+    if firebase_admin._apps:
+        return
+
+    print(f"\nInitializing Firebase Admin for {env} environment...")
+
+    google_credentials_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    if not google_credentials_json:
+        raise ValueError(
+            "GOOGLE_APPLICATION_CREDENTIALS environment variable is not set.\n"
+            "This should contain the full JSON service account credentials."
+        )
+
+    try:
+        service_account = json.loads(google_credentials_json)
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"Failed to parse GOOGLE_APPLICATION_CREDENTIALS as JSON: {e}\n"
+            "Ensure the environment variable contains valid JSON."
+        ) from e
+
+    required_fields = ["type", "project_id", "private_key", "client_email"]
+    missing_fields = [f for f in required_fields if f not in service_account]
+    if missing_fields:
+        raise ValueError(
+            f"Service account JSON missing required fields: {', '.join(missing_fields)}"
+        )
+
+    cred = credentials.Certificate(service_account)
+    firebase_admin.initialize_app(cred)
+    print(
+        f"✓ Firebase Admin initialized for project: {service_account.get('project_id')}"
+    )
+
+
+def verify_firestore_access(site: str, env: str) -> None:
+    """
+    Fail fast if Firestore credentials are invalid, BEFORE the long Pinecone scan.
+
+    Performs a lightweight authenticated read to force an OAuth token exchange so a
+    rotated/disabled service-account key surfaces immediately instead of after a
+    multi-minute scan whose results would then be discarded.
+    """
+    print(f"\nVerifying Firestore credentials for {env} environment...")
+    _initialize_firebase_admin(env)
+    try:
+        firestore.client().collection("libraryStats").document(site).get()
+    except Exception as e:
+        raise RuntimeError(
+            "Failed to authenticate with Firestore using GOOGLE_APPLICATION_CREDENTIALS.\n"
+            f"Underlying error: {e}\n\n"
+            "A rotated or disabled service-account key reports "
+            "'invalid_grant: Invalid JWT Signature'. Update the "
+            "GOOGLE_APPLICATION_CREDENTIALS secret with a current key for this "
+            "service account. See docs/secret-rotation.md."
+        ) from e
+    print("✓ Firestore credentials verified.")
+
+
 def write_stats_to_firestore(stats, site, env):
     """
     Write stats directly to Firestore.
@@ -312,47 +380,7 @@ def write_stats_to_firestore(stats, site, env):
         site: Site ID (e.g., 'ananda', 'ananda-public')
         env: Environment ('dev' or 'prod')
     """
-    print(f"\nInitializing Firebase Admin for {env} environment...")
-
-    # Initialize Firebase Admin if not already done
-    if not firebase_admin._apps:
-        # Use Google Application Credentials from environment
-        google_credentials_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-
-        if not google_credentials_json:
-            raise ValueError(
-                "GOOGLE_APPLICATION_CREDENTIALS environment variable is not set.\n"
-                "This should contain the full JSON service account credentials."
-            )
-
-        try:
-            # Parse the service account JSON
-            service_account = json.loads(google_credentials_json)
-
-            # Validate required fields
-            required_fields = ["type", "project_id", "private_key", "client_email"]
-            missing_fields = [
-                field for field in required_fields if field not in service_account
-            ]
-
-            if missing_fields:
-                raise ValueError(
-                    f"Service account JSON missing required fields: {', '.join(missing_fields)}"
-                )
-
-            cred = credentials.Certificate(service_account)
-            firebase_admin.initialize_app(cred)
-
-            print(
-                f"✓ Firebase Admin initialized for project: {service_account.get('project_id')}"
-            )
-
-        except json.JSONDecodeError as e:
-            raise ValueError(
-                f"Failed to parse GOOGLE_APPLICATION_CREDENTIALS as JSON: {e}\n"
-                "Ensure the environment variable contains valid JSON."
-            ) from e
-
+    _initialize_firebase_admin(env)
     db = firestore.client()
 
     # Prepare authors data with total count for "All authors" / "whole_library"
@@ -380,7 +408,15 @@ def write_stats_to_firestore(stats, site, env):
 
     # Write to Firestore
     doc_ref = db.collection("libraryStats").document(site)
-    doc_ref.set(stats_data)
+    try:
+        doc_ref.set(stats_data)
+    except Exception as e:
+        fallback_path = f"library_stats_{site}.json"
+        with open(fallback_path, "w", encoding="utf-8") as fallback_file:
+            json.dump(stats_data, fallback_file, indent=2, default=str)
+        print(f"\n⚠️  Firestore write failed: {e}")
+        print(f"   Stats saved locally to {fallback_path} so the scan is not lost.")
+        raise
 
     print("\n✓ Successfully wrote stats to Firestore!")
     print(f"  Document path: libraryStats/{site}")
@@ -431,6 +467,15 @@ if __name__ == "__main__":
 
     print(f"Using Pinecone database: {index_name}")
 
+    # Validate Firestore credentials up front so a rotated key fails fast instead of
+    # after the multi-minute Pinecone scan.
+    if args.write_firestore:
+        if not args.env:
+            print("\nError: --env is required when using --write-firestore")
+            print("Usage: --env [dev|prod] --write-firestore")
+            exit(1)
+        verify_firestore_access(args.site, args.env)
+
     start_time = time.time()
     stats, library_doc_counts = get_pinecone_stats(
         index_name, args.prefix, args.max_vectors
@@ -442,8 +487,4 @@ if __name__ == "__main__":
 
     # Write to Firestore if requested
     if args.write_firestore:
-        if not args.env:
-            print("\nError: --env is required when using --write-firestore")
-            print("Usage: --env [dev|prod] --write-firestore")
-            exit(1)
         write_stats_to_firestore(stats, args.site, args.env)

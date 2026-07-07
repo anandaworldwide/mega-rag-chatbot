@@ -107,17 +107,18 @@
     "enableAuthorSelection": true,
     "enableAutoAuthorScope": true,
     "authorScopeBlend": {
-      "masterSwamiWeight": 0.7,
-      "broadMasterSwamiWeight": 0.3
+      "masterSwamiBoost": 0.2,
+      "broadMasterSwamiBoost": 0.08
     },
+    "minRetrievalScore": 0.5,
     "authorAliases": {
       "asha": "Asha Nayaswami",
       "bharat": "Joseph Bharat Cornell",
       "catherine": "Catherine Kairavi",
       "dambara": "Dambara Begley",
-      "devi": "Devi Novak",
+      "devi": "Nayaswami Devi Novak",
       "hriman": "Nayaswami Hriman McGilloway",
-      "jyotish": "Jyotish Novak",
+      "jyotish": "Nayaswami Jyotish Novak",
       "nalini": "Nalini Graeber",
       "padma": "Nayaswami Padma McGilloway",
       "parvati": "Nayaswami Parvati Hansen",

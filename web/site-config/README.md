@@ -30,10 +30,19 @@ settings.
 - `enableSuggestedQueries`: Boolean to enable/disable suggested queries
 - `enableMediaTypeSelection`: Boolean to enable/disable media type selection
 - `enableAuthorSelection`: Boolean to enable/disable author selection
-- `enableAutoAuthorScope`: Boolean (Luca only) to enable automatic per-query author scope with Master/Swami-weighted
-  blended retrieval. When enabled, add an `auto` entry to `collectionConfig` and default the UI to that option.
-- `authorScopeBlend`: Optional weights for auto mode (`masterSwamiWeight`, `broadMasterSwamiWeight`) controlling the
-  quota split between Master/Swami-filtered retrieval and whole-library retrieval.
+- `enableAutoAuthorScope`: Boolean (Luca only) to enable automatic per-query author scope with relevance-first
+  retrieval and a configurable Master/Swami score boost. When enabled, add an `auto` entry to `collectionConfig` and
+  default the UI to that option.
+- `authorScopeBlend`: Optional boost factors for auto mode (`masterSwamiBoost`, `broadMasterSwamiBoost`). Auto blend
+  runs one broad similarity search, then multiplies Master/Swami document scores by `(1 + δ)` before ranking. Default
+  δ is `0.2`; broad follow-up hint uses `0.08`. Deprecated keys `masterSwamiWeight` / `broadMasterSwamiWeight` cause
+  startup failure when `enableAutoAuthorScope` is true. See [author-scope-benchmark.md](../../docs/author-scope-benchmark.md)
+  for manual regression queries.
+- `minRetrievalScore`: Optional cosine similarity floor for chat retrieval (e.g. `0.5` on Luca). Documents below the
+  floor are dropped before ranking; if none pass, retrieval continues with empty context and the LLM may still
+  answer from the system prompt (e.g. Wiki, Luca identity). Omit the key (or set `0`) to disable the cutoff — every
+  cosine score is `>= 0`, so a floor of `0` never rejects anything. Values are clamped to `[0, 1]`; out-of-range
+  values log a startup warning. Tune using debug logs (`[RAG] Relevance cutoff: min=…, topScore=…, rejected=…`).
 - `authorAliases`: Optional map of lowercase aliases (author first names or nicknames) to canonical Pinecone
   author display names for deterministic named-author detection. Do not map shared surnames (e.g. `nayaswami`) or generic
   entitlement terms (e.g. `lightbearer`) to a single author.
@@ -47,10 +56,14 @@ When `enableAutoAuthorScope` is enabled:
   [`web/src/app/api/chat/v1/route.ts`](../src/app/api/chat/v1/route.ts). They do **not** receive auto blend unless they
   explicitly send `"auto"`. This preserves backward compatibility for integrations that never sent a collection field.
 - **First message in a conversation** skips the rephrase/author-scope LLM call (no chat history yet). Scope uses
-  deterministic alias matching plus the default blend weights. Follow-up messages piggyback author-scope classification
-  on the rephrase call.
-- **Book-title / full author-list matching** is deferred: deterministic scope currently uses `authorAliases` only.
-  Wiring `knownAuthors` from Firestore stats or title-catalog metadata is a follow-up if alias coverage is insufficient.
+  deterministic alias matching (manual `authorAliases` plus an auto-generated index from Firestore
+  `libraryStats/{site}.authors`) plus the default blend boost when no author is named. Follow-up messages piggyback
+  author-scope classification on the rephrase call.
+- **Named-author detection at scale**: When auto author scope is active, chat loads a cached author index from Firestore
+  `libraryStats/{site}.authors` (1h in-process cache, fail-fast timeout). Tokens are derived from canonical Pinecone
+  author names (first name, surname, title-stripped full name) with ambiguous shared tokens dropped. Manual
+  `authorAliases` in config still override generated tokens. The index refreshes weekly via GitHub Actions
+  (`.github/workflows/library-stats.yml` running `bin/vector_db_stats.py --site ananda --env prod --write-firestore`).
 - `accessControl`: Optional site-specific access hierarchy. When enabled, `levels` defines numeric access values,
   `defaultLevel` defines public/default access, `superuserLevel` defines the highest local role level, and
   `salesforceOnlyLevels` can reserve levels for Salesforce-derived access.

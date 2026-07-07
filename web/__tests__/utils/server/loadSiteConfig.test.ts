@@ -239,6 +239,162 @@ describe("loadSiteConfig", () => {
 
       expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("enableAutoAuthorScope=true"));
     });
+
+    it("returns null when auto author scope uses deprecated authorScopeBlend weight keys", async () => {
+      process.env.SITE_CONFIG = JSON.stringify({
+        "deprecated-site": {
+          name: "Deprecated Site",
+          shortname: "Deprecated",
+          tagline: "Test",
+          greeting: "Hello",
+          parent_site_url: "",
+          parent_site_name: "",
+          help_url: "",
+          help_text: "",
+          collectionConfig: {},
+          libraryMappings: {},
+          enableSuggestedQueries: false,
+          enableMediaTypeSelection: false,
+          enableAuthorSelection: true,
+          enableAutoAuthorScope: true,
+          authorScopeBlend: {
+            masterSwamiWeight: 0.7,
+            broadMasterSwamiWeight: 0.3,
+          },
+          welcome_popup_heading: "",
+          other_visitors_reference: "",
+          loginImage: null,
+          requireLogin: false,
+          allowTemporarySessions: true,
+          allowAllAnswersPage: true,
+          queriesPerUserPerDay: 10,
+          header: { logo: "", navItems: [] },
+          footer: { links: [] },
+        },
+      });
+
+      const config = await loadSiteConfig("deprecated-site");
+
+      expect(config).toBeNull();
+      expect(console.error).toHaveBeenCalledWith(
+        "Error parsing site config:",
+        expect.objectContaining({
+          message: expect.stringContaining("deprecated key(s): masterSwamiWeight, broadMasterSwamiWeight"),
+        })
+      );
+    });
+
+    it("warns when minRetrievalScore is outside the valid [0, 1] range", async () => {
+      const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+      warnSpy.mockClear();
+      process.env.SITE_CONFIG = JSON.stringify({
+        "cutoff-site": {
+          name: "Cutoff Site",
+          shortname: "Cutoff",
+          tagline: "Test",
+          greeting: "Hello",
+          parent_site_url: "",
+          parent_site_name: "",
+          help_url: "",
+          help_text: "",
+          collectionConfig: {},
+          libraryMappings: {},
+          enableSuggestedQueries: false,
+          enableMediaTypeSelection: false,
+          enableAuthorSelection: false,
+          minRetrievalScore: 1.5,
+          welcome_popup_heading: "",
+          other_visitors_reference: "",
+          loginImage: null,
+          requireLogin: false,
+          allowTemporarySessions: true,
+          allowAllAnswersPage: true,
+          queriesPerUserPerDay: 10,
+          header: { logo: "", navItems: [] },
+          footer: { links: [] },
+        },
+      });
+
+      const config = await loadSiteConfig("cutoff-site");
+
+      expect(config).not.toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("minRetrievalScore=1.5"));
+    });
+
+    it("does not warn when minRetrievalScore is within the valid range", async () => {
+      const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+      warnSpy.mockClear();
+      process.env.SITE_CONFIG = JSON.stringify({
+        "valid-cutoff-site": {
+          name: "Valid Cutoff Site",
+          shortname: "Valid",
+          tagline: "Test",
+          greeting: "Hello",
+          parent_site_url: "",
+          parent_site_name: "",
+          help_url: "",
+          help_text: "",
+          collectionConfig: {},
+          libraryMappings: {},
+          enableSuggestedQueries: false,
+          enableMediaTypeSelection: false,
+          enableAuthorSelection: false,
+          minRetrievalScore: 0.5,
+          welcome_popup_heading: "",
+          other_visitors_reference: "",
+          loginImage: null,
+          requireLogin: false,
+          allowTemporarySessions: true,
+          allowAllAnswersPage: true,
+          queriesPerUserPerDay: 10,
+          header: { logo: "", navItems: [] },
+          footer: { links: [] },
+        },
+      });
+
+      const config = await loadSiteConfig("valid-cutoff-site");
+
+      expect(config).not.toBeNull();
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("minRetrievalScore"));
+    });
+
+    it("allows deprecated authorScopeBlend weight keys when auto author scope is disabled", async () => {
+      process.env.SITE_CONFIG = JSON.stringify({
+        "legacy-site": {
+          name: "Legacy Site",
+          shortname: "Legacy",
+          tagline: "Test",
+          greeting: "Hello",
+          parent_site_url: "",
+          parent_site_name: "",
+          help_url: "",
+          help_text: "",
+          collectionConfig: {},
+          libraryMappings: {},
+          enableSuggestedQueries: false,
+          enableMediaTypeSelection: false,
+          enableAuthorSelection: false,
+          enableAutoAuthorScope: false,
+          authorScopeBlend: {
+            masterSwamiWeight: 0.7,
+          },
+          welcome_popup_heading: "",
+          other_visitors_reference: "",
+          loginImage: null,
+          requireLogin: false,
+          allowTemporarySessions: true,
+          allowAllAnswersPage: true,
+          queriesPerUserPerDay: 10,
+          header: { logo: "", navItems: [] },
+          footer: { links: [] },
+        },
+      });
+
+      const config = await loadSiteConfig("legacy-site");
+
+      expect(config).not.toBeNull();
+      expect(config?.siteId).toBe("legacy-site");
+    });
   });
 
   describe("loadSiteConfigSync", () => {

@@ -63,7 +63,7 @@ const customJestConfig = {
 
 const serverConfig = {
   displayName: "server",
-  testMatch: ["<rootDir>/__tests__/utils/server/**/*.test.ts"],
+  testMatch: ["<rootDir>/__tests__/utils/server/**/*.test.ts", "<rootDir>/__tests__/wordpress/**/*.test.ts"],
   testEnvironment: "node",
   setupFiles: ["<rootDir>/test/jest.setup.js"],
   setupFilesAfterEnv: ["<rootDir>/__tests__/setup.ts"],

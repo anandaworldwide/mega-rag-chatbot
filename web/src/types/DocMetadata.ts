@@ -11,6 +11,8 @@ export type DocMetadata = {
   library: string;
   pdf_s3_key?: string; // S3 key for PDF downloads
   author?: string; // Document author
+  /** Pinecone cosine similarity from chat retrieval; admin debug only in UI. */
+  retrievalScore?: number;
   required_access_level?: number | string; // Numeric access level required to retrieve this source
   access_level?: number | string; // Legacy access tag, when present
 };

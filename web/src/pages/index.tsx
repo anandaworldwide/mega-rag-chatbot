@@ -1041,8 +1041,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   // Add a state variable to track the docId separately
   const [savedDocId, setSavedDocId] = useState<string | null>(null);
   const accumulatedResponseRef = useRef("");
-  // Track if sources were intentionally suppressed (answer came from system prompt only)
-  const sourcesSuppressedRef = useRef(false);
 
   // State for editing questions
   const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
@@ -1325,41 +1323,11 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       }
 
       if (data.sourceDocs) {
-        try {
-          // DEBUG: Add extensive logging for sources debugging
-          const receiveTimestamp = Date.now();
-          console.log(
-            `🔍 FRONTEND SOURCES DEBUG: Received sourceDocs at ${receiveTimestamp}, type:`,
-            typeof data.sourceDocs,
-            "isArray:",
-            Array.isArray(data.sourceDocs)
-          );
-
-          // Track if sources were intentionally suppressed
-          if (data.suppressSources) {
-            sourcesSuppressedRef.current = true;
-            console.log("🔇 FRONTEND: Sources intentionally suppressed - answer came from system prompt only");
-          }
-
-          setTimeout(() => {
-            const immutableSourceDocs = Array.isArray(data.sourceDocs) ? [...data.sourceDocs] : [];
-
-            if (immutableSourceDocs.length < sourceCount && !sourcesSuppressedRef.current) {
-              console.error(
-                `❌ FRONTEND SOURCES ERROR: Received ${immutableSourceDocs.length} sources, but ${sourceCount} were requested.`
-              );
-            }
-
-            setSourceDocs(immutableSourceDocs);
-            updateMessageState(accumulatedResponseRef.current, immutableSourceDocs);
-          }, 0);
-        } catch (error) {
-          console.error("❌ FRONTEND SOURCES ERROR: Error handling sourceDocs:", error);
-          console.error("❌ FRONTEND SOURCES ERROR: Raw data.sourceDocs:", data.sourceDocs);
-          // Fallback to empty array if parsing fails
-          setSourceDocs([]);
-          updateMessageState(accumulatedResponseRef.current, []);
-        }
+        setTimeout(() => {
+          const immutableSourceDocs = Array.isArray(data.sourceDocs) ? [...data.sourceDocs] : [];
+          setSourceDocs(immutableSourceDocs);
+          updateMessageState(accumulatedResponseRef.current, immutableSourceDocs);
+        }, 0);
       }
 
       if (data.docId) {
@@ -1526,44 +1494,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           }, 100);
         }
 
-        // SOURCES DEBUGGING: Check if sources are missing after streaming completes
-        setTimeout(() => {
-          // Check the current state of sources for the last message
-          setMessageState((prevState) => {
-            const lastMessage = prevState.messages[prevState.messages.length - 1];
-
-            if (lastMessage && lastMessage.type === "apiMessage") {
-              const hasSourceDocs = lastMessage.sourceDocs && lastMessage.sourceDocs.length > 0;
-              const expectedSourceCount = sourceCount;
-
-              // Skip bug reporting if sources were intentionally suppressed (answer from system prompt only)
-              if (sourcesSuppressedRef.current) {
-                console.log("✅ FRONTEND SOURCES VALIDATION: Sources intentionally suppressed - no bug report needed");
-              } else if (!hasSourceDocs) {
-                // Send signal to backend about missing sources
-                if (lastMessage.docId) {
-                  reportMissingSourcesToBacked(lastMessage.docId, expectedSourceCount);
-                }
-              } else if (lastMessage.sourceDocs && lastMessage.sourceDocs.length < expectedSourceCount) {
-                console.warn(`⚠️ FRONTEND SOURCES WARNING: Fewer sources than expected after streaming completed`);
-                console.warn(`⚠️ Expected ${expectedSourceCount} sources but found ${lastMessage.sourceDocs.length}`);
-                console.warn(`⚠️ Message docId: ${lastMessage.docId || "none"}`);
-
-                // Send signal to backend about partial sources
-                if (lastMessage.docId) {
-                  reportPartialSourcesToBacked(lastMessage.docId, expectedSourceCount, lastMessage.sourceDocs.length);
-                }
-              } else if (lastMessage.sourceDocs) {
-                console.log(
-                  `✅ FRONTEND SOURCES VALIDATION: Found ${lastMessage.sourceDocs.length} sources as expected`
-                );
-              }
-            }
-
-            return prevState; // No state change, just validation
-          });
-        }, 200); // Small delay to ensure all SSE messages have been processed
-
         // Force a state update to ensure UI re-renders immediately with buttons and correct docId
         // Also update history with the actual assistant response content (critical for reformulation)
         setMessageState((prevState) => {
@@ -1640,67 +1570,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       autoApplySourceFocusConflict,
       setFilterConflict,
     ]
-    // Note: reportMissingSourcesToBacked and reportPartialSourcesToBacked are defined after this callback
-    // but are stable functions that don't need to be in the dependency array
-  );
-
-  // Helper function to report missing sources to backend
-  const reportMissingSourcesToBacked = useCallback(async (docId: string, expectedCount: number) => {
-    try {
-      console.log(`📡 FRONTEND SOURCES DEBUG: Reporting missing sources to backend for docId: ${docId}`);
-
-      const response = await fetchWithAuth("/api/debug/missing-sources", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          docId,
-          expectedCount,
-          actualCount: 0,
-          timestamp: new Date().toISOString(),
-          userAgent: navigator.userAgent,
-          type: "missing_sources",
-        }),
-      });
-
-      if (!response.ok) {
-        console.warn(`Failed to report missing sources: ${response.status}`);
-      } else {
-        console.log(`✅ FRONTEND SOURCES DEBUG: Successfully reported missing sources to backend`);
-      }
-    } catch (error) {
-      console.error("Error reporting missing sources to backend:", error);
-    }
-  }, []);
-
-  // Helper function to report partial sources to backend
-  const reportPartialSourcesToBacked = useCallback(
-    async (docId: string, expectedCount: number, actualCount: number) => {
-      try {
-        console.log(`📡 FRONTEND SOURCES DEBUG: Reporting partial sources to backend for docId: ${docId}`);
-
-        const response = await fetchWithAuth("/api/debug/missing-sources", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            docId,
-            expectedCount,
-            actualCount,
-            timestamp: new Date().toISOString(),
-            userAgent: navigator.userAgent,
-            type: "partial_sources",
-          }),
-        });
-
-        if (!response.ok) {
-          console.warn(`Failed to report partial sources: ${response.status}`);
-        } else {
-          console.log(`✅ FRONTEND SOURCES DEBUG: Successfully reported partial sources to backend`);
-        }
-      } catch (error) {
-        console.error("Error reporting partial sources to backend:", error);
-      }
-    },
-    []
   );
 
   // Main function to handle chat submission
@@ -1754,8 +1623,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
     // Reset accumulated response at the start of each new query
     accumulatedResponseRef.current = "";
-    // Reset sources suppressed flag for new query
-    sourcesSuppressedRef.current = false;
 
     // Check if this is the second question or later (more than 2 messages = greeting + first Q&A)
     const isSecondQuestionOrLater = messageState.messages.length > 2;

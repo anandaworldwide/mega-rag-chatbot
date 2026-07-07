@@ -56,9 +56,13 @@ export interface SiteConfig {
   enableAuthorSelection: boolean;
   enableAutoAuthorScope?: boolean;
   authorScopeBlend?: {
-    masterSwamiWeight?: number;
-    broadMasterSwamiWeight?: number;
+    /** Multiplicative score boost δ for Master/Swami docs in auto blend: score × (1 + δ). Default 0.2. */
+    masterSwamiBoost?: number;
+    /** Lower boost when the LLM scope hint is broad. Default 0.08. */
+    broadMasterSwamiBoost?: number;
   };
+  /** Minimum Pinecone cosine similarity for chat retrieval; omit to disable relevance cutoff. */
+  minRetrievalScore?: number;
   authorAliases?: Record<string, string>;
   enableTitleScopeSelection?: boolean;
   enableSearchPage?: boolean;

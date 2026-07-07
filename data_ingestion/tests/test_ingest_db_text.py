@@ -2764,5 +2764,18 @@ class TestHTMLProcessing(unittest.TestCase):
         self.assertNotIn("\r", processed, "No carriage returns should remain")
 
 
+class TestDetermineAuthorName(unittest.TestCase):
+    def test_normalizes_taxonomy_author_via_site_mappings(self):
+        from data_ingestion.sql_to_vector_db.ingest_db_text import _determine_author_name
+
+        row = {"authors_list": "Drevi Novak|||Someone Else"}
+        self.assertEqual(_determine_author_name(row, "ananda"), "Nayaswami Devi Novak")
+
+    def test_returns_unknown_when_author_list_missing(self):
+        from data_ingestion.sql_to_vector_db.ingest_db_text import _determine_author_name
+
+        self.assertEqual(_determine_author_name({}, "ananda"), "Unknown")
+
+
 if __name__ == "__main__":
     unittest.main()

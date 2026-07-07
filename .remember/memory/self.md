@@ -2726,6 +2726,15 @@ the error and stopping stream state.
 Also buffer decoded stream text across chunks before splitting lines; SSE `data:` JSON can be split across network chunks,
 and parsing each raw chunk independently can drop valid errors or tokens.
 
+### Mistake: Fixed Streaming Deadline From First Token
+
+**Wrong**: Arm a single timeout at first streamed token and never reset it. Long-but-healthy answers (90s+ total with steady
+token flow) hit "Operation timed out after partial response" even though generation never stalled.
+
+**Correct**: Use an **idle** watchdog in `createStreamingDeadlineGuard`: call `armOnFirstToken()` on every token and on tool
+activity so the timer resets while progress continues. Still fail closed if nothing arrives for `CHAIN_STREAMING_IDLE_TIMEOUT_MS`
+(90s prod). Route `maxDuration` is 240s — headroom remains for long sessions.
+
 ### Mistake: Infrastructure Retrieval Errors Becoming No-Sources Responses
 
 **Wrong**: Catching vector retrieval errors, logging them, and continuing with an empty document list. Auth/key/network
@@ -2891,3 +2900,135 @@ passes the gate. Stripping `/web/src/` before normalizing `\\` also fails on Win
 
 **Correct**: Normalize separators before path stripping; `throw` when the subset matches 0 statements. Clean the
 coverage dir before runs (`scripts/clean-coverage.mjs`) so stale per-file data can't skew merged totals.
+
+### Mistake: Jest console spy retains call history across tests
+
+**Wrong**:
+
+```ts
+it("does not warn ...", () => {
+  jest.spyOn(console, "warn").mockImplementation(() => {});
+  doThing();
+  expect(console.warn).not.toHaveBeenCalledWith(...); // can see calls leaked from a prior test
+});
+```
+
+**Correct**: Capture the spy in a local var and clear it before exercising the code under test, then assert on the local spy:
+
+```ts
+const warnSpy = jest.spyOn(console, "warn").mockImplementation(() => {});
+warnSpy.mockClear();
+doThing();
+expect(warnSpy).not.toHaveBeenCalledWith(...);
+```
+
+### Mistake: Running data_ingestion Python scripts from `data_ingestion/` cwd
+
+**Wrong**:
+
+```bash
+cd data_ingestion
+uv run python pdf_to_vector_db.py --site jairam --file-path media/pdf-docs/...
+uv run python -c "from sql_to_pdf.db_to_pdfs import set_pdf_metadata; ..."
+```
+
+**Correct**:
+
+```bash
+cd /path/to/mega-rag-chatbot
+uv run python data_ingestion/pdf_to_vector_db.py \
+  --site jairam \
+  --file-path data_ingestion/media/pdf-docs/...
+```
+
+Scripts import `data_ingestion.*` and `pyutil.*`; repo root must be on `PYTHONPATH` (via `uv run` from root). When a
+`bin/*.py` script is run by file path (e.g. `uv run python bin/foo.py`), Python puts `bin/` on `sys.path[0]`, NOT the
+repo root, so `pyutil`/`data_ingestion` imports fail even though `python -c "import pyutil"` works (cwd is on path).
+Robust fix: bootstrap the repo root inside the script —
+`sys.path.insert(0, str(Path(__file__).resolve().parents[1]))` before the first first-party import.
+`data_ingestion/...` paths for `--file-path`, not `media/...` relative to `data_ingestion/`.
+
+### Mistake: GitHub Actions job can't see secrets that live on an Environment
+
+**Wrong**: Reference `${{ secrets.PINECONE_INGEST_INDEX_NAME }}` in a job with no `environment:`. This repo's Pinecone/
+Google secrets are **GitHub Environment** secrets (Vercel-created envs like `Production-ananda-library-chatbot`), not repo
+secrets (`gh secret list` shows only `CLOUDWAYS_SSH_KEY`). Without `environment:`, every `secrets.*` resolves to empty →
+script fails with `... environment variable not set`. The UI shows env secrets as blank on edit (mask), which looks like
+"unset". Diagnose with `gh api repos/{owner}/{repo}/environments --jq '.environments[].name'` then
+`gh secret list --env <name>`.
+
+**Correct**: Declare the environment on the job: `environment: Production-ananda-library-chatbot`. Watch for deployment
+protection rules (required reviewers) that can pause scheduled runs.
+
+Also: `workflow_dispatch` runs the workflow + checked-out code from the committed ref, never local uncommitted edits;
+re-running a failed run replays the same commit. Commit+push and start a fresh run to pick up changes. A traceback whose
+line number doesn't match your edited file is proof the runner is on an older commit.
+
+### Mistake: Referencing caller scope variable inside helper without passing it
+
+**Wrong**:
+
+```python
+def _update_pinecone_vectors(crawler, url, chunks, title):
+    author = content.metadata.get("author")  # NameError: content not in scope
+```
+
+**Correct**: Pass the needed value from the caller that owns it:
+
+```python
+def _update_pinecone_vectors(..., author: str | None = None):
+    embeddings = crawler.create_embeddings(..., author=author)
+
+author = content.metadata.get("author") if content.metadata else None
+_update_pinecone_vectors(..., author=author)
+```
+
+### Mistake: Firestore author-index timeout returns empty alias map
+
+**Wrong**:
+
+```typescript
+} catch (error) {
+  return EMPTY_INDEX; // drops author_mappings.json variants too
+}
+```
+
+**Correct**: Fall back to mappings-only index when Firestore fails:
+
+```typescript
+} catch (error) {
+  return buildIndexFromAuthorKeys([], siteId);
+}
+```
+
+### Mistake: Per-vector Pinecone metadata updates at scale
+
+**Wrong**: Query vector IDs, then `index.update(id=..., set_metadata=...)` in a loop (slow; query responses can exceed size limits if values included).
+
+**Correct**: Use Pinecone filter-based bulk update (up to 100k/request):
+
+```python
+while True:
+    matched = index.update(filter={"author": {"$eq": alt}}, set_metadata={"author": canonical}, dry_run=True).matched_records
+    if not matched:
+        break
+    index.update(filter={"author": {"$eq": alt}}, set_metadata={"author": canonical})
+```
+
+Use `dry_run=True` on filter updates for accurate counts (not capped like query top_k).
+Pace filter updates to Pinecone's 5/sec metadata-update limit (`FilterUpdateRateLimiter`, default 0.21s).
+Retry with exponential backoff on HTTP 429.
+
+**`ananda` and `ananda-public` share the same Pinecone index** (`PINECONE_INDEX_NAME=ananda-2025-06-19--3-large` in
+both `.env.ananda` and `.env.ananda-public`). Metadata cleanup scripts like `bin/clean_pinecone_authors.py` only need to
+run once per shared index — do not re-run per site when sites share `PINECONE_INDEX_NAME`.
+
+### Mistake: Crawler Docker image missing author_mappings.json
+
+**Wrong**: Rely on monorepo-relative path `data_ingestion/utils/../../web/site-config/author_mappings.json` inside the
+crawler container. The Dockerfile copies `utils/` to `/app/utils/` but not `web/site-config/`, so production crawls log
+"Author mappings file not found" and skip canonical author normalization.
+
+**Correct**: COPY `web/site-config/author_mappings.json` into the image at `/app/web/site-config/author_mappings.json`
+and resolve via `resolve_author_mappings_path()` (env override → container path → monorepo path). After deploy, run
+`bin/clean_pinecone_authors.py --site ananda-public --dry-run` then without `--dry-run` to fix existing Pinecone metadata.

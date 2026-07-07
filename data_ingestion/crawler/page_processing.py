@@ -101,6 +101,7 @@ def _update_pinecone_vectors(
     url: str,
     chunks: list[str],
     title: str,
+    author: str | None = None,
 ) -> None:
     """Clear old vectors and upsert new ones for a URL."""
     # Always clear old vectors before upserting new ones
@@ -110,7 +111,7 @@ def _update_pinecone_vectors(
     if deleted_count > 0:
         logging.info(f"Cleared {deleted_count} old vectors from Pinecone for: {url}")
 
-    embeddings = crawler.create_embeddings(chunks, url, title)
+    embeddings = crawler.create_embeddings(chunks, url, title, author=author)
     upsert_to_pinecone(embeddings, pinecone_index, index_name)
     logging.debug(f"Successfully processed and upserted: {url}")
     logging.debug(f"Created {len(chunks)} chunks, {len(embeddings)} embeddings.")
@@ -222,8 +223,17 @@ def _process_page_content(
             content_hash = hashlib.sha256(content.content.encode()).hexdigest()
 
             if crawler.should_process_content(url, content_hash):
+                author = (
+                    content.metadata.get("author") if content.metadata else None
+                )
                 _update_pinecone_vectors(
-                    crawler, pinecone_index, index_name, url, chunks, content.title
+                    crawler,
+                    pinecone_index,
+                    index_name,
+                    url,
+                    chunks,
+                    content.title,
+                    author=author,
                 )
             else:
                 logging.info(

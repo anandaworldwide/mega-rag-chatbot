@@ -42,6 +42,7 @@ if TYPE_CHECKING:
 else:
     Index = Any
 
+from data_ingestion.utils.author_normalization import normalize_author
 from data_ingestion.utils.checkpoint_utils import pdf_checkpoint_integration
 from data_ingestion.utils.embeddings_utils import OpenAIEmbeddings
 from data_ingestion.utils.pinecone_utils import (
@@ -819,6 +820,7 @@ async def process_document(
     doc_index: int,
     library_name: str,
     text_splitter: SpacyTextSplitter,
+    site_id: str,
 ) -> tuple[bool, int, int]:
     """
     Processes a single document, splitting it into chunks using spaCy and adding it to the vector store.
@@ -842,7 +844,7 @@ async def process_document(
     # Update document metadata
     raw_doc.metadata["source"] = source_url
     raw_doc.metadata["title"] = title
-    raw_doc.metadata["author"] = author
+    raw_doc.metadata["author"] = normalize_author(author, site_id)
 
     # Log document information for first page only
     page_number = raw_doc.metadata.get("page", 0)
@@ -1294,6 +1296,7 @@ async def _process_single_pdf(
     library_name: str,
     text_splitter,
     save_checkpoint_func,
+    site_id: str,
 ) -> tuple[bool, str | None]:
     """
     Process a single PDF file and return success status.
@@ -1342,6 +1345,7 @@ async def _process_single_pdf(
             0,
             library_name,
             text_splitter,
+            site_id,
         )
 
         if not success:
@@ -1594,7 +1598,9 @@ def _print_final_statistics(
     )
 
 
-async def run(keep_data: bool, library_name: str, max_files: int | None) -> None:
+async def run(
+    keep_data: bool, library_name: str, max_files: int | None, site_id: str
+) -> None:
     """
     Main function to run the document ingestion process.
     This function orchestrates the entire ingestion workflow.
@@ -1682,6 +1688,7 @@ async def run(keep_data: bool, library_name: str, max_files: int | None) -> None
             library_name,
             text_splitter,
             save_checkpoint_func,
+            site_id,
         )
 
         if success:
@@ -1752,7 +1759,7 @@ def main():
         sys.exit(1)
 
     # Run the ingestion process
-    asyncio.run(run(args.keep_data, args.library_name, args.max_files))
+    asyncio.run(run(args.keep_data, args.library_name, args.max_files, args.site))
 
 
 if __name__ == "__main__":

@@ -69,6 +69,7 @@ from utils.text_splitter_utils import SpacyTextSplitter
 # Import from crawler submodules (support both module and direct execution)
 try:
     # When running as a module (python -m crawler.website_crawler)
+    from .author_extraction import extract_author_from_html
     from .config import (
         USER_AGENT,
         ContentHash,
@@ -82,6 +83,7 @@ try:
     from .lock_manager import CrawlerLockManager
 except ImportError:
     # When running directly (python website_crawler.py)
+    from author_extraction import extract_author_from_html  # type: ignore[import-not-found]
     from config import (  # type: ignore[import-not-found]
         USER_AGENT,
         ContentHash,
@@ -1747,13 +1749,17 @@ class WebsiteCrawler:
 
         return valid_links
 
-    def _extract_title_and_content(self, page, url: str) -> tuple[str, str]:
-        """Extract title and HTML content from the page."""
+    def _extract_title_and_content(self, page, url: str) -> tuple[str, str, str | None]:
+        """Extract title, cleaned text, and author from the page."""
         title = page.title() or "No Title Found"
         logging.debug(f"Page title: {title}")
 
         html_content = page.content()
         logging.debug(f"Raw HTML content length: {len(html_content)}")
+
+        author = extract_author_from_html(html_content, site_id=self.site_id)
+        if author:
+            logging.info(f"Extracted author '{author}' from {url}")
 
         clean_text = self.clean_content(html_content)
         logging.debug(f"Cleaned text length: {len(clean_text)}")
@@ -1767,21 +1773,30 @@ class WebsiteCrawler:
             except Exception as screenshot_e:
                 logging.debug(f"Screenshot failed: {screenshot_e}")
 
-        return title, clean_text
+        return title, clean_text, author
 
     def _create_page_content(
-        self, url: str, title: str, clean_text: str, schemed_valid_links: list[str]
+        self,
+        url: str,
+        title: str,
+        clean_text: str,
+        schemed_valid_links: list[str],
+        author: str | None = None,
     ) -> tuple[PageContent | None, list[str]]:
         """Create final PageContent object and return with links."""
         if not clean_text.strip() and title == "No Title Found":
             logging.warning(f"No content or title extracted from {url}")
             return None, schemed_valid_links
 
+        metadata: dict[str, str] = {"type": "text", "source": url}
+        if author:
+            metadata["author"] = author
+
         page_content = PageContent(
             url=url,
             title=title,
             content=clean_text,
-            metadata={"type": "text", "source": url},
+            metadata=metadata,
         )
 
         logging.debug(
@@ -1813,14 +1828,16 @@ class WebsiteCrawler:
         # Extract and filter links
         valid_links = self._extract_links(page, url)
 
-        # Extract title and content
-        title, clean_text = self._extract_title_and_content(page, url)
+        # Extract title, content, and author
+        title, clean_text, author = self._extract_title_and_content(page, url)
 
         # Process links with schemes
         schemed_valid_links = [ensure_scheme(link) for link in valid_links]
 
         # Create final page content object
-        return self._create_page_content(url, title, clean_text, schemed_valid_links)
+        return self._create_page_content(
+            url, title, clean_text, schemed_valid_links, author=author
+        )
 
     def _handle_crawl_exception(self, e: Exception, url: str) -> tuple[bool, bool]:
         """Handle exceptions during crawling. Returns (restart_needed, should_retry)."""
@@ -1962,7 +1979,11 @@ class WebsiteCrawler:
         self.mark_url_status(url, "failed", error_message)
 
     def create_embeddings(
-        self, chunks: list[str], url: str, page_title: str
+        self,
+        chunks: list[str],
+        url: str,
+        page_title: str,
+        author: str | None = None,
     ) -> list[dict]:
         """Create embeddings for text chunks using batch API for efficiency."""
         if not chunks:
@@ -1981,7 +2002,7 @@ class WebsiteCrawler:
                 source_location="web",
                 source_identifier=url,
                 content_type="text",
-                author=None,  # Web content typically doesn't have individual authors
+                author=author,
                 chunk_text=chunk,
             )
 
@@ -1998,6 +2019,8 @@ class WebsiteCrawler:
                 "total_chunks": len(chunks),
                 "crawl_timestamp": datetime.now().isoformat(),
             }
+            if author:
+                chunk_metadata["author"] = author
 
             vectors.append(
                 {"id": chunk_id, "values": vector, "metadata": chunk_metadata}

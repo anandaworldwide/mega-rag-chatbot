@@ -33,6 +33,7 @@ import { getOrCreateUUID } from "@/utils/client/uuid";
 import { getToken } from "@/utils/client/tokenManager";
 import { generateSourceId, generateSourceDeepLink } from "@/utils/client/sourceUtils";
 import { transformYouTubeUrl } from "@/utils/client/youtubeUtils";
+import { formatRetrievalScore, getRetrievalScore } from "@/utils/client/retrievalScoreUtils";
 import { TitleScopeSelection } from "@/types/titleScope";
 
 // Helper function to extract the title from document metadata.
@@ -473,6 +474,35 @@ const SourcesList: React.FC<SourcesListProps> = ({
     return <span className="text-black font-medium">{formattedTitle}</span>;
   };
 
+  const renderAdminRetrievalScore = (doc: Document<DocMetadata>) => {
+    if (!isSudoAdmin) {
+      return null;
+    }
+
+    const score = getRetrievalScore(doc.metadata);
+    if (score == null) {
+      return null;
+    }
+
+    const minScore = siteConfig?.minRetrievalScore;
+    const passesFloor = minScore == null || score >= minScore;
+
+    return (
+      <span
+        className="ml-2 text-xs font-mono px-2 py-0.5 rounded-full flex-shrink-0 bg-gray-100 text-gray-500"
+        title={
+          minScore != null
+            ? passesFloor
+              ? `Cosine similarity (above minRetrievalScore ${formatRetrievalScore(minScore)})`
+              : `Cosine similarity (below minRetrievalScore ${formatRetrievalScore(minScore)})`
+            : "Cosine similarity (no cutoff configured)"
+        }
+      >
+        {formatRetrievalScore(score)}
+      </span>
+    );
+  };
+
   const applyFocusedSourceScope = (
     scope: TitleScopeSelection,
     metadata?: {
@@ -862,6 +892,7 @@ const SourcesList: React.FC<SourcesListProps> = ({
                         <div className="flex items-center gap-2">
                           <span className="material-icons text-sm">{getSourceIcon(doc)}</span>
                           {renderSourceTitle(doc)}
+                          {renderAdminRetrievalScore(doc)}
                         </div>
                         {doc.metadata.library && doc.metadata.library !== "Default Library" && (
                           <span className="text-gray-400 text-sm sm:ml-auto">{renderLibraryName(doc)}</span>
@@ -983,8 +1014,9 @@ const SourcesList: React.FC<SourcesListProps> = ({
                             </span>
                             <span className="material-icons text-sm ml-1 flex-shrink-0">{getSourceIcon(doc)}</span>
                             <div className="flex flex-col flex-1 min-w-0 ml-1">
-                              <div className="flex items-start min-w-0">
+                              <div className="flex items-start min-w-0 flex-wrap">
                                 {renderSourceTitle(doc)}
+                                {renderAdminRetrievalScore(doc)}
                                 {renderCollapsedSourceAccessIcon(doc)}
                               </div>
                               {doc.metadata.library && doc.metadata.library !== "Default Library" && (

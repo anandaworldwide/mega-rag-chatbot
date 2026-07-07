@@ -188,6 +188,34 @@ except ImportError:
     load_env(args.site)  # Loads .env.[site] file
     ```
 
+### Python ingestion scripts: run from repo root
+
+- **Rule**: Run `data_ingestion/` Python scripts from the **monorepo root** with `uv run python data_ingestion/...`, not
+  from inside `data_ingestion/`. Many scripts import `data_ingestion.*` and `pyutil.*`; running from `data_ingestion/`
+  causes `ModuleNotFoundError: No module named 'data_ingestion'`.
+- **Applies to**: `pdf_to_vector_db.py`, `sql_to_vector_db/ingest_db_text.py`, imports from `sql_to_pdf/db_to_pdfs.py`,
+  and similar top-level ingestion entrypoints.
+- **Wrong** (from `data_ingestion/`):
+
+  ```bash
+  cd data_ingestion
+  uv run python pdf_to_vector_db.py --site jairam --file-path media/pdf-docs/exhibit-j-only ...
+  ```
+
+- **Correct** (from repo root):
+
+  ```bash
+  cd /path/to/mega-rag-chatbot
+  uv run python data_ingestion/pdf_to_vector_db.py \
+    --site jairam \
+    --file-path data_ingestion/media/pdf-docs/exhibit-j-only \
+    --library-name "Free Joe Hunt" \
+    --keep-data
+  ```
+
+- **Note**: `data_ingestion/README.md` examples that `cd data_ingestion` first are stale for these imports; prefer root
+  invocation until those docs are updated.
+
 ### Running Cron Jobs from Command Line
 
 - **Authentication**: Cron endpoints use `withJwtOrCronAuth` which checks User-Agent header
@@ -212,6 +240,10 @@ except ImportError:
 
 - **Security headers**: CSP, HSTS, X-Frame-Options required
 - **WordPress integration**: Use signed tokens for cross-site communication
+- **WordPress plugin network retry**: `chatbot-auth.js` `fetchWithAuth` (chat/vote/NPS) uses the same
+  `retryOnNetworkError` exponential backoff as token fetch; skips retry on `AbortError` (Stop button)
+- **WordPress chat POST retry safety**: Only retry POST when `idempotencyKey` is set; chat sends matching
+  `clientRequestId` body field; backend dedupes in-flight requests via Redis lock on `/api/chat/v1`
 - **Secret rotation runbook**: Use `docs/secret-rotation.md` as the canonical checklist; rotating backend
   `SECURE_TOKEN` also requires updating WordPress `CHATBOT_BACKEND_SECURE_TOKEN` or derived `WP_API_SECRET`.
 
@@ -273,6 +305,9 @@ except ImportError:
 - **Per-site toggles belong in config**: Do **not** hardcode site ID sets/constants (e.g. `Set(["ananda", "crystal"])`) for per-site feature rollout. Add an `enable*` flag to [`web/site-config/config.json`](web/site-config/config.json), extend `SiteConfig` in [`web/src/types/siteConfig.ts`](web/src/types/siteConfig.ts), and read it from `siteConfig` at runtime. Example: `enableApplySuggestions` for the Apply follow-up pill lane.
 - **Planning rule**: For major features, explicitly ask the user whether rollout should be global or site-configurable before implementing. If it is unclear whether a toggle should live in config vs code, **ask the user** rather than defaulting to hardcoded site lists.
 - **Site complexity**: `ananda` / Luca is the deep, feature-rich site; the other sites are intentionally simpler
+- **Luca vs Vivek framing**: When describing Luca, emphasize devotees/members on the spiritual path—not private library
+  access or membership tiers. Any regular devotee is welcome (discipleship not required). Vivek serves public visitors
+  with introductory information on ananda.org.
 - **New chat behavior**: `New Chat` should reset all answer-scope filters globally (collection, libraries, media types, title/source scope, and similar retrieval filters); if persistence is desired later, implement it as explicit user settings/preferences rather than hidden carry-over chat state
 - **Title catalog artifacts**: S3 title-scope artifacts are shared between development and production per site; do not split them by env prefix
 - **Title catalog lookup.json**: Every entry must include per-prefix `availability` (libraries, mediaTypes,

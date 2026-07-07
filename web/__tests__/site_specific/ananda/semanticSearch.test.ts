@@ -17,6 +17,10 @@
  * Important: Running these tests requires:
  * 1. A valid OPENAI_API_KEY environment variable
  * 2. A valid SECURE_TOKEN environment variable for JWT generation
+ * 3. A running backend at NEXT_PUBLIC_BASE_URL (default http://localhost:3000) with SITE=ananda
+ *
+ * Auto author-scope benchmark cases (collection: "auto") live in the
+ * "Auto Author Scope (B1 retrieval benchmark)" describe block. See docs/author-scope-benchmark.md.
  */
 
 // Polyfill fetch for Node environment
@@ -89,8 +93,8 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
       ...requestOverrides,
     };
 
-    // Generate a fresh token for this request
-    const token = generateTestToken();
+    // Generate a fresh token for this request (login sites require uuid in JWT)
+    const token = generateTestToken("web", uuid);
 
     try {
       // Call the actual API endpoint using fetch
@@ -178,7 +182,7 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
       ...requestOverrides,
     };
 
-    const token = generateTestToken();
+    const token = generateTestToken("web", uuid);
 
     const response = await fetch(endpoint, {
       method: "POST",
@@ -748,6 +752,156 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
     );
   });
 
+  describe("Auto Author Scope (B1 retrieval benchmark)", () => {
+    const autoRequestOverrides: RequestOverrides = { collection: "auto", sourceCount: 4 };
+    const MASTER_SWAMI_AUTHORS = ["Paramhansa Yogananda", "Swami Kriyananda"];
+
+    interface AutoBenchmarkCase {
+      query: string;
+      canonical_responses: string[];
+      similarityThreshold: number;
+      dissimilarityThreshold: number;
+      assertSources: (sourceDocs: any[]) => void;
+      assertResponse?: (text: string) => void;
+    }
+
+    const autoBenchmarkCases: AutoBenchmarkCase[] = [
+      {
+        query: "What is the Ananda Spiritual Counseling training program, and who teaches it?",
+        canonical_responses: [
+          "The Ananda Spiritual Counseling training is an online course led by Nayaswami Diksha that teaches the art of spiritual counseling.",
+          "Ananda Spiritual Counseling Training is a multi-week online program with faculty including Nayaswami Diksha.",
+        ],
+        similarityThreshold: 0.65,
+        dissimilarityThreshold: 0.6,
+        assertSources: (sourceDocs) => {
+          expect(sourceDocs.length).toBeGreaterThan(0);
+          const anandaOrgCount = sourceDocs.filter((doc) => doc.metadata?.library === "ananda.org").length;
+          expect(anandaOrgCount).toBeGreaterThanOrEqual(2);
+        },
+        assertResponse: (text) => {
+          expect(text).toMatch(/Diksha|spiritual counseling/i);
+        },
+      },
+      {
+        query: "What is the Inner Renewal Retreat and can I attend it online for free?",
+        canonical_responses: [
+          "The Inner Renewal Retreat is a week-long Ananda event led by Nayaswami Jyotish and Nayaswami Devi that you can attend online for free.",
+          "Inner Renewal Retreat is an inspiring spiritual retreat at Ananda Village with a free online participation option.",
+        ],
+        similarityThreshold: 0.65,
+        dissimilarityThreshold: 0.6,
+        assertSources: (sourceDocs) => {
+          expect(sourceDocs.length).toBeGreaterThan(0);
+          expect(
+            sourceDocs.some(
+              (doc) =>
+                doc.metadata?.library === "ananda.org" &&
+                /inner renewal/i.test(String(doc.metadata?.title ?? doc.metadata?.source ?? ""))
+            )
+          ).toBe(true);
+        },
+        assertResponse: (text) => {
+          expect(text).toMatch(/free|online/i);
+          expect(text).toMatch(/Jyotish|Devi|Inner Renewal/i);
+        },
+      },
+      {
+        query: "What does Ananda say about screen time and television for children?",
+        canonical_responses: [
+          "Ananda advises limiting screen time and television for children in favor of uplifting activities like meditation, chanting, and stories.",
+          "Children benefit when parents reduce screen exposure and offer more conscious, spiritually uplifting alternatives to television.",
+        ],
+        similarityThreshold: 0.6,
+        dissimilarityThreshold: 0.6,
+        assertSources: (sourceDocs) => {
+          expect(sourceDocs.length).toBeGreaterThan(0);
+          const anandaOrgCount = sourceDocs.filter((doc) => doc.metadata?.library === "ananda.org").length;
+          expect(anandaOrgCount).toBeGreaterThanOrEqual(2);
+        },
+        assertResponse: (text) => {
+          expect(text).toMatch(/screen|television|children|kids|media/i);
+        },
+      },
+      {
+        query: "How do different Ananda teachers explain karma?",
+        canonical_responses: [
+          "Ananda teachers explain karma as a law of cause and effect that can be understood and transformed through spiritual practice.",
+          "Different Ananda ministers describe karma as action and its consequences, emphasizing conscious choices and divine grace.",
+        ],
+        similarityThreshold: 0.6,
+        dissimilarityThreshold: 0.6,
+        assertSources: (sourceDocs) => {
+          expect(sourceDocs.length).toBeGreaterThanOrEqual(2);
+
+          const namedAuthors = new Set(
+            sourceDocs
+              .map((doc) => doc.metadata?.author)
+              .filter((author): author is string => typeof author === "string" && author.length > 0)
+          );
+          const hasNonAnandaOrgLibrary = sourceDocs.some(
+            (doc) => typeof doc.metadata?.library === "string" && doc.metadata.library !== "ananda.org"
+          );
+          const distinctAnandaOrgPages = new Set(
+            sourceDocs
+              .filter((doc) => doc.metadata?.library === "ananda.org")
+              .map((doc) => String(doc.metadata?.title ?? doc.metadata?.source ?? ""))
+          ).size;
+
+          expect(hasNonAnandaOrgLibrary || namedAuthors.size >= 2 || distinctAnandaOrgPages >= 2).toBe(true);
+          expect(
+            sourceDocs.filter((doc) => MASTER_SWAMI_AUTHORS.includes(doc.metadata?.author)).length
+          ).toBeLessThan(sourceDocs.length);
+        },
+        assertResponse: (text) => {
+          expect(text).toMatch(/karma/i);
+          expect(text).toMatch(/teachers?|ministers?|different|various|perspectives?/i);
+        },
+      },
+      {
+        query: "What has Asha taught about marriage and spiritual partnership?",
+        canonical_responses: [
+          "Asha Nayaswami writes about marriage and spiritual partnership as opportunities for growth, devotion, and aligning relationships with divine will.",
+          "Asha shares personal and spiritual guidance on marriage, partnership, and putting relationships in God's hands.",
+        ],
+        similarityThreshold: 0.65,
+        dissimilarityThreshold: 0.6,
+        assertSources: (sourceDocs) => {
+          expect(sourceDocs.length).toBeGreaterThan(0);
+          expect(sourceDocs.every((doc) => doc.metadata?.author === "Asha Nayaswami")).toBe(true);
+        },
+        assertResponse: (text) => {
+          expect(text).toMatch(/Asha|marriage|partnership|relationship/i);
+        },
+      },
+    ];
+
+    test.concurrent.each(autoBenchmarkCases)(
+      "should retrieve and answer correctly in auto mode for: $query",
+      async ({ query, canonical_responses, similarityThreshold, dissimilarityThreshold, assertSources, assertResponse }) => {
+        console.log(`Running auto benchmark: ${query}`);
+        const result = await getLucaResponseWithMetadata(query, [], autoRequestOverrides);
+        expect(result.error).toBeUndefined();
+        expect(result.text.length).toBeGreaterThan(0);
+        expect(result.suppressSources).toBe(false);
+        assertSources(result.sourceDocs);
+
+        const actualEmbedding = await getEmbedding(result.text);
+        const canonicalEmbeddings = await Promise.all(canonical_responses.map((text) => getEmbedding(text)));
+        const similarityToCanonicals = getMaxSimilarity(actualEmbedding, canonicalEmbeddings);
+        const similarityToRejection = getMaxSimilarity(actualEmbedding, rejectionEmbeddings);
+
+        console.log(
+          `Query: "${query}"\nResponse: "${result.text.slice(0, 300)}..."\nSources: ${result.sourceDocs.length}\nSimilarity to Canonicals: ${similarityToCanonicals}\nSimilarity to Rejection: ${similarityToRejection}`
+        );
+
+        expect(similarityToCanonicals).toBeGreaterThanOrEqual(similarityThreshold);
+        expect(similarityToRejection).toBeLessThan(dissimilarityThreshold);
+        assertResponse?.(result.text);
+      }
+    );
+  });
+
   describe("Source Scope Questions", () => {
     test.concurrent("should answer semantically from Matthew 5 when that source scope is selected", async () => {
       console.log(`Running test: should answer semantically from Matthew 5 when that source scope is selected`);
@@ -945,7 +1099,7 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
 });
 
 // Helper function to generate a test JWT token
-function generateTestToken(client = "web") {
+function generateTestToken(client = "web", uuid?: string) {
   // Ensure we have a valid secret key for signing
   const secretKey = process.env.SECURE_TOKEN;
   if (!secretKey) {
@@ -968,6 +1122,7 @@ function generateTestToken(client = "web") {
   const token = jwt.sign(
     {
       client,
+      ...(uuid ? { uuid } : {}),
       iat: nowInSeconds,
       exp: expInSeconds,
     },

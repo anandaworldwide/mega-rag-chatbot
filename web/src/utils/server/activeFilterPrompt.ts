@@ -1,6 +1,7 @@
 import type { SiteConfig as AppSiteConfig } from "@/types/siteConfig";
 import type { StreamingResponseData } from "@/types/StreamingResponseData";
 import type { AuthorScopeDescriptor, AuthorScopeHint, AuthorScopeMode } from "@/utils/server/authorConstants";
+import type { AuthorScopeBlendRetrievalDebug } from "@/utils/server/authorScopeRetrieval";
 
 type ActiveMediaTypeFilter = { text?: boolean; audio?: boolean; youtube?: boolean };
 
@@ -88,6 +89,10 @@ export function buildActiveFilterPromptData(
   namedAuthor?: string
 ): ActiveFilterPromptData {
   const lines: string[] = [];
+  // Auto author scope is the BROADEST setting (all authors, gentle Master/Swami boost), so it is
+  // surfaced for context but must NOT count as restrictive — otherwise an empty retrieval would
+  // wrongly tell the user to "broaden or turn off" a filter they never narrowed.
+  let restrictiveFilterCount = 0;
   const allLibraryNames = getSiteLibraryNames(siteConfig);
   const collectionLabel =
     selectedCollectionKey && selectedCollectionKey !== "whole_library" && selectedCollectionKey !== "auto"
@@ -98,10 +103,12 @@ export function buildActiveFilterPromptData(
     lines.push("- Author scope: Automatic (Master and Swami preferred)");
   } else if (collectionLabel) {
     lines.push(`- Collection: ${collectionLabel}`);
+    restrictiveFilterCount++;
   }
 
   if (namedAuthor) {
     lines.push(`- Focused author: ${namedAuthor}`);
+    restrictiveFilterCount++;
   }
 
   const restrictiveLibraries =
@@ -110,6 +117,7 @@ export function buildActiveFilterPromptData(
       : undefined;
   if (restrictiveLibraries && restrictiveLibraries.length > 0) {
     lines.push(`- Libraries: ${restrictiveLibraries.join(", ")}`);
+    restrictiveFilterCount++;
   }
 
   const activeMediaTypes = extractMediaTypeFilter(baseFilter);
@@ -130,10 +138,12 @@ export function buildActiveFilterPromptData(
       : undefined;
   if (restrictiveMediaTypes) {
     lines.push(`- Media types: ${formatMediaTypeList(restrictiveMediaTypes).join(", ")}`);
+    restrictiveFilterCount++;
   }
 
   if (selectedTitleScopeLabel) {
     lines.push(`- Source scope: Only ${selectedTitleScopeLabel}`);
+    restrictiveFilterCount++;
   }
 
   return {
@@ -141,7 +151,7 @@ export function buildActiveFilterPromptData(
       lines.length > 0
         ? `Current active filters:\n${lines.join("\n")}`
         : "Current active filters:\n- No restrictive filters are active.",
-    hasRestrictiveFilters: lines.length > 0,
+    hasRestrictiveFilters: restrictiveFilterCount > 0,
     collectionLabel,
     selectedLibraries: restrictiveLibraries,
     mediaTypes: restrictiveMediaTypes,
@@ -149,10 +159,31 @@ export function buildActiveFilterPromptData(
   };
 }
 
+/** Soft, in-chat hint appended to activeFiltersSummary when restrictive filters retrieve zero documents. */
+export const EMPTY_RETRIEVAL_FILTER_HINT =
+  "No library sources matched your current filters. Before answering, tell the user that nothing matched these " +
+  "active filters, name the limiting filter(s) above, and suggest broadening or turning them off. You may then offer " +
+  "general guidance, but do not invent or paraphrase quotes, teachings, or citations.";
+
+/**
+ * Returns the activeFiltersSummary for generation, appending {@link EMPTY_RETRIEVAL_FILTER_HINT}
+ * when restrictive filters produced zero retrieved documents. Phrased as assistant context so the
+ * model can soften its answer — not an error banner.
+ */
+export function buildActiveFiltersSummaryForGeneration(
+  data: ActiveFilterPromptData,
+  retrievalReturnedNoDocuments: boolean
+): string {
+  if (retrievalReturnedNoDocuments && data.hasRestrictiveFilters) {
+    return `${data.activeFiltersSummary}\n- ${EMPTY_RETRIEVAL_FILTER_HINT}`;
+  }
+  return data.activeFiltersSummary;
+}
+
 function describeScopeDescriptor(descriptor: AuthorScopeDescriptor): string {
   switch (descriptor.kind) {
     case "blend":
-      return `blend (Master/Swami weight=${descriptor.masterSwamiWeight}, broad weight=${1 - descriptor.masterSwamiWeight})`;
+      return `blend (Master/Swami score boost δ=${descriptor.masterSwamiBoost})`;
     case "named":
       return `named author "${descriptor.author}" (hard Pinecone author filter)`;
     case "hard":
@@ -168,7 +199,8 @@ export function formatAuthorScopeDebugLog(input: {
   scopeHint: AuthorScopeHint;
   scopeDescriptor: AuthorScopeDescriptor;
   activeFilterPromptData: ActiveFilterPromptData;
-  blendSlots?: { masterSwamiSlots: number; broadSlots: number };
+  blendRetrieval?: AuthorScopeBlendRetrievalDebug;
+  authorIndexSize?: { authors: number; aliases: number };
 }): string {
   const lines: string[] = [
     "[AuthorScope] ── retrieval decision ──",
@@ -179,10 +211,24 @@ export function formatAuthorScopeDebugLog(input: {
     `  resolved retrieval: ${describeScopeDescriptor(input.scopeDescriptor)}`,
   ];
 
-  if (input.scopeDescriptor.kind === "blend" && input.blendSlots) {
+  if (input.authorIndexSize) {
     lines.push(
-      `  blend slots: Master/Swami=${input.blendSlots.masterSwamiSlots}, broad=${input.blendSlots.broadSlots}`
+      `  author index loaded: ${input.authorIndexSize.authors} canonical authors, ${input.authorIndexSize.aliases} alias tokens`
     );
+  }
+
+  if (input.blendRetrieval) {
+    lines.push(`  blend fetch window: ${input.blendRetrieval.fetchCount} candidates`);
+    if (input.blendRetrieval.rankedSamples.length > 0) {
+      lines.push("  blend top sources (raw → boosted score):");
+      for (const sample of input.blendRetrieval.rankedSamples) {
+        const authorLabel = sample.author ?? "(no author)";
+        const libraryLabel = sample.library ?? "(unknown library)";
+        lines.push(
+          `    - ${authorLabel} | ${libraryLabel} | ${sample.rawScore.toFixed(4)} → ${sample.boostedScore.toFixed(4)}`
+        );
+      }
+    }
   }
 
   lines.push("[AuthorScope] ── LLM prompt filter summary (activeFiltersSummary) ──");

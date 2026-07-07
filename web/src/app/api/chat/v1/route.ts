@@ -47,7 +47,7 @@ import { Document } from "@langchain/core/documents";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { PineconeStore } from "@langchain/pinecone";
 import { MASTER_SWAMI_AUTHORS } from "@/utils/server/authorConstants";
-import { makeChain, setupAndExecuteLanguageModelChain, NoSourcesError } from "@/utils/server/makechain";
+import { makeChain, setupAndExecuteLanguageModelChain } from "@/utils/server/makechain";
 import { getCachedPineconeIndex } from "@/utils/server/pinecone-client";
 
 import { getPineconeIndexName } from "@/utils/server/pinecone-config";
@@ -89,6 +89,11 @@ import { buildTitleScopeForPersistence } from "@/utils/server/titleScopePersiste
 import { TitleScopeSelection } from "@/types/titleScope";
 import { TypedSuggestion } from "@/types/Suggestion";
 import { buildPineconeAccessFilterClauses, resolveEffectiveAccessLevelForEmail } from "@/utils/server/accessLevelUtils";
+import {
+  acquireChatRequestLock,
+  isValidClientRequestId,
+  releaseChatRequestLock,
+} from "@/utils/server/chatRequestIdempotency";
 
 export const runtime = "nodejs";
 export const maxDuration = 240;
@@ -150,6 +155,7 @@ interface ChatRequestBody {
   taskMode?: string; // optional task mode for analytics (e.g., "class-planning", "research")
   taskFollowups?: string[]; // available task follow-up suggestions
   usedTaskFollowups?: string[]; // follow-ups that have been used
+  clientRequestId?: string; // optional idempotency key for retried POST requests
   filterExplicitness?: {
     collection?: boolean;
     libraries?: boolean;
@@ -249,6 +255,18 @@ async function validateAndPreprocessInput(
     return corsMiddleware.addCorsHeaders(response, req, siteConfig);
   }
   const sanitizedUuid = rawUuid;
+
+  const rawClientRequestId =
+    typeof requestBody.clientRequestId === "string" ? requestBody.clientRequestId.trim() : undefined;
+  if (rawClientRequestId && !isValidClientRequestId(rawClientRequestId)) {
+    const response = NextResponse.json(
+      { error: "clientRequestId must be a valid v4 UUID when provided" },
+      { status: 400 }
+    );
+    return corsMiddleware.addCorsHeaders(response, req, siteConfig);
+  }
+  const sanitizedClientRequestId = rawClientRequestId;
+
   const titleScope: unknown = requestBody.titleScope;
   if (titleScope !== undefined && titleScope !== null) {
     if (!siteConfig.enableTitleScopeSelection) {
@@ -309,6 +327,7 @@ async function validateAndPreprocessInput(
       ...requestBody,
       question: sanitizedQuestion,
       uuid: sanitizedUuid,
+      clientRequestId: sanitizedClientRequestId,
       filterExplicitness,
     },
     originalQuestion,
@@ -601,55 +620,7 @@ async function patchDocumentSuggestions(docId: string, suggestions: TypedSuggest
 function handleError(error: unknown, sendData: (data: StreamingResponseData) => void) {
   if (error instanceof Error) {
     // Handle specific error cases
-    if (error instanceof NoSourcesError) {
-      // Build actionable error message based on active filters as a chat response
-      let message = "I couldn't find matching sources under your current chat filters. ";
-      const suggestions: string[] = [];
-
-      if (error.filters.libraries && error.filters.libraries.length > 0) {
-        if (error.filters.libraries.length === 1) {
-          message += `You're searching only in "${error.filters.libraries[0]}". `;
-          suggestions.push("Try selecting additional libraries");
-        } else {
-          message += `You're searching only in these libraries: ${error.filters.libraries.join(", ")}. `;
-          suggestions.push("Try broadening your library selection");
-        }
-      }
-
-      if (error.filters.mediaTypes) {
-        const activeTypes = Object.entries(error.filters.mediaTypes)
-          .filter(([, isActive]) => isActive)
-          .map(([type]) => type);
-
-        if (activeTypes.length > 0 && activeTypes.length < 3) {
-          const typeNames = activeTypes.map((t) => (t === "youtube" ? "video" : t));
-          message += `You're only searching ${typeNames.join(" and ")} content. `;
-          suggestions.push("Try including other media types");
-        }
-      }
-
-      if (error.filters.collection) {
-        message += `You're filtering by collection: "${error.filters.collection}". That filter may exclude the teachings you're asking about. `;
-        suggestions.push("Try switching or clearing your collection filter");
-      }
-
-      if (error.filters.titleScope) {
-        message += `You're searching only within "${error.filters.titleScope}". `;
-        suggestions.push("Try clearing or broadening the selected source.");
-      }
-
-      if (suggestions.length > 0) {
-        message += "\n\nSuggestions:\n";
-        suggestions.forEach((suggestion) => {
-          message += `• ${suggestion}\n`;
-        });
-      } else {
-        message += "Please adjust or reset your chat options and try again.";
-      }
-
-      // Send as error message
-      sendData({ error: message });
-    } else if (error.name === "PineconeNotFoundError") {
+    if (error.name === "PineconeNotFoundError") {
       sendData({
         error: "The specified Pinecone index does not exist. Please notify your administrator.",
       });
@@ -1084,6 +1055,22 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
 
   const sourceCount = sanitizedInput.sourceCount || 4;
   const clientIP = getClientIp(req);
+  const clientRequestId = sanitizedInput.clientRequestId;
+
+  const chatRequestLock = await acquireChatRequestLock(siteConfig.siteId || "unknown", clientRequestId);
+  if (chatRequestLock === "duplicate") {
+    return corsMiddleware.addCorsHeaders(
+      NextResponse.json(
+        {
+          error: "duplicate_request",
+          message: "This message is already being processed. Please wait a moment before trying again.",
+        },
+        { status: 409 }
+      ),
+      req,
+      siteConfig
+    );
+  }
 
   // Set up streaming response
   const encoder = new TextEncoder();
@@ -1433,6 +1420,10 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
 
         // Log comprehensive performance metrics
         await logPerformanceMetrics(timingMetrics, performanceContext);
+
+        if (chatRequestLock === "acquired") {
+          await releaseChatRequestLock(siteConfig.siteId || "unknown", clientRequestId);
+        }
 
         if (!isControllerClosed) {
           controller.close();

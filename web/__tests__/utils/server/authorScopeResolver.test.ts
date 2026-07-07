@@ -1,18 +1,18 @@
 /** @jest-environment node */
 
-import { findExplicitAuthorMatch, resolveAuthorScope } from "@/utils/server/authorScopeResolver";
+import { findExplicitAuthorMatch, clampMasterSwamiBoost, getMasterSwamiBoost, resolveAuthorScope } from "@/utils/server/authorScopeResolver";
 import type { SiteConfig } from "@/types/siteConfig";
 
 const baseSiteConfig = {
   enableAutoAuthorScope: true,
   authorScopeBlend: {
-    masterSwamiWeight: 0.7,
-    broadMasterSwamiWeight: 0.3,
+    masterSwamiBoost: 0.2,
+    broadMasterSwamiBoost: 0.08,
   },
   authorAliases: {
     asha: "Asha Nayaswami",
-    devi: "Devi Novak",
-    jyotish: "Jyotish Novak",
+    devi: "Nayaswami Devi Novak",
+    jyotish: "Nayaswami Jyotish Novak",
   },
 } as SiteConfig;
 
@@ -25,7 +25,7 @@ describe("findExplicitAuthorMatch", () => {
 
   it("matches Jyotish via alias even when Nayaswami appears in the full name", () => {
     expect(findExplicitAuthorMatch("What did Jyotish Nayaswami teach about leadership?", baseSiteConfig)).toBe(
-      "Jyotish Novak"
+      "Nayaswami Jyotish Novak"
     );
   });
 
@@ -48,20 +48,119 @@ describe("findExplicitAuthorMatch", () => {
       ...baseSiteConfig,
       authorAliases: {
         dev: "Wrong Author",
-        devi: "Devi Novak",
+        devi: "Nayaswami Devi Novak",
       },
     } as SiteConfig;
 
-    expect(findExplicitAuthorMatch("What did Devi teach?", configWithOverlappingAliases)).toBe("Devi Novak");
+    expect(findExplicitAuthorMatch("What did Devi teach?", configWithOverlappingAliases)).toBe(
+      "Nayaswami Devi Novak"
+    );
   });
 
   it("returns null when no author is named", () => {
     expect(findExplicitAuthorMatch("What is meditation?", baseSiteConfig)).toBeNull();
   });
+
+  it("matches Gyandev via generated alias index", () => {
+    const generatedAliasIndex = {
+      gyandev: "Nayaswami Gyandev McCord",
+      "gyandev mccord": "Nayaswami Gyandev McCord",
+    };
+
+    expect(
+      findExplicitAuthorMatch(
+        "what did Nayaswami Gyandev say about mantras?",
+        baseSiteConfig,
+        ["Nayaswami Gyandev McCord"],
+        [],
+        generatedAliasIndex
+      )
+    ).toBe("Nayaswami Gyandev McCord");
+  });
+
+  it("does not match ambiguous Novak surname from generated index", () => {
+    const generatedAliasIndex = {
+      devi: "Nayaswami Devi Novak",
+      jyotish: "Nayaswami Jyotish Novak",
+    };
+
+    expect(
+      findExplicitAuthorMatch("What did Novak teach?", baseSiteConfig, ["Nayaswami Devi Novak", "Nayaswami Jyotish Novak"], [], generatedAliasIndex)
+    ).toBeNull();
+  });
+
+  it("matches first names via generated alias index", () => {
+    const generatedAliasIndex = {
+      devi: "Nayaswami Devi Novak",
+      jyotish: "Nayaswami Jyotish Novak",
+    };
+
+    expect(
+      findExplicitAuthorMatch(
+        "What did Devi teach about marriage?",
+        { enableAutoAuthorScope: true } as SiteConfig,
+        ["Nayaswami Devi Novak", "Nayaswami Jyotish Novak", "Devi Mukherjee"],
+        [],
+        generatedAliasIndex
+      )
+    ).toBe("Nayaswami Devi Novak");
+
+    expect(
+      findExplicitAuthorMatch(
+        "What did Jyotish say about leadership?",
+        { enableAutoAuthorScope: true } as SiteConfig,
+        ["Nayaswami Devi Novak", "Nayaswami Jyotish Novak"],
+        [],
+        generatedAliasIndex
+      )
+    ).toBe("Nayaswami Jyotish Novak");
+  });
+
+  it("prefers manual authorAliases over generated alias index on conflict", () => {
+    const generatedAliasIndex = {
+      asha: "Wrong Asha Author",
+    };
+
+    expect(
+      findExplicitAuthorMatch("Topics from Asha about meditation", baseSiteConfig, [], [], generatedAliasIndex)
+    ).toBe("Asha Nayaswami");
+  });
+});
+
+describe("getMasterSwamiBoost", () => {
+  it("returns default and broad boost values from config", () => {
+    expect(getMasterSwamiBoost("default", baseSiteConfig)).toBe(0.2);
+    expect(getMasterSwamiBoost("broad", baseSiteConfig)).toBe(0.08);
+  });
+
+  it("falls back to built-in defaults when config is missing", () => {
+    expect(getMasterSwamiBoost("default", null)).toBe(0.2);
+    expect(getMasterSwamiBoost("broad", null)).toBe(0.08);
+  });
+
+  it("clamps configured boost values to the range 0..1", () => {
+    const extremeConfig = {
+      ...baseSiteConfig,
+      authorScopeBlend: {
+        masterSwamiBoost: 5,
+        broadMasterSwamiBoost: -0.5,
+      },
+    } as SiteConfig;
+
+    expect(getMasterSwamiBoost("default", extremeConfig)).toBe(1);
+    expect(getMasterSwamiBoost("broad", extremeConfig)).toBe(0);
+  });
+});
+
+describe("clampMasterSwamiBoost", () => {
+  it("returns 0 for non-finite values", () => {
+    expect(clampMasterSwamiBoost(Number.NaN)).toBe(0);
+    expect(clampMasterSwamiBoost(Number.POSITIVE_INFINITY)).toBe(0);
+  });
 });
 
 describe("resolveAuthorScope", () => {
-  it("returns blend with default weight for auto mode", () => {
+  it("returns blend with default boost for auto mode", () => {
     const result = resolveAuthorScope({
       question: "What is meditation?",
       scopeHint: "default",
@@ -69,10 +168,10 @@ describe("resolveAuthorScope", () => {
       collectionMode: "auto",
     });
 
-    expect(result).toEqual({ kind: "blend", masterSwamiWeight: 0.7 });
+    expect(result).toEqual({ kind: "blend", masterSwamiBoost: 0.2 });
   });
 
-  it("returns blend with broad weight when scope hint is broad", () => {
+  it("returns blend with lower boost when scope hint is broad", () => {
     const result = resolveAuthorScope({
       question: "What is meditation?",
       scopeHint: "broad",
@@ -80,7 +179,7 @@ describe("resolveAuthorScope", () => {
       collectionMode: "auto",
     });
 
-    expect(result).toEqual({ kind: "blend", masterSwamiWeight: 0.3 });
+    expect(result).toEqual({ kind: "blend", masterSwamiBoost: 0.08 });
   });
 
   it("returns named scope when Asha is explicitly mentioned", () => {
@@ -91,6 +190,55 @@ describe("resolveAuthorScope", () => {
     });
 
     expect(result).toEqual({ kind: "named", author: "Asha Nayaswami" });
+  });
+
+  it("returns named scope for Gyandev via generated alias index", () => {
+    const result = resolveAuthorScope({
+      question: "what did Nayaswami Gyandev say about mantras?",
+      siteConfig: baseSiteConfig,
+      collectionMode: "auto",
+      knownAuthors: ["Nayaswami Gyandev McCord"],
+      generatedAliasIndex: {
+        gyandev: "Nayaswami Gyandev McCord",
+        "gyandev mccord": "Nayaswami Gyandev McCord",
+      },
+    });
+
+    expect(result).toEqual({ kind: "named", author: "Nayaswami Gyandev McCord" });
+  });
+
+  it("returns named scope for Anandi on first turn after variant merge", () => {
+    const result = resolveAuthorScope({
+      question: "what did Anandi say about meditation?",
+      siteConfig: baseSiteConfig,
+      collectionMode: "auto",
+      knownAuthors: ["Nayaswami Anandi"],
+      generatedAliasIndex: {
+        anandi: "Nayaswami Anandi",
+        "nayaswami anandi": "Nayaswami Anandi",
+        "anandi cornell": "Nayaswami Anandi",
+      },
+    });
+
+    expect(result).toEqual({ kind: "named", author: "Nayaswami Anandi" });
+  });
+
+  it("matches Anandi Cornell variant before bare cornell surname", () => {
+    const generatedAliasIndex = {
+      anandi: "Nayaswami Anandi",
+      "anandi cornell": "Nayaswami Anandi",
+      "bharat cornell": "Joseph Bharat Cornell",
+    };
+
+    expect(
+      findExplicitAuthorMatch(
+        "what did anandi Cornell say about anger?",
+        baseSiteConfig,
+        ["Nayaswami Anandi", "Joseph Bharat Cornell"],
+        [],
+        generatedAliasIndex
+      )
+    ).toBe("Nayaswami Anandi");
   });
 
   it("returns hard master_swami when user explicitly selects that collection", () => {

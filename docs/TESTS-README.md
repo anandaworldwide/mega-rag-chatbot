@@ -180,7 +180,7 @@ npm run test:queries:ananda-public
 # Run only Ananda Public location/geo-awareness tests (20 tests)
 npm run test:location:ananda-public
 
-# Run only Ananda semantic tests (17 tests total)
+# Run only Ananda semantic tests (32 tests total, includes 5 auto author-scope benchmarks)
 npm run test:queries:ananda
 ```
 
@@ -200,8 +200,8 @@ npm run test:queries:ananda
 
 **Ananda Site:**
 
-- `web/__tests__/site_specific/ananda/semanticSearch.test.ts` - 17 semantic response tests (identity, naming
-  conventions, content references, unrelated question rejection)
+- `web/__tests__/site_specific/ananda/semanticSearch.test.ts` - 32 semantic response tests (identity, naming
+  conventions, content references, unrelated question rejection, auto author-scope B1 benchmarks)
 
 These tests validate:
 

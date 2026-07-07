@@ -1,7 +1,7 @@
 import type { Document } from "@langchain/core/documents";
 import type { VectorStoreRetriever } from "@langchain/core/vectorstores";
 import { MASTER_SWAMI_AUTHORS } from "@/utils/server/authorConstants";
-import { calculateSources } from "@/utils/server/ragDocumentUtils";
+import { attachRetrievalScore, filterScoredDocuments, type RelevanceStats } from "@/utils/server/retrievalRelevance";
 
 export function mergeFilterClauses(
   baseFilter: Record<string, unknown> | undefined,
@@ -45,21 +45,6 @@ export function buildLibraryFilter(
   });
 }
 
-export function allocateAuthorBlendSlots(
-  sourceCount: number,
-  masterSwamiWeight: number
-): { masterSwamiSlots: number; broadSlots: number } {
-  const [masterSwamiAllocation, broadAllocation] = calculateSources(sourceCount, [
-    { name: "master_swami", weight: masterSwamiWeight },
-    { name: "broad", weight: 1 - masterSwamiWeight },
-  ]);
-
-  return {
-    masterSwamiSlots: masterSwamiAllocation.sources,
-    broadSlots: broadAllocation.sources,
-  };
-}
-
 function getDocumentKey(doc: Document): string {
   return (
     doc.id ?? `${doc.metadata?.title ?? ""}:${doc.metadata?.author ?? ""}:${doc.pageContent?.slice(0, 64) ?? ""}`
@@ -85,81 +70,112 @@ export function dedupeDocuments(documents: Document[], maxCount: number): Docume
   return merged;
 }
 
-/**
- * Merges the two author-scope legs while honoring their slot quotas and guaranteeing the result
- * fills `sourceCount` whenever enough unique documents exist. The broad leg is an unfiltered
- * superset of the Master/Swami leg, so the legs routinely overlap; taking only the quota from each
- * and deduping would shrink the result below `sourceCount`. We therefore take the quota first
- * (Master/Swami preferred), then backfill any remaining slots from the leftover documents.
- */
-export function mergeAuthorBlendResults(
-  masterSwamiDocs: Document[],
-  broadDocs: Document[],
-  masterSwamiSlots: number,
-  broadSlots: number,
-  sourceCount: number
-): Document[] {
-  const seen = new Set<string>();
-  const merged: Document[] = [];
-
-  const take = (docs: Document[], limit: number) => {
-    let added = 0;
-    for (const doc of docs) {
-      if (added >= limit || merged.length >= sourceCount) {
-        break;
-      }
-      const key = getDocumentKey(doc);
-      if (seen.has(key)) {
-        continue;
-      }
-      seen.add(key);
-      merged.push(doc);
-      added += 1;
-    }
-  };
-
-  take(masterSwamiDocs, masterSwamiSlots);
-  take(broadDocs, broadSlots);
-
-  // Backfill any slots lost to cross-leg overlap, Master/Swami first to preserve the default lens.
-  // Only backfill from a leg that had a positive quota so a single-leg blend (weight 0 or 1) never
-  // leaks documents from the leg it intentionally excluded.
-  if (merged.length < sourceCount) {
-    if (masterSwamiSlots > 0) {
-      take(masterSwamiDocs, sourceCount);
-    }
-    if (broadSlots > 0) {
-      take(broadDocs, sourceCount);
-    }
-  }
-
-  return merged;
+export function isMasterSwamiAuthor(author: unknown): boolean {
+  return typeof author === "string" && (MASTER_SWAMI_AUTHORS as readonly string[]).includes(author);
 }
 
+/** Multiplicative score boost for Master/Swami documents: adjustedScore = score × (1 + δ). */
+export function applyMasterSwamiScoreBoost(
+  results: Array<[Document, number]>,
+  masterSwamiBoost: number
+): Array<[Document, number]> {
+  if (masterSwamiBoost <= 0) {
+    return results;
+  }
+
+  return results.map(([doc, score]) => {
+    if (isMasterSwamiAuthor(doc.metadata?.author)) {
+      return [doc, score * (1 + masterSwamiBoost)];
+    }
+    return [doc, score];
+  });
+}
+
+export function rankBoostedDocuments(results: Array<[Document, number]>, sourceCount: number): Document[] {
+  const sorted = [...results].sort((left, right) => right[1] - left[1]);
+  return dedupeDocuments(
+    sorted.map(([doc]) => doc),
+    sourceCount
+  );
+}
+
+export type AuthorScopeBlendRetrievalDebug = {
+  masterSwamiBoost: number;
+  fetchCount: number;
+  rankedSamples: Array<{
+    author?: string;
+    library?: string;
+    rawScore: number;
+    boostedScore: number;
+  }>;
+};
+
+function buildBlendRetrievalDebug(
+  rawResults: Array<[Document, number]>,
+  boostedResults: Array<[Document, number]>,
+  documents: Document[],
+  masterSwamiBoost: number,
+  fetchCount: number
+): AuthorScopeBlendRetrievalDebug {
+  const rawByKey = new Map(rawResults.map(([doc, score]) => [getDocumentKey(doc), score]));
+  const boostedByKey = new Map(boostedResults.map(([doc, score]) => [getDocumentKey(doc), score]));
+
+  return {
+    masterSwamiBoost,
+    fetchCount,
+    rankedSamples: documents.map((doc) => {
+      const key = getDocumentKey(doc);
+      return {
+        author: typeof doc.metadata?.author === "string" ? doc.metadata.author : undefined,
+        library: typeof doc.metadata?.library === "string" ? doc.metadata.library : undefined,
+        rawScore: rawByKey.get(key) ?? 0,
+        boostedScore: boostedByKey.get(key) ?? 0,
+      };
+    }),
+  };
+}
+
+export function computeBlendFetchCount(sourceCount: number): number {
+  return Math.max(sourceCount * 3, 12);
+}
+
+/**
+ * Relevance-first retrieval with a multiplicative Master/Swami score boost (B1).
+ * One broad similaritySearchWithScore over the scoped filter; M/S docs get score × (1 + δ).
+ */
 export async function retrieveWithAuthorScopeBlend(
   retriever: VectorStoreRetriever,
   question: string,
   sourceCount: number,
   baseFilter: Record<string, unknown> | undefined,
-  masterSwamiWeight: number,
-  libraryNames?: string[]
-): Promise<Document[]> {
+  masterSwamiBoost: number,
+  libraryNames?: string[],
+  minRetrievalScore?: number
+): Promise<{ documents: Document[]; debug: AuthorScopeBlendRetrievalDebug; relevance: RelevanceStats }> {
   const scopedBase = libraryNames?.length ? buildLibraryFilter(libraryNames, baseFilter) : baseFilter;
+  const fetchCount = computeBlendFetchCount(sourceCount);
 
-  const { masterSwamiSlots, broadSlots } = allocateAuthorBlendSlots(sourceCount, masterSwamiWeight);
+  const rawResults = await retriever.vectorStore.similaritySearchWithScore(question, fetchCount, scopedBase);
+  const rawHitCount = rawResults.length;
+  const topScore = rawHitCount > 0 ? Math.max(...rawResults.map(([, score]) => score)) : null;
 
-  // Over-fetch each active leg up to sourceCount so cross-leg overlap can be backfilled without
-  // dropping below the requested source count.
-  const masterSwamiPromise =
-    masterSwamiSlots > 0
-      ? retriever.vectorStore.similaritySearch(question, sourceCount, buildMasterSwamiFilter(scopedBase))
-      : Promise.resolve<Document[]>([]);
-  const broadPromise =
-    broadSlots > 0
-      ? retriever.vectorStore.similaritySearch(question, sourceCount, scopedBase)
-      : Promise.resolve<Document[]>([]);
+  const passingResults =
+    minRetrievalScore !== undefined
+      ? filterScoredDocuments(rawResults, minRetrievalScore).passing
+      : rawResults;
+  const rejectedLowRelevance = rawHitCount - passingResults.length;
 
-  const [masterSwamiDocs, broadDocs] = await Promise.all([masterSwamiPromise, broadPromise]);
+  const boostedResults = applyMasterSwamiScoreBoost(passingResults, masterSwamiBoost);
+  const rankedDocuments = rankBoostedDocuments(boostedResults, sourceCount);
+  const rawScoreByKey = new Map(passingResults.map(([doc, score]) => [getDocumentKey(doc), score]));
+  const documents = rankedDocuments.map((doc) => {
+    const rawScore = rawScoreByKey.get(getDocumentKey(doc));
+    return rawScore != null ? attachRetrievalScore(doc, rawScore) : doc;
+  });
 
-  return mergeAuthorBlendResults(masterSwamiDocs, broadDocs, masterSwamiSlots, broadSlots, sourceCount);
+  return {
+    documents,
+    debug: buildBlendRetrievalDebug(rawResults, boostedResults, documents, masterSwamiBoost, fetchCount),
+    relevance: { rawHitCount, rejectedLowRelevance, topScore },
+  };
 }
