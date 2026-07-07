@@ -14,11 +14,39 @@ Required Environment Variables (in .env.[site]):
     PINECONE_ENVIRONMENT: Your Pinecone environment
     PINECONE_INDEX_NAME: Default index name (can be overridden with --index-name)
 
-Usage:
-    python clean_pinecone_authors.py --site ananda --dry-run
-    python clean_pinecone_authors.py --site ananda
-    python clean_pinecone_authors.py --site ananda --sample-size 3
+Usage (from repo root):
+    uv sync
+    uv run python bin/clean_pinecone_authors.py --site ananda-public --dry-run
+    uv run python bin/clean_pinecone_authors.py --site ananda-public
+    uv run python bin/clean_pinecone_authors.py --site ananda-public --sample-size 3
 """
+
+import sys
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _assert_project_python() -> None:
+    """Fail fast when run under pyenv/system Python instead of the uv-managed 3.11 venv."""
+    if sys.version_info[:2] != (3, 11):
+        venv_python = _REPO_ROOT / ".venv" / "bin" / "python"
+        venv_cmd = (
+            f"  {venv_python} bin/{Path(__file__).name} ...\n"
+            if venv_python.is_file()
+            else ""
+        )
+        raise SystemExit(
+            "This script requires the project Python 3.11 environment.\n"
+            f"Current interpreter: {sys.executable} ({sys.version.split()[0]})\n\n"
+            "If a pyenv virtualenv is active, run `deactivate` first, then from repo root:\n"
+            "  uv sync\n"
+            f"  uv run python bin/{Path(__file__).name} --site <site> --dry-run\n"
+            f"{venv_cmd}"
+        )
+
+
+_assert_project_python()
 
 import argparse
 import json
@@ -27,6 +55,7 @@ import os
 import time
 from collections import defaultdict
 
+from data_ingestion.utils.author_normalization import resolve_author_mappings_path
 from dotenv import load_dotenv
 from pinecone import Pinecone
 from pinecone.exceptions import PineconeApiException
@@ -139,12 +168,7 @@ def load_author_mappings(site_id: str) -> dict[str, list[str]]:
         Dictionary mapping canonical names to lists of variant names
         Example: {"Swami Kriyananda": ["Swami Kriyanananda", "Nayaswami Kriyananda", ...]}
     """
-    # Navigate from bin/ to web/site-config/author_mappings.json
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    config_path = os.path.join(
-        script_dir, "..", "web", "site-config", "author_mappings.json"
-    )
-    config_path = os.path.normpath(config_path)
+    config_path = resolve_author_mappings_path()
 
     try:
         with open(config_path, encoding="utf-8") as f:

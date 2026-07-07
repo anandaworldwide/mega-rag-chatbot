@@ -39,6 +39,7 @@ RUN uv pip install en_core_web_sm@https://github.com/explosion/spacy-models/rele
 COPY data_ingestion/crawler/ /app/crawler/
 COPY data_ingestion/utils/ /app/utils/
 COPY pyutil/ /app/pyutil/
+COPY web/site-config/author_mappings.json /app/web/site-config/author_mappings.json
 
 # Create directories for DB and logs (host bind-mount at runtime)
 # Ensure proper ownership for non-root user (UID 1000)
