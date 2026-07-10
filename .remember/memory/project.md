@@ -141,6 +141,16 @@ except ImportError:
   and `./bin/run-pip-audit.sh`
 - **Aged-in security fixes**: if an allowed upgraded package does not move when running `uv lock`, use
   `uv lock --upgrade-package <name>` before exporting requirements and rerunning `./bin/run-pip-audit.sh`
+- **Dependabot uv-group PRs fail export-drift check by design**: dependabot updates `uv.lock` but cannot run
+  `bin/export-python-requirements.sh`, so Monorepo CI fails on requirements drift. Fix: check out the dependabot
+  branch, merge main, run `uv lock` + `bin/export-python-requirements.sh`, verify with `./bin/run-pip-audit.sh`,
+  push to the same branch, then merge. Reject dependabot **pip-group** PRs that rewrite `requirements.in` pins
+  (they regenerate exports incompatibly, e.g. numpy downgrades, stripped pip-audit entries, policy-pin violations).
+- **transformers 5.x upgrade is blocked** by `tokenizers==0.21.1` (transformers 5.3+ needs tokenizers>=0.22) and
+  `optimum-onnx 0.1.0` (pins transformers<4.58.0). Reranking is dormant code (only `reranking/evaluate_rerankers.py`
+  imports transformers, offline, hardcoded trusted model; not deployed on Vercel/crawler Docker). Transformers CVEs
+  are tracked in `security/accepted-vulns.yaml` with review dates; upgrading requires a coordinated
+  transformers/tokenizers/optimum-onnx bump plus functional reranker verification.
 - **Minimum security fix for cryptography**: Pin `cryptography>=48.0.1,<49` in `pyproject.toml` / `requirements.in` so
   `uv lock --upgrade-package cryptography` resolves to the minimum past-cooldown fix line (48.x), not a major jump to 49.x.
 - **Root `npm audit fix --package-lock-only`**: May refresh more than the target advisory (e.g. transitive `@babel/*`
@@ -249,6 +259,12 @@ except ImportError:
 
 ### Crawler production deployment (dedicated VM)
 
+- Production crawler public egress IP (as of 2026-07): **`44.253.199.146`** (`ubuntu@44.253.199.146`). Private log IP
+  `172.26.3.13` is internal only — Cloudflare allowlists need the public IP.
+- Crawler `User-Agent`: **`Ananda Chatbot Crawler`** (`data_ingestion/crawler/config.py`). Weekly orphan reconcile uses
+  `ananda-orphan-reconcile/1.0 (+crawler maintenance)`.
+- After Cloudflare proxy/WAF is enabled on ananda.org, allowlist that IP (and optionally the UA) or crawls get HTTP 403
+  and are marked permanent failures.
 - Production runs on a **single Linux VM** (for example AWS Lightsail) with Docker, **`DATA_DIR`** on persistent disk,
   and **systemd** timers for bounded `docker run` crawls — not ECS/Fargate.
 - **Lightsail / low RAM**: besides SSH key setup, add **host swap** (swapfile); a 2 GB instance overloaded quickly

@@ -69,6 +69,15 @@ answered as either a location lookup or a content question.
 **Correct**: Use input that expresses the behavior under test directly, then assert the observable behavior rather than a
 fragile similarity score against broad canonical examples.
 
+### Cursor "Npm task detection: failed to parse" Is Often A False Positive
+
+**Wrong**: Treat Cursor’s `Npm task detection: failed to parse the file …/package.json` toast as proof the
+manifest is invalid JSON and start rewriting scripts/dependencies.
+
+**Correct**: First validate with `JSON.parse` / `npm pkg get`. If that succeeds, the toast is usually Cursor’s
+generic catch around `openTextDocument()` (I/O race or IDE scan), not a real parse error. Silence with
+`npm.autoDetect: "off"` or `task.autoDetect: "off"`; keep using terminal `npm run …`.
+
 ### npm `min-release-age` Is Days, And Requires npm >= 11.5.0
 
 **Rule (units)**: The `.npmrc` `min-release-age` setting is a number of **days**, not seconds. Per the official
@@ -3022,6 +3031,17 @@ Retry with exponential backoff on HTTP 429.
 **`ananda` and `ananda-public` share the same Pinecone index** (`PINECONE_INDEX_NAME=ananda-2025-06-19--3-large` in
 both `.env.ananda` and `.env.ananda-public`). Metadata cleanup scripts like `bin/clean_pinecone_authors.py` only need to
 run once per shared index — do not re-run per site when sites share `PINECONE_INDEX_NAME`.
+
+### Mistake: Heredoc-in-command-substitution fails in this workspace shell
+
+**Wrong**: `git commit -m "$(cat <<'EOF' ... EOF)"` — the sandbox shell reports `bad substitution: no closing ')'`.
+
+**Correct**: Write the message to a file first and use `-F`:
+
+```bash
+printf '%s\n' "Subject line" "" "Body line 1" "Body line 2" > /tmp/commitmsg.txt
+git commit -F /tmp/commitmsg.txt
+```
 
 ### Mistake: Crawler Docker image missing author_mappings.json
 
