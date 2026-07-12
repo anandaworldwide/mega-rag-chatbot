@@ -32,6 +32,7 @@ interface MessageItemProps {
   siteConfig: SiteConfig | null;
   handleCopyLink: (answerId: string) => void;
   handleVote?: (docId: string, isUpvote: boolean) => void;
+  hideVoteButtons?: boolean;
   lastMessageRef: React.RefObject<HTMLDivElement> | null;
   messageKey: string;
   voteError?: string | null;
@@ -39,8 +40,6 @@ interface MessageItemProps {
   showSourcesBelow?: boolean;
   onSuggestionClick?: (suggestion: TypedSuggestion, position: number) => void;
   readOnly?: boolean; // New prop to disable interactive elements
-  onTryGPT41?: (messageIndex: number) => void; // New prop for regenerating with GPT-4.1
-  isRegenerating?: boolean; // Track if this message is being regenerated
   onRegenerateAnswer?: (messageIndex: number) => void; // New prop for regenerating answer
   onEditQuestion?: (messageIndex: number, originalText: string) => void; // New prop for editing question
   isEditing?: boolean; // Track if this message is being edited
@@ -75,13 +74,12 @@ const MessageItem: React.FC<MessageItemProps> = ({
   siteConfig,
   handleCopyLink,
   handleVote,
+  hideVoteButtons = false,
   lastMessageRef,
   messageKey,
   showSourcesBelow = false,
   onSuggestionClick,
   readOnly = false,
-  onTryGPT41,
-  isRegenerating = false,
   onRegenerateAnswer,
   onEditQuestion,
   isEditing = false,
@@ -105,9 +103,6 @@ const MessageItem: React.FC<MessageItemProps> = ({
   // Combine sudo user status with admin/superuser status for privileged access
   const isPrivilegedUser = isSudoUser || isAdminOrSuperuser;
   const [localEditingText, setLocalEditingText] = React.useState(editingText);
-
-  // Feature flag for alternate AI comparison button (temporarily disabled)
-  const SHOW_ALTERNATE_AI_BUTTON = false;
 
   // Sync local editing text when editing state changes
   React.useEffect(() => {
@@ -139,7 +134,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
   };
 
   const renderVoteButtons = (docId: string) => {
-    if (!docId) return null;
+    if (!docId || hideVoteButtons) return null;
 
     const vote = votes[docId] || 0;
 
@@ -315,6 +310,11 @@ const MessageItem: React.FC<MessageItemProps> = ({
                 {message.message.replace(/\n/g, "  \n").replace(/\n\n/g, "\n\n")}
               </ReactMarkdown>
             )}
+            {isPrivilegedUser && message.model && (
+              <div className="mt-1 text-xs text-gray-400 select-all" title="Answer model (admin only)">
+                model: {message.model}
+              </div>
+            )}
             {showSourcesBelow && renderSources()}
 
             {/* Action buttons for AI messages */}
@@ -358,6 +358,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
                     </button>
 
                     {!readOnly &&
+                      !hideVoteButtons &&
                       (message.docId ? (
                         renderVoteButtons(message.docId)
                       ) : (
@@ -378,27 +379,6 @@ const MessageItem: React.FC<MessageItemProps> = ({
                           </button>
                         </div>
                       ))}
-
-                    {/* Compare with Alternate AI button - only show on last answer if handler provided and not already regenerating */}
-                    {/* Temporarily hidden - feature code kept intact for future use */}
-                    {SHOW_ALTERNATE_AI_BUTTON && !readOnly && onTryGPT41 && !isRegenerating && isLastMessage && (
-                      <button
-                        onClick={() => onTryGPT41!(index)}
-                        className="flex items-center space-x-1 px-3 py-2 rounded-xl bg-gradient-to-r from-purple-500 to-blue-500 text-white text-sm hover:from-purple-600 hover:to-blue-600 transition-all h-8"
-                        title="See an alternate answer from a different AI model"
-                      >
-                        <span className="material-icons text-sm">auto_awesome</span>
-                        <span>See Alternate Answer</span>
-                      </button>
-                    )}
-
-                    {/* Show loading state when regenerating */}
-                    {isRegenerating && (
-                      <div className="flex items-center space-x-1 px-2 py-1 text-sm text-gray-600">
-                        <span className="material-icons text-sm animate-spin">refresh</span>
-                        <span>Generating...</span>
-                      </div>
-                    )}
                   </>
                 )}
               </div>

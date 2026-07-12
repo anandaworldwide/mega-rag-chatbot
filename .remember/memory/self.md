@@ -2,6 +2,62 @@
 
 ## Critical Lessons Learned
 
+### Mistake: Silencing TS 6 `baseUrl` deprecation with `ignoreDeprecations`
+
+**Wrong**:
+Keep `"baseUrl"` and add `"ignoreDeprecations": "6.0"` (breaks again in TypeScript 7.0).
+
+**Correct**:
+Remove `baseUrl`. Paths are resolved relative to the tsconfig file, so fold the old
+`baseUrl` prefix into each `paths` entry (e.g. tests config with `baseUrl: ".."` must
+change `@/*` from `./src/*` to `../src/*`). Do not leave a bare `baseUrl` with no paths.
+
+### Mistake: Run geo tool turns on Claude (streaming or not)
+
+**Wrong**:
+Bind geo tools to Claude Fable — streamed tool turns leak tool-arg JSON as tokens
+(`{"userProvidedLocation":"94705"}`); non-streamed tool turns plus a Claude final answer stall
+~6-15s because adaptive thinking holds all visible text until thinking ends
+(`firstTextTokenDelayMs ≈ finalInvokeDurationMs`), then dumps in a burst. Also wrong: send
+`token: "Searching locations..."` (route counts any token as first byte, corrupting TTFB), or
+apply a short geo prompt / hardcoded temperature to OpenAI-primary sites (drops site persona).
+
+**Correct**:
+For Anthropic primary models, run the **entire** geo path (tool selection + final answer) on
+`gpt-4.1-mini`; the tool-calling model is then always OpenAI and streams safely. Only that
+override uses the short geo system prompt + temp 0.3; OpenAI-primary geo keeps `getFullTemplate`
+and site temperature. Send the searching hint as SSE `status: "searching_locations"` (not a token)
+so TTFB/tokensStreamed start on the first real answer character. Persist `model` = actual execution
+model, never overwrite sticky `abTestModel`, mark `isLocationQuery`; A/B stats only count votes
+where `model === abTestModel`. Skip A/B assignment for temporary sessions (nothing persists, so
+the arm would re-roll every message). Normalize tool calls via `extractGeoToolCalls`.
+
+### Mistake: Gate feedback prompt only on flags that exist in live SITE_CONFIG
+
+**Wrong**:
+Require both `enableAnswerFeedbackPrompt` and `showVoting`, and only call show-logic on stream `done`.
+Rely only on `process.env.SITE_CONFIG` from next.config for App.getInitialProps on the client.
+
+**Correct**:
+`showVoting` is not present in site config (bar thumbs ignore it). Gate only on `enableAnswerFeedbackPrompt`.
+Call show-logic when `docId` arrives — it often lands after `done`. On the server, overlay live
+`config.json`; on the client, overlay the bundled `config.json` — client navigations re-run getInitialProps
+with a stale webpack `SITE_CONFIG` env snapshot that can omit newly added flags.
+Hide bar thumbs while the soft feedback prompt is visible for that message.
+
+### Mistake: Passing temperature to Claude Fable 5 / adaptive-only Anthropic models
+
+**Wrong**:
+
+```ts
+new ChatAnthropic({ model: "claude-fable-5", temperature: 0.4, ... });
+```
+
+**Correct**:
+Omit `temperature` (and non-default `top_p`/`top_k`) for adaptive-only models (`claude-fable-5`, Mythos, Opus 4.7/4.8).
+LangChain validates and throws `temperature is not supported ... when set to non-default values` if temperature is set
+to anything other than `1`/`undefined`. Steer style via the system prompt instead.
+
 ### Coverage % Is Driven By The Denominator — Target A Logic Subset, Not A Huge Global Pool
 
 **Wrong**: Chase a global coverage target (e.g. 70%) across all of `src/` when the denominator is huge (~22k statements)
@@ -3052,3 +3108,12 @@ crawler container. The Dockerfile copies `utils/` to `/app/utils/` but not `web/
 **Correct**: COPY `web/site-config/author_mappings.json` into the image at `/app/web/site-config/author_mappings.json`
 and resolve via `resolve_author_mappings_path()` (env override → container path → monorepo path). After deploy, run
 `bin/clean_pinecone_authors.py --site ananda-public --dry-run` then without `--dry-run` to fix existing Pinecone metadata.
+
+### Mistake: Empty-Retrieval Filter Hints Preaching Over System-Prompt Answers
+
+**Wrong**: Instructing the model that empty retrieval + restrictive filters always requires opening with "nothing matched
+your filters / broaden them" before answering. That forces a lecture even when the answer comes entirely from the system
+prompt (Groups.io, Wiki, Music Library, how-to, etc.) and library sources were never needed.
+
+**Correct**: Empty-retrieval filter guidance must carve out system-prompt answers: answer directly with `<<NO_SOURCES_USED>>`
+and skip filter caveats. Only mention limiting filters when the user asked for library teachings/quotes the filters blocked.

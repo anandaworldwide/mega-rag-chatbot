@@ -390,21 +390,39 @@ except ImportError:
 
 - Extended entitlements initial set: `kriyaban`, `minister` (final list TBD by user)
 
-## Model Comparison Feature
+## Answer Feedback Prompt
 
-- **Feature**: "Try GPT-4.1" button on every answer for anecdotal user feedback
-- **Implementation**: Side-by-side comparison UI (responsive for mobile/desktop)
-- **Components**:
-  - `ModelComparisonFeedbackModal.tsx` - feedback collection with consent checkbox
-  - `AnswerComparison.tsx` - side-by-side comparison display
-  - `MessageItem.tsx` - updated with regeneration button and state tracking
-- **API**: `/api/model-comparison-vote` - shared endpoint with compare-models page
-- **Backend**: `modelOverride` parameter in chat API for testing different models
-- **Database**: Firestore collection `${prefix}model_comparison_votes` (shared with compare-models)
-- **Distinction**: Inline comparisons have `source: "inline_comparison"` field
-- **Privacy**: User consent checkbox controls whether Q&A is stored in database
-- **Current model**: Using "gpt-4.1" model for comparison
-- **UI Flow**: Button appears below comparison after streaming completes (user-controlled, no auto-popup)
+- Soft non-modal "How did we do?" thumbs strip after the **first** streamed answer of a conversation
+- Gated by `enableAnswerFeedbackPrompt` only (ananda/Luca); keeps existing bar thumbs after dismiss (`showVoting` is unused in config)
+- While the prompt is visible for a message, bar thumbs are hidden for that message (`hideVoteButtons`)
+- Trigger on `docId` receipt (often after stream `done`) as well as on `done`
+- Dismiss on vote, X, or loading an existing conversation; resets on New Chat
+- Server `loadSiteConfig` overlays live + bundled `web/site-config/config.json` onto `SITE_CONFIG` so new flags apply on SSR and client navigations (stale next.config env alone is not enough)
+
+## Model Routing / Claude A/B Test
+
+- **Silent A/B**: Luca (`ananda`) uses `enableClaudeAbTest` for conversation-sticky assignment of `claude-fable-5`
+  vs `siteConfig.modelName` (control). Measurement is normal thumbs up/down; downvote events copy `model` /
+  `abTestModel`.
+- **Kill switches**: `CLAUDE_AB_TEST_PERCENT` (default 30 when flag on; `0` disables treatment) and
+  `CLAUDE_AB_TEST_FORCE_MODEL` for local smoke. Requires `ANTHROPIC_API_KEY`.
+- **Provider**: `web/src/utils/server/llmProvider.ts` (`getChatModel`) routes Claude → `@langchain/anthropic`,
+  GPT → `@langchain/openai`.
+- **Geo tools**: Anthropic primary models use `gpt-4.1-mini` for the entire geo path (tool selection +
+  answer) with a short geo prompt + temp 0.3; OpenAI-primary geo keeps the full site template and site
+  temperature. Sticky `abTestModel` stays on the conversation arm; per-answer `model` is the actual
+  execution model; `isLocationQuery: true` is saved. A/B measurement: only votes where
+  `model === abTestModel` (see `isClaudeAbTestComparableAnswer`). Temporary sessions skip A/B assignment
+  (arm can't persist). “Searching locations…” is an SSE `status`, not a token, so it does not start TTFB
+  (guarded by a route test).
+- **Removed**: user preferred-model Settings/picker, inline “Try GPT-4.1”, `/compare-models`, and related
+  model-comparison APIs/admin model-stats page. Keep `/admin/model-performance` for latency metrics.
+
+## Empty retrieval + system-prompt answers
+
+- When restrictive filters return no library docs, do **not** force a filter-broaden preamble if the answer is fully
+  available from the system prompt (Groups.io, Wiki, Music Library, how-to, etc.). Answer directly with
+  `<<NO_SOURCES_USED>>`. Mention filters only when the user needed library teachings/quotes that the filters blocked.
 
 ## Answer Regeneration Feature
 

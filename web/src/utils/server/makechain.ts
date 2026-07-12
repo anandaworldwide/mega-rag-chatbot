@@ -27,6 +27,15 @@
  */
 
 import { ChatOpenAI } from "@langchain/openai";
+import { getChatModel, isAnthropicModel } from "@/utils/server/llmProvider";
+
+/** Fast OpenAI model used for geo tool selection + formatting when the primary model is Anthropic. */
+export const GEO_FAST_MODEL = "gpt-4.1-mini";
+
+const GEO_ANSWER_SYSTEM_PROMPT =
+  "You are answering a location/geo question about Ananda meditation centers and related locations. " +
+  "Use ONLY the tool results provided. Do not invent centers, addresses, websites, or phone numbers. " +
+  "Write a clear, helpful answer based only on those results.";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { RunnableSequence, RunnablePassthrough } from "@langchain/core/runnables";
 import { StringOutputParser } from "@langchain/core/output_parsers";
@@ -47,6 +56,7 @@ import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
 import { SiteConfig as AppSiteConfig } from "@/types/siteConfig";
 import { ChatMessage, convertChatHistory } from "@/utils/shared/chatHistory";
 import { NextRequest } from "next/server";
+import { extractGeoToolCalls, extractStreamedTextDelta } from "@/utils/server/geoToolCalls";
 import { sendOpsAlert } from "./emailOps";
 import {
   buildActiveFilterPromptData,
@@ -557,13 +567,6 @@ export const makeChain = async (
       }
     }
 
-    // Initialize the answer generation model
-    const baseAnswerModel = new ChatOpenAI({
-      temperature,
-      model: model,
-      streaming: true,
-    });
-
     // ✅ CONDITIONAL TOOL BINDING: Only bind geo tools if location intent is detected
     let shouldUseGeoTools = false;
     let locationIntentLatency = 0;
@@ -603,19 +606,38 @@ export const makeChain = async (
       }
     }
 
+    // Anthropic adaptive thinking makes geo tool turns ~6-15s with no streamable text.
+    // Run the entire geo path on a fast OpenAI model; keep sticky A/B arm separate (route persists it).
+    // The tool-calling model is therefore always OpenAI, which streams safely with tools bound.
+    const useGeoFastModel = shouldUseGeoTools && isAnthropicModel(model);
+    const answerModelName = useGeoFastModel ? GEO_FAST_MODEL : model;
+    const answerTemperature = useGeoFastModel ? 0.3 : temperature;
+    const baseAnswerModel = getChatModel({
+      temperature: answerTemperature,
+      model: answerModelName,
+      streaming: true,
+    });
+
     if (shouldUseGeoTools && geoTools.length > 0 && request) {
       // Bind tools to the model - LangChain will handle tool execution automatically
+      if (typeof baseAnswerModel.bindTools !== "function") {
+        throw new Error(`Chat model "${answerModelName}" does not support tool binding required for geo-awareness`);
+      }
       answerModel = baseAnswerModel.bindTools(geoTools) as BaseLanguageModel;
 
       console.log(
-        "✅ Geo-awareness tools conditionally bound to OpenAI model for location query:",
-        originalQuestion?.substring(0, 100)
+        "✅ Geo-awareness tools conditionally bound to chat model for location query:",
+        originalQuestion?.substring(0, 100),
+        `(model=${answerModelName}${useGeoFastModel ? `, abArm=${model}` : ""})`
       );
 
-      // NEW: Notify frontend immediately that location search is underway
+      // Status only — must not be a token (would falsely start TTFB / chars/sec clocks)
       if (sendData) {
-        // Send a standalone token so the frontend can display a persistent hint
-        sendData({ token: "Searching locations...\n" });
+        sendData({
+          status: "searching_locations",
+          isLocationQuery: true,
+          ...(useGeoFastModel ? { model: answerModelName } : {}),
+        });
       }
     } else {
       answerModel = baseAnswerModel as BaseLanguageModel;
@@ -971,6 +993,10 @@ Error details: ${errorString}`,
 
   // Get model context limit (default to 8192 for safety, but newer models have higher limits)
   const getModelContextLimit = (modelName: string): number => {
+    // Claude models (Fable/Sonnet/Opus/Haiku) — use a high but practical RAG budget
+    if (modelName.toLowerCase().includes("claude")) {
+      return 200000;
+    }
     // GPT-4.1 models (including mini, nano variants) have 128k context
     if (modelName.includes("gpt-4.1")) {
       return 128000;
@@ -1237,59 +1263,6 @@ Error details: ${errorString}`,
   return conversationalRetrievalQAChain;
 };
 
-// Creates two parallel chains for comparing responses from different models
-// Useful for testing and evaluating model performance
-export const makeComparisonChains = async (
-  retriever: VectorStoreRetriever,
-  modelA: ModelConfig,
-  modelB: ModelConfig,
-  rephraseModelConfig: ModelConfig = {
-    model: "gpt-4.1-mini",
-    temperature: 0.1,
-  },
-  temporarySession: boolean = false,
-  siteConfig?: AppSiteConfig | null
-) => {
-  try {
-    const [chainA, chainB] = await Promise.all([
-      makeChain(
-        retriever,
-        { ...modelA, label: "A" },
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        rephraseModelConfig,
-        temporarySession,
-        [], // No geo tools for comparison chains
-        undefined, // No request for comparison chains
-        siteConfig,
-        undefined // No original question for comparison chains
-      ),
-      makeChain(
-        retriever,
-        { ...modelB, label: "B" },
-        undefined,
-        undefined,
-        undefined,
-        undefined,
-        rephraseModelConfig,
-        temporarySession,
-        [], // No geo tools for comparison chains
-        undefined, // No request for comparison chains
-        siteConfig,
-        undefined // No original question for comparison chains
-      ),
-    ]);
-
-    return { chainA, chainB };
-  } catch (error) {
-    const errorMsg = `Failed to create comparison chains: ${error}`;
-    console.error(errorMsg, error);
-    throw new Error("Failed to initialize one or both models for comparison");
-  }
-};
-
 // Load follow-up prompt template for a specific type (deeper, broader, or apply)
 async function loadFollowUpPrompt(type: "deeper" | "broader" | "apply", siteId?: string): Promise<string> {
   const promptsDir = path.join(process.cwd(), "site-config", "followup-prompts");
@@ -1529,6 +1502,7 @@ export async function setupAndExecuteLanguageModelChain(
   suggestionsPromise: Promise<TypedSuggestion[]>;
   model: string;
   temperature: number;
+  isLocationQuery: boolean;
 }> {
   const RETRY_DELAY_MS = process.env.NODE_ENV === "test" ? 10 : 1000;
   const MAX_RETRIES = 3;
@@ -1542,9 +1516,13 @@ export async function setupAndExecuteLanguageModelChain(
     try {
       streamingDeadline.reset();
       let isLocationQuery = false;
+      let answerModelUsed = modelOverride || siteConfig?.modelName || "gpt-4o";
       const trackStreamingData = (data: StreamingResponseData) => {
         if (data.isLocationQuery) {
           isLocationQuery = true;
+        }
+        if (typeof data.model === "string" && data.model.trim()) {
+          answerModelUsed = data.model.trim();
         }
         sendData(data);
       };
@@ -1552,6 +1530,10 @@ export async function setupAndExecuteLanguageModelChain(
       const temperature = siteConfig?.temperature || 0.3;
       const rephraseModelName = "gpt-4.1-mini";
       const rephraseTemperature = 0.1;
+
+      // Expose the answer model early so admin UI can show the A/B arm while streaming
+      sendData({ model: modelName });
+      answerModelUsed = modelName;
 
       // Send site ID immediately
       if (siteConfig?.siteId) {
@@ -1724,8 +1706,9 @@ export async function setupAndExecuteLanguageModelChain(
         question: string;
       };
 
-      // Handle tool calls with proper loop
-      if (result.answer && result.answer.tool_calls && result.answer.tool_calls.length > 0) {
+      // Handle tool calls with proper loop (OpenAI tool_calls + Anthropic tool_use / JSON fallback)
+      let pendingToolCalls = extractGeoToolCalls(result.answer);
+      if (pendingToolCalls.length > 0) {
         console.log("🔧 Starting tool execution loop");
 
         const { executeTool } = await import("./tools");
@@ -1737,16 +1720,16 @@ export async function setupAndExecuteLanguageModelChain(
         let iteration = 0;
 
         await streamingDeadline.waitWithDeadline(async () => {
-          while (currentResponse.tool_calls && currentResponse.tool_calls.length > 0 && iteration < maxIterations) {
+          while (pendingToolCalls.length > 0 && iteration < maxIterations) {
             iteration++;
             streamingDeadline.touchStreamingActivity();
             console.log(
-              `🔧 Tool execution iteration ${iteration}, processing ${currentResponse.tool_calls.length} tool calls`
+              `🔧 Tool execution iteration ${iteration}, processing ${pendingToolCalls.length} tool calls`
             );
 
             // Execute all tool calls in this iteration
             const toolResults = [];
-            for (const toolCall of currentResponse.tool_calls) {
+            for (const toolCall of pendingToolCalls) {
               try {
                 console.log(`🔧 Executing tool: ${toolCall.name} with args:`, toolCall.args);
                 const toolResult = await executeTool(toolCall.name, toolCall.args, request!, {
@@ -1777,58 +1760,97 @@ export async function setupAndExecuteLanguageModelChain(
 
             allToolMessages.push(...toolMessages);
 
-            // Call OpenAI again with tool results - NO SOURCES to avoid confusion
-
-            // Create a tool-free model for final response (no tools binding)
-            const { ChatOpenAI } = await import("@langchain/openai");
-            const toolFreeModel = new ChatOpenAI({
-              temperature: temperature,
-              model: modelName,
+            // Call model again with tool results - NO SOURCES to avoid confusion
+            //
+            // The tool-calling model here is always OpenAI: for Anthropic primary models,
+            // makeChain switched the geo path to GEO_FAST_MODEL (Fable's adaptive thinking
+            // buffers all text until thinking ends, so it cannot stream geo answers).
+            // Only that override uses the short geo prompt; OpenAI-primary sites keep
+            // their full site template and configured temperature.
+            const anthropicGeoOverride = isAnthropicModel(modelName);
+            const finalAnswerModelName = anthropicGeoOverride ? GEO_FAST_MODEL : modelName;
+            const toolFreeModel = getChatModel({
+              temperature: anthropicGeoOverride ? 0.3 : temperature,
+              model: finalAnswerModelName,
               streaming: true,
             });
+            answerModelUsed = finalAnswerModelName;
 
             // Create messages for the tool-free model
             const { HumanMessage, AIMessage, SystemMessage } = await import("@langchain/core/messages");
 
-            // Get the system prompt for the tool-free model
-            const systemPrompt = await getFullTemplate(siteConfig?.siteId || "ananda-public");
+            const systemPrompt = anthropicGeoOverride
+              ? GEO_ANSWER_SYSTEM_PROMPT
+              : await getFullTemplate(siteConfig?.siteId || "ananda-public");
 
-            // Create a proper conversation structure with system prompt
+            // Preserve prior assistant tool_calls when present; otherwise synthesize from normalized calls
+            // so the model receives a valid tool_call → tool_result turn structure.
+            const hadNativeToolCalls =
+              Array.isArray(currentResponse?.tool_calls) && currentResponse.tool_calls.length > 0;
+            const assistantToolCalls = hadNativeToolCalls
+              ? currentResponse.tool_calls
+              : pendingToolCalls.map((call) => ({
+                  id: call.id,
+                  name: call.name,
+                  args: call.args,
+                  type: "tool_call" as const,
+                }));
+
             const messages = [
               new SystemMessage(systemPrompt),
               new HumanMessage(sanitizedQuestion),
-              new AIMessage({ content: "", tool_calls: currentResponse.tool_calls }),
+              new AIMessage({
+                content:
+                  hadNativeToolCalls && typeof currentResponse?.content === "string" ? currentResponse.content : "",
+                tool_calls: assistantToolCalls,
+              }),
               ...allToolMessages,
             ];
 
-            // Get final response from tool-free model with streaming
-            const toolResponse = await toolFreeModel.invoke(messages, {
-              callbacks: [
-                {
-                  handleLLMNewToken(token: string) {
-                    if (!firstTokenTime) {
-                      firstTokenTime = Date.now();
-                      firstByteTime = Date.now();
-                      streamingDeadline.touchStreamingActivity();
-                      sendData({
-                        token,
-                        timing: {
-                          firstTokenGenerated: firstTokenTime,
-                          ttfb: firstByteTime && startTime ? firstByteTime - startTime : undefined,
-                        },
-                      });
-                    } else {
-                      streamingDeadline.touchStreamingActivity();
-                      sendData({ token });
-                    }
-                    fullResponse += token;
-                    tokensStreamed += token.length;
+            // Stream final answer; forward only text deltas
+            let toolResponse: any = null;
+            const stream = await toolFreeModel.stream(messages);
+            for await (const chunk of stream) {
+              toolResponse = toolResponse ? toolResponse.concat(chunk) : chunk;
+              const text = extractStreamedTextDelta(chunk);
+              if (!text) {
+                continue;
+              }
+              if (!firstTokenTime) {
+                firstTokenTime = Date.now();
+                firstByteTime = Date.now();
+                streamingDeadline.touchStreamingActivity();
+                sendData({
+                  token: text,
+                  timing: {
+                    firstTokenGenerated: firstTokenTime,
+                    ttfb: firstByteTime && startTime ? firstByteTime - startTime : undefined,
                   },
-                } as Partial<BaseCallbackHandler>,
-              ],
-            });
+                });
+              } else {
+                streamingDeadline.touchStreamingActivity();
+                sendData({ token: text });
+              }
+              fullResponse += text;
+              tokensStreamed += text.length;
+            }
+
+            // Fallback if stream yielded no assembled message
+            if (!toolResponse) {
+              toolResponse = await toolFreeModel.invoke(messages);
+              const fallbackText =
+                typeof toolResponse?.content === "string"
+                  ? toolResponse.content
+                  : extractStreamedTextDelta(toolResponse);
+              if (fallbackText && !fullResponse) {
+                sendData({ token: fallbackText });
+                fullResponse += fallbackText;
+                tokensStreamed += fallbackText.length;
+              }
+            }
 
             currentResponse = toolResponse;
+            pendingToolCalls = extractGeoToolCalls(currentResponse);
             console.log(`✅ Tool response received for iteration ${iteration}`);
           }
 
@@ -1940,8 +1962,9 @@ export async function setupAndExecuteLanguageModelChain(
         finalDocs: result.sourceDocuments,
         restatedQuestion: result.question,
         suggestionsPromise,
-        model: modelName, // Return the model used
+        model: answerModelUsed, // Actual execution model (may be GEO_FAST_MODEL for Anthropic geo)
         temperature: temperature, // Return the temperature used
+        isLocationQuery,
       };
     } catch (error) {
       // Don't retry if we've already streamed tokens - we can't undo what's been sent

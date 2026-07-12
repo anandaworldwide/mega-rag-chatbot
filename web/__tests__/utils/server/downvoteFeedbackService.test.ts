@@ -159,21 +159,23 @@ describe("DownvoteFeedbackService static helpers", () => {
       expect(record.triageCategory).toBe("retrieval_bug");
     });
 
-    it("includes reporter fields for identified identity", () => {
+    it("copies model and abTestModel from the answer", () => {
       const record = DownvoteFeedbackService.buildEventRecord({
-        ...baseParams,
-        reporterIdentity: {
-          identityMode: "identified",
-          identityShareRequested: true,
-          identityConsentDefaulted: true,
-          reporterUuid: "uuid-1",
-          reporterEmail: "a@b.com",
-          reporterDisplayName: "Alice",
+        answerDocId: "ans-1",
+        answerData: {
+          question: "What is meditation?",
+          answer: "It is calm.",
+          timestamp: "2024-01-01",
+          sources: [],
+          model: "claude-fable-5",
+          abTestModel: "claude-fable-5",
         },
+        feedbackReason: "Incorrect Information",
+        feedbackComment: "wrong",
+        reporterIdentity: { identityMode: "anonymous", identityShareRequested: false, identityConsentDefaulted: true },
       });
-      expect(record.reporterUuid).toBe("uuid-1");
-      expect(record.reporterEmail).toBe("a@b.com");
-      expect(record.reporterDisplayName).toBe("Alice");
+      expect(record.model).toBe("claude-fable-5");
+      expect(record.abTestModel).toBe("claude-fable-5");
     });
   });
 

@@ -294,6 +294,8 @@ export class DownvoteFeedbackService {
       collection: answerData.collection || null,
       sources: Array.isArray(answerData.sources) ? answerData.sources : [],
       restatedQuestion: typeof answerData.restatedQuestion === "string" ? answerData.restatedQuestion : null,
+      model: typeof answerData.model === "string" ? answerData.model : null,
+      abTestModel: typeof answerData.abTestModel === "string" ? answerData.abTestModel : null,
       feedbackReason,
       feedbackComment,
       identityMode: reporterIdentity.identityMode,

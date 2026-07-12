@@ -6,7 +6,7 @@
  * - Author/collection radio buttons if enabled
  * - Library/content collection checkboxes if enabled
  *
- * Split from SearchOptionsDropdown to separate content filters from AI settings.
+ * Split from legacy search options UI to focus on content filters.
  */
 
 import React, { useState, useRef, useEffect, useMemo } from "react";

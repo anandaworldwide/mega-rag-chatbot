@@ -5,6 +5,8 @@ import { TitleScopeFilterConflictPayload, TitleScopeSuggestion } from "./titleSc
 // Force TypeScript cache invalidation
 export interface StreamingResponseData {
   token?: string;
+  /** Non-answer UI status; must not count toward TTFB / tokensStreamed */
+  status?: "searching_locations";
   sourceDocs?: Document[];
   done?: boolean;
   error?: string;

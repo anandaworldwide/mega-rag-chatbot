@@ -71,7 +71,7 @@ const mockSiteConfig: SiteConfig = {
   header: { logo: "ananda-logo.png", navItems: [] },
   footer: { links: [] },
   queriesPerUserPerDay: 200,
-  enableModelComparison: true,
+  enableClaudeAbTest: true,
   showSourceCountSelector: true,
   temperature: 0.4,
   modelName: "gpt-4o",

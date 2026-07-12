@@ -71,6 +71,7 @@
     "@aws-sdk/s3-request-presigner": "^3.1004.0",
     "@eslint/js": "^9.39.1",
     "@jest/globals": "^29.7.0",
+    "@langchain/anthropic": "^1.5.1",
     "@langchain/openai": "^1.2.3",
     "@langchain/pinecone": "^1.0.3",
     "@testing-library/dom": "^10.4.1",

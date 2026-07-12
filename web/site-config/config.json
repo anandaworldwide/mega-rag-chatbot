@@ -143,7 +143,8 @@
       "links": []
     },
     "queriesPerUserPerDay": 200,
-    "enableModelComparison": true,
+    "enableClaudeAbTest": true,
+    "enableAnswerFeedbackPrompt": true,
     "showSourceCountSelector": true,
     "enableWhatsNew": true,
     "enableApplySuggestions": true,
@@ -255,7 +256,7 @@
       ]
     },
     "queriesPerUserPerDay": 100,
-    "enableModelComparison": false,
+    "enableClaudeAbTest": false,
     "showSourceCountSelector": false,
     "hideSources": true,
     "temperature": 0.3,
@@ -309,7 +310,7 @@
       ]
     },
     "queriesPerUserPerDay": 100,
-    "enableModelComparison": true,
+    "enableClaudeAbTest": true,
     "showSourceCountSelector": true,
     "temperature": 0.2,
     "modelName": "gpt-4o",
@@ -374,7 +375,7 @@
       ]
     },
     "queriesPerUserPerDay": 40,
-    "enableModelComparison": false,
+    "enableClaudeAbTest": false,
     "showSourceCountSelector": false,
     "temperature": 0.2,
     "modelName": "gpt-4o-mini",
@@ -410,7 +411,7 @@
       "links": []
     },
     "queriesPerUserPerDay": 150,
-    "enableModelComparison": true,
+    "enableClaudeAbTest": false,
     "showSourceCountSelector": true,
     "temperature": 0.4,
     "modelName": "gpt-4o",

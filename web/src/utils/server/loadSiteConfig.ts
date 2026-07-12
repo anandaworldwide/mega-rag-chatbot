@@ -1,6 +1,7 @@
 // This file contains utility functions for loading and parsing site configurations
 
 import { SiteConfig } from "@/types/siteConfig";
+import bundledSiteConfigs from "../../../site-config/config.json";
 
 function siteHasWeightedLibraries(siteConfig: SiteConfig): boolean {
   return (
@@ -62,15 +63,55 @@ export function assertAuthorScopeBlendConfig(siteConfig: SiteConfig): void {
 }
 
 /**
+ * Prefer live config.json on the server so newly added flags apply on the next request
+ * without depending on a stale next.config `env.SITE_CONFIG` snapshot.
+ * On the client (App.getInitialProps), fs is unavailable and env.SITE_CONFIG is a stale
+ * webpack snapshot — overlay the bundled config.json so flags like enableAnswerFeedbackPrompt
+ * are present after client-side navigations.
+ */
+function readAllSiteConfigs(): Record<string, unknown> {
+  let fromEnv: Record<string, unknown> = {};
+  try {
+    fromEnv = JSON.parse(process.env.SITE_CONFIG || "{}") as Record<string, unknown>;
+  } catch {
+    fromEnv = {};
+  }
+
+  const fromBundle = bundledSiteConfigs as Record<string, unknown>;
+
+  if (typeof window === "undefined") {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const fs = require("fs") as typeof import("fs");
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const path = require("path") as typeof import("path");
+      const candidates = [
+        path.join(process.cwd(), "site-config", "config.json"),
+        path.join(process.cwd(), "web", "site-config", "config.json"),
+      ];
+      for (const candidate of candidates) {
+        if (fs.existsSync(candidate)) {
+          const fromFile = JSON.parse(fs.readFileSync(candidate, "utf8")) as Record<string, unknown>;
+          return { ...fromEnv, ...fromBundle, ...fromFile };
+        }
+      }
+    } catch {
+      // Fall through to env + bundle
+    }
+  }
+
+  return { ...fromEnv, ...fromBundle };
+}
+
+/**
  * Parses the site configuration for a given site ID
  * @param siteId - The ID of the site to load configuration for (default: 'default')
  * @returns Parsed SiteConfig object or null if parsing fails
  */
 function parseSiteConfig(siteId: string = "default"): SiteConfig | null {
   try {
-    // Parse the JSON string from environment variable
-    const allConfigs = JSON.parse(process.env.SITE_CONFIG || "{}");
-    const siteConfig = allConfigs[siteId];
+    const allConfigs = readAllSiteConfigs();
+    const siteConfig = allConfigs[siteId] as SiteConfig | undefined;
 
     // Check if configuration exists for the given site ID
     if (!siteConfig) {
@@ -87,7 +128,8 @@ function parseSiteConfig(siteId: string = "default"): SiteConfig | null {
       header: siteConfig.header || { logo: "", navItems: [] },
       footer: siteConfig.footer || { links: [] },
       includedLibraries: siteConfig.includedLibraries || null,
-      enableModelComparison: siteConfig.enableModelComparison || false,
+      enableClaudeAbTest: siteConfig.enableClaudeAbTest === true,
+      enableAnswerFeedbackPrompt: siteConfig.enableAnswerFeedbackPrompt === true,
     } as SiteConfig;
 
     assertAuthorScopeBlendConfig(parsedConfig);

@@ -2,8 +2,8 @@
  * This file implements a custom chat route for handling streaming responses on Vercel production.
  *
  * Core functionality:
- * - Handles both standard chat and model comparison requests
  * - Implements server-sent events (SSE) for real-time streaming
+ * - Optional conversation-sticky Claude A/B assignment when enabled
  * - Manages rate limiting per user/IP
  * - Validates and sanitizes all inputs
  * - Integrates with Pinecone for vector search
@@ -47,7 +47,7 @@ import { Document } from "@langchain/core/documents";
 import { OpenAIEmbeddings } from "@langchain/openai";
 import { PineconeStore } from "@langchain/pinecone";
 import { MASTER_SWAMI_AUTHORS } from "@/utils/server/authorConstants";
-import { makeChain, setupAndExecuteLanguageModelChain } from "@/utils/server/makechain";
+import { setupAndExecuteLanguageModelChain } from "@/utils/server/makechain";
 import { getCachedPineconeIndex } from "@/utils/server/pinecone-client";
 
 import { getPineconeIndexName } from "@/utils/server/pinecone-config";
@@ -67,7 +67,7 @@ import { isDevelopment } from "@/utils/env";
 import { resolvePersistUuidForRequest } from "@/utils/server/uuidUtils";
 import { withAppRouterJwtAuth } from "@/utils/server/appRouterJwtUtils";
 import type { JwtPayload } from "@/utils/server/jwtUtils";
-import { ChatMessage, convertChatHistory } from "@/utils/shared/chatHistory";
+import { ChatMessage } from "@/utils/shared/chatHistory";
 import * as corsMiddleware from "@/utils/server/corsMiddleware";
 import { determineActiveMediaTypes } from "@/utils/determineActiveMediaTypes";
 import { firestoreSet, firestoreAdd } from "@/utils/server/firestoreRetryUtils";
@@ -87,6 +87,7 @@ import {
 } from "@/utils/server/titleCatalog";
 import { buildTitleScopeForPersistence } from "@/utils/server/titleScopePersistence";
 import { TitleScopeSelection } from "@/types/titleScope";
+import { resolveClaudeAbTestModel } from "@/utils/server/claudeAbTest";
 import { TypedSuggestion } from "@/types/Suggestion";
 import { buildPineconeAccessFilterClauses, resolveEffectiveAccessLevelForEmail } from "@/utils/server/accessLevelUtils";
 import {
@@ -151,7 +152,6 @@ interface ChatRequestBody {
   siteId?: string;
   uuid: string; // required client UUID (persisted regardless of auth)
   convId?: string; // conversation ID for follow-up messages
-  modelOverride?: string; // optional model override for testing/comparison
   taskMode?: string; // optional task mode for analytics (e.g., "class-planning", "research")
   taskFollowups?: string[]; // available task follow-up suggestions
   usedTaskFollowups?: string[]; // follow-ups that have been used
@@ -161,17 +161,6 @@ interface ChatRequestBody {
     libraries?: boolean;
     mediaTypes?: boolean;
   };
-}
-
-interface ComparisonRequestBody extends ChatRequestBody {
-  modelA: string;
-  modelB: string;
-  temperatureA: number;
-  temperatureB: number;
-  useExtraSources: boolean;
-  sourceCount: number;
-  historyA?: ChatMessage[];
-  historyB?: ChatMessage[];
 }
 
 // Define a minimal type that matches PineconeStore.fromExistingIndex expectations
@@ -479,9 +468,11 @@ async function saveOrUpdateDocument(
   suggestions?: TypedSuggestion[], // Accept typed suggestions for saving
   model?: string | undefined, // Model used for this response
   temperature?: number | undefined, // Temperature used for this response
+  abTestModel?: string | undefined, // Sticky A/B arm for this conversation
   taskMode?: string, // Task mode (e.g., "class-planning", "research")
   taskFollowups?: string[], // Available task follow-up suggestions
-  usedTaskFollowups?: string[] // Follow-ups that have been used
+  usedTaskFollowups?: string[], // Follow-ups that have been used
+  isLocationQuery?: boolean // Geo-awareness path; exclude from A/B when model !== abTestModel
 ): Promise<string | null> {
   if (!db) {
     return null;
@@ -532,6 +523,12 @@ async function saveOrUpdateDocument(
   }
   if (temperature !== undefined) {
     dataToSave.temperature = temperature;
+  }
+  if (abTestModel !== undefined) {
+    dataToSave.abTestModel = abTestModel;
+  }
+  if (isLocationQuery) {
+    dataToSave.isLocationQuery = true;
   }
 
   // Add task state fields if present (for task wizard conversations)
@@ -749,235 +746,6 @@ Error details: ${error.message}`,
   }
 }
 
-// Add new function near other handlers
-async function handleComparisonRequest(
-  req: NextRequest,
-  requestBody: ComparisonRequestBody,
-  siteConfig: SiteConfig,
-  effectiveAccessLevel: number
-) {
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    async start(controller) {
-      try {
-        // Send site ID first
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ siteId: siteConfig.siteId })}\n\n`));
-
-        // Set up Pinecone and filter
-        const { index, filter } = await setupPineconeAndFilter(
-          requestBody.collection || "whole_library",
-          requestBody.mediaTypes,
-          siteConfig,
-          effectiveAccessLevel
-        );
-
-        // Set up a manual tracking function to signal "done" to the client
-        const signalDone = () => {
-          try {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
-          } catch (e) {
-            console.error("Error sending done event:", e);
-          }
-        };
-
-        // Set up function to send data to the client
-        const sendToClient = (data: any) => {
-          try {
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
-          } catch (e) {
-            console.error("Error sending data to client:", e);
-          }
-        };
-
-        // Use the source count directly from the request body
-        const sourceCount = requestBody.sourceCount || 4;
-
-        // Create a completely fresh vector store and retriever for this request
-        const vectorStoreOptions = {
-          pineconeIndex: index,
-          textKey: "text",
-        };
-
-        const vectorStore = await PineconeStore.fromExistingIndex(
-          new OpenAIEmbeddings({
-            model:
-              process.env.OPENAI_EMBEDDINGS_MODEL ||
-              (() => {
-                console.warn("OPENAI_EMBEDDINGS_MODEL not set, using default text-embedding-ada-002");
-                return "text-embedding-ada-002";
-              })(),
-          }),
-          vectorStoreOptions
-        );
-
-        const retriever = vectorStore.asRetriever({
-          k: sourceCount,
-          filter,
-        });
-
-        // Create chains for both models
-        const chainA = await makeChain(
-          retriever,
-          {
-            model: requestBody.modelA,
-            temperature: requestBody.temperatureA,
-            label: "A",
-          },
-          sourceCount,
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          requestBody.temporarySession || false,
-          [], // No geo tools for comparison mode
-          undefined, // No request for comparison mode
-          siteConfig
-        );
-
-        const chainB = await makeChain(
-          retriever,
-          {
-            model: requestBody.modelB,
-            temperature: requestBody.temperatureB,
-            label: "B",
-          },
-          sourceCount,
-          undefined,
-          undefined,
-          undefined,
-          undefined,
-          requestBody.temporarySession || false,
-          [], // No geo tools for comparison mode
-          undefined, // No request for comparison mode
-          siteConfig
-        );
-
-        // Format chat history for each model
-        const pastMessagesA = convertChatHistory(requestBody.historyA || []);
-        const pastMessagesB = convertChatHistory(requestBody.historyB || []);
-
-        // Set up concurrent execution for both models
-
-        // Set up a timeout to ensure done is sent even if models hang
-        const doneTimeout = setTimeout(() => {
-          signalDone();
-        }, 60000); // 60 second timeout
-
-        // Flag to track if we've sent the done signal
-        let doneSent = false;
-
-        // Execute both models concurrently
-        try {
-          await Promise.all([
-            chainA.invoke(
-              {
-                question: requestBody.question,
-                chat_history: pastMessagesA,
-              },
-              {
-                callbacks: [
-                  {
-                    handleLLMNewToken(token: string) {
-                      sendToClient({ token, model: "A" });
-                    },
-                  } as Partial<BaseCallbackHandler>,
-                ],
-              }
-            ),
-            chainB.invoke(
-              {
-                question: requestBody.question,
-                chat_history: pastMessagesB,
-              },
-              {
-                callbacks: [
-                  {
-                    handleLLMNewToken(token: string) {
-                      sendToClient({ token, model: "B" });
-                    },
-                  } as Partial<BaseCallbackHandler>,
-                ],
-              }
-            ),
-          ]);
-
-          // Clear the timeout as we don't need it anymore
-          clearTimeout(doneTimeout);
-
-          // Since both models have completed, we can send the done signal
-          if (!doneSent) {
-            doneSent = true;
-            signalDone();
-          }
-
-          // Wait a moment to ensure the done signal is processed
-          await new Promise((resolve) => setTimeout(resolve, 500));
-
-          // Now we can close the controller
-          controller.close();
-        } catch (error) {
-          // Log sanitized error for debugging (prevents API key leakage)
-          const sanitizedError = sanitizeErrorForLogging(error);
-          console.error("Error running model chains:", sanitizedError);
-
-          // Clear the timeout as we're handling the error
-          clearTimeout(doneTimeout);
-
-          // Send safe error message to client (no sensitive info)
-          const safeMessage = getSafeErrorMessage(error, "Error running model comparison. Please try again later.");
-          sendToClient({
-            error: safeMessage,
-          });
-
-          // Send done signal if we haven't already
-          if (!doneSent) {
-            doneSent = true;
-            signalDone();
-          }
-
-          // Wait a moment to ensure the error and done signals are processed
-          await new Promise((resolve) => setTimeout(resolve, 500));
-
-          // Close the controller
-          controller.close();
-        }
-      } catch (error) {
-        try {
-          // Send safe error message to client (no sensitive info)
-          const safeMessage = getSafeErrorMessage(error, "Error in comparison handler. Please try again later.");
-          controller.enqueue(
-            encoder.encode(
-              `data: ${JSON.stringify({
-                error: safeMessage,
-              })}\n\n`
-            )
-          );
-
-          // Signal done
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ done: true })}\n\n`));
-        } catch (_e) {
-          // Silently handle encoding errors
-        }
-
-        // Close the controller
-        controller.close();
-      }
-    },
-  });
-
-  // Return response with CORS headers
-  const response = new NextResponse(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-    },
-  });
-
-  return corsMiddleware.addCorsHeaders(response, req, siteConfig);
-}
-
-// Apply JWT authentication to the POST handler
 export const POST = withAppRouterJwtAuth(async (req: NextRequest, _context: unknown, token: JwtPayload) => {
   // The token has been verified at this point
   // Original POST handler implementation starts here
@@ -1024,7 +792,24 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
   }
 
   const { sanitizedInput, originalQuestion } = validationResult;
-  const effectiveModelName = sanitizedInput.modelOverride || modelName;
+  let effectiveModelName = modelName;
+  let abTestModel: string | undefined;
+
+  // Temporary sessions never persist answer docs, so the sticky arm can't be stored and
+  // every turn would re-roll (model could flip mid-conversation). Keep them on control.
+  const abAssignment = await resolveClaudeAbTestModel({
+    enabled: siteConfig.enableClaudeAbTest === true && sanitizedInput.temporarySession !== true,
+    controlModel: modelName,
+    convId: sanitizedInput.convId,
+  });
+  if (abAssignment) {
+    effectiveModelName = abAssignment.model;
+    abTestModel = abAssignment.abTestModel;
+    console.log(
+      `Claude A/B assignment: model=${effectiveModelName} convId=${sanitizedInput.convId || "new"}`
+    );
+  }
+
   const effectiveAccess = await resolveEffectiveAccessLevelForEmail(token.email, siteConfig);
 
   const persistUuidResult = await resolvePersistUuidForRequest(
@@ -1044,13 +829,6 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
   // Log task mode for analytics if present
   if (sanitizedInput.taskMode) {
     console.log(`Task mode: ${sanitizedInput.taskMode}`);
-  }
-
-  // Check if this is a comparison request
-  const isComparison = "modelA" in sanitizedInput;
-
-  if (isComparison) {
-    return handleComparisonRequest(req, sanitizedInput as ComparisonRequestBody, siteConfig, effectiveAccess.level);
   }
 
   const sourceCount = sanitizedInput.sourceCount || 4;
@@ -1112,6 +890,7 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
             if (data.timing?.firstTokenGenerated && !timingMetrics.firstTokenGenerated) {
               timingMetrics.firstTokenGenerated = data.timing.firstTokenGenerated;
             }
+            // Status messages (e.g. searching_locations) must not start TTFB / streaming clocks
             if (!firstTokenSent && data.token) {
               firstTokenSent = true;
               timingMetrics.firstByteTime = Date.now();
@@ -1236,7 +1015,7 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
 
         // Execute the full chain
         timingMetrics.chainExecutionStart = Date.now();
-        const { fullResponse, finalDocs, restatedQuestion, suggestionsPromise, model, temperature } =
+        const { fullResponse, finalDocs, restatedQuestion, suggestionsPromise, model, temperature, isLocationQuery } =
           await setupAndExecuteLanguageModelChain(
             retriever,
             sanitizedInput.question, // Use sanitized question (whitespace normalized) for AI processing
@@ -1249,7 +1028,7 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
             sanitizedInput.temporarySession || false,
             req,
             timingMetrics,
-            sanitizedInput.modelOverride,
+            effectiveModelName,
             sanitizedInput.selectedLibraries,
             sanitizedInput.collection || "whole_library",
             sanitizedInput.taskMode,
@@ -1293,11 +1072,13 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
               persistUuid, // Must match interact API ownership uuid on login-required sites
               finalConversationId, // Use the final conversation ID
               undefined, // Suggestions saved via patch after parallel generation
-              model, // Pass the model used
+              model, // Actual execution model (geo may override Anthropic → gpt-4.1-mini)
               temperature, // Pass the temperature used
+              abTestModel, // Sticky A/B arm — never overwritten by geo fast-model override
               sanitizedInput.taskMode, // Pass task mode for persistence
               sanitizedInput.taskFollowups, // Pass task follow-ups for persistence
-              sanitizedInput.usedTaskFollowups // Pass used task follow-ups for persistence
+              sanitizedInput.usedTaskFollowups, // Pass used task follow-ups for persistence
+              isLocationQuery
             ).then((savedDocId) => {
               if (savedDocId) {
                 sendData({ docId: savedDocId });

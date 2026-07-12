@@ -80,7 +80,9 @@ export interface SiteConfig {
   showVoting: boolean;
   includedLibraries?: Array<string | { name: string; weight?: number }>; // Updated
   enabledMediaTypes?: ("text" | "audio" | "youtube")[];
-  enableModelComparison?: boolean;
+  enableClaudeAbTest?: boolean;
+  /** Soft "How did we do?" thumbs prompt after the first answer of a conversation */
+  enableAnswerFeedbackPrompt?: boolean;
   showSourceCountSelector?: boolean;
   hideSources?: boolean;
   defaultNumSources?: number;

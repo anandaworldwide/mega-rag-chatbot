@@ -108,7 +108,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           typeof data?.dismissedSalesforceAccessNoticeVersion === "number" &&
           data.dismissedSalesforceAccessNoticeVersion >= SALESFORCE_ACCESS_NOTICE_VERSION,
         verifiedAt: data?.verifiedAt?.toDate?.() ?? null, // When account was activated
-        preferredModel: typeof data?.preferredModel === "string" ? data.preferredModel : null,
         salesforceContactEmail: process.env[SALESFORCE_CONTACT_EMAIL_ENV]?.trim() || null,
         salesforceAccessVerificationDue,
         ...buildAccessLevelResponseFields({ ...data, role }, siteConfig),
@@ -131,7 +130,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         dismissedPasswordPromo?: boolean;
         dismissedSalesforceAccessNotice?: boolean;
         dismissedSalesforceAccessNoticeVersion?: number;
-        preferredModel?: string;
       };
       const updates: Record<string, any> = {};
 
@@ -236,13 +234,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           return res.status(400).json({ error: "Invalid dismissedSalesforceAccessNoticeVersion value" });
         }
         updates.dismissedSalesforceAccessNoticeVersion = body.dismissedSalesforceAccessNoticeVersion;
-      }
-
-      if (body.preferredModel !== undefined) {
-        if (typeof body.preferredModel !== "string" || body.preferredModel.length > 50) {
-          return res.status(400).json({ error: "Invalid preferredModel value" });
-        }
-        updates.preferredModel = body.preferredModel;
       }
 
       if (Object.keys(updates).length === 0) return res.status(400).json({ error: "No updates provided" });

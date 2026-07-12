@@ -58,7 +58,7 @@ describe("API Route: /api/manifest.json", () => {
     allowTemporarySessions: true,
     allowAllAnswersPage: true,
     queriesPerUserPerDay: 200,
-    enableModelComparison: true,
+    enableClaudeAbTest: true,
     showSourceCountSelector: true,
     showSourceContent: true,
     showVoting: true,

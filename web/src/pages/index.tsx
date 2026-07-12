@@ -19,8 +19,7 @@ import { ChatInput } from "@/components/ChatInput";
 import MessageItem from "@/components/MessageItem";
 import DownvoteFeedbackModal from "@/components/DownvoteFeedbackModal";
 import ChatHistorySidebar from "@/components/ChatHistorySidebar";
-import AnswerComparison from "@/components/AnswerComparison";
-import ModelComparisonFeedbackModal from "@/components/ModelComparisonFeedbackModal";
+import AnswerFeedbackPrompt from "@/components/AnswerFeedbackPrompt";
 import ConversationTitleBar from "@/components/ConversationTitleBar";
 
 // Hook imports
@@ -44,7 +43,6 @@ import {
   getEnabledMediaTypes,
   getDefaultCollectionKey,
 } from "@/utils/client/siteConfig";
-import { DEFAULT_MODEL } from "@/config/modelOptions";
 import { Document } from "@langchain/core/documents";
 
 // Third-party library imports
@@ -297,45 +295,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     [defaultLibraries, handleTitleScopeChange]
   );
 
-  // Model selection state - initialize from localStorage or default
-  const [selectedModel, setSelectedModel] = useState<string>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("selectedModel");
-      if (saved) return saved;
-    }
-    return DEFAULT_MODEL;
-  });
-  // Keep a ref in sync to avoid stale closures during rapid toggles/submit
-  const selectedModelRef = useRef<string>(selectedModel);
-  useEffect(() => {
-    selectedModelRef.current = selectedModel;
-    if (typeof window !== "undefined") {
-      localStorage.setItem("selectedModel", selectedModel);
-    }
-  }, [selectedModel]);
-
-  // Load model preference from user profile for logged-in sites
-  useEffect(() => {
-    if (!siteConfig?.requireLogin) return;
-
-    const loadModelPreference = async () => {
-      try {
-        const res = await fetch("/api/profile", { credentials: "include" });
-        if (res.ok) {
-          const profile = await res.json();
-          if (profile?.preferredModel) {
-            setSelectedModel(profile.preferredModel);
-            localStorage.setItem("selectedModel", profile.preferredModel);
-          }
-        }
-      } catch {
-        // Silently fail - use localStorage/default
-      }
-    };
-
-    loadModelPreference();
-  }, [siteConfig?.requireLogin]);
-
   // Chat state management using custom hook
   const {
     messageState,
@@ -384,6 +343,11 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   // Track current conversation ID for follow-up messages
   const [currentConvId, setCurrentConvId] = useState<string | null>(null);
   const currentConvIdRef = useRef<string | null>(null);
+
+  // Soft "How did we do?" prompt — once per conversation after first streamed answer
+  const [answerFeedbackPromptDocId, setAnswerFeedbackPromptDocId] = useState<string | null>(null);
+  const answerFeedbackPromptConsumedRef = useRef(false);
+  const maybeShowAnswerFeedbackPromptRef = useRef<(docId: string | null | undefined) => void>(() => {});
 
   // Track conversation title for HTML page title
   const [conversationTitle, setConversationTitle] = useState<string | null>(null);
@@ -690,6 +654,10 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         // Log analytics event
         logEvent("chat_history_conversation_loaded", "Chat History", convId, loadedConversation.messages.length);
 
+        // Don't show first-answer feedback prompt for already-started conversations
+        setAnswerFeedbackPromptDocId(null);
+        answerFeedbackPromptConsumedRef.current = true;
+
         /**
          * Deep linking: Hash fragment handling is done in the separate useEffect below
          * to avoid conflicts with browser's native scrolling and ensure proper timing
@@ -754,6 +722,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setCurrentQuestion("");
         setConversationTitle(null); // Clear conversation title
         setIsCurrentConversationStarred(false); // Clear star state
+        setAnswerFeedbackPromptDocId(null);
+        answerFeedbackPromptConsumedRef.current = false;
         resetRetrievalFiltersToDefaults();
         setMessageState({
           messages: [
@@ -945,6 +915,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     setCurrentConvId(null);
     setConversationTitle(null);
     setCurrentQuestion("");
+    setAnswerFeedbackPromptDocId(null);
+    answerFeedbackPromptConsumedRef.current = false;
     resetRetrievalFiltersToDefaults();
     setMessageState({
       messages: [
@@ -985,6 +957,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     setCurrentQuestion("");
     setConversationTitle(null);
     setIsCurrentConversationStarred(false);
+    setAnswerFeedbackPromptDocId(null);
+    answerFeedbackPromptConsumedRef.current = false;
     resetRetrievalFiltersToDefaults();
     setMessageState({
       messages: [
@@ -1309,6 +1283,30 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setTimingMetrics(data.timing);
       }
 
+      if (data.model) {
+        setMessageState((prevState) => {
+          const updatedMessages = [...prevState.messages];
+          for (let i = updatedMessages.length - 1; i >= 0; i--) {
+            if (updatedMessages[i].type === "apiMessage") {
+              updatedMessages[i] = {
+                ...updatedMessages[i],
+                model: data.model,
+              };
+              break;
+            }
+          }
+          return {
+            ...prevState,
+            messages: updatedMessages,
+          };
+        });
+      }
+
+      if (data.status === "searching_locations") {
+        // Status-only UX; must not append to accumulated stream or affect timing
+        updateMessageState("Searching locations...", null);
+      }
+
       if (data.token) {
         accumulatedResponseRef.current += data.token;
         updateMessageState(accumulatedResponseRef.current, null);
@@ -1367,6 +1365,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         // Save the docId in a separate state variable for later reference
         // This ensures we have it even if the message object wasn't ready when it arrived
         setSavedDocId(data.docId);
+
+        // docId often arrives after stream `done`; attempt prompt here so we don't miss it
+        maybeShowAnswerFeedbackPromptRef.current(data.docId);
       }
 
       // Handle convId separately from docId (convId comes earlier in the stream)
@@ -1449,6 +1450,15 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
         // Reset accumulated response when done
         accumulatedResponseRef.current = "";
+
+        // Soft feedback nudge after the first completed answer of this conversation
+        setTimeout(() => {
+          setMessageState((prevState) => {
+            const lastApi = [...prevState.messages].reverse().find((m) => m.type === "apiMessage" && m.docId);
+            maybeShowAnswerFeedbackPromptRef.current(lastApi?.docId);
+            return prevState;
+          });
+        }, 0);
 
         // After streaming ends, check scroll position and keep button visible if user is not at bottom
         setTimeout(() => {
@@ -1598,14 +1608,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     // Reset timing metrics when starting a new query
     setTimingMetrics(null);
 
-    // Clear any active comparison UI when submitting a new question
-    if (regeneratingMessageIndex !== null || regeneratedAnswer) {
-      setRegeneratingMessageIndex(null);
-      setRegeneratedAnswer(null);
-      setIsRegenerating(false);
-      setShowComparisonFeedbackModal(false);
-    }
-
     if (submittedQuery.length > 4000) {
       setError("Input must be 4000 characters or less");
       return;
@@ -1627,6 +1629,13 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     // Check if this is the second question or later (more than 2 messages = greeting + first Q&A)
     const isSecondQuestionOrLater = messageState.messages.length > 2;
     const newUserMessageIndex = messageState.messages.length;
+
+    // Fresh chat (greeting only): allow the first-answer feedback prompt even if a prior
+    // /chat/... load left the consumed flag set without going through New Chat.
+    if (messageState.messages.length <= 1) {
+      answerFeedbackPromptConsumedRef.current = false;
+      setAnswerFeedbackPromptDocId(null);
+    }
 
     // Add user message to the state
     setMessageState((prevState) => {
@@ -1702,7 +1711,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           sourceCount: sourceCountRef.current,
           uuid: getOrCreateUUID(),
           convId: currentConvIdRef.current, // Pass current conversation ID for follow-ups
-          modelOverride: selectedModelRef.current, // Always send the selected model
           // Use refs for task state since this function may be called from stale closures
           taskMode: currentTaskModeRef.current || undefined, // Pass task mode for persistence
           taskFollowups: isTaskConversationRef.current ? currentTaskFollowupsRef.current : undefined, // Pass task follow-ups for persistence
@@ -2015,17 +2023,39 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const [feedbackSubmitError, setFeedbackSubmitError] = useState<string | null>(null);
   const [feedbackSubmitting, setFeedbackSubmitting] = useState<boolean>(false);
 
-  // State for GPT-4.1 regeneration and comparison
-  const [regeneratingMessageIndex, setRegeneratingMessageIndex] = useState<number | null>(null);
-  const [regeneratedAnswer, setRegeneratedAnswer] = useState<ExtendedAIMessage | null>(null);
-  const [isRegenerating, setIsRegenerating] = useState<boolean>(false);
-  const [showComparisonFeedbackModal, setShowComparisonFeedbackModal] = useState<boolean>(false);
-  const regeneratedAnswerRef = useRef<string>("");
+  // Soft "How did we do?" prompt helpers
+  const dismissAnswerFeedbackPrompt = useCallback(() => {
+    setAnswerFeedbackPromptDocId(null);
+    answerFeedbackPromptConsumedRef.current = true;
+  }, []);
+
+  const maybeShowAnswerFeedbackPrompt = useCallback(
+    (docId: string | undefined | null) => {
+      if (
+        !docId ||
+        siteConfig?.enableAnswerFeedbackPrompt !== true ||
+        temporarySession ||
+        viewOnlyMode ||
+        answerFeedbackPromptConsumedRef.current
+      ) {
+        return;
+      }
+      answerFeedbackPromptConsumedRef.current = true;
+      setAnswerFeedbackPromptDocId(docId);
+      logEvent("answer_feedback_prompt_shown", "Engagement", docId);
+    },
+    [siteConfig?.enableAnswerFeedbackPrompt, temporarySession, viewOnlyMode]
+  );
+  maybeShowAnswerFeedbackPromptRef.current = maybeShowAnswerFeedbackPrompt;
 
   // Function to handle voting on answers - MODIFIED
   const handleVote = (docId: string, isUpvote: boolean) => {
     setVoteError(null); // Clear previous errors
     setFeedbackSubmitError(null); // Clear feedback error
+
+    if (answerFeedbackPromptDocId === docId) {
+      dismissAnswerFeedbackPrompt();
+    }
 
     const currentVote = votes[docId] || 0; // Get current vote status
 
@@ -2135,7 +2165,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             temporarySession: temporarySession,
             uuid: getOrCreateUUID(),
             convId: currentConvIdRef.current,
-            modelOverride: selectedModelRef.current, // Always send the selected model
           }),
           signal: newAbortController.signal,
         });
@@ -2215,6 +2244,34 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                     suggestions: data.suggestions,
                   };
                 }
+                return {
+                  ...prevState,
+                  messages: newMessages,
+                };
+              });
+            }
+
+            if (data.model) {
+              setMessageState((prevState) => {
+                const newMessages = [...prevState.messages];
+                newMessages[messageIndex] = {
+                  ...newMessages[messageIndex],
+                  model: data.model,
+                };
+                return {
+                  ...prevState,
+                  messages: newMessages,
+                };
+              });
+            }
+
+            if (data.status === "searching_locations") {
+              setMessageState((prevState) => {
+                const newMessages = [...prevState.messages];
+                newMessages[messageIndex] = {
+                  ...newMessages[messageIndex],
+                  message: "Searching locations...",
+                };
                 return {
                   ...prevState,
                   messages: newMessages,
@@ -2471,7 +2528,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             sourceCount: sourceCountRef.current,
             uuid: getOrCreateUUID(),
             convId: currentConvIdRef.current,
-            modelOverride: selectedModelRef.current, // Always send the selected model
           }),
           signal: newAbortController.signal,
         });
@@ -2546,6 +2602,27 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                   messages: updatedMessages,
                 };
               });
+            }
+
+            if (data.model) {
+              setMessageState((prevState) => {
+                const updatedMessages = [...prevState.messages];
+                const lastMessage = updatedMessages[updatedMessages.length - 1];
+                if (lastMessage?.type === "apiMessage") {
+                  updatedMessages[updatedMessages.length - 1] = {
+                    ...lastMessage,
+                    model: data.model,
+                  };
+                }
+                return {
+                  ...prevState,
+                  messages: updatedMessages,
+                };
+              });
+            }
+
+            if (data.status === "searching_locations") {
+              updateMessageState("Searching locations...", null);
             }
 
             if (data.token) {
@@ -2637,227 +2714,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       autoApplySourceFocusConflict,
     ]
   );
-
-  // Function to handle GPT-4.1 regeneration
-  const handleTryGPT41 = useCallback(
-    async (messageIndex: number) => {
-      if (isRegenerating) return; // Prevent multiple regenerations
-
-      const apiMessage = messages[messageIndex];
-      if (apiMessage.type !== "apiMessage") return;
-
-      const userMessage = messages[messageIndex - 1];
-      if (!userMessage || userMessage.type !== "userMessage") return;
-
-      logEvent("try_gpt41_clicked", "Model Comparison", `Message Index: ${messageIndex}`);
-
-      setRegeneratingMessageIndex(messageIndex);
-      setIsRegenerating(true);
-      regeneratedAnswerRef.current = "";
-
-      // Create placeholder for regenerated answer
-      setRegeneratedAnswer({
-        message: "",
-        type: "apiMessage",
-        sourceDocs: apiMessage.sourceDocs || [], // Reuse same sources
-      });
-
-      try {
-        const response = await fetchWithAuth("/api/chat/v1", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            question: userMessage.message,
-            history: historyRef.current.slice(0, messageIndex), // Include conversation history up to this point
-            collection: apiMessage.collection || collection,
-            mediaTypes: mediaTypes,
-            selectedLibraries: selectedLibrariesRef.current,
-            titleScope:
-              isTitleScopeSelectionEnabled && selectedTitleScopeRef.current ? selectedTitleScopeRef.current : undefined,
-            filterExplicitness: buildFilterExplicitnessPayloadFn(),
-            sourceCount: apiMessage.sourceDocs?.length || sourceCountRef.current,
-            temporarySession: temporarySession,
-            uuid: getOrCreateUUID(),
-            convId: currentConvIdRef.current,
-            // Override model to gpt-4.1 for comparison
-            modelOverride: "gpt-4.1",
-          }),
-        });
-
-        if (!response.ok) {
-          throw new Error(`API error: ${response.status}`);
-        }
-
-        if (!response.body) {
-          throw new Error("No response body");
-        }
-
-        setFilterConflict(null);
-
-        const reader = response.body.getReader();
-
-        await readSseStream(reader, (line) => {
-          if (!line.startsWith("data: ")) {
-            return;
-          }
-          try {
-            const data = parseSseDataLine(line) as StreamingResponseData;
-
-            if (data.filterConflict) {
-              const filterConflict = data.filterConflict;
-              if (autoApplySourceFocusConflict(filterConflict)) {
-                return;
-              }
-              setFilterConflict(filterConflict);
-              setRegeneratedAnswer((prev) =>
-                prev
-                  ? {
-                      ...prev,
-                      message: filterConflict.summaryMessage,
-                    }
-                  : prev
-              );
-            }
-
-            if (data.token) {
-              regeneratedAnswerRef.current += data.token;
-              setRegeneratedAnswer((prev) => ({
-                ...prev!,
-                message: regeneratedAnswerRef.current,
-              }));
-            }
-
-            if (data.done) {
-              setIsRegenerating(false);
-            }
-          } catch (e) {
-            console.error("Error parsing SSE data:", e);
-          }
-        });
-      } catch (error) {
-        console.error("Error regenerating with GPT-4.1:", error);
-        toast.error("Failed to regenerate answer. Please try again.");
-        setIsRegenerating(false);
-        setRegeneratingMessageIndex(null);
-        setRegeneratedAnswer(null);
-      }
-    },
-    [
-      isRegenerating,
-      messages,
-      collection,
-      mediaTypes,
-      temporarySession,
-      isTitleScopeSelectionEnabled,
-      buildFilterExplicitnessPayloadFn,
-      autoApplySourceFocusConflict,
-    ]
-  );
-
-  // Function to submit comparison feedback
-  const handleComparisonFeedbackSubmit = async (preference: string, comment: string, shareConsent: boolean) => {
-    if (regeneratingMessageIndex === null || !regeneratedAnswer) return;
-
-    const originalAnswer = messages[regeneratingMessageIndex];
-    const userMessage = messages[regeneratingMessageIndex - 1];
-
-    // Map preference to winner format
-    let winner: "A" | "B" | "skip";
-    if (preference === "original") {
-      winner = "A";
-    } else if (preference === "new") {
-      winner = "B";
-    } else {
-      winner = "skip"; // "same"
-    }
-
-    try {
-      const response = await fetchWithAuth("/api/model-comparison-vote", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: getOrCreateUUID(),
-          timestamp: new Date(),
-          winner,
-          modelAConfig: {
-            model: siteConfig?.modelName || "gpt-4",
-            temperature: 0.3,
-            response:
-              shareConsent && originalAnswer.message ? originalAnswer.message : "[User did not consent to share]",
-          },
-          modelBConfig: {
-            model: "gpt-4.1",
-            temperature: 0.3,
-            response:
-              shareConsent && regeneratedAnswer.message ? regeneratedAnswer.message : "[User did not consent to share]",
-          },
-          question: shareConsent && userMessage?.message ? userMessage.message : "[User did not consent to share]",
-          collection: originalAnswer.collection || collection,
-          mediaTypes: mediaTypes,
-          userComments: comment || "",
-          shareConsent,
-          siteId: siteConfig?.siteId || "unknown",
-          source: "inline_comparison",
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to submit feedback");
-      }
-
-      // If user preferred the new answer, replace the original with it
-      if (preference === "new" && originalAnswer.docId) {
-        // Update the message in the UI
-        setMessageState((prevState) => {
-          const newMessages = [...prevState.messages];
-          newMessages[regeneratingMessageIndex] = {
-            ...originalAnswer,
-            message: regeneratedAnswer.message,
-            // Keep the original docId, sourceDocs, etc.
-          };
-          return {
-            ...prevState,
-            messages: newMessages,
-          };
-        });
-
-        // Update the database record with the new answer
-        try {
-          await fetchWithAuth(`/api/answers/${originalAnswer.docId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              response: regeneratedAnswer.message,
-              modelUsed: "gpt-4.1",
-            }),
-          });
-        } catch (updateError) {
-          console.error("Error updating answer in database:", updateError);
-          // Don't show error to user since the vote was recorded successfully
-        }
-      }
-
-      toast.success("Thank you for your feedback!");
-      logEvent("comparison_feedback_submitted", "Model Comparison", preference);
-    } catch (error) {
-      console.error("Error submitting comparison feedback:", error);
-      toast.error("Failed to submit feedback. Please try again.");
-    } finally {
-      setShowComparisonFeedbackModal(false);
-      setRegeneratingMessageIndex(null);
-      setRegeneratedAnswer(null);
-      regeneratedAnswerRef.current = "";
-    }
-  };
-
-  // Function to close comparison feedback modal
-  const handleComparisonFeedbackClose = () => {
-    setShowComparisonFeedbackModal(false);
-    setRegeneratingMessageIndex(null);
-    setRegeneratedAnswer(null);
-    regeneratedAnswerRef.current = "";
-    logEvent("comparison_feedback_skipped", "Model Comparison", "");
-  };
 
   // Function to handle copying answer links
   const handleCopyLink = (answerId: string) => {
@@ -3466,12 +3322,13 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                                 siteConfig={siteConfig}
                                 handleCopyLink={handleCopyLink}
                                 handleVote={handleVote}
+                                hideVoteButtons={
+                                  Boolean(message.docId) && answerFeedbackPromptDocId === message.docId
+                                }
                                 lastMessageRef={lastMessageRef}
                                 voteError={voteError}
                                 allowAllAnswersPage={siteConfig?.allowAllAnswersPage ?? false}
                                 onSuggestionClick={handleSuggestionClick}
-                                onTryGPT41={handleTryGPT41}
-                                isRegenerating={isRegenerating && regeneratingMessageIndex === index}
                                 onRegenerateAnswer={handleRegenerateAnswer}
                                 onEditQuestion={handleEditQuestion}
                                 isEditing={editingMessageIndex === index}
@@ -3508,31 +3365,28 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                                   ) : undefined
                                 }
                               />
-                            </div>
-
-                            {/* Show comparison UI if this message is being regenerated */}
-                            {regeneratingMessageIndex === index && regeneratedAnswer && (
-                              <div className="px-4 pb-4">
-                                <AnswerComparison
-                                  originalAnswer={message}
-                                  newAnswer={regeneratedAnswer}
-                                  originalModel={siteConfig?.modelName || "GPT-4"}
-                                  newModel="GPT-4.1"
-                                  isStreaming={isRegenerating}
-                                />
-                                {/* Feedback button - only show after streaming completes */}
-                                {!isRegenerating && (
-                                  <div className="mt-4 flex justify-center">
-                                    <button
-                                      onClick={() => setShowComparisonFeedbackModal(true)}
-                                      className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg shadow-md transition-colors"
-                                    >
-                                      Which answer was better?
-                                    </button>
+                              {message.type === "apiMessage" &&
+                                message.docId &&
+                                answerFeedbackPromptDocId === message.docId &&
+                                !loading && (
+                                  <div className="px-4 pb-2 max-w-[85%]">
+                                    <AnswerFeedbackPrompt
+                                      docId={message.docId}
+                                      onUpvote={(docId) => handleVote(docId, true)}
+                                      onDownvote={(docId) => handleVote(docId, false)}
+                                      onDismiss={() => {
+                                        dismissAnswerFeedbackPrompt();
+                                        logEvent(
+                                          "answer_feedback_prompt_dismissed",
+                                          "Engagement",
+                                          message.docId || ""
+                                        );
+                                      }}
+                                    />
                                   </div>
                                 )}
-                              </div>
-                            )}
+                            </div>
+
                           </React.Fragment>
                         ))}
                         {/* Bottom spacer to allow scrolling past last content item */}
@@ -3620,23 +3474,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           isSubmitting={feedbackSubmitting}
         />
 
-        {/* Render the Model Comparison Feedback Modal */}
-        <ModelComparisonFeedbackModal
-          isOpen={showComparisonFeedbackModal}
-          onClose={handleComparisonFeedbackClose}
-          onSubmit={handleComparisonFeedbackSubmit}
-          originalModel={siteConfig?.modelName || "GPT-4"}
-          newModel="GPT-4.1"
-        />
-
-        {/* Display general vote errors (e.g., from upvoting) */}
-        {voteError &&
-          !isFeedbackModalOpen && ( // Don't show if feedback modal is open showing its own error
-            <div className="fixed bottom-4 right-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded shadow-md z-50">
-              <strong className="font-bold">Error: </strong>
-              <span className="block sm:inline">{voteError}</span>
-            </div>
-          )}
       </Layout>
     </SudoProvider>
   );

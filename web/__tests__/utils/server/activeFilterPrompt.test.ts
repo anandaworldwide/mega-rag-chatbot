@@ -133,6 +133,8 @@ describe("buildActiveFiltersSummaryForGeneration", () => {
 
     expect(summary).toContain("- Collection: Bible");
     expect(summary).toContain(`- ${EMPTY_RETRIEVAL_FILTER_HINT}`);
+    expect(EMPTY_RETRIEVAL_FILTER_HINT).toContain("fully answer from information in this system prompt");
+    expect(EMPTY_RETRIEVAL_FILTER_HINT).toContain("do NOT mention the empty retrieval");
   });
 
   it("does not append the hint when documents were retrieved", () => {

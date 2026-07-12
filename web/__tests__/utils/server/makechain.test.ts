@@ -41,6 +41,16 @@ jest.mock("@langchain/openai", () => ({
   })),
 }));
 
+jest.mock("@/utils/server/llmProvider", () => ({
+  getChatModel: jest.fn().mockImplementation(() => ({
+    invoke: jest.fn().mockResolvedValue({ content: "Mock response" }),
+    stream: jest.fn().mockImplementation(() => mockChatOpenAIStream()),
+    bindTools: jest.fn().mockReturnThis(),
+    bind: jest.fn().mockReturnThis(),
+  })),
+  isAnthropicModel: (model: string) => model.toLowerCase().startsWith("claude"),
+}));
+
 // Now import ChatOpenAI - it will be the mocked version
 import { VectorStoreRetriever } from "@langchain/core/vectorstores";
 import { Document } from "@langchain/core/documents";
@@ -49,6 +59,7 @@ import { calculateSources, combineDocumentsFn } from "../../../src/utils/server/
 import fs from "fs/promises";
 import path from "path";
 import { ChatOpenAI } from "@langchain/openai";
+import { getChatModel } from "@/utils/server/llmProvider";
 import { S3Client } from "@aws-sdk/client-s3";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { convertChatHistory, ChatMessage } from "../../../src/utils/shared/chatHistory";
@@ -460,8 +471,8 @@ describe("makeChain", () => {
     // Verify that fs.readFile was called for config
     expect(fs.readFile).toHaveBeenCalled();
 
-    // Verify that ChatOpenAI was initialized for answer generation
-    expect(ChatOpenAI).toHaveBeenCalledWith({
+    // Verify that getChatModel was initialized for answer generation
+    expect(getChatModel).toHaveBeenCalledWith({
       temperature: 0.7,
       model: "gpt-4o-mini",
       streaming: true,
@@ -926,8 +937,8 @@ describe("makeChain", () => {
       mockSiteConfig // siteConfig
     );
 
-    // Check that ChatOpenAI was initialized with custom params for answer generation
-    expect(ChatOpenAI).toHaveBeenCalledWith({
+    // Check that getChatModel was initialized with custom params for answer generation
+    expect(getChatModel).toHaveBeenCalledWith({
       temperature: 0.3,
       model: "gpt-4-turbo",
       streaming: true,
@@ -1096,8 +1107,8 @@ describe("makeChain", () => {
     expect(chain).toBeDefined();
     expect(typeof chain.invoke).toBe("function");
 
-    // Critical assertion: Verify that ChatOpenAI was called with streaming: true for answer generation
-    expect(ChatOpenAI).toHaveBeenCalledWith({
+    // Critical assertion: Verify that getChatModel was called with streaming: true for answer generation
+    expect(getChatModel).toHaveBeenCalledWith({
       temperature: 0.3,
       model: "gpt-4o",
       streaming: true, // This must be true for streaming to work
@@ -1112,8 +1123,8 @@ describe("makeChain", () => {
 
     // The key test: Verify that the chain structure allows for streaming
     // This is validated by checking that the streaming model was properly configured
-    const chatOpenAICalls = (ChatOpenAI as unknown as jest.Mock).mock.calls;
-    const streamingCall = chatOpenAICalls.find((call) => call[0].streaming === true);
+    const chatModelCalls = (getChatModel as unknown as jest.Mock).mock.calls;
+    const streamingCall = chatModelCalls.find((call) => call[0].streaming === true);
     expect(streamingCall).toBeTruthy();
     expect(streamingCall[0].streaming).toBe(true);
 
@@ -1448,6 +1459,50 @@ describe("makeChain", () => {
     expect(chain).toBeDefined();
   });
 
+  test("should use fast OpenAI model with streaming for Anthropic geo tool path", async () => {
+    (getChatModel as unknown as jest.Mock).mockClear();
+    (ChatOpenAI as unknown as jest.Mock).mockReset();
+    (ChatOpenAI as unknown as jest.Mock).mockImplementation(() => ({
+      invoke: jest.fn().mockResolvedValue("Test response"),
+      stream: jest.fn(),
+      bindTools: jest.fn().mockReturnThis(),
+    }));
+
+    const mockGeoTools = [{ name: "get_user_location", description: "Get user location", parameters: {} }];
+    const mockRequest = { headers: new Map([["x-forwarded-for", "192.168.1.1"]]) } as any;
+    const geoEnabledSiteConfig = { ...mockSiteConfig, enableGeoAwareness: true };
+    const sendData = jest.fn();
+
+    await makeChain(
+      mockRetriever,
+      { model: "claude-fable-5", temperature: 0.4 },
+      2,
+      undefined,
+      sendData,
+      jest.fn(),
+      undefined,
+      false,
+      mockGeoTools,
+      mockRequest,
+      geoEnabledSiteConfig,
+      "Where is the nearest center?"
+    );
+
+    expect(getChatModel).toHaveBeenCalledWith({
+      temperature: 0.3,
+      model: "gpt-4.1-mini",
+      streaming: true,
+    });
+    expect(sendData).toHaveBeenCalledWith({
+      status: "searching_locations",
+      isLocationQuery: true,
+      model: "gpt-4.1-mini",
+    });
+    expect(sendData).not.toHaveBeenCalledWith(
+      expect.objectContaining({ token: expect.stringContaining("Searching locations") })
+    );
+  });
+
   test("should handle model initialization errors with quota detection", async () => {
     // Mock ChatOpenAI to throw a quota error
     (ChatOpenAI as unknown as jest.Mock).mockImplementationOnce(() => {
@@ -1673,51 +1728,6 @@ describe("makeChain", () => {
       // Restore original mock
       runnablesModule.RunnableSequence = originalRunnableSequence;
     }
-  });
-
-  // Test makeComparisonChains function
-  test("should create two parallel chains for model comparison", async () => {
-    const { makeComparisonChains } = await import("../../../src/utils/server/makechain");
-
-    const modelA = { model: "gpt-4o", temperature: 0.3, label: "Model A" };
-    const modelB = { model: "gpt-4o-mini", temperature: 0.7, label: "Model B" };
-
-    const result = await makeComparisonChains(
-      mockRetriever,
-      modelA,
-      modelB,
-      { model: "gpt-3.5-turbo", temperature: 0.1 },
-      false,
-      mockSiteConfig
-    );
-
-    expect(result).toHaveProperty("chainA");
-    expect(result).toHaveProperty("chainB");
-    expect(result.chainA).toBeDefined();
-    expect(result.chainB).toBeDefined();
-  });
-
-  test("should handle errors in comparison chain creation", async () => {
-    const { makeComparisonChains } = await import("../../../src/utils/server/makechain");
-
-    // Mock ChatOpenAI to throw an error for one of the models
-    (ChatOpenAI as unknown as jest.Mock).mockImplementationOnce(() => {
-      throw new Error("Model A initialization failed");
-    });
-
-    const modelA = { model: "invalid-model", temperature: 0.3, label: "Model A" };
-    const modelB = { model: "gpt-4o-mini", temperature: 0.7, label: "Model B" };
-
-    await expect(
-      makeComparisonChains(
-        mockRetriever,
-        modelA,
-        modelB,
-        { model: "gpt-3.5-turbo", temperature: 0.1 },
-        false,
-        mockSiteConfig
-      )
-    ).rejects.toThrow("Failed to initialize one or both models for comparison");
   });
 
   // Advanced scenarios for setupAndExecuteLanguageModelChain

@@ -9,4 +9,6 @@ export interface Message {
   docId?: string;
   collection?: string;
   suggestions?: TypedSuggestion[]; // Follow-up question suggestions (typed)
+  /** Answer model id for admin debug display (e.g. gpt-4o / claude-fable-5) */
+  model?: string;
 }

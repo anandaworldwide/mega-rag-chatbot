@@ -61,7 +61,7 @@ describe("FeedbackModal", () => {
     queriesPerUserPerDay: 200,
     showSourceContent: true,
     showVoting: true,
-    enableModelComparison: true,
+    enableClaudeAbTest: true,
     showSourceCountSelector: true,
     temperature: 0.4,
     modelName: "gpt-4o",

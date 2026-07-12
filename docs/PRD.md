@@ -181,7 +181,8 @@ authentication, and integration options, including a WordPress plugin.
   - **FR6.2:** Provide API endpoints to retrieve chat logs and feedback (`/api/answers`, `/api/downvotedAnswers`).
   - **FR6.3:** Implement analytics tracking (client-side) (`analytics.ts`).
   - **FR6.4:** (Optional) Support NPS surveys (`/api/submitNpsSurvey`).
-  - **FR6.5:** (Optional) Support model comparison data collection and voting (`/api/model-comparison*`).
+  - **FR6.5:** Support silent conversation-sticky model A/B assignment (Claude Fable 5 vs site default) gated by
+    `enableClaudeAbTest`, with thumbs feedback as the measurement channel.
 - **FR7: WordPress Integration**
   - **FR7.1:** Provide a WordPress plugin (`wordpress/plugins/ananda-ai-chatbot`).
   - **FR7.2:** Embed the chatbot interface into WordPress pages/posts using a shortcode or block.

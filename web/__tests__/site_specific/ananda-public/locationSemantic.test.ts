@@ -146,10 +146,14 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
       if (response.headers.get("content-type")?.includes("text/event-stream")) {
         const lines = responseText.trim().split("\n");
         let extractedText = "";
+        let sawSearchingLocationsStatus = false;
         for (const line of lines) {
           if (line.startsWith("data: ")) {
             try {
               const data = JSON.parse(line.substring(6));
+              if (data.status === "searching_locations") {
+                sawSearchingLocationsStatus = true;
+              }
               if (data.token) {
                 extractedText += data.token;
               }
@@ -158,7 +162,10 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
             }
           }
         }
-        return extractedText.trim();
+        // Prefer answer tokens; surface status so callers can assert geo intent without polluting TTFB.
+        return sawSearchingLocationsStatus
+          ? `Searching locations...\n${extractedText}`.trim()
+          : extractedText.trim();
       }
 
       return responseText.trim();

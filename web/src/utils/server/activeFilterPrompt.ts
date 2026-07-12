@@ -161,10 +161,12 @@ export function buildActiveFilterPromptData(
 
 /** Soft, in-chat hint appended to activeFiltersSummary when restrictive filters retrieve zero documents. */
 export const EMPTY_RETRIEVAL_FILTER_HINT =
-  "No library sources matched your current filters. Before answering, tell the user that nothing matched these " +
-  "active filters, name the limiting filter(s) above, and suggest broadening or turning them off. You may then offer " +
-  "general guidance, but do not invent or paraphrase quotes, teachings, or citations.";
-
+  "No library sources matched your current filters. If you can fully answer from information in this system prompt " +
+  "(resources, tools, community links, how-to guidance, etc.), answer that question directly with <<NO_SOURCES_USED>> " +
+  "and do NOT mention the empty retrieval or ask the user to broaden filters. Only if the user was asking for library " +
+  "teachings, quotes, or source material that you cannot provide from this prompt: briefly name the limiting " +
+  "filter(s) above, suggest broadening or turning them off, then you may offer general guidance — but do not invent " +
+  "or paraphrase quotes, teachings, or citations.";
 /**
  * Returns the activeFiltersSummary for generation, appending {@link EMPTY_RETRIEVAL_FILTER_HINT}
  * when restrictive filters produced zero retrieved documents. Phrased as assistant context so the

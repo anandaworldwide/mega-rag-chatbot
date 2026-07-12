@@ -40,7 +40,7 @@ describe("loadSiteConfig", () => {
           allowTemporarySessions: true,
           allowAllAnswersPage: true,
           queriesPerUserPerDay: 10,
-          enableModelComparison: true,
+          enableClaudeAbTest: true,
           includedLibraries: ["lib1", "lib2"],
           header: {
             logo: "logo.png",
@@ -77,7 +77,8 @@ describe("loadSiteConfig", () => {
         allowTemporarySessions: true,
         allowAllAnswersPage: true,
         queriesPerUserPerDay: 10,
-        enableModelComparison: true,
+        enableClaudeAbTest: true,
+        enableAnswerFeedbackPrompt: false,
         includedLibraries: ["lib1", "lib2"],
         chatPlaceholder: "Ask a question...",
         header: {

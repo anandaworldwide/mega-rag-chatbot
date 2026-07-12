@@ -15,14 +15,13 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,
-    "baseUrl": "..",
     "paths": {
-      "@/*": ["./src/*"],
-      "@/pages/*": ["./src/pages/*"],
-      "@/utils/*": ["./src/utils/*"],
-      "@/types/*": ["./src/types/*"],
-      "@/services/*": ["./src/services/*"],
-      "@/components/*": ["./src/components/*"]
+      "@/*": ["../src/*"],
+      "@/pages/*": ["../src/pages/*"],
+      "@/utils/*": ["../src/utils/*"],
+      "@/types/*": ["../src/types/*"],
+      "@/services/*": ["../src/services/*"],
+      "@/components/*": ["../src/components/*"]
     },
     "typeRoots": ["../node_modules/@types", "../../node_modules/@types", "../src/types"],
     "types": ["jest", "node", "@testing-library/jest-dom"]

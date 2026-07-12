@@ -10,4 +10,6 @@ export interface ExtendedAIMessage {
   collection?: string;
   isSudoAdmin?: boolean;
   suggestions?: TypedSuggestion[]; // Follow-up question suggestions (typed)
+  /** Answer model id (e.g. gpt-4o / claude-fable-5); used for admin debug display */
+  model?: string;
 }

@@ -53,7 +53,7 @@ export const mockSiteConfig: SiteConfig = {
   queriesPerUserPerDay: 100,
   includedLibraries: ["test-library"],
   enabledMediaTypes: ["text", "audio", "youtube"],
-  enableModelComparison: true,
+  enableClaudeAbTest: true,
   showSourceCountSelector: true,
   hideSources: false,
   showSourceContent: true,

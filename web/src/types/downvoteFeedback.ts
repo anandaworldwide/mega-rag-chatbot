@@ -57,6 +57,8 @@ export interface DownvoteFeedbackEvent {
   collection?: string | null;
   sources?: unknown[];
   restatedQuestion?: string | null;
+  model?: string | null;
+  abTestModel?: string | null;
   feedbackReason: DownvoteFeedbackReason;
   feedbackComment: string;
   identityMode: DownvoteIdentityMode;

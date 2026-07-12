@@ -17,7 +17,7 @@
  *    - sourceCount - For controlling the number of sources to return
  *    - model - For specifying the language model to use
  * 7. Chat History - Tests processing of chat history in the request.
- * 8. Model Comparison - Tests the model comparison functionality.
+ * 8. Streaming - Verifies SSE streaming responses.
  * 9. Network Error Handling - Tests graceful handling of network timeouts.
  * 10. Firestore Integration - Basic mock verification (actual response saving tests removed/simplified).
  * 11. Streaming Functionality - Basic verification that responses are streamed properly.
@@ -145,7 +145,7 @@ jest.mock("@/utils/server/loadSiteConfig", () => {
     queriesPerUserPerDay: 200,
     enabledMediaTypes: ["text", "video"],
     modelName: "gpt-4",
-    enableModelComparison: true,
+    enableClaudeAbTest: true,
   };
 
   return {
@@ -156,6 +156,10 @@ jest.mock("@/utils/server/loadSiteConfig", () => {
 });
 
 // Mock other deps
+jest.mock("@/utils/server/claudeAbTest", () => ({
+  resolveClaudeAbTestModel: jest.fn().mockResolvedValue(null),
+}));
+
 jest.mock("@/utils/server/makechain", () => ({
   makeChain: jest.fn().mockResolvedValue({
     invoke: jest.fn().mockResolvedValue({ text: "Test response" }),
@@ -198,48 +202,9 @@ jest.mock("@/utils/server/makechain", () => ({
       ],
       restatedQuestion: "What is the meaning of life in spiritual practice?",
       suggestionsPromise: Promise.resolve([]),
-    });
-  }),
-  // Mock comparison chains, avoiding recursion completely
-  makeComparisonChains: jest.fn().mockImplementation(() => {
-    // Return a plain object - do not use mockResolvedValue which creates a complex Promise chain
-    return Promise.resolve({
-      chainA: {
-        // Use a direct function implementation rather than nested mocks
-        invoke: function (
-          input: any,
-          options?: {
-            callbacks?: Array<{ handleLLMNewToken?: (token: string) => void }>;
-          }
-        ) {
-          // Directly call callback if provided
-          if (options?.callbacks?.[0]?.handleLLMNewToken) {
-            setTimeout(() => {
-              // We've already checked these exist above
-              options.callbacks![0].handleLLMNewToken!("Test response A");
-            }, 5);
-          }
-          return Promise.resolve("Test response A");
-        },
-      },
-      chainB: {
-        // Use a direct function implementation rather than nested mocks
-        invoke: function (
-          input: any,
-          options?: {
-            callbacks?: Array<{ handleLLMNewToken?: (token: string) => void }>;
-          }
-        ) {
-          // Directly call callback if provided
-          if (options?.callbacks?.[0]?.handleLLMNewToken) {
-            setTimeout(() => {
-              // We've already checked these exist above
-              options.callbacks![0].handleLLMNewToken!("Test response B");
-            }, 5);
-          }
-          return Promise.resolve("Test response B");
-        },
-      },
+      model: "gpt-4o",
+      temperature: 0.4,
+      isLocationQuery: false,
     });
   }),
 }));
@@ -329,43 +294,6 @@ jest.mock("@/utils/server/appRouterJwtUtils", () => ({
 const originalReadableStream = global.ReadableStream;
 global.ReadableStream = function (underlyingSource: UnderlyingSource<Uint8Array> | undefined) {
   console.log("Creating ReadableStream");
-
-  // Check if this is a comparison stream without using toString() to avoid recursion
-  const isComparisonStream =
-    underlyingSource?.start &&
-    (underlyingSource.start.name === "handleComparisonRequest" ||
-      (typeof underlyingSource.start === "function" &&
-        Function.prototype.toString.call(underlyingSource.start).includes("Comparison request starting")));
-
-  if (isComparisonStream) {
-    console.log("Detected comparison stream - using simplified stream handler");
-
-    // Create a simple stream with test data for comparison
-    return new originalReadableStream({
-      start(controller) {
-        // Run asynchronously but without recursion
-        setTimeout(() => {
-          try {
-            // Send empty initial frame
-            controller.enqueue(new TextEncoder().encode("data: {}\n\n"));
-
-            // Send model A and B responses
-            controller.enqueue(new TextEncoder().encode('data: {"token":"Test response A","model":"A"}\n\n'));
-            controller.enqueue(new TextEncoder().encode('data: {"token":"Test response B","model":"B"}\n\n'));
-
-            // Send done signal
-            controller.enqueue(new TextEncoder().encode('data: {"done":true}\n\n'));
-
-            // Close the stream
-            controller.close();
-          } catch (error) {
-            console.error("Error in mocked comparison stream:", error);
-            controller.error(error);
-          }
-        }, 0);
-      },
-    });
-  }
 
   // Regular stream handling with logging
   return new originalReadableStream({
@@ -881,155 +809,7 @@ describe("Chat API Route", () => {
       expect(data.error).toContain("Collection must be a string value");
     });
 
-    test("handles model comparison requests", async () => {
-      // Create a request for model comparison
-      const req = new NextRequest("http://localhost:3000/api/chat/v1", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Origin: "https://example.com",
-          Authorization: `Bearer ${generateTestToken()}`,
-        },
-        body: JSON.stringify({
-          question: "Test question",
-          collection: "master_swami", // Valid collection
-          temporarySession: false,
-          mediaTypes: { text: true },
-          modelA: "gpt-4o",
-          modelB: "gpt-3.5-turbo",
-          temperatureA: 0.7,
-          temperatureB: 0.5,
-          sourceCount: 3,
-        }),
-      });
 
-      // Call the POST handler
-      const res = await POST(req);
-      expect(res.status).toBe(400);
-      const data = await res.json();
-      expect(data.error).toContain("Collection must be a string value");
-    });
-
-    test("handles separate histories for model comparison", async () => {
-      // Create a request with separate histories for models A and B
-      const req = new NextRequest("http://localhost:3000/api/chat/v1", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Origin: "https://example.com",
-          Authorization: `Bearer ${generateTestToken()}`,
-        },
-        body: JSON.stringify({
-          question: "Test question",
-          collection: "master_swami", // Valid collection
-          temporarySession: false,
-          mediaTypes: { text: true },
-          modelA: "gpt-4o",
-          modelB: "gpt-3.5-turbo",
-          temperatureA: 0.7,
-          temperatureB: 0.5,
-          sourceCount: 3,
-          historyA: [
-            { role: "user", content: "Previous question A" },
-            { role: "assistant", content: "Previous answer A" },
-          ],
-          historyB: [
-            { role: "user", content: "Previous question B" },
-            { role: "assistant", content: "Previous answer B" },
-          ],
-        }),
-      });
-
-      // Call the POST handler
-      const res = await POST(req);
-      expect(res.status).toBe(400);
-      const data = await res.json();
-      expect(data.error).toContain("Collection must be a string value");
-    });
-
-    // Instead of testing the entire streaming functionality, we'll mark these as skipped
-    // until we can resolve the recursive call stack issue
-    test.skip("streams response data correctly", async () => {
-      // This test remains skipped as per user instruction for minimal changes.
-      // Original content of this skipped test:
-      /*
-       * Potential alternative approaches for testing streaming functionality:
-       *
-       * 1. Use a custom mock of ReadableStream that doesn't call the original implementation
-       *    but instead tracks the data without causing circular references
-       *
-       * 2. Create a helper function to consume the ReadableStream directly and convert it
-       *    to collected chunks for testing, such as:
-       *    ```
-       *    async function collectStreamData(stream) {
-       *      const reader = stream.getReader();
-       *      const chunks = [];
-       *
-       *      try {
-       *        while (true) {
-       *          const { done, value } = await reader.read();
-       *          if (done) break;
-       *          chunks.push(new TextDecoder().decode(value));
-       *        }
-       *      } finally {
-       *        reader.releaseLock();
-       *      }
-       *
-       *      return chunks;
-       *    }
-       *    ```
-       *
-       * 3. Create a separate test file specifically for streaming tests that doesn't
-       *    interfere with the global ReadableStream mock in this file
-       */
-
-      // Create a request with valid input
-      const validReq = new NextRequest("https://example.com/api/chat/v1", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Origin: "https://example.com",
-          Authorization: `Bearer ${generateTestToken()}`,
-        },
-        body: JSON.stringify({
-          question: "What is mindfulness?",
-          collection: "master_swami",
-          history: [],
-          temporarySession: false, // To trigger save and late docId
-          mediaTypes: { text: true },
-          sourceCount: 3,
-        }),
-      });
-
-      const response = await POST(validReq);
-      expect(response.status).toBe(200);
-      expect(response.headers.get("content-type")).toBe("text/event-stream");
-      // Further assertions for stream content would go here, but are complex to do minimally now.
-    });
-
-    test.skip("handles streaming errors gracefully", async () => {
-      // For now, we're skipping this test due to issues with circular references
-      // in the mock implementation causing "Maximum call stack size exceeded"
-      /**
-       * Recommended approach for testing error handling in streams:
-       *
-       * 1. Create a custom implementation of the chat route's error handling that
-       *    doesn't depend on the full streaming implementation
-       *
-       * 2. Unit test the error handling function directly rather than through the
-       *    full API route
-       *
-       * 3. For integration testing, consider using a simplified mock that doesn't
-       *    cause recursive call stacks, such as:
-       *    ```
-       *    jest.mock('@/utils/server/makechain', () => ({
-       *      makeChain: jest.fn().mockImplementation(() => {
-       *        throw new Error('Test error');
-       *      })
-       *    }));
-       *    ```
-       */
-    });
 
     test("processes request with mediaTypes parameter", async () => {
       const mediaTypes: Partial<MediaTypes> = {
@@ -1407,6 +1187,7 @@ describe("Retry Mechanism", () => {
             suggestionsPromise: Promise.resolve(suggestions),
             model: "gpt-4",
             temperature: 0.3,
+            isLocationQuery: false,
           };
         }
       );
@@ -1440,6 +1221,70 @@ describe("Retry Mechanism", () => {
 
       expect(events.some((e) => "docId" in e)).toBe(false);
       expect(events.some((e) => "suggestions" in e)).toBe(false);
+    });
+
+    /**
+     * Guards the geo TTFB fix: a status event (e.g. "Searching locations...") must not be
+     * treated as the first streamed byte. TTFB starts on the first real answer token, and
+     * status frames contribute nothing to totalTokens.
+     */
+    test("status events do not start TTFB or count toward streamed tokens", async () => {
+      mockFirestoreAdd.mockResolvedValueOnce({ id: "saved-doc-geo" });
+      (makeChainModule.setupAndExecuteLanguageModelChain as jest.Mock).mockImplementationOnce(
+        async (
+          _retriever: unknown,
+          _question: unknown,
+          _history: unknown,
+          sendData: (data: Record<string, unknown>) => void
+        ) => {
+          sendData({ status: "searching_locations", isLocationQuery: true });
+          sendData({ token: "Hello" });
+          sendData({ done: true });
+          return {
+            fullResponse: "Hello",
+            finalDocs: [],
+            restatedQuestion: "Centers near 94705?",
+            suggestionsPromise: Promise.resolve([]),
+            model: "gpt-4.1-mini",
+            temperature: 0.3,
+            isLocationQuery: true,
+          };
+        }
+      );
+
+      const response = await POST(buildStreamingRequest(STREAM_BODY));
+      expect(response.status).toBe(200);
+
+      const events = await collectSseObjects(response);
+      const statusIndex = events.findIndex((e) => e.status === "searching_locations");
+      const tokenIndex = events.findIndex((e) => typeof e.token === "string");
+      const doneEvent = events.find((e) => e.done === true);
+
+      expect(statusIndex).toBeGreaterThanOrEqual(0);
+      expect(tokenIndex).toBeGreaterThan(statusIndex);
+
+      // The status frame must not carry TTFB timing (would mean it was counted as first byte)
+      expect(events[statusIndex].timing).toBeUndefined();
+
+      // TTFB is attached to the first real answer token instead
+      const tokenTiming = events[tokenIndex].timing as { ttfb?: number } | undefined;
+      expect(tokenTiming?.ttfb).toBeGreaterThanOrEqual(0);
+
+      // Streamed token count excludes the status frame entirely
+      const doneTiming = doneEvent?.timing as { totalTokens?: number } | undefined;
+      expect(doneTiming?.totalTokens).toBe("Hello".length);
+    });
+
+    test("temporary sessions skip Claude A/B assignment", async () => {
+      const { resolveClaudeAbTestModel } = jest.requireMock("@/utils/server/claudeAbTest");
+      (resolveClaudeAbTestModel as jest.Mock).mockClear();
+      mockChainWithSuggestions([]);
+
+      const response = await POST(buildStreamingRequest({ ...STREAM_BODY, temporarySession: true }));
+      expect(response.status).toBe(200);
+      await collectSseObjects(response);
+
+      expect(resolveClaudeAbTestModel).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }));
     });
   });
 });

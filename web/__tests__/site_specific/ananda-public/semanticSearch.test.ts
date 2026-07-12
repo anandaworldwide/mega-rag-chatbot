@@ -104,10 +104,14 @@ testRunner("Vivek Response Semantic Validation (ananda-public)", () => {
       if (response.headers.get("content-type")?.includes("text/event-stream")) {
         const lines = responseText.trim().split("\n");
         let extractedText = "";
+        let sawSearchingLocationsStatus = false;
         for (const line of lines) {
           if (line.startsWith("data: ")) {
             try {
               const data = JSON.parse(line.substring(6));
+              if (data.status === "searching_locations") {
+                sawSearchingLocationsStatus = true;
+              }
               if (data.token) {
                 extractedText += data.token;
               }
@@ -116,8 +120,11 @@ testRunner("Vivek Response Semantic Validation (ananda-public)", () => {
             }
           }
         }
-        // Trim potential leading/trailing whitespace from concatenated tokens
-        return extractedText.trim();
+        // Status is no longer a token; prepend for semantic fixtures that still expect the hint.
+        const combined = sawSearchingLocationsStatus
+          ? `Searching locations...\n${extractedText}`
+          : extractedText;
+        return combined.trim();
       }
 
       // Trim plain text responses too
