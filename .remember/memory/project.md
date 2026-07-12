@@ -436,6 +436,9 @@ except ImportError:
   that collide with English words or domain terms. Always exclude Ananda-specific initials/mantras here:
   `om` (mantra), `sk` (Swami Kriyananda), `py` (Paramahansa Yogananda). Add new exclusions to that set when introducing
   any short initials/abbreviations users will commonly type.
+- Biographical/historical place questions (e.g. “How did Yogananda choose Los Angeles?”) are suppressed before semantic
+  matching via `hasHistoricalPlaceQuestionPatterns` in `locationIntentDetector.ts`; add negative seeds when regenerating
+  embeddings for the same examples.
 
 ## Never Do Again
 

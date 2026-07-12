@@ -160,6 +160,25 @@ async function generateQueryEmbedding(query: string): Promise<number[]> {
 }
 
 /**
+ * Detect biographical/historical questions about places (not center lookup intent).
+ * Example: "How did Paramahansa Yogananda choose Los Angeles?"
+ *
+ * @param query - User query to analyze
+ * @returns true if query is asking about historical place decisions, not finding centers
+ */
+function hasHistoricalPlaceQuestionPatterns(query: string): boolean {
+  const historicalPatterns = [
+    /\bhow did\b[\s\S]*\b(choose|select|pick|decide(?:\s+on|\s+to)?|settle(?:\s+in|\s+on)?|move(?:\s+to)?|go(?:\s+to)?|come(?:\s+to)?|establish(?:\s+in)?|found(?:\s+in)?|end up(?:\s+in)?)\b/i,
+    /\bwhy did\b[\s\S]*\b(choose|select|pick|decide(?:\s+on|\s+to)?|settle(?:\s+in|\s+on)?|move(?:\s+to)?|go(?:\s+to)?|come(?:\s+to)?|establish(?:\s+in)?|found(?:\s+in)?|end up(?:\s+in)?)\b/i,
+    /\bwhen did\b[\s\S]*\b(move(?:\s+to)?|settle(?:\s+in|\s+on)?|come(?:\s+to)?|go(?:\s+to)?|arrive(?:\s+in|\s+at)?|establish(?:\s+in)?|found(?:\s+in)?)\b/i,
+    /\bwhat made\b[\s\S]*\b(choose|select|pick|decide(?:\s+on|\s+to)?)\b/i,
+    /\bwhy\b[\s\S]*\b(choose|select|pick|decide(?:\s+on)?)\b[\s\S]*\b(as|for)\b/i,
+  ];
+
+  return historicalPatterns.some((pattern) => pattern.test(query));
+}
+
+/**
  * Fast keyword-based location pattern detection
  * Used as a fallback/supplement to semantic detection for obvious location queries
  *
@@ -359,6 +378,14 @@ function hasLocationKeywordPatterns(query: string): boolean {
  * @returns Promise<boolean> - true if query has location intent
  */
 export async function hasLocationIntentAsync(query: string): Promise<boolean> {
+  // Biographical/historical place questions are not center lookup intent
+  if (hasHistoricalPlaceQuestionPatterns(query)) {
+    if (process.env.NODE_ENV === "development") {
+      console.log(`🔍 Location intent suppressed for historical place question: "${query}"`);
+    }
+    return false;
+  }
+
   // First, check for obvious keyword patterns (fast path)
   if (hasLocationKeywordPatterns(query)) {
     if (process.env.NODE_ENV === "development") {
