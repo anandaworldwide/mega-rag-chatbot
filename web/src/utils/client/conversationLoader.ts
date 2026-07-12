@@ -170,6 +170,7 @@ export async function loadConversationByConvId(
         docId: chat.id,
         collection: chat.collection,
         suggestions: suggestions.length > 0 ? suggestions : undefined,
+        model: chat.model || undefined,
       });
 
       // Add to history for continuation

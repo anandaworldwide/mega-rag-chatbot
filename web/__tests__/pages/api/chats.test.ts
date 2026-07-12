@@ -41,7 +41,16 @@ describe("/api/chats", () => {
     mockDb.collection = jest.fn(() => query);
     mockFirestoreQueryGet.mockResolvedValue({
       docs: [
-        { id: "doc-1", data: () => ({ question: "Q1", answer: "A1", timestamp: { seconds: 1 }, convId: "c1" }) },
+        {
+          id: "doc-1",
+          data: () => ({
+            question: "Q1",
+            answer: "A1",
+            timestamp: { seconds: 1 },
+            convId: "c1",
+            model: "gpt-4o",
+          }),
+        },
       ],
     } as any);
   });
@@ -72,6 +81,7 @@ describe("/api/chats", () => {
     const data = res._getJSONData();
     expect(data).toHaveLength(1);
     expect(data[0].id).toBe("doc-1");
+    expect(data[0].model).toBe("gpt-4o");
     expect(query.where).toHaveBeenCalledWith("uuid", "==", "u1");
     expect(mockUpdateUserActivity).toHaveBeenCalledWith("u1", "chats-api");
   });

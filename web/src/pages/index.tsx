@@ -1015,6 +1015,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   // Add a state variable to track the docId separately
   const [savedDocId, setSavedDocId] = useState<string | null>(null);
   const accumulatedResponseRef = useRef("");
+  // Pin SSE model events to the in-flight answer (not the greeting) when model arrives before React flushes state
+  const streamingAnswerIndexRef = useRef<number | null>(null);
+  const pendingStreamModelRef = useRef<string | null>(null);
 
   // State for editing questions
   const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
@@ -1142,24 +1145,49 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     checkAdminStatus();
   }, [siteConfig?.requireLogin]);
 
+  const applyStreamModel = useCallback((model: string) => {
+    pendingStreamModelRef.current = model;
+    setMessageState((prevState) => {
+      const updatedMessages = [...prevState.messages];
+      const targetIndex = streamingAnswerIndexRef.current ?? updatedMessages.length - 1;
+      if (targetIndex < 0 || targetIndex >= updatedMessages.length) {
+        return prevState;
+      }
+      const targetMessage = updatedMessages[targetIndex];
+      if (targetMessage?.type !== "apiMessage") {
+        return prevState;
+      }
+      updatedMessages[targetIndex] = {
+        ...targetMessage,
+        model,
+      };
+      return {
+        ...prevState,
+        messages: updatedMessages,
+      };
+    });
+  }, [setMessageState]);
+
   const updateMessageState = useCallback(
     (newResponse: string, newSourceDocs: Document[] | null) => {
       setMessageState((prevState) => {
         const updatedMessages = [...prevState.messages];
-        const lastMessage = updatedMessages[updatedMessages.length - 1];
+        const targetIndex = streamingAnswerIndexRef.current ?? updatedMessages.length - 1;
+        const lastMessage = updatedMessages[targetIndex];
 
-        if (lastMessage.type === "apiMessage") {
+        if (lastMessage?.type === "apiMessage") {
           // Preserve the docId if it exists when updating the message
           const existingDocId = lastMessage.docId;
-          updatedMessages[updatedMessages.length - 1] = {
+          updatedMessages[targetIndex] = {
             ...lastMessage,
             message: newResponse,
             sourceDocs: newSourceDocs ? [...newSourceDocs] : lastMessage.sourceDocs || [],
             // Keep the docId if it was already set
             ...(existingDocId && { docId: existingDocId }),
+            ...(pendingStreamModelRef.current && { model: pendingStreamModelRef.current }),
           };
         } else {
-          console.warn("Expected last message to be apiMessage but found:", lastMessage.type);
+          console.warn("Expected last message to be apiMessage but found:", lastMessage?.type);
         }
 
         // Update the last assistant message in the history
@@ -1284,22 +1312,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       }
 
       if (data.model) {
-        setMessageState((prevState) => {
-          const updatedMessages = [...prevState.messages];
-          for (let i = updatedMessages.length - 1; i >= 0; i--) {
-            if (updatedMessages[i].type === "apiMessage") {
-              updatedMessages[i] = {
-                ...updatedMessages[i],
-                model: data.model,
-              };
-              break;
-            }
-          }
-          return {
-            ...prevState,
-            messages: updatedMessages,
-          };
-        });
+        applyStreamModel(data.model);
       }
 
       if (data.status === "searching_locations") {
@@ -1332,26 +1345,15 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         // Save the docId with the message immediately (buttons won't show until loading=false)
         setMessageState((prevState) => {
           const updatedMessages = [...prevState.messages];
-          // Make sure we're getting the API message (it should be the last one)
-          const lastMessage = updatedMessages[updatedMessages.length - 1];
+          const targetIndex = streamingAnswerIndexRef.current ?? updatedMessages.length - 1;
+          const targetMessage = updatedMessages[targetIndex];
 
-          if (lastMessage.type === "apiMessage") {
-            // Update the API message with the docId
-            updatedMessages[updatedMessages.length - 1] = {
-              ...lastMessage,
+          if (targetMessage?.type === "apiMessage") {
+            updatedMessages[targetIndex] = {
+              ...targetMessage,
               docId: data.docId,
+              ...(pendingStreamModelRef.current && { model: pendingStreamModelRef.current }),
             };
-          } else if (prevState.messages.length >= 2) {
-            // If the last message isn't an API message, find the most recent API message
-            for (let i = updatedMessages.length - 1; i >= 0; i--) {
-              if (updatedMessages[i].type === "apiMessage") {
-                updatedMessages[i] = {
-                  ...updatedMessages[i],
-                  docId: data.docId,
-                };
-                break;
-              }
-            }
           } else {
             console.warn(`No API message found to attach docId to`);
           }
@@ -1450,6 +1452,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
         // Reset accumulated response when done
         accumulatedResponseRef.current = "";
+        streamingAnswerIndexRef.current = null;
+        pendingStreamModelRef.current = null;
 
         // Soft feedback nudge after the first completed answer of this conversation
         setTimeout(() => {
@@ -1563,6 +1567,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       updateMessageState,
+      applyStreamModel,
       sourceCount,
       setLoading,
       setError,
@@ -1625,6 +1630,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
     // Reset accumulated response at the start of each new query
     accumulatedResponseRef.current = "";
+    streamingAnswerIndexRef.current = messageState.messages.length + 1;
+    pendingStreamModelRef.current = null;
 
     // Check if this is the second question or later (more than 2 messages = greeting + first Q&A)
     const isSecondQuestionOrLater = messageState.messages.length > 2;
@@ -1649,6 +1656,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             type: "apiMessage",
             message: "",
             sourceDocs: [],
+            model: pendingStreamModelRef.current ?? undefined,
           } as ExtendedAIMessage,
         ],
         history: [...prevState.history, { role: "user", content: submittedQuery }, { role: "assistant", content: "" }],
@@ -2145,6 +2153,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       setTitleScopeSuggestions([]);
       setTitleScopeError(null);
       accumulatedResponseRef.current = "";
+      streamingAnswerIndexRef.current = messageIndex;
+      pendingStreamModelRef.current = null;
 
       try {
         const newAbortController = new AbortController();
@@ -2252,6 +2262,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             }
 
             if (data.model) {
+              pendingStreamModelRef.current = data.model;
               setMessageState((prevState) => {
                 const newMessages = [...prevState.messages];
                 newMessages[messageIndex] = {
@@ -2378,6 +2389,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
               });
               setLoading(false);
               accumulatedResponseRef.current = "";
+              streamingAnswerIndexRef.current = null;
+              pendingStreamModelRef.current = null;
             }
           } catch (e) {
             console.error("Error parsing SSE data:", e);
@@ -2543,6 +2556,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setFilterConflict(null);
 
         // Add empty API message for streaming
+        streamingAnswerIndexRef.current = messageIndex + 1;
+        pendingStreamModelRef.current = null;
         setMessageState((prevState) => ({
           ...prevState,
           messages: [
@@ -2551,6 +2566,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
               type: "apiMessage",
               message: "",
               sourceDocs: [],
+              model: pendingStreamModelRef.current ?? undefined,
             },
           ],
           history: [...prevState.history, { role: "user", content: editedText }, { role: "assistant", content: "" }],
@@ -2605,20 +2621,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             }
 
             if (data.model) {
-              setMessageState((prevState) => {
-                const updatedMessages = [...prevState.messages];
-                const lastMessage = updatedMessages[updatedMessages.length - 1];
-                if (lastMessage?.type === "apiMessage") {
-                  updatedMessages[updatedMessages.length - 1] = {
-                    ...lastMessage,
-                    model: data.model,
-                  };
-                }
-                return {
-                  ...prevState,
-                  messages: updatedMessages,
-                };
-              });
+              applyStreamModel(data.model);
             }
 
             if (data.status === "searching_locations") {
@@ -2639,11 +2642,13 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             if (data.docId) {
               setMessageState((prevState) => {
                 const updatedMessages = [...prevState.messages];
-                const lastMessage = updatedMessages[updatedMessages.length - 1];
-                if (lastMessage.type === "apiMessage") {
-                  updatedMessages[updatedMessages.length - 1] = {
-                    ...lastMessage,
+                const targetIndex = streamingAnswerIndexRef.current ?? updatedMessages.length - 1;
+                const targetMessage = updatedMessages[targetIndex];
+                if (targetMessage?.type === "apiMessage") {
+                  updatedMessages[targetIndex] = {
+                    ...targetMessage,
                     docId: data.docId,
+                    ...(pendingStreamModelRef.current && { model: pendingStreamModelRef.current }),
                   };
                 }
                 return {
@@ -2661,7 +2666,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             if (data.done) {
               // Update history with actual assistant response content (critical for reformulation)
               setMessageState((prevState) => {
-                const lastMessage = prevState.messages[prevState.messages.length - 1];
+                const targetIndex = streamingAnswerIndexRef.current ?? prevState.messages.length - 1;
+                const lastMessage = prevState.messages[targetIndex];
                 const updatedHistory = [...prevState.history];
                 if (updatedHistory.length > 0 && lastMessage?.type === "apiMessage" && lastMessage.message) {
                   // Find the last assistant entry in history and update it
@@ -2676,6 +2682,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
               });
               setLoading(false);
               accumulatedResponseRef.current = "";
+              streamingAnswerIndexRef.current = null;
+              pendingStreamModelRef.current = null;
             }
           } catch (e) {
             console.error("Error parsing SSE data:", e);
@@ -2706,6 +2714,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       setError,
       setAbortController,
       updateMessageState,
+      applyStreamModel,
       setSourceDocs,
       setSavedDocId,
       setCurrentConvId,

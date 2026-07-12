@@ -48,6 +48,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       sources: data.sources,
       collection: data.collection,
       suggestions: data.suggestions || [],
+      model: data.model || null,
     });
   } catch (error) {
     console.error("Error fetching document:", error);

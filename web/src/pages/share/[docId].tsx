@@ -248,6 +248,7 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
             docId: docData.id,
             collection: docData.collection,
             suggestions: docData.suggestions || [],
+            model: docData.model || undefined,
           });
 
           // Set the messages for display
@@ -298,6 +299,7 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
               sourceDocs: msg.sourceDocs?.filter((doc): doc is Document<DocMetadata> => doc !== null) || undefined,
               docId: msg.docId,
               collection: msg.collection,
+              model: msg.model,
             })
           ),
         ];

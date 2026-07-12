@@ -81,6 +81,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         question: data.question,
         answer: data.answer,
         timestamp: data.timestamp,
+        model: data.model || null, // Answer model id for admin debug display
 
         collection: data.collection,
         mediaTypes: data.mediaTypes || null,

@@ -10,6 +10,7 @@ export interface ChatHistoryItem {
   question: string;
   answer: string;
   timestamp: any; // Firestore timestamp
+  model?: string; // Answer model id for admin debug display
 
   collection: string;
   mediaTypes?: { text?: boolean; audio?: boolean; youtube?: boolean };

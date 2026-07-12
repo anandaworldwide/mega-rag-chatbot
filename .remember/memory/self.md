@@ -3117,3 +3117,13 @@ prompt (Groups.io, Wiki, Music Library, how-to, etc.) and library sources were n
 
 **Correct**: Empty-retrieval filter guidance must carve out system-prompt answers: answer directly with `<<NO_SOURCES_USED>>`
 and skip filter caveats. Only mention limiting filters when the user asked for library teachings/quotes the filters blocked.
+
+### Mistake: Early SSE `model` Attached to Greeting Instead of Streaming Answer
+
+**Wrong**: On `data.model`, scan backwards for the first `apiMessage` (or use "last message" before React flushes the
+new empty answer slot). In production, model SSE can arrive before state includes the new answer, so the greeting gets
+`model` and the real answer never shows the admin label.
+
+**Correct**: Pin a `streamingAnswerIndexRef` when enqueueing the empty answer, store `pendingStreamModelRef`, apply model
+to that index (and merge on token/docId updates). Also return/map `model` from `/api/chats` and `conversationLoader` so
+reload/history keeps the label.

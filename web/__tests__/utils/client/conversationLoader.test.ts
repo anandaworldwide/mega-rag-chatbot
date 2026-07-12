@@ -162,6 +162,29 @@ describe("conversationLoader", () => {
     expect(suggestions).toEqual(typedSuggestions);
   });
 
+  it("maps model field from chat history into apiMessage", async () => {
+    const mockChats: ChatHistoryItem[] = [
+      {
+        id: "doc1",
+        question: "What is meditation?",
+        answer: "Meditation is...",
+        timestamp: { seconds: Date.now() / 1000 },
+        collection: "test",
+        model: "claude-fable-5",
+      },
+    ];
+
+    (fetchWithAuth as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockChats,
+    });
+
+    const result = await loadConversationByConvId("conv-123");
+    const apiMessage = result.messages.find((m) => m.type === "apiMessage");
+
+    expect(apiMessage?.model).toBe("claude-fable-5");
+  });
+
   it("handles missing suggestions gracefully", async () => {
     const mockChats: ChatHistoryItem[] = [
       {
@@ -186,6 +209,28 @@ describe("conversationLoader", () => {
     const apiMessage = result.messages.find((m) => m.type === "apiMessage");
     expect(apiMessage).toBeDefined();
     expect(apiMessage!.suggestions).toBeUndefined();
+  });
+
+  it("handles missing model gracefully", async () => {
+    const mockChats: ChatHistoryItem[] = [
+      {
+        id: "doc1",
+        question: "What is meditation?",
+        answer: "Meditation is...",
+        timestamp: { seconds: Date.now() / 1000 },
+        collection: "test",
+      },
+    ];
+
+    (fetchWithAuth as jest.Mock).mockResolvedValueOnce({
+      ok: true,
+      json: async () => mockChats,
+    });
+
+    const result = await loadConversationByConvId("conv-123");
+    const apiMessage = result.messages.find((m) => m.type === "apiMessage");
+
+    expect(apiMessage?.model).toBeUndefined();
   });
 
   it("handles empty suggestions array", async () => {
