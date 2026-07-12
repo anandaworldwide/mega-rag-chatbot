@@ -13,6 +13,7 @@ export type ResolveAuthorScopeInput = {
   collectionMode: AuthorScopeMode;
   knownAuthors?: string[];
   knownTitles?: string[];
+  generatedAliasIndex?: Record<string, string>;
 };
 
 function escapeRegExp(value: string): string {
@@ -39,9 +40,13 @@ export function findExplicitAuthorMatch(
   question: string,
   siteConfig?: SiteConfig | null,
   knownAuthors: string[] = [],
-  knownTitles: string[] = []
+  knownTitles: string[] = [],
+  generatedAliasIndex: Record<string, string> = {}
 ): string | null {
-  const aliases = siteConfig?.authorAliases ?? {};
+  const aliases = {
+    ...generatedAliasIndex,
+    ...(siteConfig?.authorAliases ?? {}),
+  };
   const aliasEntries = Object.entries(aliases).sort(([left], [right]) => right.length - left.length);
   for (const [alias, author] of aliasEntries) {
     if (hasWordBoundaryMatch(question, alias)) {
@@ -90,8 +95,15 @@ export function getMasterSwamiBoost(scopeHint: AuthorScopeHint, siteConfig?: Sit
 }
 
 export function resolveAuthorScope(input: ResolveAuthorScopeInput): AuthorScopeDescriptor {
-  const { question, scopeHint = "default", siteConfig, collectionMode, knownAuthors = [], knownTitles = [] } =
-    input;
+  const {
+    question,
+    scopeHint = "default",
+    siteConfig,
+    collectionMode,
+    knownAuthors = [],
+    knownTitles = [],
+    generatedAliasIndex = {},
+  } = input;
 
   if (collectionMode === "master_swami") {
     return { kind: "hard", collection: "master_swami" };
@@ -100,7 +112,13 @@ export function resolveAuthorScope(input: ResolveAuthorScopeInput): AuthorScopeD
     return { kind: "hard", collection: "whole_library" };
   }
 
-  const explicitAuthor = findExplicitAuthorMatch(question, siteConfig, knownAuthors, knownTitles);
+  const explicitAuthor = findExplicitAuthorMatch(
+    question,
+    siteConfig,
+    knownAuthors,
+    knownTitles,
+    generatedAliasIndex
+  );
   if (explicitAuthor) {
     return { kind: "named", author: explicitAuthor };
   }

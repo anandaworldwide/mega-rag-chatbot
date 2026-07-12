@@ -130,6 +130,7 @@ async def test_process_document(mock_env):
                 0,
                 "test-library",
                 text_splitter,
+                "ananda",
             )
 
             # Verify process_chunk was called for each chunk
@@ -351,6 +352,7 @@ async def test_punctuation_preservation_in_pdf_processing(mock_env):
                 0,
                 "test-library",
                 text_splitter,
+                "ananda",
             )
 
         # Verify that chunks were processed

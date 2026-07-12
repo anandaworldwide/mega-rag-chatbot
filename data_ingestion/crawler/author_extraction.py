@@ -1,0 +1,246 @@
+"""Extract author names from crawled HTML pages."""
+
+from __future__ import annotations
+
+import json
+import logging
+import re
+from typing import Any
+
+from bs4 import BeautifulSoup
+
+try:
+    from data_ingestion.utils.author_normalization import normalize_author
+except ImportError:
+    from utils.author_normalization import (
+        normalize_author,  # type: ignore[import-not-found]
+    )
+
+logger = logging.getLogger(__name__)
+
+BYLINE_PATTERN = re.compile(r"^by\s+(.+)$", re.IGNORECASE)
+
+PAGE_POST_TYPE_PATTERN = re.compile(r'"pagePostType"\s*:\s*"([^"]+)"')
+PAGE_POST_TYPE2_PATTERN = re.compile(r'"pagePostType2"\s*:\s*"([^"]+)"')
+
+# Page types whose meta/JSON-LD author tags reflect real authorship.
+META_AUTHOR_PAGE_TYPES = frozenset({"post", "ask"})
+META_AUTHOR_PAGE_TYPES2 = frozenset({"single-post", "single-ask"})
+
+# Page types that should never use meta/JSON-LD author fallback.
+EXCLUDED_META_PAGE_TYPES = frozenset({"frontpage", "bloghome", "yogapedia"})
+
+BYLINE_SELECTORS = (
+    ".ananda-x-entry-subtitle",
+    ".h-author",
+    ".entry-subtitle",
+    ".post-subtitle",
+    ".byline",
+    ".author-name",
+    "[rel='author']",
+)
+
+ARTICLE_SCHEMA_TYPES = frozenset({"Article", "BlogPosting", "NewsArticle"})
+
+# Site-wide WordPress meta author values — not real page authorship.
+SITE_WIDE_META_AUTHORS = frozenset(
+    {
+        "ananda sangha worldwide",
+        "ananda",
+    }
+)
+
+
+def _parse_byline(text: str) -> str | None:
+    """Parse 'by Author Name' text into an author name."""
+    normalized_text = re.sub(r"\s+", " ", text.strip())
+    match = BYLINE_PATTERN.match(normalized_text)
+    if not match:
+        return None
+    author = match.group(1).strip()
+    return author or None
+
+
+def _body_classes(soup: BeautifulSoup) -> list[str]:
+    body = soup.body
+    if not body:
+        return []
+    classes = body.get("class") or []
+    return classes if isinstance(classes, list) else []
+
+
+def _page_post_type(html: str) -> str | None:
+    match = PAGE_POST_TYPE_PATTERN.search(html)
+    return match.group(1) if match else None
+
+
+def _page_post_type2(html: str) -> str | None:
+    match = PAGE_POST_TYPE2_PATTERN.search(html)
+    return match.group(1) if match else None
+
+
+def _iter_json_ld_items(soup: BeautifulSoup) -> list[dict[str, Any]]:
+    """Yield JSON-LD objects from script tags."""
+    items: list[dict[str, Any]] = []
+    for script in soup.find_all("script", type="application/ld+json"):
+        raw = script.string or script.get_text()
+        if not raw or not raw.strip():
+            continue
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            logger.debug("Skipping invalid JSON-LD block while extracting author")
+            continue
+
+        if isinstance(data, list):
+            items.extend(item for item in data if isinstance(item, dict))
+        elif isinstance(data, dict):
+            graph = data.get("@graph")
+            if isinstance(graph, list):
+                items.extend(item for item in graph if isinstance(item, dict))
+            else:
+                items.append(data)
+
+    return items
+
+
+def _schema_type_matches(schema_type: Any, allowed_types: frozenset[str]) -> bool:
+    if isinstance(schema_type, list):
+        return any(t in allowed_types for t in schema_type)
+    return schema_type in allowed_types
+
+
+def is_meta_author_eligible(soup: BeautifulSoup, html: str = "") -> bool:
+    """
+    Return True when meta tags or JSON-LD may carry a real author name.
+
+    Visible bylines are handled separately and can appear on static pages.
+    Meta/JSON-LD fallback is limited to blog posts and ask pages so index,
+    yogapedia, and site-wide editor tags are ignored.
+    """
+    classes = _body_classes(soup)
+    if "single-post" in classes or "single-ask" in classes:
+        return True
+
+    if html:
+        page_type = _page_post_type(html)
+        page_type2 = _page_post_type2(html)
+        if page_type in EXCLUDED_META_PAGE_TYPES:
+            return False
+        if page_type in META_AUTHOR_PAGE_TYPES:
+            return True
+        if page_type2 in META_AUTHOR_PAGE_TYPES2:
+            return True
+
+    return False
+
+
+def is_article_page(soup: BeautifulSoup, html: str = "") -> bool:
+    """Backward-compatible alias for meta/JSON-LD author eligibility checks."""
+    return is_meta_author_eligible(soup, html)
+
+
+def _author_from_schema_item(author_value: Any) -> str | None:
+    """Extract an author name from a schema.org author field."""
+    if isinstance(author_value, dict):
+        name = author_value.get("name")
+        return name.strip() if isinstance(name, str) and name.strip() else None
+
+    if isinstance(author_value, list):
+        for item in author_value:
+            name = _author_from_schema_item(item)
+            if name:
+                return name
+        return None
+
+    if isinstance(author_value, str):
+        return author_value.strip() or None
+
+    return None
+
+
+def _extract_json_ld_author(soup: BeautifulSoup) -> str | None:
+    """Extract author from JSON-LD Article metadata."""
+    for item in _iter_json_ld_items(soup):
+        if not _schema_type_matches(item.get("@type"), ARTICLE_SCHEMA_TYPES):
+            continue
+        author = _author_from_schema_item(item.get("author"))
+        if author:
+            return author
+
+    return None
+
+
+def _extract_meta_author(soup: BeautifulSoup) -> str | None:
+    """Extract author from HTML meta tags."""
+    for attrs in ({"name": "author"}, {"class": "swiftype", "name": "author"}):
+        meta = soup.find("meta", attrs=attrs)
+        if meta and meta.get("content"):
+            content = meta["content"].strip()
+            if content:
+                return content
+    return None
+
+
+def _extract_visible_byline(soup: BeautifulSoup) -> str | None:
+    """Extract author from visible byline elements such as 'by Author Name'."""
+    for selector in BYLINE_SELECTORS:
+        for element in soup.select(selector):
+            text = element.get_text(" ", strip=True)
+            author = _parse_byline(text)
+            if author:
+                return author
+    return None
+
+
+def _is_site_wide_meta_author(author: str) -> bool:
+    return author.strip().lower() in SITE_WIDE_META_AUTHORS
+
+
+def _normalize_author_name(author: str, site_id: str | None) -> str | None:
+    if _is_site_wide_meta_author(author):
+        return None
+    normalized = normalize_author(author, site_id)
+    return normalized if normalized != "Unknown" else None
+
+
+def extract_author_from_soup(
+    soup: BeautifulSoup, site_id: str | None = None, html: str = ""
+) -> str | None:
+    """
+    Extract and normalize an author name from parsed HTML.
+
+    Visible bylines such as '.ananda-x-entry-subtitle' or '.h-author' are
+    checked on every page using a strict 'by Author Name' pattern. This
+    captures blog posts, static articles, and ask answers without attributing
+    index pages that use the same subtitle element for labels like 'AUDIO ONLY'.
+
+    Meta tags and JSON-LD are used only as fallback on blog posts and ask
+    pages where site-wide editor tags would otherwise be misleading.
+    """
+    visible_author = _extract_visible_byline(soup)
+    if visible_author:
+        return _normalize_author_name(visible_author, site_id)
+
+    if not is_meta_author_eligible(soup, html):
+        return None
+
+    for extractor in (_extract_json_ld_author, _extract_meta_author):
+        author = extractor(soup)
+        if author:
+            normalized = _normalize_author_name(author, site_id)
+            if normalized:
+                return normalized
+
+    return None
+
+
+def extract_author_from_html(
+    html_content: str, site_id: str | None = None
+) -> str | None:
+    """Extract an author name from raw HTML content."""
+    if not html_content or not html_content.strip():
+        return None
+
+    soup = BeautifulSoup(html_content, "html.parser")
+    return extract_author_from_soup(soup, site_id=site_id, html=html_content)

@@ -76,6 +76,7 @@ from reportlab.lib.pdfencrypt import StandardEncryption
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
+from data_ingestion.utils.author_normalization import normalize_author
 from data_ingestion.utils.ingestion_run_logger import IngestionRunLogger
 from data_ingestion.utils.pinecone_utils import generate_vector_id
 from data_ingestion.utils.progress_utils import (
@@ -1429,7 +1430,7 @@ def _process_categories(row: dict) -> list[str]:
     return category_list
 
 
-def _determine_author_name(row: dict) -> str:
+def _determine_author_name(row: dict, site_id: str) -> str:
     """Determines the author name from taxonomy data."""
     author_name = "Unknown"  # Default author
     authors_list_str = row.get("authors_list")
@@ -1440,7 +1441,7 @@ def _determine_author_name(row: dict) -> str:
         ]
         if potential_authors:
             author_name = potential_authors[0]  # Use the first author found
-    return author_name
+    return normalize_author(author_name, site_id)
 
 
 def parse_required_access_level(value: object) -> int:
@@ -1618,7 +1619,7 @@ def fetch_data(
 
                     # Process categories and author
                     category_list = _process_categories(row)
-                    author_name = _determine_author_name(row)
+                    author_name = _determine_author_name(row, site)
 
                     # Calculate the permalink
                     permalink = calculate_permalink(

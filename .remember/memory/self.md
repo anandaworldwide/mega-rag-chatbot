@@ -69,6 +69,15 @@ answered as either a location lookup or a content question.
 **Correct**: Use input that expresses the behavior under test directly, then assert the observable behavior rather than a
 fragile similarity score against broad canonical examples.
 
+### Cursor "Npm task detection: failed to parse" Is Often A False Positive
+
+**Wrong**: Treat Cursor’s `Npm task detection: failed to parse the file …/package.json` toast as proof the
+manifest is invalid JSON and start rewriting scripts/dependencies.
+
+**Correct**: First validate with `JSON.parse` / `npm pkg get`. If that succeeds, the toast is usually Cursor’s
+generic catch around `openTextDocument()` (I/O race or IDE scan), not a real parse error. Silence with
+`npm.autoDetect: "off"` or `task.autoDetect: "off"`; keep using terminal `npm run …`.
+
 ### npm `min-release-age` Is Days, And Requires npm >= 11.5.0
 
 **Rule (units)**: The `.npmrc` `min-release-age` setting is a number of **days**, not seconds. Per the official
@@ -2941,5 +2950,105 @@ uv run python data_ingestion/pdf_to_vector_db.py \
   --file-path data_ingestion/media/pdf-docs/...
 ```
 
-Scripts import `data_ingestion.*` and `pyutil.*`; repo root must be on `PYTHONPATH` (via `uv run` from root). Use
+Scripts import `data_ingestion.*` and `pyutil.*`; repo root must be on `PYTHONPATH` (via `uv run` from root). When a
+`bin/*.py` script is run by file path (e.g. `uv run python bin/foo.py`), Python puts `bin/` on `sys.path[0]`, NOT the
+repo root, so `pyutil`/`data_ingestion` imports fail even though `python -c "import pyutil"` works (cwd is on path).
+Robust fix: bootstrap the repo root inside the script —
+`sys.path.insert(0, str(Path(__file__).resolve().parents[1]))` before the first first-party import.
 `data_ingestion/...` paths for `--file-path`, not `media/...` relative to `data_ingestion/`.
+
+### Mistake: GitHub Actions job can't see secrets that live on an Environment
+
+**Wrong**: Reference `${{ secrets.PINECONE_INGEST_INDEX_NAME }}` in a job with no `environment:`. This repo's Pinecone/
+Google secrets are **GitHub Environment** secrets (Vercel-created envs like `Production-ananda-library-chatbot`), not repo
+secrets (`gh secret list` shows only `CLOUDWAYS_SSH_KEY`). Without `environment:`, every `secrets.*` resolves to empty →
+script fails with `... environment variable not set`. The UI shows env secrets as blank on edit (mask), which looks like
+"unset". Diagnose with `gh api repos/{owner}/{repo}/environments --jq '.environments[].name'` then
+`gh secret list --env <name>`.
+
+**Correct**: Declare the environment on the job: `environment: Production-ananda-library-chatbot`. Watch for deployment
+protection rules (required reviewers) that can pause scheduled runs.
+
+Also: `workflow_dispatch` runs the workflow + checked-out code from the committed ref, never local uncommitted edits;
+re-running a failed run replays the same commit. Commit+push and start a fresh run to pick up changes. A traceback whose
+line number doesn't match your edited file is proof the runner is on an older commit.
+
+### Mistake: Referencing caller scope variable inside helper without passing it
+
+**Wrong**:
+
+```python
+def _update_pinecone_vectors(crawler, url, chunks, title):
+    author = content.metadata.get("author")  # NameError: content not in scope
+```
+
+**Correct**: Pass the needed value from the caller that owns it:
+
+```python
+def _update_pinecone_vectors(..., author: str | None = None):
+    embeddings = crawler.create_embeddings(..., author=author)
+
+author = content.metadata.get("author") if content.metadata else None
+_update_pinecone_vectors(..., author=author)
+```
+
+### Mistake: Firestore author-index timeout returns empty alias map
+
+**Wrong**:
+
+```typescript
+} catch (error) {
+  return EMPTY_INDEX; // drops author_mappings.json variants too
+}
+```
+
+**Correct**: Fall back to mappings-only index when Firestore fails:
+
+```typescript
+} catch (error) {
+  return buildIndexFromAuthorKeys([], siteId);
+}
+```
+
+### Mistake: Per-vector Pinecone metadata updates at scale
+
+**Wrong**: Query vector IDs, then `index.update(id=..., set_metadata=...)` in a loop (slow; query responses can exceed size limits if values included).
+
+**Correct**: Use Pinecone filter-based bulk update (up to 100k/request):
+
+```python
+while True:
+    matched = index.update(filter={"author": {"$eq": alt}}, set_metadata={"author": canonical}, dry_run=True).matched_records
+    if not matched:
+        break
+    index.update(filter={"author": {"$eq": alt}}, set_metadata={"author": canonical})
+```
+
+Use `dry_run=True` on filter updates for accurate counts (not capped like query top_k).
+Pace filter updates to Pinecone's 5/sec metadata-update limit (`FilterUpdateRateLimiter`, default 0.21s).
+Retry with exponential backoff on HTTP 429.
+
+**`ananda` and `ananda-public` share the same Pinecone index** (`PINECONE_INDEX_NAME=ananda-2025-06-19--3-large` in
+both `.env.ananda` and `.env.ananda-public`). Metadata cleanup scripts like `bin/clean_pinecone_authors.py` only need to
+run once per shared index — do not re-run per site when sites share `PINECONE_INDEX_NAME`.
+
+### Mistake: Heredoc-in-command-substitution fails in this workspace shell
+
+**Wrong**: `git commit -m "$(cat <<'EOF' ... EOF)"` — the sandbox shell reports `bad substitution: no closing ')'`.
+
+**Correct**: Write the message to a file first and use `-F`:
+
+```bash
+printf '%s\n' "Subject line" "" "Body line 1" "Body line 2" > /tmp/commitmsg.txt
+git commit -F /tmp/commitmsg.txt
+```
+
+### Mistake: Crawler Docker image missing author_mappings.json
+
+**Wrong**: Rely on monorepo-relative path `data_ingestion/utils/../../web/site-config/author_mappings.json` inside the
+crawler container. The Dockerfile copies `utils/` to `/app/utils/` but not `web/site-config/`, so production crawls log
+"Author mappings file not found" and skip canonical author normalization.
+
+**Correct**: COPY `web/site-config/author_mappings.json` into the image at `/app/web/site-config/author_mappings.json`
+and resolve via `resolve_author_mappings_path()` (env override → container path → monorepo path). After deploy, run
+`bin/clean_pinecone_authors.py --site ananda-public --dry-run` then without `--dry-run` to fix existing Pinecone metadata.

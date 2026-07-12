@@ -88,16 +88,16 @@ numpy==2.4.3
     #   transformers
 nvidia-cublas==13.1.0.3 ; sys_platform == 'linux'
     # via
-    #   cuda-toolkit
     #   nvidia-cudnn-cu13
     #   nvidia-cusolver
+    #   torch
 nvidia-cuda-cupti==13.0.85 ; sys_platform == 'linux'
     # via cuda-toolkit
 nvidia-cuda-nvrtc==13.0.88 ; sys_platform == 'linux'
     # via cuda-toolkit
 nvidia-cuda-runtime==13.0.96 ; sys_platform == 'linux'
     # via cuda-toolkit
-nvidia-cudnn-cu13==9.19.0.56 ; sys_platform == 'linux'
+nvidia-cudnn-cu13==9.20.0.48 ; sys_platform == 'linux'
     # via torch
 nvidia-cufft==12.0.0.61 ; sys_platform == 'linux'
     # via cuda-toolkit
@@ -111,9 +111,9 @@ nvidia-cusparse==12.6.3.3 ; sys_platform == 'linux'
     # via
     #   cuda-toolkit
     #   nvidia-cusolver
-nvidia-cusparselt-cu13==0.8.0 ; sys_platform == 'linux'
+nvidia-cusparselt-cu13==0.8.1 ; sys_platform == 'linux'
     # via torch
-nvidia-nccl-cu13==2.28.9 ; sys_platform == 'linux'
+nvidia-nccl-cu13==2.29.7 ; sys_platform == 'linux'
     # via torch
 nvidia-nvjitlink==13.0.88 ; sys_platform == 'linux'
     # via
@@ -201,7 +201,7 @@ threadpoolctl==3.6.0
     # via scikit-learn
 tokenizers==0.21.1
     # via transformers
-torch==2.11.0
+torch==2.12.1
     # via
     #   mega-rag-chatbot-reranking
     #   optimum
@@ -216,7 +216,7 @@ transformers==4.53.3
     #   mega-rag-chatbot-reranking
     #   optimum
     #   optimum-onnx
-triton==3.6.0 ; sys_platform == 'linux'
+triton==3.7.1 ; sys_platform == 'linux'
     # via torch
 typing-extensions==4.14.0
     # via

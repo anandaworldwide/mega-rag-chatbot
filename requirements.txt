@@ -75,7 +75,7 @@ confection==1.3.3
     #   weasel
 contourpy==1.3.3
     # via matplotlib
-cryptography==48.0.1
+cryptography==49.0.0
     # via
     #   google-auth
     #   mega-rag-chatbot
@@ -248,7 +248,7 @@ langchain-protocol==0.0.15
     # via langchain-core
 langchain-text-splitters==1.1.2
     # via mega-rag-chatbot
-langsmith==0.8.5
+langsmith==0.8.18
     # via
     #   langchain-core
     #   mega-rag-chatbot
@@ -272,7 +272,7 @@ mdurl==0.1.2
     # via markdown-it-py
 moviepy==1.0.3
     # via mega-rag-chatbot
-msgpack==1.1.2
+msgpack==1.2.1
     # via cachecontrol
 multidict==6.4.4
     # via
@@ -625,7 +625,9 @@ wasabi==1.1.3
 weasel==1.0.0
     # via spacy
 websockets==15.0.1
-    # via mega-rag-chatbot
+    # via
+    #   langsmith
+    #   mega-rag-chatbot
 wrapt==2.1.2
     # via smart-open
 xxhash==3.6.0
