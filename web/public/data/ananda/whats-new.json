@@ -1,16 +1,31 @@
 {
-  "version": 8,
+  "version": 9,
   "wikiUrl": "https://anandafamily.notion.site/What-s-new-with-Luca-2ed7781078bc80c79438c02ea27ec710",
   "entries": [
     {
+      "date": "2026-07-12",
+      "title": "Testing a More Thoughtful AI Model",
+      "description": "We are quietly testing Claude Fable, a newer AI model, for a portion of conversations. When selected, it aims to produce more thoughtful, higher-quality answers. You do not need to change any settings. Most conversations continue as usual, and we will use your thumbs up and thumbs down feedback to compare quality. If something feels off, please vote and tell us why."
+    },
+    {
+      "date": "2026-07-12",
+      "title": "Ask About Any Teacher by Name",
+      "description": "Luca now recognizes named teachers across the full library (100+ authors), not only a short hand-maintained list. In Auto mode, ask \"What did Nayaswami Gyandev say about mantras?\" and Luca focuses retrieval on that teacher on the first turn. Ambiguous names (for example a shared surname) fall back to the usual Auto blend rather than guessing. The author list refreshes weekly as the library grows."
+    },
+    {
+      "date": "2026-07-12",
+      "title": "More Kriya Talks in the Library",
+      "description": "We added substantial new Kriya audio to Luca: 147 Kriya talks from the Bhaktan files, plus 63 Treasures Talks on Kriya. Ask about Kriya practice, history, or related teachings, and Luca can draw on this expanded material along with the rest of the library."
+    },
+    {
       "date": "2026-06-21",
       "title": "More Relevant Sources, Clearer Limits",
-      "description": "Luca now sets aside weakly-matched sources so answers lean on genuinely relevant material instead of loosely-related filler. And when your filters—libraries, media types, or a focused source or author—leave nothing to match, Luca tells you exactly which filter is limiting the results and suggests broadening it, rather than guessing or inventing quotes."
+      "description": "Luca now sets aside weakly-matched sources so answers lean on genuinely relevant material instead of loosely-related filler. When your filters (libraries, media types, or a focused source or author) leave nothing to match, Luca tells you which filter is limiting the results and suggests broadening it, rather than guessing or inventing quotes."
     },
     {
       "date": "2026-06-20",
       "title": "Auto (recommended) Author Selection",
-      "description": "Luca now defaults to Auto (recommended) in the author filter. For each question, Luca finds the most relevant sources across all authors, with a gentle preference for Master and Swami when that fits. Mention a teacher by name—such as Asha—and Luca focuses on that author. You can still choose Master and Swami or All authors from the filter anytime."
+      "description": "The Authors filter now defaults to Auto (recommended). For general spiritual questions, Luca still favors Paramhansa Yogananda and Swami Kriyananda, but can also pull from the wider library when helpful. Questions about a specific teacher (for example Asha) automatically focus on that author, and follow-ups can broaden when the conversation makes that appropriate. You can still choose Master and Swami or All authors for a fixed scope. Homepage suggested queries also work correctly with Auto selected."
     },
     {
       "date": "2026-03-27",
