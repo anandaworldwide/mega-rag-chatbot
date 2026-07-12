@@ -3373,12 +3373,11 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                                     </div>
                                   ) : undefined
                                 }
-                              />
-                              {message.type === "apiMessage" &&
-                                message.docId &&
-                                answerFeedbackPromptDocId === message.docId &&
-                                !loading && (
-                                  <div className="px-4 pb-2 max-w-[85%]">
+                                answerFeedbackPrompt={
+                                  message.type === "apiMessage" &&
+                                  message.docId &&
+                                  answerFeedbackPromptDocId === message.docId &&
+                                  !loading ? (
                                     <AnswerFeedbackPrompt
                                       docId={message.docId}
                                       onUpvote={(docId) => handleVote(docId, true)}
@@ -3392,8 +3391,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                                         );
                                       }}
                                     />
-                                  </div>
-                                )}
+                                  ) : undefined
+                                }
+                              />
                             </div>
 
                           </React.Fragment>

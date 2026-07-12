@@ -57,6 +57,7 @@ interface MessageItemProps {
   isLoadingDynamicFollowups?: boolean; // Loading state for dynamic follow-ups
   onTaskFollowupClick?: (suggestion: string) => void; // Handler for task follow-up clicks
   timingMetricsDisplay?: React.ReactNode; // Timing metrics to display before suggestions
+  answerFeedbackPrompt?: React.ReactNode; // Soft feedback nudge below action bar, above suggestion pills
   isAdminOrSuperuser?: boolean; // For login-required sites: whether user is admin/superuser
 }
 
@@ -97,6 +98,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
   isLoadingDynamicFollowups = false,
   onTaskFollowupClick,
   timingMetricsDisplay,
+  answerFeedbackPrompt,
   isAdminOrSuperuser = false,
 }) => {
   const { isSudoUser } = useSudo();
@@ -383,6 +385,8 @@ const MessageItem: React.FC<MessageItemProps> = ({
                 )}
               </div>
             )}
+
+            {answerFeedbackPrompt}
 
             {/* Timing metrics - display before suggestions */}
             {timingMetricsDisplay && isLastMessage && message.type === "apiMessage" && (
