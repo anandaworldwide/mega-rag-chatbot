@@ -417,6 +417,8 @@ except ImportError:
   (guarded by a route test).
 - **Removed**: user preferred-model Settings/picker, inline “Try GPT-4.1”, `/compare-models`, and related
   model-comparison APIs/admin model-stats page. Keep `/admin/model-performance` for latency metrics.
+- **Vote dashboard**: Superuser page `/admin/vote-stats` (API `/api/admin/vote-stats?days=7|30`) shows
+  upvote/downvote counts, A/B arm comparable rates, model mix, recent votes, and downvote events.
 
 ## Empty retrieval + system-prompt answers
 

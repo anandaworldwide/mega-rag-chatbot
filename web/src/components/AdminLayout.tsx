@@ -293,6 +293,26 @@ export function AdminLayout({ siteConfig, children, pageTitle, superuserOnly = f
                 </span>
               </Link>
             )}
+            {isSuperuser && (
+              <Link
+                href="/admin/vote-stats"
+                className={`flex items-center px-3 py-2 text-sm rounded-md ${
+                  router.pathname === "/admin/vote-stats"
+                    ? "bg-blue-100 text-blue-700 font-semibold"
+                    : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                }`}
+              >
+                <span className="material-icons text-sm mr-2">thumbs_up_down</span>
+                Vote & A/B Stats
+                <span
+                  className="material-icons text-xs ml-auto shrink-0 opacity-60"
+                  aria-hidden="true"
+                  title="Superuser only"
+                >
+                  lock
+                </span>
+              </Link>
+            )}
 
             {loginRequired && isSuperuser && (
               <Link
