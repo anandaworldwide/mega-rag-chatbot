@@ -14,7 +14,7 @@ certifi==2026.2.25
     #   requests
 charset-normalizer==3.4.6
     # via requests
-click==8.2.1
+click==8.3.3
     # via nltk
 colorama==0.4.6 ; sys_platform == 'win32'
     # via
@@ -125,7 +125,7 @@ nvidia-nvshmem-cu13==3.4.5 ; sys_platform == 'linux'
     # via torch
 nvidia-nvtx==13.0.85 ; sys_platform == 'linux'
     # via cuda-toolkit
-onnx==1.21.0
+onnx==1.22.0
     # via
     #   mega-rag-chatbot-reranking
     #   optimum-onnx
@@ -218,7 +218,7 @@ transformers==4.53.3
     #   optimum-onnx
 triton==3.7.1 ; sys_platform == 'linux'
     # via torch
-typing-extensions==4.14.0
+typing-extensions==4.15.0
     # via
     #   anyio
     #   huggingface-hub

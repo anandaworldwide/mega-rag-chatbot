@@ -146,6 +146,21 @@ except ImportError:
   branch, merge main, run `uv lock` + `bin/export-python-requirements.sh`, verify with `./bin/run-pip-audit.sh`,
   push to the same branch, then merge. Reject dependabot **pip-group** PRs that rewrite `requirements.in` pins
   (they regenerate exports incompatibly, e.g. numpy downgrades, stripped pip-audit entries, policy-pin violations).
+- **Dependabot group PRs often mix aged-in and in-cooldown bumps**: reject/hold the whole PR if any included
+  package is still inside the 7-day window (e.g. `langsmith@0.10.2`, `torch@2.13.0`, `nltk@3.10.0`), even when
+  the same PR also carries good aged-in fixes (`soupsieve@2.8.4`, `onnx@1.22.0`). Prefer targeted
+  `uv lock --upgrade-package <name>` for only the aged-in security fixes, then export + pip-audit.
+- **Cooldown-aware pip-audit exit policy**: `./bin/run-pip-audit.sh` fails only on `actionable` findings with
+  severity `>= high`. Findings classified `unknown` severity can appear as “ACTIONABLE” in the digest without
+  failing nightly; still triage and patch aged-in fixes from [#94](https://github.com/anandaworldwide/mega-rag-chatbot/issues/94).
+- **Never `npm audit fix --force` for uuid under firebase-admin**: audit may suggest downgrading
+  `firebase-admin` to `10.3.0`. Prefer a root/web `overrides` pin of transitive `uuid` to `>=11.1.1` (or wait for
+  upstream `gaxios`/`google-gax` after cooldown) instead of a major firebase-admin downgrade.
+- **npm `overrides` for uuid**: set root `"uuid": "^14.0.0"` (align with web direct dep). If nested
+  `uuid@9` remains in the lockfile after adding the override, delete the nested
+  `node_modules/*/node_modules/uuid` lock entries and re-run `npm install` so they dedupe to 14.x.
+- **onnx>=1.22.0 requires typing-extensions>=4.15.0**: when bumping onnx past 1.21, also raise the
+  exact `typing_extensions` pin in `pyproject.toml` / `requirements.in` (e.g. `4.14.0` → `4.15.0`).
 - **transformers 5.x upgrade is blocked** by `tokenizers==0.21.1` (transformers 5.3+ needs tokenizers>=0.22) and
   `optimum-onnx 0.1.0` (pins transformers<4.58.0). Reranking is dormant code (only `reranking/evaluate_rerankers.py`
   imports transformers, offline, hardcoded trusted model; not deployed on Vercel/crawler Docker). Transformers CVEs

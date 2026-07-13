@@ -131,6 +131,47 @@ python:
     review_by: "2026-10-07"
     mitigation: "Dormant reranking subgraph; not deployed in production."
 
+  - id: PYSEC-2026-2288
+    package: transformers
+    reason: >-
+      Fix is in transformers>=5.0.0, but adoption is blocked by tokenizers==0.21.1
+      and optimum-onnx 0.1.0 (pins transformers<4.58.0). Same coordinated-upgrade
+      requirement as CVE-2026-1839 / CVE-2026-4372.
+    review_by: "2026-10-07"
+    mitigation: "Dormant reranking subgraph; not deployed in production."
+
+  - id: PYSEC-2026-2289
+    package: transformers
+    reason: >-
+      Fix is in transformers>=5.3.0, but adoption is blocked by tokenizers==0.21.1
+      and optimum-onnx 0.1.0 (pins transformers<4.58.0). Same coordinated-upgrade
+      requirement as CVE-2026-1839 / CVE-2026-4372.
+    review_by: "2026-10-07"
+    mitigation: "Dormant reranking subgraph; not deployed in production."
+
+  - id: PYSEC-2026-2290
+    package: transformers
+    reason: >-
+      No fixed release reported by pip-audit. Same constraint as CVE-2026-1839:
+      reranking depends on optimum-onnx 0.1.0 which pins transformers<4.58.0.
+      Requires coordinated transformers 5.x / optimum-onnx upgrade.
+    review_by: "2026-10-07"
+    mitigation: "Dormant reranking subgraph; not deployed in production."
+
+  - id: PYSEC-2026-597
+    package: nltk
+    reason: >-
+      No fixed PyPI release reported by pip-audit (Dependabot also reports no
+      patched version for GHSA-p4gq-832x-fm9v / CVE-2026-54293). nltk 3.10.0
+      exists but is held under the 7-day cooldown and is not confirmed as the
+      advisory fix. Path traversal is in nltk.data.load() URL-encoded paths;
+      ingestion uses trusted local corpora, not attacker-controlled remote
+      resource URLs.
+    review_by: "2026-07-20"
+    mitigation: >-
+      Revisit after 2026-07-15 when nltk 3.10.0 clears cooldown; confirm whether
+      it addresses CVE-2026-54293 before adopting.
+
 node:
   - id: "1117038"
     package: showdown

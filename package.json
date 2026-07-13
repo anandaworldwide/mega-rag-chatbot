@@ -39,7 +39,8 @@
     "picomatch": "^4.0.4",
     "postcss": "8.5.10",
     "protobufjs": "^7.6.1",
-    "langsmith": "0.7.1"
+    "langsmith": "0.7.1",
+    "uuid": "^14.0.0"
   },
   "keywords": [],
   "engines": {

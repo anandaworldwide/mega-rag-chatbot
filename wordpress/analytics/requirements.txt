@@ -54,7 +54,7 @@ pandas==2.3.0
     # via
     #   mega-rag-chatbot-wordpress-analytics
     #   seaborn
-pillow==12.2.0
+pillow==12.3.0
     # via matplotlib
 proto-plus==1.27.2
     # via
