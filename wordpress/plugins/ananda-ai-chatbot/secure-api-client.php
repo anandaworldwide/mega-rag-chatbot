@@ -97,7 +97,8 @@ function ananda_get_api_token() {
         }
         
         return new WP_Error('token_fetch_failed', "Failed to fetch token: $error_message", [
-            'status' => $response_code
+            'status' => $response_code,
+            'backend_code' => $error_code,
         ]);
     }
     

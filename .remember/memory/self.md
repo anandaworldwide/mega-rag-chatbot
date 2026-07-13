@@ -2,6 +2,18 @@
 
 ## Critical Lessons Learned
 
+### Mistake: Override uuid to ESM-only 14.x for a CVE under gaxios/firebase-admin
+
+**Wrong**:
+Root `overrides.uuid = "^14.0.0"` to clear GHSA-w5hq-g745-h8pq. uuid@14 is ESM-only;
+CJS `gaxios` does `require("uuid")` and dies on Vercel with `ERR_REQUIRE_ESM`. Local Node 20
+often passes because `--experimental-require-module` is on by default, so `next dev` looks fine.
+
+**Correct**:
+Pin override + web dep to `uuid@11.1.1` (patched dual CJS/ESM). Never force ESM-only uuid into
+packages that still `require()` it. Gate with `scripts/check-cjs-uuid-compat.mjs` under
+`--no-experimental-require-module`.
+
 ### Mistake: Stamping stream IDs from React state closed over by SSE handlers
 
 **Wrong**:

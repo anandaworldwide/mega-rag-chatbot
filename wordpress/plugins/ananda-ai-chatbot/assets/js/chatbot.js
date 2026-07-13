@@ -1128,6 +1128,14 @@ function initChatbot() {
         <strong>Configuration Error:</strong> ${error.message}<br>
         <small>Please contact the site administrator to update the chatbot settings.</small>
       `);
+    } else if (
+      error.message.includes("temporarily unavailable") ||
+      error.code === "backend_unavailable"
+    ) {
+      errorMessage.innerHTML = formatErrorWithIntercomSupport(`
+        <strong>Service Unavailable:</strong> The chatbot backend is temporarily down.<br>
+        <small>Please try again in a few minutes.</small>
+      `);
     } else if (error.message.includes("Invalid token")) {
       errorMessage.innerHTML = formatErrorWithIntercomSupport(`
         <strong>Authentication Error:</strong> Unable to connect to the chat backend.<br>

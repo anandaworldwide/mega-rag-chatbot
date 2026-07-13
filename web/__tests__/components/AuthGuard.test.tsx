@@ -24,8 +24,9 @@ jest.mock("@/utils/client/tokenManager", () => {
   return {
     initializeTokenManager: jest.fn(),
     isAuthenticated: jest.fn(),
-    // Export the real AuthenticationError class so instanceof checks work
+    // Export the real error classes so instanceof checks work
     AuthenticationError: actual.AuthenticationError,
+    TokenServiceUnavailableError: actual.TokenServiceUnavailableError,
   };
 });
 

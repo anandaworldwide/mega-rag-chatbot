@@ -2,7 +2,6 @@
 // It uses AWS SES for email delivery and supports multiple recipient addresses.
 
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
-import { loadSiteConfigSync } from "./loadSiteConfig";
 
 const ses = new SESClient({
   region: process.env.AWS_REGION || "us-east-1",
@@ -20,15 +19,40 @@ const SITE_SHORTNAME_FALLBACKS: Record<string, string> = {
   photo: "PhotoWise",
 };
 
+/** Throttle hot endpoints so they cannot flood OPS_ALERT_EMAIL. */
+const alertThrottleTimestamps = new Map<string, number>();
+const DEFAULT_ALERT_THROTTLE_MS = 15 * 60 * 1000;
+
 function getSiteShortname(siteId: string): string {
-  if (process.env.SITE_CONFIG) {
-    const siteConfig = loadSiteConfigSync(siteId);
-    if (siteConfig?.shortname?.trim()) {
-      return siteConfig.shortname.trim();
+  // Avoid importing loadSiteConfig (fs/path) — this module can be pulled into the
+  // instrumentation Edge webpack graph via dynamic import.
+  try {
+    const allConfigs = JSON.parse(process.env.SITE_CONFIG || "{}") as Record<string, { shortname?: string }>;
+    const shortname = allConfigs[siteId]?.shortname;
+    if (typeof shortname === "string" && shortname.trim()) {
+      return shortname.trim();
     }
+  } catch {
+    // Fall through to hardcoded shortnames
   }
 
   return SITE_SHORTNAME_FALLBACKS[siteId] || siteId;
+}
+
+function shouldThrottleAlert(throttleKey: string | undefined, throttleMs: number | undefined): boolean {
+  if (!throttleKey) {
+    return false;
+  }
+
+  const windowMs = throttleMs ?? DEFAULT_ALERT_THROTTLE_MS;
+  const now = Date.now();
+  const lastSentAt = alertThrottleTimestamps.get(throttleKey);
+  if (lastSentAt !== undefined && now - lastSentAt < windowMs) {
+    return true;
+  }
+
+  alertThrottleTimestamps.set(throttleKey, now);
+  return false;
 }
 
 /**
@@ -49,9 +73,16 @@ export async function sendOpsAlert(
   },
   options?: {
     alertLabel?: string;
+    throttleKey?: string;
+    throttleMs?: number;
   }
 ): Promise<boolean> {
   try {
+    if (shouldThrottleAlert(options?.throttleKey, options?.throttleMs)) {
+      console.warn(`Suppressing throttled ops alert: ${subject} (key=${options?.throttleKey})`);
+      return false;
+    }
+
     const opsEmail = process.env.OPS_ALERT_EMAIL;
     if (!opsEmail) {
       console.error("OPS_ALERT_EMAIL environment variable is not set");

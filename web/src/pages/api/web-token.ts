@@ -31,6 +31,8 @@ import { firestoreGet } from "@/utils/server/firestoreRetryUtils";
 import { isDevelopment } from "@/utils/env";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import { ensureAnonymousVisitorUuidCookie } from "@/utils/server/uuidUtils";
+import { sendOpsAlert } from "@/utils/server/emailOps";
+import { buildTokenServiceFailureResponse } from "@/utils/server/tokenServiceErrors";
 
 function clearInvalidAuthCookies(req: NextApiRequest, res: NextApiResponse): void {
   const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
@@ -157,12 +159,35 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return res.status(200).json({ token: webToken });
     } catch (tokenError) {
       console.error("Error creating web token:", tokenError);
-      return res.status(500).json({ error: "Failed to create token" });
+      void notifyWebTokenFailure(tokenError, "sign");
+      const failure = buildTokenServiceFailureResponse(tokenError);
+      return res.status(failure.status).json(failure.body);
     }
   } catch (error) {
     console.error("Error in web token endpoint:", error);
-    return res.status(500).json({ error: "Internal Server Error" });
+    void notifyWebTokenFailure(error, "handler");
+    const failure = buildTokenServiceFailureResponse(error);
+    return res.status(failure.status).json(failure.body);
   }
+}
+
+function notifyWebTokenFailure(error: unknown, stage: string): void {
+  const err = error instanceof Error ? error : new Error(String(error));
+  sendOpsAlert(
+    `/api/web-token failure (${stage})`,
+    `Token issuance failed (${stage}): ${err.message}`,
+    {
+      error: err,
+      stack: err.stack,
+      context: { endpoint: "/api/web-token", stage },
+    },
+    {
+      throttleKey: `web-token:${stage}:${(err as NodeJS.ErrnoException).code || err.name}`,
+      throttleMs: 15 * 60 * 1000,
+    }
+  ).catch((alertError) => {
+    console.error("Failed to send web-token ops alert:", alertError);
+  });
 }
 
 export default withApiMiddleware(handler, { skipAuth: true });

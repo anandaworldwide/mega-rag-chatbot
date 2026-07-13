@@ -2,7 +2,12 @@ import { useEffect, useState, ReactNode } from "react";
 import { useRouter } from "next/router";
 import { SiteConfig } from "@/types/siteConfig";
 import { isPublicPage } from "@/utils/client/authConfig";
-import { initializeTokenManager, isAuthenticated, AuthenticationError } from "@/utils/client/tokenManager";
+import {
+  initializeTokenManager,
+  isAuthenticated,
+  AuthenticationError,
+  TokenServiceUnavailableError,
+} from "@/utils/client/tokenManager";
 
 interface AuthGuardProps {
   children: ReactNode;
@@ -18,6 +23,7 @@ export default function AuthGuard({ children, siteConfig }: AuthGuardProps) {
   const [authChecked, setAuthChecked] = useState(false);
   const [userAuthenticated, setUserAuthenticated] = useState(false);
   const [showLoading, setShowLoading] = useState(false);
+  const [serviceUnavailableMessage, setServiceUnavailableMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const checkAuth = async () => {
@@ -79,6 +85,15 @@ export default function AuthGuard({ children, siteConfig }: AuthGuardProps) {
           break;
         } catch (error) {
           // Handle AuthenticationError specially - these are retryable auth failures
+          if (error instanceof TokenServiceUnavailableError) {
+            clearTimeout(loadingTimer);
+            console.error("Token service unavailable during auth check:", error.message);
+            setServiceUnavailableMessage(error.message);
+            setUserAuthenticated(false);
+            setAuthChecked(true);
+            return;
+          }
+
           if (error instanceof AuthenticationError) {
             console.log(`Auth attempt ${attempt}/${MAX_AUTH_ATTEMPTS}: ${error.message} (status: ${error.status})`);
 
@@ -157,8 +172,14 @@ export default function AuthGuard({ children, siteConfig }: AuthGuardProps) {
               console.log("Token refresh failed on window focus - still not authenticated");
             }
           } catch (error) {
+            if (error instanceof TokenServiceUnavailableError) {
+              console.error("Token service unavailable on window focus:", error.message);
+              setServiceUnavailableMessage(error.message);
+              setUserAuthenticated(false);
+              return;
+            }
+
             // Don't redirect on AuthenticationError during focus handler
-            // Let the user stay on the page - they can try to navigate or refresh manually
             if (error instanceof AuthenticationError) {
               console.log("AuthenticationError on window focus - session may have expired:", error.message);
             } else {
@@ -188,6 +209,24 @@ export default function AuthGuard({ children, siteConfig }: AuthGuardProps) {
   // If auth not checked yet but we're not showing loading, render nothing (blank)
   if (!authChecked) {
     return null;
+  }
+
+  if (serviceUnavailableMessage) {
+    return (
+      <div className="flex items-center justify-center min-h-screen px-4">
+        <div className="text-center max-w-md">
+          <h1 className="text-xl font-semibold text-gray-900 mb-2">Service temporarily unavailable</h1>
+          <p className="text-gray-600 mb-4">{serviceUnavailableMessage}</p>
+          <button
+            type="button"
+            className="rounded bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
+            onClick={() => window.location.reload()}
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
   }
 
   // Only render children if authenticated

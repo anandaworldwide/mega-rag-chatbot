@@ -672,6 +672,22 @@ function aichatbot_ajax_get_token() {
                 ));
                 return;
             } else if ($error_code === 'token_fetch_failed') {
+                $backend_code = is_array($error_data) && isset($error_data['backend_code'])
+                    ? $error_data['backend_code']
+                    : '';
+                $http_status = is_array($error_data) && isset($error_data['status'])
+                    ? intval($error_data['status'])
+                    : 0;
+
+                if ($backend_code === 'TOKEN_SERVICE_UNAVAILABLE' || $http_status >= 500) {
+                    wp_send_json_error(array(
+                        'message' => 'The chatbot backend is temporarily unavailable. Please try again in a few minutes.',
+                        'code' => 'backend_unavailable',
+                        'details' => 'The Vercel token endpoint returned a server error. Backend response: ' . $error_message
+                    ));
+                    return;
+                }
+
                 wp_send_json_error(array(
                     'message' => $error_message,
                     'code' => 'token_fetch_failed',

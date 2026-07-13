@@ -33,6 +33,10 @@ jest.mock("@/utils/server/genericRateLimiter", () => ({
   deleteRateLimitCounter: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock("@/utils/server/emailOps", () => ({
+  sendOpsAlert: jest.fn().mockResolvedValue(true),
+}));
+
 import { NextApiRequest, NextApiResponse } from "next";
 import handler from "@/pages/api/web-token";
 import jwt from "jsonwebtoken";
@@ -40,6 +44,7 @@ import { Socket } from "net";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import * as passwordUtils from "@/utils/server/passwordUtils";
 import CryptoJS from "crypto-js";
+import { sendOpsAlert } from "@/utils/server/emailOps";
 
 // Mock modules
 jest.mock("@/utils/server/loadSiteConfig");
@@ -159,7 +164,13 @@ describe("/api/web-token", () => {
     await handler(req as NextApiRequest, res as NextApiResponse);
 
     expect(statusMock).toHaveBeenCalledWith(500);
-    expect(jsonMock).toHaveBeenCalledWith({ error: "Failed to create token" });
+    expect(jsonMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "TOKEN_SERVICE_UNAVAILABLE",
+        error: expect.stringMatching(/temporarily unavailable/i),
+      })
+    );
+    expect(sendOpsAlert).toHaveBeenCalled();
   });
 
   // New tests for authentication validation

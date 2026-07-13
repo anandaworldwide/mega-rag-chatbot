@@ -29,6 +29,10 @@ jest.mock("@/utils/server/genericRateLimiter", () => ({
   deleteRateLimitCounter: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock("@/utils/server/emailOps", () => ({
+  sendOpsAlert: jest.fn().mockResolvedValue(true),
+}));
+
 import { createMocks } from "node-mocks-http";
 import type { NextApiRequest, NextApiResponse } from "next";
 import jwt from "jsonwebtoken";
@@ -276,7 +280,12 @@ describe("Get Token API", () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(500);
-    expect(res._getJSONData()).toEqual({ error: "Internal Server Error" });
+    expect(res._getJSONData()).toEqual(
+      expect.objectContaining({
+        code: "TOKEN_SERVICE_UNAVAILABLE",
+        error: expect.stringMatching(/temporarily unavailable/i),
+      })
+    );
     expect(console.error).toHaveBeenCalled();
   });
 

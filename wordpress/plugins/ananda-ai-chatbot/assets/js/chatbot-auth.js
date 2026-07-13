@@ -197,6 +197,11 @@ async function fetchNewToken() {
           'backend_token_auth_failed',
           `The WordPress chatbot plugin could not obtain a backend JWT. This is commonly caused by a mismatched CHATBOT_BACKEND_SECURE_TOKEN or WP_API_SECRET in wp-config.php after key rotation. Backend response: ${errorMessage}. Details: ${errorDetails || 'No extra details provided.'}`,
         );
+      } else if (errorCode === 'backend_unavailable') {
+        throw createChatbotConfigurationError(
+          'backend_unavailable',
+          `The chatbot backend is temporarily unavailable. Please try again shortly. Backend response: ${errorMessage}.`,
+        );
       } else if (errorCode === 'configuration_error') {
         throw createChatbotConfigurationError(
           'wordpress_token_configuration_error',

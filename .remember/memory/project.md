@@ -154,11 +154,13 @@ except ImportError:
   severity `>= high`. Findings classified `unknown` severity can appear as “ACTIONABLE” in the digest without
   failing nightly; still triage and patch aged-in fixes from [#94](https://github.com/anandaworldwide/mega-rag-chatbot/issues/94).
 - **Never `npm audit fix --force` for uuid under firebase-admin**: audit may suggest downgrading
-  `firebase-admin` to `10.3.0`. Prefer a root/web `overrides` pin of transitive `uuid` to `>=11.1.1` (or wait for
-  upstream `gaxios`/`google-gax` after cooldown) instead of a major firebase-admin downgrade.
-- **npm `overrides` for uuid**: set root `"uuid": "^14.0.0"` (align with web direct dep). If nested
-  `uuid@9` remains in the lockfile after adding the override, delete the nested
-  `node_modules/*/node_modules/uuid` lock entries and re-run `npm install` so they dedupe to 14.x.
+  `firebase-admin` to `10.3.0`. Prefer a root/web `overrides` pin of transitive `uuid` to **`11.1.1`**
+  (dual CJS/ESM + GHSA-w5hq-g745-h8pq patch). **Do not pin to uuid@14** — it is ESM-only and breaks
+  `gaxios`'s `require("uuid")` on Vercel (`ERR_REQUIRE_ESM`), while local Node 20 often hides it via
+  `--experimental-require-module`. Guardrail: `node scripts/check-cjs-uuid-compat.mjs` / `npm run check:cjs-uuid` in `web/`.
+- **npm `overrides` for uuid**: set root `"uuid": "11.1.1"` (align with web direct dep). If nested
+  `uuid@9` or `uuid@14` remains in the lockfile after adding the override, delete the nested
+  `node_modules/*/node_modules/uuid` lock entries and re-run `npm install` so they dedupe to 11.1.1.
 - **onnx>=1.22.0 requires typing-extensions>=4.15.0**: when bumping onnx past 1.21, also raise the
   exact `typing_extensions` pin in `pyproject.toml` / `requirements.in` (e.g. `4.14.0` → `4.15.0`).
 - **transformers 5.x upgrade is blocked** by `tokenizers==0.21.1` (transformers 5.3+ needs tokenizers>=0.22) and
@@ -185,6 +187,11 @@ except ImportError:
 - **Vercel env loading**: Server env loaders must not read local `.env.<site>` files when `process.env.VERCEL` is set,
   even if a test/build script temporarily sets `NODE_ENV=development`; Vercel provides platform env vars.
 - **Pattern**: Write tests first, add to existing test files when logical
+- **Commit-hook failures**: After any fix for a husky/lint-staged/pre-commit test failure, re-run the same
+  commit suite yourself before handing back — do not leave the user to discover the next failure on commit.
+  Use `./bin/run-jest-for-lint-staged.sh` from the repo root with the changed `web/` source and related
+  `__tests__/` paths (or the files named in the git-error log). Prefer this over only running a single
+  narrowly named Jest file when the hook pulls in related suites.
 
 ### CLI Argument Patterns
 

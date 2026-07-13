@@ -104,6 +104,21 @@ export class AuthenticationError extends Error {
 }
 
 /**
+ * Backend token service is down (5xx / TOKEN_SERVICE_UNAVAILABLE).
+ */
+export class TokenServiceUnavailableError extends Error {
+  public readonly status: number;
+  public readonly code: string;
+
+  constructor(message: string, status: number = 503, code: string = "TOKEN_SERVICE_UNAVAILABLE") {
+    super(message);
+    this.name = "TokenServiceUnavailableError";
+    this.status = status;
+    this.code = code;
+  }
+}
+
+/**
  * Fetch a new token from the server
  *
  * IMPORTANT: This function does NOT redirect on 401. Instead, it throws an
@@ -163,6 +178,22 @@ async function fetchNewToken(): Promise<string> {
         );
       }
 
+      let errorBody: { error?: string; code?: string } = {};
+      try {
+        errorBody = await response.json();
+      } catch {
+        // Non-JSON error body
+      }
+
+      if (response.status >= 500 || errorBody.code === "TOKEN_SERVICE_UNAVAILABLE") {
+        throw new TokenServiceUnavailableError(
+          errorBody.error ||
+            "The chatbot authentication service is temporarily unavailable. Please try again shortly.",
+          response.status,
+          errorBody.code || "TOKEN_SERVICE_UNAVAILABLE"
+        );
+      }
+
       throw new Error(`Failed to fetch token: ${response.status}`);
     }
 
@@ -184,7 +215,7 @@ async function fetchNewToken(): Promise<string> {
     return token;
   } catch (error) {
     // Re-throw AuthenticationError as-is for AuthGuard to handle
-    if (error instanceof AuthenticationError) {
+    if (error instanceof AuthenticationError || error instanceof TokenServiceUnavailableError) {
       throw error;
     }
 

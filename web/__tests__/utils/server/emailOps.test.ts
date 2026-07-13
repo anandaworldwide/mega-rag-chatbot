@@ -219,6 +219,25 @@ describe("emailOps", () => {
       }
       consoleSpy.mockRestore();
     });
+
+    it("should throttle repeated alerts with the same throttleKey", async () => {
+      process.env.OPS_ALERT_EMAIL = "ops@example.com";
+      process.env.CONTACT_EMAIL = "noreply@example.com";
+      (process.env as any).NODE_ENV = "production";
+      delete process.env.JEST_WORKER_ID;
+
+      const first = await sendOpsAlert("Throttle test", "first", undefined, {
+        throttleKey: "unit-test-throttle",
+        throttleMs: 60_000,
+      });
+      const second = await sendOpsAlert("Throttle test", "second", undefined, {
+        throttleKey: "unit-test-throttle",
+        throttleMs: 60_000,
+      });
+
+      expect(first).toBe(true);
+      expect(second).toBe(false);
+    });
   });
 
   it("should use default contact email when CONTACT_EMAIL env var is not set", async () => {

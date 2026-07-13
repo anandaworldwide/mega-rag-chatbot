@@ -220,10 +220,12 @@ describe("Token Manager", () => {
       await expect(tokenManager.initializeTokenManager()).rejects.toThrow(tokenManager.AuthenticationError);
     });
 
-    it("should throw error on non-401 HTTP errors", async () => {
+    it("should throw TokenServiceUnavailableError on 5xx HTTP errors", async () => {
       fetchMock.mockResponseOnce("", { status: 500 });
 
-      await expect(tokenManager.initializeTokenManager()).rejects.toThrow("Failed to fetch token: 500");
+      await expect(tokenManager.initializeTokenManager()).rejects.toThrow(
+        tokenManager.TokenServiceUnavailableError
+      );
     });
 
     it("should throw error when no token received", async () => {

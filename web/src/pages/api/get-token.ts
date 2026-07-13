@@ -22,6 +22,8 @@ import crypto from "crypto";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { JWT_SIGN_OPTIONS } from "@/utils/server/jwtUtils";
+import { sendOpsAlert } from "@/utils/server/emailOps";
+import { buildTokenServiceFailureResponse } from "@/utils/server/tokenServiceErrors";
 
 /**
  * API handler for the token issuance endpoint
@@ -145,7 +147,24 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   } catch (error) {
     // Log errors for server-side debugging but avoid exposing details to clients
     console.error("Error generating token:", error);
-    res.status(500).json({ error: "Internal Server Error" });
+    const err = error instanceof Error ? error : new Error(String(error));
+    sendOpsAlert(
+      "/api/get-token failure",
+      `External token issuance failed: ${err.message}`,
+      {
+        error: err,
+        stack: err.stack,
+        context: { endpoint: "/api/get-token" },
+      },
+      {
+        throttleKey: `get-token:${(err as NodeJS.ErrnoException).code || err.name}`,
+        throttleMs: 15 * 60 * 1000,
+      }
+    ).catch((alertError) => {
+      console.error("Failed to send get-token ops alert:", alertError);
+    });
+    const failure = buildTokenServiceFailureResponse(error);
+    res.status(failure.status).json(failure.body);
   }
 }
 
