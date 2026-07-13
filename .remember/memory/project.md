@@ -413,6 +413,8 @@ except ImportError:
 - Trigger on `docId` receipt (often after stream `done`) as well as on `done`
 - Dismiss on vote, X, or loading an existing conversation; resets on New Chat
 - Server `loadSiteConfig` overlays live + bundled `web/site-config/config.json` onto `SITE_CONFIG` so new flags apply on SSR and client navigations (stale next.config env alone is not enough)
+- UI: content-width centered pill (`w-fit` / `inline-flex`), `rounded-2xl`; one-shot shimmer via IntersectionObserver when it first scrolls into view (`answer-feedback-shimmer` in `globals.css`)
+- Stream docId tracking uses `savedDocIdRef` (cleared synchronously on each new query/chat) so `done` cannot stamp a prior answer's docId onto the next message and consume the prompt slot
 
 ## Model Routing / Claude A/B Test
 

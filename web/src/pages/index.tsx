@@ -348,6 +348,14 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const [answerFeedbackPromptDocId, setAnswerFeedbackPromptDocId] = useState<string | null>(null);
   const answerFeedbackPromptConsumedRef = useRef(false);
   const maybeShowAnswerFeedbackPromptRef = useRef<(docId: string | null | undefined) => void>(() => {});
+  // Cleared synchronously on new query so stream `done` cannot stamp a prior answer's docId
+  const savedDocIdRef = useRef<string | null>(null);
+  const clearSavedDocId = useCallback(() => {
+    savedDocIdRef.current = null;
+  }, []);
+  const rememberSavedDocId = useCallback((docId: string) => {
+    savedDocIdRef.current = docId;
+  }, []);
 
   // Track conversation title for HTML page title
   const [conversationTitle, setConversationTitle] = useState<string | null>(null);
@@ -724,6 +732,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setIsCurrentConversationStarred(false); // Clear star state
         setAnswerFeedbackPromptDocId(null);
         answerFeedbackPromptConsumedRef.current = false;
+        savedDocIdRef.current = null;
         resetRetrievalFiltersToDefaults();
         setMessageState({
           messages: [
@@ -917,6 +926,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     setCurrentQuestion("");
     setAnswerFeedbackPromptDocId(null);
     answerFeedbackPromptConsumedRef.current = false;
+    savedDocIdRef.current = null;
     resetRetrievalFiltersToDefaults();
     setMessageState({
       messages: [
@@ -959,6 +969,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     setIsCurrentConversationStarred(false);
     setAnswerFeedbackPromptDocId(null);
     answerFeedbackPromptConsumedRef.current = false;
+    savedDocIdRef.current = null;
     resetRetrievalFiltersToDefaults();
     setMessageState({
       messages: [
@@ -1012,8 +1023,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const [, setMessageContainerBottom] = useState(0);
   const [, setViewportHeight] = useState(0);
 
-  // Add a state variable to track the docId separately
-  const [savedDocId, setSavedDocId] = useState<string | null>(null);
+  // Active-stream docId lives in savedDocIdRef (declared above) so clears are synchronous.
   const accumulatedResponseRef = useRef("");
   // Pin SSE model events to the in-flight answer (not the greeting) when model arrives before React flushes state
   const streamingAnswerIndexRef = useRef<number | null>(null);
@@ -1366,7 +1376,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
         // Save the docId in a separate state variable for later reference
         // This ensures we have it even if the message object wasn't ready when it arrived
-        setSavedDocId(data.docId);
+        rememberSavedDocId(data.docId);
 
         // docId often arrives after stream `done`; attempt prompt here so we don't miss it
         maybeShowAnswerFeedbackPromptRef.current(data.docId);
@@ -1455,11 +1465,20 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         streamingAnswerIndexRef.current = null;
         pendingStreamModelRef.current = null;
 
-        // Soft feedback nudge after the first completed answer of this conversation
+        // Soft feedback nudge after the first completed answer of this conversation.
+        // Only use the just-finished API message's docId — never an older answer's.
         setTimeout(() => {
           setMessageState((prevState) => {
-            const lastApi = [...prevState.messages].reverse().find((m) => m.type === "apiMessage" && m.docId);
-            maybeShowAnswerFeedbackPromptRef.current(lastApi?.docId);
+            let apiMessage = prevState.messages[prevState.messages.length - 1];
+            if (apiMessage?.type !== "apiMessage") {
+              for (let i = prevState.messages.length - 1; i >= 0; i--) {
+                if (prevState.messages[i].type === "apiMessage") {
+                  apiMessage = prevState.messages[i];
+                  break;
+                }
+              }
+            }
+            maybeShowAnswerFeedbackPromptRef.current(apiMessage?.docId);
             return prevState;
           });
         }, 0);
@@ -1539,13 +1558,15 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             }
           }
 
-          // If we have a saved docId but the API message doesn't have one, update it
-          if (apiMessage.type === "apiMessage" && !apiMessage.docId && savedDocId) {
+          // If we have a saved docId but the API message doesn't have one, update it.
+          // Use the ref so a prior turn's id cannot leak after clearSavedDocId().
+          const docIdToStamp = savedDocIdRef.current;
+          if (apiMessage.type === "apiMessage" && !apiMessage.docId && docIdToStamp) {
             // Create a new messages array with the updated API message
             const updatedMessages = [...prevState.messages];
             updatedMessages[apiMessageIndex] = {
               ...apiMessage,
-              docId: savedDocId,
+              docId: docIdToStamp,
             };
 
             return {
@@ -1571,7 +1592,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       sourceCount,
       setLoading,
       setError,
-      setSavedDocId,
+      rememberSavedDocId,
       setMessageState,
       setSourceDocs,
       setScrollClickState,
@@ -1580,7 +1601,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       siteConfig?.siteId,
       siteConfig?.requireLogin,
       messages,
-      savedDocId,
       showScrollDownButton,
       autoApplySourceFocusConflict,
       setFilterConflict,
@@ -1632,6 +1652,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     accumulatedResponseRef.current = "";
     streamingAnswerIndexRef.current = messageState.messages.length + 1;
     pendingStreamModelRef.current = null;
+    // Prevent a prior answer's docId from being stamped onto this stream on `done`
+    clearSavedDocId();
 
     // Check if this is the second question or later (more than 2 messages = greeting + first Q&A)
     const isSecondQuestionOrLater = messageState.messages.length > 2;
@@ -2656,7 +2678,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                   messages: updatedMessages,
                 };
               });
-              setSavedDocId(data.docId);
+              rememberSavedDocId(data.docId);
             }
 
             if (data.convId) {
@@ -2716,7 +2738,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       updateMessageState,
       applyStreamModel,
       setSourceDocs,
-      setSavedDocId,
+      rememberSavedDocId,
       setCurrentConvId,
       isTitleScopeSelectionEnabled,
       buildFilterExplicitnessPayloadFn,

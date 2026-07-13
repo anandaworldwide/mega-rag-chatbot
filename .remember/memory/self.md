@@ -2,6 +2,19 @@
 
 ## Critical Lessons Learned
 
+### Mistake: Stamping stream IDs from React state closed over by SSE handlers
+
+**Wrong**:
+Keep the last answer `docId` in `useState`, clear it with `setSavedDocId(null)` at submit
+start, then on stream `done` stamp `savedDocId` from the handler closure onto the new
+message. Also find “last API message with any docId” for follow-up prompts.
+
+**Correct**:
+Track the active-stream id in a ref and clear it **synchronously** before the new request.
+Stamp and prompt only from that ref / the just-finished message’s own `docId`. State
+updates do not update the in-flight SSE closure; a prior id will leak, consume one-shot
+UI (e.g. feedback prompt), then mismatch when the real id arrives.
+
 ### Mistake: Silencing TS 6 `baseUrl` deprecation with `ignoreDeprecations`
 
 **Wrong**:
