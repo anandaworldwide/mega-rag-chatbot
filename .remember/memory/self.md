@@ -2,6 +2,26 @@
 
 ## Critical Lessons Learned
 
+### Mistake: A/B weight bands must accumulate in documented arm order
+
+**Wrong**:
+`if (roll < weights.grok)` first, then Grok+holdout, else control. Percent *sizes* may still match,
+but rolls in [0, control) land on treatment and tests that assume control-first bands fail silently.
+
+**Correct**:
+Accumulate in control → treatment → holdout order: `[0, control)`, then Grok, then Fable.
+
+### Mistake: Local FORCE_MODEL leftover overrides intended default arm
+
+**Wrong**:
+Leave `CLAUDE_AB_TEST_FORCE_MODEL` / `AB_TEST_FORCE_MODEL` in `.env.*` after a smoke test, then
+assume “development always uses X” from code. Force ran before the dev default and silently
+pinned every query to the smoke model.
+
+**Correct**:
+Clear force envs after smoke. Prefer code order where the intended local default wins over
+leftover force when that is the product rule (e.g. always Grok in development).
+
 ### Mistake: Override uuid to ESM-only 14.x for a CVE under gaxios/firebase-admin
 
 **Wrong**:

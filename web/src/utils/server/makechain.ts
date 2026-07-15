@@ -608,7 +608,7 @@ export const makeChain = async (
 
     // Anthropic adaptive thinking makes geo tool turns ~6-15s with no streamable text.
     // Run the entire geo path on a fast OpenAI model; keep sticky A/B arm separate (route persists it).
-    // The tool-calling model is therefore always OpenAI, which streams safely with tools bound.
+    // Grok and OpenAI primaries stay on-model for geo (no Anthropic handoff).
     const useGeoFastModel = shouldUseGeoTools && isAnthropicModel(model);
     const answerModelName = useGeoFastModel ? GEO_FAST_MODEL : model;
     const answerTemperature = useGeoFastModel ? 0.3 : temperature;
@@ -995,6 +995,10 @@ Error details: ${errorString}`,
   const getModelContextLimit = (modelName: string): number => {
     // Claude models (Fable/Sonnet/Opus/Haiku) — use a high but practical RAG budget
     if (modelName.toLowerCase().includes("claude")) {
+      return 200000;
+    }
+    // Grok 4.5 has 500k context; keep a practical RAG packing budget
+    if (modelName.toLowerCase().includes("grok")) {
       return 200000;
     }
     // GPT-4.1 models (including mini, nano variants) have 128k context

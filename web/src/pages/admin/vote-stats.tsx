@@ -83,7 +83,8 @@ function formatWhen(iso: string | null): string {
 
 function armLabel(arm: string): string {
   if (arm === "(no abTestModel)") return "No A/B arm";
-  if (arm === "claude-fable-5") return "claude-fable-5 (treatment)";
+  if (arm === "grok-4.5") return "grok-4.5 (treatment)";
+  if (arm === "claude-fable-5") return "claude-fable-5 (holdout)";
   if (arm === "gpt-4o") return "gpt-4o (control)";
   return arm;
 }
@@ -139,9 +140,12 @@ export default function VoteStatsPage({ siteConfig }: VoteStatsPageProps) {
   }, [fetchStats, lookbackDays]);
 
   const abTraffic = data?.summary.answersWithAbTestModel || 0;
-  const treatmentArm = data?.arms.find((arm) => arm.arm === "claude-fable-5");
+  const treatmentArm = data?.arms.find((arm) => arm.arm === "grok-4.5");
+  const holdoutArm = data?.arms.find((arm) => arm.arm === "claude-fable-5");
   const treatmentShare =
-    abTraffic > 0 && treatmentArm ? `${((treatmentArm.answers / abTraffic) * 100).toFixed(0)}% of A/B traffic` : null;
+    abTraffic > 0 && treatmentArm ? `${((treatmentArm.answers / abTraffic) * 100).toFixed(0)}% Grok` : null;
+  const holdoutShare =
+    abTraffic > 0 && holdoutArm ? `${((holdoutArm.answers / abTraffic) * 100).toFixed(0)}% Fable holdout` : null;
 
   const mainContent = (
     <>
@@ -200,7 +204,9 @@ export default function VoteStatsPage({ siteConfig }: VoteStatsPageProps) {
               <p className="mt-1 text-sm text-gray-600">
                 Comparable rates only count votes where the execution model matches the sticky arm and the answer was
                 not a location query.
-                {treatmentShare ? ` Treatment share: ${treatmentShare}.` : ""}
+                {treatmentShare || holdoutShare
+                  ? ` Live mix: ${[treatmentShare, holdoutShare].filter(Boolean).join(", ")}.`
+                  : ""}
               </p>
             </div>
             <div className="overflow-x-auto">

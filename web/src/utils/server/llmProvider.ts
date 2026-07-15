@@ -11,6 +11,11 @@ export type ChatModelOptions = {
   effort?: "low" | "medium" | "high" | "xhigh" | "max";
 };
 
+export type GrokReasoningEffort = "low" | "medium" | "high";
+
+const XAI_API_BASE_URL = "https://api.x.ai/v1";
+const DEFAULT_GROK_REASONING_EFFORT: GrokReasoningEffort = "low";
+
 /** Models that reject non-default temperature/top_p/top_k (Claude adaptive-only generation). */
 const ANTHROPIC_NO_SAMPLING_PREFIXES = [
   "claude-fable-5",
@@ -24,13 +29,25 @@ export function isAnthropicModel(model: string): boolean {
   return model.toLowerCase().startsWith("claude");
 }
 
+export function isGrokModel(model: string): boolean {
+  return model.toLowerCase().startsWith("grok");
+}
+
 export function anthropicSupportsSamplingTemperature(model: string): boolean {
   const normalized = model.toLowerCase();
   return !ANTHROPIC_NO_SAMPLING_PREFIXES.some((prefix) => normalized.startsWith(prefix));
 }
 
+export function resolveGrokReasoningEffort(): GrokReasoningEffort {
+  const raw = process.env.GROK_REASONING_EFFORT?.trim().toLowerCase();
+  if (raw === "low" || raw === "medium" || raw === "high") {
+    return raw;
+  }
+  return DEFAULT_GROK_REASONING_EFFORT;
+}
+
 /**
- * Returns a LangChain chat model for OpenAI or Anthropic based on the model id.
+ * Returns a LangChain chat model for OpenAI, Anthropic, or xAI (Grok) based on the model id.
  */
 export function getChatModel(options: ChatModelOptions): BaseChatModel {
   const { model, temperature, streaming = false, maxTokens, effort } = options;
@@ -58,6 +75,29 @@ export function getChatModel(options: ChatModelOptions): BaseChatModel {
     }
 
     return new ChatAnthropic(anthropicOptions);
+  }
+
+  if (isGrokModel(model)) {
+    const apiKey = process.env.XAI_API_KEY;
+    if (!apiKey) {
+      throw new Error("XAI_API_KEY is required for Grok models but is not set");
+    }
+
+    const reasoningEffort = resolveGrokReasoningEffort();
+    return new ChatOpenAI({
+      model,
+      temperature,
+      streaming,
+      apiKey,
+      configuration: {
+        baseURL: XAI_API_BASE_URL,
+      },
+      // xAI Chat Completions accepts reasoning_effort for grok-4.5 (API default high; we use low for TTFB).
+      modelKwargs: {
+        reasoning_effort: reasoningEffort,
+      },
+      ...(maxTokens !== undefined ? { maxTokens } : {}),
+    });
   }
 
   return new ChatOpenAI({

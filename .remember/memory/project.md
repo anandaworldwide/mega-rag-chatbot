@@ -423,26 +423,41 @@ except ImportError:
 - UI: content-width centered pill (`w-fit` / `inline-flex`), `rounded-2xl`; one-shot shimmer via IntersectionObserver when it first scrolls into view (`answer-feedback-shimmer` in `globals.css`)
 - Stream docId tracking uses `savedDocIdRef` (cleared synchronously on each new query/chat) so `done` cannot stamp a prior answer's docId onto the next message and consume the prompt slot
 
-## Model Routing / Claude A/B Test
+## Model Routing / A/B Test
 
-- **Silent A/B**: Luca (`ananda`) uses `enableClaudeAbTest` for conversation-sticky assignment of `claude-fable-5`
-  vs `siteConfig.modelName` (control). Measurement is normal thumbs up/down; downvote events copy `model` /
-  `abTestModel`.
-- **Kill switches**: `CLAUDE_AB_TEST_PERCENT` (default 30 when flag on; `0` disables treatment) and
-  `CLAUDE_AB_TEST_FORCE_MODEL` for local smoke. Requires `ANTHROPIC_API_KEY`.
-- **Provider**: `web/src/utils/server/llmProvider.ts` (`getChatModel`) routes Claude → `@langchain/anthropic`,
-  GPT → `@langchain/openai`.
+- **Silent 3-arm A/B** (Luca `ananda` and Jairam when `enableClaudeAbTest`): sticky per conversation among
+  control (`siteConfig.modelName`, usually `gpt-4o`), primary treatment `grok-4.5` (xAI), and tiny
+  `claude-fable-5` holdout. **Defaults when AB_TEST_* unset: control 62% / Grok 30% / Fable 8%.**
+  Override with `AB_TEST_CONTROL_PERCENT`, `AB_TEST_GROK_PERCENT`, `AB_TEST_FABLE_HOLDOUT_PERCENT`
+  (if any is set, unset siblings are 0 then normalize — e.g. GROK=0 alone → 100% control;
+  GROK=30 alone → 100% Grok. Set all three for exact shares).
+  Band order is control → Grok → Fable (`pickArmFromWeights`). Legacy `CLAUDE_AB_TEST_PERCENT` is ignored
+  for weights (left over `=0` no longer kills treatment).
+- **Development**: always assigns `grok-4.5` and ignores force env, sticky history, and production weights.
+- **Force / smoke** (production only): `AB_TEST_FORCE_MODEL` or `CLAUDE_AB_TEST_FORCE_MODEL`.
+  Leftover local force-to-Fable was overriding Grok; do not leave `CLAUDE_AB_TEST_FORCE_MODEL` in `.env.*`
+  for day-to-day local work.
+- **Keys**: Grok needs `XAI_API_KEY`; Fable holdout needs `ANTHROPIC_API_KEY`. Grok reasoning effort defaults
+  to `low` for TTFB (`GROK_REASONING_EFFORT`; override to `medium`/`high` if needed).
+- **Provider auth / quota failures** (bad key, credits exhausted, spending limit, 429): chat UI gets a generic
+  unavailable message (does not claim Ops email was sent); Ops still gets a throttled `sendOpsAlert` via
+  `classifyLlmProviderChatFailure`. Never surface `console.x.ai`, team UUIDs, or raw billing text to users.
+- **Provider**: `web/src/utils/server/llmProvider.ts` routes Claude → Anthropic, `grok-*` → OpenAI-compatible
+  xAI (`https://api.x.ai/v1`), else OpenAI.
 - **Geo tools**: Anthropic primary models use `gpt-4.1-mini` for the entire geo path (tool selection +
-  answer) with a short geo prompt + temp 0.3; OpenAI-primary geo keeps the full site template and site
-  temperature. Sticky `abTestModel` stays on the conversation arm; per-answer `model` is the actual
+  answer) with a short geo prompt + temp 0.3; Grok and OpenAI-primary geo keep the full site template and
+  site temperature. Sticky `abTestModel` stays on the conversation arm; per-answer `model` is the actual
   execution model; `isLocationQuery: true` is saved. A/B measurement: only votes where
   `model === abTestModel` (see `isClaudeAbTestComparableAnswer`). Temporary sessions skip A/B assignment
   (arm can't persist). “Searching locations…” is an SSE `status`, not a token, so it does not start TTFB
   (guarded by a route test).
+- **Prompts**: Shared model-agnostic grounding / citation / tone hardening in `ananda-base.txt` and
+  `jairam-base.txt` (applies to all arms).
 - **Removed**: user preferred-model Settings/picker, inline “Try GPT-4.1”, `/compare-models`, and related
   model-comparison APIs/admin model-stats page. Keep `/admin/model-performance` for latency metrics.
 - **Vote dashboard**: Superuser page `/admin/vote-stats` (API `/api/admin/vote-stats?days=7|30`) shows
-  upvote/downvote counts, A/B arm comparable rates, model mix, recent votes, and downvote events.
+  upvote/downvote counts, A/B arm comparable rates (labels: control / Grok treatment / Fable holdout),
+  model mix, recent votes, and downvote events.
 
 ## Empty retrieval + system-prompt answers
 

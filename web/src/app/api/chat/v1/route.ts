@@ -3,7 +3,7 @@
  *
  * Core functionality:
  * - Implements server-sent events (SSE) for real-time streaming
- * - Optional conversation-sticky Claude A/B assignment when enabled
+ * - Optional conversation-sticky model A/B assignment when enabled (Grok + Fable holdout)
  * - Manages rate limiting per user/IP
  * - Validates and sanitizes all inputs
  * - Integrates with Pinecone for vector search
@@ -59,7 +59,12 @@ import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { validateAndSanitizeQuestion, sanitizeForLogging } from "@/utils/server/inputSanitization";
-import { getSafeErrorMessage, sanitizeErrorForLogging } from "@/utils/server/errorSanitization";
+import {
+  CHATBOT_UNAVAILABLE_USER_MESSAGE,
+  classifyLlmProviderChatFailure,
+  getSafeErrorMessage,
+  sanitizeErrorForLogging,
+} from "@/utils/server/errorSanitization";
 import { SiteConfig } from "@/types/siteConfig";
 import { StreamingResponseData } from "@/types/StreamingResponseData";
 import { getClientIp } from "@/utils/server/ipUtils";
@@ -615,69 +620,38 @@ async function patchDocumentSuggestions(docId: string, suggestions: TypedSuggest
 
 // Function for handling errors and sending appropriate error messages
 function handleError(error: unknown, sendData: (data: StreamingResponseData) => void) {
-  if (error instanceof Error) {
-    // Handle specific error cases
-    if (error.name === "PineconeNotFoundError") {
-      sendData({
-        error: "The specified Pinecone index does not exist. Please notify your administrator.",
-      });
-    } else if (error.message.includes("429")) {
-      sendData({
-        error:
-          "The site has exceeded its current quota with OpenAI, please tell an admin to check the plan and billing details.",
-      });
+  if (!(error instanceof Error)) {
+    sendData({ error: "An unknown error occurred" });
+    return;
+  }
 
-      // Send ops alert for OpenAI quota exhaustion
-      sendOpsAlert(
-        `CRITICAL: OpenAI API Quota Exhausted`,
-        `OpenAI API returned a 429 (quota exceeded) error during chat request processing.
+  if (error.name === "PineconeNotFoundError") {
+    sendData({
+      error: "The specified Pinecone index does not exist. Please notify your administrator.",
+    });
+    return;
+  }
 
-This indicates that the OpenAI API usage limits have been reached, preventing:
-- Chat response generation
-- Document embedding creation
-- Question reformulation
-- All AI-powered functionality
+  if (error.message.includes("Pinecone") || error.name.includes("Pinecone")) {
+    // Keep infrastructure details out of the chat UI even in development.
+    sendData({
+      error: CHATBOT_UNAVAILABLE_USER_MESSAGE,
+    });
 
-IMMEDIATE ACTION REQUIRED: 
-1. Check OpenAI account billing and usage limits
-2. Upgrade plan or increase quota limits
-3. Monitor API usage patterns
+    const sanitizedError = sanitizeErrorForLogging(error);
+    console.error("Pinecone vector database connection failed during chat request processing.", {
+      error: sanitizedError.message,
+      name: sanitizedError.name,
+      code: sanitizedError.code,
+      type: sanitizedError.type,
+      errorType: "pinecone_connection_failure",
+      apiEndpoint: "/api/chat/v1",
+      timestamp: new Date().toISOString(),
+    });
 
-Error context: ${error.message}`,
-        {
-          error,
-          context: {
-            errorType: "openai_quota_exhaustion",
-            httpStatus: 429,
-            timestamp: new Date().toISOString(),
-            apiEndpoint: "/api/chat/v1",
-          },
-        }
-      ).catch((emailError) => {
-        console.error("Failed to send OpenAI quota ops alert:", emailError);
-      });
-    } else if (error.message.includes("Pinecone") || error.name.includes("Pinecone")) {
-      // Keep infrastructure details out of the chat UI even in development.
-      sendData({
-        error:
-          "The chatbot is temporarily unavailable. An alert email has been sent to operations about the issue. Please try again later.",
-      });
-
-      const sanitizedError = sanitizeErrorForLogging(error);
-      console.error("Pinecone vector database connection failed during chat request processing.", {
-        error: sanitizedError.message,
-        name: sanitizedError.name,
-        code: sanitizedError.code,
-        type: sanitizedError.type,
-        errorType: "pinecone_connection_failure",
-        apiEndpoint: "/api/chat/v1",
-        timestamp: new Date().toISOString(),
-      });
-
-      // Send ops alert for Pinecone connection failures
-      sendOpsAlert(
-        `CRITICAL: Pinecone Vector Database Connection Failure`,
-        `Pinecone vector database connection failed during chat request processing.
+    sendOpsAlert(
+      `CRITICAL: Pinecone Vector Database Connection Failure`,
+      `Pinecone vector database connection failed during chat request processing.
 
 This prevents the system from:
 - Retrieving relevant documents for user queries
@@ -691,59 +665,92 @@ IMMEDIATE ACTION REQUIRED:
 3. Check network connectivity to Pinecone endpoints
 
 Error details: ${error.message}`,
-        {
-          error,
-          context: {
-            errorType: "pinecone_connection_failure",
-            timestamp: new Date().toISOString(),
-            apiEndpoint: "/api/chat/v1",
-          },
-        }
-      ).catch((emailError) => {
-        console.error("Failed to send Pinecone ops alert:", emailError);
-      });
-    } else if (isNetworkError(error)) {
-      // Handle network connectivity errors
-      const networkAnalysis = analyzeNetworkError(error);
-      sendData({
-        error: networkAnalysis.userMessage,
-        type: "network_error",
-      });
-
-      // Log network error for debugging
-      console.error("Network error during chat request:", {
-        error: error.message,
-        code: (error as any).code,
-        operation: "chat streaming",
-        timestamp: new Date().toISOString(),
-      });
-    } else {
-      // Check if this is a Firestore index error
-      const indexAnalysis = analyzeFirestoreError(error);
-      if (indexAnalysis.isIndexError) {
-        sendData({
-          error: indexAnalysis.userMessage,
-          type: "firestore_index_error",
-          isBuilding: indexAnalysis.isBuilding,
-        });
-
-        // Send ops notification if needed (async, don't wait)
-        if (indexAnalysis.shouldNotifyOps) {
-          notifyOpsOfIndexError(error, {
-            endpoint: "/api/chat/v1",
-            collection: "chatLogs",
-            query: "Chat conversation save/update",
-          }).catch(console.error);
-        }
-      } else {
-        // Use safe error message to prevent information leakage
-        const safeMessage = getSafeErrorMessage(error, "Something went wrong");
-        sendData({ error: safeMessage });
+      {
+        error,
+        context: {
+          errorType: "pinecone_connection_failure",
+          timestamp: new Date().toISOString(),
+          apiEndpoint: "/api/chat/v1",
+        },
       }
-    }
-  } else {
-    sendData({ error: "An unknown error occurred" });
+    ).catch((emailError) => {
+      console.error("Failed to send Pinecone ops alert:", emailError);
+    });
+    return;
   }
+
+  const llmFailure = classifyLlmProviderChatFailure(error);
+  if (llmFailure) {
+    sendData({ error: llmFailure.userMessage });
+
+    const sanitizedError = sanitizeErrorForLogging(error);
+    console.error("LLM provider failure during chat request processing.", {
+      error: sanitizedError.message,
+      name: sanitizedError.name,
+      code: sanitizedError.code,
+      type: sanitizedError.type,
+      provider: llmFailure.provider,
+      errorType: llmFailure.errorType,
+      apiEndpoint: "/api/chat/v1",
+      timestamp: new Date().toISOString(),
+    });
+
+    sendOpsAlert(
+      llmFailure.opsSubject,
+      llmFailure.opsBody,
+      {
+        error,
+        context: {
+          errorType: llmFailure.errorType,
+          provider: llmFailure.provider,
+          kind: llmFailure.kind,
+          timestamp: new Date().toISOString(),
+          apiEndpoint: "/api/chat/v1",
+        },
+      },
+      { throttleKey: llmFailure.throttleKey, throttleMs: 15 * 60 * 1000 }
+    ).catch((emailError) => {
+      console.error("Failed to send LLM provider ops alert:", emailError);
+    });
+    return;
+  }
+
+  if (isNetworkError(error)) {
+    const networkAnalysis = analyzeNetworkError(error);
+    sendData({
+      error: networkAnalysis.userMessage,
+      type: "network_error",
+    });
+
+    console.error("Network error during chat request:", {
+      error: error.message,
+      code: (error as any).code,
+      operation: "chat streaming",
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+
+  const indexAnalysis = analyzeFirestoreError(error);
+  if (indexAnalysis.isIndexError) {
+    sendData({
+      error: indexAnalysis.userMessage,
+      type: "firestore_index_error",
+      isBuilding: indexAnalysis.isBuilding,
+    });
+
+    if (indexAnalysis.shouldNotifyOps) {
+      notifyOpsOfIndexError(error, {
+        endpoint: "/api/chat/v1",
+        collection: "chatLogs",
+        query: "Chat conversation save/update",
+      }).catch(console.error);
+    }
+    return;
+  }
+
+  const safeMessage = getSafeErrorMessage(error, "Something went wrong");
+  sendData({ error: safeMessage });
 }
 
 export const POST = withAppRouterJwtAuth(async (req: NextRequest, _context: unknown, token: JwtPayload) => {
@@ -806,7 +813,7 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
     effectiveModelName = abAssignment.model;
     abTestModel = abAssignment.abTestModel;
     console.log(
-      `Claude A/B assignment: model=${effectiveModelName} convId=${sanitizedInput.convId || "new"}`
+      `Model A/B assignment: model=${effectiveModelName} convId=${sanitizedInput.convId || "new"}`
     );
   }
 
