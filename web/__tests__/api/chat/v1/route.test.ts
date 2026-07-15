@@ -43,6 +43,8 @@ import { buildTitleScopeForPersistence } from "@/utils/server/titleScopePersiste
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import { firestoreGet } from "@/utils/server/firestoreRetryUtils";
 import { resolvePersistUuidForRequest } from "@/utils/server/uuidUtils";
+import { sendOpsAlert } from "@/utils/server/emailOps";
+import { CHATBOT_UNAVAILABLE_USER_MESSAGE } from "@/utils/server/errorSanitization";
 
 const TEST_BODY_UUID = "423e4567-e89b-42d3-a456-426614174000";
 const TEST_JWT_UUID = "323e4567-e89b-42d3-a456-426614174000";
@@ -156,6 +158,10 @@ jest.mock("@/utils/server/loadSiteConfig", () => {
 });
 
 // Mock other deps
+jest.mock("@/utils/server/emailOps", () => ({
+  sendOpsAlert: jest.fn().mockResolvedValue(true),
+}));
+
 jest.mock("@/utils/server/claudeAbTest", () => ({
   resolveClaudeAbTestModel: jest.fn().mockResolvedValue(null),
 }));
@@ -809,8 +815,6 @@ describe("Chat API Route", () => {
       expect(data.error).toContain("Collection must be a string value");
     });
 
-
-
     test("processes request with mediaTypes parameter", async () => {
       const mediaTypes: Partial<MediaTypes> = {
         text: true,
@@ -1285,6 +1289,74 @@ describe("Retry Mechanism", () => {
       await collectSseObjects(response);
 
       expect(resolveClaudeAbTestModel).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }));
+    });
+
+    /**
+     * Route wiring for LLM provider failures: SSE gets the generic unavailable message
+     * (no billing/key leakage, no false "email sent" claim) and Ops gets a throttled alert.
+     */
+    test("LLM auth failure streams generic error and sends ops alert", async () => {
+      (sendOpsAlert as jest.Mock).mockClear();
+      (makeChainModule.setupAndExecuteLanguageModelChain as jest.Mock).mockImplementationOnce(async () => {
+        throw new Error('400 "Incorrect API key provided. You can obtain an API key from https://console.x.ai."');
+      });
+
+      const response = await POST(buildStreamingRequest(STREAM_BODY));
+      expect(response.status).toBe(200);
+
+      const events = await collectSseObjects(response);
+      const errorEvent = events.find((e) => typeof e.error === "string");
+
+      expect(errorEvent?.error).toBe(CHATBOT_UNAVAILABLE_USER_MESSAGE);
+
+      expect(sendOpsAlert).toHaveBeenCalledWith(
+        expect.stringContaining("API Key / Auth Failure"),
+        expect.stringContaining("console.x.ai"),
+        expect.objectContaining({
+          context: expect.objectContaining({
+            errorType: "llm_provider_auth_failure",
+            provider: "xAI (Grok)",
+            kind: "auth",
+          }),
+        }),
+        expect.objectContaining({
+          throttleKey: "llm_provider_auth_failure",
+          throttleMs: 15 * 60 * 1000,
+        })
+      );
+    });
+
+    test("LLM quota failure streams generic error and sends ops alert", async () => {
+      (sendOpsAlert as jest.Mock).mockClear();
+      (makeChainModule.setupAndExecuteLanguageModelChain as jest.Mock).mockImplementationOnce(async () => {
+        throw new Error(
+          '403 "Your team 9bd216ec-d39a-4422-81a3-5a0f430a2d56 has either used all available credits or reached its monthly spending limit."'
+        );
+      });
+
+      const response = await POST(buildStreamingRequest(STREAM_BODY));
+      expect(response.status).toBe(200);
+
+      const events = await collectSseObjects(response);
+      const errorEvent = events.find((e) => typeof e.error === "string");
+
+      expect(errorEvent?.error).toBe(CHATBOT_UNAVAILABLE_USER_MESSAGE);
+
+      expect(sendOpsAlert).toHaveBeenCalledWith(
+        expect.stringContaining("Credits / Quota / Rate Limit"),
+        expect.stringContaining("9bd216ec"),
+        expect.objectContaining({
+          context: expect.objectContaining({
+            errorType: "llm_provider_quota_failure",
+            provider: "xAI (Grok)",
+            kind: "quota",
+          }),
+        }),
+        expect.objectContaining({
+          throttleKey: "llm_provider_quota_failure",
+          throttleMs: 15 * 60 * 1000,
+        })
+      );
     });
   });
 });
