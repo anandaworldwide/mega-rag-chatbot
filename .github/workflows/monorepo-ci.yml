@@ -92,6 +92,9 @@ jobs:
           echo "✅ CJS uuid/gaxios compat (Vercel-like, no experimental-require-module)"
           node ../scripts/check-cjs-uuid-compat.mjs
 
+          echo "✅ juice newsletter deps (mensch/slick resolve; lockfile complete)"
+          node ../scripts/check-juice-deps.mjs
+
           echo "✅ Linting TypeScript/JavaScript"
           npm run lint || echo "⚠️  Lint completed with warnings (non-blocking)"
 

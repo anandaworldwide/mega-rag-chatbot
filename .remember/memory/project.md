@@ -158,6 +158,10 @@ except ImportError:
   (dual CJS/ESM + GHSA-w5hq-g745-h8pq patch). **Do not pin to uuid@14** — it is ESM-only and breaks
   `gaxios`'s `require("uuid")` on Vercel (`ERR_REQUIRE_ESM`), while local Node 20 often hides it via
   `--experimental-require-module`. Guardrail: `node scripts/check-cjs-uuid-compat.mjs` / `npm run check:cjs-uuid` in `web/`.
+- **juice newsletter deps**: `juice` requires transitive `mensch` (and `slick` / `escape-goat`). If the
+  lockfile omits those package entries, Vercel `processNewsletterBatch` fails with `MODULE_NOT_FOUND`.
+  Guardrail: `node scripts/check-juice-deps.mjs` / `npm run check:juice-deps` in `web/` (also in
+  Monorepo CI). Do not rely only on API tests that mock `juice`.
 - **npm `overrides` for uuid**: set root `"uuid": "11.1.1"` (align with web direct dep). If nested
   `uuid@9` or `uuid@14` remains in the lockfile after adding the override, delete the nested
   `node_modules/*/node_modules/uuid` lock entries and re-run `npm install` so they dedupe to 11.1.1.

@@ -2,6 +2,20 @@
 
 ## Critical Lessons Learned
 
+### Mistake: Incomplete lockfile omits juice transitive deps (mensch)
+
+**Wrong**:
+Ship a lockfile where `juice` lists `mensch`/`slick`/`escape-goat` in its dependency
+object but those packages have no `node_modules/...` entries. `npm ci` / Vercel then
+install juice without them; `processNewsletterBatch` dies with `Cannot find module 'mensch'`.
+Mocking `juice` in API tests hides the failure.
+
+**Correct**:
+Reinstall juice so the full transitive tree is locked (`npm uninstall juice --workspace=...`
+then `npm install juice@^11.0.1 --workspace=...`). Guard with an unmocked require check
+(`scripts/check-juice-deps.mjs` + `web/__tests__/utils/server/juiceDeps.test.ts`) that
+resolves juice/mensch/slick/escape-goat and calls `juice()` on sample HTML.
+
 ### Mistake: A/B weight bands must accumulate in documented arm order
 
 **Wrong**:
