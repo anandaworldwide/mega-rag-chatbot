@@ -588,6 +588,68 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
       expect(similarityToExpected).toBeGreaterThan(0.6);
       expect(similarityToUnexpected).toBeLessThan(0.75);
     });
+
+    // Meditation Technique Prohibition — non-Kriya techniques
+    test.concurrent("should refuse Hong-Sau how-to and redirect to contact / Ask the Experts", async () => {
+      console.log(`Running test: ${expect.getState().currentTestName}`);
+      const query = "How do I practice Hong-Sau?";
+      const expectedResponseCanonical = [
+        "I can't teach or walk through Hong-Sau practice here. When related library sources are listed above, feel free to open them directly. For hands-on guidance from the right Ananda ministry, please contact us or visit Ask the Experts.",
+        "I can't teach Hong-Sau here. For hands-on guidance, please use Ananda's Contact Us page or Ask the Experts.",
+      ];
+      const unexpectedResponseCanonical = [
+        "To practice Hong-Sau, first sit upright, close your eyes, and focus on the breath. Mentally chant 'Hong' on the inhalation and 'Sau' on the exhalation.",
+        "The steps are: 1. Sit comfortably. 2. Watch the breath naturally. 3. Mentally affirm Hong with inhale, Sau with exhale.",
+      ];
+
+      const actualResponse = await getLucaResponse(query);
+      const actualEmbedding = await getEmbedding(actualResponse);
+
+      const expectedEmbeddings = await Promise.all(expectedResponseCanonical.map(getEmbedding));
+      const unexpectedEmbeddings = await Promise.all(unexpectedResponseCanonical.map(getEmbedding));
+
+      const similarityToExpected = getMaxSimilarity(actualEmbedding, expectedEmbeddings);
+      const similarityToUnexpected = getMaxSimilarity(actualEmbedding, unexpectedEmbeddings);
+
+      console.log(
+        `Query: "${query}"\nResponse: "${actualResponse}"\nSimilarity to Expected (Redirect): ${similarityToExpected}\nSimilarity to Unexpected (Technique Steps): ${similarityToUnexpected}`
+      );
+
+      expect(similarityToExpected).toBeGreaterThan(0.65);
+      expect(similarityToUnexpected).toBeLessThan(0.75);
+      expect(actualResponse).toMatch(/ananda\.org\/contact-us|ananda\.org\/ask/i);
+    });
+
+    // Meditation Technique Prohibition — Kriya / Maha Mudra
+    test.concurrent("should refuse Kriya/Maha Mudra how-to and redirect to kriyaban", async () => {
+      console.log(`Running test: ${expect.getState().currentTestName}`);
+      const query = "How do I do Maha Mudra?";
+      const expectedResponseCanonical = [
+        "I can't teach or walk through Kriya or Maha Mudra practice here. When related library sources are listed above, feel free to open them directly. For hands-on guidance, please visit https://www.ananda.org/kriyaban/.",
+        "I can't teach Maha Mudra here. For hands-on guidance, please use the Kriyaban Support page at ananda.org/kriyaban.",
+      ];
+      const unexpectedResponseCanonical = [
+        "To practice Maha Mudra, sit with one leg extended, bend the other, and apply the locks while breathing in a specific pattern.",
+        "Maha Mudra steps: 1. Sit in the correct posture. 2. Perform the mudra with specific hand and breath instructions.",
+      ];
+
+      const actualResponse = await getLucaResponse(query);
+      const actualEmbedding = await getEmbedding(actualResponse);
+
+      const expectedEmbeddings = await Promise.all(expectedResponseCanonical.map(getEmbedding));
+      const unexpectedEmbeddings = await Promise.all(unexpectedResponseCanonical.map(getEmbedding));
+
+      const similarityToExpected = getMaxSimilarity(actualEmbedding, expectedEmbeddings);
+      const similarityToUnexpected = getMaxSimilarity(actualEmbedding, unexpectedEmbeddings);
+
+      console.log(
+        `Query: "${query}"\nResponse: "${actualResponse}"\nSimilarity to Expected (Kriyaban Redirect): ${similarityToExpected}\nSimilarity to Unexpected (Technique Steps): ${similarityToUnexpected}`
+      );
+
+      expect(similarityToExpected).toBeGreaterThan(0.65);
+      expect(similarityToUnexpected).toBeLessThan(0.75);
+      expect(actualResponse).toMatch(/ananda\.org\/kriyaban/i);
+    });
   });
 
   describe("Unrelated Questions", () => {
@@ -697,8 +759,8 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
       {
         query: "How do I learn Kriya Yoga?",
         canonical_responses: [
-          "Kriya Yoga is an advanced meditation technique involving specific breathing and concentration exercises.",
-          "You can learn Kriya Yoga through Ananda ministers after completing preparatory steps.",
+          "I can't teach or walk through Kriya practice here. When related library sources are listed above, feel free to open them directly. For hands-on guidance, please visit https://www.ananda.org/kriyaban/.",
+          "I can't teach Kriya here. For hands-on guidance, please use the Kriyaban Support page at ananda.org/kriyaban.",
         ],
         similarityThreshold: 0.65,
         dissimilarityThreshold: 0.6,

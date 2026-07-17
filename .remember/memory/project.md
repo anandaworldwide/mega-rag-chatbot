@@ -354,6 +354,12 @@ except ImportError:
 - **Luca vs Vivek framing**: When describing Luca, emphasize devotees/members on the spiritual path—not private library
   access or membership tiers. Any regular devotee is welcome (discipleship not required). Vivek serves public visitors
   with introductory information on ananda.org.
+- **Luca technique how-to redirects** (same spirit as Vivek’s absolute ban on teaching techniques): never teach steps for
+  Energization, Hong-Sau, Aum, Kriya, or Maha Mudra. Kriya/Maha Mudra → `https://www.ananda.org/kriyaban/`; other
+  non-initiation techniques → `https://www.ananda.org/contact-us/` and/or Ask the Experts (`https://www.ananda.org/ask/`).
+  When matching library sources are listed, invite the user to open them directly (do not summarize technique steps);
+  omit that sentence if no sources are listed. Login/access help for the Kriyaban site remains allowed; teaching
+  practice is not.
 - **New chat behavior**: `New Chat` should reset all answer-scope filters globally (collection, libraries, media types, title/source scope, and similar retrieval filters); if persistence is desired later, implement it as explicit user settings/preferences rather than hidden carry-over chat state
 - **Title catalog artifacts**: S3 title-scope artifacts are shared between development and production per site; do not split them by env prefix
 - **Title catalog lookup.json**: Every entry must include per-prefix `availability` (libraries, mediaTypes,
