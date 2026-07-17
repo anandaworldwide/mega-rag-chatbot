@@ -3240,3 +3240,11 @@ new empty answer slot). In production, model SSE can arrive before state include
 **Correct**: Pin a `streamingAnswerIndexRef` when enqueueing the empty answer, store `pendingStreamModelRef`, apply model
 to that index (and merge on token/docId updates). Also return/map `model` from `/api/chats` and `conversationLoader` so
 reload/history keeps the label.
+
+### Mistake: Outside list markers clipped by overflow scrollports
+
+**Wrong**:
+Default `list-style-position: outside` for chat markdown `ol`/`ul` inside `overflow-y: auto` / `overflow: hidden` ancestors. Mobile Safari clips the markers, so digits disappear on the left.
+
+**Correct**:
+Use `list-style-position: inside` on markdown lists (or give enough padding *and* ensure markers stay inside the scrollport). Guard with a CSS source assertion in tests.
