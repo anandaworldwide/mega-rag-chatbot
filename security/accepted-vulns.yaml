@@ -158,20 +158,6 @@ python:
     review_by: "2026-10-07"
     mitigation: "Dormant reranking subgraph; not deployed in production."
 
-  - id: PYSEC-2026-597
-    package: nltk
-    reason: >-
-      No fixed PyPI release reported by pip-audit (Dependabot also reports no
-      patched version for GHSA-p4gq-832x-fm9v / CVE-2026-54293). nltk 3.10.0
-      exists but is held under the 7-day cooldown and is not confirmed as the
-      advisory fix. Path traversal is in nltk.data.load() URL-encoded paths;
-      ingestion uses trusted local corpora, not attacker-controlled remote
-      resource URLs.
-    review_by: "2026-07-20"
-    mitigation: >-
-      Revisit after 2026-07-15 when nltk 3.10.0 clears cooldown; confirm whether
-      it addresses CVE-2026-54293 before adopting.
-
 node:
   - id: "1117038"
     package: showdown

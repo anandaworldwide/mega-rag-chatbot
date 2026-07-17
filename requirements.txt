@@ -95,7 +95,9 @@ cymem==2.0.13
 decorator==4.4.2
     # via moviepy
 defusedxml==0.7.1
-    # via py-serializable
+    # via
+    #   nltk
+    #   py-serializable
 dill==0.4.0
     # via
     #   mega-rag-chatbot
@@ -290,7 +292,7 @@ mutagen==1.47.0
     # via mega-rag-chatbot
 networkx==3.4.2
     # via mega-rag-chatbot
-nltk==3.9.4
+nltk==3.10.0
     # via mega-rag-chatbot
 numpy==2.4.3
     # via
