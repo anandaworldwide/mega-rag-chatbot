@@ -608,6 +608,22 @@ if (siteConfig?.requireLogin) {
     4. Calls the LLM (e.g., OpenAI) to generate an answer.
     5. Streams the answer back to the client.
   - Handles source document formatting and logging.
+- **Retrieval tool callbacks (`tools/retrievalTools.ts`, gated by `enableRetrievalTools`):**
+  - When enabled (currently `ananda` / Luca and `jairam`) and the answer model is not Anthropic, the answer model is
+    bound with two tools: `get_adjacent_chunks` and `search_more_sources`.
+  - Common case: model answers from the initial RAG context with no extra latency.
+  - If the model calls a retrieval tool, the server emits SSE `status: "retrieving_more_sources"` (client shows
+    "Gathering additional sources..."), executes the tool, re-emits `sourceDocs`, and re-invokes the model with
+    merged sources in the normal RAG context position (prompt placeholders filled) plus `ToolMessage` payloads.
+    A second tool round is allowed only when the previous round returned no docs (max 2 rounds, ~8 added sources);
+    after usable docs arrive, tools are unbound so the model must answer rather than narrate further searching.
+  - `get_adjacent_chunks` lists sibling vector IDs by shared prefix
+    (`type||library||loc||title||author||`) then `fetch`es neighbors by exact ID; only accepts `sourceId`s already
+    in context and re-checks access metadata.
+  - `search_more_sources` reuses the request Pinecone filter / `minRetrievalScore` path and dedupes against known
+    source IDs.
+  - Geo tools and retrieval tools may both be bound; Anthropic A/B holdout arms skip retrieval tools (same
+    streaming/tool constraints as geo).
 - **Data Ingestion (`data_ingestion/`):**
   - A collection of Python scripts responsible for populating the Pinecone vector database.
   - `transcribe_and_ingest_media.py`: Main script orchestrating the process for various media types.

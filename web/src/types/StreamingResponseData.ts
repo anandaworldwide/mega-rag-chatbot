@@ -6,7 +6,7 @@ import { TitleScopeFilterConflictPayload, TitleScopeSuggestion } from "./titleSc
 export interface StreamingResponseData {
   token?: string;
   /** Non-answer UI status; must not count toward TTFB / tokensStreamed */
-  status?: "searching_locations";
+  status?: "searching_locations" | "retrieving_more_sources";
   sourceDocs?: Document[];
   done?: boolean;
   error?: string;

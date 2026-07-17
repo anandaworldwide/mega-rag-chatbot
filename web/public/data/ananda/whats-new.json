@@ -1,11 +1,16 @@
 {
-  "version": 9,
+  "version": 10,
   "wikiUrl": "https://anandafamily.notion.site/What-s-new-with-Luca-2ed7781078bc80c79438c02ea27ec710",
   "entries": [
     {
+      "date": "2026-07-17",
+      "title": "Smarter Source Gathering While Answering",
+      "description": "When Luca's first sources are incomplete or cut off mid-passage, it can now request more on its own—nearby segments from the same book or talk, or a better follow-up search. You may briefly see \"Gathering additional sources...\" and the source count update before the answer continues. No settings to change; most questions still answer from the first retrieval."
+    },
+    {
       "date": "2026-07-12",
-      "title": "Testing a More Thoughtful AI Model",
-      "description": "We are quietly testing Claude Fable, a newer AI model, for a portion of conversations. When selected, it aims to produce more thoughtful, higher-quality answers. You do not need to change any settings. Most conversations continue as usual, and we will use your thumbs up and thumbs down feedback to compare quality. If something feels off, please vote and tell us why."
+      "title": "Quietly Testing Two New AI Models",
+      "description": "We are quietly testing two new AI models for a portion of conversations. When selected, they aim to produce more thoughtful, higher-quality answers. You do not need to change any settings. Most conversations continue as usual, and we will use your thumbs up and thumbs down feedback to compare quality. If something feels off, please vote and tell us why."
     },
     {
       "date": "2026-07-12",

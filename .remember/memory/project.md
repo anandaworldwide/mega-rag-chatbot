@@ -345,6 +345,10 @@ except ImportError:
 - **Config location**: `site-config/config.json`
 - **Feature rollout preference**: New user-facing features should be gated by site config and enabled only for the intended site(s), not assumed global
 - **Per-site toggles belong in config**: Do **not** hardcode site ID sets/constants (e.g. `Set(["ananda", "crystal"])`) for per-site feature rollout. Add an `enable*` flag to [`web/site-config/config.json`](web/site-config/config.json), extend `SiteConfig` in [`web/src/types/siteConfig.ts`](web/src/types/siteConfig.ts), and read it from `siteConfig` at runtime. Example: `enableApplySuggestions` for the Apply follow-up pill lane.
+- **Retrieval tool callbacks**: `enableRetrievalTools` (ananda/Luca and jairam) binds `get_adjacent_chunks` +
+  `search_more_sources` on non-Anthropic answer models via the geo-style tool loop in `makechain.ts`.
+  Status UX: SSE `status: "retrieving_more_sources"` → client "Gathering additional sources..." (not a token).
+  Adjacent defaults are ±1 (passage continuity only); prefer not expanding into the rest of a chapter.
 - **Planning rule**: For major features, explicitly ask the user whether rollout should be global or site-configurable before implementing. If it is unclear whether a toggle should live in config vs code, **ask the user** rather than defaulting to hardcoded site lists.
 - **Site complexity**: `ananda` / Luca is the deep, feature-rich site; the other sites are intentionally simpler
 - **Luca vs Vivek framing**: When describing Luca, emphasize devotees/members on the spiritual path—not private library

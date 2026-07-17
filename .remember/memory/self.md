@@ -71,6 +71,60 @@ Remove `baseUrl`. Paths are resolved relative to the tsconfig file, so fold the 
 `baseUrl` prefix into each `paths` entry (e.g. tests config with `baseUrl: ".."` must
 change `@/*` from `./src/*` to `../src/*`). Do not leave a bare `baseUrl` with no paths.
 
+### Mistake: Re-binding retrieval tools after a successful source fetch
+
+**Wrong**:
+After `search_more_sources` / `get_adjacent_chunks` returns documents, re-invoke with tools still
+bound and only ToolMessages (empty initial context, unsubstituted `{chat_history}`). Models
+(especially Grok) then narrate "I'm searching more…" in plain text instead of answering or
+emitting another tool_call — and the loop ends.
+
+**Correct**:
+Merge fetched docs into the normal RAG context, fill prompt placeholders, and unbind tools when
+the last round returned any docs (retry with tools only on empty results). Instruct the model to
+answer now with citations, not narrate searching.
+
+### Mistake: Second "Gathering sources" flash after a successful expansion
+
+**Wrong**:
+Unbind tools after a non-empty fetch, but still honor any further retrieval `tool_calls` the model
+emits: emit status again, re-execute tools (usually 0 new / all dupes), sources stay flat.
+
+**Correct**:
+Once a retrieval round adds documents, set a flag and ignore further retrieval tool_calls — no
+status event, no re-fetch; force a single answer-only re-invoke instead.
+
+### Mistake: Breaking the retrieval tool loop without an answer-only recovery
+
+**Wrong**:
+`break` on max retrieval iterations or missing tool context without streaming a final answer.
+Client can remain stuck on "Gathering additional sources..." with empty `fullResponse`.
+
+**Correct**:
+Share one `forceRetrievalAnswerOnly` path for: max iterations, missing context, post-expansion
+ignored tool_calls, and a safety net when the loop ends with an empty streamed answer.
+
+### Mistake: Matching the wrong site block in site-config/config.json
+
+**Wrong**:
+Use a generic `temperature` / `modelName` / `enableGeoAwareness` snippet to find a site in
+`config.json` — those keys repeat across sites, so the edit can land on `photo` (or another site).
+
+**Correct**:
+Anchor the replace on site-unique context (site key nearby, logo name, access-request copy,
+`enabledTasks`, etc.) and verify with grep that the flag sits under the intended site.
+
+### Mistake: Adjacent Pinecone chunks cannot be fetched by bumping chunk_index in the vector ID
+
+**Wrong**:
+Assume neighbor of `…||hash||33` is `…||hash||34` by rewriting the trailing index.
+
+**Correct**:
+`document_hash` includes chunk text, so each chunk has a different hash. Derive the sibling
+prefix (`type||library||loc||title||author||`), `listPaginated({ prefix })` (capped), parse
+trailing `chunk_index`, then `fetch` exact IDs. Only accept `sourceId`s already in context and
+re-check access metadata on fetched neighbors.
+
 ### Mistake: Run geo tool turns on Claude (streaming or not)
 
 **Wrong**:

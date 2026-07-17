@@ -151,6 +151,7 @@
     "temperature": 0.4,
     "modelName": "gpt-4o",
     "enableGeoAwareness": true,
+    "enableRetrievalTools": true,
     "feedbackIcon": "michael.jpeg",
     "redirectMappings": {
       "mg": {
@@ -314,6 +315,7 @@
     "showSourceCountSelector": true,
     "temperature": 0.2,
     "modelName": "gpt-4o",
+    "enableRetrievalTools": true,
     "feedbackIcon": "michael.jpeg",
     "accessRequestNoteLabel": "Please let us know the name of someone on the Free Joe Hunt team who knows you.",
     "accessRequestConfig": {

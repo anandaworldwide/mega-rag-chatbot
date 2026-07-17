@@ -236,6 +236,38 @@ describe("MessageItem", () => {
     expect(userMessageContainer).toBeInTheDocument();
   });
 
+  it("shows loading dots for Gathering additional sources status", () => {
+    const gatheringMessage: ExtendedAIMessage = {
+      ...aiMessage,
+      message: "Gathering additional sources...",
+      docId: undefined,
+      sourceDocs: [],
+    };
+
+    const { container } = renderWithQueryClient(
+      <MessageItem {...defaultProps} message={gatheringMessage} loading={true} isLastMessage={true} />
+    );
+
+    expect(screen.getByText("Gathering additional sources...")).toBeInTheDocument();
+    expect(container.querySelectorAll(".animate-bounce").length).toBe(3);
+  });
+
+  it("shows loading dots for Searching locations status", () => {
+    const searchingMessage: ExtendedAIMessage = {
+      ...aiMessage,
+      message: "Searching locations...",
+      docId: undefined,
+      sourceDocs: [],
+    };
+
+    const { container } = renderWithQueryClient(
+      <MessageItem {...defaultProps} message={searchingMessage} loading={true} isLastMessage={true} />
+    );
+
+    expect(screen.getByText("Searching locations...")).toBeInTheDocument();
+    expect(container.querySelectorAll(".animate-bounce").length).toBe(3);
+  });
+
   it("renders AI message correctly", () => {
     renderWithQueryClient(<MessageItem {...defaultProps} />);
 

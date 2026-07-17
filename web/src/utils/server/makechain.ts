@@ -57,6 +57,16 @@ import { SiteConfig as AppSiteConfig } from "@/types/siteConfig";
 import { ChatMessage, convertChatHistory } from "@/utils/shared/chatHistory";
 import { NextRequest } from "next/server";
 import { extractGeoToolCalls, extractStreamedTextDelta } from "@/utils/server/geoToolCalls";
+import {
+  buildRetrievalReinvokeSystemPrompt,
+  executeRetrievalTool,
+  isRetrievalToolName,
+  MAX_RETRIEVAL_TOOL_ITERATIONS,
+  RETRIEVAL_TOOL_DEFINITIONS,
+  RETRIEVAL_TOOL_GUIDANCE,
+  RetrievalToolContext,
+  shouldBindRetrievalTools,
+} from "@/utils/server/tools/retrievalTools";
 import { sendOpsAlert } from "./emailOps";
 import {
   buildActiveFilterPromptData,
@@ -618,26 +628,43 @@ export const makeChain = async (
       streaming: true,
     });
 
+    // Retrieval tools: bound for non-Anthropic arms when enabled (Fable holdout keeps today's behavior).
+    const bindRetrievalTools = shouldBindRetrievalTools(siteConfig, model, isAnthropicModel);
+
+    const toolsToBind: any[] = [];
     if (shouldUseGeoTools && geoTools.length > 0 && request) {
-      // Bind tools to the model - LangChain will handle tool execution automatically
+      toolsToBind.push(...geoTools);
+    }
+    if (bindRetrievalTools) {
+      toolsToBind.push(...RETRIEVAL_TOOL_DEFINITIONS);
+    }
+
+    if (toolsToBind.length > 0) {
       if (typeof baseAnswerModel.bindTools !== "function") {
-        throw new Error(`Chat model "${answerModelName}" does not support tool binding required for geo-awareness`);
+        throw new Error(`Chat model "${answerModelName}" does not support tool binding`);
       }
-      answerModel = baseAnswerModel.bindTools(geoTools) as BaseLanguageModel;
+      answerModel = baseAnswerModel.bindTools(toolsToBind) as BaseLanguageModel;
 
-      console.log(
-        "✅ Geo-awareness tools conditionally bound to chat model for location query:",
-        originalQuestion?.substring(0, 100),
-        `(model=${answerModelName}${useGeoFastModel ? `, abArm=${model}` : ""})`
-      );
-
-      // Status only — must not be a token (would falsely start TTFB / chars/sec clocks)
-      if (sendData) {
-        sendData({
-          status: "searching_locations",
-          isLocationQuery: true,
-          ...(useGeoFastModel ? { model: answerModelName } : {}),
-        });
+      if (shouldUseGeoTools) {
+        console.log(
+          "✅ Geo-awareness tools conditionally bound to chat model for location query:",
+          originalQuestion?.substring(0, 100),
+          `(model=${answerModelName}${useGeoFastModel ? `, abArm=${model}` : ""})`
+        );
+        // Status only — must not be a token (would falsely start TTFB / chars/sec clocks)
+        if (sendData) {
+          sendData({
+            status: "searching_locations",
+            isLocationQuery: true,
+            ...(useGeoFastModel ? { model: answerModelName } : {}),
+          });
+        }
+      }
+      if (bindRetrievalTools) {
+        console.log(`✅ Retrieval tools bound to chat model (model=${answerModelName})`);
+        if (sendData) {
+          sendData({ log: "[RAG] Retrieval tools bound to AI model", toolResponse: true });
+        }
       }
     } else {
       answerModel = baseAnswerModel as BaseLanguageModel;
@@ -755,7 +782,11 @@ Error details: ${errorString}`,
     /\${(context|chat_history|question|activeFiltersSummary)}/g,
     (match, key) => `{${key}}`
   );
-  const answerPrompt = ChatPromptTemplate.fromTemplate(`{context}\n\n${templateWithReplacedVars}`);
+  const includeRetrievalToolGuidance = shouldBindRetrievalTools(siteConfig, model, isAnthropicModel);
+  const answerPromptBody = includeRetrievalToolGuidance
+    ? `{context}\n\n${templateWithReplacedVars}\n\n${RETRIEVAL_TOOL_GUIDANCE}`
+    : `{context}\n\n${templateWithReplacedVars}`;
+  const answerPrompt = ChatPromptTemplate.fromTemplate(answerPromptBody);
   const activeFilterPromptData = buildActiveFilterPromptData(
     siteConfig,
     baseFilter,
@@ -1498,7 +1529,8 @@ export async function setupAndExecuteLanguageModelChain(
   selectedLibraries?: string[], // Selected libraries for filtering
   selectedCollectionKey?: string,
   taskMode?: string, // Task mode (e.g., "class-planning", "research") - skips reformulation when set
-  selectedTitleScopeLabel?: string
+  selectedTitleScopeLabel?: string,
+  effectiveAccessLevel: number = 0
 ): Promise<{
   fullResponse: string;
   finalDocs: Document[];
@@ -1716,34 +1748,177 @@ export async function setupAndExecuteLanguageModelChain(
         console.log("🔧 Starting tool execution loop");
 
         const { executeTool } = await import("./tools");
-        const { ToolMessage } = await import("@langchain/core/messages");
+        const { ToolMessage, HumanMessage, AIMessage, SystemMessage } = await import("@langchain/core/messages");
 
         let currentResponse = result.answer;
         const allToolMessages: InstanceType<typeof ToolMessage>[] = [];
-        const maxIterations = 5; // Prevent infinite loops
+        const maxGeoIterations = 5;
         let iteration = 0;
+        let retrievalIterations = 0;
+
+        const originalSourceDocuments = Array.isArray(result.sourceDocuments) ? [...result.sourceDocuments] : [];
+        const retrievalToolsEnabled = shouldBindRetrievalTools(siteConfig, modelName, isAnthropicModel);
+        const retrievalActiveFilterPromptData = buildActiveFilterPromptData(
+          siteConfig,
+          filter,
+          selectedCollectionKey,
+          selectedLibraries,
+          selectedTitleScopeLabel
+        );
+
+        let retrievalToolContext: RetrievalToolContext | null = null;
+        /** After a non-empty retrieval expansion, ignore further retrieval tool_calls (no second "Gathering..." flash). */
+        let retrievalExpansionSucceeded = false;
+        if (retrievalToolsEnabled) {
+          const vectorStore = retriever.vectorStore as PineconeStore;
+          const pineconeIndex = vectorStore?.pineconeIndex;
+          if (pineconeIndex) {
+            const knownIds = originalSourceDocuments
+              .map((doc) => (typeof doc.id === "string" ? doc.id : ""))
+              .filter((id) => id.length > 0);
+            retrievalToolContext = new RetrievalToolContext({
+              pineconeIndex,
+              vectorStore,
+              filter,
+              knownSourceIds: knownIds,
+              effectiveAccessLevel,
+              siteConfig,
+              minRetrievalScore: getMinRetrievalScore(siteConfig),
+            });
+          }
+        }
+
+        /** Answer-only recovery so the client never stuck on "Gathering additional sources...". */
+        const forceRetrievalAnswerOnly = async (reason: string) => {
+          console.warn(`⚠️ Forcing retrieval answer-only turn (${reason})`);
+          const siteTemplate = await getFullTemplate(siteConfig?.siteId || "ananda-public");
+          const activeFiltersSummary = buildActiveFiltersSummaryForGeneration(
+            retrievalActiveFilterPromptData,
+            (result.sourceDocuments?.length ?? 0) === 0
+          );
+          const systemPrompt = buildRetrievalReinvokeSystemPrompt({
+            siteTemplate,
+            contextDocs: result.sourceDocuments || [],
+            chatHistory: pastMessages,
+            question: sanitizedQuestion,
+            activeFiltersSummary,
+            allowMoreTools: false,
+          });
+          const answerOnlyModel = getChatModel({
+            temperature,
+            model: modelName,
+            streaming: true,
+          });
+          answerModelUsed = modelName;
+          fullResponse = "";
+          tokensStreamed = 0;
+          firstTokenTime = null;
+          firstByteTime = null;
+
+          const recoveryMessages = [new SystemMessage(systemPrompt), new HumanMessage(sanitizedQuestion)];
+          let recoveryResponse: any = null;
+          const recoveryStream = await answerOnlyModel.stream(recoveryMessages);
+          for await (const chunk of recoveryStream) {
+            recoveryResponse = recoveryResponse ? recoveryResponse.concat(chunk) : chunk;
+            const text = extractStreamedTextDelta(chunk);
+            if (!text) continue;
+            if (!firstTokenTime) {
+              firstTokenTime = Date.now();
+              firstByteTime = Date.now();
+              streamingDeadline.touchStreamingActivity();
+              sendData({
+                token: text,
+                timing: {
+                  firstTokenGenerated: firstTokenTime,
+                  ttfb: firstByteTime && startTime ? firstByteTime - startTime : undefined,
+                },
+              });
+            } else {
+              streamingDeadline.touchStreamingActivity();
+              sendData({ token: text });
+            }
+            fullResponse += text;
+            tokensStreamed += text.length;
+          }
+          if (!recoveryResponse) {
+            recoveryResponse = await answerOnlyModel.invoke(recoveryMessages);
+            const fallbackText =
+              typeof recoveryResponse?.content === "string"
+                ? recoveryResponse.content
+                : extractStreamedTextDelta(recoveryResponse);
+            if (fallbackText && !fullResponse) {
+              sendData({ token: fallbackText });
+              fullResponse += fallbackText;
+              tokensStreamed += fallbackText.length;
+            }
+          }
+          currentResponse = recoveryResponse;
+          result.answer = recoveryResponse;
+          pendingToolCalls = [];
+        };
 
         await streamingDeadline.waitWithDeadline(async () => {
-          while (pendingToolCalls.length > 0 && iteration < maxIterations) {
+          while (pendingToolCalls.length > 0) {
+            const isRetrievalRound = pendingToolCalls.some((call) => isRetrievalToolName(call.name));
+            if (isRetrievalRound) {
+              if (!retrievalToolContext || retrievalIterations >= MAX_RETRIEVAL_TOOL_ITERATIONS) {
+                await forceRetrievalAnswerOnly(
+                  !retrievalToolContext ? "missing retrieval tool context" : "max retrieval iterations"
+                );
+                break;
+              }
+
+              // Model sometimes emits another tool_call after we already expanded and unbound tools.
+              // Do not flash status or re-fetch (usually 0 new / all dupes) — answer only.
+              if (retrievalExpansionSucceeded) {
+                await forceRetrievalAnswerOnly("sources already expanded; ignoring further tool calls");
+                break;
+              }
+
+              retrievalIterations++;
+              sendData({ status: "retrieving_more_sources" });
+            } else if (iteration >= maxGeoIterations) {
+              console.warn(`⚠️ Tool execution loop reached max iterations (${maxGeoIterations})`);
+              break;
+            }
+
             iteration++;
             streamingDeadline.touchStreamingActivity();
             console.log(
               `🔧 Tool execution iteration ${iteration}, processing ${pendingToolCalls.length} tool calls`
             );
 
-            // Execute all tool calls in this iteration
-            const toolResults = [];
+            const toolResults: Array<{ tool_call_id: string; content: string }> = [];
+            const newlyFetchedDocs: Document[] = [];
+
             for (const toolCall of pendingToolCalls) {
               try {
                 console.log(`🔧 Executing tool: ${toolCall.name} with args:`, toolCall.args);
-                const toolResult = await executeTool(toolCall.name, toolCall.args, request!, {
-                  originalQuestion: sanitizedQuestion,
-                });
-                toolResults.push({
-                  tool_call_id: toolCall.id,
-                  content: JSON.stringify(toolResult),
-                });
-                console.log(`✅ Tool ${toolCall.name} executed successfully:`, toolResult);
+                if (isRetrievalToolName(toolCall.name)) {
+                  if (!retrievalToolContext) {
+                    throw new Error("Retrieval tool context unavailable");
+                  }
+                  const retrievalResult = await executeRetrievalTool(
+                    toolCall.name,
+                    toolCall.args,
+                    retrievalToolContext
+                  );
+                  newlyFetchedDocs.push(...retrievalResult.documents);
+                  toolResults.push({
+                    tool_call_id: toolCall.id,
+                    content: JSON.stringify(retrievalResult.content),
+                  });
+                  console.log(`✅ Retrieval tool ${toolCall.name} executed:`, retrievalResult.content);
+                } else {
+                  const toolResult = await executeTool(toolCall.name, toolCall.args, request!, {
+                    originalQuestion: sanitizedQuestion,
+                  });
+                  toolResults.push({
+                    tool_call_id: toolCall.id,
+                    content: JSON.stringify(toolResult),
+                  });
+                  console.log(`✅ Tool ${toolCall.name} executed successfully:`, toolResult);
+                }
               } catch (error) {
                 console.error(`❌ Tool ${toolCall.name} failed:`, error);
                 toolResults.push({
@@ -1753,42 +1928,67 @@ export async function setupAndExecuteLanguageModelChain(
               }
             }
 
-            // Create tool messages for this iteration
+            if (newlyFetchedDocs.length > 0) {
+              result.sourceDocuments = [...(result.sourceDocuments || []), ...newlyFetchedDocs];
+              sendData({ sourceDocs: result.sourceDocuments });
+              if (isRetrievalRound) {
+                retrievalExpansionSucceeded = true;
+              }
+            }
+
             const toolMessages = toolResults.map(
-              (result) =>
+              (toolResult) =>
                 new ToolMessage({
-                  content: result.content,
-                  tool_call_id: result.tool_call_id,
+                  content: toolResult.content,
+                  tool_call_id: toolResult.tool_call_id,
                 })
             );
-
             allToolMessages.push(...toolMessages);
 
-            // Call model again with tool results - NO SOURCES to avoid confusion
-            //
-            // The tool-calling model here is always OpenAI: for Anthropic primary models,
-            // makeChain switched the geo path to GEO_FAST_MODEL (Fable's adaptive thinking
-            // buffers all text until thinking ends, so it cannot stream geo answers).
-            // Only that override uses the short geo prompt; OpenAI-primary sites keep
-            // their full site template and configured temperature.
-            const anthropicGeoOverride = isAnthropicModel(modelName);
+            // Geo: no RAG sources (centers only). Retrieval: merge tool docs into context and answer.
+            const anthropicGeoOverride = !isRetrievalRound && isAnthropicModel(modelName);
             const finalAnswerModelName = anthropicGeoOverride ? GEO_FAST_MODEL : modelName;
-            const toolFreeModel = getChatModel({
+            let nextModel = getChatModel({
               temperature: anthropicGeoOverride ? 0.3 : temperature,
               model: finalAnswerModelName,
               streaming: true,
             });
             answerModelUsed = finalAnswerModelName;
 
-            // Create messages for the tool-free model
-            const { HumanMessage, AIMessage, SystemMessage } = await import("@langchain/core/messages");
+            // Only allow another retrieval tool round when the last round returned nothing usable.
+            // If docs arrived, force an answer turn — otherwise models narrate "searching more" in plain text.
+            const allowMoreRetrievalTools =
+              isRetrievalRound &&
+              retrievalToolsEnabled &&
+              newlyFetchedDocs.length === 0 &&
+              retrievalIterations < MAX_RETRIEVAL_TOOL_ITERATIONS &&
+              (retrievalToolContext?.remainingSourceBudget ?? 0) > 0;
 
-            const systemPrompt = anthropicGeoOverride
-              ? GEO_ANSWER_SYSTEM_PROMPT
-              : await getFullTemplate(siteConfig?.siteId || "ananda-public");
+            if (allowMoreRetrievalTools && typeof nextModel.bindTools === "function") {
+              nextModel = nextModel.bindTools(RETRIEVAL_TOOL_DEFINITIONS) as typeof nextModel;
+            }
 
-            // Preserve prior assistant tool_calls when present; otherwise synthesize from normalized calls
-            // so the model receives a valid tool_call → tool_result turn structure.
+            const siteTemplate = await getFullTemplate(siteConfig?.siteId || "ananda-public");
+            let systemPrompt: string;
+            if (isRetrievalRound) {
+              const activeFiltersSummary = buildActiveFiltersSummaryForGeneration(
+                retrievalActiveFilterPromptData,
+                (result.sourceDocuments?.length ?? 0) === 0
+              );
+              systemPrompt = buildRetrievalReinvokeSystemPrompt({
+                siteTemplate,
+                contextDocs: result.sourceDocuments || [],
+                chatHistory: pastMessages,
+                question: sanitizedQuestion,
+                activeFiltersSummary,
+                allowMoreTools: allowMoreRetrievalTools,
+              });
+            } else if (anthropicGeoOverride) {
+              systemPrompt = GEO_ANSWER_SYSTEM_PROMPT;
+            } else {
+              systemPrompt = siteTemplate;
+            }
+
             const hadNativeToolCalls =
               Array.isArray(currentResponse?.tool_calls) && currentResponse.tool_calls.length > 0;
             const assistantToolCalls = hadNativeToolCalls
@@ -1799,6 +1999,14 @@ export async function setupAndExecuteLanguageModelChain(
                   args: call.args,
                   type: "tool_call" as const,
                 }));
+
+            // Fresh answer stream after retrieval tools (first pass usually had tool_calls only).
+            if (isRetrievalRound) {
+              fullResponse = "";
+              tokensStreamed = 0;
+              firstTokenTime = null;
+              firstByteTime = null;
+            }
 
             const messages = [
               new SystemMessage(systemPrompt),
@@ -1811,9 +2019,8 @@ export async function setupAndExecuteLanguageModelChain(
               ...allToolMessages,
             ];
 
-            // Stream final answer; forward only text deltas
             let toolResponse: any = null;
-            const stream = await toolFreeModel.stream(messages);
+            const stream = await nextModel.stream(messages);
             for await (const chunk of stream) {
               toolResponse = toolResponse ? toolResponse.concat(chunk) : chunk;
               const text = extractStreamedTextDelta(chunk);
@@ -1839,9 +2046,8 @@ export async function setupAndExecuteLanguageModelChain(
               tokensStreamed += text.length;
             }
 
-            // Fallback if stream yielded no assembled message
             if (!toolResponse) {
-              toolResponse = await toolFreeModel.invoke(messages);
+              toolResponse = await nextModel.invoke(messages);
               const fallbackText =
                 typeof toolResponse?.content === "string"
                   ? toolResponse.content
@@ -1858,8 +2064,9 @@ export async function setupAndExecuteLanguageModelChain(
             console.log(`✅ Tool response received for iteration ${iteration}`);
           }
 
-          if (iteration >= maxIterations) {
-            console.warn(`⚠️ Tool execution loop reached max iterations (${maxIterations})`);
+          // Safety net: retrieval path exited without streaming an answer (e.g. empty tool-only turns).
+          if (retrievalIterations > 0 && !fullResponse.trim()) {
+            await forceRetrievalAnswerOnly("loop ended with empty answer");
           }
 
           result.answer = currentResponse;

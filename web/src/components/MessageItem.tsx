@@ -269,49 +269,59 @@ const MessageItem: React.FC<MessageItemProps> = ({
           // AI messages: left-aligned with 85% width for detailed responses
           <div className="max-w-[85%]">
             {!showSourcesBelow && renderSources()}
-            {(message.message === "" ||
-              (message.message.trim() === "Searching locations..." && loading && isLastMessage)) &&
-            loading &&
-            isLastMessage ? (
-              // Show loading animation while waiting for first token or after "Searching locations..."
-              <div className="mt-1 flex items-center gap-2">
-                {message.message.trim() === "Searching locations..." && (
-                  <ReactMarkdown
-                    remarkPlugins={[gfm]}
-                    components={components}
-                    className={`${markdownStyles.markdownanswer} text-[16px] text-black leading-normal font-sans ${
-                      index === 0 ? "font-bold" : "font-normal"
-                    }`}
-                  >
-                    {message.message.replace(/\n/g, "  \n").replace(/\n\n/g, "\n\n")}
-                  </ReactMarkdown>
-                )}
-                <div className="flex space-x-1">
-                  <div
-                    className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
-                    style={{ animationDelay: "0ms" }}
-                  ></div>
-                  <div
-                    className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
-                    style={{ animationDelay: "150ms" }}
-                  ></div>
-                  <div
-                    className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
-                    style={{ animationDelay: "300ms" }}
-                  ></div>
-                </div>
-              </div>
-            ) : (
-              <ReactMarkdown
-                remarkPlugins={[gfm]}
-                components={components}
-                className={`mt-1 ${markdownStyles.markdownanswer} text-[16px] text-black leading-normal font-sans ${
-                  index === 0 ? "font-bold" : "font-normal"
-                }`}
-              >
-                {message.message.replace(/\n/g, "  \n").replace(/\n\n/g, "\n\n")}
-              </ReactMarkdown>
-            )}
+            {(() => {
+              const trimmedStatus = message.message.trim();
+              const isStatusLoadingMessage =
+                trimmedStatus === "Searching locations..." ||
+                trimmedStatus === "Gathering additional sources...";
+              const showStatusLoading =
+                loading && isLastMessage && (message.message === "" || isStatusLoadingMessage);
+
+              if (showStatusLoading) {
+                // Loading dots while waiting for first token or during tool-status placeholders
+                return (
+                  <div className="mt-1 flex items-center gap-2">
+                    {isStatusLoadingMessage && (
+                      <ReactMarkdown
+                        remarkPlugins={[gfm]}
+                        components={components}
+                        className={`${markdownStyles.markdownanswer} text-[16px] text-black leading-normal font-sans ${
+                          index === 0 ? "font-bold" : "font-normal"
+                        }`}
+                      >
+                        {message.message.replace(/\n/g, "  \n").replace(/\n\n/g, "\n\n")}
+                      </ReactMarkdown>
+                    )}
+                    <div className="flex space-x-1">
+                      <div
+                        className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                        style={{ animationDelay: "0ms" }}
+                      ></div>
+                      <div
+                        className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                        style={{ animationDelay: "150ms" }}
+                      ></div>
+                      <div
+                        className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"
+                        style={{ animationDelay: "300ms" }}
+                      ></div>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <ReactMarkdown
+                  remarkPlugins={[gfm]}
+                  components={components}
+                  className={`mt-1 ${markdownStyles.markdownanswer} text-[16px] text-black leading-normal font-sans ${
+                    index === 0 ? "font-bold" : "font-normal"
+                  }`}
+                >
+                  {message.message.replace(/\n/g, "  \n").replace(/\n\n/g, "\n\n")}
+                </ReactMarkdown>
+              );
+            })()}
             {isPrivilegedUser && message.model && (
               <div className="mt-1 text-xs text-gray-400 select-all" title="Answer model (admin only)">
                 model: {message.model}

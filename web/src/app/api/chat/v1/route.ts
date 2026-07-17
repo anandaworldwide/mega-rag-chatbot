@@ -1039,7 +1039,8 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
             sanitizedInput.selectedLibraries,
             sanitizedInput.collection || "whole_library",
             sanitizedInput.taskMode,
-            resolvedTitleScope?.displayTitle
+            resolvedTitleScope?.displayTitle,
+            effectiveAccess.level
           );
         // --- End of Encapsulated Call ---
         timingMetrics.answerStreamingComplete = Date.now();

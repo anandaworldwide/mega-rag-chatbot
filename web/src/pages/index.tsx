@@ -1330,6 +1330,12 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         updateMessageState("Searching locations...", null);
       }
 
+      if (data.status === "retrieving_more_sources") {
+        // Fresh answer stream after tools — clear any prior partial text so status is not appended to
+        accumulatedResponseRef.current = "";
+        updateMessageState("Gathering additional sources...", null);
+      }
+
       if (data.token) {
         accumulatedResponseRef.current += data.token;
         updateMessageState(accumulatedResponseRef.current, null);
@@ -1347,7 +1353,23 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setTimeout(() => {
           const immutableSourceDocs = Array.isArray(data.sourceDocs) ? [...data.sourceDocs] : [];
           setSourceDocs(immutableSourceDocs);
-          updateMessageState(accumulatedResponseRef.current, immutableSourceDocs);
+          // Keep status placeholders (e.g. Gathering...) when no answer tokens yet
+          if (accumulatedResponseRef.current) {
+            updateMessageState(accumulatedResponseRef.current, immutableSourceDocs);
+          } else {
+            setMessageState((prevState) => {
+              const updatedMessages = [...prevState.messages];
+              const targetIndex = streamingAnswerIndexRef.current ?? updatedMessages.length - 1;
+              const lastMessage = updatedMessages[targetIndex];
+              if (lastMessage?.type === "apiMessage") {
+                updatedMessages[targetIndex] = {
+                  ...lastMessage,
+                  sourceDocs: immutableSourceDocs,
+                };
+              }
+              return { ...prevState, messages: updatedMessages };
+            });
+          }
         }, 0);
       }
 
@@ -2312,6 +2334,21 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
               });
             }
 
+            if (data.status === "retrieving_more_sources") {
+              accumulatedResponseRef.current = "";
+              setMessageState((prevState) => {
+                const newMessages = [...prevState.messages];
+                newMessages[messageIndex] = {
+                  ...newMessages[messageIndex],
+                  message: "Gathering additional sources...",
+                };
+                return {
+                  ...prevState,
+                  messages: newMessages,
+                };
+              });
+            }
+
             if (data.token) {
               accumulatedResponseRef.current += data.token;
               setMessageState((prevState) => {
@@ -2650,6 +2687,11 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
               updateMessageState("Searching locations...", null);
             }
 
+            if (data.status === "retrieving_more_sources") {
+              accumulatedResponseRef.current = "";
+              updateMessageState("Gathering additional sources...", null);
+            }
+
             if (data.token) {
               accumulatedResponseRef.current += data.token;
               updateMessageState(accumulatedResponseRef.current, null);
@@ -2658,7 +2700,22 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             if (data.sourceDocs) {
               const immutableSourceDocs = Array.isArray(data.sourceDocs) ? [...data.sourceDocs] : [];
               setSourceDocs(immutableSourceDocs);
-              updateMessageState(accumulatedResponseRef.current, immutableSourceDocs);
+              if (accumulatedResponseRef.current) {
+                updateMessageState(accumulatedResponseRef.current, immutableSourceDocs);
+              } else {
+                setMessageState((prevState) => {
+                  const updatedMessages = [...prevState.messages];
+                  const targetIndex = streamingAnswerIndexRef.current ?? updatedMessages.length - 1;
+                  const lastMessage = updatedMessages[targetIndex];
+                  if (lastMessage?.type === "apiMessage") {
+                    updatedMessages[targetIndex] = {
+                      ...lastMessage,
+                      sourceDocs: immutableSourceDocs,
+                    };
+                  }
+                  return { ...prevState, messages: updatedMessages };
+                });
+              }
             }
 
             if (data.docId) {
