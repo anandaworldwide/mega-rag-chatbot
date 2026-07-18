@@ -211,12 +211,12 @@ export function sanitizeErrorMessage(errorMessage: string): string {
   // Remove sensitive patterns
   for (const pattern of SENSITIVE_PATTERNS) {
     sanitized = sanitized.replace(pattern, (match) => {
-      // Replace with generic placeholder
-      if (match.includes("@")) {
-        return "[email-redacted]";
-      }
+      // URIs often contain `@` credentials; check :// before email.
       if (match.includes("://")) {
         return "[connection-string-redacted]";
+      }
+      if (match.includes("@")) {
+        return "[email-redacted]";
       }
       if (match.length > 20) {
         return "[redacted]";
@@ -303,5 +303,5 @@ export function containsSensitiveInfo(errorMessage: string): boolean {
     return false;
   }
 
-  return SENSITIVE_PATTERNS.some((pattern) => pattern.test(errorMessage));
+  return SENSITIVE_PATTERNS.some((pattern) => new RegExp(pattern.source, pattern.flags).test(errorMessage));
 }

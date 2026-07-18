@@ -176,14 +176,13 @@ export function sanitizeEmail(email: string, maxLength: number = 254): string {
     throw new Error(`Email exceeds maximum length of ${maxLength} characters`);
   }
 
-  const trimmed = email.trim().toLowerCase();
-
-  // Remove email header injection patterns
-  // These characters can be used to inject additional headers in email clients
-  const dangerousChars = /[\r\n\t]/g;
-  if (dangerousChars.test(trimmed)) {
+  // Check before trim so trailing CR/LF/TAB are not silently dropped.
+  // eslint-disable-next-line no-control-regex
+  if (/[\r\n\t\x00-\x08\x0B-\x0C\x0E-\x1F\x7F]/.test(email)) {
     throw new Error("Email contains invalid characters (newlines, tabs, or carriage returns)");
   }
+
+  const trimmed = email.trim().toLowerCase();
 
   // Basic email format validation using centralized regex
   if (!EMAIL_REGEX.test(trimmed)) {
@@ -274,5 +273,9 @@ export function validateAndSanitizeQuestion(question: string, maxLength: number 
   });
 
   // Normalize newlines to spaces for AI processing (as done in current implementation)
-  return sanitized.replace(/\n+/g, " ").trim();
+  const normalized = sanitized.replace(/\n+/g, " ").trim();
+  if (normalized.length === 0) {
+    throw new Error("Question cannot be empty");
+  }
+  return normalized;
 }

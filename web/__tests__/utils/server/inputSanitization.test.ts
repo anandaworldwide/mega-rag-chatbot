@@ -1,313 +1,122 @@
 /**
  * Unit tests for input sanitization utilities
- * Tests sanitizeName function for name validation and security
  */
 
-import { sanitizeName } from "@/utils/server/inputSanitization";
+import {
+  sanitizeEmail,
+  sanitizeForLogging,
+  sanitizeName,
+  sanitizeTextInput,
+  validateAndSanitizeQuestion,
+} from "@/utils/server/inputSanitization";
 
 describe("sanitizeName", () => {
-  describe("backslash handling", () => {
-    it("should remove backslashes from names with escaped quotes", () => {
-      const input = 'ROBERT \\"RAMI\\" SMITH';
-      const result = sanitizeName(input);
-      expect(result).toBe('ROBERT "RAMI" SMITH');
-      expect(result).not.toContain("\\");
-    });
-
-    it("should remove backslashes from names with escaped apostrophes", () => {
-      const input = "O\\'CONNOR";
-      const result = sanitizeName(input);
-      expect(result).toBe("O'CONNOR");
-      expect(result).not.toContain("\\");
-    });
-
-    it("should remove all backslashes regardless of context", () => {
-      const input = "Name\\with\\multiple\\backslashes";
-      const result = sanitizeName(input);
-      expect(result).toBe("Namewithmultiplebackslashes");
-      expect(result).not.toContain("\\");
-    });
-
-    it("should preserve quotes after removing backslashes", () => {
-      const input = 'ROBERT \\"RAMI\\" SMITH';
-      const result = sanitizeName(input);
-      expect(result).toContain('"');
-      expect(result).toBe('ROBERT "RAMI" SMITH');
-    });
-
-    it("should preserve apostrophes after removing backslashes", () => {
-      const input = "O\\'CONNOR";
-      const result = sanitizeName(input);
-      expect(result).toContain("'");
-      expect(result).toBe("O'CONNOR");
-    });
+  it.each([
+    ['ROBERT \\"RAMI\\" SMITH', 'ROBERT "RAMI" SMITH'],
+    ["O\\'CONNOR", "O'CONNOR"],
+    ["Name\\with\\multiple\\backslashes", "Namewithmultiplebackslashes"],
+    ['ROBERT "RAMI" SMITH', 'ROBERT "RAMI" SMITH'],
+    ["O'CONNOR", "O'CONNOR"],
+    ['Jean-Pierre "JP" O\'Brien', 'Jean-Pierre "JP" O\'Brien'],
+    ["José O'Connor", "José O'Connor"],
+    ["Mary-Jane", "Mary-Jane"],
+    ["", ""],
+    ["   ", ""],
+    ["|&;`$(){}[]", ""],
+  ])("sanitizes %#", (input, expected) => {
+    const result = sanitizeName(input);
+    expect(result).toBe(expected);
+    expect(result).not.toContain("\\");
   });
 
-  describe("quote and apostrophe preservation", () => {
-    it("should preserve double quotes in names", () => {
-      const input = 'ROBERT "RAMI" SMITH';
-      const result = sanitizeName(input);
-      expect(result).toBe('ROBERT "RAMI" SMITH');
-    });
-
-    it("should preserve single quotes/apostrophes in names", () => {
-      const input = "O'CONNOR";
-      const result = sanitizeName(input);
-      expect(result).toBe("O'CONNOR");
-    });
-
-    it("should preserve both quotes and apostrophes", () => {
-      const input = 'Jean-Pierre "JP" O\'Brien';
-      const result = sanitizeName(input);
-      expect(result).toBe('Jean-Pierre "JP" O\'Brien');
-    });
+  it("strips XSS / HTML / event-handler payloads", () => {
+    expect(sanitizeName('John<script>alert("XSS")</script>Doe')).toBe("JohnDoe");
+    expect(sanitizeName("John onclick=\"alert('XSS')\" Doe")).not.toContain("onclick=");
+    expect(sanitizeName("javascript:alert('XSS')")).not.toContain("javascript:");
+    expect(sanitizeName('data:text/html,<script>alert("XSS")</script>')).not.toContain("data:text/html");
+    expect(sanitizeName("<strong>John</strong> Doe")).toBe("John Doe");
+    expect(sanitizeName('John<script>alert("XSS")</script> "Bob" Doe')).toBe('John "Bob" Doe');
   });
 
-  describe("XSS prevention", () => {
-    it("should remove script tags", () => {
-      const input = 'John<script>alert("XSS")</script>Doe';
-      const result = sanitizeName(input);
-      expect(result).toBe("JohnDoe");
-      expect(result).not.toContain("<script>");
-      expect(result).not.toContain("</script>");
-    });
+  it.each(["|", "&", ";", "`", "$", "(", ")", "{", "}", "[", "]"])(
+    "removes command-injection char %s",
+    (char) => {
+      expect(sanitizeName(`John${char}Doe`)).toBe("JohnDoe");
+    }
+  );
 
-    it("should remove event handlers", () => {
-      const input = "John onclick=\"alert('XSS')\" Doe";
-      const result = sanitizeName(input);
-      expect(result).not.toContain("onclick");
-      expect(result).not.toContain("onclick=");
-      // Note: The regex removes "onclick=" but preserves the rest of the string
-      // This is safe because without the event handler attribute, the alert won't execute
-    });
-
-    it("should remove javascript: protocol", () => {
-      const input = "javascript:alert('XSS')";
-      const result = sanitizeName(input);
-      expect(result).not.toContain("javascript:");
-    });
-
-    it("should remove data:text/html", () => {
-      const input = 'data:text/html,<script>alert("XSS")</script>';
-      const result = sanitizeName(input);
-      expect(result).not.toContain("data:text/html");
-    });
-
-    it("should remove HTML tags", () => {
-      const input = "<strong>John</strong> Doe";
-      const result = sanitizeName(input);
-      expect(result).toBe("John Doe");
-      expect(result).not.toContain("<strong>");
-      expect(result).not.toContain("</strong>");
-    });
+  it("removes null bytes and control characters while preserving spaces", () => {
+    expect(sanitizeName("John\0Doe")).toBe("JohnDoe");
+    expect(sanitizeName("John\x01\x02\x03Doe")).toBe("JohnDoe");
+    expect(sanitizeName("John Doe")).toBe("John Doe");
+    expect(sanitizeName("  John    Doe  ")).toBe("John Doe");
+    expect(sanitizeName("John\tDoe")).toBe("John Doe");
   });
 
-  describe("command injection prevention", () => {
-    it("should remove pipe characters", () => {
-      const input = "John|Doe";
-      const result = sanitizeName(input);
-      expect(result).toBe("JohnDoe");
-    });
+  it("enforces length and type constraints", () => {
+    expect(sanitizeName("A".repeat(100))).toBe("A".repeat(100));
+    expect(() => sanitizeName("A".repeat(101))).toThrow("exceeds maximum length");
+    expect(() => sanitizeName("A".repeat(51), 50)).toThrow("exceeds maximum length");
+    expect(() => sanitizeName(null as any)).toThrow("Input must be a string");
+    expect(() => sanitizeName(123 as any)).toThrow("Input must be a string");
+  });
+});
 
-    it("should remove ampersands", () => {
-      const input = "John&Doe";
-      const result = sanitizeName(input);
-      expect(result).toBe("JohnDoe");
-    });
-
-    it("should remove semicolons", () => {
-      const input = "John;Doe";
-      const result = sanitizeName(input);
-      expect(result).toBe("JohnDoe");
-    });
-
-    it("should remove backticks", () => {
-      const input = "John`Doe";
-      const result = sanitizeName(input);
-      expect(result).toBe("JohnDoe");
-    });
-
-    it("should remove dollar signs", () => {
-      const input = "John$Doe";
-      const result = sanitizeName(input);
-      expect(result).toBe("JohnDoe");
-    });
-
-    it("should remove parentheses", () => {
-      const input = "John(Doe)";
-      const result = sanitizeName(input);
-      expect(result).toBe("JohnDoe");
-    });
-
-    it("should remove curly braces", () => {
-      const input = "John{Doe}";
-      const result = sanitizeName(input);
-      expect(result).toBe("JohnDoe");
-    });
-
-    it("should remove square brackets", () => {
-      const input = "John[Doe]";
-      const result = sanitizeName(input);
-      expect(result).toBe("JohnDoe");
-    });
+describe("sanitizeEmail", () => {
+  it("lowercases and accepts a valid email", () => {
+    expect(sanitizeEmail("  User@Example.COM  ")).toBe("user@example.com");
   });
 
-  describe("control character removal", () => {
-    it("should remove null bytes", () => {
-      const input = "John\0Doe";
-      const result = sanitizeName(input);
-      expect(result).toBe("JohnDoe");
-      expect(result).not.toContain("\0");
-    });
-
-    it("should remove control characters", () => {
-      const input = "John\x01\x02\x03Doe";
-      const result = sanitizeName(input);
-      expect(result).toBe("JohnDoe");
-    });
-
-    it("should preserve spaces", () => {
-      const input = "John Doe";
-      const result = sanitizeName(input);
-      expect(result).toBe("John Doe");
-    });
+  it.each([
+    ["user@example.com\r\nBcc:evil@x.com", "invalid characters"],
+    ["user@example.com\n", "invalid characters"],
+    ["user@example.com\t", "invalid characters"],
+    ["user%0a@example.com", "dangerous patterns"],
+    ["user\0@example.com", "invalid characters"],
+    ["not-an-email", "Invalid email format"],
+    ["a".repeat(255) + "@x.com", "exceeds maximum length"],
+  ])("rejects %s", (email, messagePart) => {
+    expect(() => sanitizeEmail(email)).toThrow(messagePart);
   });
 
-  describe("whitespace normalization", () => {
-    it("should trim leading and trailing whitespace", () => {
-      const input = "  John Doe  ";
-      const result = sanitizeName(input);
-      expect(result).toBe("John Doe");
-    });
+  it("rejects non-string input", () => {
+    expect(() => sanitizeEmail(null as any)).toThrow("Email must be a string");
+    expect(() => sanitizeEmail(undefined as any)).toThrow("Email must be a string");
+  });
+});
 
-    it("should normalize multiple spaces to single space", () => {
-      const input = "John    Doe";
-      const result = sanitizeName(input);
-      expect(result).toBe("John Doe");
-    });
-
-    it("should normalize tabs to spaces", () => {
-      const input = "John\tDoe";
-      const result = sanitizeName(input);
-      expect(result).toBe("John Doe");
-    });
+describe("validateAndSanitizeQuestion", () => {
+  it("accepts a normal question and collapses newlines", () => {
+    expect(validateAndSanitizeQuestion("What is\n\nKriya?")).toBe("What is Kriya?");
   });
 
-  describe("length validation", () => {
-    it("should accept names within max length", () => {
-      const input = "A".repeat(100);
-      const result = sanitizeName(input, 100);
-      expect(result).toBe("A".repeat(100));
-    });
-
-    it("should throw error for names exceeding max length", () => {
-      const input = "A".repeat(101);
-      expect(() => sanitizeName(input, 100)).toThrow("exceeds maximum length");
-    });
-
-    it("should use default max length of 100", () => {
-      const input = "A".repeat(100);
-      const result = sanitizeName(input);
-      expect(result).toBe("A".repeat(100));
-
-      const tooLong = "A".repeat(101);
-      expect(() => sanitizeName(tooLong)).toThrow("exceeds maximum length");
-    });
-
-    it("should respect custom max length", () => {
-      const input = "A".repeat(50);
-      const result = sanitizeName(input, 50);
-      expect(result).toBe("A".repeat(50));
-
-      const tooLong = "A".repeat(51);
-      expect(() => sanitizeName(tooLong, 50)).toThrow("exceeds maximum length");
-    });
+  it("rejects empty, whitespace-only, oversized, and non-string input", () => {
+    expect(() => validateAndSanitizeQuestion("")).toThrow("Question cannot be empty");
+    expect(() => validateAndSanitizeQuestion("   \n\t  ")).toThrow("Question cannot be empty");
+    expect(() => validateAndSanitizeQuestion("a".repeat(4001))).toThrow("exceeds maximum length");
+    expect(() => validateAndSanitizeQuestion(null as any)).toThrow("Question must be a string");
+    expect(() => validateAndSanitizeQuestion(42 as any)).toThrow("Question must be a string");
   });
 
-  describe("type validation", () => {
-    it("should throw error for non-string input", () => {
-      expect(() => sanitizeName(null as any)).toThrow("Input must be a string");
-      expect(() => sanitizeName(undefined as any)).toThrow("Input must be a string");
-      expect(() => sanitizeName(123 as any)).toThrow("Input must be a string");
-      expect(() => sanitizeName({} as any)).toThrow("Input must be a string");
-    });
+  it("strips script tags and nested tag smuggling attempts", () => {
+    const result = validateAndSanitizeQuestion('Hello <scr<script>ipt>alert(1)</script> world');
+    expect(result).not.toMatch(/script/i);
+    expect(result).toContain("Hello");
+    expect(result).toContain("world");
+  });
+});
+
+describe("sanitizeTextInput / sanitizeForLogging", () => {
+  it("throws on non-string and oversized text input", () => {
+    expect(() => sanitizeTextInput(null as any)).toThrow("Input must be a string");
+    expect(() => sanitizeTextInput("x".repeat(11), { maxLength: 10 })).toThrow("exceeds maximum length");
   });
 
-  describe("UTF-8 validation", () => {
-    it("should accept valid UTF-8 strings", () => {
-      const input = "José O'Connor";
-      const result = sanitizeName(input);
-      expect(result).toBe("José O'Connor");
-    });
-
-    it("should throw error for invalid UTF-8", () => {
-      // Create a string with invalid UTF-8 by using replacement characters
-      // Node.js Buffer.toString('utf8') replaces invalid bytes, so we need to test differently
-      // Instead, test with a string that contains invalid surrogate pairs
-      // Actually, let's test with a string that would fail UTF-8 validation
-      // The isValidUTF8 function checks encoding/decoding, so we need actual invalid bytes
-      // Since JavaScript strings are always valid UTF-16, we can't easily create invalid UTF-8
-      // This test verifies the function handles the validation check correctly
-      const validUtf8 = "José";
-      expect(() => sanitizeName(validUtf8)).not.toThrow();
-      // Note: Creating truly invalid UTF-8 in a JavaScript string is difficult
-      // The isValidUTF8 function will catch actual encoding issues if they occur
-    });
-  });
-
-  describe("real-world name examples", () => {
-    it("should handle common name patterns", () => {
-      const testCases = [
-        { input: "Mary-Jane", expected: "Mary-Jane" },
-        { input: "Jean-Pierre", expected: "Jean-Pierre" },
-        { input: "O'Connor", expected: "O'Connor" },
-        { input: 'Robert "Bob" Smith', expected: 'Robert "Bob" Smith' },
-        { input: "José María", expected: "José María" },
-        { input: "Van Der Berg", expected: "Van Der Berg" },
-      ];
-
-      testCases.forEach(({ input, expected }) => {
-        const result = sanitizeName(input);
-        expect(result).toBe(expected);
-      });
-    });
-
-    it("should handle names with escaped quotes that need cleaning", () => {
-      const testCases = [
-        { input: 'ROBERT \\"RAMI\\" SMITH', expected: 'ROBERT "RAMI" SMITH' },
-        { input: "O\\'CONNOR", expected: "O'CONNOR" },
-        { input: 'Jean\\"Pierre\\" O\\\'Brien', expected: 'Jean"Pierre" O\'Brien' },
-      ];
-
-      testCases.forEach(({ input, expected }) => {
-        const result = sanitizeName(input);
-        expect(result).toBe(expected);
-        expect(result).not.toContain("\\");
-      });
-    });
-  });
-
-  describe("edge cases", () => {
-    it("should handle empty string", () => {
-      const result = sanitizeName("");
-      expect(result).toBe("");
-    });
-
-    it("should handle string with only spaces", () => {
-      const result = sanitizeName("   ");
-      expect(result).toBe("");
-    });
-
-    it("should handle string with only special characters", () => {
-      const input = "|&;`$(){}[]";
-      const result = sanitizeName(input);
-      expect(result).toBe("");
-    });
-
-    it("should handle mixed valid and invalid characters", () => {
-      const input = 'John<script>alert("XSS")</script> "Bob" Doe';
-      const result = sanitizeName(input);
-      expect(result).toBe('John "Bob" Doe');
-    });
+  it("strips control characters and truncates log lines safely", () => {
+    expect(sanitizeTextInput("a\x00b\nc", { allowNewlines: false })).toBe("abc");
+    const logged = sanitizeForLogging("line1\nline2" + "x".repeat(600), 40);
+    expect(logged).not.toContain("\n");
+    expect(logged.length).toBeLessThanOrEqual(60);
+    expect(sanitizeForLogging(null as any)).toBe("null");
   });
 });

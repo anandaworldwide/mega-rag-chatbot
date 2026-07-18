@@ -188,3 +188,25 @@ class TestDocumentHash:
 
         # All should have the same hash for content-based deduplication
         assert hash_pdf == hash_web == hash_audio_transcript
+
+    def test_empty_content_sentinel_collision_is_stable(self):
+        # Literal "empty_content" collides with the empty-chunk sentinel; keep stable for IDs.
+        empty_hash = generate_document_hash(content_type="text", chunk_text="")
+        sentinel_hash = generate_document_hash(
+            content_type="text", chunk_text="empty_content"
+        )
+        assert empty_hash == sentinel_hash
+
+    def test_none_content_type_defaults_to_text(self):
+        chunk = "Same body"
+        assert generate_document_hash(
+            content_type=None, chunk_text=chunk
+        ) == generate_document_hash(content_type="text", chunk_text=chunk)
+
+    def test_unicode_nfc_nfd_are_distinct_without_normalization(self):
+        nfc = "café"
+        nfd = "cafe\u0301"
+        assert nfc != nfd
+        assert generate_document_hash(
+            content_type="text", chunk_text=nfc
+        ) != generate_document_hash(content_type="text", chunk_text=nfd)

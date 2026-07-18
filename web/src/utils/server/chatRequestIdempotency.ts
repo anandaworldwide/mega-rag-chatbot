@@ -12,7 +12,13 @@ export function isValidClientRequestId(value: unknown): value is string {
 }
 
 export function buildChatRequestLockKey(siteId: string, clientRequestId: string): string {
-  return `chat:req:${siteId}:${clientRequestId.trim().toLowerCase()}`;
+  const safeSiteId = siteId
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+  return `chat:req:${safeSiteId || "unknown"}:${clientRequestId.trim().toLowerCase()}`;
 }
 
 export async function acquireChatRequestLock(

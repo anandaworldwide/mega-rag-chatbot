@@ -35,6 +35,19 @@ export function generateUnsubscribeToken(email: string, category: EmailCategory 
   );
 }
 
+function assertTokenFieldSafe(value: string, fieldName: string): void {
+  if (value.includes(":")) {
+    throw new Error(`${fieldName} cannot contain ':' for email tracking tokens`);
+  }
+}
+
+function timingSafeEqualHex(a: string, b: string): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
+
 /**
  * Generates a signed open tracking token using HMAC
  * This prevents token forgery for analytics manipulation
@@ -45,16 +58,21 @@ export function generateUnsubscribeToken(email: string, category: EmailCategory 
  * @returns Base64 encoded token with HMAC signature
  */
 export function generateSignedOpenToken(email: string, campaignType: string, campaignId: string | number): string {
+  const normalizedEmail = email.toLowerCase();
+  assertTokenFieldSafe(normalizedEmail, "email");
+  assertTokenFieldSafe(campaignType, "campaignType");
+  assertTokenFieldSafe(String(campaignId), "campaignId");
+
   const secret = process.env.SECURE_TOKEN;
   if (!secret) {
     // Fall back to unsigned token if no secret (for backwards compatibility)
     console.warn("SECURE_TOKEN not configured - using unsigned open tracking token");
-    const payload = `${email}:${campaignType}:${campaignId}:${Date.now()}`;
+    const payload = `${normalizedEmail}:${campaignType}:${campaignId}:${Date.now()}`;
     return Buffer.from(payload).toString("base64");
   }
 
   const timestamp = Date.now();
-  const payload = `${email}:${campaignType}:${campaignId}:${timestamp}`;
+  const payload = `${normalizedEmail}:${campaignType}:${campaignId}:${timestamp}`;
 
   // Create HMAC signature
   const hmac = crypto.createHmac("sha256", secret);
@@ -88,8 +106,8 @@ export function verifyOpenToken(token: string): OpenTokenPayload | null {
     const decoded = Buffer.from(token, "base64").toString("utf-8");
     const parts = decoded.split(":");
 
-    // Handle legacy unsigned tokens (4 parts) and new signed tokens (5 parts)
-    if (parts.length < 4) {
+    // Legacy unsigned = 4 parts; signed = 5. Reject other lengths.
+    if (parts.length !== 4 && parts.length !== 5) {
       return null;
     }
 
@@ -130,7 +148,7 @@ export function verifyOpenToken(token: string): OpenTokenPayload | null {
     hmac.update(payload);
     const expectedSignature = hmac.digest("hex").substring(0, 16);
 
-    const isValid = crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
+    const isValid = timingSafeEqualHex(signature, expectedSignature);
 
     return {
       email: email.toLowerCase(),
@@ -161,13 +179,21 @@ export function generateSignedClickToken(
   linkType: string,
   linkId?: string
 ): string {
+  const normalizedEmail = email.toLowerCase();
+  const normalizedLinkId = linkId || "";
+  assertTokenFieldSafe(normalizedEmail, "email");
+  assertTokenFieldSafe(campaignType, "campaignType");
+  assertTokenFieldSafe(String(campaignId), "campaignId");
+  assertTokenFieldSafe(linkType, "linkType");
+  assertTokenFieldSafe(normalizedLinkId, "linkId");
+
   const secret = process.env.SECURE_TOKEN;
   if (!secret) {
     console.warn("SECURE_TOKEN not configured - using unsigned click tracking token");
   }
 
   const timestamp = Date.now();
-  const payload = `click:${email}:${campaignType}:${campaignId}:${linkType}:${linkId || ""}:${timestamp}`;
+  const payload = `click:${normalizedEmail}:${campaignType}:${campaignId}:${linkType}:${normalizedLinkId}:${timestamp}`;
 
   if (!secret) {
     return Buffer.from(payload).toString("base64");
@@ -204,8 +230,8 @@ export function verifyClickToken(token: string): ClickTokenPayload | null {
     const decoded = Buffer.from(token, "base64").toString("utf-8");
     const parts = decoded.split(":");
 
-    // Expected format: click:email:campaignType:campaignId:linkType:linkId:timestamp[:signature]
-    if (parts.length < 7 || parts[0] !== "click") {
+    // click:email:campaignType:campaignId:linkType:linkId:timestamp[:signature]
+    if ((parts.length !== 7 && parts.length !== 8) || parts[0] !== "click") {
       return null;
     }
 
@@ -249,7 +275,7 @@ export function verifyClickToken(token: string): ClickTokenPayload | null {
     hmac.update(payload);
     const expectedSignature = hmac.digest("hex").substring(0, 16);
 
-    const isValid = crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
+    const isValid = timingSafeEqualHex(signature, expectedSignature);
 
     return {
       email: email.toLowerCase(),

@@ -152,6 +152,10 @@ async def test_process_chunk(mock_env):
         patch(
             "pdf_to_vector_db.is_exiting", return_value=False
         ),  # Mock shutdown signal
+        patch(
+            "pdf_to_vector_db._validate_chunk_token_limit",
+            return_value=(True, 3),
+        ),
     ):
         # Mock the embed_query method to return a direct value
         mock_embed_query.return_value = [0.1, 0.2, 0.3]

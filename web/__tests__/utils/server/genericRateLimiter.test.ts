@@ -138,6 +138,64 @@ describe("genericRateLimiter", () => {
     firebase.db = originalDb;
   });
 
+  it.each([
+    { count: NaN, firstRequestTime: Date.now() },
+    { count: 3, firstRequestTime: "not-a-time" },
+    { count: -1, firstRequestTime: Date.now() },
+    { count: undefined, firstRequestTime: Date.now() },
+  ])("fail-closes on corrupted counter state %#", async (rateLimitData) => {
+    firebase.mockGet.mockResolvedValue({
+      exists: true,
+      data: () => rateLimitData,
+    });
+
+    const result = await genericRateLimiter(mockReq, mockRes, {
+      windowMs: 60000,
+      max: 10,
+      name: "test",
+      collectionPrefix: "test",
+    });
+
+    expect(result).toBe(false);
+    expect(mockRes.status).toHaveBeenCalledWith(503);
+  });
+
+  it("coerces numeric string counters without fail-opening past max", async () => {
+    const now = Date.now();
+    jest.spyOn(Date, "now").mockReturnValue(now);
+    firebase.mockGet.mockResolvedValue({
+      exists: true,
+      data: () => ({ count: "10", firstRequestTime: now }),
+    });
+
+    const result = await genericRateLimiter(mockReq, mockRes, {
+      windowMs: 60000,
+      max: 10,
+      name: "test",
+      collectionPrefix: "test",
+    });
+
+    expect(result).toBe(false);
+    expect(mockRes.status).toHaveBeenCalledWith(429);
+  });
+
+  it.each([
+    { max: 0, windowMs: 60000 },
+    { max: -1, windowMs: 60000 },
+    { max: 10, windowMs: 0 },
+    { max: NaN, windowMs: 60000 },
+  ])("fail-closes on invalid config %#", async (config) => {
+    const result = await genericRateLimiter(mockReq, mockRes, {
+      ...config,
+      name: "test",
+      collectionPrefix: "test",
+    });
+
+    expect(result).toBe(false);
+    expect(mockRes.status).toHaveBeenCalledWith(503);
+    expect(firebase.mockGet).not.toHaveBeenCalled();
+  });
+
   it("should create a new rate limit entry if none exists", async () => {
     const now = Date.now();
     jest.spyOn(Date, "now").mockReturnValue(now);

@@ -3,11 +3,14 @@
 import {
   classifyLlmProviderChatFailure,
   CHATBOT_UNAVAILABLE_USER_MESSAGE,
+  containsSensitiveInfo,
   getSafeErrorMessage,
   inferLlmProviderFromError,
   isLlmProviderAuthError,
   isLlmProviderQuotaError,
   isLlmProviderRateLimitError,
+  sanitizeErrorForLogging,
+  sanitizeErrorMessage,
 } from "@/utils/server/errorSanitization";
 
 describe("errorSanitization LLM provider auth errors", () => {
@@ -119,5 +122,34 @@ describe("classifyLlmProviderChatFailure", () => {
 
   test("returns null for unrelated errors", () => {
     expect(classifyLlmProviderChatFailure(new Error("Pinecone timeout"))).toBeNull();
+  });
+});
+
+describe("sanitizeErrorMessage / containsSensitiveInfo", () => {
+  test("redacts API keys, JWTs, Mongo URIs, and AWS access keys", () => {
+    const message =
+      "fail sk-abcdefghijklmnopqrstuvwxyz0123456789 token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig mongodb://user:pass@host/db AKIAIOSFODNN7EXAMPLE";
+    const sanitized = sanitizeErrorMessage(message);
+    expect(sanitized).not.toMatch(/sk-[a-zA-Z0-9]{32,}/);
+    expect(sanitized).not.toContain("mongodb://user:pass@host/db");
+    expect(sanitized).not.toContain("AKIAIOSFODNN7EXAMPLE");
+    expect(sanitized).toMatch(/\[redacted\]|\[connection-string-redacted\]/);
+  });
+
+  test("containsSensitiveInfo is stable across repeated calls", () => {
+    const message = "secret key sk-abcdefghijklmnopqrstuvwxyz0123456789 leaked";
+    expect(containsSensitiveInfo(message)).toBe(true);
+    expect(containsSensitiveInfo(message)).toBe(true);
+    expect(containsSensitiveInfo("benign timeout")).toBe(false);
+    expect(containsSensitiveInfo("benign timeout")).toBe(false);
+  });
+
+  test("sanitizeErrorForLogging strips sensitive values from Error and non-Error throwables", () => {
+    const fromError = sanitizeErrorForLogging(
+      new Error("OpenAI key sk-abcdefghijklmnopqrstuvwxyz0123456789 failed")
+    );
+    expect(fromError.message).not.toMatch(/sk-[a-zA-Z0-9]{32,}/);
+    const fromString = sanitizeErrorForLogging("postgres://u:p@localhost/db boom");
+    expect(fromString.message).toContain("[connection-string-redacted]");
   });
 });

@@ -3,6 +3,7 @@ import {
   buildPineconeAccessFilterClauses,
   getAccessLevelLabel,
   getAccessLevelValueForKey,
+  normalizeAccessLevelValue,
   resolveEffectiveAccessLevel,
   validateManualAccessLevel,
 } from "@/utils/server/accessLevelUtils";
@@ -140,5 +141,23 @@ describe("accessLevelUtils", () => {
   it("does not restrict sites without enabled access control", () => {
     expect(buildPineconeAccessFilter(0, { siteId: "crystal" } as SiteConfig)).toBeNull();
     expect(buildPineconeAccessFilterClauses(0, { siteId: "crystal" } as SiteConfig)).toEqual([]);
+  });
+
+  it("normalizes numeric access values and rejects non-finite coercion", () => {
+    expect(normalizeAccessLevelValue(200.9, siteConfig)).toBe(200);
+    expect(normalizeAccessLevelValue("300", siteConfig)).toBe(300);
+    expect(normalizeAccessLevelValue(NaN, siteConfig)).toBeNull();
+    expect(normalizeAccessLevelValue(Infinity, siteConfig)).toBeNull();
+    expect(normalizeAccessLevelValue(-1, siteConfig)).toBe(-1);
+    expect(normalizeAccessLevelValue("9999", siteConfig)).toBe(9999);
+    expect(normalizeAccessLevelValue(Number.MAX_SAFE_INTEGER, siteConfig)).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  it("rejects non-admin assigners and accepts SUPERUSER role casing", () => {
+    expect(validateManualAccessLevel(100, "user", siteConfig).valid).toBe(false);
+    expect(validateManualAccessLevel(100, "", siteConfig).valid).toBe(false);
+    expect(validateManualAccessLevel(100, "SUPERUSER", siteConfig)).toEqual({ valid: true, level: 100 });
+    expect(validateManualAccessLevel(-1, "superuser", siteConfig).valid).toBe(false);
+    expect(validateManualAccessLevel(NaN, "superuser", siteConfig).valid).toBe(false);
   });
 });

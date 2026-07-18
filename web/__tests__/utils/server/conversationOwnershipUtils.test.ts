@@ -54,4 +54,21 @@ describe("conversationBelongsToUuid", () => {
 
     expect(result).toBe(false);
   });
+
+  it("returns false when Firestore db is unavailable", async () => {
+    const firebase = jest.requireMock("@/services/firebase") as { db: unknown };
+    const originalDb = firebase.db;
+    firebase.db = null;
+
+    await expect(conversationBelongsToUuid("conv-123", "user-uuid")).resolves.toBe(false);
+    expect(firestoreQueryGet).not.toHaveBeenCalled();
+
+    firebase.db = originalDb;
+  });
+
+  it("propagates Firestore query failures", async () => {
+    (firestoreQueryGet as jest.Mock).mockRejectedValueOnce(new Error("unavailable"));
+
+    await expect(conversationBelongsToUuid("conv-123", "user-uuid")).rejects.toThrow("unavailable");
+  });
 });

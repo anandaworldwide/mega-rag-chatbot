@@ -3248,3 +3248,51 @@ Default `list-style-position: outside` for chat markdown `ol`/`ul` inside `overf
 
 **Correct**:
 Use `list-style-position: inside` on markdown lists (or give enough padding *and* ensure markers stay inside the scrollport). Guard with a CSS source assertion in tests.
+
+### Mistake: Email sanitize checks control chars after trim
+
+**Wrong**:
+`email.trim()` then reject `\r\n\t`. Trailing CR/LF/TAB are stripped first, so header-injection payloads ending in newlines pass.
+
+**Correct**:
+Reject control characters on the raw input before trim/lowercase.
+
+### Mistake: Connection-string redaction loses to email `@` check
+
+**Wrong**:
+In `sanitizeErrorMessage`, if `match.includes("@")` before `://`, `postgres://u:p@host/db` becomes `[email-redacted]`.
+
+**Correct**:
+Check `://` first, then `@`.
+
+### Mistake: App Router JWT skips blacklist revocation
+
+**Wrong**:
+`withAppRouterJwtAuth` only verifies JWT; Pages `withJwtAuth` also boots blacklisted emails. Chat v1 uses App Router wrapper.
+
+**Correct**:
+Mirror blacklist check + `session_revoked` in App Router auth; clear cookies defensively when `response.cookies` is missing.
+
+### Mistake: Global RegExp lastIndex flip-flops `containsSensitiveInfo`
+
+**Wrong**:
+`SENSITIVE_PATTERNS.some((p) => p.test(msg))` with `/g` patterns — second call can return false.
+
+**Correct**:
+Clone with `new RegExp(p.source, p.flags)` (or drop `/g` / reset `lastIndex`).
+
+### Mistake: Rate limiter trusts corrupted Firestore counters
+
+**Wrong**:
+Use `count` / `firstRequestTime` / `max` / `windowMs` without finite checks. `max:0` or `NaN` count can fail-open.
+
+**Correct**:
+Fail closed (503) on non-finite/negative counters and on `max <= 0` / `windowMs <= 0`.
+
+### Mistake: Colon-delimited email tracking tokens + timingSafeEqual length
+
+**Wrong**:
+`email:campaign:...:sig` splits break if fields contain `:`; `timingSafeEqual` throws on unequal Buffer lengths (caught → null inconsistently).
+
+**Correct**:
+Reject `:` in fields at generate; require exact part counts on verify; length-check before `timingSafeEqual`.

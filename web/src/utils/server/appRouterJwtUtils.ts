@@ -34,7 +34,43 @@ export function getTokenFromAppRequest(req: NextRequest): JwtPayload {
   }
 
   const token = authHeader.split(" ")[1];
+  if (!token) {
+    throw new Error("No token provided");
+  }
   return verifyToken(token);
+}
+
+function clearAuthCookiesOnResponse(response: NextResponse, req: NextRequest): void {
+  try {
+    const isSecure = req.headers.get("x-forwarded-proto") === "https" || !isDevelopment();
+    const expire = new Date(0);
+    for (const name of ["authToken", "uuid", "hasSession"]) {
+      response.cookies.set(name, "", {
+        expires: expire,
+        path: "/",
+        secure: isSecure,
+        sameSite: "lax",
+      });
+    }
+  } catch (err) {
+    console.error("Failed to clear auth cookies on App Router session revoke:", err);
+  }
+}
+
+function attachAuthErrorCors(errorResponse: NextResponse, req: NextRequest): NextResponse {
+  const siteConfig = loadSiteConfigSync();
+  if (siteConfig) {
+    return corsMiddleware.addCorsHeaders(errorResponse, req, siteConfig);
+  }
+
+  if (isDevelopment()) {
+    const origin = req.headers.get("origin");
+    errorResponse.headers.set("Access-Control-Allow-Origin", origin || "*");
+    errorResponse.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    errorResponse.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+    errorResponse.headers.set("Access-Control-Allow-Credentials", origin ? "true" : "false");
+  }
+  return errorResponse;
 }
 
 /**
@@ -55,6 +91,20 @@ export function withAppRouterJwtAuth<T>(
       // Get and verify the token
       const jwtPayload = getTokenFromAppRequest(req);
 
+      // Session revocation: boot blacklisted users even if their JWT is still valid.
+      if (jwtPayload.email) {
+        const siteId = process.env.SITE_ID;
+        if (siteId) {
+          const { checkEmailBlacklist } = await import("./blacklist");
+          const result = await checkEmailBlacklist(jwtPayload.email, siteId);
+          if (result.blocked) {
+            const revokeResponse = NextResponse.json({ message: "session_revoked" }, { status: 401 });
+            clearAuthCookiesOnResponse(revokeResponse, req);
+            return attachAuthErrorCors(revokeResponse, req);
+          }
+        }
+      }
+
       // If verification succeeds, call the original handler with the token payload
       return handler(req, context, jwtPayload);
     } catch (error) {
@@ -71,36 +121,8 @@ export function withAppRouterJwtAuth<T>(
         console.error("[JWT Auth] No Authorization header found");
       }
 
-      // If verification fails, return an appropriate error response with CORS headers
       const errorResponse = NextResponse.json({ error: errorMessage }, { status: 401 });
-
-      // Add CORS headers to error response so clients can read the error
-      const siteConfig = loadSiteConfigSync();
-      if (siteConfig) {
-        return corsMiddleware.addCorsHeaders(errorResponse, req, siteConfig);
-      }
-
-      // Fallback: Add basic CORS headers even when site config is unavailable
-      // This prevents CORS policy violations that would prevent clients from reading error messages
-      const origin = req.headers.get("origin");
-
-      // In development, be permissive to allow debugging
-      if (isDevelopment()) {
-        errorResponse.headers.set("Access-Control-Allow-Origin", origin || "*");
-        errorResponse.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-        errorResponse.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-        errorResponse.headers.set("Access-Control-Allow-Credentials", origin ? "true" : "false");
-      } else if (origin) {
-        // In production, only allow the requesting origin (more secure than no headers)
-        // This allows clients to read the error while still maintaining some security
-        errorResponse.headers.set("Access-Control-Allow-Origin", origin);
-        errorResponse.headers.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-        errorResponse.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-        errorResponse.headers.set("Access-Control-Allow-Credentials", "true");
-      }
-      // If no origin in production, don't add CORS headers (same-origin request)
-
-      return errorResponse;
+      return attachAuthErrorCors(errorResponse, req);
     }
   };
 }

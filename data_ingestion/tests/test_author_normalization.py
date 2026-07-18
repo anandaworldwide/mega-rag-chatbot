@@ -69,3 +69,23 @@ class TestNormalizeAuthor:
         assert mod.normalize_author("Nayaswami Hriman", "ananda-public") == (
             "Nayaswami Hriman"
         )
+
+    def test_whitespace_only_becomes_unknown(self):
+        assert mod.normalize_author("   \t\n  ", "ananda-public") == "Unknown"
+
+    def test_corrupt_mappings_json_falls_back_to_empty_mapping(
+        self, tmp_path, monkeypatch
+    ):
+        custom = tmp_path / "author_mappings.json"
+        custom.write_text("{not-json", encoding="utf-8")
+        monkeypatch.setenv("AUTHOR_MAPPINGS_PATH", str(custom))
+
+        assert mod.normalize_author("Any Author", "ananda-public") == "Any Author"
+        assert mod._author_mapping_cache.get("ananda-public") == {}
+
+    def test_malformed_parentheses_variants_do_not_crash(self):
+        result = mod.normalize_author(
+            "Swami Kriyananda {J. Donald Walters)", "ananda-public"
+        )
+        assert isinstance(result, str)
+        assert result

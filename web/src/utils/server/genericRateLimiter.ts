@@ -46,6 +46,14 @@ export async function genericRateLimiter(
   const sanitizedIP = clientIP.replace(/[:./]/g, "_");
   const docId = `${sanitizedIP}_${name}`;
 
+  if (!Number.isFinite(max) || max <= 0 || !Number.isFinite(windowMs) || windowMs <= 0) {
+    console.error(`Rate limiter invalid config for category: ${name}; denying request`, { max, windowMs });
+    if (res && "status" in res && typeof res.status === "function") {
+      res.status(503).json({ error: "Service temporarily unavailable" });
+    }
+    return false;
+  }
+
   const now = Date.now();
   const rateLimitRef = db!.collection(`${collectionPrefix}_rateLimits`).doc(docId);
 
@@ -67,7 +75,20 @@ export async function genericRateLimiter(
 
         const rateLimitData = rateLimitDoc.data();
         if (rateLimitData) {
-          const { count, firstRequestTime } = rateLimitData;
+          const count = Number(rateLimitData.count);
+          const firstRequestTime = Number(rateLimitData.firstRequestTime);
+
+          if (!Number.isFinite(count) || !Number.isFinite(firstRequestTime) || count < 0) {
+            console.error(
+              `Rate limiter corrupted state for IP ${clientIP}, category: ${name}; denying request`,
+              { count: rateLimitData.count, firstRequestTime: rateLimitData.firstRequestTime }
+            );
+            if (res && "status" in res && typeof res.status === "function") {
+              res.status(503).json({ error: "Service temporarily unavailable" });
+            }
+            return false;
+          }
+
           if (now - firstRequestTime < windowMs) {
             if (count >= max) {
               console.log(`Rate limit exceeded for IP ${clientIP}, category: ${name}`);

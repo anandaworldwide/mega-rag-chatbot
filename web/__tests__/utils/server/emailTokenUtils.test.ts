@@ -75,6 +75,27 @@ describe("open tracking tokens", () => {
     expect(verifyOpenToken(Buffer.from("only:two").toString("base64"))).toBeNull();
     expect(verifyOpenToken(Buffer.from("a::c:notanumber").toString("base64"))).toBeNull();
   });
+
+  it("rejects generate when email or campaign fields contain colon delimiters", () => {
+    process.env.SECURE_TOKEN = "test-secret";
+    expect(() => generateSignedOpenToken("user:name@example.com", "newsletter", 1)).toThrow("cannot contain ':'");
+    expect(() => generateSignedOpenToken("a@b.com", "news:letter", 1)).toThrow("cannot contain ':'");
+    expect(() => generateSignedOpenToken("a@b.com", "newsletter", "id:1")).toThrow("cannot contain ':'");
+  });
+
+  it("returns null for open tokens with extra colon-separated fields", () => {
+    process.env.SECURE_TOKEN = "test-secret";
+    const injected = Buffer.from("a@b.com:newsletter:1:1234567890:deadbeefdeadbeef:extra").toString("base64");
+    expect(verifyOpenToken(injected)).toBeNull();
+  });
+
+  it("returns isValid false for wrong-length signatures without throwing", () => {
+    process.env.SECURE_TOKEN = "test-secret";
+    const shortSig = Buffer.from("a@b.com:newsletter:1:1234567890:abcd").toString("base64");
+    const longSig = Buffer.from("a@b.com:newsletter:1:1234567890:deadbeefdeadbeef00").toString("base64");
+    expect(verifyOpenToken(shortSig)?.isValid).toBe(false);
+    expect(verifyOpenToken(longSig)?.isValid).toBe(false);
+  });
 });
 
 describe("click tracking tokens", () => {
@@ -107,5 +128,19 @@ describe("click tracking tokens", () => {
   it("returns null for non-click or malformed tokens", () => {
     expect(verifyClickToken(Buffer.from("open:a:b:c:d:e:1").toString("base64"))).toBeNull();
     expect(verifyClickToken(Buffer.from("click:too:few").toString("base64"))).toBeNull();
+  });
+
+  it("rejects click generate when fields contain colon delimiters", () => {
+    process.env.SECURE_TOKEN = "test-secret";
+    expect(() => generateSignedClickToken("a@b.com", "newsletter", 7, "cta", "link:1")).toThrow(
+      "cannot contain ':'"
+    );
+  });
+
+  it("returns null for click tokens with extra colon fields", () => {
+    const injected = Buffer.from("click:a@b.com:newsletter:7:cta:link:123:deadbeefdeadbeef:extra").toString(
+      "base64"
+    );
+    expect(verifyClickToken(injected)).toBeNull();
   });
 });

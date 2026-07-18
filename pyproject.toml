@@ -142,7 +142,7 @@ max-complexity = 10
 known-first-party = ["data_ingestion", "pyutil"]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
+pythonpath = [".", "data_ingestion"]
 addopts = [
     "--strict-markers",
     "--disable-warnings",
