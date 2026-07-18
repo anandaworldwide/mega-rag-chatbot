@@ -2,7 +2,7 @@
 # The source of truth is now `reranking/pyproject.toml` + the shared `uv.lock`.
 # Compatibility `requirements.txt` exports are generated via `bin/export-python-requirements.sh`.
 
-transformers>=4.53.0  # CVE-2025-5197, CVE-2025-3933: ReDoS fixes
+transformers>=5.5.0  # CVE-2025-5197, CVE-2025-3933: ReDoS fixes
 optimum[onnxruntime]>=1.26.1  # Required for transformers 4.53+ compatibility
 torch>=2.12.1,<3.0  # Pinned to 2.2.x: PyTorch >=2.6.0 doesn't publish wheels for Python 3.12.
                    # Known CVEs accepted until Python upgrade. Reranking not actively used.
