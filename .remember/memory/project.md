@@ -319,11 +319,16 @@ except ImportError:
 
 ## User Preferences
 
+### Personal Cursor skills (extracted from this repo)
+
+- Live in `~/.cursor/skills/`: `package-security-cleanup`, `bug-hunt`, `user-memory`, `one-test-at-a-time`, `deslop`.
+- Project-local duplicates removed (`.cursor/skills/deslop`, `.cursor/commands/package-security-cleanup`, `.cursor/rules/bug-hunt.mdc`, `.cursor/rules/user-memory.mdc`, and the one-test-at-a-time block from `testing-quality.mdc`).
+
 ### Code Style
 
 - **TypeScript over JavaScript** - always
 - **OOP over functional** - user preference
-- **Testing approach**: TDD with failing → passing pattern
+- **Testing approach**: TDD with failing → passing pattern; prefer one-test-at-a-time skill when expanding suites
 - **Documentation**: Update relevant docs with changes
 - **Downvote feedback identity**: Feedback/downvote flows should default to identified submissions, with an explicit
   anonymous opt-out available to the user

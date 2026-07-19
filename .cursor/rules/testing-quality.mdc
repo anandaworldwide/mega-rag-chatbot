@@ -20,19 +20,7 @@ reliability and quality across the entire system.
 
 ## Test Development Methodology
 
-### **STRICT RULE: One Test Case at a Time**
-
-**You MUST follow this incremental testing approach:**
-
-1. **Add only ONE test case** to a file at a time.
-2. **Combine test cases** for a given source file in a single test file.
-3. **Run the test** to ensure it passes
-4. **Check for linter errors** and fix any issues
-5. **Only after the test passes and has no linter errors**, proceed to add another test case
-6. **Continue adding tests** without asking the user for approval, as long as the above rules are followed.
-
-**Rationale**: This prevents building up a backlog of test failures and ensures each test is properly validated before
-moving forward. This methodical approach maintains code quality and prevents cascading test failures.
+Use the personal Cursor skill `one-test-at-a-time` when adding or expanding tests (one case → run → lint-clean → next). Keep project-specific runner paths and layout from this rule.
 
 ## Frontend Testing (Jest + React Testing Library)
 
