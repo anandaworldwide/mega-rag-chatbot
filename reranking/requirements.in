@@ -2,7 +2,7 @@
 # The source of truth is now `reranking/pyproject.toml` + the shared `uv.lock`.
 # Compatibility `requirements.txt` exports are generated via `bin/export-python-requirements.sh`.
 
-transformers>=4.53.0  # CVE-2025-5197, CVE-2025-3933: ReDoS fixes
+transformers>=5.5.0  # CVE-2025-5197, CVE-2025-3933: ReDoS fixes
 optimum[onnxruntime]>=1.26.1  # Required for transformers 4.53+ compatibility
 torch>=2.13.0,<3.0  # setuptools>=83 (GHSA-h35f-9h28-mq5c) needs torch that drops setuptools<82
                    # Reranking not actively used.
