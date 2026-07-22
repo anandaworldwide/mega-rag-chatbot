@@ -184,7 +184,7 @@ rich==14.3.3
     # via typer
 s3transfer==0.13.0
     # via boto3
-setuptools==81.0.0
+setuptools==83.0.0
     # via
     #   spacy
     #   thinc

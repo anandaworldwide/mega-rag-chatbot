@@ -147,9 +147,15 @@ except ImportError:
   push to the same branch, then merge. Reject dependabot **pip-group** PRs that rewrite `requirements.in` pins
   (they regenerate exports incompatibly, e.g. numpy downgrades, stripped pip-audit entries, policy-pin violations).
 - **Dependabot group PRs often mix aged-in and in-cooldown bumps**: reject/hold the whole PR if any included
-  package is still inside the 7-day window (e.g. `langsmith@0.10.2`, `torch@2.13.0`, `nltk@3.10.0`), even when
-  the same PR also carries good aged-in fixes (`soupsieve@2.8.4`, `onnx@1.22.0`). Prefer targeted
-  `uv lock --upgrade-package <name>` for only the aged-in security fixes, then export + pip-audit.
+  package is still inside the 7-day window, even when the same PR also carries good aged-in fixes. Prefer
+  targeted `uv lock --upgrade-package <name>` for only the aged-in security fixes, then export + pip-audit.
+- **setuptools>=83 requires torch>=2.13.0**: `torch==2.12.1` pins `setuptools<82`, so GHSA-h35f-9h28-mq5c
+  (`setuptools` → 83.0.0) cannot land without also bumping torch. Do that with targeted
+  `uv lock --upgrade-package torch --upgrade-package setuptools` + export; do not take Dependabot uv-group
+  PRs that rewrite `exclude-newer` / leave export drift.
+- **brace-expansion dual majors**: patch with parent-scoped npm overrides
+  (`minimatch@3` → `brace-expansion@1.1.16`, `minimatch@10` → `brace-expansion@5.0.7`). A global
+  `brace-expansion@1` override can incorrectly starve the 5.x line.
 - **Cooldown-aware pip-audit exit policy**: `./bin/run-pip-audit.sh` fails only on `actionable` findings with
   severity `>= high`. Findings classified `unknown` severity can appear as “ACTIONABLE” in the digest without
   failing nightly; still triage and patch aged-in fixes from [#94](https://github.com/anandaworldwide/mega-rag-chatbot/issues/94).

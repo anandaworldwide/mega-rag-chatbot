@@ -51,7 +51,7 @@ pipdeptree==2.26.1
 pinecone>=8.0.0
 reportlab==4.2.5
 playwright>=1.55.1
-pyasn1>=0.6.3  # CVE-2026-30922: unbounded recursion DoS fix
+pyasn1>=0.6.4  # GHSA-hm4w-wwcw-mr6r, GHSA-8ppf-4f7h-5ppj: OID/REAL DoS fixes
 pycryptodomex==3.23.0
 pyjwt[crypto]>=2.12.0  # CVE-2026-32597: crit header validation fix
 pydub==0.25.1
