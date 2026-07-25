@@ -734,10 +734,14 @@ function initChatbot() {
     intercomEnabled = aichatbotData.enableIntercom === "1";
 
     // If the intercom integration is enabled, we need to wait for the Intercom object to be available
-    // So we check every 500ms if the Intercom object is available
+    // So we check every 500ms if the Intercom object is available.
+    // The budget has to outlast Intercom's own arrival: on ananda.org it now boots
+    // from Google Tag Manager on DOM Ready, so window.Intercom appears only after
+    // gtm.js has loaded. If we give up first, hide-intercom is never applied and
+    // Intercom's own launcher shows up next to the chatbot bubble.
     if (intercomEnabled) {
       let attempts = 0;
-      const maxAttempts = 10; // 5 seconds total (10 attempts * 500ms)
+      const maxAttempts = 40; // 20 seconds total (40 attempts * 500ms)
       const checkInterval = 500; // 500ms = half second
 
       const setupIntercom = () => {
