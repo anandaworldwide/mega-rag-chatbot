@@ -374,16 +374,13 @@ def run_npm_audit(audit_dir: str) -> list[Finding]:
 
         advisories: list[dict] = [v for v in (entry.get("via") or []) if isinstance(v, dict)]
         if not advisories:
-            # All ``via`` entries are strings (pointers to other pkgs); emit a
-            # single finding per top-level vulnerable package.
-            advisories = [
-                {
-                    "source": pkg_name,
-                    "title": f"Transitive vulnerability via {pkg_name}",
-                    "severity": top_severity,
-                    "url": "",
-                }
-            ]
+            # ``via`` is only string pointers to other packages. The leaf package
+            # that owns the advisory is already emitted from its own audit
+            # entry; synthesizing findings for every intermediate node creates
+            # false-actionable noise (npm often suggests absurd major
+            # downgrades like jest@25 for a brace-expansion leaf still in
+            # cooldown). Skip these.
+            continue
 
         for source in advisories:
             advisory_id = str(
@@ -472,6 +469,39 @@ def _resolve_npm_boolean_fix(finding: Finding, registry: RegistryClient) -> None
             finding.fix_published_at = latest_published
 
 
+def _prefer_same_package_npm_fix(finding: Finding, registry: RegistryClient) -> None:
+    """When npm points a leaf advisory at a different package major bump, prefer
+    the affected package's own ``latest`` for cooldown classification.
+
+    ``npm audit`` frequently suggests ancient / wrong-direction parent majors
+    (e.g. brace-expansion → ``@eslint/eslintrc@0.1.0``) even when a same-package
+    patch exists and is simply inside the 7-day window. Classifying against that
+    parent publish date falsely marks the finding actionable.
+    """
+    if finding.ecosystem != "node" or not finding.fix_is_major:
+        return
+    if not finding.fix_package or finding.fix_package == finding.package:
+        return
+
+    latest_version, latest_published = npm_latest_version_and_date(
+        registry, finding.package
+    )
+    if not latest_version:
+        return
+
+    suggested = (
+        f"{finding.fix_package}@{', '.join(finding.fix_versions) or '?'}"
+    )
+    finding.note = (
+        f"npm suggested {suggested} (major); classifying against "
+        f"{finding.package}@{latest_version}"
+    )
+    finding.fix_package = finding.package
+    finding.fix_versions = [latest_version]
+    if latest_published:
+        finding.fix_published_at = latest_published
+
+
 def _publish_dates_for(
     finding: Finding, registry: RegistryClient
 ) -> list[datetime]:
@@ -513,6 +543,7 @@ def classify(
             _apply_accepted_entry(finding, accepted_entry, now)
             continue
 
+        _prefer_same_package_npm_fix(finding, registry)
         _resolve_npm_boolean_fix(finding, registry)
 
         if not finding.fix_versions:

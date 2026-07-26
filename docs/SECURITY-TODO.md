@@ -48,6 +48,16 @@ Fix publish dates are resolved by querying PyPI (`/pypi/<pkg>/<ver>/json`)
 and the npm registry (`/<pkg>`). Results are cached for 6 hours under
 `.cache/cooldown-audit/`.
 
+Node audit notes:
+
+- Intermediate `npm audit` nodes whose `via` is only string pointers (no
+  advisory object) are skipped. The leaf package that owns the advisory is
+  already reported; synthesizing parents created false-actionable noise from
+  absurd major-downgrade suggestions (e.g. `jest@25` for a `brace-expansion`
+  leaf still in cooldown).
+- When npm points a leaf advisory at a different package major bump, cooldown
+  classification uses the affected package's own `latest` publish date.
+
 ### Monorepo note
 
 This repo is an npm workspaces monorepo (`web`, `data_ingestion`). There is a

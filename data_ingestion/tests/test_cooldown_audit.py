@@ -437,9 +437,11 @@ class TestNpmAuditAdapter:
         findings = self._run(cdaudit, tmp_path, payload)
         assert len(findings) == 1
 
-    def test_transitive_via_pointers_emit_one_finding(self, cdaudit, tmp_path):
+    def test_transitive_via_pointers_are_skipped(self, cdaudit, tmp_path):
         """Entries whose ``via`` contains only string pointers to other pkgs
-        (no advisory dict) should still produce exactly one finding."""
+        (no advisory dict) are intermediate chain nodes. The leaf advisory is
+        emitted from its own entry; synthesizing findings here creates false
+        actionable noise from absurd major-downgrade fix suggestions."""
         payload = {
             "vulnerabilities": {
                 "google-gax": {
@@ -455,8 +457,7 @@ class TestNpmAuditAdapter:
             }
         }
         findings = self._run(cdaudit, tmp_path, payload)
-        assert len(findings) == 1
-        assert findings[0].fix_package == "firebase-admin"
+        assert findings == []
 
 
 class TestNpmClassification:
@@ -498,6 +499,52 @@ class TestNpmClassification:
 
         assert finding.classification == "actionable"
         assert finding.fix_published_at == publish
+
+    def test_major_cross_package_fix_classifies_against_same_package_latest(
+        self, cdaudit
+    ):
+        """npm often suggests an ancient parent major (e.g. eslint@0.1.0) for a
+        leaf advisory whose real same-package patch is still in cooldown.
+        Prefer the affected package's latest for the cooldown clock."""
+        finding = self._make_finding(
+            cdaudit,
+            package="brace-expansion",
+            fix_package="@eslint/eslintrc",
+            fix_versions=["0.1.0"],
+            fix_is_major=True,
+        )
+        now = datetime.now(UTC)
+        fresh = (now - timedelta(days=2)).isoformat()
+        ancient = (now - timedelta(days=2000)).isoformat()
+
+        def _latest(registry, pkg):
+            assert pkg == "brace-expansion"
+            return "5.0.8", fresh
+
+        def _publish(registry, pkg, version):
+            if pkg == "brace-expansion" and version == "5.0.8":
+                return fresh
+            if pkg == "@eslint/eslintrc":
+                return ancient
+            return None
+
+        with (
+            patch.object(cdaudit, "npm_latest_version_and_date", side_effect=_latest),
+            patch.object(cdaudit, "npm_fix_publish_date", side_effect=_publish),
+        ):
+            cdaudit.classify(
+                [finding],
+                {"python": [], "node": []},
+                registry=_StubRegistry({}),
+                cooldown_days=7,
+                today=now,
+            )
+
+        assert finding.fix_package == "brace-expansion"
+        assert finding.fix_versions == ["5.0.8"]
+        assert finding.classification == "in_cooldown"
+        assert finding.note is not None
+        assert "@eslint/eslintrc@0.1.0" in finding.note
 
     def test_boolean_fix_resolves_via_latest(self, cdaudit):
         finding = self._make_finding(

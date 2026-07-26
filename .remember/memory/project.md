@@ -154,8 +154,14 @@ except ImportError:
   `uv lock --upgrade-package torch --upgrade-package setuptools` + export; do not take Dependabot uv-group
   PRs that rewrite `exclude-newer` / leave export drift.
 - **brace-expansion dual majors**: patch with parent-scoped npm overrides
-  (`minimatch@3` → `brace-expansion@1.1.16`, `minimatch@10` → `brace-expansion@5.0.7`). A global
+  (`minimatch@3` → `brace-expansion@1.1.16`, `minimatch@10` → `brace-expansion@5.0.7`,
+  then `5.0.8` once past cooldown — advisory range is `<=5.0.7`). A global
   `brace-expansion@1` override can incorrectly starve the 5.x line.
+- **Node cooldown audit noise**: `bin/cooldown_audit.py` skips npm audit nodes whose
+  `via` is only string pointers (no advisory object). When npm points a leaf advisory
+  at a different package major bump, classify against the affected package's own
+  `latest` publish date so absurd parent downgrades (e.g. `jest@25`) cannot fake
+  actionable while the real leaf patch is still in cooldown.
 - **Cooldown-aware pip-audit exit policy**: `./bin/run-pip-audit.sh` fails only on `actionable` findings with
   severity `>= high`. Findings classified `unknown` severity can appear as “ACTIONABLE” in the digest without
   failing nightly; still triage and patch aged-in fixes from [#94](https://github.com/anandaworldwide/mega-rag-chatbot/issues/94).
