@@ -77,7 +77,7 @@ dependencies = [
     "urllib3>=2.7.0",
     "websockets==15.0.1",
     "yarl==1.20.1",
-    "yt-dlp==2026.6.9",
+    "yt-dlp==2026.7.4",
 ]
 
 [dependency-groups]
