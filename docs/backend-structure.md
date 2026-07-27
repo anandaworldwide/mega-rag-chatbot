@@ -296,6 +296,14 @@ API endpoints are defined in `pages/api/` and `app/api/`. Most endpoints are pro
   - **Schedule:** Daily at 3:00 AM UTC (configured in `vercel.json`).
   - **Logic:** Downloads CSV from `LOCATION_DATA_DOWNLOAD_URL` if defined, compares to existing S3 file
     (`site-config/location/${siteId}-locations.csv`), uploads if different. Sends ops alerts on updates or failures.
+- **`GET|POST /api/cron/nagPendingAccessRequests`** (`pages/api/cron/nagPendingAccessRequests.ts`)
+  - **Purpose:** Reminds admins about access requests still pending after three days, then every three days until
+    handled.
+  - **Auth:** Requires Cron Secret or JWT authentication (hybrid auth).
+  - **Schedule:** Daily at 1:20 PM UTC (configured in `vercel.json`).
+  - **Logic:** On login-required sites, queries `*_admin_approval_requests` for `status == pending` with
+    `createdAt` at least three days old. Sends a NAG email when `lastNaggedAt` is missing or at least three days old,
+    then updates `lastNaggedAt` / `nagCount` on the request document.
 
 **Middleware:**
 
