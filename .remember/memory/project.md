@@ -456,18 +456,24 @@ except ImportError:
 
 ## Model Routing / A/B Test
 
-- **Silent 3-arm A/B** (Luca `ananda` and Jairam when `enableClaudeAbTest`): sticky per conversation among
-  control (`siteConfig.modelName`, usually `gpt-4o`), primary treatment `grok-4.5` (xAI), and tiny
-  `claude-fable-5` holdout. **Defaults when AB_TEST_* unset: control 62% / Grok 30% / Fable 8%.**
+- **Production default (graduated):** Luca (`ananda`) and Jairam use `modelName: "grok-4.5"` with
+  `enableClaudeAbTest: false` — 100% Grok including temporary sessions. PhotoWise stays on `gpt-4o`;
+  Vivek on `gpt-4.1-mini`; Crystal on `gpt-4o-mini`.
+- **Vercel ops after graduation:** Confirm `XAI_API_KEY` on Luca and Jairam projects; unset leftover
+  `AB_TEST_FORCE_MODEL` / `CLAUDE_AB_TEST_FORCE_MODEL` and unused `AB_TEST_*_PERCENT`; redeploy so
+  bundled `SITE_CONFIG` picks up the new `modelName`.
+- **Legacy silent 3-arm A/B** (code still in `claudeAbTest.ts`; only if `enableClaudeAbTest` is re-enabled):
+  sticky per conversation among control (`siteConfig.modelName`), primary treatment `grok-4.5` (xAI), and
+  tiny `claude-fable-5` holdout. **Defaults when AB_TEST_* unset: control 62% / Grok 30% / Fable 8%.**
   Override with `AB_TEST_CONTROL_PERCENT`, `AB_TEST_GROK_PERCENT`, `AB_TEST_FABLE_HOLDOUT_PERCENT`
   (if any is set, unset siblings are 0 then normalize — e.g. GROK=0 alone → 100% control;
   GROK=30 alone → 100% Grok. Set all three for exact shares).
   Band order is control → Grok → Fable (`pickArmFromWeights`). Legacy `CLAUDE_AB_TEST_PERCENT` is ignored
   for weights (left over `=0` no longer kills treatment).
-- **Development**: always assigns `grok-4.5` and ignores force env, sticky history, and production weights.
-- **Force / smoke** (production only): `AB_TEST_FORCE_MODEL` or `CLAUDE_AB_TEST_FORCE_MODEL`.
-  Leftover local force-to-Fable was overriding Grok; do not leave `CLAUDE_AB_TEST_FORCE_MODEL` in `.env.*`
-  for day-to-day local work.
+- **Development** (when A/B enabled): always assigns `grok-4.5` and ignores force env, sticky history, and
+  production weights.
+- **Force / smoke** (production only, when A/B enabled): `AB_TEST_FORCE_MODEL` or
+  `CLAUDE_AB_TEST_FORCE_MODEL`. Do not leave force-model in `.env.*` for day-to-day local work.
 - **Keys**: Grok needs `XAI_API_KEY`; Fable holdout needs `ANTHROPIC_API_KEY`. Grok reasoning effort defaults
   to `low` for TTFB (`GROK_REASONING_EFFORT`; override to `medium`/`high` if needed).
 - **Provider auth / quota failures** (bad key, credits exhausted, spending limit, 429): chat UI gets a generic
