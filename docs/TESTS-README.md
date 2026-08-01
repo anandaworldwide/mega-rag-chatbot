@@ -210,6 +210,16 @@ These tests validate:
 - Prompt compliance (identity, rejection handling, format requirements)
 - Content appropriateness and policy adherence
 
+### Manual smoke: Smart Clarifying Chat (ananda / Luca)
+
+Prompt-fragment coverage lives in `web/__tests__/site-config/clarifyingPrompt.test.ts`. After prompt changes, also smoke live chat:
+
+1. Ask “I need help planning a class on the Bhagavad Gita” → expect brief clarifying questions only (not a full outline).
+2. Reply with audience + duration → expect a structured class plan with sources.
+3. Ask “What did Swami say about loyalty?” → expect an immediate answer (no clarification).
+4. Confirm the magic-wand task form is gone from the chat input.
+5. Sources may still appear on the clarify turn (retrieval is unchanged).
+
 ## API Security Testing
 
 The `bin/test_api_security.sh` script provides comprehensive security testing for the API endpoints. It tests:
