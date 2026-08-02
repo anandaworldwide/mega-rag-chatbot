@@ -40,11 +40,67 @@ You can request more sources when the given context is insufficient:
 - search_more_sources: use when sources are off-topic, thin, or the answer needs more comprehensiveness. Pass a better query. Additional searches automatically keep the same author, library, media-type, and source-scope filters as the original retrieval (for example a named-author focus stays on that author).
 Otherwise answer directly from the given sources. At most ${MAX_RETRIEVAL_TOOL_ITERATIONS} tool rounds and about ${MAX_ADDED_RETRIEVAL_SOURCES} added sources.`;
 
-export const RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE = `## After retrieval tools
-The JSON sources above already include documents returned by your retrieval tools. Answer the user's request now from those sources. When they ask for quotations, give exact lines with citations. Do not narrate that you are searching, planning to search, or still need sources unless the context truly contains nothing usable.`;
+export const RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE = `## CRITICAL OVERRIDE — Retrieval finished
+Retrieval tools are no longer available. Do not call \`search_more_sources\` or \`get_adjacent_chunks\`.
+Do not emit JSON tool calls, fenced \`\`\`json tool payloads, or "Gathering…" / "I'll pull richer sources…" narration.
+
+Earlier prompt sections that say to use retrieval tools before answering are overridden for this turn.
+The JSON sources above already include every document returned by your retrieval tools (and the original retrieval).
+
+Answer the user's request completely now from those sources:
+- If they asked for a class/talk outline or other multi-part deliverable, produce the full structured answer (all required sections), not a one-liner or partial draft.
+- When they ask for quotations, give exact lines with citations.
+- If sources are thin, briefly note what is missing, then still finish the best complete answer you can from what you have.
+- Never end after only saying you will search or gather more.`;
 
 export const RETRIEVAL_POST_TOOL_RETRY_GUIDANCE = `## After retrieval tools
 The JSON sources above include any documents returned so far. If they are clearly insufficient, you may call one retrieval tool once more. Otherwise answer the user now with exact quotations and citations. Do not narrate searching in plain text — either call a tool or answer.`;
+
+/**
+ * True when a post-retrieval "answer" is really a leaked tool call or search narration,
+ * not a usable user-facing response (common when tools are unbound but the site prompt
+ * still urges search_more_sources).
+ */
+export function isIncompleteRetrievalAnswer(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return true;
+  }
+
+  const withoutFences = trimmed
+    .replace(/```(?:json)?\s*/gi, "")
+    .replace(/```/g, "")
+    .trim();
+
+  // Leaked tool-call JSON (single or repeated), with or without markdown fences.
+  const toolPayloadPattern =
+    /\{\s*"name"\s*:\s*"(?:search_more_sources|get_adjacent_chunks)"\s*,\s*"parameters"\s*:/;
+  if (toolPayloadPattern.test(withoutFences)) {
+    const withoutToolJson = withoutFences
+      .replace(
+        /\{\s*"name"\s*:\s*"(?:search_more_sources|get_adjacent_chunks)"\s*,\s*"parameters"\s*:\s*\{[\s\S]*?\}\s*\}/g,
+        ""
+      )
+      .trim();
+    if (withoutToolJson.length < 80) {
+      return true;
+    }
+  }
+
+  const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+  const isSearchNarration =
+    /^(i('ll| will)|i am|i'm|let me|gathering|pulling|searching|looking up|fetching)\b/i.test(trimmed) &&
+    /\b(search|source|sources|passage|passages|chunk|chunks|quote|quotes|richer|additional|more)\b/i.test(
+      trimmed
+    );
+
+  // Short "I'll gather richer sources…" trail-offs with no real deliverable body.
+  if (wordCount < 60 && isSearchNarration) {
+    return true;
+  }
+
+  return false;
+}
 
 /** Fill site-template placeholders used by the normal RAG answer path. */
 export function fillRetrievalAnswerTemplate(

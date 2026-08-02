@@ -21,6 +21,7 @@ import {
   shouldBindRetrievalTools,
   buildRetrievalReinvokeSystemPrompt,
   fillRetrievalAnswerTemplate,
+  isIncompleteRetrievalAnswer,
   RETRIEVAL_TOOL_DEFINITIONS,
   RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE,
   RETRIEVAL_TOOL_GUIDANCE,
@@ -313,7 +314,8 @@ describe("retrievalTools", () => {
       expect(prompt).not.toContain("{question}");
       expect(prompt).not.toContain("{activeFiltersSummary}");
       expect(prompt).toContain(RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE);
-      expect(prompt).toContain("Do not narrate that you are searching");
+      expect(prompt).toContain("CRITICAL OVERRIDE — Retrieval finished");
+      expect(prompt).toContain("Retrieval tools are no longer available");
     });
 
     it("fillRetrievalAnswerTemplate clears leftover context placeholder", () => {
@@ -323,6 +325,48 @@ describe("retrievalTools", () => {
         activeFiltersSummary: "",
       });
       expect(filled).toBe("Ctx:\nQ:ask");
+    });
+  });
+
+  describe("isIncompleteRetrievalAnswer", () => {
+    it("treats fenced search_more_sources JSON as incomplete", () => {
+      const leaked = `\`\`\`json
+{"name": "search_more_sources", "parameters": {"query": "Bhagavad Gita quotes", "k": 8}}
+\`\`\`
+\`\`\`json
+{"name": "search_more_sources", "parameters": {"query": "Gita story", "k": 6}}
+\`\`\``;
+      expect(isIncompleteRetrievalAnswer(leaked)).toBe(true);
+    });
+
+    it("treats short search-narration trail-offs as incomplete", () => {
+      expect(
+        isIncompleteRetrievalAnswer(
+          "I'll pull richer Bhagavad Gita teaching points, quotes, and a short story so the outline is well grounded."
+        )
+      ).toBe(true);
+    });
+
+    it("treats a full class outline answer as complete", () => {
+      const outline = `
+# Living the Bhagavad Gita
+**90-minute introductory class**
+
+## Opening (10 min)
+Welcome students and introduce the Gita as an inner battlefield.
+
+## Main teaching points (40 min)
+1. Equanimity in action — Master's counsel on remaining calm amid duty.
+2. Devotion and self-offering — Swamiji on offering results to God.
+3. Practical application — small daily choices that express higher nature.
+
+## Discussion / exercise (20 min)
+Pair share: where did you face an Arjuna moment this week?
+
+## Closing / meditation (20 min)
+Short quotation and seated quiet. Sources include Crystal Clarity commentaries.
+`.trim();
+      expect(isIncompleteRetrievalAnswer(outline)).toBe(false);
     });
   });
 });
