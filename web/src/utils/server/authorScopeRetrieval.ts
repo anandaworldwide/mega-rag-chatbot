@@ -45,6 +45,26 @@ export function buildLibraryFilter(
   });
 }
 
+/**
+ * Filter used by mid-answer search_more_sources so it matches initial retrieval constraints
+ * (named author / Master-Swami hard scope plus selected libraries).
+ */
+export function buildRetrievalToolFilter(
+  searchFilter: Record<string, unknown> | undefined,
+  includedLibraries?: Array<string | { name: string; weight?: number }>
+): Record<string, unknown> | undefined {
+  if (!includedLibraries || includedLibraries.length === 0) {
+    return searchFilter;
+  }
+  const libraryNames = includedLibraries.map((lib) => (typeof lib === "string" ? lib : lib.name));
+  return buildLibraryFilter(libraryNames, searchFilter);
+}
+
+/** Mutable capture so makeChain can hand the effective Pinecone filter to RetrievalToolContext. */
+export type RetrievalFilterCapture = {
+  filter?: Record<string, unknown>;
+};
+
 function getDocumentKey(doc: Document): string {
   return (
     doc.id ?? `${doc.metadata?.title ?? ""}:${doc.metadata?.author ?? ""}:${doc.pageContent?.slice(0, 64) ?? ""}`

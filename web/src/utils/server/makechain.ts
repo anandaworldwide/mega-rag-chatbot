@@ -60,6 +60,7 @@ import { extractGeoToolCalls, extractStreamedTextDelta } from "@/utils/server/ge
 import {
   buildRetrievalReinvokeSystemPrompt,
   executeRetrievalTool,
+  isIncompleteRetrievalAnswer,
   isRetrievalToolName,
   MAX_RETRIEVAL_TOOL_ITERATIONS,
   RETRIEVAL_TOOL_DEFINITIONS,
@@ -84,7 +85,9 @@ import {
   buildLibraryFilter,
   buildMasterSwamiFilter,
   buildNamedAuthorFilter,
+  buildRetrievalToolFilter,
   retrieveWithAuthorScopeBlend,
+  type RetrievalFilterCapture,
 } from "./authorScopeRetrieval";
 import { getCondenseTemplateWithAuthorScope, invokeRephraseWithAuthorScope } from "./rephraseWithAuthorScope";
 import {
@@ -533,7 +536,9 @@ export const makeChain = async (
   selectedLibraries?: string[], // Selected libraries for filtering
   selectedCollectionKey?: string,
   taskMode?: string, // Task mode (e.g., "class-planning", "research") - skips reformulation when set
-  selectedTitleScopeLabel?: string
+  selectedTitleScopeLabel?: string,
+  /** Out-param: effective Pinecone filter after author/library scope (for search_more_sources). */
+  retrievalFilterCapture?: RetrievalFilterCapture
 ) => {
   const { model, temperature, label } = modelConfig;
   let answerModel: BaseLanguageModel; // Renamed for clarity
@@ -885,6 +890,9 @@ Error details: ${errorString}`,
             includedLibraries.length > 0
               ? includedLibraries.map((lib) => (typeof lib === "string" ? lib : lib.name))
               : undefined;
+          if (retrievalFilterCapture) {
+            retrievalFilterCapture.filter = buildRetrievalToolFilter(baseFilter, includedLibraries);
+          }
           const { documents: blendedDocs, debug: blendRetrievalDebug, relevance: blendRelevance } =
             await retrieveWithAuthorScopeBlend(
             retriever,
@@ -921,6 +929,9 @@ Error details: ${errorString}`,
             searchFilter = buildNamedAuthorFilter(scopeDescriptor.author, baseFilter);
           } else if (scopeDescriptor.kind === "hard" && scopeDescriptor.collection === "master_swami") {
             searchFilter = buildMasterSwamiFilter(baseFilter);
+          }
+          if (retrievalFilterCapture) {
+            retrievalFilterCapture.filter = buildRetrievalToolFilter(searchFilter, includedLibraries);
           }
 
           const { documents: docs, relevance: standardRelevance } = await runStandardRetrieval(
@@ -1599,6 +1610,7 @@ export async function setupAndExecuteLanguageModelChain(
         geoTools = TOOL_DEFINITIONS;
       }
 
+      const retrievalFilterCapture: RetrievalFilterCapture = {};
       const chain = await makeChain(
         retriever,
         { model: modelName, temperature },
@@ -1615,7 +1627,8 @@ export async function setupAndExecuteLanguageModelChain(
         selectedLibraries, // Pass selected libraries for filtering
         selectedCollectionKey,
         taskMode, // Pass task mode to skip reformulation
-        selectedTitleScopeLabel
+        selectedTitleScopeLabel,
+        retrievalFilterCapture
       );
 
       // Format chat history for the language model
@@ -1769,6 +1782,8 @@ export async function setupAndExecuteLanguageModelChain(
         let retrievalToolContext: RetrievalToolContext | null = null;
         /** After a non-empty retrieval expansion, ignore further retrieval tool_calls (no second "Gathering..." flash). */
         let retrievalExpansionSucceeded = false;
+        /** Prevent double answer-only recovery (buffer discard + end-of-loop safety net). */
+        let retrievalAnswerForced = false;
         if (retrievalToolsEnabled) {
           const vectorStore = retriever.vectorStore as PineconeStore;
           const pineconeIndex = vectorStore?.pineconeIndex;
@@ -1779,7 +1794,9 @@ export async function setupAndExecuteLanguageModelChain(
             retrievalToolContext = new RetrievalToolContext({
               pineconeIndex,
               vectorStore,
-              filter,
+              // Prefer the author/library-scoped filter from initial retrieval so
+              // search_more_sources cannot escape a named-author (e.g. Asha) hard scope.
+              filter: retrievalFilterCapture.filter ?? filter,
               knownSourceIds: knownIds,
               effectiveAccessLevel,
               siteConfig,
@@ -1791,6 +1808,7 @@ export async function setupAndExecuteLanguageModelChain(
         /** Answer-only recovery so the client never stuck on "Gathering additional sources...". */
         const forceRetrievalAnswerOnly = async (reason: string) => {
           console.warn(`⚠️ Forcing retrieval answer-only turn (${reason})`);
+          retrievalAnswerForced = true;
           const siteTemplate = await getFullTemplate(siteConfig?.siteId || "ananda-public");
           const activeFiltersSummary = buildActiveFiltersSummaryForGeneration(
             retrievalActiveFilterPromptData,
@@ -2019,14 +2037,12 @@ export async function setupAndExecuteLanguageModelChain(
               ...allToolMessages,
             ];
 
-            let toolResponse: any = null;
-            const stream = await nextModel.stream(messages);
-            for await (const chunk of stream) {
-              toolResponse = toolResponse ? toolResponse.concat(chunk) : chunk;
-              const text = extractStreamedTextDelta(chunk);
-              if (!text) {
-                continue;
-              }
+            // When tools are unbound, buffer first so leaked tool JSON / "Gathering…"
+            // trail-offs never hit the client before we can force a real answer.
+            const bufferAnswerOnlyTurn = isRetrievalRound && !allowMoreRetrievalTools;
+
+            const flushBufferedAnswer = (text: string) => {
+              if (!text) return;
               if (!firstTokenTime) {
                 firstTokenTime = Date.now();
                 firstByteTime = Date.now();
@@ -2044,6 +2060,22 @@ export async function setupAndExecuteLanguageModelChain(
               }
               fullResponse += text;
               tokensStreamed += text.length;
+            };
+
+            let toolResponse: any = null;
+            const stream = await nextModel.stream(messages);
+            let bufferedAnswer = "";
+            for await (const chunk of stream) {
+              toolResponse = toolResponse ? toolResponse.concat(chunk) : chunk;
+              const text = extractStreamedTextDelta(chunk);
+              if (!text) {
+                continue;
+              }
+              if (bufferAnswerOnlyTurn) {
+                bufferedAnswer += text;
+                continue;
+              }
+              flushBufferedAnswer(text);
             }
 
             if (!toolResponse) {
@@ -2052,21 +2084,48 @@ export async function setupAndExecuteLanguageModelChain(
                 typeof toolResponse?.content === "string"
                   ? toolResponse.content
                   : extractStreamedTextDelta(toolResponse);
-              if (fallbackText && !fullResponse) {
-                sendData({ token: fallbackText });
-                fullResponse += fallbackText;
-                tokensStreamed += fallbackText.length;
+              if (fallbackText) {
+                if (bufferAnswerOnlyTurn) {
+                  if (!bufferedAnswer) {
+                    bufferedAnswer = fallbackText;
+                  }
+                } else if (!fullResponse) {
+                  flushBufferedAnswer(fallbackText);
+                }
               }
             }
 
             currentResponse = toolResponse;
             pendingToolCalls = extractGeoToolCalls(currentResponse);
+
+            if (bufferAnswerOnlyTurn) {
+              const hasFurtherRetrievalCalls = pendingToolCalls.some((call) => isRetrievalToolName(call.name));
+              if (hasFurtherRetrievalCalls || isIncompleteRetrievalAnswer(bufferedAnswer)) {
+                console.warn(
+                  `⚠️ Discarding incomplete post-retrieval answer (${bufferedAnswer.length} chars); forcing answer-only recovery`
+                );
+                await forceRetrievalAnswerOnly(
+                  hasFurtherRetrievalCalls
+                    ? "answer-only turn still requested tools"
+                    : "incomplete/leaked tool answer after expansion"
+                );
+                break;
+              }
+              flushBufferedAnswer(bufferedAnswer);
+            }
+
             console.log(`✅ Tool response received for iteration ${iteration}`);
           }
 
-          // Safety net: retrieval path exited without streaming an answer (e.g. empty tool-only turns).
-          if (retrievalIterations > 0 && !fullResponse.trim()) {
-            await forceRetrievalAnswerOnly("loop ended with empty answer");
+          // Safety net: empty answer or leaked tool JSON / search narration after retrieval rounds.
+          if (
+            retrievalIterations > 0 &&
+            !retrievalAnswerForced &&
+            isIncompleteRetrievalAnswer(fullResponse)
+          ) {
+            await forceRetrievalAnswerOnly(
+              fullResponse.trim() ? "loop ended with incomplete retrieval answer" : "loop ended with empty answer"
+            );
           }
 
           result.answer = currentResponse;

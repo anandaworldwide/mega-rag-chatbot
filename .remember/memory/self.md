@@ -3296,3 +3296,29 @@ Fail closed (503) on non-finite/negative counters and on `max <= 0` / `windowMs 
 
 **Correct**:
 Reject `:` in fields at generate; require exact part counts on verify; length-check before `timingSafeEqual`.
+
+### Mistake: Clarifying-chat follow-up tests with sparse slot replies
+
+**Wrong**:
+After a canned clarify turn, send only "90 minutes for new students…" and expect a full class
+outline. The model often re-asks topic/setting (history topic is weakly used) and stays in
+clarify mode.
+
+**Correct**:
+Restate topic + all filled slots in the follow-up, and include "just decide" when testing the
+deliverable path so prompt rule 5 exits clarification. Keep under-specified clarify-first as a
+separate case. Give outline cases higher timeout / richer `sourceCount`.
+
+### Mistake: Post-retrieval answer turn still urged to search more
+
+**Wrong**:
+After max `search_more_sources` rounds, re-invoke with tools unbound but keep the full site
+prompt (Source depth: use retrieval tools before answering) and only append a weak
+"answer now" note. Safety net only recovered on empty `fullResponse`. Models emit fenced
+tool JSON or a "I'll pull richer sources…" one-liner and stop.
+
+**Correct**:
+`allowMoreTools: false` guidance must be a CRITICAL OVERRIDE: tools unavailable, no JSON /
+Gathering narration, produce the complete deliverable. Buffer unbound answer turns and
+discard via `isIncompleteRetrievalAnswer` + `forceRetrievalAnswerOnly` before tokens reach
+the client; end-of-loop safety net covers the same incomplete shapes.

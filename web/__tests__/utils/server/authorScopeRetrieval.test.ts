@@ -4,8 +4,10 @@ import type { Document } from "@langchain/core/documents";
 import type { VectorStoreRetriever } from "@langchain/core/vectorstores";
 import {
   applyMasterSwamiScoreBoost,
+  buildLibraryFilter,
   buildMasterSwamiFilter,
   buildNamedAuthorFilter,
+  buildRetrievalToolFilter,
   computeBlendFetchCount,
   dedupeDocuments,
   isMasterSwamiAuthor,
@@ -27,6 +29,22 @@ describe("authorScopeRetrieval helpers", () => {
   it("builds named author filter", () => {
     const filter = buildNamedAuthorFilter("Asha Nayaswami");
     expect(filter.$and).toContainEqual({ author: { $eq: "Asha Nayaswami" } });
+  });
+
+  it("builds retrieval-tool filter with named author and selected libraries", () => {
+    const named = buildNamedAuthorFilter("Asha Nayaswami", { $and: [{ type: { $in: ["text"] } }] });
+    const toolFilter = buildRetrievalToolFilter(named, ["Crystal Clarity", "ananda.org"]);
+    expect(toolFilter?.$and).toEqual(
+      expect.arrayContaining([
+        { type: { $in: ["text"] } },
+        { author: { $eq: "Asha Nayaswami" } },
+        { library: { $in: ["Crystal Clarity", "ananda.org"] } },
+      ])
+    );
+    expect(buildRetrievalToolFilter(named)).toEqual(named);
+    expect(buildLibraryFilter(["Crystal Clarity"], named).$and).toContainEqual({
+      library: { $in: ["Crystal Clarity"] },
+    });
   });
 
   it("dedupes documents by id and caps count", () => {

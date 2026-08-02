@@ -1,7 +1,12 @@
 {
-  "version": 10,
+  "version": 11,
   "wikiUrl": "https://anandafamily.notion.site/What-s-new-with-Luca-2ed7781078bc80c79438c02ea27ec710",
   "entries": [
+    {
+      "date": "2026-07-31",
+      "title": "Ask Naturally for Class Plans and Talks",
+      "description": "You no longer need the magic-wand task forms. Just ask in plain language—for example, \"Help me plan a class on the Bhagavad Gita\"—and Luca will ask a few short clarifying questions (audience, duration, and so on) before building a full outline. Ordinary questions still get an immediate answer."
+    },
     {
       "date": "2026-07-17",
       "title": "Smarter Source Gathering While Answering",
@@ -40,7 +45,7 @@
     {
       "date": "2026-01-22",
       "title": "More Task Wizards and Streamlined Tools",
-      "description": "We now have seven task wizards to help you create comprehensive queries. The wizards will help you get started and suggest follow-up tasks to go even further. Click the magic wand in the question input box to get started."
+      "description": "Structured task wizards were briefly available to help build research queries and class plans. They have since been replaced by natural-language clarifying questions—just describe what you need in the chat."
     },
     {
       "date": "2026-01-22",
@@ -50,7 +55,7 @@
     {
       "date": "2026-01-19",
       "title": "Task Wizard",
-      "description": "New structured task wizards help you create comprehensive research queries and class plans. Click the task buttons above the chat input to get started. The wizards will help you get started and suggest follow-up tasks to go even further."
+      "description": "Structured task wizards for research queries and class plans were introduced here. They have since been replaced by natural-language clarifying questions in chat."
     },
     {
       "date": "2026-01-19",

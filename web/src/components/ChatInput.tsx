@@ -25,7 +25,6 @@ import validator from "validator";
 import styles from "@/styles/Home.module.css";
 import SuggestedQueries from "@/components/SuggestedQueries";
 import { FilterDropdown } from "@/components/FilterDropdown";
-import { TaskPopover } from "@/components/TaskPopover";
 import { FilterConflictCard } from "@/components/FilterConflictCard";
 import { TitleScopePicker } from "@/components/TitleScopePicker";
 import { SiteConfig } from "@/types/siteConfig";
@@ -81,13 +80,6 @@ interface ChatInputProps {
   onTemporarySessionChange?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   categorizedQueries?: { general: string[]; location: string[]; resources: string[] } | null;
   shouldShowSuggestions?: boolean; // Hide suggestions after first question
-  onTaskSubmit?: (
-    prompt: string,
-    sourceCount: number,
-    taskMode: string,
-    suggestedFollowups: string[],
-    authorFilter?: string
-  ) => void;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
@@ -127,7 +119,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onDismissFilterConflict,
   categorizedQueries,
   shouldShowSuggestions = true,
-  onTaskSubmit,
 }) => {
   // State variables for managing component behavior
   const [, setLocalQuery] = useState<string>("");
@@ -373,9 +364,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
             {/* Options row inside input box */}
             <div className="flex flex-wrap gap-2 items-center px-3 py-2">
-              {/* Task Popover - only show if tasks are enabled and handler provided */}
-              {onTaskSubmit && <TaskPopover siteConfig={siteConfig} onTaskSubmit={onTaskSubmit} />}
-
               {/* Source scope picker */}
               {siteConfig?.enableTitleScopeSelection && (
                 <TitleScopePicker

@@ -1843,34 +1843,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     handleSubmit(new Event("submit") as unknown as React.FormEvent, suggestion.text);
   };
 
-  // Handle task wizard submission
-  const handleTaskSubmit = useCallback(
-    (prompt: string, taskSourceCount: number, taskMode: string, followups: string[], authorFilter?: string) => {
-      // Set task conversation state
-      setIsTaskConversation(true);
-      setCurrentTaskFollowups(followups);
-      setCurrentTaskMode(taskMode);
-
-      // Override sourceCount for this task
-      setSourceCount(taskSourceCount);
-
-      // Override collection/author filter if specified by the task
-      if (authorFilter) {
-        const collectionValue = authorFilter === "master-swami" ? "master_swami" : "whole_library";
-        setCollection(collectionValue);
-      }
-
-      // Mark as task submission
-      isTaskSubmissionRef.current = true;
-
-      // Inject prompt and submit
-      setQuery(prompt);
-      handleSubmit(new Event("submit") as unknown as React.FormEvent, prompt);
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [] // handleSubmit has too many deps to memoize; callback only used on wizard submit
-  );
-
   // Generate dynamic (AI-generated) follow-ups after streaming completes
   const generateDynamicFollowups = useCallback(
     async (question: string, answer: string) => {
@@ -3368,7 +3340,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                           onTemporarySessionChange={handleTemporarySessionChange}
                           categorizedQueries={categorizedQueries}
                           shouldShowSuggestions={shouldShowSuggestions}
-                          onTaskSubmit={handleTaskSubmit}
                         />
                       )}
                     </div>
@@ -3542,7 +3513,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                         onTemporarySessionChange={handleTemporarySessionChange}
                         categorizedQueries={categorizedQueries}
                         shouldShowSuggestions={shouldShowSuggestions}
-                        onTaskSubmit={handleTaskSubmit}
                       />
                     )}
                   </div>

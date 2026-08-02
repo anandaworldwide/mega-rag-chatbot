@@ -264,4 +264,18 @@ describe("ChatInput", () => {
     expect(screen.getByText("Response Depth")).toBeInTheDocument();
     expect(screen.getByText(/Use 10 sources/)).toBeInTheDocument();
   });
+
+  it("does not render the task wizard wand", () => {
+    const props = {
+      ...defaultProps,
+      siteConfig: {
+        ...mockSiteConfig,
+        enabledTasks: ["research", "class-planning"],
+      },
+    };
+
+    render(<ChatInput {...props} />);
+
+    expect(screen.queryByText("auto_fix_high")).not.toBeInTheDocument();
+  });
 });
