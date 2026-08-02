@@ -200,8 +200,9 @@ npm run test:queries:ananda
 
 **Ananda Site:**
 
-- `web/__tests__/site_specific/ananda/semanticSearch.test.ts` - 32 semantic response tests (identity, naming
-  conventions, content references, unrelated question rejection, auto author-scope B1 benchmarks)
+- `web/__tests__/site_specific/ananda/semanticSearch.test.ts` - 38 semantic response tests (identity, naming
+  conventions, content references, unrelated question rejection, auto author-scope B1 benchmarks,
+  named-author / `master_swami` hard filters, under-specified planning clarification)
 
 These tests validate:
 
@@ -209,13 +210,16 @@ These tests validate:
 - Location awareness and geo-tool integration
 - Prompt compliance (identity, rejection handling, format requirements)
 - Content appropriateness and policy adherence
+- Author hard filters (auto named-author scope and explicit `master_swami` collection)
+- Under-specified planning/creation: clarify first, ordinary Q&A answers immediately, filled slots → outline
 
 ### Manual smoke: Smart Clarifying Chat (ananda / Luca)
 
-Prompt-fragment coverage lives in `web/__tests__/site-config/clarifyingPrompt.test.ts`. After prompt changes, also smoke live chat:
+Prompt-fragment coverage lives in `web/__tests__/site-config/clarifyingPrompt.test.ts`. Live behavior is also covered by the
+`Under-Specified Planning Clarification` block in `semanticSearch.test.ts`. After prompt changes, optionally smoke chat:
 
 1. Ask “I need help planning a class on the Bhagavad Gita” → expect brief clarifying questions only (not a full outline).
-2. Reply with audience + duration → expect a structured class plan with sources.
+2. Reply with audience + duration (restate topic; “just decide” if needed) → expect a structured class plan with sources.
 3. Ask “What did Swami say about loyalty?” → expect an immediate answer (no clarification).
 4. Confirm the magic-wand task form is gone from the chat input.
 5. Sources may still appear on the clarify turn (retrieval is unchanged).

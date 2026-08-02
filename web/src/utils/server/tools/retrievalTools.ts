@@ -37,7 +37,7 @@ export const RETRIEVAL_TOOL_NAMES = new Set(["get_adjacent_chunks", "search_more
 export const RETRIEVAL_TOOL_GUIDANCE = `## Retrieval tools
 You can request more sources when the given context is insufficient:
 - get_adjacent_chunks: use when a passage cuts off mid-thought or you need the immediate neighbors of that matching passage. Pass the source \`id\` from the context JSON exactly. Prefer ±1; only request 2+ if you clearly need a longer continuous excerpt. Do not use this to pull the rest of a chapter or nearby numbered points that are off-topic.
-- search_more_sources: use when sources are off-topic, thin, or the answer needs more comprehensiveness. Pass a better query.
+- search_more_sources: use when sources are off-topic, thin, or the answer needs more comprehensiveness. Pass a better query. Additional searches automatically keep the same author, library, media-type, and source-scope filters as the original retrieval (for example a named-author focus stays on that author).
 Otherwise answer directly from the given sources. At most ${MAX_RETRIEVAL_TOOL_ITERATIONS} tool rounds and about ${MAX_ADDED_RETRIEVAL_SOURCES} added sources.`;
 
 export const RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE = `## After retrieval tools

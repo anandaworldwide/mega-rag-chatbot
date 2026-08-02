@@ -3296,3 +3296,15 @@ Fail closed (503) on non-finite/negative counters and on `max <= 0` / `windowMs 
 
 **Correct**:
 Reject `:` in fields at generate; require exact part counts on verify; length-check before `timingSafeEqual`.
+
+### Mistake: Clarifying-chat follow-up tests with sparse slot replies
+
+**Wrong**:
+After a canned clarify turn, send only "90 minutes for new students…" and expect a full class
+outline. The model often re-asks topic/setting (history topic is weakly used) and stays in
+clarify mode.
+
+**Correct**:
+Restate topic + all filled slots in the follow-up, and include "just decide" when testing the
+deliverable path so prompt rule 5 exits clarification. Keep under-specified clarify-first as a
+separate case. Give outline cases higher timeout / richer `sourceCount`.

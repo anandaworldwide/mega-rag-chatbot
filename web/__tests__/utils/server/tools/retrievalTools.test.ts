@@ -225,6 +225,32 @@ describe("retrievalTools", () => {
       expect(result.ok).toBe(false);
       expect(result.error).toMatch(/query/i);
     });
+
+    it("passes the author-scoped Pinecone filter through to similarity search", async () => {
+      const freshA = makeId(2);
+      const authorFilter = { $and: [{ author: { $eq: "Asha Nayaswami" } }] };
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([
+        [{ pageContent: "asha on marriage", metadata: { author: "Asha Nayaswami" }, id: freshA } as Document, 0.9],
+      ]);
+
+      const ctx = new RetrievalToolContext({
+        pineconeIndex: { listPaginated: jest.fn(), fetch: jest.fn() },
+        vectorStore: { similaritySearchWithScore },
+        filter: authorFilter,
+        knownSourceIds: [],
+        effectiveAccessLevel: 0,
+        siteConfig: accessSiteConfig,
+      });
+
+      const result = await executeSearchMoreSources({ query: "marriage partnership", k: 2 }, ctx);
+      expect(result.ok).toBe(true);
+      expect(similaritySearchWithScore).toHaveBeenCalledWith(
+        "marriage partnership",
+        expect.any(Number),
+        authorFilter
+      );
+      expect(result.documents[0]?.metadata?.author).toBe("Asha Nayaswami");
+    });
   });
 
   describe("tool definitions and helpers", () => {
@@ -240,6 +266,7 @@ describe("retrievalTools", () => {
       expect(MAX_ADDED_RETRIEVAL_SOURCES).toBe(8);
       expect(RETRIEVAL_TOOL_GUIDANCE).toContain("Prefer ±1");
       expect(RETRIEVAL_TOOL_GUIDANCE).toContain("not use this to pull the rest of a chapter");
+      expect(RETRIEVAL_TOOL_GUIDANCE).toContain("named-author focus");
       expect(RETRIEVAL_TOOL_DEFINITIONS[0].function.description).toContain("default ±1");
     });
 

@@ -84,7 +84,9 @@ import {
   buildLibraryFilter,
   buildMasterSwamiFilter,
   buildNamedAuthorFilter,
+  buildRetrievalToolFilter,
   retrieveWithAuthorScopeBlend,
+  type RetrievalFilterCapture,
 } from "./authorScopeRetrieval";
 import { getCondenseTemplateWithAuthorScope, invokeRephraseWithAuthorScope } from "./rephraseWithAuthorScope";
 import {
@@ -533,7 +535,9 @@ export const makeChain = async (
   selectedLibraries?: string[], // Selected libraries for filtering
   selectedCollectionKey?: string,
   taskMode?: string, // Task mode (e.g., "class-planning", "research") - skips reformulation when set
-  selectedTitleScopeLabel?: string
+  selectedTitleScopeLabel?: string,
+  /** Out-param: effective Pinecone filter after author/library scope (for search_more_sources). */
+  retrievalFilterCapture?: RetrievalFilterCapture
 ) => {
   const { model, temperature, label } = modelConfig;
   let answerModel: BaseLanguageModel; // Renamed for clarity
@@ -885,6 +889,9 @@ Error details: ${errorString}`,
             includedLibraries.length > 0
               ? includedLibraries.map((lib) => (typeof lib === "string" ? lib : lib.name))
               : undefined;
+          if (retrievalFilterCapture) {
+            retrievalFilterCapture.filter = buildRetrievalToolFilter(baseFilter, includedLibraries);
+          }
           const { documents: blendedDocs, debug: blendRetrievalDebug, relevance: blendRelevance } =
             await retrieveWithAuthorScopeBlend(
             retriever,
@@ -921,6 +928,9 @@ Error details: ${errorString}`,
             searchFilter = buildNamedAuthorFilter(scopeDescriptor.author, baseFilter);
           } else if (scopeDescriptor.kind === "hard" && scopeDescriptor.collection === "master_swami") {
             searchFilter = buildMasterSwamiFilter(baseFilter);
+          }
+          if (retrievalFilterCapture) {
+            retrievalFilterCapture.filter = buildRetrievalToolFilter(searchFilter, includedLibraries);
           }
 
           const { documents: docs, relevance: standardRelevance } = await runStandardRetrieval(
@@ -1599,6 +1609,7 @@ export async function setupAndExecuteLanguageModelChain(
         geoTools = TOOL_DEFINITIONS;
       }
 
+      const retrievalFilterCapture: RetrievalFilterCapture = {};
       const chain = await makeChain(
         retriever,
         { model: modelName, temperature },
@@ -1615,7 +1626,8 @@ export async function setupAndExecuteLanguageModelChain(
         selectedLibraries, // Pass selected libraries for filtering
         selectedCollectionKey,
         taskMode, // Pass task mode to skip reformulation
-        selectedTitleScopeLabel
+        selectedTitleScopeLabel,
+        retrievalFilterCapture
       );
 
       // Format chat history for the language model
@@ -1779,7 +1791,9 @@ export async function setupAndExecuteLanguageModelChain(
             retrievalToolContext = new RetrievalToolContext({
               pineconeIndex,
               vectorStore,
-              filter,
+              // Prefer the author/library-scoped filter from initial retrieval so
+              // search_more_sources cannot escape a named-author (e.g. Asha) hard scope.
+              filter: retrievalFilterCapture.filter ?? filter,
               knownSourceIds: knownIds,
               effectiveAccessLevel,
               siteConfig,
