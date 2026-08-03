@@ -18,7 +18,7 @@
     "acorn-jsx": "^5.3.2",
     "commander": "^14.0.1",
     "esrecurse": "^4.3.0",
-    "next": "^16.2.6"
+    "next": "^16.2.12"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
@@ -45,7 +45,7 @@
     },
     "node-forge": "^1.4.0",
     "picomatch": "^4.0.4",
-    "postcss": "8.5.10",
+    "postcss": "8.5.18",
     "protobufjs": "7.6.5",
     "langsmith": "0.7.1",
     "sharp": "0.35.3",
