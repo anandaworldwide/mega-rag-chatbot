@@ -146,6 +146,13 @@ except ImportError:
   branch, merge main, run `uv lock` + `bin/export-python-requirements.sh`, verify with `./bin/run-pip-audit.sh`,
   push to the same branch, then merge. Reject dependabot **pip-group** PRs that rewrite `requirements.in` pins
   (they regenerate exports incompatibly, e.g. numpy downgrades, stripped pip-audit entries, policy-pin violations).
+- **uv >=0.12 applies root `default-groups` to workspace member exports**: with
+  `tool.uv.default-groups = ["dev"]`, member `uv export --package <member>` includes root pip-audit/pytest
+  unless `--no-default-groups` is passed. `bin/export-python-requirements.sh` must keep that flag on
+  crawler/reranking/wordpress exports (CI installs latest uv via setup-uv).
+- **npm postcss security bumps need root overrides too**: Dependabot may raise `web` postcss while leaving
+  root `overrides.postcss` pinned older; `npm ci` then fails with `Missing: postcss@<old> from lock file`.
+  Bump the root override in lockstep and re-run `npm ci --workspace @mega-rag-chatbot/web --include-workspace-root`.
 - **Dependabot group PRs often mix aged-in and in-cooldown bumps**: reject/hold the whole PR if any included
   package is still inside the 7-day window, even when the same PR also carries good aged-in fixes. Prefer
   targeted `uv lock --upgrade-package <name>` for only the aged-in security fixes, then export + pip-audit.
