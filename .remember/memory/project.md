@@ -191,8 +191,9 @@ except ImportError:
   imports transformers, offline, hardcoded trusted model; not deployed on Vercel/crawler Docker). Transformers CVEs
   are tracked in `security/accepted-vulns.yaml` with review dates; upgrading requires a coordinated
   transformers/tokenizers/optimum-onnx bump plus functional reranker verification.
-- **Minimum security fix for cryptography**: Pin `cryptography>=48.0.1,<49` in `pyproject.toml` / `requirements.in` so
-  `uv lock --upgrade-package cryptography` resolves to the minimum past-cooldown fix line (48.x), not a major jump to 49.x.
+- **Minimum security fix for cryptography**: Keep the pin on the lowest advisory-satisfying major line in
+  `pyproject.toml` / `requirements.in` (currently `cryptography>=50.0.0,<51` for GHSA-g6cj / PYSEC-2026-3552). Use
+  `uv lock --upgrade-package cryptography` so it does not jump past the allowed upper bound.
 - **Root `npm audit fix --package-lock-only`**: May refresh more than the target advisory (e.g. transitive `@babel/*`
   bumps alongside `form-data`). Accept the broader lockfile churn only after `cd web && npm run test:all` passes (verified
   2026-06-20 for `form-data@4.0.6` nightly unblock).

@@ -170,3 +170,27 @@ node:
       Input is chat answer markdown from our pipeline; ReDoS in link/anchor
       parsing is low practical risk. Revisit if showdown ships a patch or we
       replace the converter.
+
+  - id: "1138814"
+    package: showdown
+    reason: >-
+      No fixed npm release (latest 2.1.0 is within advisory range). Same trusted
+      clipboard-only usage as 1117038: CopyButton converts app-generated markdown
+      to HTML for export, not for rendering untrusted user HTML.
+    review_by: "2026-11-01"
+    mitigation: >-
+      Metadata-title XSS in showdown is not reachable for clipboard export of
+      trusted chat answers. Revisit if showdown ships a patch or we replace the
+      converter.
+
+  - id: "1138815"
+    package: showdown
+    reason: >-
+      No fixed npm release (latest 2.1.0 is within advisory range). Same trusted
+      clipboard-only usage as 1117038: CopyButton converts app-generated markdown
+      to HTML for export, not for rendering untrusted user HTML.
+    review_by: "2026-11-01"
+    mitigation: >-
+      Table-header ID XSS in showdown is not reachable for clipboard export of
+      trusted chat answers. Revisit if showdown ships a patch or we replace the
+      converter.
