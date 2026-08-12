@@ -184,11 +184,13 @@ h11==0.16.0
     # via
     #   httpcore
     #   mega-rag-chatbot
-h2==4.3.0
-    # via httpx
+h2==4.4.1
+    # via
+    #   httpx
+    #   mega-rag-chatbot
 hf-xet==1.4.2 ; platform_machine == 'aarch64' or platform_machine == 'amd64' or platform_machine == 'arm64' or platform_machine == 'x86_64'
     # via huggingface-hub
-hpack==4.1.0
+hpack==4.2.0
     # via h2
 httpcore==1.0.9
     # via

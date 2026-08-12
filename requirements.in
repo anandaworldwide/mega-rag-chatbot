@@ -26,6 +26,7 @@ googleapis-common-protos==1.70.0
 grpcio==1.73.0
 grpcio-status==1.73.0
 h11==0.16.0
+h2>=4.4.1  # GHSA-6hr6-w5qg-qmwg: duplicate Host header / request smuggling
 httpcore==1.0.9
 httpx==0.28.1
 huggingface-hub==0.33.0
