@@ -6,7 +6,7 @@ orbs:
 jobs:
   build-and-test:
     docker:
-      - image: cimg/node:20.11
+      - image: cimg/node:24.19
     steps:
       - checkout
       - node/install-packages:
