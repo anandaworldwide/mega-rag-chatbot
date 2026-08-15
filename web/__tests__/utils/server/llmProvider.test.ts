@@ -77,6 +77,24 @@ describe("llmProvider", () => {
     );
   });
 
+  test("getChatModel passes x-grok-conv-id when promptCacheKey is set", () => {
+    process.env.XAI_API_KEY = "xai-test-key";
+    getChatModel({
+      model: "grok-4.5",
+      temperature: 0.3,
+      streaming: true,
+      promptCacheKey: "conv-123",
+    });
+    expect(ChatOpenAI).toHaveBeenCalledWith(
+      expect.objectContaining({
+        configuration: {
+          baseURL: "https://api.x.ai/v1",
+          defaultHeaders: { "x-grok-conv-id": "conv-123" },
+        },
+      })
+    );
+  });
+
   test("resolveGrokReasoningEffort respects GROK_REASONING_EFFORT env", () => {
     process.env.GROK_REASONING_EFFORT = "medium";
     expect(resolveGrokReasoningEffort()).toBe("medium");

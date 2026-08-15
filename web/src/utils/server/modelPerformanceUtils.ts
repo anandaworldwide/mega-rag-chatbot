@@ -18,6 +18,22 @@ export interface TimingMetricsInput {
   totalTokens?: number
   tokensPerSecond?: number
   totalTime?: number
+  /** Split of llmThinkTime blob (written by makechain). */
+  geoIntentMs?: number
+  promptLoadMs?: number
+  rephraseMs?: number
+  retrievalMs?: number
+  answerModelWaitMs?: number
+  answerModelStart?: number
+  toolRounds?: number
+  retrievalToolMs?: number
+  systemPromptTokens?: number
+  contextTokens?: number
+  historyTokens?: number
+  promptTokens?: number
+  cachedTokens?: number
+  completionTokens?: number
+  reasoningTokens?: number
 }
 
 export interface ModelPerformanceTimingBreakdown {
@@ -31,6 +47,20 @@ export interface ModelPerformanceTimingBreakdown {
   suggestionsGeneration: number
   documentSave: number
   totalSessionTime: number
+  geoIntentMs: number
+  promptLoadMs: number
+  rephraseMs: number
+  retrievalMs: number
+  answerModelWaitMs: number
+  toolRounds: number
+  retrievalToolMs: number
+  systemPromptTokens: number
+  contextTokens: number
+  historyTokens: number
+  promptTokens: number
+  cachedTokens: number
+  completionTokens: number
+  reasoningTokens: number
 }
 
 export interface ModelPerformanceRecordContext {
@@ -42,6 +72,7 @@ export interface ModelPerformanceRecordContext {
   status: "success" | "error"
   totalTokens: number
   tokensPerSecond: number
+  experiment?: string
 }
 
 export interface ModelPerformanceRecord {
@@ -53,6 +84,7 @@ export interface ModelPerformanceRecord {
   status: "success" | "error"
   totalTokens: number
   tokensPerSecond: number
+  experiment?: string
   timings: ModelPerformanceTimingBreakdown
   createdAt: fbadmin.firestore.FieldValue
 }
@@ -70,6 +102,7 @@ export interface ModelPerformanceRecordData {
   status?: "success" | "error"
   totalTokens?: number
   tokensPerSecond?: number
+  experiment?: string
   timings?: Partial<ModelPerformanceTimingBreakdown>
   createdAt?: FirestoreTimestampLike
 }
@@ -209,6 +242,10 @@ export class ModelPerformanceTracker {
       totalTime,
     } = metrics
 
+    const answerModelWaitMs =
+      metrics.answerModelWaitMs ??
+      (firstTokenGenerated && metrics.answerModelStart ? firstTokenGenerated - metrics.answerModelStart : 0)
+
     return {
       pineconeSetup: pineconeSetupComplete ? pineconeSetupComplete - startTime : 0,
       vectorStoreSetup:
@@ -225,6 +262,20 @@ export class ModelPerformanceTracker {
           : 0,
       documentSave: documentSaveComplete && documentSaveStart ? documentSaveComplete - documentSaveStart : 0,
       totalSessionTime: totalTime || 0,
+      geoIntentMs: metrics.geoIntentMs ?? 0,
+      promptLoadMs: metrics.promptLoadMs ?? 0,
+      rephraseMs: metrics.rephraseMs ?? 0,
+      retrievalMs: metrics.retrievalMs ?? 0,
+      answerModelWaitMs,
+      toolRounds: metrics.toolRounds ?? 0,
+      retrievalToolMs: metrics.retrievalToolMs ?? 0,
+      systemPromptTokens: metrics.systemPromptTokens ?? 0,
+      contextTokens: metrics.contextTokens ?? 0,
+      historyTokens: metrics.historyTokens ?? 0,
+      promptTokens: metrics.promptTokens ?? 0,
+      cachedTokens: metrics.cachedTokens ?? 0,
+      completionTokens: metrics.completionTokens ?? 0,
+      reasoningTokens: metrics.reasoningTokens ?? 0,
     }
   }
 
@@ -243,6 +294,7 @@ export class ModelPerformanceTracker {
       status: context.status,
       totalTokens: context.totalTokens,
       tokensPerSecond: context.tokensPerSecond,
+      ...(context.experiment ? { experiment: context.experiment } : {}),
       timings,
       createdAt: fbadmin.firestore.FieldValue.serverTimestamp(),
     }

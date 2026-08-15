@@ -34,3 +34,6 @@ webpack-runtime.js
 *.pack.gz
 **/trace-*.json
 **/*.trace
+
+# Local TTFB measurement output
+/tmp/

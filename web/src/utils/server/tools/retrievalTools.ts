@@ -18,6 +18,11 @@ import {
   similaritySearchWithRelevance,
   type ScoredVectorStore,
 } from "@/utils/server/retrievalRelevance";
+import {
+  buildVariableHumanMessage,
+  isCachePromptLayoutEnabled,
+  stripVariablePromptPlaceholders,
+} from "@/utils/server/ttfbMetrics";
 
 export const MAX_RETRIEVAL_TOOL_ITERATIONS = 2;
 export const MAX_ADDED_RETRIEVAL_SOURCES = 8;
@@ -34,11 +39,23 @@ export const MAX_LIST_IDS = 500;
 
 export const RETRIEVAL_TOOL_NAMES = new Set(["get_adjacent_chunks", "search_more_sources"]);
 
+/** Answer-first retrieval-tool policy (always on). Tools stay bound for intentional expansion. */
 export const RETRIEVAL_TOOL_GUIDANCE = `## Retrieval tools
-You can request more sources when the given context is insufficient:
-- get_adjacent_chunks: use when a passage cuts off mid-thought or you need the immediate neighbors of that matching passage. Pass the source \`id\` from the context JSON exactly. Prefer ±1; only request 2+ if you clearly need a longer continuous excerpt. Do not use this to pull the rest of a chapter or nearby numbered points that are off-topic.
-- search_more_sources: use when sources are off-topic, thin, or the answer needs more comprehensiveness. Pass a better query. Additional searches automatically keep the same author, library, media-type, and source-scope filters as the original retrieval (for example a named-author focus stays on that author).
-Otherwise answer directly from the given sources. At most ${MAX_RETRIEVAL_TOOL_ITERATIONS} tool rounds and about ${MAX_ADDED_RETRIEVAL_SOURCES} added sources.`;
+Default: answer from the given sources now. Do not call tools for simple definitions, glossary lookups, login/how-to questions, or when the sources already support a complete answer.
+
+Only call a tool when one of these is clearly true:
+- get_adjacent_chunks: a passage you need to quote cuts off mid-sentence/mid-thought; pass that source \`id\` and prefer ±1.
+- search_more_sources: sources are clearly off-topic, empty of needed quotes, or too thin for a multi-part deliverable the user asked for (class/talk outline, research survey, quote pack, etc.). Pass a better query (same author/library/media filters apply).
+
+Do not call tools "just in case," to pad depth, or to explore neighboring numbered points that are off-topic.
+At most ${MAX_RETRIEVAL_TOOL_ITERATIONS} tool rounds and about ${MAX_ADDED_RETRIEVAL_SOURCES} added sources.`;
+
+/** Alias kept for older tests / call sites. */
+export const RETRIEVAL_TOOL_GUIDANCE_CURBED = RETRIEVAL_TOOL_GUIDANCE;
+
+export function getRetrievalToolGuidance(): string {
+  return RETRIEVAL_TOOL_GUIDANCE;
+}
 
 export const RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE = `## CRITICAL OVERRIDE — Retrieval finished
 Retrieval tools are no longer available. Do not call \`search_more_sources\` or \`get_adjacent_chunks\`.
@@ -105,7 +122,7 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
 /** Fill site-template placeholders used by the normal RAG answer path. */
 export function fillRetrievalAnswerTemplate(
   siteTemplate: string,
-  vars: { chatHistory: string; question: string; activeFiltersSummary: string }
+  vars: { chatHistory: string; question: string; activeFiltersSummary: string; context?: string }
 ): string {
   return siteTemplate
     .replace(/\$\{chat_history\}/g, "{chat_history}")
@@ -115,12 +132,60 @@ export function fillRetrievalAnswerTemplate(
     .replace(/\{chat_history\}/g, vars.chatHistory ?? "")
     .replace(/\{question\}/g, vars.question ?? "")
     .replace(/\{activeFiltersSummary\}/g, vars.activeFiltersSummary ?? "")
-    .replace(/\{context\}/g, "");
+    .replace(/\{context\}/g, vars.context ?? "");
+}
+
+export type RetrievalReinvokeMessages = {
+  system: string;
+  human: string;
+};
+
+/**
+ * System + human messages for the post-retrieval-tool answer turn.
+ * Default cache layout: stable system prefix, variable human suffix (context once).
+ * Legacy (disabled in code; layout always on): single system blob with context prepended.
+ */
+export function buildRetrievalReinvokeMessages(params: {
+  siteTemplate: string;
+  contextDocs: Document[];
+  chatHistory: string;
+  question: string;
+  activeFiltersSummary: string;
+  allowMoreTools: boolean;
+}): RetrievalReinvokeMessages {
+  const context = combineDocumentsFn(params.contextDocs);
+  const guidance = params.allowMoreTools ? RETRIEVAL_POST_TOOL_RETRY_GUIDANCE : RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE;
+
+  if (isCachePromptLayoutEnabled()) {
+    const stableSystem = stripVariablePromptPlaceholders(params.siteTemplate);
+    return {
+      system: `${stableSystem}\n\n${guidance}`,
+      human: buildVariableHumanMessage({
+        context,
+        chatHistory: params.chatHistory,
+        question: params.question,
+        activeFiltersSummary: params.activeFiltersSummary,
+      }),
+    };
+  }
+
+  // Legacy: empty the template's {context} slot and prepend context (historical double-context risk if
+  // callers also keep context in the template — fill clears the slot).
+  const filledTemplate = fillRetrievalAnswerTemplate(params.siteTemplate, {
+    chatHistory: params.chatHistory,
+    question: params.question,
+    activeFiltersSummary: params.activeFiltersSummary,
+    context: "",
+  });
+  return {
+    system: `${context}\n\n${filledTemplate}\n\n${guidance}`,
+    human: params.question,
+  };
 }
 
 /**
- * System prompt for the post-retrieval-tool answer turn.
- * Merges all current source docs into the normal RAG context position and substitutes prompt vars.
+ * System prompt for the post-retrieval-tool answer turn (legacy string form).
+ * Prefer buildRetrievalReinvokeMessages for new call sites.
  */
 export function buildRetrievalReinvokeSystemPrompt(params: {
   siteTemplate: string;
@@ -130,14 +195,11 @@ export function buildRetrievalReinvokeSystemPrompt(params: {
   activeFiltersSummary: string;
   allowMoreTools: boolean;
 }): string {
-  const context = combineDocumentsFn(params.contextDocs);
-  const filledTemplate = fillRetrievalAnswerTemplate(params.siteTemplate, {
-    chatHistory: params.chatHistory,
-    question: params.question,
-    activeFiltersSummary: params.activeFiltersSummary,
-  });
-  const guidance = params.allowMoreTools ? RETRIEVAL_POST_TOOL_RETRY_GUIDANCE : RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE;
-  return `${context}\n\n${filledTemplate}\n\n${guidance}`;
+  const messages = buildRetrievalReinvokeMessages(params);
+  if (isCachePromptLayoutEnabled()) {
+    return `${messages.system}\n\n${messages.human}`;
+  }
+  return messages.system;
 }
 
 export const RETRIEVAL_TOOL_DEFINITIONS = [
@@ -199,7 +261,8 @@ export function isRetrievalToolName(name: string): boolean {
 export function shouldBindRetrievalTools(
   siteConfig: SiteConfig | null | undefined,
   modelName: string,
-  isAnthropic: (name: string) => boolean
+  isAnthropic: (name: string) => boolean,
+  _options?: { taskMode?: string | null }
 ): boolean {
   return siteConfig?.enableRetrievalTools === true && !isAnthropic(modelName) && RETRIEVAL_TOOL_DEFINITIONS.length > 0;
 }

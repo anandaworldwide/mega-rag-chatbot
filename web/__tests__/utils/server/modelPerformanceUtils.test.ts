@@ -1,6 +1,6 @@
 /** @jest-environment node */
 
-import { ModelPerformanceAggregator } from "@/utils/server/modelPerformanceUtils"
+import { ModelPerformanceAggregator, ModelPerformanceTracker } from "@/utils/server/modelPerformanceUtils"
 
 describe("ModelPerformanceAggregator", () => {
   it("aggregates model performance stats per model", () => {
@@ -52,5 +52,23 @@ describe("ModelPerformanceAggregator", () => {
     expect(gpt4o?.metrics.tokensPerSecond.mean).toBeCloseTo(60, 5)
     expect(gpt4o?.metrics.tokensPerSecond.stdDev).toBeCloseTo(10, 5)
     expect(totals.totalRecords).toBe(3)
+  })
+
+  it("includes TTFB split fields in timing breakdown", () => {
+    const tracker = new ModelPerformanceTracker()
+    const timings = tracker.buildTimingBreakdown({
+      startTime: 1000,
+      firstByteTime: 2500,
+      chainExecutionStart: 1100,
+      firstTokenGenerated: 2400,
+      answerModelWaitMs: 1200,
+      systemPromptTokens: 100,
+      cachedTokens: 50,
+      toolRounds: 2,
+    })
+    expect(timings.answerModelWaitMs).toBe(1200)
+    expect(timings.systemPromptTokens).toBe(100)
+    expect(timings.cachedTokens).toBe(50)
+    expect(timings.toolRounds).toBe(2)
   })
 })

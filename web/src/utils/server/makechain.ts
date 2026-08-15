@@ -28,6 +28,12 @@
 
 import { ChatOpenAI } from "@langchain/openai";
 import { getChatModel, isAnthropicModel } from "@/utils/server/llmProvider";
+import {
+  applyProviderUsageToTimingMetrics,
+  buildVariableHumanMessage,
+  isCachePromptLayoutEnabled,
+  stripVariablePromptPlaceholders,
+} from "@/utils/server/ttfbMetrics";
 
 /** Fast OpenAI model used for geo tool selection + formatting when the primary model is Anthropic. */
 export const GEO_FAST_MODEL = "gpt-4.1-mini";
@@ -37,8 +43,9 @@ const GEO_ANSWER_SYSTEM_PROMPT =
   "Use ONLY the tool results provided. Do not invent centers, addresses, websites, or phone numbers. " +
   "Write a clear, helpful answer based only on those results.";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
-import { RunnableSequence, RunnablePassthrough } from "@langchain/core/runnables";
+import { RunnableSequence, RunnablePassthrough, RunnableLambda } from "@langchain/core/runnables";
 import { StringOutputParser } from "@langchain/core/output_parsers";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import type { Document } from "@langchain/core/documents";
 import { VectorStoreRetriever } from "@langchain/core/vectorstores";
 import fs from "fs/promises";
@@ -58,13 +65,13 @@ import { ChatMessage, convertChatHistory } from "@/utils/shared/chatHistory";
 import { NextRequest } from "next/server";
 import { extractGeoToolCalls, extractStreamedTextDelta } from "@/utils/server/geoToolCalls";
 import {
-  buildRetrievalReinvokeSystemPrompt,
+  buildRetrievalReinvokeMessages,
   executeRetrievalTool,
+  getRetrievalToolGuidance,
   isIncompleteRetrievalAnswer,
   isRetrievalToolName,
   MAX_RETRIEVAL_TOOL_ITERATIONS,
   RETRIEVAL_TOOL_DEFINITIONS,
-  RETRIEVAL_TOOL_GUIDANCE,
   RetrievalToolContext,
   shouldBindRetrievalTools,
 } from "@/utils/server/tools/retrievalTools";
@@ -155,6 +162,10 @@ interface TimingMetrics {
   tokensPerSecond?: number;
   totalTime?: number;
   ttfb?: number;
+  /** Retrieval tool loop rounds completed for this request. */
+  toolRounds?: number;
+  /** Wall time spent executing retrieval tools (ms). */
+  retrievalToolMs?: number;
 }
 
 // Loads text content from local filesystem with error handling
@@ -538,7 +549,11 @@ export const makeChain = async (
   taskMode?: string, // Task mode (e.g., "class-planning", "research") - skips reformulation when set
   selectedTitleScopeLabel?: string,
   /** Out-param: effective Pinecone filter after author/library scope (for search_more_sources). */
-  retrievalFilterCapture?: RetrievalFilterCapture
+  retrievalFilterCapture?: RetrievalFilterCapture,
+  /** Mutable timing bag written by the chat route; makeChain fills TTFB split fields. */
+  timingMetrics?: Record<string, unknown>,
+  /** Sticky id for xAI `x-grok-conv-id` (conversation id or siteId fallback). */
+  promptCacheKey?: string
 ) => {
   const { model, temperature, label } = modelConfig;
   let answerModel: BaseLanguageModel; // Renamed for clarity
@@ -549,6 +564,7 @@ export const makeChain = async (
   // restrictive filters yield no documents (see buildActiveFiltersSummaryForGeneration).
   let retrievalReturnedNoDocuments = false;
   const useAutoAuthorScope = isAutoAuthorScopeActive(siteConfig, selectedCollectionKey);
+  const useCachePromptLayout = isCachePromptLayoutEnabled();
 
   // Get site ID from siteConfig if available
   const siteId = siteConfig?.siteId || process.env.SITE_ID;
@@ -591,6 +607,9 @@ export const makeChain = async (
       try {
         shouldUseGeoTools = await hasLocationIntentAsync(originalQuestion);
         locationIntentLatency = Date.now() - intentDetectionStart;
+        if (timingMetrics) {
+          timingMetrics.geoIntentMs = locationIntentLatency;
+        }
 
         if (shouldUseGeoTools) {
           // 📊 COMPREHENSIVE GEO-AWARENESS LOGGING
@@ -605,6 +624,9 @@ export const makeChain = async (
         }
       } catch (error) {
         locationIntentLatency = Date.now() - intentDetectionStart;
+        if (timingMetrics) {
+          timingMetrics.geoIntentMs = locationIntentLatency;
+        }
         console.warn("⚠️ Error in semantic location intent detection:", error);
         console.warn("Falling back to disabled geo-awareness");
 
@@ -631,10 +653,12 @@ export const makeChain = async (
       temperature: answerTemperature,
       model: answerModelName,
       streaming: true,
+      ...(promptCacheKey ? { promptCacheKey } : {}),
     });
 
     // Retrieval tools: bound for non-Anthropic arms when enabled (Fable holdout keeps today's behavior).
-    const bindRetrievalTools = shouldBindRetrievalTools(siteConfig, model, isAnthropicModel);
+    // Guidance is always answer-first; tools still bind for intentional expansion.
+    const bindRetrievalTools = shouldBindRetrievalTools(siteConfig, model, isAnthropicModel, { taskMode });
 
     const toolsToBind: any[] = [];
     if (shouldUseGeoTools && geoTools.length > 0 && request) {
@@ -782,16 +806,51 @@ Error details: ${errorString}`,
   }
 
   const condenseQuestionPrompt = ChatPromptTemplate.fromTemplate(CONDENSE_TEMPLATE);
+  const promptLoadStart = Date.now();
   const fullTemplate = await getFullTemplate(siteId);
+  if (timingMetrics) {
+    timingMetrics.promptLoadMs = Date.now() - promptLoadStart;
+  }
   const templateWithReplacedVars = fullTemplate.replace(
     /\${(context|chat_history|question|activeFiltersSummary)}/g,
     (match, key) => `{${key}}`
   );
-  const includeRetrievalToolGuidance = shouldBindRetrievalTools(siteConfig, model, isAnthropicModel);
-  const answerPromptBody = includeRetrievalToolGuidance
-    ? `{context}\n\n${templateWithReplacedVars}\n\n${RETRIEVAL_TOOL_GUIDANCE}`
-    : `{context}\n\n${templateWithReplacedVars}`;
-  const answerPrompt = ChatPromptTemplate.fromTemplate(answerPromptBody);
+  const includeRetrievalToolGuidance = shouldBindRetrievalTools(siteConfig, model, isAnthropicModel, { taskMode });
+  const retrievalToolGuidance = includeRetrievalToolGuidance ? getRetrievalToolGuidance() : "";
+
+  type PromptDataTypeLike = {
+    context: string;
+    chat_history: string;
+    question: string;
+    activeFiltersSummary: string;
+  };
+  let answerPrompt: ChatPromptTemplate | RunnableLambda<PromptDataTypeLike, unknown>;
+  let cacheLayoutSystemBody: string | null = null;
+  if (useCachePromptLayout) {
+    // Stable system prefix (cacheable) + variable human suffix (context/history/question once).
+    // Use raw messages so braces in the site prompt are not misread as template vars.
+    const stableSystem = stripVariablePromptPlaceholders(templateWithReplacedVars);
+    cacheLayoutSystemBody = includeRetrievalToolGuidance
+      ? `${stableSystem}\n\n${retrievalToolGuidance}`
+      : stableSystem;
+    answerPrompt = RunnableLambda.from((input: PromptDataTypeLike) => [
+      new SystemMessage(cacheLayoutSystemBody as string),
+      new HumanMessage(
+        buildVariableHumanMessage({
+          context: input.context,
+          chatHistory: input.chat_history,
+          question: input.question,
+          activeFiltersSummary: input.activeFiltersSummary,
+        })
+      ),
+    ]);
+  } else {
+    // Legacy: context prepended again even though the site template already has {context}.
+    const answerPromptBody = includeRetrievalToolGuidance
+      ? `{context}\n\n${templateWithReplacedVars}\n\n${retrievalToolGuidance}`
+      : `{context}\n\n${templateWithReplacedVars}`;
+    answerPrompt = ChatPromptTemplate.fromTemplate(answerPromptBody);
+  }
   const activeFilterPromptData = buildActiveFilterPromptData(
     siteConfig,
     baseFilter,
@@ -815,12 +874,16 @@ Error details: ${errorString}`,
   // Runnable sequence for retrieving documents
   const retrievalSequence = RunnableSequence.from([
     async (input: AnswerChainInput) => {
+      const retrievalStart = Date.now();
       retrievalReturnedNoDocuments = false;
       // Early return for location queries - skip Pinecone entirely for performance
       if (isLocationQuery) {
         if (sendData) {
           sendData({ sourceDocs: [], isLocationQuery: true });
           sendData({ log: "🌍 LOCATION QUERY: Skipped vector search - using geo-tools only for faster response" });
+        }
+        if (timingMetrics) {
+          timingMetrics.retrievalMs = Date.now() - retrievalStart;
         }
         return [];
       }
@@ -974,6 +1037,9 @@ Error details: ${errorString}`,
         if (resolveDocs) {
           resolveDocs([]);
         }
+        if (timingMetrics) {
+          timingMetrics.retrievalMs = Date.now() - retrievalStart;
+        }
         return allDocuments;
       }
 
@@ -991,6 +1057,9 @@ Error details: ${errorString}`,
       }
       if (resolveDocs) {
         resolveDocs(allDocuments);
+      }
+      if (timingMetrics) {
+        timingMetrics.retrievalMs = Date.now() - retrievalStart;
       }
       return allDocuments;
     },
@@ -1072,10 +1141,18 @@ Error details: ${errorString}`,
   const generationChainThatTakesPromptData = RunnableSequence.from([
     (input: PromptDataType) => {
       // Estimate token usage
-      const systemPromptTokens = estimateTokens(fullTemplate);
+      const systemPromptTokens = estimateTokens(
+        useCachePromptLayout ? stripVariablePromptPlaceholders(fullTemplate) : fullTemplate
+      );
       const questionTokens = estimateTokens(input.question);
       const chatHistoryTokens = estimateTokens(input.chat_history);
       const contextTokens = estimateTokens(input.context);
+
+      if (timingMetrics) {
+        timingMetrics.systemPromptTokens = systemPromptTokens;
+        timingMetrics.contextTokens = contextTokens;
+        timingMetrics.historyTokens = chatHistoryTokens;
+      }
 
       const totalTokens = systemPromptTokens + questionTokens + chatHistoryTokens + contextTokens;
 
@@ -1166,6 +1243,12 @@ Error details: ${errorString}`,
       };
     },
     answerPrompt,
+    (promptValue: unknown) => {
+      if (timingMetrics) {
+        timingMetrics.answerModelStart = Date.now();
+      }
+      return promptValue;
+    },
     answerModel,
   ]);
 
@@ -1250,6 +1333,7 @@ Error details: ${errorString}`,
 
         // Get the reformulated standalone question
         let standaloneQuestion: string;
+        const rephraseStart = Date.now();
         try {
           if (useAutoAuthorScope && input.chat_history.length > 0) {
             const rephraseResult = await invokeRephraseWithAuthorScope(
@@ -1275,6 +1359,10 @@ Error details: ${errorString}`,
           console.error("Error in standaloneQuestionChain.invoke:", invokeError);
           // Fallback to original question on error
           standaloneQuestion = input.question;
+        } finally {
+          if (timingMetrics && input.chat_history.length > 0) {
+            timingMetrics.rephraseMs = Date.now() - rephraseStart;
+          }
         }
 
         // Debug: Show the result of reformulation only if not in temporary mode
@@ -1541,7 +1629,8 @@ export async function setupAndExecuteLanguageModelChain(
   selectedCollectionKey?: string,
   taskMode?: string, // Task mode (e.g., "class-planning", "research") - skips reformulation when set
   selectedTitleScopeLabel?: string,
-  effectiveAccessLevel: number = 0
+  effectiveAccessLevel: number = 0,
+  promptCacheKey?: string
 ): Promise<{
   fullResponse: string;
   finalDocs: Document[];
@@ -1611,6 +1700,8 @@ export async function setupAndExecuteLanguageModelChain(
       }
 
       const retrievalFilterCapture: RetrievalFilterCapture = {};
+      const effectivePromptCacheKey =
+        promptCacheKey || siteConfig?.siteId || process.env.SITE_ID || undefined;
       const chain = await makeChain(
         retriever,
         { model: modelName, temperature },
@@ -1628,7 +1719,9 @@ export async function setupAndExecuteLanguageModelChain(
         selectedCollectionKey,
         taskMode, // Pass task mode to skip reformulation
         selectedTitleScopeLabel,
-        retrievalFilterCapture
+        retrievalFilterCapture,
+        timingMetrics,
+        effectivePromptCacheKey
       );
 
       // Format chat history for the language model
@@ -1683,6 +1776,12 @@ export async function setupAndExecuteLanguageModelChain(
                       if (!firstTokenTime) {
                         firstTokenTime = Date.now();
                         firstByteTime = Date.now();
+                        if (timingMetrics) {
+                          timingMetrics.firstTokenGenerated = firstTokenTime;
+                          if (typeof timingMetrics.answerModelStart === "number") {
+                            timingMetrics.answerModelWaitMs = firstTokenTime - timingMetrics.answerModelStart;
+                          }
+                        }
                         streamingDeadline.touchStreamingActivity();
                         sendData({
                           token: tokenBuffer,
@@ -1707,6 +1806,12 @@ export async function setupAndExecuteLanguageModelChain(
                 if (!firstTokenTime) {
                   firstTokenTime = Date.now();
                   firstByteTime = Date.now();
+                  if (timingMetrics) {
+                    timingMetrics.firstTokenGenerated = firstTokenTime;
+                    if (typeof timingMetrics.answerModelStart === "number") {
+                      timingMetrics.answerModelWaitMs = firstTokenTime - timingMetrics.answerModelStart;
+                    }
+                  }
                   streamingDeadline.touchStreamingActivity();
                   sendData({
                     token,
@@ -1755,6 +1860,13 @@ export async function setupAndExecuteLanguageModelChain(
         question: string;
       };
 
+      if (timingMetrics) {
+        // Tool counters only here — provider usage must come from the *final* answer turn
+        // (after geo/retrieval tool loops), not the initial tool-call response.
+        timingMetrics.toolRounds = timingMetrics.toolRounds ?? 0;
+        timingMetrics.retrievalToolMs = timingMetrics.retrievalToolMs ?? 0;
+      }
+
       // Handle tool calls with proper loop (OpenAI tool_calls + Anthropic tool_use / JSON fallback)
       let pendingToolCalls = extractGeoToolCalls(result.answer);
       if (pendingToolCalls.length > 0) {
@@ -1770,7 +1882,9 @@ export async function setupAndExecuteLanguageModelChain(
         let retrievalIterations = 0;
 
         const originalSourceDocuments = Array.isArray(result.sourceDocuments) ? [...result.sourceDocuments] : [];
-        const retrievalToolsEnabled = shouldBindRetrievalTools(siteConfig, modelName, isAnthropicModel);
+        const retrievalToolsEnabled = shouldBindRetrievalTools(siteConfig, modelName, isAnthropicModel, {
+          taskMode,
+        });
         const retrievalActiveFilterPromptData = buildActiveFilterPromptData(
           siteConfig,
           filter,
@@ -1814,7 +1928,7 @@ export async function setupAndExecuteLanguageModelChain(
             retrievalActiveFilterPromptData,
             (result.sourceDocuments?.length ?? 0) === 0
           );
-          const systemPrompt = buildRetrievalReinvokeSystemPrompt({
+          const reinvokeMessages = buildRetrievalReinvokeMessages({
             siteTemplate,
             contextDocs: result.sourceDocuments || [],
             chatHistory: pastMessages,
@@ -1826,14 +1940,21 @@ export async function setupAndExecuteLanguageModelChain(
             temperature,
             model: modelName,
             streaming: true,
+            ...(effectivePromptCacheKey ? { promptCacheKey: effectivePromptCacheKey } : {}),
           });
           answerModelUsed = modelName;
           fullResponse = "";
           tokensStreamed = 0;
           firstTokenTime = null;
           firstByteTime = null;
+          if (timingMetrics) {
+            timingMetrics.answerModelStart = Date.now();
+          }
 
-          const recoveryMessages = [new SystemMessage(systemPrompt), new HumanMessage(sanitizedQuestion)];
+          const recoveryMessages = [
+            new SystemMessage(reinvokeMessages.system),
+            new HumanMessage(reinvokeMessages.human),
+          ];
           let recoveryResponse: any = null;
           const recoveryStream = await answerOnlyModel.stream(recoveryMessages);
           for await (const chunk of recoveryStream) {
@@ -1908,6 +2029,7 @@ export async function setupAndExecuteLanguageModelChain(
 
             const toolResults: Array<{ tool_call_id: string; content: string }> = [];
             const newlyFetchedDocs: Document[] = [];
+            const toolRoundStart = Date.now();
 
             for (const toolCall of pendingToolCalls) {
               try {
@@ -1946,6 +2068,12 @@ export async function setupAndExecuteLanguageModelChain(
               }
             }
 
+            if (timingMetrics && isRetrievalRound) {
+              timingMetrics.toolRounds = (Number(timingMetrics.toolRounds) || 0) + 1;
+              timingMetrics.retrievalToolMs =
+                (Number(timingMetrics.retrievalToolMs) || 0) + (Date.now() - toolRoundStart);
+            }
+
             if (newlyFetchedDocs.length > 0) {
               result.sourceDocuments = [...(result.sourceDocuments || []), ...newlyFetchedDocs];
               sendData({ sourceDocs: result.sourceDocuments });
@@ -1970,6 +2098,7 @@ export async function setupAndExecuteLanguageModelChain(
               temperature: anthropicGeoOverride ? 0.3 : temperature,
               model: finalAnswerModelName,
               streaming: true,
+              ...(effectivePromptCacheKey ? { promptCacheKey: effectivePromptCacheKey } : {}),
             });
             answerModelUsed = finalAnswerModelName;
 
@@ -1988,12 +2117,13 @@ export async function setupAndExecuteLanguageModelChain(
 
             const siteTemplate = await getFullTemplate(siteConfig?.siteId || "ananda-public");
             let systemPrompt: string;
+            let humanPrompt = sanitizedQuestion;
             if (isRetrievalRound) {
               const activeFiltersSummary = buildActiveFiltersSummaryForGeneration(
                 retrievalActiveFilterPromptData,
                 (result.sourceDocuments?.length ?? 0) === 0
               );
-              systemPrompt = buildRetrievalReinvokeSystemPrompt({
+              const reinvoke = buildRetrievalReinvokeMessages({
                 siteTemplate,
                 contextDocs: result.sourceDocuments || [],
                 chatHistory: pastMessages,
@@ -2001,8 +2131,12 @@ export async function setupAndExecuteLanguageModelChain(
                 activeFiltersSummary,
                 allowMoreTools: allowMoreRetrievalTools,
               });
+              systemPrompt = reinvoke.system;
+              humanPrompt = reinvoke.human;
             } else if (anthropicGeoOverride) {
               systemPrompt = GEO_ANSWER_SYSTEM_PROMPT;
+            } else if (isCachePromptLayoutEnabled()) {
+              systemPrompt = stripVariablePromptPlaceholders(siteTemplate);
             } else {
               systemPrompt = siteTemplate;
             }
@@ -2026,9 +2160,13 @@ export async function setupAndExecuteLanguageModelChain(
               firstByteTime = null;
             }
 
+            if (timingMetrics) {
+              timingMetrics.answerModelStart = Date.now();
+            }
+
             const messages = [
               new SystemMessage(systemPrompt),
-              new HumanMessage(sanitizedQuestion),
+              new HumanMessage(humanPrompt),
               new AIMessage({
                 content:
                   hadNativeToolCalls && typeof currentResponse?.content === "string" ? currentResponse.content : "",
@@ -2133,6 +2271,9 @@ export async function setupAndExecuteLanguageModelChain(
         });
       }
 
+      // Final answer message (first pass if no tools; post-tool / recovery turn otherwise).
+      applyProviderUsageToTimingMetrics(timingMetrics, result.answer);
+
       if (
         result.answer &&
         result.answer.content &&
@@ -2161,6 +2302,10 @@ export async function setupAndExecuteLanguageModelChain(
       finalTiming.totalTokens = tokensStreamed;
       if (firstTokenTime) {
         finalTiming.firstTokenGenerated = firstTokenTime;
+      }
+      if (timingMetrics) {
+        finalTiming.toolRounds = Number(timingMetrics.toolRounds) || 0;
+        finalTiming.retrievalToolMs = Number(timingMetrics.retrievalToolMs) || 0;
       }
 
       // Flush any remaining buffer content (for very short responses)

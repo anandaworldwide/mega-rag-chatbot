@@ -144,6 +144,14 @@ jest.mock("@langchain/core/runnables", () => {
       })),
     },
     RunnablePassthrough: RunnablePassthroughMock,
+    // Cache-friendly prompt layout uses RunnableLambda for system+human messages.
+    RunnableLambda: {
+      from: jest.fn().mockImplementation((fn) => ({
+        fn,
+        invoke: jest.fn().mockImplementation(async (input) => fn(input)),
+        pipe: jest.fn().mockReturnThis(),
+      })),
+    },
   };
 });
 

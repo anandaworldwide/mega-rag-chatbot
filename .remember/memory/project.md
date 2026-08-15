@@ -484,6 +484,16 @@ except ImportError:
   `CLAUDE_AB_TEST_FORCE_MODEL`. Do not leave force-model in `.env.*` for day-to-day local work.
 - **Keys**: Grok needs `XAI_API_KEY`; Fable holdout needs `ANTHROPIC_API_KEY`. Grok reasoning effort defaults
   to `low` for TTFB (`GROK_REASONING_EFFORT`; override to `medium`/`high` if needed).
+- **TTFB measurement**: Chat logs a grep-friendly `[TTFB_METRICS] {...}` JSON line with splits
+  (`geoIntentMs`, `promptLoadMs`, `rephraseMs`, `retrievalMs`, `answerModelWaitMs`, tool rounds, prompt size
+  estimates, provider cached/reasoning tokens). Label runs with `TTFB_EXPERIMENT` (default `baseline`).
+  Cache-friendly prompt layout and answer-first retrieval-tool guidance are **always on in code**
+  (stable system + variable human; `x-grok-conv-id` via `promptCacheKey` when using xAI; tools still bind). Rollback is a
+  code change, not env flags. Over-curb check harness: `web/scripts/retrieval-curb-quality.mjs`.
+  Local harness: `web/scripts/ttfb-baseline.mjs`.
+  Local `npm run dev` tees Next logs to `web/tmp/dev.log` (10MB rotate + `dev.log.1`) and appends
+  metrics to `web/tmp/ttfb-metrics.jsonl` (capped; disable with `TTFB_METRICS_FILE=0`). Prefer those
+  files over terminal paste when debugging latency.
 - **Provider auth / quota failures** (bad key, credits exhausted, spending limit, 429): chat UI gets a generic
   unavailable message (does not claim Ops email was sent); Ops still gets a throttled `sendOpsAlert` via
   `classifyLlmProviderChatFailure`. Never surface `console.x.ai`, team UUIDs, or raw billing text to users.

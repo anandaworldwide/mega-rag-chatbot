@@ -25,6 +25,8 @@ import {
   RETRIEVAL_TOOL_DEFINITIONS,
   RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE,
   RETRIEVAL_TOOL_GUIDANCE,
+  RETRIEVAL_TOOL_GUIDANCE_CURBED,
+  getRetrievalToolGuidance,
 } from "../../../../src/utils/server/tools/retrievalTools";
 
 const accessSiteConfig = {
@@ -265,9 +267,9 @@ describe("retrievalTools", () => {
       expect(isRetrievalToolName("get_user_location")).toBe(false);
       expect(MAX_RETRIEVAL_TOOL_ITERATIONS).toBe(2);
       expect(MAX_ADDED_RETRIEVAL_SOURCES).toBe(8);
-      expect(RETRIEVAL_TOOL_GUIDANCE).toContain("Prefer ±1");
-      expect(RETRIEVAL_TOOL_GUIDANCE).toContain("not use this to pull the rest of a chapter");
-      expect(RETRIEVAL_TOOL_GUIDANCE).toContain("named-author focus");
+      expect(RETRIEVAL_TOOL_GUIDANCE).toContain("prefer ±1");
+      expect(RETRIEVAL_TOOL_GUIDANCE).toContain("Default: answer from the given sources now");
+      expect(RETRIEVAL_TOOL_GUIDANCE).toContain("just in case");
       expect(RETRIEVAL_TOOL_DEFINITIONS[0].function.description).toContain("default ±1");
     });
 
@@ -286,6 +288,15 @@ describe("retrievalTools", () => {
         false
       );
       expect(shouldBindRetrievalTools(undefined, "gpt-4o", isAnthropic)).toBe(false);
+    });
+
+    it("uses answer-first retrieval guidance while keeping tools bound", () => {
+      const isAnthropic = (name: string) => name.startsWith("claude");
+      expect(
+        shouldBindRetrievalTools({ enableRetrievalTools: true } as SiteConfig, "grok-4.5", isAnthropic)
+      ).toBe(true);
+      expect(getRetrievalToolGuidance()).toContain("Default: answer from the given sources now");
+      expect(RETRIEVAL_TOOL_GUIDANCE_CURBED).toContain("simple definitions");
     });
   });
 

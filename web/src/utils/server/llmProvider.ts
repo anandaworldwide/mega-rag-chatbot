@@ -9,6 +9,11 @@ export type ChatModelOptions = {
   maxTokens?: number;
   /** Anthropic output effort (adaptive models). Lower = less thinking latency. */
   effort?: "low" | "medium" | "high" | "xhigh" | "max";
+  /**
+   * Sticky conversation id for xAI prompt-cache routing (`x-grok-conv-id`).
+   * Prefer a real conversation id; fall back to siteId for first turns.
+   */
+  promptCacheKey?: string;
 };
 
 export type GrokReasoningEffort = "low" | "medium" | "high";
@@ -50,7 +55,7 @@ export function resolveGrokReasoningEffort(): GrokReasoningEffort {
  * Returns a LangChain chat model for OpenAI, Anthropic, or xAI (Grok) based on the model id.
  */
 export function getChatModel(options: ChatModelOptions): BaseChatModel {
-  const { model, temperature, streaming = false, maxTokens, effort } = options;
+  const { model, temperature, streaming = false, maxTokens, effort, promptCacheKey } = options;
 
   if (isAnthropicModel(model)) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -84,6 +89,10 @@ export function getChatModel(options: ChatModelOptions): BaseChatModel {
     }
 
     const reasoningEffort = resolveGrokReasoningEffort();
+    const defaultHeaders =
+      promptCacheKey && promptCacheKey.trim().length > 0
+        ? { "x-grok-conv-id": promptCacheKey.trim() }
+        : undefined;
     return new ChatOpenAI({
       model,
       temperature,
@@ -91,6 +100,7 @@ export function getChatModel(options: ChatModelOptions): BaseChatModel {
       apiKey,
       configuration: {
         baseURL: XAI_API_BASE_URL,
+        ...(defaultHeaders ? { defaultHeaders } : {}),
       },
       // xAI Chat Completions accepts reasoning_effort for grok-4.5 (API default high; we use low for TTFB).
       modelKwargs: {

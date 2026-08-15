@@ -8,6 +8,11 @@ import readline from "readline";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/** Full Next.js stdout/stderr tee; rotated when it exceeds this size. */
+const DEV_LOG_MAX_BYTES = 10 * 1024 * 1024;
+const DEV_LOG_PATH = path.join(__dirname, "..", "tmp", "dev.log");
+const DEV_LOG_PREV_PATH = path.join(__dirname, "..", "tmp", "dev.log.1");
+
 // Function to get available sites from config
 function getAvailableSites() {
   const configPath = path.join(__dirname, "..", "site-config", "config.json");
@@ -80,6 +85,57 @@ function promptSiteSelection() {
   });
 }
 
+/**
+ * Tee child stdout/stderr to the terminal and a size-capped rotating log file.
+ * Keeps at most ~2 × DEV_LOG_MAX_BYTES on disk (current + one previous).
+ */
+function createRotatingLogWriter() {
+  const tmpDir = path.dirname(DEV_LOG_PATH);
+  fs.mkdirSync(tmpDir, { recursive: true });
+
+  let bytesWritten = fs.existsSync(DEV_LOG_PATH) ? fs.statSync(DEV_LOG_PATH).size : 0;
+  let logFd = fs.openSync(DEV_LOG_PATH, "a");
+
+  function rotateIfNeeded(incomingBytes) {
+    if (bytesWritten + incomingBytes <= DEV_LOG_MAX_BYTES) {
+      return;
+    }
+    fs.closeSync(logFd);
+    if (fs.existsSync(DEV_LOG_PREV_PATH)) {
+      fs.unlinkSync(DEV_LOG_PREV_PATH);
+    }
+    if (fs.existsSync(DEV_LOG_PATH)) {
+      fs.renameSync(DEV_LOG_PATH, DEV_LOG_PREV_PATH);
+    }
+    logFd = fs.openSync(DEV_LOG_PATH, "w");
+    bytesWritten = 0;
+  }
+
+  function write(chunk) {
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    rotateIfNeeded(buf.length);
+    fs.writeSync(logFd, buf);
+    bytesWritten += buf.length;
+  }
+
+  function close() {
+    try {
+      fs.closeSync(logFd);
+    } catch {
+      // already closed
+    }
+  }
+
+  return { write, close, path: DEV_LOG_PATH };
+}
+
+function teeStream(readable, writeTerminal, logWriter) {
+  readable.on("data", (chunk) => {
+    writeTerminal(chunk);
+    logWriter.write(chunk);
+  });
+}
+
 // Main function
 async function main() {
   // If site is provided as command line argument, use it directly
@@ -103,20 +159,44 @@ async function main() {
 
   // CRITICAL: Make sure SITE_ID is set
   process.env.SITE_ID = site;
-  console.log(`Starting Next.js with SITE_ID: ${site}\n`);
+  console.log(`Starting Next.js with SITE_ID: ${site}`);
 
-  // Pass the environment to the spawned process
+  const logWriter = createRotatingLogWriter();
+  console.log(
+    `Logging to ${logWriter.path} (rotate at ${Math.round(DEV_LOG_MAX_BYTES / (1024 * 1024))}MB; previous → dev.log.1)`
+  );
+  console.log(`TTFB metrics JSONL: ${path.join(__dirname, "..", "tmp", "ttfb-metrics.jsonl")}\n`);
+
+  // Pass the environment to the spawned process; pipe stdout/stderr so we can tee.
   const nextDev = spawn("next", ["dev", "--webpack", "-H", "0.0.0.0"], {
-    stdio: "inherit",
+    stdio: ["inherit", "pipe", "pipe"],
     env: process.env,
   });
 
+  if (nextDev.stdout) {
+    teeStream(nextDev.stdout, (chunk) => process.stdout.write(chunk), logWriter);
+  }
+  if (nextDev.stderr) {
+    teeStream(nextDev.stderr, (chunk) => process.stderr.write(chunk), logWriter);
+  }
+
+  const forwardSignal = (signal) => {
+    if (!nextDev.killed) {
+      nextDev.kill(signal);
+    }
+  };
+  process.on("SIGINT", () => forwardSignal("SIGINT"));
+  process.on("SIGTERM", () => forwardSignal("SIGTERM"));
+
   nextDev.on("error", (err) => {
     console.error("Failed to start Next.js dev server:", err);
+    logWriter.close();
   });
 
   nextDev.on("close", (code) => {
+    logWriter.close();
     console.log(`Next.js dev server exited with code ${code}`);
+    process.exit(code ?? 0);
   });
 }
 

@@ -84,6 +84,7 @@ import { generateTitle } from "@/utils/server/titleGeneration";
 import { firestoreUpdate } from "@/utils/server/firestoreRetryUtils";
 import { updateUserActivity } from "@/utils/server/userActivityUtils";
 import { ModelPerformanceRecordContext, ModelPerformanceTracker } from "@/utils/server/modelPerformanceUtils";
+import { buildTtfbMetricsPayload, logTtfbMetrics, resolveTtfbExperiment } from "@/utils/server/ttfbMetrics";
 import {
   getTitleScopeFilterConflict,
   resolveTitleScopeSelection,
@@ -143,6 +144,21 @@ interface TimingMetrics {
   totalTokens?: number;
   tokensPerSecond?: number;
   totalTime?: number;
+  geoIntentMs?: number;
+  promptLoadMs?: number;
+  rephraseMs?: number;
+  retrievalMs?: number;
+  answerModelWaitMs?: number;
+  answerModelStart?: number;
+  toolRounds?: number;
+  retrievalToolMs?: number;
+  systemPromptTokens?: number;
+  contextTokens?: number;
+  historyTokens?: number;
+  promptTokens?: number;
+  cachedTokens?: number;
+  completionTokens?: number;
+  reasoningTokens?: number;
 }
 
 interface ChatRequestBody {
@@ -1022,6 +1038,7 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
 
         // Execute the full chain
         timingMetrics.chainExecutionStart = Date.now();
+        const promptCacheKey = conversationId || sanitizedInput.convId || siteConfig.siteId || "unknown";
         const { fullResponse, finalDocs, restatedQuestion, suggestionsPromise, model, temperature, isLocationQuery } =
           await setupAndExecuteLanguageModelChain(
             retriever,
@@ -1040,7 +1057,8 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
             sanitizedInput.collection || "whole_library",
             sanitizedInput.taskMode,
             resolvedTitleScope?.displayTitle,
-            effectiveAccess.level
+            effectiveAccess.level,
+            promptCacheKey
           );
         // --- End of Encapsulated Call ---
         timingMetrics.answerStreamingComplete = Date.now();
@@ -1205,6 +1223,7 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
           status: requestStatus,
           totalTokens: timingMetrics.totalTokens || 0,
           tokensPerSecond: timingMetrics.tokensPerSecond || 0,
+          experiment: resolveTtfbExperiment(),
         };
 
         // Log comprehensive performance metrics
@@ -1247,26 +1266,56 @@ async function logPerformanceMetrics(metrics: TimingMetrics, context: ModelPerfo
       timings.tokenDelivery;
     const unaccountedTTFB = timings.ttfb - accountedTTFB;
 
-    // Build setup phase section conditionally
-    const setupPhaseLines = [];
-    if (timings.pineconeSetup > 50) {
-      setupPhaseLines.push(`        Pinecone setup: ${(timings.pineconeSetup / 1000).toFixed(2)}s`);
-    }
-    if (timings.vectorStoreSetup > 50) {
-      setupPhaseLines.push(`        Vector store setup: ${(timings.vectorStoreSetup / 1000).toFixed(2)}s`);
-    }
-    if (timings.chainExecution > 50) {
-      setupPhaseLines.push(`        Chain execution prep: ${(timings.chainExecution / 1000).toFixed(2)}s`);
-    }
+    const ttfbPayload = buildTtfbMetricsPayload({
+      model: context.modelName,
+      ttfbMs: timings.ttfb,
+      pineconeSetupMs: timings.pineconeSetup,
+      vectorStoreSetupMs: timings.vectorStoreSetup,
+      chainExecutionMs: timings.chainExecution,
+      llmThinkTimeMs: timings.llmThinkTime,
+      tokenDeliveryMs: timings.tokenDelivery,
+      splits: {
+        geoIntentMs: timings.geoIntentMs,
+        promptLoadMs: timings.promptLoadMs,
+        rephraseMs: timings.rephraseMs,
+        retrievalMs: timings.retrievalMs,
+        answerModelWaitMs: timings.answerModelWaitMs,
+        toolRounds: timings.toolRounds,
+        retrievalToolMs: timings.retrievalToolMs,
+      },
+      promptSizes: {
+        systemPromptTokens: timings.systemPromptTokens,
+        contextTokens: timings.contextTokens,
+        historyTokens: timings.historyTokens,
+      },
+      usage: {
+        promptTokens: timings.promptTokens,
+        cachedTokens: timings.cachedTokens,
+        completionTokens: timings.completionTokens,
+        reasoningTokens: timings.reasoningTokens,
+      },
+    });
+    logTtfbMetrics(ttfbPayload);
 
-    // Build AI processing section conditionally
-    const aiProcessingLines = [];
-    if (timings.llmThinkTime > 50) {
-      aiProcessingLines.push(`        LLM think time: ${(timings.llmThinkTime / 1000).toFixed(2)}s`);
-    }
-    if (timings.tokenDelivery > 50) {
-      aiProcessingLines.push(`        Token delivery: ${(timings.tokenDelivery / 1000).toFixed(2)}s`);
-    }
+    // Build setup phase section — always print split lines for measurement
+    const setupPhaseLines = [
+      `        Pinecone setup: ${(timings.pineconeSetup / 1000).toFixed(2)}s`,
+      `        Vector store setup: ${(timings.vectorStoreSetup / 1000).toFixed(2)}s`,
+      `        Chain execution prep: ${(timings.chainExecution / 1000).toFixed(2)}s`,
+    ];
+
+    const aiProcessingLines = [
+      `        Geo intent: ${(timings.geoIntentMs / 1000).toFixed(2)}s`,
+      `        Prompt load: ${(timings.promptLoadMs / 1000).toFixed(2)}s`,
+      `        Rephrase: ${(timings.rephraseMs / 1000).toFixed(2)}s`,
+      `        Retrieval: ${(timings.retrievalMs / 1000).toFixed(2)}s`,
+      `        Answer model wait (prefill+reason): ${(timings.answerModelWaitMs / 1000).toFixed(2)}s`,
+      `        LLM think time (blob): ${(timings.llmThinkTime / 1000).toFixed(2)}s`,
+      `        Token delivery: ${(timings.tokenDelivery / 1000).toFixed(2)}s`,
+      `        Tool rounds: ${timings.toolRounds} (${(timings.retrievalToolMs / 1000).toFixed(2)}s)`,
+      `        Prompt est tokens: sys=${timings.systemPromptTokens} ctx=${timings.contextTokens} hist=${timings.historyTokens}`,
+      `        Provider usage: prompt=${timings.promptTokens} cached=${timings.cachedTokens} completion=${timings.completionTokens} reasoning=${timings.reasoningTokens}`,
+    ];
     if (unaccountedTTFB > 100) {
       aiProcessingLines.push(`        Unaccounted TTFB: ${(unaccountedTTFB / 1000).toFixed(2)}s`);
     }
@@ -1274,22 +1323,14 @@ async function logPerformanceMetrics(metrics: TimingMetrics, context: ModelPerfo
     console.log(`
     ⚡️ Chat Performance Breakdown:
       Model: ${context.modelName}
+      Experiment: ${context.experiment || resolveTtfbExperiment()}
       
-      ${
-        setupPhaseLines.length > 0
-          ? `🔧 Setup Phase:
-${setupPhaseLines.join("\n")}`
-          : ""
-      }
+      🔧 Setup Phase:
+${setupPhaseLines.join("\n")}
       
-      ${
-        aiProcessingLines.length > 0
-          ? `🤖 AI Processing:
+      🤖 AI Processing:
 ${aiProcessingLines.join("\n")}
-        → Time to first byte: ${(timings.ttfb / 1000).toFixed(2)}s`
-          : `🤖 AI Processing:
-        → Time to first byte: ${(timings.ttfb / 1000).toFixed(2)}s`
-      }
+        → Time to first byte: ${(timings.ttfb / 1000).toFixed(2)}s
       
       📡 Streaming & Processing:
         Answer streaming: ${(timings.answerStreaming / 1000).toFixed(2)}s (${context.tokensPerSecond || 0} chars/sec)
