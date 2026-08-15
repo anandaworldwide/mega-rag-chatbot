@@ -130,6 +130,23 @@ describe("buildActiveFilterPromptData", () => {
     expect(result.hasRestrictiveFilters).toBe(false);
     expect(result.inferredAuthor).toBe("Asha Nayaswami");
   });
+
+  it("keeps a user-set Collection line when query-inferred author focus is also present", () => {
+    const result = buildActiveFilterPromptData(
+      mockSiteConfig as any,
+      undefined,
+      "bible",
+      undefined,
+      undefined,
+      "Asha Nayaswami"
+    );
+
+    expect(result.collectionLabel).toBe("Bible");
+    expect(result.activeFiltersSummary).toContain("- Collection: Bible");
+    expect(result.activeFiltersSummary).toContain(`- ${formatInferredAuthorFocusLine("Asha Nayaswami")}`);
+    expect(result.hasRestrictiveFilters).toBe(true);
+    expect(result.inferredAuthor).toBe("Asha Nayaswami");
+  });
 });
 
 describe("buildActiveFiltersSummaryForGeneration", () => {
@@ -197,6 +214,24 @@ describe("buildActiveFiltersSummaryForGeneration", () => {
     expect(summary).toContain(EMPTY_RETRIEVAL_INFERRED_AUTHOR_HINT);
     expect(summary).not.toContain(EMPTY_RETRIEVAL_FILTER_HINT);
     expect(EMPTY_RETRIEVAL_INFERRED_AUTHOR_HINT).toContain("user did not set a chat filter");
+  });
+
+  it("prefers the user-set filter empty hint when Collection and inferred author both apply", () => {
+    const data = buildActiveFilterPromptData(
+      mockSiteConfig as any,
+      undefined,
+      "bible",
+      undefined,
+      undefined,
+      "Asha Nayaswami"
+    );
+    expect(data.hasRestrictiveFilters).toBe(true);
+
+    const summary = buildActiveFiltersSummaryForGeneration(data, true);
+
+    expect(summary).toContain("- Collection: Bible");
+    expect(summary).toContain(EMPTY_RETRIEVAL_FILTER_HINT);
+    expect(summary).not.toContain(EMPTY_RETRIEVAL_INFERRED_AUTHOR_HINT);
   });
 });
 

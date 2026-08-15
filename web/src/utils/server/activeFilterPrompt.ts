@@ -108,11 +108,15 @@ export function buildActiveFilterPromptData(
       ? siteConfig?.collectionConfig?.[selectedCollectionKey] || selectedCollectionKey
       : undefined;
 
+  // Inferred author replaces Automatic ranking only. Collection is a separate user-set
+  // filter and must still appear (and count as restrictive) when both apply.
   if (namedAuthor) {
     lines.push(`- ${formatInferredAuthorFocusLine(namedAuthor)}`);
   } else if (selectedCollectionKey === "auto") {
     lines.push(`- ${AUTOMATIC_AUTHOR_RANKING_LINE}`);
-  } else if (collectionLabel) {
+  }
+
+  if (collectionLabel) {
     lines.push(`- Collection: ${collectionLabel}`);
     restrictiveFilterCount++;
   }

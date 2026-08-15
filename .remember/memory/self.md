@@ -3303,6 +3303,17 @@ Fail closed (503) on non-finite/negative counters and on `max <= 0` / `windowMs 
 **Correct**:
 Reject `:` in fields at generate; require exact part counts on verify; length-check before `timingSafeEqual`.
 
+### Mistake: If/else collapsing independent filter summary lines
+
+**Wrong**:
+Chain query-inferred author, Automatic ranking, and user-set `Collection` in one `if`/`else if`.
+A named author then drops the Collection line and `hasRestrictiveFilters`, so empty-retrieval
+hints blame author focus instead of the Pinecone collection filter still in `baseFilter`.
+
+**Correct**:
+Inferred author and Automatic ranking are mutually exclusive. Collection / Libraries / Media /
+Source scope are independent and must still be listed and counted as restrictive when active.
+
 ### Mistake: Clarifying-chat follow-up tests with sparse slot replies
 
 **Wrong**:

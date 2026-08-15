@@ -65,7 +65,8 @@ When `enableAutoAuthorScope` is enabled:
 - **Prompt filter labels** (`activeFiltersSummary`):
   - `Author ranking: Automatic` — score boost only; not a hard filter; never tell the user to turn it off.
   - `Query-inferred author focus (not a UI filter)` — hard `$eq` because the current question named an author; not a
-    user-set control; do not say they set a focused-author filter.
+    user-set control; do not say they set a focused-author filter. This line does **not** replace a user-set
+    `Collection` line; both appear when a restrictive collection is also active.
   - User-set `Collection` / `Libraries` / `Media types` / `Source scope` — the only lines that may produce "broaden or
     turn off that filter."
 - **Named-author detection at scale**: When auto author scope is active, chat loads a cached author index from Firestore
