@@ -59,6 +59,15 @@ When `enableAutoAuthorScope` is enabled:
   deterministic alias matching (manual `authorAliases` plus an auto-generated index from Firestore
   `libraryStats/{site}.authors`) plus the default blend boost when no author is named. Follow-up messages piggyback
   author-scope classification on the rephrase call.
+- **Named-author detection uses the current user utterance**, not the history-rewritten standalone question. Rephrase
+  often injects Master/Swami names from prior turns; matching on that rewrite would hard-filter authors the user never
+  named in this question. The rewritten question is still used for the vector query.
+- **Prompt filter labels** (`activeFiltersSummary`):
+  - `Author ranking: Automatic` — score boost only; not a hard filter; never tell the user to turn it off.
+  - `Query-inferred author focus (not a UI filter)` — hard `$eq` because the current question named an author; not a
+    user-set control; do not say they set a focused-author filter.
+  - User-set `Collection` / `Libraries` / `Media types` / `Source scope` — the only lines that may produce "broaden or
+    turn off that filter."
 - **Named-author detection at scale**: When auto author scope is active, chat loads a cached author index from Firestore
   `libraryStats/{site}.authors` (1h in-process cache, fail-fast timeout). Tokens are derived from canonical Pinecone
   author names (first name, surname, title-stripped full name) with ambiguous shared tokens dropped. Manual

@@ -87,7 +87,7 @@ import { extractJsonArray } from "./suggestionParsing";
 import { filterSuggestionsForDiversity } from "./suggestionDiversity";
 import { AuthorScopeHint, AuthorScopeMode } from "./authorConstants";
 import { getAuthorScopeIndex } from "./authorIndex";
-import { resolveAuthorScope } from "./authorScopeResolver";
+import { getAuthorMatchQuestion, resolveAuthorScope } from "./authorScopeResolver";
 import {
   buildLibraryFilter,
   buildMasterSwamiFilter,
@@ -451,6 +451,7 @@ function refreshActiveFilterPromptData(
   );
   target.activeFiltersSummary = refreshed.activeFiltersSummary;
   target.hasRestrictiveFilters = refreshed.hasRestrictiveFilters;
+  target.inferredAuthor = refreshed.inferredAuthor;
   target.collectionLabel = refreshed.collectionLabel;
   target.selectedLibraries = refreshed.selectedLibraries;
   target.mediaTypes = refreshed.mediaTypes;
@@ -560,6 +561,9 @@ export const makeChain = async (
   let rephraseModel: BaseLanguageModel; // New model for rephrasing
   let isLocationQuery = false; // Flag to track if this is a location query
   let capturedAuthorScopeHint: AuthorScopeHint = "default";
+  // Current user utterance captured before rephrase, so named-author detection cannot
+  // hard-filter on Master/Swami names the rewrite injected from prior turns.
+  let capturedUserUtterance = "";
   // Set inside the retrieval step so the generation prompt can soften its answer when
   // restrictive filters yield no documents (see buildActiveFiltersSummaryForGeneration).
   let retrievalReturnedNoDocuments = false;
@@ -909,8 +913,12 @@ Error details: ${errorString}`,
           ? await getAuthorScopeIndex(siteId)
           : { canonicalAuthors: [], aliasIndex: {} };
 
+        const authorMatchQuestion = getAuthorMatchQuestion(
+          capturedUserUtterance || originalQuestion,
+          input.question
+        );
         const scopeDescriptor = resolveAuthorScope({
-          question: input.question,
+          question: authorMatchQuestion,
           scopeHint: capturedAuthorScopeHint,
           siteConfig,
           collectionMode,
@@ -928,12 +936,16 @@ Error details: ${errorString}`,
             selectedTitleScopeLabel,
             scopeDescriptor.author
           );
+          if (retrievalFilterCapture) {
+            retrievalFilterCapture.inferredAuthor = scopeDescriptor.author;
+          }
         }
 
         if (useAutoAuthorScope && scopeDescriptor.kind !== "blend") {
           logAuthorScopeDebug(
             {
               question: input.question,
+              authorMatchQuestion,
               selectedCollectionKey,
               collectionMode,
               scopeHint: capturedAuthorScopeHint,
@@ -971,6 +983,7 @@ Error details: ${errorString}`,
             logAuthorScopeDebug(
               {
                 question: input.question,
+                authorMatchQuestion,
                 selectedCollectionKey,
                 collectionMode,
                 scopeHint: capturedAuthorScopeHint,
@@ -1288,6 +1301,7 @@ Error details: ${errorString}`,
   const conversationalRetrievalQAChain = RunnableSequence.from([
     {
       question: async (input: AnswerChainInput) => {
+        capturedUserUtterance = input.question;
         // Debug: Log the original question only if not in temporary mode
         if (!temporarySession) {
           const debugMsg = `🔍 ORIGINAL QUESTION: "${input.question}"`;
@@ -1869,7 +1883,13 @@ export async function setupAndExecuteLanguageModelChain(
 
       // Handle tool calls with proper loop (OpenAI tool_calls + Anthropic tool_use / JSON fallback)
       let pendingToolCalls = extractGeoToolCalls(result.answer);
-      if (pendingToolCalls.length > 0) {
+      const retrievalToolsEnabled = shouldBindRetrievalTools(siteConfig, modelName, isAnthropicModel, {
+        taskMode,
+      });
+      // Plain-text "I'll search…" with no tool_calls never entered this loop, so the leak became the answer.
+      const firstPassIsSearchNarration =
+        retrievalToolsEnabled && isIncompleteRetrievalAnswer(fullResponse);
+      if (pendingToolCalls.length > 0 || firstPassIsSearchNarration) {
         console.log("🔧 Starting tool execution loop");
 
         const { executeTool } = await import("./tools");
@@ -1882,15 +1902,13 @@ export async function setupAndExecuteLanguageModelChain(
         let retrievalIterations = 0;
 
         const originalSourceDocuments = Array.isArray(result.sourceDocuments) ? [...result.sourceDocuments] : [];
-        const retrievalToolsEnabled = shouldBindRetrievalTools(siteConfig, modelName, isAnthropicModel, {
-          taskMode,
-        });
         const retrievalActiveFilterPromptData = buildActiveFilterPromptData(
           siteConfig,
           filter,
           selectedCollectionKey,
           selectedLibraries,
-          selectedTitleScopeLabel
+          selectedTitleScopeLabel,
+          retrievalFilterCapture.inferredAuthor
         );
 
         let retrievalToolContext: RetrievalToolContext | null = null;
@@ -1923,6 +1941,7 @@ export async function setupAndExecuteLanguageModelChain(
         const forceRetrievalAnswerOnly = async (reason: string) => {
           console.warn(`⚠️ Forcing retrieval answer-only turn (${reason})`);
           retrievalAnswerForced = true;
+          sendData({ status: "retrieving_more_sources" });
           const siteTemplate = await getFullTemplate(siteConfig?.siteId || "ananda-public");
           const activeFiltersSummary = buildActiveFiltersSummaryForGeneration(
             retrievalActiveFilterPromptData,
@@ -1997,6 +2016,10 @@ export async function setupAndExecuteLanguageModelChain(
         };
 
         await streamingDeadline.waitWithDeadline(async () => {
+          if (pendingToolCalls.length === 0 && firstPassIsSearchNarration) {
+            await forceRetrievalAnswerOnly("first-pass search narration with no tool calls");
+            return;
+          }
           while (pendingToolCalls.length > 0) {
             const isRetrievalRound = pendingToolCalls.some((call) => isRetrievalToolName(call.name));
             if (isRetrievalRound) {
@@ -2175,9 +2198,8 @@ export async function setupAndExecuteLanguageModelChain(
               ...allToolMessages,
             ];
 
-            // When tools are unbound, buffer first so leaked tool JSON / "Gathering…"
-            // trail-offs never hit the client before we can force a real answer.
-            const bufferAnswerOnlyTurn = isRetrievalRound && !allowMoreRetrievalTools;
+            // Buffer every retrieval follow-up stream so "Trying a tighter search…" never hits the client.
+            const bufferRetrievalFollowUp = isRetrievalRound;
 
             const flushBufferedAnswer = (text: string) => {
               if (!text) return;
@@ -2209,7 +2231,7 @@ export async function setupAndExecuteLanguageModelChain(
               if (!text) {
                 continue;
               }
-              if (bufferAnswerOnlyTurn) {
+              if (bufferRetrievalFollowUp) {
                 bufferedAnswer += text;
                 continue;
               }
@@ -2223,7 +2245,7 @@ export async function setupAndExecuteLanguageModelChain(
                   ? toolResponse.content
                   : extractStreamedTextDelta(toolResponse);
               if (fallbackText) {
-                if (bufferAnswerOnlyTurn) {
+                if (bufferRetrievalFollowUp) {
                   if (!bufferedAnswer) {
                     bufferedAnswer = fallbackText;
                   }
@@ -2236,8 +2258,11 @@ export async function setupAndExecuteLanguageModelChain(
             currentResponse = toolResponse;
             pendingToolCalls = extractGeoToolCalls(currentResponse);
 
-            if (bufferAnswerOnlyTurn) {
+            if (bufferRetrievalFollowUp) {
               const hasFurtherRetrievalCalls = pendingToolCalls.some((call) => isRetrievalToolName(call.name));
+              if (hasFurtherRetrievalCalls && allowMoreRetrievalTools) {
+                continue;
+              }
               if (hasFurtherRetrievalCalls || isIncompleteRetrievalAnswer(bufferedAnswer)) {
                 console.warn(
                   `⚠️ Discarding incomplete post-retrieval answer (${bufferedAnswer.length} chars); forcing answer-only recovery`

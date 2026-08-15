@@ -63,6 +63,7 @@ export function buildRetrievalToolFilter(
 /** Mutable capture so makeChain can hand the effective Pinecone filter to RetrievalToolContext. */
 export type RetrievalFilterCapture = {
   filter?: Record<string, unknown>;
+  inferredAuthor?: string;
 };
 
 function getDocumentKey(doc: Document): string {

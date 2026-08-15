@@ -1,11 +1,16 @@
 /** @jest-environment node */
 
+import fs from "fs";
+import path from "path";
 import {
+  AUTOMATIC_AUTHOR_RANKING_LINE,
   buildActiveFilterPromptData,
   buildActiveFiltersSummaryForGeneration,
   EMPTY_RETRIEVAL_FILTER_HINT,
+  EMPTY_RETRIEVAL_INFERRED_AUTHOR_HINT,
   extractMediaTypeFilter,
   formatAuthorScopeDebugLog,
+  formatInferredAuthorFocusLine,
 } from "@/utils/server/activeFilterPrompt";
 
 const mockSiteConfig = {
@@ -98,18 +103,18 @@ describe("buildActiveFilterPromptData", () => {
 
     const result = buildActiveFilterPromptData(autoSiteConfig as any, undefined, "auto");
 
-    expect(result.activeFiltersSummary).toContain("- Author scope: Automatic (Master and Swami preferred)");
+    expect(result.activeFiltersSummary).toContain(`- ${AUTOMATIC_AUTHOR_RANKING_LINE}`);
     expect(result.activeFiltersSummary).not.toContain("- Collection:");
   });
 
   it("treats auto author scope alone as non-restrictive (it is the broadest setting)", () => {
     const result = buildActiveFilterPromptData(mockSiteConfig as any, undefined, "auto");
 
-    expect(result.activeFiltersSummary).toContain("- Author scope: Automatic (Master and Swami preferred)");
+    expect(result.activeFiltersSummary).toContain(`- ${AUTOMATIC_AUTHOR_RANKING_LINE}`);
     expect(result.hasRestrictiveFilters).toBe(false);
   });
 
-  it("includes focused author when named author scope is resolved", () => {
+  it("labels query-inferred author focus and does not treat it as a user-set filter", () => {
     const result = buildActiveFilterPromptData(
       mockSiteConfig as any,
       undefined,
@@ -119,8 +124,11 @@ describe("buildActiveFilterPromptData", () => {
       "Asha Nayaswami"
     );
 
-    expect(result.activeFiltersSummary).toContain("- Focused author: Asha Nayaswami");
-    expect(result.hasRestrictiveFilters).toBe(true);
+    expect(result.activeFiltersSummary).toContain(`- ${formatInferredAuthorFocusLine("Asha Nayaswami")}`);
+    expect(result.activeFiltersSummary).not.toContain("Focused author:");
+    expect(result.activeFiltersSummary).not.toContain(AUTOMATIC_AUTHOR_RANKING_LINE);
+    expect(result.hasRestrictiveFilters).toBe(false);
+    expect(result.inferredAuthor).toBe("Asha Nayaswami");
   });
 });
 
@@ -135,6 +143,7 @@ describe("buildActiveFiltersSummaryForGeneration", () => {
     expect(summary).toContain(`- ${EMPTY_RETRIEVAL_FILTER_HINT}`);
     expect(EMPTY_RETRIEVAL_FILTER_HINT).toContain("fully answer from information in this system prompt");
     expect(EMPTY_RETRIEVAL_FILTER_HINT).toContain("do NOT mention the empty retrieval");
+    expect(EMPTY_RETRIEVAL_FILTER_HINT).toContain("user-set filter");
   });
 
   it("does not append the hint when documents were retrieved", () => {
@@ -170,6 +179,25 @@ describe("buildActiveFiltersSummaryForGeneration", () => {
     expect(summary).toBe(data.activeFiltersSummary);
     expect(summary).not.toContain(EMPTY_RETRIEVAL_FILTER_HINT);
   });
+
+  it("appends the inferred-author empty hint instead of the user-set filter hint", () => {
+    const data = buildActiveFilterPromptData(
+      mockSiteConfig as any,
+      undefined,
+      "auto",
+      undefined,
+      undefined,
+      "Asha Nayaswami"
+    );
+    expect(data.hasRestrictiveFilters).toBe(false);
+    expect(data.inferredAuthor).toBe("Asha Nayaswami");
+
+    const summary = buildActiveFiltersSummaryForGeneration(data, true);
+
+    expect(summary).toContain(EMPTY_RETRIEVAL_INFERRED_AUTHOR_HINT);
+    expect(summary).not.toContain(EMPTY_RETRIEVAL_FILTER_HINT);
+    expect(EMPTY_RETRIEVAL_INFERRED_AUTHOR_HINT).toContain("user did not set a chat filter");
+  });
 });
 
 describe("formatAuthorScopeDebugLog", () => {
@@ -197,7 +225,24 @@ describe("formatAuthorScopeDebugLog", () => {
     expect(message).toContain('UI collection key: auto');
     expect(message).toContain('LLM scope hint: broad');
     expect(message).toContain('named author "Asha Nayaswami"');
-    expect(message).toContain("- Focused author: Asha Nayaswami");
+    expect(message).toContain(`- ${formatInferredAuthorFocusLine("Asha Nayaswami")}`);
+  });
+
+  it("logs the author-match utterance when it differs from the retrieval query", () => {
+    const activeFilterPromptData = buildActiveFilterPromptData(mockSiteConfig as any, undefined, "auto");
+
+    const message = formatAuthorScopeDebugLog({
+      question: "How does Kundalini relate to music according to Paramhansa Yogananda and Swami Kriyananda?",
+      authorMatchQuestion: "How does Kundalini relate to music?",
+      selectedCollectionKey: "auto",
+      collectionMode: "auto",
+      scopeHint: "default",
+      scopeDescriptor: { kind: "blend", masterSwamiBoost: 0.2 },
+      activeFilterPromptData,
+    });
+
+    expect(message).toContain('author match utterance: "How does Kundalini relate to music?"');
+    expect(message).not.toContain("named author");
   });
 
   it("includes blend boost and ranked source scores when provided", () => {
@@ -234,5 +279,18 @@ describe("formatAuthorScopeDebugLog", () => {
     expect(message).toContain("blend fetch window: 12");
     expect(message).toContain("ananda.org");
     expect(message).toContain("0.8400 → 0.8400");
+  });
+});
+
+describe("ananda-base author-scope filter labels", () => {
+  it("teaches Automatic vs query-inferred vs user-set filters", () => {
+    const promptPath = path.join(process.cwd(), "site-config/prompts/ananda-base.txt");
+    const prompt = fs.readFileSync(promptPath, "utf-8");
+
+    expect(prompt).toContain("Author ranking: Automatic");
+    expect(prompt).toContain("Query-inferred author focus (not a UI filter)");
+    expect(prompt).toContain("NEVER call this a focused-author filter");
+    expect(prompt).toContain("NEVER say they set a focused-author filter");
+    expect(prompt).not.toContain("a `Focused author`");
   });
 });

@@ -35,6 +35,18 @@ function siteHasWeightedLibraries(siteConfig?: SiteConfig | null): boolean {
   );
 }
 
+/**
+ * Named-author detection must use the current user utterance, not the history-rewritten
+ * retrieval query. Rephrase often injects Master/Swami names from prior turns.
+ */
+export function getAuthorMatchQuestion(
+  userUtterance: string | undefined,
+  retrievalQuestion: string
+): string {
+  const utterance = userUtterance?.trim();
+  return utterance ? utterance : retrievalQuestion;
+}
+
 /** Finds an explicitly named author or title in the query (deterministic, conservative). */
 export function findExplicitAuthorMatch(
   question: string,

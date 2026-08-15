@@ -3255,7 +3255,7 @@ describe("makeChain", () => {
       });
 
       expect(mapped.activeFiltersSummary).toContain("- Source scope: Only Whispers from Eternity");
-      expect(mapped.activeFiltersSummary).toContain("No library sources matched your current filters");
+      expect(mapped.activeFiltersSummary).toContain("No library sources matched your current user-set filters");
     });
 
     it("omits the empty-retrieval hint when documents are retrieved", async () => {
@@ -3291,7 +3291,7 @@ describe("makeChain", () => {
         originalInput: { question: "meditation", chat_history: "" },
       });
 
-      expect(mapped.activeFiltersSummary).not.toContain("No library sources matched your current filters");
+      expect(mapped.activeFiltersSummary).not.toContain("No library sources matched your current user-set filters");
     });
   });
 });

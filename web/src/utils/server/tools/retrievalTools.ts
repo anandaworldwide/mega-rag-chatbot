@@ -105,14 +105,21 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
   }
 
   const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
-  const isSearchNarration =
-    /^(i('ll| will)|i am|i'm|let me|gathering|pulling|searching|looking up|fetching)\b/i.test(trimmed) &&
-    /\b(search|source|sources|passage|passages|chunk|chunks|quote|quotes|richer|additional|more)\b/i.test(
+  const startsLikeSearchNarration =
+    /^(i('ll| will)|i am|i'm|i don['’]t|let me|gathering|pulling|searching|seeking|looking up|fetching|trying|expanding)\b/i.test(
+      trimmed
+    );
+  const mentionsRetrievalWork =
+    /\b(search|searching|source|sources|passage|passages|chunk|chunks|quote|quotes|richer|additional|more|tighter search|tighter query|book material)\b/i.test(
+      trimmed
+    );
+  const hasGluedSearchNarration =
+    /\b(expanding the strongest|trying a tighter search|searching the book material|i('ll| will) pull)\b/i.test(
       trimmed
     );
 
-  // Short "I'll gather richer sources…" trail-offs with no real deliverable body.
-  if (wordCount < 60 && isSearchNarration) {
+  // Short "I'll gather richer sources…" trail-offs, including glued status-like sentences.
+  if (wordCount < 80 && mentionsRetrievalWork && (startsLikeSearchNarration || hasGluedSearchNarration)) {
     return true;
   }
 

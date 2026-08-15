@@ -358,6 +358,38 @@ describe("retrievalTools", () => {
       ).toBe(true);
     });
 
+    it("treats 'I don't yet have passages, so I'm searching' narration as incomplete", () => {
+      expect(
+        isIncompleteRetrievalAnswer(
+          "I don't yet have passages that clearly cover the settlement talks, so I'm searching the book material more specifically."
+        )
+      ).toBe(true);
+    });
+
+    it("treats glued I'll-pull plus Expanding-the-strongest narration as incomplete", () => {
+      expect(
+        isIncompleteRetrievalAnswer(
+          "I'll pull stronger library material on introductory Bhagavad Gita teachings, quotes from Master and Swamiji, and a short story so the 90-minute outline is well grounded.Expanding the strongest Gita chunks for usable quotes and teaching detail...."
+        )
+      ).toBe(true);
+    });
+
+    it("treats a follow-up 'Expanding the strongest chunks' sentence as incomplete", () => {
+      expect(
+        isIncompleteRetrievalAnswer(
+          "Expanding the strongest Gita chunks for usable quotes and teaching detail...."
+        )
+      ).toBe(true);
+    });
+
+    it("treats 'Seeking direct quotes' narration as incomplete", () => {
+      expect(
+        isIncompleteRetrievalAnswer(
+          "Seeking direct Gita quotes and a usable short story from the libraries...."
+        )
+      ).toBe(true);
+    });
+
     it("treats a full class outline answer as complete", () => {
       const outline = `
 # Living the Bhagavad Gita

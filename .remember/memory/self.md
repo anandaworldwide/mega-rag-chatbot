@@ -2766,6 +2766,12 @@ has already resolved it to a canonical identifier.
 **Correct**: Persist the canonical identifier and canonical display label for restoration, and keep the original typed text
 only as optional `userInput` metadata.
 
+### Mistake: Point Live Semantic Suites at Production URLs
+
+**Wrong**: Set `NEXT_PUBLIC_BASE_URL` to `vivek.ananda.org` / `luca.ananda.org` when running `test:queries:*` from this repo.
+
+**Correct**: Always hit localhost. Restart the local Next server with the matching site selected first (Vivek = `ananda-public`, Luca = `ananda`). Hitting production or the wrong local site returns JWT 401 / site-mismatch errors.
+
 ### Mistake: Semantic Tests Using Unresolvable Source-Scope Inputs
 
 **Wrong**: Writing live source-scope semantic tests around example inputs from planning docs (for example `Bible Genesis`)
@@ -3321,4 +3327,6 @@ tool JSON or a "I'll pull richer sources…" one-liner and stop.
 `allowMoreTools: false` guidance must be a CRITICAL OVERRIDE: tools unavailable, no JSON /
 Gathering narration, produce the complete deliverable. Buffer unbound answer turns and
 discard via `isIncompleteRetrievalAnswer` + `forceRetrievalAnswerOnly` before tokens reach
-the client; end-of-loop safety net covers the same incomplete shapes.
+the client; end-of-loop safety net covers the same incomplete shapes. Treat gerund
+search-narration openers (`Seeking`, `Expanding`, `Trying`, `Searching`) the same as
+`I'll` / `I don't` — the model rotates verbs.

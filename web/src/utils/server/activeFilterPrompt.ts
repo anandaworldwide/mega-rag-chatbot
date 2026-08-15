@@ -8,11 +8,20 @@ type ActiveMediaTypeFilter = { text?: boolean; audio?: boolean; youtube?: boolea
 export type ActiveFilterPromptData = {
   activeFiltersSummary: string;
   hasRestrictiveFilters: boolean;
+  inferredAuthor?: string;
   collectionLabel?: string;
   selectedLibraries?: string[];
   mediaTypes?: ActiveMediaTypeFilter;
   titleScopeLabel?: string;
 };
+
+/** Auto mode: score boost only. Must never be described as a user-set focused-author filter. */
+export const AUTOMATIC_AUTHOR_RANKING_LINE =
+  "Author ranking: Automatic (score boost only; not a hard filter; all authors remain searchable)";
+
+export function formatInferredAuthorFocusLine(author: string): string {
+  return `Query-inferred author focus (not a UI filter): ${author}`;
+}
 
 function getSiteLibraryNames(siteConfig?: AppSiteConfig | null): string[] {
   const libraries = siteConfig?.includedLibraries || [];
@@ -89,9 +98,9 @@ export function buildActiveFilterPromptData(
   namedAuthor?: string
 ): ActiveFilterPromptData {
   const lines: string[] = [];
-  // Auto author scope is the BROADEST setting (all authors, gentle Master/Swami boost), so it is
-  // surfaced for context but must NOT count as restrictive — otherwise an empty retrieval would
-  // wrongly tell the user to "broaden or turn off" a filter they never narrowed.
+  // Auto author ranking and query-inferred named-author are NOT user-set filters.
+  // Only Collection / Libraries / Media types / Source scope count as restrictive — otherwise
+  // an empty retrieval would tell the user to "broaden or turn off" a filter they never narrowed.
   let restrictiveFilterCount = 0;
   const allLibraryNames = getSiteLibraryNames(siteConfig);
   const collectionLabel =
@@ -99,15 +108,12 @@ export function buildActiveFilterPromptData(
       ? siteConfig?.collectionConfig?.[selectedCollectionKey] || selectedCollectionKey
       : undefined;
 
-  if (selectedCollectionKey === "auto") {
-    lines.push("- Author scope: Automatic (Master and Swami preferred)");
+  if (namedAuthor) {
+    lines.push(`- ${formatInferredAuthorFocusLine(namedAuthor)}`);
+  } else if (selectedCollectionKey === "auto") {
+    lines.push(`- ${AUTOMATIC_AUTHOR_RANKING_LINE}`);
   } else if (collectionLabel) {
     lines.push(`- Collection: ${collectionLabel}`);
-    restrictiveFilterCount++;
-  }
-
-  if (namedAuthor) {
-    lines.push(`- Focused author: ${namedAuthor}`);
     restrictiveFilterCount++;
   }
 
@@ -152,6 +158,7 @@ export function buildActiveFilterPromptData(
         ? `Current active filters:\n${lines.join("\n")}`
         : "Current active filters:\n- No restrictive filters are active.",
     hasRestrictiveFilters: restrictiveFilterCount > 0,
+    inferredAuthor: namedAuthor,
     collectionLabel,
     selectedLibraries: restrictiveLibraries,
     mediaTypes: restrictiveMediaTypes,
@@ -159,18 +166,27 @@ export function buildActiveFilterPromptData(
   };
 }
 
-/** Soft, in-chat hint appended to activeFiltersSummary when restrictive filters retrieve zero documents. */
+/** Soft, in-chat hint appended to activeFiltersSummary when user-set filters retrieve zero documents. */
 export const EMPTY_RETRIEVAL_FILTER_HINT =
-  "No library sources matched your current filters. If you can fully answer from information in this system prompt " +
+  "No library sources matched your current user-set filters. If you can fully answer from information in this system prompt " +
   "(resources, tools, community links, how-to guidance, etc.), answer that question directly with <<NO_SOURCES_USED>> " +
   "and do NOT mention the empty retrieval or ask the user to broaden filters. Only if the user was asking for library " +
   "teachings, quotes, or source material that you cannot provide from this prompt: briefly name the limiting " +
-  "filter(s) above, suggest broadening or turning them off, then you may offer general guidance — but do not invent " +
-  "or paraphrase quotes, teachings, or citations.";
+  "user-set filter(s) above (`Collection`, `Libraries`, `Media types`, or `Source scope`), suggest broadening or turning them off, then you may offer general guidance — but do not invent " +
+  "or paraphrase quotes, teachings, or citations. Do not describe Author ranking: Automatic or Query-inferred author focus as filters the user set.";
+
+/** Hint when query-inferred named-author retrieval is empty — not a UI filter the user can turn off. */
+export const EMPTY_RETRIEVAL_INFERRED_AUTHOR_HINT =
+  "No library sources matched the query-inferred author focus above. That focus was applied because the current " +
+  "question named that author; the user did not set a chat filter. Do not tell them to turn off a focused-author " +
+  "filter. If you cannot answer from this system prompt, say you searched that author's material because the " +
+  "question named them, and they can name another author or ask to search all authors. Do not invent or paraphrase " +
+  "quotes, teachings, or citations.";
+
 /**
- * Returns the activeFiltersSummary for generation, appending {@link EMPTY_RETRIEVAL_FILTER_HINT}
- * when restrictive filters produced zero retrieved documents. Phrased as assistant context so the
- * model can soften its answer — not an error banner.
+ * Returns the activeFiltersSummary for generation, appending an empty-retrieval hint
+ * when user-set filters or query-inferred author focus produced zero documents.
+ * Phrased as assistant context so the model can soften its answer — not an error banner.
  */
 export function buildActiveFiltersSummaryForGeneration(
   data: ActiveFilterPromptData,
@@ -178,6 +194,9 @@ export function buildActiveFiltersSummaryForGeneration(
 ): string {
   if (retrievalReturnedNoDocuments && data.hasRestrictiveFilters) {
     return `${data.activeFiltersSummary}\n- ${EMPTY_RETRIEVAL_FILTER_HINT}`;
+  }
+  if (retrievalReturnedNoDocuments && data.inferredAuthor) {
+    return `${data.activeFiltersSummary}\n- ${EMPTY_RETRIEVAL_INFERRED_AUTHOR_HINT}`;
   }
   return data.activeFiltersSummary;
 }
@@ -196,6 +215,7 @@ function describeScopeDescriptor(descriptor: AuthorScopeDescriptor): string {
 /** Server-side debug lines for manual author-scope testing. */
 export function formatAuthorScopeDebugLog(input: {
   question: string;
+  authorMatchQuestion?: string;
   selectedCollectionKey?: string;
   collectionMode: AuthorScopeMode;
   scopeHint: AuthorScopeHint;
@@ -207,11 +227,18 @@ export function formatAuthorScopeDebugLog(input: {
   const lines: string[] = [
     "[AuthorScope] ── retrieval decision ──",
     `  question: "${input.question.slice(0, 120)}${input.question.length > 120 ? "…" : ""}"`,
+  ];
+  if (input.authorMatchQuestion && input.authorMatchQuestion !== input.question) {
+    lines.push(
+      `  author match utterance: "${input.authorMatchQuestion.slice(0, 120)}${input.authorMatchQuestion.length > 120 ? "…" : ""}"`
+    );
+  }
+  lines.push(
     `  UI collection key: ${input.selectedCollectionKey ?? "(none)"}`,
     `  collection mode: ${input.collectionMode}`,
     `  LLM scope hint: ${input.scopeHint}${input.scopeHint === "default" && input.collectionMode === "auto" ? " (first turn or rephrase unavailable)" : ""}`,
-    `  resolved retrieval: ${describeScopeDescriptor(input.scopeDescriptor)}`,
-  ];
+    `  resolved retrieval: ${describeScopeDescriptor(input.scopeDescriptor)}`
+  );
 
   if (input.authorIndexSize) {
     lines.push(

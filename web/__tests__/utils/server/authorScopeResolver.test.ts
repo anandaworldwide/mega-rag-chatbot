@@ -1,6 +1,6 @@
 /** @jest-environment node */
 
-import { findExplicitAuthorMatch, clampMasterSwamiBoost, getMasterSwamiBoost, resolveAuthorScope } from "@/utils/server/authorScopeResolver";
+import { findExplicitAuthorMatch, clampMasterSwamiBoost, getAuthorMatchQuestion, getMasterSwamiBoost, resolveAuthorScope } from "@/utils/server/authorScopeResolver";
 import type { SiteConfig } from "@/types/siteConfig";
 
 const baseSiteConfig = {
@@ -159,6 +159,26 @@ describe("clampMasterSwamiBoost", () => {
   });
 });
 
+describe("getAuthorMatchQuestion", () => {
+  it("prefers the current user utterance over the history-rewritten retrieval query", () => {
+    expect(
+      getAuthorMatchQuestion(
+        "How does Kundalini relate to music?",
+        "How does Kundalini relate to music according to Paramhansa Yogananda and Swami Kriyananda?"
+      )
+    ).toBe("How does Kundalini relate to music?");
+  });
+
+  it("falls back to the retrieval query when the user utterance is missing", () => {
+    expect(getAuthorMatchQuestion(undefined, "What did Asha teach about meditation?")).toBe(
+      "What did Asha teach about meditation?"
+    );
+    expect(getAuthorMatchQuestion("   ", "What did Asha teach about meditation?")).toBe(
+      "What did Asha teach about meditation?"
+    );
+  });
+});
+
 describe("resolveAuthorScope", () => {
   it("returns blend with default boost for auto mode", () => {
     const result = resolveAuthorScope({
@@ -259,5 +279,19 @@ describe("resolveAuthorScope", () => {
     });
 
     expect(result).toEqual({ kind: "hard", collection: "whole_library" });
+  });
+
+  it("does not hard-filter Master/Swami when only the retrieval rewrite names them", () => {
+    const userUtterance = "How does Kundalini relate to music?";
+    const retrievalQuery =
+      "How does Kundalini relate to music according to Paramhansa Yogananda and Swami Kriyananda?";
+    const result = resolveAuthorScope({
+      question: getAuthorMatchQuestion(userUtterance, retrievalQuery),
+      siteConfig: baseSiteConfig,
+      collectionMode: "auto",
+    });
+
+    expect(findExplicitAuthorMatch(retrievalQuery, baseSiteConfig)).toBe("Paramhansa Yogananda");
+    expect(result).toEqual({ kind: "blend", masterSwamiBoost: 0.2 });
   });
 });

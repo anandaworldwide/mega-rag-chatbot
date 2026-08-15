@@ -83,6 +83,12 @@ except ImportError:
 
 - `npm run dev` with no site argument lists sites in `web/scripts/dev.js`; **Enter** defaults to Luca (`ananda`), which is always option **1**.
 
+### Live semantic query suites (`test:queries:*`)
+
+- Always run against **localhost**. `.env.ananda` / `.env.ananda-public` already set `NEXT_PUBLIC_BASE_URL=http://localhost:3000`.
+- Restart the local Next server with the **matching site selected** first: Luca suite (`test:queries:ananda`) needs `ananda`; Vivek suite (`test:queries:ananda-public`) needs `ananda-public`.
+- Do **not** point these suites at production (`vivek.ananda.org`, `luca.ananda.org`). Wrong host or wrong local site yields JWT 401 / site-mismatch errors.
+
 ### Next.js 16 Upgrade Note
 
 - This repo currently uses a custom `webpack` config in `web/next.config.mjs`
@@ -516,9 +522,19 @@ except ImportError:
 
 ## Empty retrieval + system-prompt answers
 
-- When restrictive filters return no library docs, do **not** force a filter-broaden preamble if the answer is fully
-  available from the system prompt (Groups.io, Wiki, Music Library, how-to, etc.). Answer directly with
-  `<<NO_SOURCES_USED>>`. Mention filters only when the user needed library teachings/quotes that the filters blocked.
+- When **user-set** filters (`Collection`, `Libraries`, `Media types`, `Source scope`) return no library docs, do
+  **not** force a filter-broaden preamble if the answer is fully available from the system prompt (Groups.io, Wiki,
+  Music Library, how-to, etc.). Answer directly with `<<NO_SOURCES_USED>>`. Mention filters only when the user needed
+  library teachings/quotes that those user-set filters blocked.
+- `Author ranking: Automatic` is a score boost, not a hard filter. Never describe it as a focused-author filter or tell
+  the user to turn it off. Empty retrieval under Auto with no user-set filters: say nothing matched closely enough.
+- `Query-inferred author focus` is a hard `$eq` because the **current question** named an author — not a UI control.
+  Named-author detection must use the current user utterance, not the history-rewritten retrieval query. Empty retrieval:
+  say you searched that author's material because the question named them; they can name another author or ask to search
+  all authors. Do not tell them to turn off a focused-author filter.
+- Retrieval-tool search narration ("I'll pull richer sources…", "I don't yet have passages so I'm searching…") is not an
+  answer. Detect it, send `retrieving_more_sources` (clears streamed leak), and force an answer-only turn even when the
+  model never emitted a tool_call.
 
 ## Answer Regeneration Feature
 

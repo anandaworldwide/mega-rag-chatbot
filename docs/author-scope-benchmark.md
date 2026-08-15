@@ -32,3 +32,6 @@ Sites with `enableAutoAuthorScope: true` must use `masterSwamiBoost` / `broadMas
 
 - **Centennial** is partially covered in the system prompt (mandatory PDF/calendar links), so it is a weaker retrieval-only benchmark.
 - Query **5** is the **named-author control**; queries **1–3** are the primary B1 regression targets for ananda.org relevance.
+- Named-author detection must run on the **current user utterance**, not the rephrased standalone question. Follow-up
+  rewrites often inject Master/Swami names from prior turns; matching on that rewrite hard-filters authors the user did
+  not name in this question.
