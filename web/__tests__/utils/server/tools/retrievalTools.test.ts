@@ -290,6 +290,10 @@ describe("retrievalTools", () => {
       expect(shouldBindRetrievalTools(undefined, "gpt-4o", isAnthropic)).toBe(false);
     });
 
+    it("does not accept a taskMode option that could gate tool binding", () => {
+      expect(shouldBindRetrievalTools.length).toBe(3);
+    });
+
     it("uses answer-first retrieval guidance while keeping tools bound", () => {
       const isAnthropic = (name: string) => name.startsWith("claude");
       expect(

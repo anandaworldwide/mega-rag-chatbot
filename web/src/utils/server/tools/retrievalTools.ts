@@ -268,8 +268,7 @@ export function isRetrievalToolName(name: string): boolean {
 export function shouldBindRetrievalTools(
   siteConfig: SiteConfig | null | undefined,
   modelName: string,
-  isAnthropic: (name: string) => boolean,
-  _options?: { taskMode?: string | null }
+  isAnthropic: (name: string) => boolean
 ): boolean {
   return siteConfig?.enableRetrievalTools === true && !isAnthropic(modelName) && RETRIEVAL_TOOL_DEFINITIONS.length > 0;
 }

@@ -11,7 +11,6 @@ import CopyButton from "@/components/CopyButton";
 import { SiteConfig } from "@/types/siteConfig";
 import { ExtendedAIMessage } from "@/types/ExtendedAIMessage";
 import SuggestionPills from "@/components/SuggestionPills";
-import { TaskFollowupChips } from "@/components/TaskFollowupChips";
 import { TypedSuggestion } from "@/types/Suggestion";
 
 import { useSudo } from "@/contexts/SudoContext";
@@ -51,11 +50,6 @@ interface MessageItemProps {
   onSourceLinkCopied?: (sourceId: string) => void; // Callback when source link is copied
   activeTitleScope?: TitleScopeSelection | null;
   onFocusSourceScope?: (scope: TitleScopeSelection) => void;
-  isTaskConversation?: boolean; // Whether current conversation started from a task
-  taskFollowups?: string[]; // Static task follow-up suggestions (from task definition)
-  dynamicFollowups?: string[]; // AI-generated context-specific follow-ups
-  isLoadingDynamicFollowups?: boolean; // Loading state for dynamic follow-ups
-  onTaskFollowupClick?: (suggestion: string) => void; // Handler for task follow-up clicks
   timingMetricsDisplay?: React.ReactNode; // Timing metrics to display before suggestions
   answerFeedbackPrompt?: React.ReactNode; // Soft feedback nudge below action bar, above suggestion pills
   isAdminOrSuperuser?: boolean; // For login-required sites: whether user is admin/superuser
@@ -92,11 +86,6 @@ const MessageItem: React.FC<MessageItemProps> = ({
   onSourceLinkCopied,
   activeTitleScope = null,
   onFocusSourceScope,
-  isTaskConversation = false,
-  taskFollowups = [],
-  dynamicFollowups = [],
-  isLoadingDynamicFollowups = false,
-  onTaskFollowupClick,
   timingMetricsDisplay,
   answerFeedbackPrompt,
   isAdminOrSuperuser = false,
@@ -403,30 +392,18 @@ const MessageItem: React.FC<MessageItemProps> = ({
               <div className="mt-2">{timingMetricsDisplay}</div>
             )}
 
-            {/* Follow-up suggestions - task followups replace regular suggestions when task is active */}
+            {/* Follow-up suggestions */}
             {!readOnly &&
               message.type === "apiMessage" &&
               isLastMessage &&
-              (isTaskConversation &&
-              (taskFollowups.length > 0 || dynamicFollowups.length > 0 || isLoadingDynamicFollowups) ? (
-                <TaskFollowupChips
-                  dynamicSuggestions={dynamicFollowups}
-                  staticSuggestions={taskFollowups}
-                  onSelect={onTaskFollowupClick || (() => {})}
-                  visible={true}
+              message.suggestions &&
+              message.suggestions.length > 0 && (
+                <SuggestionPills
+                  suggestions={message.suggestions}
+                  onSuggestionClick={onSuggestionClick || (() => {})}
                   loading={loading}
-                  isLoadingDynamic={isLoadingDynamicFollowups}
                 />
-              ) : (
-                message.suggestions &&
-                message.suggestions.length > 0 && (
-                  <SuggestionPills
-                    suggestions={message.suggestions}
-                    onSuggestionClick={onSuggestionClick || (() => {})}
-                    loading={loading}
-                  />
-                )
-              ))}
+              )}
           </div>
         )}
       </div>

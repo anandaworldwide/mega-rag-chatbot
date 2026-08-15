@@ -25,10 +25,6 @@ export interface ChatHistoryItem {
     | Array<{ id: string; text: string; type: "deeper" | "broader" | "apply"; sourceDocId?: string; score?: number }>; // Follow-up question suggestions (legacy string[] or typed)
   restatedQuestion?: string; // AI-generated restated question for better context
   isStarred?: boolean; // Star state for this conversation
-  // Task wizard state (for persisting structured task conversations)
-  taskMode?: string; // Task type (e.g., "class-planning", "research")
-  taskFollowups?: string[]; // Available task follow-up suggestions
-  usedTaskFollowups?: string[]; // Follow-ups that have been used
 }
 
 export interface ConversationGroup {

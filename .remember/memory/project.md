@@ -376,6 +376,7 @@ except ImportError:
 - **Config location**: `site-config/config.json`
 - **Feature rollout preference**: New user-facing features should be gated by site config and enabled only for the intended site(s), not assumed global
 - **Per-site toggles belong in config**: Do **not** hardcode site ID sets/constants (e.g. `Set(["ananda", "crystal"])`) for per-site feature rollout. Add an `enable*` flag to [`web/site-config/config.json`](web/site-config/config.json), extend `SiteConfig` in [`web/src/types/siteConfig.ts`](web/src/types/siteConfig.ts), and read it from `siteConfig` at runtime. Example: `enableApplySuggestions` for the Apply follow-up pill lane.
+- **Task wizard removed**: Luca class/talk/research deliverables are inferred in `ananda-base.txt` (clarify slots, then produce). Do not reintroduce `taskMode`, `enabledTasks`, task JSON wizards, `TaskFollowupChips`, or `/api/generateFollowups`. Do not gate retrieval tools, TTFB, or suggestion pills on `taskMode`. Old Firestore `taskMode`/`taskFollowups` fields may still exist; ignore them so historical threads use normal follow-ups.
 - **Retrieval tool callbacks**: `enableRetrievalTools` (ananda/Luca and jairam) binds `get_adjacent_chunks` +
   `search_more_sources` on non-Anthropic answer models via the geo-style tool loop in `makechain.ts`.
   Status UX: SSE `status: "retrieving_more_sources"` → client "Gathering additional sources..." (not a token).

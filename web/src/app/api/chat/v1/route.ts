@@ -173,9 +173,6 @@ interface ChatRequestBody {
   siteId?: string;
   uuid: string; // required client UUID (persisted regardless of auth)
   convId?: string; // conversation ID for follow-up messages
-  taskMode?: string; // optional task mode for analytics (e.g., "class-planning", "research")
-  taskFollowups?: string[]; // available task follow-up suggestions
-  usedTaskFollowups?: string[]; // follow-ups that have been used
   clientRequestId?: string; // optional idempotency key for retried POST requests
   filterExplicitness?: {
     collection?: boolean;
@@ -490,9 +487,6 @@ async function saveOrUpdateDocument(
   model?: string | undefined, // Model used for this response
   temperature?: number | undefined, // Temperature used for this response
   abTestModel?: string | undefined, // Sticky A/B arm for this conversation
-  taskMode?: string, // Task mode (e.g., "class-planning", "research")
-  taskFollowups?: string[], // Available task follow-up suggestions
-  usedTaskFollowups?: string[], // Follow-ups that have been used
   isLocationQuery?: boolean // Geo-awareness path; exclude from A/B when model !== abTestModel
 ): Promise<string | null> {
   if (!db) {
@@ -550,17 +544,6 @@ async function saveOrUpdateDocument(
   }
   if (isLocationQuery) {
     dataToSave.isLocationQuery = true;
-  }
-
-  // Add task state fields if present (for task wizard conversations)
-  if (taskMode) {
-    dataToSave.taskMode = taskMode;
-  }
-  if (taskFollowups && taskFollowups.length > 0) {
-    dataToSave.taskFollowups = taskFollowups;
-  }
-  if (usedTaskFollowups && usedTaskFollowups.length > 0) {
-    dataToSave.usedTaskFollowups = usedTaskFollowups;
   }
 
   try {
@@ -849,11 +832,6 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
   }
   const persistUuid = persistUuidResult.uuid;
 
-  // Log task mode for analytics if present
-  if (sanitizedInput.taskMode) {
-    console.log(`Task mode: ${sanitizedInput.taskMode}`);
-  }
-
   const sourceCount = sanitizedInput.sourceCount || 4;
   const clientIP = getClientIp(req);
   const clientRequestId = sanitizedInput.clientRequestId;
@@ -1055,7 +1033,6 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
             effectiveModelName,
             sanitizedInput.selectedLibraries,
             sanitizedInput.collection || "whole_library",
-            sanitizedInput.taskMode,
             resolvedTitleScope?.displayTitle,
             effectiveAccess.level,
             promptCacheKey
@@ -1101,9 +1078,6 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
               model, // Actual execution model (geo may override Anthropic → gpt-4.1-mini)
               temperature, // Pass the temperature used
               abTestModel, // Sticky A/B arm — never overwritten by geo fast-model override
-              sanitizedInput.taskMode, // Pass task mode for persistence
-              sanitizedInput.taskFollowups, // Pass task follow-ups for persistence
-              sanitizedInput.usedTaskFollowups, // Pass used task follow-ups for persistence
               isLocationQuery
             ).then((savedDocId) => {
               if (savedDocId) {

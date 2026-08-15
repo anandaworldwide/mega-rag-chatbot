@@ -390,9 +390,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const [, _setCurrentQuestion] = useState<string>("");
   const currentQuestionRef = useRef<string>("");
 
-  // Track if current submission is from task wizard
-  const isTaskSubmissionRef = useRef<boolean>(false);
-
   // Helper to update both ref + state
   const setCurrentQuestion = (q: string) => {
     currentQuestionRef.current = q;
@@ -618,47 +615,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         // Restore the retrieval context that was active for the latest message in this conversation.
         restoreConversationFilters(loadedConversation.filters);
 
-        // Restore task state from loaded conversation (if it was a task conversation)
-        // Helper setters update both state and ref automatically
-        if (loadedConversation.taskMode) {
-          setIsTaskConversation(true);
-          setCurrentTaskMode(loadedConversation.taskMode);
-          setCurrentTaskFollowups(loadedConversation.taskFollowups || []);
-          setUsedTaskFollowups(loadedConversation.usedTaskFollowups || []);
-          // Clear dynamic follow-ups initially, then regenerate from last Q&A
-          setDynamicFollowups([]);
-
-          // Regenerate dynamic follow-ups from the last Q&A pair
-          // Extract last question and answer from loaded messages
-          const messages = loadedConversation.messages;
-          let lastQuestion = "";
-          let lastAnswer = "";
-          for (let i = messages.length - 1; i >= 0; i--) {
-            const msg = messages[i];
-            if (msg.type === "apiMessage" && !lastAnswer) {
-              lastAnswer = msg.message || "";
-            } else if (msg.type === "userMessage" && lastAnswer && !lastQuestion) {
-              lastQuestion = msg.message || "";
-              break;
-            }
-          }
-
-          // Generate follow-ups if we have a Q&A pair
-          if (lastQuestion && lastAnswer) {
-            // Use setTimeout to ensure refs are fully set and component is stable
-            setTimeout(() => {
-              generateDynamicFollowups(lastQuestion, lastAnswer);
-            }, 100);
-          }
-        } else {
-          // Clear task state for non-task conversations
-          setIsTaskConversation(false);
-          setCurrentTaskFollowups([]);
-          setUsedTaskFollowups([]);
-          setCurrentTaskMode(null);
-          setDynamicFollowups([]);
-        }
-
         // Log analytics event
         logEvent("chat_history_conversation_loaded", "Chat History", convId, loadedConversation.messages.length);
 
@@ -692,9 +648,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         setLoading(false);
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [restoreConversationFilters, setCurrentConvId, setError, setLoading, setMessageState, siteConfig]
-    // Note: generateDynamicFollowups is defined later but is stable (no deps, uses refs)
   );
 
   // Function to load a conversation from chat history
@@ -843,13 +797,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           handleStop();
         }
 
-        // Clear task state
-        setIsTaskConversation(false);
-        setCurrentTaskFollowups([]);
-        setUsedTaskFollowups([]);
-        setCurrentTaskMode(null);
-        setDynamicFollowups([]);
-
         // Back to home: reset chat
         setMessageState({
           messages: [
@@ -907,13 +854,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       setTemporarySession(false);
       logEvent("end_temporary_session", "UI", "new_chat_button");
     }
-
-    // Clear task state (helper setters update both state and ref)
-    setIsTaskConversation(false);
-    setCurrentTaskFollowups([]);
-    setUsedTaskFollowups([]);
-    setCurrentTaskMode(null);
-    setDynamicFollowups([]);
 
     // Push a new history entry for '/' without triggering a Next.js navigation.
     window.history.pushState(null, "", "/");
@@ -1033,35 +973,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null);
   const [editingText, setEditingText] = useState<string>("");
 
-  // Task state
-  const [currentTaskFollowups, _setCurrentTaskFollowups] = useState<string[]>([]);
-  const currentTaskFollowupsRef = useRef<string[]>([]); // Ref mirror for immediate access in async contexts
-  const [usedTaskFollowups, _setUsedTaskFollowups] = useState<string[]>([]); // Track used follow-ups to hide them
-  const usedTaskFollowupsRef = useRef<string[]>([]); // Ref mirror for immediate access in async contexts
-  const [isTaskConversation, _setIsTaskConversation] = useState<boolean>(false);
-  const isTaskConversationRef = useRef<boolean>(false); // Ref mirror for immediate access in async contexts
-  const [_currentTaskMode, _setCurrentTaskMode] = useState<string | null>(null);
-  const currentTaskModeRef = useRef<string | null>(null); // Ref mirror for immediate access in async contexts
-  const [dynamicFollowups, setDynamicFollowups] = useState<string[]>([]); // AI-generated context-specific follow-ups
-  const [isLoadingDynamicFollowups, setIsLoadingDynamicFollowups] = useState<boolean>(false);
-
-  // Helper setters that update both state and ref for task-related values
-  const setCurrentTaskFollowups = (followups: string[]) => {
-    currentTaskFollowupsRef.current = followups;
-    _setCurrentTaskFollowups(followups);
-  };
-  const setUsedTaskFollowups = (used: string[]) => {
-    usedTaskFollowupsRef.current = used;
-    _setUsedTaskFollowups(used);
-  };
-  const setIsTaskConversation = (isTask: boolean) => {
-    isTaskConversationRef.current = isTask;
-    _setIsTaskConversation(isTask);
-  };
-  const setCurrentTaskMode = (mode: string | null) => {
-    currentTaskModeRef.current = mode;
-    _setCurrentTaskMode(mode);
-  };
   // Remove legacy browser-level search persistence so retrieval filters stay
   // scoped to the active conversation rather than silently carrying across chats.
   useEffect(() => {
@@ -1519,36 +1430,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           }
         }, 100);
 
-        // Generate dynamic follow-ups for task conversations
-        // Use a small delay to ensure message state is fully updated
-        if (isTaskConversationRef.current) {
-          setTimeout(() => {
-            setMessageState((prevState) => {
-              // Find the last Q&A pair
-              const messages = prevState.messages;
-              let lastQuestion = "";
-              let lastAnswer = "";
-
-              for (let i = messages.length - 1; i >= 0; i--) {
-                const msg = messages[i];
-                if (msg.type === "apiMessage" && !lastAnswer) {
-                  lastAnswer = msg.message || "";
-                } else if (msg.type === "userMessage" && lastAnswer && !lastQuestion) {
-                  lastQuestion = msg.message || "";
-                  break;
-                }
-              }
-
-              if (lastQuestion && lastAnswer) {
-                // Fire-and-forget the API call (don't block state update)
-                generateDynamicFollowups(lastQuestion, lastAnswer);
-              }
-
-              return prevState; // No state change
-            });
-          }, 100);
-        }
-
         // Force a state update to ensure UI re-renders immediately with buttons and correct docId
         // Also update history with the actual assistant response content (critical for reformulation)
         setMessageState((prevState) => {
@@ -1635,19 +1516,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     if (submittedQuery.trim() === "") return;
 
     await ensureVisitorUuidReady(siteConfig?.requireLogin === true);
-
-    // Capture if this is a task submission before resetting (needed to reset sourceCount after API call)
-    const wasTaskSubmission = isTaskSubmissionRef.current;
-
-    // Keep task mode active for any submission while in a task conversation
-    // (whether from follow-up chip or custom text input)
-    if (isTaskConversationRef.current) {
-      // Clear dynamic follow-ups when submitting a new question in task mode
-      // They'll be regenerated after the response completes
-      setDynamicFollowups([]);
-    }
-    // Reset task submission flag
-    isTaskSubmissionRef.current = false;
 
     // Store the current question for sidebar updates
     setCurrentQuestion(submittedQuery);
@@ -1763,19 +1631,9 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
           sourceCount: sourceCountRef.current,
           uuid: getOrCreateUUID(),
           convId: currentConvIdRef.current, // Pass current conversation ID for follow-ups
-          // Use refs for task state since this function may be called from stale closures
-          taskMode: currentTaskModeRef.current || undefined, // Pass task mode for persistence
-          taskFollowups: isTaskConversationRef.current ? currentTaskFollowupsRef.current : undefined, // Pass task follow-ups for persistence
-          usedTaskFollowups: isTaskConversationRef.current ? usedTaskFollowupsRef.current : undefined, // Use ref for immediate access
         }),
         signal: newAbortController.signal,
       });
-
-      // Reset sourceCount to default after task submission (task sourceCount only applies to first query)
-      if (wasTaskSubmission) {
-        const defaultSources = siteConfig?.defaultNumSources || 4;
-        setSourceCount(defaultSources);
-      }
 
       if (!response.ok) {
         setLoading(false);
@@ -1842,62 +1700,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     void recordSuggestionPillClick(suggestion, position, currentConvIdRef.current, fetchWithAuth);
     handleSubmit(new Event("submit") as unknown as React.FormEvent, suggestion.text);
   };
-
-  // Generate dynamic (AI-generated) follow-ups after streaming completes
-  const generateDynamicFollowups = useCallback(
-    async (question: string, answer: string) => {
-      // Only generate for task conversations
-      if (!isTaskConversationRef.current) {
-        return;
-      }
-
-      setIsLoadingDynamicFollowups(true);
-      try {
-        const response = await fetchWithAuth("/api/generateFollowups", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            question,
-            answer,
-            taskMode: currentTaskModeRef.current || undefined,
-          }),
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          if (data.followups && Array.isArray(data.followups) && data.followups.length > 0) {
-            setDynamicFollowups(data.followups);
-          }
-        } else {
-          console.warn("Failed to generate dynamic follow-ups:", response.status);
-        }
-      } catch (error) {
-        console.error("Error generating dynamic follow-ups:", error);
-      } finally {
-        setIsLoadingDynamicFollowups(false);
-      }
-    },
-    [] // No deps needed - uses refs for task state
-  );
-
-  // Handle follow-up chip click
-  const handleFollowupSelect = useCallback(
-    (suggestion: string) => {
-      // Keep task conversation state - follow-ups are part of the task workflow
-      // Mark as task submission so we don't clear task state
-      isTaskSubmissionRef.current = true;
-
-      // Track this follow-up as used so we don't show it again
-      // Update ref immediately (sync) so handleSubmit can access it
-      usedTaskFollowupsRef.current = [...usedTaskFollowupsRef.current, suggestion];
-      setUsedTaskFollowups(usedTaskFollowupsRef.current);
-
-      // Submit the follow-up as a regular question (but keep task context)
-      handleSubmit(new Event("submit") as unknown as React.FormEvent, suggestion);
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [] // handleSubmit has too many deps to memoize; callback only used on chip click
-  );
 
   // Handle URL query params for pre-filled query with auto-submit (e.g., from Search page "Explain This")
   const hasAutoSubmittedRef = useRef(false);
@@ -3141,18 +2943,13 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   // Re-check scroll position when follow-up suggestions are added after streaming ends
   // This fixes the bug where user scrolls to bottom before suggestions arrive, then suggestions render
   // but the scroll button doesn't appear even though there's new content below
-  // Handles both:
-  // 1. Regular suggestions (Go deeper/Go broader chips) - from lastMessageSuggestions
-  // 2. Task dynamic follow-ups (AI-generated task-specific chips) - from dynamicFollowups
   const lastMessageSuggestions = messages[messages.length - 1]?.suggestions;
   useEffect(() => {
     // Only run when not loading (suggestions arrive after streaming ends)
     if (loading) return;
 
     // Skip if no suggestions (initial render or cleared state)
-    const hasSuggestions =
-      (lastMessageSuggestions && lastMessageSuggestions.length > 0) ||
-      (dynamicFollowups && dynamicFollowups.length > 0);
+    const hasSuggestions = lastMessageSuggestions && lastMessageSuggestions.length > 0;
     if (!hasSuggestions) return;
 
     // Check scroll position after DOM updates with new suggestions
@@ -3173,7 +2970,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     }, 50); // Small delay to allow DOM to update
 
     return () => clearTimeout(timeoutId);
-  }, [lastMessageSuggestions, dynamicFollowups, loading]);
+  }, [lastMessageSuggestions, loading]);
 
   // Function to scroll to bottom when button clicked
   const handleScrollDownClick = () => {
@@ -3399,19 +3196,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                                 onSourceLinkCopied={handleSourceLinkCopied}
                                 activeTitleScope={selectedTitleScope}
                                 onFocusSourceScope={handleFocusSourceScope}
-                                isTaskConversation={isTaskConversation && index === messages.length - 1}
-                                taskFollowups={
-                                  isTaskConversation && index === messages.length - 1
-                                    ? currentTaskFollowups.filter((f) => !usedTaskFollowups.includes(f))
-                                    : []
-                                }
-                                dynamicFollowups={
-                                  isTaskConversation && index === messages.length - 1 ? dynamicFollowups : []
-                                }
-                                isLoadingDynamicFollowups={
-                                  isTaskConversation && index === messages.length - 1 && isLoadingDynamicFollowups
-                                }
-                                onTaskFollowupClick={handleFollowupSelect}
                                 isAdminOrSuperuser={isAdminOrSuperuser}
                                 timingMetricsDisplay={
                                   (isSudoUser || isAdminOrSuperuser) &&

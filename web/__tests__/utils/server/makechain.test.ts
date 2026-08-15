@@ -3240,7 +3240,6 @@ describe("makeChain", () => {
         undefined,
         undefined,
         undefined,
-        undefined,
         "Whispers from Eternity" // selectedTitleScopeLabel => restrictive filter
       );
 
@@ -3275,7 +3274,6 @@ describe("makeChain", () => {
         [],
         undefined,
         siteConfig,
-        undefined,
         undefined,
         undefined,
         undefined,

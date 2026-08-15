@@ -112,7 +112,7 @@ Use a generic `temperature` / `modelName` / `enableGeoAwareness` snippet to find
 
 **Correct**:
 Anchor the replace on site-unique context (site key nearby, logo name, access-request copy,
-`enabledTasks`, etc.) and verify with grep that the flag sits under the intended site.
+`enableRetrievalTools`, etc.) and verify with grep that the flag sits under the intended site.
 
 ### Mistake: Adjacent Pinecone chunks cannot be fetched by bumping chunk_index in the vector ID
 
@@ -3302,6 +3302,17 @@ Fail closed (503) on non-finite/negative counters and on `max <= 0` / `windowMs 
 
 **Correct**:
 Reject `:` in fields at generate; require exact part counts on verify; length-check before `timingSafeEqual`.
+
+### Mistake: Stale `.next/types` after deleting a Pages API route
+
+**Wrong**:
+Delete `src/pages/api/foo.ts` and run `tsc --noEmit`. `tsconfig` includes `.next/types/**/*.ts`,
+and `validator.ts` still `import`s the deleted handler → TS2307. The commit hook fails even when
+the deleted file is not part of the commit.
+
+**Correct**:
+Remove the stale `Validate .../foo.ts` block from `web/.next/types/validator.ts` (gitignored),
+or regenerate Next types. Do not restore the route just to satisfy the hook.
 
 ### Mistake: If/else collapsing independent filter summary lines
 

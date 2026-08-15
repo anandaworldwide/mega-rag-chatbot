@@ -266,15 +266,7 @@ describe("ChatInput", () => {
   });
 
   it("does not render the task wizard wand", () => {
-    const props = {
-      ...defaultProps,
-      siteConfig: {
-        ...mockSiteConfig,
-        enabledTasks: ["research", "class-planning"],
-      },
-    };
-
-    render(<ChatInput {...props} />);
+    render(<ChatInput {...defaultProps} />);
 
     expect(screen.queryByText("auto_fix_high")).not.toBeInTheDocument();
   });

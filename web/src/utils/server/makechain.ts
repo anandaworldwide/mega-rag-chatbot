@@ -547,7 +547,6 @@ export const makeChain = async (
   originalQuestion?: string, // Add this parameter to pass the original question
   selectedLibraries?: string[], // Selected libraries for filtering
   selectedCollectionKey?: string,
-  taskMode?: string, // Task mode (e.g., "class-planning", "research") - skips reformulation when set
   selectedTitleScopeLabel?: string,
   /** Out-param: effective Pinecone filter after author/library scope (for search_more_sources). */
   retrievalFilterCapture?: RetrievalFilterCapture,
@@ -662,7 +661,7 @@ export const makeChain = async (
 
     // Retrieval tools: bound for non-Anthropic arms when enabled (Fable holdout keeps today's behavior).
     // Guidance is always answer-first; tools still bind for intentional expansion.
-    const bindRetrievalTools = shouldBindRetrievalTools(siteConfig, model, isAnthropicModel, { taskMode });
+    const bindRetrievalTools = shouldBindRetrievalTools(siteConfig, model, isAnthropicModel);
 
     const toolsToBind: any[] = [];
     if (shouldUseGeoTools && geoTools.length > 0 && request) {
@@ -819,7 +818,7 @@ Error details: ${errorString}`,
     /\${(context|chat_history|question|activeFiltersSummary)}/g,
     (match, key) => `{${key}}`
   );
-  const includeRetrievalToolGuidance = shouldBindRetrievalTools(siteConfig, model, isAnthropicModel, { taskMode });
+  const includeRetrievalToolGuidance = shouldBindRetrievalTools(siteConfig, model, isAnthropicModel);
   const retrievalToolGuidance = includeRetrievalToolGuidance ? getRetrievalToolGuidance() : "";
 
   type PromptDataTypeLike = {
@@ -1323,10 +1322,6 @@ Error details: ${errorString}`,
 
         if (input.chat_history.length === 0) {
           // Skip reformulation for first question (no history to incorporate)
-          // For task wizard prompts, log that we're preserving the carefully constructed prompt
-          if (taskMode && !temporarySession && sendData) {
-            sendData({ log: `🎯 Task mode (${taskMode}): preserving original prompt (first question)` });
-          }
           capturedRestatedQuestion = input.question; // Store for later
           return input.question;
         }
@@ -1641,7 +1636,6 @@ export async function setupAndExecuteLanguageModelChain(
   modelOverride?: string, // Optional model override for testing/comparison
   selectedLibraries?: string[], // Selected libraries for filtering
   selectedCollectionKey?: string,
-  taskMode?: string, // Task mode (e.g., "class-planning", "research") - skips reformulation when set
   selectedTitleScopeLabel?: string,
   effectiveAccessLevel: number = 0,
   promptCacheKey?: string
@@ -1731,7 +1725,6 @@ export async function setupAndExecuteLanguageModelChain(
         sanitizedQuestion, // Pass original question for intent detection
         selectedLibraries, // Pass selected libraries for filtering
         selectedCollectionKey,
-        taskMode, // Pass task mode to skip reformulation
         selectedTitleScopeLabel,
         retrievalFilterCapture,
         timingMetrics,
@@ -1883,9 +1876,7 @@ export async function setupAndExecuteLanguageModelChain(
 
       // Handle tool calls with proper loop (OpenAI tool_calls + Anthropic tool_use / JSON fallback)
       let pendingToolCalls = extractGeoToolCalls(result.answer);
-      const retrievalToolsEnabled = shouldBindRetrievalTools(siteConfig, modelName, isAnthropicModel, {
-        taskMode,
-      });
+      const retrievalToolsEnabled = shouldBindRetrievalTools(siteConfig, modelName, isAnthropicModel);
       // Plain-text "I'll search…" with no tool_calls never entered this loop, so the leak became the answer.
       const firstPassIsSearchNarration =
         retrievalToolsEnabled && isIncompleteRetrievalAnswer(fullResponse);
@@ -2368,9 +2359,9 @@ export async function setupAndExecuteLanguageModelChain(
 
       sendData({ done: true, timing: finalTiming });
 
-      // Task conversations use task follow-up chips; location queries skip Go deeper/broader/daily-life pills.
+      // Location queries skip Go deeper/broader/daily-life pills.
       let suggestionsPromise: Promise<TypedSuggestion[]> = Promise.resolve([]);
-      if (!taskMode && !isLocationQuery) {
+      if (!isLocationQuery) {
         if (timingMetrics) {
           timingMetrics.suggestionsGenerationStart = Date.now();
         }

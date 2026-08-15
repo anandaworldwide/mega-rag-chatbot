@@ -93,10 +93,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         sources: data.sources || null, // Include sources in response
         suggestions: data.suggestions || null, // Include suggestions in response
         isStarred: data.isStarred || false, // Include star state in response
-        // Task wizard state (for persisting structured task conversations)
-        taskMode: data.taskMode || null,
-        taskFollowups: data.taskFollowups || null,
-        usedTaskFollowups: data.usedTaskFollowups || null,
       };
     });
 
