@@ -237,7 +237,9 @@ export default function WhatsNewDropdown({ siteConfig, requireLogin }: WhatsNewD
         className="text-white hover:text-gray-200 p-1 rounded-xl hover:bg-white/10 transition-colors flex items-center relative"
         title="What's New"
       >
-        <span className="material-icons text-xl">notifications</span>
+        <span className="material-icons text-xl" aria-hidden="true">
+          notifications
+        </span>
         {hasNewUpdates && (
           <span className="absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full border-2 border-[#0092e3]"></span>
         )}
@@ -261,7 +263,9 @@ export default function WhatsNewDropdown({ siteConfig, requireLogin }: WhatsNewD
                 className="text-gray-400 hover:text-gray-600"
                 aria-label="Close"
               >
-                <span className="material-icons text-xl">close</span>
+                <span className="material-icons text-xl" aria-hidden="true">
+                  close
+                </span>
               </button>
             </div>
 

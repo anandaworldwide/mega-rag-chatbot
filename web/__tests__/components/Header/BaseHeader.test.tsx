@@ -30,11 +30,6 @@ jest.mock("@/components/WhatsNewDropdown", () => ({
   default: () => null,
 }));
 
-jest.mock("@/components/HelpDropdown", () => ({
-  __esModule: true,
-  default: () => <div data-testid="help-dropdown" />,
-}));
-
 const mockInitializeTokenManager = jest.fn().mockResolvedValue(undefined);
 const mockIsAuthenticated = jest.fn().mockReturnValue(false);
 
@@ -97,6 +92,33 @@ describe("BaseHeader", () => {
 
     fireEvent.click(screen.getByLabelText("New Chat"));
     expect(onNewChat).toHaveBeenCalled();
+  });
+
+  it("exposes temporary chat, help, and settings as named Voice Control targets", async () => {
+    mockIsAuthenticated.mockReturnValue(true);
+    Object.defineProperty(document, "cookie", { configurable: true, writable: true, value: "hasSession=1" });
+    const onTemporarySessionChange = jest.fn();
+
+    render(
+      <BaseHeader
+        config={baseConfig}
+        requireLogin={true}
+        isChatEmpty={true}
+        allowTemporarySessions={true}
+        onTemporarySessionChange={onTemporarySessionChange}
+        helpUrl="https://example.com/help"
+      />
+    );
+
+    const temporaryChat = await screen.findByRole("button", { name: "Start Temporary Chat" });
+    const help = screen.getByRole("link", { name: "Help" });
+    const settings = await screen.findByRole("link", { name: "User settings" });
+
+    expect(temporaryChat).not.toHaveAttribute("aria-hidden");
+    expect(help).not.toHaveAttribute("aria-hidden");
+    expect(settings).not.toHaveAttribute("aria-hidden");
+    expect(help).toHaveAttribute("href", "https://example.com/help");
+    expect(settings).toHaveAttribute("href", "/settings");
   });
 
   it("shows new chat button for logged-in users on non-home pages", async () => {

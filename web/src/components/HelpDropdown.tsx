@@ -28,7 +28,9 @@ export default function HelpDropdown({ helpUrl }: HelpDropdownProps) {
       className="text-white hover:text-gray-200 p-1 rounded-xl hover:bg-white/10 transition-colors flex items-center"
       title="Help"
     >
-      <span className="material-icons text-xl">help_outline</span>
+      <span className="material-icons text-xl" aria-hidden="true">
+        help_outline
+      </span>
     </a>
   );
 }

@@ -253,7 +253,13 @@ export default function BaseHeader({
               <nav className="flex space-x-4">
                 {isLoggedIn ? (
                   <Link href="/settings" aria-label="User settings" className="text-white hover:text-gray-200">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-6 w-6">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                      className="h-6 w-6"
+                      aria-hidden="true"
+                    >
                       <path d="M12 12c2.761 0 5-2.239 5-5s-2.239-5-5-5-5 2.239-5 5 2.239 5 5 5zm0 2c-3.866 0-7 3.134-7 7h2a5 5 0 0 1 10 0h2c0-3.866-3.134-7-7-7z" />
                     </svg>
                   </Link>
