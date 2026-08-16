@@ -394,6 +394,28 @@ describe("retrievalTools", () => {
       ).toBe(true);
     });
 
+    it("treats 'Pulling nearby ceremony text' adjacent-fetch narration as incomplete", () => {
+      expect(
+        isIncompleteRetrievalAnswer(
+          "Pulling nearby ceremony text for the listed ritual objects and symbolic actions."
+        )
+      ).toBe(true);
+    });
+
+    it("does not treat geo nearby-center narration as a retrieval leak", () => {
+      expect(
+        isIncompleteRetrievalAnswer("I'll find nearby Ananda centers based on your location.")
+      ).toBe(false);
+    });
+
+    it("does not treat a real 'Pulling from' ceremony answer as incomplete", () => {
+      expect(
+        isIncompleteRetrievalAnswer(
+          "Pulling from the Festival of Light, the main symbols are the light itself, incense, and the altar."
+        )
+      ).toBe(false);
+    });
+
     it("treats a full class outline answer as complete", () => {
       const outline = `
 # Living the Bhagavad Gita

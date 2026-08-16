@@ -625,6 +625,8 @@ if (siteConfig?.requireLogin) {
     merged sources in the normal RAG context position (prompt placeholders filled) plus `ToolMessage` payloads.
     A second tool round is allowed only when the previous round returned no docs (max 2 rounds, ~8 added sources);
     after usable docs arrive, tools are unbound so the model must answer rather than narrate further searching.
+    Plain-text search narration (including adjacent-fetch lines like "Pulling nearby ceremony text…") is discarded
+    and recovered with an answer-only turn even when no tool_call was emitted.
   - `get_adjacent_chunks` lists sibling vector IDs by shared prefix
     (`type||library||loc||title||author||`) then `fetch`es neighbors by exact ID; only accepts `sourceId`s already
     in context and re-checks access metadata.

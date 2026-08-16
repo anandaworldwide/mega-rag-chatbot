@@ -59,7 +59,7 @@ export function getRetrievalToolGuidance(): string {
 
 export const RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE = `## CRITICAL OVERRIDE — Retrieval finished
 Retrieval tools are no longer available. Do not call \`search_more_sources\` or \`get_adjacent_chunks\`.
-Do not emit JSON tool calls, fenced \`\`\`json tool payloads, or "Gathering…" / "I'll pull richer sources…" narration.
+Do not emit JSON tool calls, fenced \`\`\`json tool payloads, or "Gathering…" / "I'll pull richer sources…" / "Pulling nearby…" narration.
 
 Earlier prompt sections that say to use retrieval tools before answering are overridden for this turn.
 The JSON sources above already include every document returned by your retrieval tools (and the original retrieval).
@@ -117,9 +117,19 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
     /\b(expanding the strongest|trying a tighter search|searching the book material|i('ll| will) pull)\b/i.test(
       trimmed
     );
+  // Adjacent-chunk intent without saying "source/passage/chunk" (e.g. "Pulling nearby ceremony text…").
+  // Keep the noun list tight so geo "I'll find nearby centers" is not treated as retrieval narration.
+  const hasAdjacentFetchNarration =
+    /\b(nearby|adjacent|neighboring|surrounding)\s+(?:the\s+)?(?:ceremony\s+)?(text|chunks?|passages?|sources?|excerpts?|material)\b/i.test(
+      trimmed
+    );
 
   // Short "I'll gather richer sources…" trail-offs, including glued status-like sentences.
-  if (wordCount < 80 && mentionsRetrievalWork && (startsLikeSearchNarration || hasGluedSearchNarration)) {
+  if (
+    wordCount < 80 &&
+    (startsLikeSearchNarration || hasGluedSearchNarration) &&
+    (mentionsRetrievalWork || hasAdjacentFetchNarration)
+  ) {
     return true;
   }
 

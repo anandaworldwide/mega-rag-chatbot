@@ -533,9 +533,10 @@ except ImportError:
   Named-author detection must use the current user utterance, not the history-rewritten retrieval query. Empty retrieval:
   say you searched that author's material because the question named them; they can name another author or ask to search
   all authors. Do not tell them to turn off a focused-author filter.
-- Retrieval-tool search narration ("I'll pull richer sources…", "I don't yet have passages so I'm searching…") is not an
-  answer. Detect it, send `retrieving_more_sources` (clears streamed leak), and force an answer-only turn even when the
-  model never emitted a tool_call.
+- Retrieval-tool search narration ("I'll pull richer sources…", "I don't yet have passages so I'm searching…",
+  "Pulling nearby ceremony text…") is not an answer. Detect it, send `retrieving_more_sources` (clears streamed leak),
+  and force an answer-only turn even when the model never emitted a tool_call. Adjacent-fetch phrasing counts even
+  without source/passage/chunk keywords; do not match a bare `nearby` (geo "nearby centers").
 
 ## Answer Regeneration Feature
 

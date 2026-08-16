@@ -104,6 +104,19 @@ Client can remain stuck on "Gathering additional sources..." with empty `fullRes
 Share one `forceRetrievalAnswerOnly` path for: max iterations, missing context, post-expansion
 ignored tool_calls, and a safety net when the loop ends with an empty streamed answer.
 
+### Mistake: Adjacent-fetch narration without source/passage/chunk keywords
+
+**Wrong**:
+Treat short search narration as incomplete only when it also matches `source|passage|chunk|quote|more`.
+The model then ships "Pulling nearby ceremony text for the listed ritual objects…" as the final
+answer — a `get_adjacent_chunks` intent with no tool_call and no recovery.
+
+**Correct**:
+Also match adjacent-fetch phrasing (`nearby/adjacent/neighboring/surrounding` +
+`text|chunks|passages|sources|excerpts|material`). Do not use a bare `nearby` keyword — that
+false-positives geo "I'll find nearby Ananda centers". Keep requiring a search-narration opener
+(`Pulling`, `Gathering`, `I'll`, …).
+
 ### Mistake: Matching the wrong site block in site-config/config.json
 
 **Wrong**:
@@ -3350,5 +3363,7 @@ tool JSON or a "I'll pull richer sources…" one-liner and stop.
 Gathering narration, produce the complete deliverable. Buffer unbound answer turns and
 discard via `isIncompleteRetrievalAnswer` + `forceRetrievalAnswerOnly` before tokens reach
 the client; end-of-loop safety net covers the same incomplete shapes. Treat gerund
-search-narration openers (`Seeking`, `Expanding`, `Trying`, `Searching`) the same as
-`I'll` / `I don't` — the model rotates verbs.
+search-narration openers (`Seeking`, `Expanding`, `Trying`, `Searching`, `Pulling`) the same as
+`I'll` / `I don't` — the model rotates verbs. Also catch adjacent-fetch objects
+(`nearby ceremony text`) that never say source/passage/chunk; do not use a bare `nearby`
+keyword (geo center narration).
