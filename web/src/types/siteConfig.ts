@@ -65,7 +65,6 @@ export interface SiteConfig {
   minRetrievalScore?: number;
   authorAliases?: Record<string, string>;
   enableTitleScopeSelection?: boolean;
-  enableSearchPage?: boolean;
   welcome_popup_heading: string;
   other_visitors_reference: string;
   loginImage: string | null;

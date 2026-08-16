@@ -25,7 +25,6 @@ interface BaseHeaderProps {
   isChatEmpty?: boolean;
   allowTemporarySessions?: boolean;
   helpUrl?: string;
-  enableSearchPage?: boolean;
 }
 
 export default function BaseHeader({
@@ -41,7 +40,6 @@ export default function BaseHeader({
   isChatEmpty = true,
   allowTemporarySessions = false,
   helpUrl,
-  enableSearchPage = false,
 }: BaseHeaderProps) {
   const router = useRouter();
   const [isLoggedIn, setIsLoggedIn] = useState(() => {
@@ -243,15 +241,6 @@ export default function BaseHeader({
                   <span className="material-icons text-xl">edit_square</span>
                 </button>
               )}
-            {enableSearchPage && (
-              <Link
-                href="/search"
-                className="text-white hover:text-gray-200 p-1 rounded-xl hover:bg-white/10 transition-colors flex items-center"
-                title="Search Passages"
-              >
-                <span className="material-icons text-xl">search</span>
-              </Link>
-            )}
             {whatsNewAvailable && siteConfig && (
               <WhatsNewDropdown siteConfig={siteConfig} requireLogin={requireLogin} />
             )}

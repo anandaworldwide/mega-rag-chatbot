@@ -1,6 +1,6 @@
 /**
  * User activity tracking utilities
- * Updates lastActivityAt timestamp on user documents when users engage with chat, search, or conversations
+ * Updates lastActivityAt timestamp on user documents when users engage with chat or conversations
  */
 
 import { db } from "@/services/firebase";

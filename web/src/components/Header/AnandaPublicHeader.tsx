@@ -1,6 +1,6 @@
 import BaseHeader from "./BaseHeader";
 import { SiteConfig } from "@/types/siteConfig";
-import { getParentSiteUrl, getParentSiteName, getEnableSearchPage } from "@/utils/client/siteConfig";
+import { getParentSiteUrl, getParentSiteName } from "@/utils/client/siteConfig";
 
 interface AnandaHeaderProps {
   siteConfig: SiteConfig;
@@ -24,7 +24,6 @@ export default function AnandaHeader({ siteConfig, onNewChat }: AnandaHeaderProp
         onTemporarySessionChange={undefined}
         isChatEmpty={true}
         allowTemporarySessions={false}
-        enableSearchPage={getEnableSearchPage(siteConfig)}
       />
     </>
   );

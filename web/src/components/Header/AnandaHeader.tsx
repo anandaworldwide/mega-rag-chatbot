@@ -1,6 +1,6 @@
 import BaseHeader from "./BaseHeader";
 import { SiteConfig } from "@/types/siteConfig";
-import { getParentSiteUrl, getParentSiteName, getEnableSearchPage } from "@/utils/client/siteConfig";
+import { getParentSiteUrl, getParentSiteName } from "@/utils/client/siteConfig";
 import Image from "next/image";
 
 interface AnandaHeaderProps {
@@ -48,7 +48,6 @@ export default function AnandaHeader({
         allowTemporarySessions={siteConfig.allowTemporarySessions}
         logoComponent={logoComponent}
         helpUrl={siteConfig.help_url}
-        enableSearchPage={getEnableSearchPage(siteConfig)}
       />
     </>
   );

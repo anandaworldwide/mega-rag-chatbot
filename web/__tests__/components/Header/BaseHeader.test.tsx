@@ -113,16 +113,6 @@ describe("BaseHeader", () => {
     });
   });
 
-  it("shows search link when enableSearchPage is true", async () => {
-    render(
-      <BaseHeader config={baseConfig} requireLogin={false} enableSearchPage={true} isChatEmpty={true} />
-    );
-
-    await waitFor(() => {
-      expect(screen.getByTitle("Search Passages")).toBeInTheDocument();
-    });
-  });
-
   it("initializes token manager on mount", async () => {
     render(<BaseHeader config={baseConfig} requireLogin={true} isChatEmpty={true} />);
 

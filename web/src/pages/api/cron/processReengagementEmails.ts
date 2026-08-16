@@ -149,7 +149,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       }
 
       // Check inactivity window (21-60 days)
-      // Use lastActivityAt if available (chat/search activity), fall back to lastLoginAt
+      // Use lastActivityAt if available (chat activity), fall back to lastLoginAt
       const lastActivity = data.lastActivityAt || data.lastLoginAt;
       if (!lastActivity) {
         // Users who have never logged in or been active are not eligible
@@ -208,7 +208,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           continue;
         }
 
-        // Calculate days since last activity (chat/search) or login
+        // Calculate days since last activity (chat) or login
         // Use lastActivityAt if available, fall back to lastLoginAt
         const lastActivity = userData.lastActivityAt || userData.lastLoginAt;
         if (!lastActivity) {

@@ -64,9 +64,6 @@ export const getDefaultCollectionKey = (siteConfig: SiteConfig | null): string =
   return Object.keys(collections)[0] || "whole_library";
 };
 
-// Check if search page feature is enabled (defaults to false)
-export const getEnableSearchPage = (siteConfig: SiteConfig | null) => siteConfig?.enableSearchPage ?? false;
-
 // Check if the Salesforce access notice is enabled for this site.
 export const getEnableSalesforceAccessNotice = (siteConfig: SiteConfig | null) =>
   siteConfig?.enableSalesforceAccessNotice === true &&

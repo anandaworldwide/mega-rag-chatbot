@@ -549,6 +549,11 @@ except ImportError:
 - **UI removed**: Do not re-add the Material `autorenew` shuffle button on `SuggestedQueries`. Luca GA4 showed 7 clicks / 6 users in 6 months.
 - Clicking a suggested query still reshuffles the remaining chips.
 
+## Search Passages Page
+
+- **Removed**: Do not re-add the header search icon, `/search` page, `/api/search`, `enableSearchPage`, or search-only helpers (`useSearch`, SearchFilters/Results/ResultItem, SearchTypes, `highlightText`).
+- Chat RAG retrieval, Answers-page question search, WordPress `/search/` popup detection, crawler skip patterns, and `bin/search_chatbot_content.py` are unrelated and stay.
+
 ## Data Files and Versioning
 
 ### What's New JSON Files
