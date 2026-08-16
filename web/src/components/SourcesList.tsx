@@ -878,8 +878,11 @@ const SourcesList: React.FC<SourcesListProps> = ({
                     logEvent("close_sources_popover", "UI", "close_button");
                   }}
                   className="text-gray-500 hover:text-gray-700"
+                  aria-label="Close sources"
                 >
-                  <span className="material-icons">close</span>
+                  <span className="material-icons" aria-hidden="true">
+                    close
+                  </span>
                 </button>
               </div>
 
@@ -1099,8 +1102,11 @@ const SourcesList: React.FC<SourcesListProps> = ({
                   logEvent("dismiss_access_interstitial", "UI", "close_button");
                 }}
                 className="text-gray-400 hover:text-gray-600"
+                aria-label="Close"
               >
-                <span className="material-icons">close</span>
+                <span className="material-icons" aria-hidden="true">
+                  close
+                </span>
               </button>
             </div>
 

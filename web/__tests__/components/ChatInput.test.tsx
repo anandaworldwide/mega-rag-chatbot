@@ -130,8 +130,7 @@ describe("ChatInput", () => {
 
     render(<ChatInput {...props} />);
 
-    // Get textarea by its role and id
-    const textarea = screen.getByRole("textbox", { name: "" });
+    const textarea = screen.getByRole("textbox", { name: "Chat message" });
     fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
 
     expect(defaultProps.handleEnter).toHaveBeenCalled();
@@ -145,8 +144,7 @@ describe("ChatInput", () => {
 
     render(<ChatInput {...props} />);
 
-    // Get textarea by its role and id
-    const textarea = screen.getByRole("textbox", { name: "" });
+    const textarea = screen.getByRole("textbox", { name: "Chat message" });
     fireEvent.keyDown(textarea, {
       key: "Enter",
       code: "Enter",
@@ -256,6 +254,19 @@ describe("ChatInput", () => {
     // Verify response depth option is present
     expect(screen.getByText("Response Depth")).toBeInTheDocument();
     expect(screen.getByText(/Use 10 sources/)).toBeInTheDocument();
+  });
+
+  it("exposes Voice Control names for the chat field and send button", () => {
+    render(<ChatInput {...defaultProps} />);
+
+    expect(screen.getByRole("textbox", { name: "Chat message" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send message" })).toBeInTheDocument();
+  });
+
+  it("labels the stop button while a response is generating", () => {
+    render(<ChatInput {...defaultProps} loading={true} />);
+
+    expect(screen.getByRole("button", { name: "Stop generating" })).toBeInTheDocument();
   });
 
   it("does not render the task wizard wand", () => {

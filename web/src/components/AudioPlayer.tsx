@@ -328,6 +328,7 @@ export function AudioPlayer({
           onChange={handleSeek}
           className="w-full"
           disabled={isDisabled}
+          aria-label="Audio playback position"
         />
       </div>
     </div>

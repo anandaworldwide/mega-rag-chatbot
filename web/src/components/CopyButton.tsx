@@ -186,11 +186,16 @@ const CopyButton: React.FC<CopyButtonProps> = ({
       onClick={handleCopy}
       className="flex items-center hover:bg-gray-100 p-2 rounded-xl h-8 w-8 justify-center transition-colors"
       title="Copy answer to clipboard"
+      aria-label={copied ? "Answer copied" : "Copy answer to clipboard"}
     >
       {copied ? (
-        <span className="material-icons text-black">check</span>
+        <span className="material-icons text-black" aria-hidden="true">
+          check
+        </span>
       ) : (
-        <span className="material-icons text-gray-500">content_copy</span>
+        <span className="material-icons text-gray-500" aria-hidden="true">
+          content_copy
+        </span>
       )}
     </button>
   );

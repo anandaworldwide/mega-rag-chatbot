@@ -324,6 +324,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
           <div className="mb-4 border border-gray-300 rounded-xl overflow-hidden">
             {/* Input textarea and submit button */}
             <div className="relative">
+              <label htmlFor="userInput" className="sr-only">
+                Chat message
+              </label>
               <textarea
                 onKeyDown={onEnter}
                 onChange={(e) => {
@@ -337,6 +340,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 maxLength={4000}
                 id="userInput"
                 name="userInput"
+                aria-label="Chat message"
                 placeholder={disabled ? "View-only mode" : hasInteracted ? "" : placeholderText}
                 disabled={disabled}
                 className={`w-full p-3 pr-12 resize-none focus:outline-none min-h-[48px] overflow-hidden border-0 ${
@@ -347,14 +351,19 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <button
                 type="submit"
                 disabled={disabled}
+                aria-label={loading ? "Stop generating" : "Send message"}
                 className={`absolute right-3 top-1/2 transform -translate-y-1/2 p-2 rounded-xl flex items-center justify-center w-8 h-8 ${
                   disabled ? "bg-gray-400 text-gray-600 cursor-not-allowed" : "bg-blue-500 text-white hover:bg-blue-600"
                 }`}
               >
                 {loading ? (
-                  <span className="material-icons text-lg leading-none">stop</span>
+                  <span className="material-icons text-lg leading-none" aria-hidden="true">
+                    stop
+                  </span>
                 ) : (
-                  <span className="material-icons text-lg leading-none">arrow_upward</span>
+                  <span className="material-icons text-lg leading-none" aria-hidden="true">
+                    arrow_upward
+                  </span>
                 )}
               </button>
             </div>

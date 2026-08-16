@@ -141,12 +141,15 @@ const Contact = ({ siteConfig }: ContactProps) => {
             <div className="flex space-x-4">
               {/* Name input field */}
               <div className="w-1/2">
-                <label htmlFor="name-input" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="name-input" id="name-input-label" className="block text-sm font-medium text-gray-700">
                   Name
                 </label>
                 <input
                   id="name-input"
+                  name="name"
                   type="text"
+                  autoComplete="name"
+                  aria-labelledby="name-input-label"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className={`mt-1 block w-full border rounded-md shadow-sm ${
@@ -162,12 +165,19 @@ const Contact = ({ siteConfig }: ContactProps) => {
               </div>
               {/* Email input field */}
               <div className="w-1/2">
-                <label htmlFor="email-input" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="email-input" id="contact-email-label" className="block text-sm font-medium text-gray-700">
                   Email
                 </label>
                 <input
                   id="email-input"
+                  name="email"
                   type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  aria-labelledby="contact-email-label"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className={`mt-1 block w-full border rounded-md shadow-sm ${
@@ -183,17 +193,19 @@ const Contact = ({ siteConfig }: ContactProps) => {
             </div>
             {/* Message textarea */}
             <div>
-              <label htmlFor="message-input" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="message-input" id="message-input-label" className="block text-sm font-medium text-gray-700">
                 Message
               </label>
               <textarea
                 id="message-input"
+                name="message"
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm h-48"
                 required
                 disabled={isSubmitted || isSubmitting}
                 maxLength={1000}
+                aria-labelledby="message-input-label"
               />
             </div>
             {/* Submit button */}

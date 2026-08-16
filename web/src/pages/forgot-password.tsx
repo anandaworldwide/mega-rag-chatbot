@@ -90,18 +90,24 @@ export default function ForgotPasswordPage({ siteConfig }: ForgotPasswordProps) 
 
         <form onSubmit={handleSubmit}>
           <div className="mb-5">
-            <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="email" id="forgot-email-label" className="block text-sm font-medium text-gray-700 mb-2">
               Email Address
             </label>
             <div className="relative">
               <input
                 id="email"
+                name="email"
                 type="email"
+                inputMode="email"
+                autoComplete="email"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                aria-labelledby="forgot-email-label"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-3 pr-11 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 outline-none"
                 placeholder="Enter your email"
-                autoComplete="email"
               />
               <span
                 className="material-icons absolute right-3 top-1/2 -translate-y-1/2 text-[#8b3a3a] pointer-events-none"

@@ -96,11 +96,18 @@ const SudoPage: React.FC<SudoPageProps> = ({ siteConfig }) => {
       <p className="text-lg text-gray-600 mb-4">{isSudoUser ? "You are Blessed!" : "You are not blessed"}</p>
       {error && <p className="text-red-500 mb-4">{error}</p>}
       <form onSubmit={handleSubmit} className="mb-4">
+        <label htmlFor="bless-password" className="sr-only">
+          Admin password
+        </label>
         <input
+          id="bless-password"
+          name="password"
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder="Enter password"
+          aria-label="Admin password"
+          autoComplete="current-password"
           className="border p-2 mb-2"
           minLength={8}
           maxLength={100}

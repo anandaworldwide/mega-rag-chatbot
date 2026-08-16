@@ -176,12 +176,15 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose, siteConf
             <div className="flex space-x-4">
               {/* Name input field */}
               <div className="w-1/2">
-                <label htmlFor="feedback-name-input" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="feedback-name-input" id="feedback-name-label" className="block text-sm font-medium text-gray-700">
                   Name
                 </label>
                 <input
                   id="feedback-name-input"
+                  name="name"
                   type="text"
+                  autoComplete="name"
+                  aria-labelledby="feedback-name-label"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className={`mt-1 block w-full border rounded-xl shadow-sm px-3 py-2 ${
@@ -197,12 +200,19 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose, siteConf
               </div>
               {/* Email input field */}
               <div className="w-1/2">
-                <label htmlFor="feedback-email-input" className="block text-sm font-medium text-gray-700">
+                <label htmlFor="feedback-email-input" id="feedback-email-label" className="block text-sm font-medium text-gray-700">
                   Email
                 </label>
                 <input
                   id="feedback-email-input"
+                  name="email"
                   type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  aria-labelledby="feedback-email-label"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className={`mt-1 block w-full border rounded-xl shadow-sm px-3 py-2 ${
@@ -218,11 +228,12 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose, siteConf
             </div>
             {/* Message textarea */}
             <div>
-              <label htmlFor="feedback-message-input" className="block text-sm font-medium text-gray-700">
+              <label htmlFor="feedback-message-input" id="feedback-message-label" className="block text-sm font-medium text-gray-700">
                 Your Feedback
               </label>
               <textarea
                 id="feedback-message-input"
+                name="message"
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 className="mt-1 block w-full border border-gray-300 rounded-xl shadow-sm px-3 py-2 h-32 focus:ring-blue-500 focus:border-blue-500"
@@ -230,6 +241,7 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({ isOpen, onClose, siteConf
                 disabled={isSubmitting}
                 maxLength={1000}
                 placeholder="Please share your thoughts, suggestions, or any issues you've encountered..."
+                aria-labelledby="feedback-message-label"
               />
               <div className="text-right text-xs text-gray-500 mt-1">{message.length}/1000 characters</div>
             </div>

@@ -212,22 +212,28 @@ const NPSSurvey: React.FC<NPSSurveyProps> = ({ siteConfig, initialScore = null }
           </div>
         </div>
         {/* Feedback textarea */}
-        <h2 className="text-lg font-medium mb-2">What&apos;s the main reason for your score?</h2>
+        <h2 className="text-lg font-medium mb-2" id="nps-feedback-label">
+          What&apos;s the main reason for your score?
+        </h2>
         <textarea
           className="w-full p-3 border rounded mb-6 min-h-[100px]"
           value={feedback}
           onChange={(e) => setFeedback(e.target.value)}
           maxLength={1000}
           placeholder="Please share your thoughts..."
+          aria-labelledby="nps-feedback-label"
         />
         {/* Additional comments textarea */}
-        <h2 className="text-lg font-medium mb-2">What would make it even better? Or other comments (optional).</h2>
+        <h2 className="text-lg font-medium mb-2" id="nps-comments-label">
+          What would make it even better? Or other comments (optional).
+        </h2>
         <textarea
           className="w-full p-3 border rounded mb-6 min-h-[100px]"
           value={additionalComments}
           onChange={(e) => setAdditionalComments(e.target.value)}
           maxLength={1000}
           placeholder="Any additional feedback..."
+          aria-labelledby="nps-comments-label"
         />
         {/* Error message display */}
         {errorMessage && (

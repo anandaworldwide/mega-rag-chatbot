@@ -379,6 +379,7 @@ export const TitleScopePicker: React.FC<TitleScopePickerProps> = ({
             onFocus={() => setIsOpen(true)}
             disabled={disabled}
             placeholder="Lessons in Meditation, Bible Genesis, etc."
+            aria-label="Focus on one source"
             className={`w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 ${
               disabled
                 ? "cursor-not-allowed border-gray-200 bg-gray-100 text-gray-500"

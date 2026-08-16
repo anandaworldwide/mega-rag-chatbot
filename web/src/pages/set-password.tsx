@@ -98,18 +98,20 @@ export default function SetPasswordPage({ siteConfig }: SetPasswordProps) {
 
         <form onSubmit={handleSubmit}>
           <div className="mb-5">
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="password" id="new-password-label" className="block text-sm font-medium text-gray-700 mb-2">
               New Password
             </label>
             <div className="relative">
               <input
                 id="password"
+                name="password"
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-4 py-3 pr-16 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 outline-none"
                 placeholder="Enter your password"
                 autoComplete="new-password"
+                aria-labelledby="new-password-label"
               />
               <button
                 type="button"
@@ -124,18 +126,20 @@ export default function SetPasswordPage({ siteConfig }: SetPasswordProps) {
           </div>
 
           <div className="mb-5">
-            <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="confirmPassword" id="confirm-password-label" className="block text-sm font-medium text-gray-700 mb-2">
               Confirm Password
             </label>
             <div className="relative">
               <input
                 id="confirmPassword"
+                name="confirmPassword"
                 type={showConfirmPassword ? "text" : "password"}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 className="w-full px-4 py-3 pr-16 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 outline-none"
                 placeholder="Confirm your password"
                 autoComplete="new-password"
+                aria-labelledby="confirm-password-label"
               />
               <button
                 type="button"

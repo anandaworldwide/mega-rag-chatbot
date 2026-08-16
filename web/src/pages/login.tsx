@@ -350,13 +350,20 @@ export default function Login({ siteConfig, contactEmail }: LoginProps) {
         {step === "email" && (
           <form onSubmit={submitEmail} aria-busy={isSubmitting}>
             <div className="mb-5">
-              <label htmlFor="email-input" className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="email-input" id="email-input-label" className="block text-sm font-medium text-gray-700 mb-2">
                 Email Address
               </label>
               <div className="relative">
                 <input
                   id="email-input"
+                  name="email"
                   type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  aria-labelledby="email-input-label"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   ref={emailInputRef}
@@ -410,12 +417,13 @@ export default function Login({ siteConfig, contactEmail }: LoginProps) {
               </div>
 
               <div className="mb-5">
-                <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+                <label htmlFor="password" id="password-label" className="block text-sm font-medium text-gray-700 mb-2">
                   Password
                 </label>
                 <div className="relative">
                   <input
                     id="password"
+                    name="password"
                     type={showPassword ? "text" : "password"}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -423,11 +431,13 @@ export default function Login({ siteConfig, contactEmail }: LoginProps) {
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg pr-16 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 outline-none"
                     placeholder="Enter your password"
                     autoComplete="current-password"
+                    aria-labelledby="password-label"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors"
+                    aria-label={showPassword ? "Hide password" : "Show password"}
                   >
                     {showPassword ? "Hide" : "Show"}
                   </button>

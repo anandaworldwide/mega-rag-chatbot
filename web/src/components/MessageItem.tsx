@@ -141,8 +141,9 @@ const MessageItem: React.FC<MessageItemProps> = ({
             vote === 1 ? styles.voteButtonActive : ""
           } hover:bg-gray-100 flex items-center p-2 rounded-xl h-8 w-8 justify-center transition-colors`}
           title={vote === 1 ? "Clear upvote" : "Upvote this answer"}
+          aria-label={vote === 1 ? "Clear upvote" : "Upvote this answer"}
         >
-          <span className={`material-icons ${vote === 1 ? "text-green-600" : "text-gray-500"}`}>
+          <span className={`material-icons ${vote === 1 ? "text-green-600" : "text-gray-500"}`} aria-hidden="true">
             {vote === 1 ? "thumb_up" : "thumb_up_off_alt"}
           </span>
         </button>
@@ -154,8 +155,9 @@ const MessageItem: React.FC<MessageItemProps> = ({
             vote === -1 ? styles.voteButtonDownActive : ""
           } hover:bg-gray-100 flex items-center p-2 rounded-xl h-8 w-8 justify-center transition-colors`}
           title={vote === -1 ? "Clear downvote" : "Downvote (provide feedback)"}
+          aria-label={vote === -1 ? "Clear downvote" : "Downvote (provide feedback)"}
         >
-          <span className={`material-icons ${vote === -1 ? "text-red-600" : "text-gray-500"}`}>
+          <span className={`material-icons ${vote === -1 ? "text-red-600" : "text-gray-500"}`} aria-hidden="true">
             {vote === -1 ? "thumb_down" : "thumb_down_off_alt"}
           </span>
         </button>
@@ -209,6 +211,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
                   onKeyDown={handleEditKeyDown}
                   className="w-full bg-white border border-blue-300 rounded-lg px-3 py-2 text-[16px] text-black font-normal leading-normal font-sans resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
                   rows={Math.max(3, localEditingText.split("\n").length)}
+                  aria-label="Edit question"
                   autoFocus
                 />
                 <div className="flex justify-end gap-2 mt-2">
@@ -245,8 +248,11 @@ const MessageItem: React.FC<MessageItemProps> = ({
                     }}
                     className="edit-button-mobile absolute -left-8 top-2 opacity-0 group-hover:opacity-100 hover:bg-gray-200 p-1 rounded-lg transition-opacity"
                     title="Edit question"
+                    aria-label="Edit question"
                   >
-                    <span className="material-icons text-gray-500 text-lg">edit</span>
+                    <span className="material-icons text-gray-500 text-lg" aria-hidden="true">
+                      edit
+                    </span>
                   </button>
                 )}
               </div>
@@ -336,10 +342,12 @@ const MessageItem: React.FC<MessageItemProps> = ({
                       onClick={() => message.docId && handleCopyLink(message.docId)}
                       className={`flex items-center hover:bg-gray-100 p-2 rounded-xl h-8 w-8 justify-center transition-colors ${!message.docId ? "opacity-50 cursor-not-allowed" : ""}`}
                       title={message.docId ? "Copy link to clipboard" : "Waiting for link..."}
+                      aria-label={message.docId ? "Copy link to clipboard" : "Waiting for link"}
                       disabled={!message.docId}
                     >
                       <span
                         className={`material-icons ${linkCopied === message.docId ? "text-black" : "text-gray-500"}`}
+                        aria-hidden="true"
                       >
                         {linkCopied === message.docId ? "check" : "link"}
                       </span>
@@ -355,15 +363,21 @@ const MessageItem: React.FC<MessageItemProps> = ({
                             disabled
                             className="opacity-50 cursor-not-allowed hover:bg-gray-100 flex items-center p-2 rounded-xl h-8 w-8 justify-center transition-colors"
                             title="Waiting for document ID..."
+                            aria-label="Upvote unavailable"
                           >
-                            <span className="material-icons text-gray-500">thumb_up_off_alt</span>
+                            <span className="material-icons text-gray-500" aria-hidden="true">
+                              thumb_up_off_alt
+                            </span>
                           </button>
                           <button
                             disabled
                             className="opacity-50 cursor-not-allowed hover:bg-gray-100 flex items-center p-2 rounded-xl h-8 w-8 justify-center transition-colors"
                             title="Waiting for document ID..."
+                            aria-label="Downvote unavailable"
                           >
-                            <span className="material-icons text-gray-500">thumb_down_off_alt</span>
+                            <span className="material-icons text-gray-500" aria-hidden="true">
+                              thumb_down_off_alt
+                            </span>
                           </button>
                         </div>
                       ))}

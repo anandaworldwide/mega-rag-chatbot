@@ -230,12 +230,15 @@ export default function AdminApproverSelector({
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label htmlFor="requester-name" className="block text-sm font-medium text-gray-700 mb-2">
+          <label htmlFor="requester-name" id="requester-name-label" className="block text-sm font-medium text-gray-700 mb-2">
             Full Name
           </label>
           <input
             id="requester-name"
+            name="name"
             type="text"
+            autoComplete="name"
+            aria-labelledby="requester-name-label"
             value={name}
             onChange={(e) => setName(e.target.value)}
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
@@ -246,12 +249,15 @@ export default function AdminApproverSelector({
         </div>
 
         <div>
-          <label htmlFor="requester-email" className="block text-sm font-medium text-gray-700 mb-2">
+          <label htmlFor="requester-email" id="requester-email-label" className="block text-sm font-medium text-gray-700 mb-2">
             Email Address
           </label>
           <input
             id="requester-email"
+            name="email"
             type="email"
+            autoComplete="email"
+            aria-labelledby="requester-email-label"
             value={requesterEmail}
             className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-100 text-gray-600"
             disabled

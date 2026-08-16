@@ -67,7 +67,14 @@
 - **Semantic HTML:** Use HTML elements according to their semantic meaning (e.g., `<button>` for buttons, `<nav>` for
   navigation, `<label>` for form field labels).
 - **Labels:** Always associate `<label>` elements with their corresponding form controls (`<input>`, `<select>`,
-  `<textarea>`) using the `htmlFor` attribute linked to the control's `id`.
+  `<textarea>`) using the `htmlFor` attribute linked to the control's `id`. Give the label an `id` and point the control
+  at it with `aria-labelledby` so iOS Voice Control can assign a number and a speakable name to the field itself, not
+  only to nearby text.
+- **Voice Control / icon-only controls:** Every tappable control must have an accessible name that matches visible text
+  (`aria-label` or visible text). Icon-only buttons and links need `aria-label`. Decorative Material Icons must use
+  `aria-hidden="true"` so the ligature text (`mail`, `search`, `edit`) does not steal Voice Control numbers.
+- **Email and password fields:** Include `name` and `autoComplete` (`email`, `current-password`, `new-password`) so
+  iOS treats the control as a standard text field for Voice Control, AutoFill, and dictation.
 - **ARIA Attributes:** Apply ARIA attributes (`aria-*`) where necessary to enhance accessibility for dynamic content
   or custom controls, especially when semantic HTML doesn't fully convey the role, state, or properties.
 - **Keyboard Navigation & Focus:** Ensure all interactive elements are navigable and operable using a keyboard. Maintain

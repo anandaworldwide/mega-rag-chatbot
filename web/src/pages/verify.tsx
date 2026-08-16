@@ -178,11 +178,15 @@ export default function VerifyPage({ siteConfig }: VerifyPageProps) {
           <form onSubmit={onSubmitName} className="space-y-4">
             <p className="text-sm text-gray-700">Welcome! Please tell us your name.</p>
             <div>
-              <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="firstName" id="first-name-label" className="block text-sm font-medium text-gray-700 mb-2">
                 First name
               </label>
               <input
                 id="firstName"
+                name="firstName"
+                type="text"
+                autoComplete="given-name"
+                aria-labelledby="first-name-label"
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 outline-none"
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
@@ -191,11 +195,15 @@ export default function VerifyPage({ siteConfig }: VerifyPageProps) {
               />
             </div>
             <div>
-              <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="lastName" id="last-name-label" className="block text-sm font-medium text-gray-700 mb-2">
                 Last name
               </label>
               <input
                 id="lastName"
+                name="lastName"
+                type="text"
+                autoComplete="family-name"
+                aria-labelledby="last-name-label"
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 outline-none"
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}

@@ -129,6 +129,7 @@ describe("CopyButton", () => {
     const { getByTitle } = render(<CopyButton {...mockProps} />);
     const button = getByTitle("Copy answer to clipboard");
     expect(button).toBeInTheDocument();
+    expect(button).toHaveAttribute("aria-label", "Copy answer to clipboard");
     expect(button.querySelector(".material-icons")).toHaveTextContent("content_copy");
   });
 

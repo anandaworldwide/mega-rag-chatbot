@@ -217,7 +217,9 @@ export default function BaseHeader({
                 className="text-white hover:text-gray-200 p-1 rounded-xl hover:bg-white/10 transition-colors flex items-center"
                 title="Start temporary chat. It will not be logged, saved, or shareable."
               >
-                <span className="material-icons text-xl">cloud_off</span>
+                <span className="material-icons text-xl" aria-hidden="true">
+                  cloud_off
+                </span>
               </button>
             )}
             {/* Show new chat button:
@@ -238,7 +240,9 @@ export default function BaseHeader({
                   className="text-white hover:text-gray-200 p-1 rounded-xl hover:bg-white/10 transition-colors"
                   title="Start New Chat"
                 >
-                  <span className="material-icons text-xl">edit_square</span>
+                  <span className="material-icons text-xl" aria-hidden="true">
+                    edit_square
+                  </span>
                 </button>
               )}
             {whatsNewAvailable && siteConfig && (
