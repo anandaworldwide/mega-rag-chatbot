@@ -1777,7 +1777,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   }, [collection, collectionQueries, siteConfig?.collectionConfig]);
 
   // Custom hook for managing suggested queries (fallback for non-categorized)
-  const { suggestedQueries, shuffleQueries } = useSuggestedQueries(queriesForCollection, 3);
+  const { suggestedQueries } = useSuggestedQueries(queriesForCollection, 3);
 
   // Helper function to determine if user has completed any Q&A (show suggestions until first Q&A)
   const shouldShowSuggestions = useMemo(() => computeShouldShowSuggestions(messages), [messages]);
@@ -3110,7 +3110,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                           error={chatError}
                           setError={setError}
                           suggestedQueries={suggestedQueries}
-                          shuffleQueries={shuffleQueries}
                           textAreaRef={textAreaRef}
                           mediaTypes={mediaTypes}
                           handleMediaTypeChange={handleMediaTypeChange}
@@ -3185,7 +3184,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                                 voteError={voteError}
                                 allowAllAnswersPage={siteConfig?.allowAllAnswersPage ?? false}
                                 onSuggestionClick={handleSuggestionClick}
-                                onRegenerateAnswer={handleRegenerateAnswer}
                                 onEditQuestion={handleEditQuestion}
                                 isEditing={editingMessageIndex === index}
                                 editingText={editingText}
@@ -3270,7 +3268,6 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                         error={chatError}
                         setError={setError}
                         suggestedQueries={suggestedQueries}
-                        shuffleQueries={shuffleQueries}
                         textAreaRef={textAreaRef}
                         mediaTypes={mediaTypes}
                         handleMediaTypeChange={handleMediaTypeChange}

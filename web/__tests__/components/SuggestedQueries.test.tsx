@@ -57,7 +57,6 @@ describe("SuggestedQueries", () => {
     ],
     onQueryClick: jest.fn(),
     isLoading: false,
-    shuffleQueries: jest.fn(),
     isMobile: false,
     siteConfig: mockSiteConfig,
   };
@@ -109,5 +108,13 @@ describe("SuggestedQueries", () => {
     const allQueries = defaultProps.queries;
     const displayedQueries = allQueries.filter((q) => screen.queryByText(q) !== null);
     expect(displayedQueries.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("does not show a shuffle arrow button", () => {
+    render(<SuggestedQueries {...defaultProps} />);
+
+    expect(screen.queryByTitle("Get new example questions")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Generate new questions")).not.toBeInTheDocument();
+    expect(screen.queryByText("autorenew")).not.toBeInTheDocument();
   });
 });

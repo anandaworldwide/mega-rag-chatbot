@@ -539,13 +539,15 @@ except ImportError:
 
 ## Answer Regeneration Feature
 
-- **Feature**: Regenerate button for re-generating answers with the same model
-- **Location**: Right of the link icon in MessageItem component
-- **Icon**: Google Material icon "refresh"
-- **Handler**: `handleRegenerateAnswer` in index.tsx
+- **UI removed**: Do not re-add the Recycle Arrow / Material `refresh` regenerate button on `MessageItem`. Users were not using it.
+- **Handler kept**: `handleRegenerateAnswer` in `index.tsx` still exists for filter-conflict retry (`pendingConflictRetry`), not as a user-facing control.
 - **Behavior**: Replaces the existing answer in-place with streaming updates
 - **State**: Uses existing `loading` state to prevent concurrent regenerations
-- **Analytics**: Logs "regenerate_answer_clicked" event with message index
+
+## Suggested Query Shuffle Arrow
+
+- **UI removed**: Do not re-add the Material `autorenew` shuffle button on `SuggestedQueries`. Luca GA4 showed 7 clicks / 6 users in 6 months.
+- Clicking a suggested query still reshuffles the remaining chips.
 
 ## Data Files and Versioning
 

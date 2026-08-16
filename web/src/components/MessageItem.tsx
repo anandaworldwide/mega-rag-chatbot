@@ -39,7 +39,6 @@ interface MessageItemProps {
   showSourcesBelow?: boolean;
   onSuggestionClick?: (suggestion: TypedSuggestion, position: number) => void;
   readOnly?: boolean; // New prop to disable interactive elements
-  onRegenerateAnswer?: (messageIndex: number) => void; // New prop for regenerating answer
   onEditQuestion?: (messageIndex: number, originalText: string) => void; // New prop for editing question
   isEditing?: boolean; // Track if this message is being edited
   editingText?: string; // Current editing text
@@ -75,7 +74,6 @@ const MessageItem: React.FC<MessageItemProps> = ({
   showSourcesBelow = false,
   onSuggestionClick,
   readOnly = false,
-  onRegenerateAnswer,
   onEditQuestion,
   isEditing = false,
   editingText = "",
@@ -321,17 +319,6 @@ const MessageItem: React.FC<MessageItemProps> = ({
             {/* Action buttons for AI messages */}
             {message.type === "apiMessage" && index !== 0 && (!loading || !isLastMessage) && (
               <div className="mt-2 flex items-center space-x-2">
-                {/* Regenerate answer button - only show for the last answer */}
-                {!readOnly && onRegenerateAnswer && isLastMessage && (
-                  <button
-                    onClick={() => onRegenerateAnswer(index)}
-                    className="flex items-center hover:bg-gray-100 p-2 rounded-xl h-8 w-8 justify-center transition-colors"
-                    title="Regenerate this answer"
-                  >
-                    <span className="material-icons text-gray-500">refresh</span>
-                  </button>
-                )}
-
                 {/* Copy content button always shown when message is complete */}
                 <CopyButton
                   markdown={message.message}

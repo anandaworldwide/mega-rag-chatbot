@@ -72,7 +72,6 @@ jest.mock("@/hooks/useSuggestedQueries", () => ({
   __esModule: true,
   useSuggestedQueries: () => ({
     suggestedQueries: [],
-    shuffleQueries: jest.fn(),
   }),
 }));
 

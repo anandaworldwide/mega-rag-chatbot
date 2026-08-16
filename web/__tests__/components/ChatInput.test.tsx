@@ -4,16 +4,13 @@ jest.mock("@/utils/client/analytics", () => ({
 }));
 
 jest.mock("@/components/SuggestedQueries", () =>
-  jest.fn().mockImplementation(({ queries, onQueryClick, shuffleQueries }) => (
+  jest.fn().mockImplementation(({ queries, onQueryClick }) => (
     <div data-testid="random-queries">
       {queries.map((query: string, index: number) => (
         <button key={index} onClick={() => onQueryClick(query)}>
           {query}
         </button>
       ))}
-      <button data-testid="regenerate-button" onClick={shuffleQueries}>
-        Regenerate
-      </button>
     </div>
   ))
 );
@@ -67,7 +64,6 @@ describe("ChatInput", () => {
     error: null,
     setError: jest.fn(),
     suggestedQueries: ["How can I meditate?", "What is yoga?"],
-    shuffleQueries: jest.fn(),
     textAreaRef: { current: null } as React.RefObject<HTMLTextAreaElement>,
     mediaTypes: { text: true, audio: false, youtube: false },
     handleMediaTypeChange: jest.fn(),
@@ -168,15 +164,12 @@ describe("ChatInput", () => {
     expect(filterButton).toBeInTheDocument();
   });
 
-  it("handles query shuffling", () => {
+  it("does not show a suggested-query shuffle button", () => {
     render(<ChatInput {...defaultProps} />);
 
-    // Find and click the regenerate button directly
-    const regenerateButton = screen.getByTestId("regenerate-button");
-    fireEvent.click(regenerateButton);
-
-    // Verify that shuffleQueries was called
-    expect(defaultProps.shuffleQueries).toHaveBeenCalled();
+    expect(screen.queryByTestId("regenerate-button")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Get new example questions")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Generate new questions")).not.toBeInTheDocument();
   });
 
   it("displays temporary session indicator when active", () => {

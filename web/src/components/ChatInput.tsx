@@ -53,7 +53,6 @@ interface ChatInputProps {
   error: string | null;
   setError: (error: string | null) => void;
   suggestedQueries: string[];
-  shuffleQueries: () => void;
   textAreaRef: React.RefObject<HTMLTextAreaElement>;
   mediaTypes: { text: boolean; audio: boolean; youtube: boolean };
   handleMediaTypeChange: (type: "text" | "audio" | "youtube") => void;
@@ -95,7 +94,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   error,
   setError,
   suggestedQueries,
-  shuffleQueries,
   textAreaRef,
   mediaTypes,
   handleMediaTypeChange,
@@ -315,7 +313,6 @@ export const ChatInput: React.FC<ChatInputProps> = ({
                 queries={suggestedQueries}
                 onQueryClick={onQueryClick}
                 isLoading={loading}
-                shuffleQueries={shuffleQueries}
                 isMobile={isMobile}
                 siteConfig={siteConfig}
                 categorizedQueries={categorizedQueries}

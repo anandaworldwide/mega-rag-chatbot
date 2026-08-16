@@ -7,7 +7,6 @@ interface SuggestedQueriesProps {
   queries: string[];
   onQueryClick: (query: string) => void;
   isLoading: boolean;
-  shuffleQueries: () => void;
   isMobile: boolean;
   siteConfig: SiteConfig | null;
   onRefreshFunctionReady?: (refreshFn: () => void) => void;
@@ -38,9 +37,8 @@ const SuggestedQueries: React.FC<SuggestedQueriesProps> = ({
   queries,
   onQueryClick,
   isLoading,
-  shuffleQueries,
   isMobile,
-  siteConfig: _siteConfig,  
+  siteConfig: _siteConfig,
   categorizedQueries,
 }) => {
   // Initialize with random value to show different queries on each page load
@@ -112,18 +110,6 @@ const SuggestedQueries: React.FC<SuggestedQueriesProps> = ({
     return shuffledExamples.slice(0, 3).map((example, i) => ({ ...example, index: i }));
   }, [categorizedQueries, queries, shuffleKey]);
 
-  // Handle regenerate/shuffle button click
-  const handleRegenerate = () => {
-    setShuffleKey((prev) => prev + 1);
-    if (!categorizedQueries) {
-      shuffleQueries();
-    }
-
-    const categoryInfo = categorizedQueries ? `categorized_queries` : `categorized_false`;
-
-    logEvent("regenerate_suggested_queries", "Suggestions", `${categoryInfo}|mobile_${isMobile}`, 0);
-  };
-
   const handleQueryClick = (query: string, category: CategoryType | null, index: number) => {
     if (!isLoading && query) {
       onQueryClick(query);
@@ -156,42 +142,24 @@ const SuggestedQueries: React.FC<SuggestedQueriesProps> = ({
   return (
     <div className="text-left w-full px-0">
       <div className="bg-gray-50 p-3 rounded-xl w-full border border-gray-200">
-        {/* Query buttons and regenerate button on same row */}
-        <div className="flex items-center gap-2">
-          {/* Three query buttons - using grid for responsive width */}
-          {displayExamples.length > 0 && (
-            <div className="flex-1 grid grid-cols-1 sm:grid-cols-3 gap-2">
-              {displayExamples.map((example, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleQueryClick(example.query, example.category, idx)}
-                  className={`text-left px-3 py-2 text-sm rounded-xl transition-colors ${
-                    isLoading
-                      ? "bg-gray-100 border border-gray-200 text-gray-400 cursor-not-allowed"
-                      : "bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-blue-300 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  }`}
-                  disabled={isLoading}
-                >
-                  {example.query}
-                </button>
-              ))}
-            </div>
-          )}
-          {/* Regenerate button - aligned to the right */}
-          <button
-            onClick={handleRegenerate}
-            className={`inline-flex justify-center items-center transform transition-transform duration-500 flex-shrink-0 ${
-              isLoading ? "cursor-not-allowed opacity-50" : "hover:rotate-180"
-            }`}
-            aria-label="Generate new questions"
-            disabled={isLoading}
-            title="Get new example questions"
-          >
-            <span className={`material-icons ${isLoading ? "text-gray-400" : "text-gray-500 hover:text-gray-700"}`}>
-              autorenew
-            </span>
-          </button>
-        </div>
+        {displayExamples.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            {displayExamples.map((example, idx) => (
+              <button
+                key={idx}
+                onClick={() => handleQueryClick(example.query, example.category, idx)}
+                className={`text-left px-3 py-2 text-sm rounded-xl transition-colors ${
+                  isLoading
+                    ? "bg-gray-100 border border-gray-200 text-gray-400 cursor-not-allowed"
+                    : "bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-blue-300 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                }`}
+                disabled={isLoading}
+              >
+                {example.query}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

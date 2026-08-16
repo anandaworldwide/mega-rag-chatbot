@@ -17,6 +17,5 @@ export const useSuggestedQueries = (queries: string[], count: number) => {
 
   return {
     suggestedQueries,
-    shuffleQueries: () => setSuggestedQueries(shuffleQueries()),
   };
 };

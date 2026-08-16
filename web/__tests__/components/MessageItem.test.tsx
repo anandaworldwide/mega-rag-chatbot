@@ -285,6 +285,13 @@ describe("MessageItem", () => {
     expect(screen.getByTestId("copy-button")).toBeInTheDocument();
   });
 
+  it("does not show a regenerate answer button", () => {
+    renderWithQueryClient(<MessageItem {...defaultProps} />);
+
+    expect(screen.queryByTitle("Regenerate this answer")).not.toBeInTheDocument();
+    expect(screen.queryByText("refresh")).not.toBeInTheDocument();
+  });
+
   it("handles link copy correctly", () => {
     renderWithQueryClient(<MessageItem {...defaultProps} />);
 
