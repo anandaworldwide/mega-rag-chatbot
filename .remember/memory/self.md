@@ -48,6 +48,17 @@ Pin override + web dep to `uuid@11.1.1` (patched dual CJS/ESM). Never force ESM-
 packages that still `require()` it. Gate with `scripts/check-cjs-uuid-compat.mjs` under
 `--no-experimental-require-module`.
 
+### Mistake: Treat nanoid 3.3.17 as the GHSA-2v37 patch, or jump to 6.x
+
+**Wrong**:
+Pin `overrides.nanoid` to `3.3.17` because that tag shipped around CVE-2026-67213, or take
+`npm audit`'s `nanoid@6.0.1` (latest) to clear advisory 1139427.
+
+**Correct**:
+Advisory range is `< 3.3.18` (and `>=4.0.0 <5.1.6`). `3.3.17` is still vulnerable. Stay on
+the 3.x CJS line that Postcss/Next `require()` (`3.3.18`). Do not globally override to
+nanoid 6.x.
+
 ### Mistake: Stamping stream IDs from React state closed over by SSE handlers
 
 **Wrong**:

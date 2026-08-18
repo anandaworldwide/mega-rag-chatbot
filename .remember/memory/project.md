@@ -183,6 +183,9 @@ except ImportError:
   (dual CJS/ESM + GHSA-w5hq-g745-h8pq patch). **Do not pin to uuid@14** — it is ESM-only and breaks
   `gaxios`'s `require("uuid")` on Vercel (`ERR_REQUIRE_ESM`), while local Node 20 often hides it via
   `--experimental-require-module`. Guardrail: `node scripts/check-cjs-uuid-compat.mjs` / `npm run check:cjs-uuid` in `web/`.
+- **nanoid stays on the 3.x CJS line**: GHSA-2v37-7h3g-55p8 / npm 1139427 is `< 3.3.18` (plus a
+  4.x/5.x range). Pin the root override to **`3.3.18`**, not `3.3.17` (still vulnerable) and not
+  `6.0.1` (audit's `latest`; Postcss/Next `require()` nanoid 3.x).
 - **juice newsletter deps**: `juice` requires transitive `mensch` (and `slick` / `escape-goat`). If the
   lockfile omits those package entries, Vercel `processNewsletterBatch` fails with `MODULE_NOT_FOUND`.
   Guardrail: `node scripts/check-juice-deps.mjs` / `npm run check:juice-deps` in `web/` (also in
