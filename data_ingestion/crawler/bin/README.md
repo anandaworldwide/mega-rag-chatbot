@@ -8,7 +8,7 @@
 | `check_robots_compliance.py`      | Validate URLs against robots.txt rules         |
 | `cleanup_old_pinecone_vectors.py` | Remove stale vectors from Pinecone index       |
 | `delete_by_skip_pattern.py`       | Delete URLs matching configured skip patterns  |
-| `reconcile_orphaned_vectors.py`   | Find/delete Pinecone vectors whose URL has no live crawl_queue row. Weekly prod: `--apply-if-safe --email-report --max-runtime-seconds 7140` (2h systemd timer in `deploy/vm/`). |
+| `reconcile_orphaned_vectors.py`   | Find/delete Pinecone vectors whose URL has no live crawl_queue row. Also liveness-checks HTTP(S) URLs in system prompts (the weekly ananda-public run covers both Vivek and Luca) and reports 404s / Resource Links whitelist drift. Weekly prod: `--apply-if-safe --email-report --max-runtime-seconds 7140` (2h systemd timer in `deploy/vm/`). |
 | `log_rotate.py`                   | Rotate and compress crawler log files          |
 | `pinecone_health_check.py`        | Verify Pinecone connectivity and index health  |
 

@@ -40,6 +40,7 @@ COPY data_ingestion/crawler/ /app/crawler/
 COPY data_ingestion/utils/ /app/utils/
 COPY pyutil/ /app/pyutil/
 COPY web/site-config/author_mappings.json /app/web/site-config/author_mappings.json
+COPY web/site-config/prompts/ /app/web/site-config/prompts/
 
 # Create directories for DB and logs (host bind-mount at runtime)
 # Ensure proper ownership for non-root user (UID 1000)

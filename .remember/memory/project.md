@@ -71,6 +71,14 @@ except ImportError:
 
 ## Development Workflow
 
+### Vivek 404 source links
+
+- Vivek (`ananda-public`) is instructed to cite **only** Resource Links from `web/site-config/prompts/ananda-public-base.txt`. A 404 source is often a **stale hardcoded whitelist URL**, not a Pinecone/crawler orphan.
+- Keep Resource Links as durable hubs. Example responses must reuse those hubs (or GETHUMAN / geo-tool websites), not article slugs, `-reviews` pages, or dated event paths.
+- Weekly `reconcile_orphaned_vectors.py` (same name/timer; do not rename) also probes prompt HTTP(S) URLs and emails 404s plus URLs outside Resource Links. The ananda-public run checks both Vivek (`ananda-public-base.txt`) and Luca (`ananda-base.txt`). The crawler image must copy `web/site-config/prompts/`.
+- Confirm with `bin/search_chatbot_content.py --site ananda-public --term "<slug>" -e prod --firestore-only` and grep the public prompt. Then check the live crawler DB / Pinecone for the current permalink (slug and `/meditation-support/` vs `/free-meditation-support/`).
+- Production crawler SQLite lives on the Lightsail VM (`ubuntu@44.253.199.146`, `/srv/ananda-crawler/db/crawler_queue_ananda-public.db`). The old `download-database-from-efs.sh` was removed with Fargate; copy with `sqlite3 ".backup"` then `scp`.
+
 ### Vercel CLI (Ananda production)
 
 - Use the shell alias **`vercel-ananda`** (all lowercase) for Ananda Web Services deployments — not `--scope

@@ -8,6 +8,12 @@ but its queue row was lost (e.g. a fresh-start/rebuild), so the normal
 404 -> 'deleted' -> Pinecone-cleanup pipeline never sees them and never deletes
 the stale vectors. The chatbot then keeps citing dead pages.
 
+Also liveness-checks HTTP(S) URLs hardcoded in system prompts
+(`web/site-config/prompts/*-base.txt`). The weekly ananda-public run checks
+both Vivek and Luca prompts in one pass. Reports 404s plus, for prompts that
+have a Resource Links section, URLs outside that whitelist. Prompt findings
+are report-only (never deleted from Pinecone).
+
 This tool is meant to run ON THE PRODUCTION HOST so it reads the *live* DB (no
 stale local copy). It classifies orphans into:
 
@@ -60,6 +66,7 @@ Weekly production routine (systemd timer on the crawler VM):
   - Auto-deletes skip_pattern + tracking_param + dead_404 only when the delete set is
     within --max-delete-fraction of the total index (default 5%%); never deletes live or
     keep_unknown; never uses --force.
+  - Probes system-prompt URLs (same GET liveness path) and emails 404s / whitelist drift.
   - Emails an ops summary (same channel as daily_report.py), including on failure/timeout.
 """
 
@@ -100,6 +107,9 @@ TRACKING_PARAM_PREFIXES = ("utm_", "_ga", "_gl", "fbclid", "gclid", "msclkid", "
 TRACKING_PARAM_EXACT = {"replytocom"}
 USER_AGENT = "ananda-orphan-reconcile/1.0 (+crawler maintenance)"
 DELETE_REASONS = frozenset({"skip_pattern", "tracking_param", "dead_404"})
+PROMPT_URL_RE = re.compile(r"https?://[^\s\)\]\>\"']+")
+PROMPT_HTTP_SKIP_PREFIXES = ("maps.google.com",)
+RESOURCE_LINKS_HEADER = "# Resource Links"
 DEFAULT_MAX_RUNTIME_SECONDS = 7140  # 1h59m — buffer before 2h systemd TimeoutStartSec
 MAX_FETCH_ERROR_SAMPLES = 20
 EXIT_GUARD_BLOCKED = 2
@@ -144,6 +154,11 @@ class RunContext:
     categories: dict[str, str] = field(default_factory=dict)
     statuses: dict[str, Any] = field(default_factory=dict)
     email_sent: bool = False
+    prompt_path: Path | None = None
+    prompt_paths: list[Path] = field(default_factory=list)
+    prompt_url_checks: dict[str, Any] = field(default_factory=dict)
+    prompt_urls_outside_resource_links: list[str] = field(default_factory=list)
+    prompt_extras_by_file: dict[str, list[str]] = field(default_factory=dict)
 
     def check_deadline(self) -> None:
         if self.deadline is not None and time.monotonic() >= self.deadline:
@@ -185,6 +200,11 @@ class ReconcileResult:
     unexamined_vectors: int = 0
     needs_review: bool = False
     max_runtime_seconds: int = DEFAULT_MAX_RUNTIME_SECONDS
+    prompt_path: Path | None = None
+    prompt_paths: list[Path] = field(default_factory=list)
+    prompt_url_checks: dict[str, Any] = field(default_factory=dict)
+    prompt_urls_outside_resource_links: list[str] = field(default_factory=list)
+    prompt_extras_by_file: dict[str, list[str]] = field(default_factory=dict)
 
 
 _run_context: RunContext | None = None
@@ -214,6 +234,166 @@ def normalize_url(url: str) -> str:
     if parsed.query:
         normalized += "?" + parsed.query
     return normalized.lower()
+
+
+def resolve_prompts_dir() -> Path | None:
+    """Locate web/site-config/prompts from repo or Docker layout."""
+    for ancestor in Path(__file__).resolve().parents:
+        candidate = ancestor / "web" / "site-config" / "prompts"
+        if candidate.is_dir():
+            return candidate
+    return None
+
+
+def resolve_site_prompt_path(site: str) -> Path | None:
+    """Locate web/site-config/prompts/<site>-base.txt from repo or Docker layout."""
+    prompts_dir = resolve_prompts_dir()
+    if prompts_dir is None:
+        return None
+    candidate = prompts_dir / f"{site}-base.txt"
+    return candidate if candidate.is_file() else None
+
+
+def list_prompt_files_for_site(site: str) -> list[Path]:
+    """Prompt files to liveness-check for this crawler run.
+
+    The production crawler timer runs once for Vivek (ananda-public). Luca
+    (ananda) shares that weekly job, so both Ananda *-base.txt prompts are
+    checked together. Other sites only check their own <site>-base.txt.
+    """
+    prompts_dir = resolve_prompts_dir()
+    if prompts_dir is None:
+        return []
+    if site.startswith("ananda"):
+        return sorted(prompts_dir.glob("ananda*-base.txt"))
+    candidate = prompts_dir / f"{site}-base.txt"
+    return [candidate] if candidate.is_file() else []
+
+
+def extract_prompt_urls(text: str) -> list[str]:
+    """Return unique normalized HTTP(S) URLs from prompt text, first-seen order."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in PROMPT_URL_RE.findall(text):
+        cleaned = raw.rstrip(".,;\"'")
+        normalized = normalize_url(cleaned)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        out.append(normalized)
+    return out
+
+
+def resource_links_section(text: str) -> str:
+    """Return the '# Resource Links' section, or empty string if missing."""
+    lines = text.splitlines()
+    start = None
+    for i, line in enumerate(lines):
+        if line.strip() == RESOURCE_LINKS_HEADER:
+            start = i
+            break
+    if start is None:
+        return ""
+    end = len(lines)
+    for i in range(start + 1, len(lines)):
+        if lines[i].startswith("# ") and lines[i].strip() != RESOURCE_LINKS_HEADER:
+            end = i
+            break
+    return "\n".join(lines[start:end])
+
+
+def prompt_urls_outside_resource_links(text: str) -> list[str]:
+    """Prompt URLs that are not in Resource Links (geo map examples excluded)."""
+    resource_urls = set(extract_prompt_urls(resource_links_section(text)))
+    extras: list[str] = []
+    for url in extract_prompt_urls(text):
+        if url in resource_urls:
+            continue
+        if any(url.startswith(prefix) for prefix in PROMPT_HTTP_SKIP_PREFIXES):
+            continue
+        extras.append(url)
+    return extras
+
+
+def should_skip_prompt_http(normalized: str) -> bool:
+    """True when a prompt URL should not be probed (geo map examples)."""
+    return any(normalized.startswith(prefix) for prefix in PROMPT_HTTP_SKIP_PREFIXES)
+
+
+def dead_prompt_urls(prompt_url_checks: dict[str, Any]) -> list[str]:
+    """Return prompt URLs whose liveness check was HTTP 404."""
+    return sorted(url for url, status in prompt_url_checks.items() if status == 404)
+
+
+def check_site_prompt_urls(
+    site: str,
+    skip_http_check: bool,
+    http_rate: float,
+    http_workers: int,
+    http_timeout: int,
+    ctx: RunContext,
+) -> None:
+    """Load site prompt(s), classify whitelist drift, and optionally probe URLs."""
+    ctx.phase = "prompt_urls"
+    ctx.check_deadline()
+    prompt_paths = list_prompt_files_for_site(site)
+    ctx.prompt_paths = prompt_paths
+    ctx.prompt_path = prompt_paths[0] if prompt_paths else None
+    if not prompt_paths:
+        print(
+            f"Warning: no system prompts found for site {site}; "
+            "skipping prompt URL check"
+        )
+        return
+
+    urls_to_check: list[str] = []
+    seen: set[str] = set()
+    extras_union: list[str] = []
+    extras_seen: set[str] = set()
+    for prompt_path in prompt_paths:
+        text = prompt_path.read_text(encoding="utf-8")
+        extras = (
+            prompt_urls_outside_resource_links(text)
+            if resource_links_section(text)
+            else []
+        )
+        ctx.prompt_extras_by_file[prompt_path.name] = extras
+        for extra in extras:
+            if extra not in extras_seen:
+                extras_seen.add(extra)
+                extras_union.append(extra)
+        file_urls = extract_prompt_urls(text)
+        added = 0
+        for url in file_urls:
+            if should_skip_prompt_http(url) or url in seen:
+                continue
+            seen.add(url)
+            urls_to_check.append(url)
+            added += 1
+        print(
+            f"System prompt: {prompt_path.name} "
+            f"({len(file_urls)} URLs, {added} new to probe, "
+            f"{len(extras)} outside Resource Links)"
+        )
+    ctx.prompt_urls_outside_resource_links = extras_union
+
+    if skip_http_check or not urls_to_check:
+        return
+    print(
+        f"Liveness-checking {len(urls_to_check):,} system-prompt URLs "
+        f"across {len(prompt_paths)} file(s) "
+        f"(~{http_rate:.0f} req/s, GET, polite) ..."
+    )
+    ctx.prompt_url_checks = check_ambiguous_liveness(
+        urls_to_check, http_rate, http_workers, http_timeout, ctx
+    )
+    dead = dead_prompt_urls(ctx.prompt_url_checks)
+    if dead:
+        print(f"  dead prompt URLs (404): {len(dead)}")
+        for url in dead[:15]:
+            print(f"    - https://{url}")
+    else:
+        print("  no 404s in system-prompt URLs")
 
 
 def get_database_path(site: str) -> Path:
@@ -763,8 +943,14 @@ def format_email_subject(result: ReconcileResult) -> str:
         if result.applied
         else f"{len(result.delete_ids):,} pending delete"
     )
+    dead_prompts = dead_prompt_urls(result.prompt_url_checks)
+    prompt_part = (
+        f"{len(dead_prompts)} dead prompt URL{'s' if len(dead_prompts) != 1 else ''} | "
+        if dead_prompts
+        else ""
+    )
     return (
-        f"[{site_shortname}] {prefix}Orphan reconcile: "
+        f"[{site_shortname}] {prefix}{prompt_part}Orphan reconcile: "
         f"{deleted_part} | {live_count:,} live orphans"
     )
 
@@ -883,6 +1069,54 @@ def _email_dead_404_lines(result: ReconcileResult) -> list[str]:
     return lines
 
 
+def _email_url_sample_lines(urls: list[str], heading: str) -> list[str]:
+    lines = [heading]
+    for url in urls[:15]:
+        lines.append(f"    - https://{url}")
+    if len(urls) > 15:
+        lines.append(f"    ... and {len(urls) - 15} more")
+    return lines
+
+
+def _email_prompt_url_lines(result: ReconcileResult) -> list[str]:
+    dead = dead_prompt_urls(result.prompt_url_checks)
+    extras = result.prompt_urls_outside_resource_links
+    prompt_paths = result.prompt_paths or (
+        [result.prompt_path] if result.prompt_path else []
+    )
+    if not prompt_paths and not dead and not extras:
+        return []
+    lines = ["", "System prompt URLs:"]
+    if prompt_paths:
+        names = ", ".join(path.name for path in prompt_paths)
+        lines.append(f"  Files: {names}")
+    else:
+        lines.append("  Files: not found (prompt URL check skipped)")
+    if result.prompt_url_checks:
+        lines.append(f"  Checked: {len(result.prompt_url_checks):,}")
+        if dead:
+            lines.extend(_email_url_sample_lines(dead, f"  404s ({len(dead)}):"))
+        else:
+            lines.append("  404s: none")
+    extras_by_file = result.prompt_extras_by_file
+    if extras_by_file:
+        for name in sorted(extras_by_file):
+            file_extras = extras_by_file[name]
+            if not file_extras:
+                continue
+            lines.extend(
+                _email_url_sample_lines(
+                    file_extras,
+                    f"  Outside Resource Links in {name} ({len(file_extras)}):",
+                )
+            )
+    elif extras:
+        lines.extend(
+            _email_url_sample_lines(extras, f"  Outside Resource Links ({len(extras)}):")
+        )
+    return lines
+
+
 def _email_manifest_footer_lines(result: ReconcileResult) -> list[str]:
     if not result.manifest_path:
         return []
@@ -919,6 +1153,7 @@ def format_email_body(result: ReconcileResult) -> str:
         ]
     )
     lines.extend(_email_dead_404_lines(result))
+    lines.extend(_email_prompt_url_lines(result))
     lines.extend(_email_manifest_footer_lines(result))
     return "\n".join(lines)
 
@@ -954,7 +1189,9 @@ def build_result_from_context(
     delete_urls = delete_urls or []
     delete_ids = delete_ids or []
     keep_urls = keep_urls or []
-    needs_review = guard_blocked and bool(delete_ids) and not timed_out and not failed
+    needs_review = (
+        guard_blocked and bool(delete_ids) and not timed_out and not failed
+    ) or bool(dead_prompt_urls(ctx.prompt_url_checks))
     return ReconcileResult(
         site=ctx.site or ctx.args.site,
         index_name=ctx.index_name,
@@ -983,6 +1220,13 @@ def build_result_from_context(
         unexamined_vectors=ctx.unexamined_vectors,
         needs_review=needs_review,
         max_runtime_seconds=ctx.args.max_runtime_seconds,
+        prompt_path=ctx.prompt_path,
+        prompt_paths=list(ctx.prompt_paths),
+        prompt_url_checks=dict(ctx.prompt_url_checks),
+        prompt_urls_outside_resource_links=list(ctx.prompt_urls_outside_resource_links),
+        prompt_extras_by_file={
+            name: list(urls) for name, urls in ctx.prompt_extras_by_file.items()
+        },
     )
 
 
@@ -1211,6 +1455,15 @@ def run_reconciliation(args: argparse.Namespace, ctx: RunContext) -> ReconcileRe
             ambiguous, args.http_rate, args.http_workers, args.http_timeout, ctx
         )
     ctx.statuses = statuses
+
+    check_site_prompt_urls(
+        args.site,
+        args.skip_http_check,
+        args.http_rate,
+        args.http_workers,
+        args.http_timeout,
+        ctx,
+    )
 
     decision = build_decisions(categories, statuses, args.skip_http_check)
     delete_urls, delete_ids, keep_urls = emit_report(

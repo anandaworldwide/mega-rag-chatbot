@@ -61,6 +61,76 @@ def _ctx(rov, **arg_overrides):
     return rov.RunContext(args=args, deadline=time.monotonic() + 3600)
 
 
+class TestPromptUrlHelpers:
+    def test_list_prompt_files_for_ananda_includes_luca_and_vivek(self, rov):
+        paths = rov.list_prompt_files_for_site("ananda-public")
+        names = [p.name for p in paths]
+        assert names == ["ananda-base.txt", "ananda-public-base.txt"]
+
+    def test_list_prompt_files_for_other_site_is_own_file_only(self, rov, tmp_path):
+        prompts_dir = tmp_path / "web" / "site-config" / "prompts"
+        prompts_dir.mkdir(parents=True)
+        (prompts_dir / "jairam-base.txt").write_text("ok")
+        (prompts_dir / "ananda-base.txt").write_text("skip")
+        with patch.object(rov, "resolve_prompts_dir", return_value=prompts_dir):
+            paths = rov.list_prompt_files_for_site("jairam")
+        assert [p.name for p in paths] == ["jairam-base.txt"]
+
+    def test_extract_prompt_urls_normalizes_and_dedupes(self, rov):
+        text = """
+        [One](https://www.ananda.org/kriya-yoga/)
+        [Two](https://ananda.org/kriya-yoga/)
+        See also https://www.ananda.org/ask/
+        """
+        assert rov.extract_prompt_urls(text) == [
+            "ananda.org/kriya-yoga",
+            "ananda.org/ask",
+        ]
+
+    def test_prompt_urls_outside_resource_links_skips_maps(self, rov):
+        text = """
+Example: [Deep](https://www.ananda.org/meditation/support/articles/foo/)
+[Ask](https://www.ananda.org/ask/)
+[map](https://maps.google.com/maps?q=Nevada+City)
+
+# Resource Links
+[Ask the Experts](https://www.ananda.org/ask/)
+[Events](https://www.ananda.org/events/)
+"""
+        extras = rov.prompt_urls_outside_resource_links(text)
+        assert extras == ["ananda.org/meditation/support/articles/foo"]
+
+    def test_dead_prompt_urls_filters_404s(self, rov):
+        assert rov.dead_prompt_urls(
+            {
+                "ananda.org/ask": 200,
+                "ananda.org/dead": 404,
+                "ananda.org/timeout": "ERR",
+            }
+        ) == ["ananda.org/dead"]
+
+    def test_check_site_prompt_urls_missing_file_is_nonfatal(self, rov, tmp_path):
+        ctx = _ctx(rov, skip_http_check=True)
+        with patch.object(rov, "list_prompt_files_for_site", return_value=[]):
+            rov.check_site_prompt_urls(
+                "missing-site", True, 3.0, 1, 5, ctx
+            )
+        assert ctx.prompt_path is None
+        assert ctx.prompt_paths == []
+        assert ctx.prompt_url_checks == {}
+        assert ctx.prompt_urls_outside_resource_links == []
+
+    def test_check_site_prompt_urls_loads_luca_and_vivek(self, rov):
+        ctx = _ctx(rov, skip_http_check=True)
+        rov.check_site_prompt_urls("ananda-public", True, 3.0, 1, 5, ctx)
+        assert [p.name for p in ctx.prompt_paths] == [
+            "ananda-base.txt",
+            "ananda-public-base.txt",
+        ]
+        assert "ananda-public-base.txt" in ctx.prompt_extras_by_file
+        assert ctx.prompt_extras_by_file.get("ananda-base.txt") == []
+
+
 class TestGuardLogic:
     def test_guard_basis_prefers_total_index(self, rov):
         basis, label = rov.guard_basis_and_label(100_000, 50_000)
@@ -314,6 +384,73 @@ class TestEmailFormatting:
             )
             assert "NEEDS REVIEW" in rov.format_email_subject(result)
 
+    def test_dead_prompt_urls_in_subject_and_body(self, rov):
+        with patch.object(rov, "get_site_shortname", return_value="Vivek"):
+            result = rov.ReconcileResult(
+                site="ananda-public",
+                index_name="idx",
+                db_path=None,
+                manifest_path=None,
+                db_url_count=0,
+                total_index_vectors=0,
+                scanned_vectors=0,
+                orphan_url_count=0,
+                orphan_vector_count=0,
+                delete_urls=[],
+                delete_ids=[],
+                keep_urls=[],
+                decision={},
+                orphan_map={},
+                guard_blocked=False,
+                guard_basis=0,
+                guard_basis_label="",
+                applied=False,
+                needs_review=True,
+                prompt_path=pathlib.Path("/app/web/site-config/prompts/ananda-public-base.txt"),
+                prompt_url_checks={
+                    "ananda.org/ask": 200,
+                    "ananda.org/dead-article": 404,
+                },
+                prompt_urls_outside_resource_links=["ananda.org/example-only"],
+            )
+            subject = rov.format_email_subject(result)
+            body = rov.format_email_body(result)
+            assert "1 dead prompt URL" in subject
+            assert "https://ananda.org/dead-article" in body
+            assert "https://ananda.org/example-only" in body
+            assert "Outside Resource Links" in body
+
+    def test_email_lists_both_ananda_prompt_files(self, rov):
+        with patch.object(rov, "get_site_shortname", return_value="Vivek"):
+            result = rov.ReconcileResult(
+                site="ananda-public",
+                index_name="idx",
+                db_path=None,
+                manifest_path=None,
+                db_url_count=0,
+                total_index_vectors=0,
+                scanned_vectors=0,
+                orphan_url_count=0,
+                orphan_vector_count=0,
+                delete_urls=[],
+                delete_ids=[],
+                keep_urls=[],
+                decision={},
+                orphan_map={},
+                guard_blocked=False,
+                guard_basis=0,
+                guard_basis_label="",
+                applied=False,
+                prompt_paths=[
+                    pathlib.Path("ananda-base.txt"),
+                    pathlib.Path("ananda-public-base.txt"),
+                ],
+                prompt_url_checks={"ananda.org/ask": 200},
+            )
+            body = rov.format_email_body(result)
+            assert "ananda-base.txt" in body
+            assert "ananda-public-base.txt" in body
+
 
 class TestManifest:
     def test_manifest_reflects_guard_block_without_apply(self, rov, tmp_path):
@@ -538,3 +675,9 @@ class TestSystemdService:
         assert "SuccessExitStatus=2" in service_section
         unit_section = text.split("[Unit]", 1)[1].split("[Service]", 1)[0]
         assert "SuccessExitStatus=" not in unit_section
+
+    def test_dockerfile_copies_site_prompts(self):
+        dockerfile = (
+            REPO_ROOT / "data_ingestion" / "crawler" / "Dockerfile"
+        ).read_text()
+        assert "COPY web/site-config/prompts/ /app/web/site-config/prompts/" in dockerfile

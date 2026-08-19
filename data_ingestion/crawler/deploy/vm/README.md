@@ -67,7 +67,7 @@ swap comes up from `/etc/fstab`.
 |---------------|------|
 | `ananda-crawler.service` + `.timer` | Hourly bounded `docker run` crawl (PT window in the timer). |
 | `ananda-crawler-daily-report.service` + `.timer` | Daily `daily_report.py` email (queue / activity; optional CloudWatch section unused on VM). |
-| `ananda-crawler-orphan-reconcile.service` + `.timer` | Weekly `reconcile_orphaned_vectors.py --apply-if-safe --email-report --max-runtime-seconds 7140` (read-only DB; auto-delete within 5% guard; 2h systemd timeout; `SuccessExitStatus=2` for guard-blocked review). |
+| `ananda-crawler-orphan-reconcile.service` + `.timer` | Weekly `reconcile_orphaned_vectors.py --apply-if-safe --email-report --max-runtime-seconds 7140` (read-only DB; auto-delete within 5% guard; also liveness-checks system-prompt URLs; 2h systemd timeout; `SuccessExitStatus=2` for guard-blocked / dead-prompt review). |
 | `ananda-crawler-orphan-reconcile-failure-notify.service` | Optional manual backup notifier (not wired via `OnFailure` — the script emails all outcomes when `--email-report` is set). |
 | `ananda-crawler-backup.service` + `.timer` | Nightly `sqlite3 .backup` into `/srv/ananda-crawler/backups/`; retention via `RETENTION_DAYS` (default 14) in the script. |
 | `ananda-crawler-failure-notify.service` | Started when `ananda-crawler.service` fails; runs Docker + `notify_systemd_failure.py` to send ops email. |
