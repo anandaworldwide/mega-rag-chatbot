@@ -108,7 +108,9 @@ TRACKING_PARAM_EXACT = {"replytocom"}
 USER_AGENT = "ananda-orphan-reconcile/1.0 (+crawler maintenance)"
 DELETE_REASONS = frozenset({"skip_pattern", "tracking_param", "dead_404"})
 PROMPT_URL_RE = re.compile(r"https?://[^\s\)\]\>\"']+")
-PROMPT_HTTP_SKIP_PREFIXES = ("maps.google.com",)
+# maps: geo example query URLs. notion.so: Luca wiki links that 404 without login
+# but are valid for logged-in Luca users.
+PROMPT_HTTP_SKIP_PREFIXES = ("maps.google.com", "notion.so")
 RESOURCE_LINKS_HEADER = "# Resource Links"
 DEFAULT_MAX_RUNTIME_SECONDS = 7140  # 1h59m — buffer before 2h systemd TimeoutStartSec
 MAX_FETCH_ERROR_SAMPLES = 20

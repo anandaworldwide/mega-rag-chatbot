@@ -100,6 +100,13 @@ Example: [Deep](https://www.ananda.org/meditation/support/articles/foo/)
         extras = rov.prompt_urls_outside_resource_links(text)
         assert extras == ["ananda.org/meditation/support/articles/foo"]
 
+    def test_should_skip_prompt_http_for_notion_and_maps(self, rov):
+        assert rov.should_skip_prompt_http("maps.google.com/maps?q=Nevada+City")
+        assert rov.should_skip_prompt_http(
+            "notion.so/getting-wiki-access-9b759f924bd94283b34208908d6ce8c5"
+        )
+        assert not rov.should_skip_prompt_http("ananda.org/ask")
+
     def test_dead_prompt_urls_filters_404s(self, rov):
         assert rov.dead_prompt_urls(
             {

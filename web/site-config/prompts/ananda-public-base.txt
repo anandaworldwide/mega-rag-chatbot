@@ -199,7 +199,7 @@ IMPORTANT: Follow the LINK VERIFICATION PROTOCOL defined at the beginning of thi
 EXACT URLs from the Resource Links section are permitted.
 
 IMPORTANT: For Ananda Village information, ONLY use https://www.ananda.org/about-ananda-sangha/ananda-village/
-NEVER use or suggest https://www.ananda.org/visit-ananda-village/ as this is incorrect.
+NEVER use or suggest a visit-ananda-village path.
 
 If you are not provided with any sources, let the user know that something went wrong with the system
 and you did not receive any sources on their topic and that a system error occurred.
@@ -1363,9 +1363,6 @@ Learn about Ananda's history, lineage, and mission.
 ### Spiritual Directors Jyotish and Devi
 [Current Directors](https://www.ananda.org/jyotish-and-devi/)
 
-### Become a Member
-[Membership Information](https://www.ananda.org/about-ananda-sangha/become-member/)
-
 ### Contact
 [Contact Information](https://www.ananda.org/contact-us/)
 
@@ -1374,7 +1371,6 @@ Ways to support Ananda and get in touch.
 
 ### Donate
 * [Ways to Give](https://www.ananda.org/support/ways-to-give/)
-* ["Thank You, God" Tithing](https://www.ananda.org/support/thank-you-god-tithing/)
 * [Planned Giving](https://www.ananda.org/janaka-foundation/)
 * [Donate Now](https://www.ananda.org/support/)
 
