@@ -25,6 +25,7 @@ interface ApprovalRequest {
   createdAt: string;
   updatedAt: string;
   adminMessage?: string;
+  adminPrivateNote?: string;
   processedBy?: string;
   processedByName?: string;
 }
@@ -47,6 +48,7 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
   const [showActionModal, setShowActionModal] = useState(false);
   const [actionType, setActionType] = useState<"approve" | "deny" | null>(null);
   const [adminMessage, setAdminMessage] = useState("");
+  const [adminPrivateNote, setAdminPrivateNote] = useState("");
   const [showLoading, setShowLoading] = useState(false);
   const [dataLoaded, setDataLoaded] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
@@ -222,6 +224,7 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
     setSelectedRequest(request);
     setActionType(action);
     setAdminMessage("");
+    setAdminPrivateNote("");
     setShowActionModal(true);
   };
 
@@ -229,10 +232,18 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
     const currentJwt = jwtRef.current;
     if (!selectedRequest || !actionType || !currentJwt) return;
 
+    if (actionType === "deny" && !adminPrivateNote.trim()) {
+      setMessage("Private admin note is required when denying a request");
+      setMessageType("error");
+      return;
+    }
+
     setProcessing(true);
     setMessage(null);
 
     try {
+      const trimmedMessage = adminMessage.trim();
+      const trimmedPrivateNote = adminPrivateNote.trim();
       const res = await fetch("/api/admin/pendingRequests", {
         method: "POST",
         headers: {
@@ -242,7 +253,8 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
         body: JSON.stringify({
           requestId: selectedRequest.requestId,
           action: actionType,
-          message: adminMessage.trim() || undefined,
+          message: trimmedMessage || undefined,
+          ...(actionType === "deny" ? { privateNote: trimmedPrivateNote } : {}),
         }),
       });
 
@@ -255,7 +267,14 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
       setRequests((prev) =>
         prev.map((req) =>
           req.requestId === selectedRequest.requestId
-            ? { ...req, status: actionType === "approve" ? "approved" : "denied", updatedAt: new Date().toISOString() }
+            ? {
+                ...req,
+                status: actionType === "approve" ? "approved" : "denied",
+                updatedAt: new Date().toISOString(),
+                adminMessage: trimmedMessage || undefined,
+                adminPrivateNote: actionType === "deny" ? trimmedPrivateNote : req.adminPrivateNote,
+                processedBy: currentUserEmail || req.processedBy,
+              }
             : req
         )
       );
@@ -265,6 +284,7 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
       setShowActionModal(false);
       setSelectedRequest(null);
       setAdminMessage("");
+      setAdminPrivateNote("");
     } catch (error) {
       console.error("Error processing request:", error);
       setMessage(error instanceof Error ? error.message : "Failed to process request");
@@ -273,6 +293,7 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
       setShowActionModal(false);
       setSelectedRequest(null);
       setAdminMessage("");
+      setAdminPrivateNote("");
     } finally {
       setProcessing(false);
     }
@@ -480,7 +501,18 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
                   </div>
                 </div>
                 {request.adminMessage && (
-                  <p className="mt-2 text-sm text-gray-600 italic">&ldquo;{request.adminMessage}&rdquo;</p>
+                  <div className="mt-2 text-sm">
+                    <span className="text-gray-500 font-medium">
+                      {request.status === "denied" ? "Message to requester:" : "Message:"}
+                    </span>
+                    <p className="mt-1 text-gray-600 italic">&ldquo;{request.adminMessage}&rdquo;</p>
+                  </div>
+                )}
+                {request.adminPrivateNote && (
+                  <div className="mt-2 text-sm p-2 bg-amber-50 border border-amber-200 rounded-md">
+                    <span className="text-amber-800 font-medium">Admin note (private):</span>
+                    <p className="mt-1 text-amber-900">{request.adminPrivateNote}</p>
+                  </div>
                 )}
               </div>
             ))}
@@ -494,6 +526,7 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
         onClose={() => {
           setShowActionModal(false);
           setAdminMessage("");
+          setAdminPrivateNote("");
         }}
         title={actionType === "approve" ? "Approve Access Request" : "Deny Access Request"}
       >
@@ -537,27 +570,60 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
               )}
             </div>
 
-            <div>
-              <label htmlFor="admin-message" className="block text-sm font-medium text-gray-700 mb-2">
-                Message to User (Optional)
-              </label>
-              <textarea
-                id="admin-message"
-                value={adminMessage}
-                onChange={(e) => setAdminMessage(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                rows={3}
-                placeholder={
-                  actionType === "approve" ? "Add a welcome message..." : "Optionally explain why access was denied..."
-                }
-              />
-            </div>
+            {actionType === "approve" ? (
+              <div>
+                <label htmlFor="admin-message" className="block text-sm font-medium text-gray-700 mb-2">
+                  Message to User (Optional)
+                </label>
+                <textarea
+                  id="admin-message"
+                  value={adminMessage}
+                  onChange={(e) => setAdminMessage(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  rows={3}
+                  placeholder="Add a welcome message..."
+                />
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label htmlFor="admin-message" className="block text-sm font-medium text-gray-700 mb-1">
+                    Message to requester (optional)
+                  </label>
+                  <p className="text-xs text-gray-500 mb-2">Sent in the denial email to the requester.</p>
+                  <textarea
+                    id="admin-message"
+                    value={adminMessage}
+                    onChange={(e) => setAdminMessage(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    rows={3}
+                    placeholder="Optionally explain why access was denied..."
+                  />
+                </div>
+                <div>
+                  <label htmlFor="admin-private-note" className="block text-sm font-medium text-gray-700 mb-1">
+                    Private admin note (required)
+                  </label>
+                  <p className="text-xs text-gray-500 mb-2">Visible only to admins. Never emailed to the requester.</p>
+                  <textarea
+                    id="admin-private-note"
+                    value={adminPrivateNote}
+                    onChange={(e) => setAdminPrivateNote(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    rows={3}
+                    placeholder="Internal reason for denial..."
+                    required
+                  />
+                </div>
+              </>
+            )}
 
             <div className="flex gap-3 pt-4">
               <button
                 onClick={() => {
                   setShowActionModal(false);
                   setAdminMessage("");
+                  setAdminPrivateNote("");
                 }}
                 disabled={processing}
                 className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 transition-colors disabled:opacity-50"
@@ -566,7 +632,7 @@ export default function AdminApprovalsPage({ siteConfig }: AdminApprovalsPagePro
               </button>
               <button
                 onClick={handleProcessRequest}
-                disabled={processing}
+                disabled={processing || (actionType === "deny" && !adminPrivateNote.trim())}
                 className={`flex-1 px-4 py-2 text-white rounded-md transition-colors disabled:opacity-50 ${
                   actionType === "approve" ? "bg-green-500 hover:bg-green-600" : "bg-red-500 hover:bg-red-600"
                 }`}

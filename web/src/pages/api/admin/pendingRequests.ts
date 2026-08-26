@@ -30,6 +30,8 @@ const ses = new SESClient({
   },
 });
 
+const MAX_MESSAGE_LENGTH = 2000;
+
 interface ApprovalRequest {
   requestId: string;
   requesterEmail: string;
@@ -41,6 +43,7 @@ interface ApprovalRequest {
   createdAt: firebase.firestore.Timestamp;
   updatedAt: firebase.firestore.Timestamp;
   adminMessage?: string;
+  adminPrivateNote?: string;
   processedBy?: string;
   processedByName?: string;
 }
@@ -48,14 +51,14 @@ interface ApprovalRequest {
 async function sendDenialEmail(
   requesterEmail: string,
   requesterName: string,
-  adminName: string,
-  adminEmail: string,
+  processorName: string,
+  processorEmail: string,
   adminMessage?: string,
   req?: NextApiRequest
 ) {
   // Unescape names to handle existing data with backslashes
   requesterName = unescapeName(requesterName);
-  adminName = unescapeName(adminName);
+  processorName = unescapeName(processorName);
   let baseUrl = process.env.NEXT_PUBLIC_BASE_URL;
   if (!baseUrl) {
     throw new Error("NEXT_PUBLIC_BASE_URL environment variable is required for email generation");
@@ -72,9 +75,9 @@ async function sendDenialEmail(
   const siteConfig = await loadSiteConfig();
   const brand = siteConfig?.name || siteConfig?.shortname || process.env.SITE_ID || "Ananda Library Chatbot";
 
-  const message = `Your access request for ${brand} was reviewed and denied by ${adminName}.
+  const message = `Your access request for ${brand} was reviewed and denied by ${processorName}.
 
-${adminMessage ? `Message from ${adminName}:\n"${adminMessage}"\n\n` : ""}If you believe this was in error or have questions, please contact them at ${adminEmail}.
+${adminMessage ? `Message from ${processorName}:\n"${adminMessage}"\n\n` : ""}If you believe this was in error or have questions, please contact them at ${processorEmail}.
 
 Thank you for your interest in ${brand}.`;
 
@@ -195,10 +198,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   // POST - Approve or deny a request
   if (req.method === "POST") {
-    const { requestId, action, message } = req.body as {
+    const { requestId, action, message, privateNote } = req.body as {
       requestId?: string;
       action?: "approve" | "deny";
       message?: string;
+      privateNote?: string;
     };
 
     if (!requestId || typeof requestId !== "string") {
@@ -209,8 +213,29 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return res.status(400).json({ error: "Action must be 'approve' or 'deny'" });
     }
 
-    if (message && typeof message !== "string") {
+    if (message !== undefined && typeof message !== "string") {
       return res.status(400).json({ error: "Message must be a string" });
+    }
+
+    if (privateNote !== undefined && typeof privateNote !== "string") {
+      return res.status(400).json({ error: "Private note must be a string" });
+    }
+
+    const trimmedMessage = typeof message === "string" ? message.trim() : "";
+    const trimmedPrivateNote = typeof privateNote === "string" ? privateNote.trim() : "";
+
+    if (trimmedMessage.length > MAX_MESSAGE_LENGTH) {
+      return res.status(400).json({ error: `Message exceeds maximum length of ${MAX_MESSAGE_LENGTH} characters` });
+    }
+
+    if (trimmedPrivateNote.length > MAX_MESSAGE_LENGTH) {
+      return res.status(400).json({
+        error: `Private note exceeds maximum length of ${MAX_MESSAGE_LENGTH} characters`,
+      });
+    }
+
+    if (action === "deny" && !trimmedPrivateNote) {
+      return res.status(400).json({ error: "Private admin note is required when denying a request" });
     }
 
     try {
@@ -250,6 +275,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Variables to capture transaction results
       let activationToken: string | null = null;
       let shouldSendActivationEmail = false;
+      let processedByName = processorEmail; // Fallback; overwritten inside transaction
 
       // Execute approval in a transaction to ensure atomicity
       await db.runTransaction(async (transaction) => {
@@ -273,7 +299,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         const usersCol = getUsersCollectionName();
         const processorDocRef = db!.collection(usersCol).doc(processorEmail);
         const processorDoc = await transaction.get(processorDocRef);
-        let processedByName = processorEmail; // Fallback to email if name not found
         if (processorDoc.exists) {
           const processorData = processorDoc.data();
           const firstName = processorData?.firstName || "";
@@ -302,8 +327,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
           processedByName: processedByName,
         };
 
-        if (message) {
-          updates.adminMessage = message.trim();
+        if (trimmedMessage) {
+          updates.adminMessage = trimmedMessage;
+        }
+
+        if (action === "deny" && trimmedPrivateNote) {
+          updates.adminPrivateNote = trimmedPrivateNote;
         }
 
         // Update approval request status
@@ -360,21 +389,27 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       if (action === "approve") {
         if (shouldSendActivationEmail && activationToken) {
           try {
-            await sendActivationEmail(request.requesterEmail, activationToken, req, message);
+            await sendActivationEmail(
+              request.requesterEmail,
+              activationToken,
+              req,
+              trimmedMessage || undefined
+            );
           } catch (emailError) {
             console.error("Error sending activation email:", emailError);
             // Email failure doesn't invalidate the approval - user can request resend
           }
         }
       } else {
-        // Send denial email
+        // Send denial email — only the optional user-facing message (never privateNote).
+        // Attribute to the processor (who clicked Deny), not the originally assigned admin.
         try {
           await sendDenialEmail(
             request.requesterEmail,
             request.requesterName,
-            request.adminName,
-            request.adminEmail,
-            message,
+            processedByName,
+            processorEmail,
+            trimmedMessage || undefined,
             req
           );
         } catch (emailError) {

@@ -449,6 +449,7 @@ describe("/api/admin/pendingRequests", () => {
         body: {
           requestId: "req_456",
           action: "deny",
+          privateNote: "Does not appear to be connected to Ananda",
         },
       });
 
@@ -464,8 +465,327 @@ describe("/api/admin/pendingRequests", () => {
           status: "denied",
           processedBy: "admin@example.com",
           processedByName: "Admin User",
+          adminPrivateNote: "Does not appear to be connected to Ananda",
         })
       );
+      expect(mockUpdate.mock.calls[0][1]).not.toHaveProperty("adminMessage");
+    });
+
+    it("should return 400 when denying without a private note", async () => {
+      genericRateLimiter.mockResolvedValue(true);
+      getTokenFromRequest.mockReturnValue({ email: "admin@example.com", role: "admin" });
+
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "POST",
+        body: {
+          requestId: "req_456",
+          action: "deny",
+          message: "Sorry, we cannot approve this request",
+        },
+      });
+
+      await handler(req, res);
+
+      expect(res.statusCode).toBe(400);
+      expect(res._getJSONData()).toEqual({
+        error: "Private admin note is required when denying a request",
+      });
+      expect(mockSend).not.toHaveBeenCalled();
+      expect(db.runTransaction).not.toHaveBeenCalled();
+    });
+
+    it("should return 400 when denying with a whitespace-only private note", async () => {
+      genericRateLimiter.mockResolvedValue(true);
+      getTokenFromRequest.mockReturnValue({ email: "admin@example.com", role: "admin" });
+
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "POST",
+        body: {
+          requestId: "req_456",
+          action: "deny",
+          privateNote: "   \n\t  ",
+        },
+      });
+
+      await handler(req, res);
+
+      expect(res.statusCode).toBe(400);
+      expect(res._getJSONData()).toEqual({
+        error: "Private admin note is required when denying a request",
+      });
+      expect(mockSend).not.toHaveBeenCalled();
+    });
+
+    it("should deny with private note only and omit it from the denial email", async () => {
+      const mockRequest = {
+        requestId: "req_priv_only",
+        requesterEmail: "user@example.com",
+        requesterName: "Test User",
+        adminEmail: "admin@example.com",
+        adminName: "Admin User",
+        adminLocation: "Test City, CA",
+        status: "pending",
+        createdAt: { seconds: 1234567890, nanoseconds: 0 },
+        updatedAt: { seconds: 1234567890, nanoseconds: 0 },
+      };
+
+      const mockAdminUser = {
+        firstName: "Admin",
+        lastName: "User",
+        email: "admin@example.com",
+      };
+
+      genericRateLimiter.mockResolvedValue(true);
+      getTokenFromRequest.mockReturnValue({ email: "admin@example.com", role: "admin" });
+      loadSiteConfig.loadSiteConfig.mockResolvedValue({
+        siteId: "ananda",
+        name: "Luca",
+        shortname: "Luca",
+      });
+
+      const mockUpdate = jest.fn();
+      const mockTransactionGet = jest
+        .fn()
+        .mockResolvedValueOnce({
+          exists: true,
+          data: () => mockRequest,
+        })
+        .mockResolvedValueOnce({
+          exists: true,
+          data: () => mockAdminUser,
+        });
+
+      const mockTransaction = {
+        get: mockTransactionGet,
+        update: mockUpdate,
+      };
+
+      db.collection.mockReturnValue({
+        doc: jest.fn().mockReturnValue({
+          get: jest.fn().mockResolvedValue({
+            exists: true,
+            data: () => mockRequest,
+          }),
+        }),
+      });
+
+      db.runTransaction.mockImplementation(async (callback: any) => {
+        return callback(mockTransaction);
+      });
+
+      writeAuditLog.mockResolvedValue(undefined);
+      mockSend.mockResolvedValue({});
+
+      const privateNote = "Suspected spam / unknown person";
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "POST",
+        body: {
+          requestId: "req_priv_only",
+          action: "deny",
+          privateNote,
+        },
+      });
+
+      await handler(req, res);
+
+      expect(res.statusCode).toBe(200);
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          status: "denied",
+          adminPrivateNote: privateNote,
+        })
+      );
+      expect(mockUpdate.mock.calls[0][1]).not.toHaveProperty("adminMessage");
+
+      const { createEmailParams } = jest.requireMock("@/utils/server/emailTemplates");
+      expect(createEmailParams).toHaveBeenCalled();
+      const emailOptions = createEmailParams.mock.calls[createEmailParams.mock.calls.length - 1][3];
+      expect(emailOptions.message).not.toContain(privateNote);
+      expect(emailOptions.message).not.toContain("Message from");
+    });
+
+    it("should deny with both messages and email only the user-facing message", async () => {
+      const mockRequest = {
+        requestId: "req_both",
+        requesterEmail: "user@example.com",
+        requesterName: "Test User",
+        adminEmail: "admin@example.com",
+        adminName: "Admin User",
+        adminLocation: "Test City, CA",
+        status: "pending",
+        createdAt: { seconds: 1234567890, nanoseconds: 0 },
+        updatedAt: { seconds: 1234567890, nanoseconds: 0 },
+      };
+
+      const mockAdminUser = {
+        firstName: "Admin",
+        lastName: "User",
+        email: "admin@example.com",
+      };
+
+      genericRateLimiter.mockResolvedValue(true);
+      getTokenFromRequest.mockReturnValue({ email: "admin@example.com", role: "admin" });
+      loadSiteConfig.loadSiteConfig.mockResolvedValue({
+        siteId: "ananda",
+        name: "Luca",
+        shortname: "Luca",
+      });
+
+      const mockUpdate = jest.fn();
+      const mockTransactionGet = jest
+        .fn()
+        .mockResolvedValueOnce({
+          exists: true,
+          data: () => mockRequest,
+        })
+        .mockResolvedValueOnce({
+          exists: true,
+          data: () => mockAdminUser,
+        });
+
+      const mockTransaction = {
+        get: mockTransactionGet,
+        update: mockUpdate,
+      };
+
+      db.collection.mockReturnValue({
+        doc: jest.fn().mockReturnValue({
+          get: jest.fn().mockResolvedValue({
+            exists: true,
+            data: () => mockRequest,
+          }),
+        }),
+      });
+
+      db.runTransaction.mockImplementation(async (callback: any) => {
+        return callback(mockTransaction);
+      });
+
+      writeAuditLog.mockResolvedValue(undefined);
+      mockSend.mockResolvedValue({});
+
+      const userMessage = "We were unable to verify your connection to Ananda.";
+      const privateNote = "No matching Salesforce record; unknown email domain";
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "POST",
+        body: {
+          requestId: "req_both",
+          action: "deny",
+          message: userMessage,
+          privateNote,
+        },
+      });
+
+      await handler(req, res);
+
+      expect(res.statusCode).toBe(200);
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          status: "denied",
+          adminMessage: userMessage,
+          adminPrivateNote: privateNote,
+        })
+      );
+
+      const { createEmailParams } = jest.requireMock("@/utils/server/emailTemplates");
+      const emailOptions = createEmailParams.mock.calls[createEmailParams.mock.calls.length - 1][3];
+      expect(emailOptions.message).toContain(userMessage);
+      expect(emailOptions.message).not.toContain(privateNote);
+    });
+
+    it("should attribute denial email to the processor, not the assigned admin", async () => {
+      const mockRequest = {
+        requestId: "req_override",
+        requesterEmail: "user@example.com",
+        requesterName: "Test User",
+        adminEmail: "assigned-admin@example.com",
+        adminName: "Assigned Admin",
+        adminLocation: "Test City, CA",
+        status: "pending",
+        createdAt: { seconds: 1234567890, nanoseconds: 0 },
+        updatedAt: { seconds: 1234567890, nanoseconds: 0 },
+      };
+
+      const mockSuperuser = {
+        firstName: "Michael",
+        lastName: "Olivier",
+        email: "superuser@example.com",
+      };
+
+      genericRateLimiter.mockResolvedValue(true);
+      getTokenFromRequest.mockReturnValue({ email: "superuser@example.com", role: "superuser" });
+      loadSiteConfig.loadSiteConfig.mockResolvedValue({
+        siteId: "ananda",
+        name: "Luca",
+        shortname: "Luca",
+      });
+
+      const mockUpdate = jest.fn();
+      const mockTransactionGet = jest
+        .fn()
+        .mockResolvedValueOnce({
+          exists: true,
+          data: () => mockRequest,
+        })
+        .mockResolvedValueOnce({
+          exists: true,
+          data: () => mockSuperuser,
+        });
+
+      const mockTransaction = {
+        get: mockTransactionGet,
+        update: mockUpdate,
+      };
+
+      db.collection.mockReturnValue({
+        doc: jest.fn().mockReturnValue({
+          get: jest.fn().mockResolvedValue({
+            exists: true,
+            data: () => mockRequest,
+          }),
+        }),
+      });
+
+      db.runTransaction.mockImplementation(async (callback: any) => {
+        return callback(mockTransaction);
+      });
+
+      writeAuditLog.mockResolvedValue(undefined);
+      mockSend.mockResolvedValue({});
+
+      const userMessage = "We weren't able to verify your connection this time.";
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "POST",
+        body: {
+          requestId: "req_override",
+          action: "deny",
+          message: userMessage,
+          privateNote: "Superuser override of assigned admin queue",
+        },
+      });
+
+      await handler(req, res);
+
+      expect(res.statusCode).toBe(200);
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          status: "denied",
+          processedBy: "superuser@example.com",
+          processedByName: "Michael Olivier",
+        })
+      );
+
+      const { createEmailParams } = jest.requireMock("@/utils/server/emailTemplates");
+      const emailOptions = createEmailParams.mock.calls[createEmailParams.mock.calls.length - 1][3];
+      expect(emailOptions.message).toContain("denied by Michael Olivier");
+      expect(emailOptions.message).toContain("Message from Michael Olivier");
+      expect(emailOptions.message).toContain(userMessage);
+      expect(emailOptions.message).toContain("superuser@example.com");
+      expect(emailOptions.message).not.toContain("Assigned Admin");
+      expect(emailOptions.message).not.toContain("assigned-admin@example.com");
     });
 
     it("should return 404 if request not found", async () => {

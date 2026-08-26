@@ -259,6 +259,12 @@ API endpoints are defined in `pages/api/` and `app/api/`. Most endpoints are pro
   - **Auth:** Requires JWT authentication and admin privileges.
   - **Logic:** Queries Firestore for pending requests assigned to current admin, supports approve/deny actions with
     optional messages, updates request status and sends notification emails.
+  - **Deny fields:** Optional `message` (user-facing; stored as `adminMessage` and included in the denial email) and
+    required `privateNote` (admin-only; stored as `adminPrivateNote`, never emailed). Approve still uses optional
+    `message` only (welcome text in the activation email).
+  - **Denial email attribution:** Uses the processor (`processedBy` / `processedByName`) for “denied by”, “Message
+    from”, and the contact email — not the originally assigned admin — so superuser overrides name the person who
+    actually acted.
   - **Response:** Array of pending requests with requester details and action capabilities.
 
 **Admin & Maintenance:**
