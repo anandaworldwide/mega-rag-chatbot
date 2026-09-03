@@ -100,7 +100,7 @@
     "@web-std/fetch": "^4.2.1",
     "autoprefixer": "^10.4.21",
     "bcryptjs": "^3.0.2",
-    "browserslist": "^4.26.3",
+    "browserslist": "^4.28.7",
     "dotenv": "^16.6.1",
     "dotenv-cli": "^8.0.0",
     "eslint": "^9.0.0",
