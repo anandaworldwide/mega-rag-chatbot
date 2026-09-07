@@ -395,7 +395,7 @@ def generate_subject_line(
 
     When status is not HEALTHY, a prefix is inserted after the site tag so the
     condition surfaces in inbox previews, e.g.:
-        "[Vivek] NEEDS ATTENTION - Daily Crawler: 1398 ready | 0 processed"
+        "[Vivek] NEEDS ATTENTION - Crawler Report: 1398 ready | 0 processed"
     """
     site_shortname = get_site_shortname(site_id)
     if status == "HEALTHY":
@@ -406,10 +406,28 @@ def generate_subject_line(
         status_prefix = f"{status} - "
     # email_ops.py skips adding dev/prod prefix since subject starts with '['
     subject = (
-        f"[{site_shortname}] {status_prefix}Daily Crawler: "
+        f"[{site_shortname}] {status_prefix}Crawler Report: "
         f"{ready} ready | {processed} processed"
     )
     return subject
+
+
+
+def should_send_report(*, status: str, force: bool = False, now: datetime | None = None) -> bool:
+    """Decide whether to send the ops email.
+
+    Keep the daily job run; gate the send:
+    - Always send when --force
+    - Always send Monday and Thursday (America/Los_Angeles)
+    - Other days: send only for NEEDS ATTENTION or UNKNOWN
+    """
+    if force:
+        return True
+    if status in ("NEEDS ATTENTION", "UNKNOWN"):
+        return True
+    current = now or datetime.now(ZoneInfo("America/Los_Angeles"))
+    # Monday=0 ... Sunday=6
+    return current.weekday() in (0, 3)
 
 
 def main():
@@ -467,8 +485,15 @@ def main():
     status = determine_health_status(queue_stats, activity)
     subject = generate_subject_line(site_id, ready_count, processed_count, status)
 
+    if not should_send_report(status=status, force=args.force):
+        logger.info(
+            "Skipping crawler report email (status=%s; scheduled digests are Mon/Thu PT)",
+            status,
+        )
+        return 0
+
     # Send email
-    logger.info(f"Sending daily report email with subject: {subject}")
+    logger.info(f"Sending crawler report email with subject: {subject}")
 
     success = send_ops_alert_sync(
         subject=subject,
@@ -477,10 +502,10 @@ def main():
     )
 
     if success:
-        logger.info("Daily report sent successfully")
+        logger.info("Crawler report sent successfully")
         return 0
     else:
-        logger.error("Failed to send daily report")
+        logger.error("Failed to send crawler report")
         return 1
 
 
