@@ -52,9 +52,12 @@
     "postcss": "8.5.23",
     "protobufjs": "7.6.5",
     "langsmith": "0.7.1",
-    "sharp": "0.35.3",
+    "sharp": "0.35.4",
     "uuid": "11.1.1",
-    "undici": "6.28.0"
+    "undici": "6.28.0",
+    "qs": "6.16.0",
+    "colord": "2.10.0",
+    "smol-toml": "1.8.0"
   },
   "keywords": [],
   "engines": {
