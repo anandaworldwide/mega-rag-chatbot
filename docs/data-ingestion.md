@@ -6,6 +6,14 @@ The Ananda Library Chatbot uses a sophisticated data ingestion pipeline that pro
 unified vector database for retrieval-augmented generation (RAG). This document provides a high-level overview and
 references to detailed implementation documentation.
 
+**Operator model (Luca audio, YouTube, Ananda Library):** S3 is the official store for originals and processing
+state. A developer laptop runs the existing Python CLIs when ingest is needed (infrequent, hours to a day). Do not keep
+the only copy of MP3s, YouTube lists, dumps, or Whisper caches on a personal disk.
+
+- Successor runbook: [ingestion-successor-runbook.md](ingestion-successor-runbook.md)
+- Phase 1 upload checklist: [ingestion-s3-cutover-todo.md](ingestion-s3-cutover-todo.md)
+- Publish helper: `bin/publish_ingest_sources_to_s3.py`
+
 ### Data Ingestion Pipeline
 
 ```text
@@ -143,6 +151,7 @@ performance alarms and misdirect optimization efforts.
 
 ### Key Scripts
 
+- `bin/publish_ingest_sources_to_s3.py` - Publish audio, YouTube lists, dumps, and Whisper state to S3
 - `pdf_to_vector_db.py` - PDF document ingestion
 - `transcribe_and_ingest_media.py` - Audio/video processing
 - `website_crawler.py` - Web content crawling
@@ -157,6 +166,8 @@ access level is greater than or equal to the vector's required level. Missing nu
 - **PDF ingestion**: Defaults to public (`required_access_level: 0`).
 - **Website crawler ingestion**: Defaults to public (`required_access_level: 0`).
 - **Audio/video ingestion**: Accepts an explicit `--required-access-level` value for the batch being processed.
+  Restricted Luca audio is also marked by a `kriyaban-only` / `Kriyaban Only` path component (Treasures canonical
+  prefix: `public/audio/treasures/kriyaban-only/`). Do not infer access from the word “kriya”.
 - **SQL/database ingestion**: Can read a numeric value from a named `wp_posts` column via
   `--required-access-level-field`; missing or blank values default to `0`.
 

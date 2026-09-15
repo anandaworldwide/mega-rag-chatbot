@@ -3378,3 +3378,13 @@ search-narration openers (`Seeking`, `Expanding`, `Trying`, `Searching`, `Pullin
 `I'll` / `I don't` — the model rotates verbs. Also catch adjacent-fetch objects
 (`nearby ceremony text`) that never say source/passage/chunk; do not use a bare `nearby`
 keyword (geo center narration).
+
+### Mistake: Parent-parser --apply rejected after a subcommand
+
+**Wrong**:
+Put `--apply` on the top-level argparse parser while docs use
+`script --site X state --apply`. argparse then errors: unrecognized arguments: --apply.
+
+**Correct**:
+Attach shared flags like `--apply` to each subparser (`parents=[common]`), not only the
+parent parser. Test the documented argv order.

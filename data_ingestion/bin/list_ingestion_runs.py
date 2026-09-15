@@ -1,9 +1,10 @@
 #!/usr/bin/env python
-"""List prior manual ingestion runs from the local JSONL run ledger."""
+"""List prior manual ingestion runs from the shared JSONL run ledger."""
 
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import sys
 from datetime import UTC, datetime
@@ -16,7 +17,11 @@ _project_root = _script_dir.parents[1]
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-from data_ingestion.utils.ingestion_run_logger import get_default_log_path  # noqa: E402
+from data_ingestion.utils.ingestion_run_logger import (  # noqa: E402
+    get_default_log_path,
+    prepare_ledger_for_read,
+)
+from pyutil.env_utils import load_env  # noqa: E402
 
 PACIFIC_TZ = ZoneInfo("America/Los_Angeles")
 
@@ -161,7 +166,7 @@ def print_records(records: list[dict[str, Any]]) -> None:
 def parse_args() -> argparse.Namespace:
     """Parse CLI arguments."""
     parser = argparse.ArgumentParser(
-        description="List manual ingestion runs from the local run ledger."
+        description="List manual ingestion runs from the shared S3 run ledger (cached locally)."
     )
     parser.add_argument("--site", help="Filter by site ID")
     parser.add_argument(
@@ -190,6 +195,10 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     """CLI entry point."""
     args = parse_args()
+    if args.site:
+        with contextlib.suppress(FileNotFoundError):
+            load_env(args.site)
+    prepare_ledger_for_read(args.log_path)
     events = load_ingestion_events(args.log_path)
     latest_records = latest_records_by_run(events)
     filtered_records = [

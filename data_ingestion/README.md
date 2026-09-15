@@ -3,6 +3,11 @@
 The data ingestion system processes various content types into a unified vector database using semantic chunking for
 optimal RAG performance.
 
+Run scripts from the **monorepo root** with `uv run python data_ingestion/...`. Luca audio, YouTube, and Ananda Library
+originals belong in S3, not on a personal disk. See
+[docs/ingestion-successor-runbook.md](../docs/ingestion-successor-runbook.md) and the Phase 1 upload checklist
+[docs/ingestion-s3-cutover-todo.md](../docs/ingestion-s3-cutover-todo.md).
+
 ## Content Sources
 
 ### PDF Processing
@@ -81,8 +86,10 @@ example `--required-access-level 200` for Kriyaban-only Luca content.
 
 ### Ingestion Run History
 
-Manual non-crawler ingestion commands are recorded in an append-only local JSONL
-ledger at `.cache/ingestion-runs/ingestion_runs.jsonl` by default. This covers:
+Manual non-crawler ingestion commands append to a local JSONL cache at
+`.cache/ingestion-runs/ingestion_runs.jsonl` and sync that file to S3
+(`ingestion/runs/ingestion_runs.jsonl`) so any operator can see prior runs. This
+covers:
 
 - SQL/database ingestion via `sql_to_vector_db/ingest_db_text.py`
 - Media queue creation and management via `audio_video/manage_queue.py`
@@ -105,7 +112,9 @@ python bin/list_ingestion_runs.py --site ananda --method media_process --index a
 Each record includes a copy-pasteable `command`, raw Python argv, parsed
 arguments, target Pinecone index from the environment, source summary, queue
 status or processing counts, git SHA, and whether the repo was dirty. Set
-`INGESTION_RUN_LOG_PATH` to write or read a different ledger location.
+`INGESTION_RUN_LOG_PATH` to use a different local cache. Set
+`INGESTION_RUN_LOG_S3_SYNC=0` to disable S3 sync. `list_ingestion_runs.py --site`
+loads `.env.[site]` then pulls the shared ledger before printing.
 
 After successful ingestion that adds or changes `metadata.title` values, refresh
 the title catalog using the checklist in `../docs/title-scope-ingestion-guide.md`.
@@ -161,5 +170,5 @@ python -m pytest tests/test_integration_chunk_quality.py --site test
 - **spaCy**: Semantic text processing
 - **LangChain**: Document processing pipeline
 - **Pinecone**: Vector database operations
-- **AssemblyAI**: Audio transcription service
+- **OpenAI Whisper**: Audio transcription (`whisper-1`)
 - **pdfplumber**: PDF text extraction with superior layout preservation

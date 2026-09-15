@@ -335,6 +335,9 @@ except ImportError:
 - **Deploy / “build for production”**: on the server, `git pull`, then `docker build` from
   `data_ingestion/crawler` per [CLOUD-DEPLOYMENT.md](mdc:data_ingestion/crawler/CLOUD-DEPLOYMENT.md); restart the oneshot
   service or wait for the timer.
+- **Rebuild on 2 GB Lightsail**: `sudo systemctl stop ananda-crawler.timer` before `docker build` so uv/Playwright
+  and a live crawl do not OOM together. After the new `ananda-crawler:latest` is tagged, `sudo systemctl start
+  ananda-crawler.timer`. The timer is `Persistent=true` and may immediately catch up a missed hourly slot.
 - **Playwright base image**: bump the Dockerfile `FROM mcr.microsoft.com/playwright/python:…` tag when `uv.lock` upgrades
   the `playwright` package so bundled browsers match the Python driver.
 - For server runbooks, include `git pull` immediately after the initial `cd` into the repo so the host is updated before
@@ -565,6 +568,26 @@ except ImportError:
 
 - **Removed**: Do not re-add the header search icon, `/search` page, `/api/search`, `enableSearchPage`, or search-only helpers (`useSearch`, SearchFilters/Results/ResultItem, SearchTypes, `highlightText`).
 - Chat RAG retrieval, Answers-page question search, WordPress `/search/` popup detection, crawler skip patterns, and `bin/search_chatbot_content.py` are unrelated and stay.
+
+## Ingestion originals live in S3
+
+- Luca audio, YouTube source lists, Ananda Library dumps, Whisper cache, and `youtube_data_map` are official in S3, not
+  on a personal laptop. Publish with `bin/publish_ingest_sources_to_s3.py`. The ingest run ledger syncs live to
+  `ingestion/runs/ingestion_runs.jsonl` (disable with `INGESTION_RUN_LOG_S3_SYNC=0`). Processing still runs on a
+  developer laptop via the existing CLIs. Runbook: `docs/ingestion-successor-runbook.md`.
+
+### Treasures kriyaban access (do not guess from “kriya”)
+
+- Most Treasures vectors are `required_access_level` 0. The 200 set is 58 talks. On 2026-09-14 those objects were moved
+  to `public/audio/treasures/kriyaban-only/{album}/…` and Pinecone `filename` was patched. Old root album keys and the
+  unused `Thumb drive from Krishna 7-2024/Kriyaban Only/` duplicates were deleted. Old shared-answer audio URLs for those
+  58 talks 404.
+- Canonical albums under `kriyaban-only/`: `Kriya Classes with Swami Kriyananda/`,
+  `Kriya Initiations with Swami Kriyananda/`, `Kriyaban Only  Clips/`,
+  `Kriyaban Retreats with Swami Kriyananda (1)/`.
+- Rebuild ingest: path component `kriyaban-only` / `Kriyaban Only` → 200; everything else in Treasures → 0. Do not infer
+  from the word “kriya”. Do not re-publish those four albums at library root or re-upload the thumb-drive `Kriyaban Only`
+  tree (that would create a second prefix).
 
 ## Data Files and Versioning
 

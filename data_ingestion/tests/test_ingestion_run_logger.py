@@ -4,9 +4,21 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from data_ingestion.audio_video import manage_queue, transcribe_and_ingest_media
 from data_ingestion.sql_to_vector_db import ingest_db_text
-from data_ingestion.utils.ingestion_run_logger import IngestionRunLogger, build_command
+from data_ingestion.utils.ingestion_run_logger import (
+    IngestionRunLogger,
+    build_command,
+    merge_ledger_lines,
+)
+
+
+@pytest.fixture(autouse=True)
+def disable_run_log_s3_sync_by_default(monkeypatch):
+    """Keep existing logger tests offline unless they enable S3 explicitly."""
+    monkeypatch.setenv("INGESTION_RUN_LOG_S3_SYNC", "0")
 
 
 def load_jsonl(path: Path) -> list[dict]:
@@ -22,6 +34,86 @@ def load_history_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_merge_ledger_lines_keeps_s3_order_and_appends_local_only():
+    s3_text = '{"run_id":"a","event":"started"}\n{"run_id":"a","event":"completed"}\n'
+    local_text = '{"run_id":"a","event":"started"}\n{"run_id":"b","event":"started"}\n'
+    merged = merge_ledger_lines(s3_text, local_text)
+    assert merged.splitlines() == [
+        '{"run_id":"a","event":"started"}',
+        '{"run_id":"a","event":"completed"}',
+        '{"run_id":"b","event":"started"}',
+    ]
+
+
+def test_pull_ledger_from_s3_writes_merged_local_file(tmp_path):
+    from data_ingestion.utils.ingestion_run_logger import pull_ledger_from_s3
+
+    log_path = tmp_path / "ingestion_runs.jsonl"
+    log_path.write_text('{"run_id":"local"}\n', encoding="utf-8")
+    s3_client = MagicMock()
+    s3_client.get_object.return_value = {
+        "Body": MagicMock(
+            read=MagicMock(return_value=b'{"run_id":"s3"}\n{"run_id":"local"}\n')
+        )
+    }
+
+    pulled = pull_ledger_from_s3(
+        log_path, s3_client=s3_client, bucket="ananda-chatbot"
+    )
+
+    assert pulled is True
+    assert log_path.read_text(encoding="utf-8").splitlines() == [
+        '{"run_id":"s3"}',
+        '{"run_id":"local"}',
+    ]
+
+
+def test_append_event_with_s3_sync_pulls_then_pushes(tmp_path):
+    log_path = tmp_path / "ingestion_runs.jsonl"
+    s3_client = MagicMock()
+    s3_client.get_object.return_value = {
+        "Body": MagicMock(read=MagicMock(return_value=b'{"run_id":"s3"}\n'))
+    }
+    logger = IngestionRunLogger(
+        log_path,
+        s3_sync=True,
+        s3_client=s3_client,
+        bucket="ananda-chatbot",
+    )
+    logger.append_event({"run_id": "new", "event": "started"})
+
+    s3_client.get_object.assert_called_once()
+    s3_client.upload_file.assert_called_once()
+    lines = log_path.read_text(encoding="utf-8").splitlines()
+    assert lines[0] == '{"run_id":"s3"}'
+    assert any('"run_id": "new"' in line or '"run_id":"new"' in line for line in lines)
+
+
+def test_prepare_ledger_for_read_pulls_when_sync_enabled(tmp_path, monkeypatch):
+    from data_ingestion.utils.ingestion_run_logger import prepare_ledger_for_read
+
+    monkeypatch.setenv("INGESTION_RUN_LOG_S3_SYNC", "1")
+    monkeypatch.setenv("S3_BUCKET_NAME", "ananda-chatbot")
+    log_path = tmp_path / "runs.jsonl"
+    with patch(
+        "data_ingestion.utils.ingestion_run_logger.pull_ledger_from_s3",
+        return_value=True,
+    ) as mock_pull:
+        assert prepare_ledger_for_read(log_path) is True
+        mock_pull.assert_called_once()
+
+
+def test_from_environment_enables_s3_sync_when_bucket_configured(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("INGESTION_RUN_LOG_S3_SYNC", "1")
+    monkeypatch.setenv("S3_BUCKET_NAME", "ananda-chatbot")
+    monkeypatch.setenv("INGESTION_RUN_LOG_PATH", str(tmp_path / "runs.jsonl"))
+    logger = IngestionRunLogger.from_environment()
+    assert logger.s3_sync is True
+    assert logger.log_path == tmp_path / "runs.jsonl"
 
 
 def test_logger_appends_started_and_completed_events(tmp_path, monkeypatch):
@@ -60,6 +152,29 @@ def test_build_command_adds_python_for_live_script_argv(monkeypatch):
         build_command()
         == "python data_ingestion/audio_video/manage_queue.py --site ananda"
     )
+
+
+def test_history_cli_main_refreshes_shared_ledger(tmp_path, monkeypatch):
+    history_module = load_history_module()
+    log_path = tmp_path / "ingestion_runs.jsonl"
+    log_path.write_text("", encoding="utf-8")
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "list_ingestion_runs.py",
+            "--site",
+            "ananda",
+            "--log-path",
+            str(log_path),
+        ],
+    )
+    with (
+        patch.object(history_module, "load_env"),
+        patch.object(history_module, "prepare_ledger_for_read") as mock_prepare,
+        patch.object(history_module, "print_records"),
+    ):
+        history_module.main()
+    mock_prepare.assert_called_once_with(log_path)
 
 
 def test_history_cli_collapses_and_filters_records(tmp_path):
