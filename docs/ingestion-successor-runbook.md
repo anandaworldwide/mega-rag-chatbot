@@ -9,7 +9,6 @@ Crystal/Jairam PDF ingest and the website crawler are out of scope here.
 
 Related:
 
-- Cutover checklist (upload leftovers): [ingestion-s3-cutover-todo.md](ingestion-s3-cutover-todo.md)
 - Title catalog after new titles: [title-scope-ingestion-guide.md](title-scope-ingestion-guide.md)
 - Architecture overview: [data-ingestion.md](data-ingestion.md)
 
@@ -97,6 +96,10 @@ next developer does not re-transcribe. The run ledger is pulled from S3, appende
 locally, and pushed back on every ingest event. `list_ingestion_runs.py --site`
 pulls the shared ledger before printing. Set `INGESTION_RUN_LOG_S3_SYNC=0` only
 for offline tests.
+
+Do **not** publish `data_ingestion/media/transcriptions copy/` or PhotoWise lists
+(`photo-youtube-playlists.xlsx`). New MP3s, YouTube URLs, and library dumps go to
+S3 with this CLI before or as they are processed; a laptop is not the archive.
 
 ## Current processing commands (laptop)
 

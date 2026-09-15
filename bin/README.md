@@ -9,8 +9,7 @@ This directory contains utility scripts for the Mega RAG Chatbot project.
 Publishes Luca ingest originals and processing state to S3 (audio trees, YouTube lists, Ananda Library dumps, Whisper
 cache, YouTube ID map). The run ledger syncs live during ingest; `state` can still copy a local cache if present.
 Dry-run by default; pass `--apply` to upload. See
-[docs/ingestion-successor-runbook.md](../docs/ingestion-successor-runbook.md) and
-[docs/ingestion-s3-cutover-todo.md](../docs/ingestion-s3-cutover-todo.md).
+[docs/ingestion-successor-runbook.md](../docs/ingestion-successor-runbook.md).
 
 ```bash
 uv run python bin/publish_ingest_sources_to_s3.py --site ananda inventory

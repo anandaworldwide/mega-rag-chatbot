@@ -5,8 +5,7 @@ optimal RAG performance.
 
 Run scripts from the **monorepo root** with `uv run python data_ingestion/...`. Luca audio, YouTube, and Ananda Library
 originals belong in S3, not on a personal disk. See
-[docs/ingestion-successor-runbook.md](../docs/ingestion-successor-runbook.md) and the Phase 1 upload checklist
-[docs/ingestion-s3-cutover-todo.md](../docs/ingestion-s3-cutover-todo.md).
+[docs/ingestion-successor-runbook.md](../docs/ingestion-successor-runbook.md).
 
 ## Content Sources
 

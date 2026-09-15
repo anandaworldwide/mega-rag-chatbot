@@ -11,7 +11,6 @@ state. A developer laptop runs the existing Python CLIs when ingest is needed (i
 the only copy of MP3s, YouTube lists, dumps, or Whisper caches on a personal disk.
 
 - Successor runbook: [ingestion-successor-runbook.md](ingestion-successor-runbook.md)
-- Phase 1 upload checklist: [ingestion-s3-cutover-todo.md](ingestion-s3-cutover-todo.md)
 - Publish helper: `bin/publish_ingest_sources_to_s3.py`
 
 ### Data Ingestion Pipeline
