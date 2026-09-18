@@ -6,6 +6,7 @@ and queue management. Tests cover core functionality including path operations, 
 environment setup, and queue operations.
 """
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -131,7 +132,7 @@ class TestManageQueue:
 
         # Test with valid audio file
         result = process_audio_input(
-            "/path/to/audio.mp3", mock_queue, "Test Author", "TestLibrary"
+            "/path/to/audio.mp3", mock_queue, "Test Author", "TestLibrary", yes=True
         )
 
         # Should return list with item ID
@@ -144,8 +145,8 @@ class TestManageQueue:
                 "file_path": "/path/to/audio.mp3",
                 "author": "Test Author",
                 "library": {"name": "test_lib"},
-                "s3_folder": "testlibrary",
-                "s3_key": "public/audio/testlibrary/audio.mp3",
+                "s3_folder": "TestLibrary",
+                "s3_key": "public/audio/TestLibrary/audio.mp3",
                 "required_access_level": 0,
             },
         )
@@ -319,6 +320,8 @@ class TestManageQueue:
         mock_args.library = "TestLibrary"
         mock_args.site = "test_site"
         mock_args.required_access_level = 200
+        mock_args.yes = False
+        mock_args.ignore_path_access_levels = False
 
         mock_queue = MagicMock()
 
@@ -333,6 +336,8 @@ class TestManageQueue:
             "TestLibrary",
             "test_site",
             200,
+            yes=False,
+            ignore_path_access_levels=False,
         )
 
     def test_add_to_queue_no_valid_input(self):
@@ -351,3 +356,210 @@ class TestManageQueue:
 
         # Queue should not be called
         mock_queue.add_item.assert_not_called()
+
+
+class TestAudioQueuePlan:
+    def test_collect_audio_queue_plan_splits_access_and_skips_ignore(self, tmp_path):
+        from data_ingestion.audio_video.manage_queue import collect_audio_queue_plan
+
+        (tmp_path / "public album").mkdir()
+        (tmp_path / "public album" / "open.mp3").write_bytes(b"public-audio")
+        (tmp_path / "public album" / "README.md").write_text("notes")
+        kriya = tmp_path / "Kriyaban Only" / "album"
+        kriya.mkdir(parents=True)
+        (kriya / "secret.mp3").write_bytes(b"secret-audio")
+        ignored = tmp_path / "Ignore" / "dupes"
+        ignored.mkdir(parents=True)
+        (ignored / "skip.mp3").write_bytes(b"ignored-audio")
+
+        plan = collect_audio_queue_plan(tmp_path, "treasures")
+
+        assert plan.skipped_ignore == 1
+        assert plan.skipped_non_audio == 1
+        by_name = {Path(item.file_path).name: item for item in plan.candidates}
+        assert set(by_name) == {"open.mp3", "secret.mp3"}
+        assert by_name["open.mp3"].required_access_level == 0
+        assert by_name["open.mp3"].s3_key == (
+            "public/audio/treasures/public album/open.mp3"
+        )
+        assert by_name["secret.mp3"].required_access_level == 200
+        assert by_name["secret.mp3"].s3_key == (
+            "public/audio/treasures/kriyaban-only/album/secret.mp3"
+        )
+
+    def test_format_audio_access_split_prints_counts_and_labels(self):
+        from data_ingestion.audio_video.manage_queue import (
+            AudioQueueCandidate,
+            AudioQueuePlan,
+            format_audio_access_split,
+        )
+
+        plan = AudioQueuePlan(
+            candidates=(
+                AudioQueueCandidate(
+                    "open.mp3", "public/open.mp3", "public/audio/t/open.mp3", 0
+                ),
+                AudioQueueCandidate(
+                    "secret.mp3",
+                    "kriyaban-only/secret.mp3",
+                    "public/audio/t/kriyaban-only/secret.mp3",
+                    200,
+                ),
+            ),
+            skipped_ignore=2,
+            skipped_non_audio=1,
+        )
+        site_config = {
+            "accessControl": {
+                "levels": [
+                    {"key": "public", "label": "Public", "value": 0},
+                    {"key": "kriyaban", "label": "Kriyaban", "value": 200},
+                ]
+            }
+        }
+
+        text = format_audio_access_split(plan, site_config=site_config)
+
+        assert (
+            "1 file under kriyaban-only/ → required_access_level 200 (Kriyaban)" in text
+        )
+        assert "1 other file → required_access_level 0 (Public)" in text
+        assert "3 skipped (Ignore/ or non-audio)" in text
+
+    def test_confirm_audio_access_split_yes_flag_skips_prompt(self, capsys):
+        from data_ingestion.audio_video.manage_queue import (
+            AudioQueueCandidate,
+            AudioQueuePlan,
+            confirm_audio_access_split,
+        )
+
+        plan = AudioQueuePlan(
+            candidates=(
+                AudioQueueCandidate("a.mp3", "a.mp3", "public/audio/t/a.mp3", 0),
+            )
+        )
+        prompted = []
+
+        accepted = confirm_audio_access_split(
+            plan, yes=True, interactive=False, input_func=prompted.append
+        )
+
+        assert accepted is True
+        assert prompted == []
+        assert "1 other file → required_access_level 0" in capsys.readouterr().out
+
+    def test_confirm_audio_access_split_refuses_noninteractive_without_yes(self):
+        from data_ingestion.audio_video.manage_queue import (
+            AudioQueueCandidate,
+            AudioQueuePlan,
+            confirm_audio_access_split,
+        )
+
+        plan = AudioQueuePlan(
+            candidates=(
+                AudioQueueCandidate(
+                    "secret.mp3",
+                    "kriyaban-only/secret.mp3",
+                    "public/audio/t/kriyaban-only/secret.mp3",
+                    200,
+                ),
+            )
+        )
+
+        accepted = confirm_audio_access_split(
+            plan, yes=False, interactive=False, input_func=lambda _: "y"
+        )
+
+        assert accepted is False
+
+    def test_confirm_audio_access_split_interactive_no_refuses(self):
+        from data_ingestion.audio_video.manage_queue import (
+            AudioQueueCandidate,
+            AudioQueuePlan,
+            confirm_audio_access_split,
+        )
+
+        plan = AudioQueuePlan(
+            candidates=(
+                AudioQueueCandidate("a.mp3", "a.mp3", "public/audio/t/a.mp3", 0),
+            )
+        )
+
+        accepted = confirm_audio_access_split(
+            plan, yes=False, interactive=True, input_func=lambda _: "n"
+        )
+
+        assert accepted is False
+
+    def test_process_audio_input_directory_queues_split_access_with_yes(self, tmp_path):
+        from data_ingestion.audio_video.manage_queue import process_audio_input
+
+        (tmp_path / "open.mp3").write_bytes(b"public-audio")
+        kriya = tmp_path / "Kriyaban Only"
+        kriya.mkdir()
+        (kriya / "secret.mp3").write_bytes(b"secret-audio")
+        mock_queue = MagicMock()
+        mock_queue.add_item.side_effect = ["id-public", "id-secret"]
+
+        with patch(
+            "data_ingestion.audio_video.manage_queue.LIBRARY_CONFIG",
+            {"treasures": "Treasures"},
+        ):
+            result = process_audio_input(
+                str(tmp_path),
+                mock_queue,
+                "Swami Kriyananda",
+                "treasures",
+                required_access_level=0,
+                yes=True,
+            )
+
+        assert result == ["id-public", "id-secret"]
+        payloads = [call.args[1] for call in mock_queue.add_item.call_args_list]
+        by_name = {Path(item["file_path"]).name: item for item in payloads}
+        assert by_name["open.mp3"]["required_access_level"] == 0
+        assert by_name["open.mp3"]["s3_key"] == "public/audio/treasures/open.mp3"
+        assert by_name["secret.mp3"]["required_access_level"] == 200
+        assert by_name["secret.mp3"]["s3_key"] == (
+            "public/audio/treasures/kriyaban-only/secret.mp3"
+        )
+
+    def test_process_audio_input_directory_refuses_without_yes(self, tmp_path):
+        from data_ingestion.audio_video.manage_queue import process_audio_input
+
+        (tmp_path / "open.mp3").write_bytes(b"public-audio")
+        mock_queue = MagicMock()
+
+        with patch(
+            "data_ingestion.audio_video.manage_queue.LIBRARY_CONFIG",
+            {"treasures": "Treasures"},
+        ):
+            result = process_audio_input(
+                str(tmp_path),
+                mock_queue,
+                "Swami Kriyananda",
+                "treasures",
+                yes=False,
+                interactive=False,
+            )
+
+        assert result == []
+        mock_queue.add_item.assert_not_called()
+
+    def test_collect_audio_queue_plan_ignore_path_flag_keeps_default_level(
+        self, tmp_path
+    ):
+        from data_ingestion.audio_video.manage_queue import collect_audio_queue_plan
+
+        kriya = tmp_path / "Kriyaban Only"
+        kriya.mkdir()
+        (kriya / "secret.mp3").write_bytes(b"secret-audio")
+
+        plan = collect_audio_queue_plan(
+            tmp_path,
+            "treasures",
+            default_access_level=0,
+            ignore_path_access_levels=True,
+        )
+
+        assert plan.candidates[0].required_access_level == 0

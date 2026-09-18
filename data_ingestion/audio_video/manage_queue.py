@@ -48,6 +48,9 @@ Content Addition:
 Required for Adding Content:
   -A, --default-author NAME    Default author of the media
   -L, --library NAME           Name of the library
+      --required-access-level  Default numeric access level (audio path may override)
+  -y, --yes                    Accept the audio access-level split without a prompt
+      --ignore-path-access-levels  Use --required-access-level for every audio file
 
 Queue Management:
   -l, --list                   List all items in the processing queue
@@ -95,7 +98,9 @@ import logging
 import os
 import sys
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytz
 from openpyxl import load_workbook
@@ -119,9 +124,19 @@ from data_ingestion.audio_video.youtube_utils import (  # noqa: E402
     load_youtube_data_map,
 )
 from data_ingestion.utils.author_normalization import normalize_author  # noqa: E402
+from data_ingestion.utils.ingest_s3_layout import (  # noqa: E402
+    AUDIO_EXTENSIONS,
+    KRIYABAN_REQUIRED_ACCESS_LEVEL,
+    audio_s3_key,
+    is_junk_publish_file,
+    path_has_ignore_component,
+    proposed_audio_access_level,
+    relative_path_for_audio_queue,
+)
 from data_ingestion.utils.ingestion_run_logger import IngestionRunLogger  # noqa: E402
 from pyutil.env_utils import load_env  # noqa: E402
 from pyutil.logging_utils import configure_logging  # noqa: E402
+from pyutil.site_config_utils import load_site_config  # noqa: E402
 
 # Load library configuration
 script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -175,8 +190,240 @@ def get_unique_files(directory_path):
     return list(unique_files.values())
 
 
+@dataclass(frozen=True)
+class AudioQueueCandidate:
+    file_path: str
+    relative_path: str
+    s3_key: str
+    required_access_level: int
+
+
+@dataclass(frozen=True)
+class AudioQueuePlan:
+    candidates: tuple[AudioQueueCandidate, ...]
+    skipped_ignore: int = 0
+    skipped_non_audio: int = 0
+
+
+def _unique_audio_files(audio_files):
+    unique_files = {}
+    for path, relative_path in tqdm(
+        audio_files, desc="Checking for unique files", ncols=100
+    ):
+        file_hash = get_file_hash(str(path))
+        if file_hash not in unique_files:
+            unique_files[file_hash] = (path, relative_path)
+    return list(unique_files.values())
+
+
+def collect_audio_queue_plan(
+    directory_path,
+    library,
+    default_access_level=0,
+    *,
+    ignore_path_access_levels=False,
+):
+    """Scan a local tree and classify audio for queueing.
+
+    Ignore folders and non-audio files are counted, not queued. Kriyaban Only
+    paths propose access level 200; other audio uses default_access_level.
+    """
+    directory = Path(directory_path)
+    skipped_ignore = 0
+    skipped_non_audio = 0
+    audio_files = []
+    for path in directory.rglob("*"):
+        if not path.is_file():
+            continue
+        relative_path = relative_path_for_audio_queue(path, directory)
+        if path_has_ignore_component(relative_path):
+            skipped_ignore += 1
+            continue
+        if path.suffix.lower() not in AUDIO_EXTENSIONS:
+            if not is_junk_publish_file(path):
+                skipped_non_audio += 1
+            continue
+        audio_files.append((path, relative_path))
+
+    candidates = tuple(
+        AudioQueueCandidate(
+            file_path=str(path),
+            relative_path=relative_path,
+            s3_key=audio_s3_key(library, relative_path),
+            required_access_level=proposed_audio_access_level(
+                relative_path,
+                default_access_level,
+                ignore_path_access_levels=ignore_path_access_levels,
+            ),
+        )
+        for path, relative_path in _unique_audio_files(audio_files)
+    )
+    return AudioQueuePlan(
+        candidates=candidates,
+        skipped_ignore=skipped_ignore,
+        skipped_non_audio=skipped_non_audio,
+    )
+
+
+def _file_noun(count):
+    return "file" if count == 1 else "files"
+
+
+def _file_count_phrase(count):
+    return f"{count} {_file_noun(count)}"
+
+
+def _access_level_label(level, site_config=None):
+    levels = []
+    if site_config:
+        levels = site_config.get("accessControl", {}).get("levels") or []
+    for item in levels:
+        if isinstance(item, dict) and item.get("value") == level:
+            label = item.get("label")
+            if label:
+                return f"{level} ({label})"
+    return str(level)
+
+
+def format_audio_access_split(plan, site_config=None):
+    """Return the TTY summary of proposed access levels and skipped files."""
+    kriyaban_count = sum(
+        1
+        for item in plan.candidates
+        if item.required_access_level == KRIYABAN_REQUIRED_ACCESS_LEVEL
+    )
+    other_counts = defaultdict(int)
+    for item in plan.candidates:
+        if item.required_access_level != KRIYABAN_REQUIRED_ACCESS_LEVEL:
+            other_counts[item.required_access_level] += 1
+
+    lines = []
+    if kriyaban_count:
+        lines.append(
+            f"{_file_count_phrase(kriyaban_count)} under kriyaban-only/ → "
+            f"required_access_level {_access_level_label(KRIYABAN_REQUIRED_ACCESS_LEVEL, site_config)}"
+        )
+    for level in sorted(other_counts):
+        lines.append(
+            f"{other_counts[level]} other {_file_noun(other_counts[level])} → "
+            f"required_access_level {_access_level_label(level, site_config)}"
+        )
+    skipped = plan.skipped_ignore + plan.skipped_non_audio
+    if skipped:
+        lines.append(f"{skipped} skipped (Ignore/ or non-audio)")
+    return "\n".join(lines)
+
+
+def confirm_audio_access_split(
+    plan,
+    *,
+    yes=False,
+    interactive=True,
+    input_func=input,
+    site_config=None,
+):
+    """Print the access split and require confirmation before queueing.
+
+    ``--yes`` accepts the split. A non-interactive session without ``--yes``
+    refuses so restricted files cannot be queued as public by accident.
+    """
+    summary = format_audio_access_split(plan, site_config=site_config)
+    if summary:
+        print(summary)
+    if not plan.candidates:
+        return True
+    if yes:
+        return True
+    if not interactive:
+        logger.error(
+            "Refusing to queue audio without confirmation. Re-run with --yes or a TTY."
+        )
+        return False
+    reply = input_func("Proceed? [Y/n] ").strip().lower()
+    return reply in {"", "y", "yes"}
+
+
+def collect_single_file_audio_plan(
+    file_path,
+    library,
+    default_access_level=0,
+    *,
+    ignore_path_access_levels=False,
+):
+    """Classify one local audio file the same way as a directory scan."""
+    path = Path(file_path)
+    relative_path = relative_path_for_audio_queue(path)
+    if path_has_ignore_component(relative_path):
+        return AudioQueuePlan(candidates=(), skipped_ignore=1)
+    if path.suffix.lower() not in AUDIO_EXTENSIONS:
+        skipped_non_audio = 0 if is_junk_publish_file(path) else 1
+        return AudioQueuePlan(candidates=(), skipped_non_audio=skipped_non_audio)
+    candidate = AudioQueueCandidate(
+        file_path=str(path),
+        relative_path=relative_path,
+        s3_key=audio_s3_key(library, relative_path),
+        required_access_level=proposed_audio_access_level(
+            relative_path,
+            default_access_level,
+            ignore_path_access_levels=ignore_path_access_levels,
+        ),
+    )
+    return AudioQueuePlan(candidates=(candidate,))
+
+
+def _enqueue_audio_plan(queue, plan, default_author, library, site_id):
+    added_items = []
+    display_library = LIBRARY_CONFIG[library]
+    for item in plan.candidates:
+        item_id = queue.add_item(
+            "audio_file",
+            {
+                "file_path": item.file_path,
+                "author": normalize_author(default_author, site_id),
+                "library": display_library,
+                "s3_folder": library,
+                "s3_key": item.s3_key,
+                "required_access_level": item.required_access_level,
+            },
+        )
+        if item_id:
+            added_items.append(item_id)
+            logger.info(f"Added audio file to queue: {item_id} - {item.file_path}")
+        else:
+            logger.error(f"Failed to add audio file to queue: {item.file_path}")
+    return added_items
+
+
+def _confirm_and_enqueue_audio_plan(
+    queue,
+    plan,
+    default_author,
+    library,
+    site_id,
+    yes,
+    interactive,
+    site_config,
+):
+    if interactive is None:
+        interactive = sys.stdin.isatty()
+    if not confirm_audio_access_split(
+        plan, yes=yes, interactive=interactive, site_config=site_config
+    ):
+        return []
+    return _enqueue_audio_plan(queue, plan, default_author, library, site_id)
+
+
 def process_audio_input(
-    input_path, queue, default_author, library, site_id=None, required_access_level=0
+    input_path,
+    queue,
+    default_author,
+    library,
+    site_id=None,
+    required_access_level=0,
+    yes=False,
+    ignore_path_access_levels=False,
+    interactive=None,
+    site_config=None,
 ):
     """
     Routes audio processing based on input type (single file vs directory).
@@ -188,82 +435,75 @@ def process_audio_input(
 
     S3 Path Structure: public/audio/{library_name}/{relative_path}
     """
-    # Check if the library is in the config file
     if library not in LIBRARY_CONFIG:
         error_msg = f"Error: Library '{library}' not found in library_config.json. Please use a valid library name."
         logger.error(error_msg)
         raise ValueError(error_msg)
 
+    if site_config is None and site_id:
+        site_config = load_site_config(site_id)
+
     if os.path.isfile(input_path):
-        if input_path.lower().endswith((".mp3", ".wav", ".flac")):
-            s3_folder = library.lower()
-            s3_key = f"public/audio/{s3_folder}/{os.path.basename(input_path)}"
-            item_id = queue.add_item(
-                "audio_file",
-                {
-                    "file_path": input_path,
-                    "author": normalize_author(default_author, site_id),
-                    "library": LIBRARY_CONFIG[library],
-                    "s3_folder": s3_folder,
-                    "s3_key": s3_key,
-                    "required_access_level": required_access_level,
-                },
-            )
-            if item_id:
-                logger.info(f"Added audio file to queue: {item_id} - {input_path}")
-                return [item_id]
-            else:
-                logger.error(f"Failed to add audio file to queue: {input_path}")
-                return []
-        else:
+        plan = collect_single_file_audio_plan(
+            input_path,
+            library,
+            required_access_level,
+            ignore_path_access_levels=ignore_path_access_levels,
+        )
+        if (
+            not plan.candidates
+            and plan.skipped_ignore == 0
+            and Path(input_path).suffix.lower() not in AUDIO_EXTENSIONS
+        ):
             logger.error(f"Unsupported file type: {input_path}")
             return []
     elif os.path.isdir(input_path):
-        return process_directory(
-            input_path, queue, default_author, library, site_id, required_access_level
+        plan = collect_audio_queue_plan(
+            input_path,
+            library,
+            required_access_level,
+            ignore_path_access_levels=ignore_path_access_levels,
         )
     else:
         logger.error(f"Invalid input path: {input_path}")
         return []
 
+    return _confirm_and_enqueue_audio_plan(
+        queue,
+        plan,
+        default_author,
+        library,
+        site_id,
+        yes,
+        interactive,
+        site_config,
+    )
+
 
 def process_directory(
-    directory_path, queue, default_author, library, site_id=None, required_access_level=0
+    directory_path,
+    queue,
+    default_author,
+    library,
+    site_id=None,
+    required_access_level=0,
+    yes=False,
+    ignore_path_access_levels=False,
+    interactive=None,
+    site_config=None,
 ):
-    # Check if the library is in the config file
-    if library not in LIBRARY_CONFIG:
-        error_msg = f"Error: Library '{library}' not found in library_config.json. Please use a valid library name."
-        logger.error(error_msg)
-        raise ValueError(error_msg)
-
-    unique_files = get_unique_files(directory_path)
-    added_items = []
-    s3_folder = library.lower()
-
-    # Process unique files with tqdm
-    for file_path in tqdm(unique_files, desc="Processing unique files"):
-        # Calculate the relative path
-        relative_path = os.path.relpath(file_path, directory_path)
-        # Combine the s3_folder with the relative path
-        s3_key = f"public/audio/{s3_folder}/{relative_path}"
-
-        item_id = queue.add_item(
-            "audio_file",
-            {
-                "file_path": file_path,
-                "author": normalize_author(default_author, site_id),
-                "library": LIBRARY_CONFIG[library],
-                "s3_folder": s3_folder,
-                "s3_key": s3_key,
-                "required_access_level": required_access_level,
-            },
-        )
-        if item_id:
-            added_items.append(item_id)
-        else:
-            logger.error(f"Failed to add audio file to queue: {file_path}")
-
-    return added_items
+    return process_audio_input(
+        directory_path,
+        queue,
+        default_author,
+        library,
+        site_id,
+        required_access_level,
+        yes=yes,
+        ignore_path_access_levels=ignore_path_access_levels,
+        interactive=interactive,
+        site_config=site_config,
+    )
 
 
 def add_to_queue(args, queue, source=None):
@@ -326,6 +566,8 @@ def add_to_queue(args, queue, source=None):
             args.library,
             args.site,
             args.required_access_level,
+            yes=args.yes,
+            ignore_path_access_levels=args.ignore_path_access_levels,
         )
         if added_items:
             added_count += len(added_items)
@@ -733,7 +975,7 @@ def process_urls_file(args, queue):
                 "youtube_id": youtube_id,
                 "author": args.default_author,
                 "library": args.library,
-                    "required_access_level": args.required_access_level,
+                "required_access_level": args.required_access_level,
             },
         )
         if item_id:
@@ -807,7 +1049,22 @@ def _setup_argument_parser():
         default=0,
         help=(
             "Numeric access level required to retrieve queued media "
-            "(default: 0/public)."
+            "(default: 0/public). Audio paths under kriyaban-only/ still "
+            "propose 200 unless --ignore-path-access-levels is set."
+        ),
+    )
+    content_required.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        help="Accept the audio access-level split without a TTY prompt",
+    )
+    content_required.add_argument(
+        "--ignore-path-access-levels",
+        action="store_true",
+        help=(
+            "Do not apply kriyaban-only path access; use "
+            "--required-access-level for every audio file"
         ),
     )
 
@@ -1052,6 +1309,8 @@ def _build_queue_source_summary(args):
         "library": args.library,
         "default_author": args.default_author,
         "required_access_level": args.required_access_level,
+        "yes": args.yes,
+        "ignore_path_access_levels": args.ignore_path_access_levels,
         "video": args.video,
         "playlist": args.playlist,
         "audio": args.audio,

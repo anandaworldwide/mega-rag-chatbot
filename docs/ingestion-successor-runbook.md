@@ -22,7 +22,8 @@ Related:
 - Local MySQL only when running an Ananda Library dump (Phase 1: native MySQL as
   today; Docker Compose comes later)
 - Enough disk for one run’s downloads and Whisper splits
-- macOS overnight runs: `caffeinate` so the laptop does not sleep
+- macOS overnight Whisper: wrap the ingest command with `caffeinate -i` so idle sleep does not pause Python. That is
+  not the same as `--yes` (which only auto-accepts confirmation prompts)
 
 Run all Python from the **repo root**:
 
@@ -115,12 +116,18 @@ uv run python data_ingestion/audio_video/manage_queue.py \
   --directory /path/to/bhaktan-talks \
   --default-author 'Swami Kriyananda' \
   --library bhaktan \
-  --required-access-level 0
+  --required-access-level 0 \
+  --yes
 
 uv run python data_ingestion/audio_video/transcribe_and_ingest_media.py --site ananda
 ```
 
-`--library` for audio must be `bhaktan` or `treasures`. The processor prompts
+`--library` for audio must be `bhaktan` or `treasures`. Queueing prints a
+kriyaban-only vs public split and waits unless `--yes` is set. Non-interactive
+runs without `--yes` refuse to queue. Path component `kriyaban-only` /
+`Kriyaban Only` proposes 200; `--required-access-level` is the default for
+everything else. `--ignore-path-access-levels` forces the flag on every file.
+`Ignore/` folders and non-audio files are not queued. The processor then prompts
 `Is it OK to proceed?` and shows `PINECONE_INGEST_INDEX_NAME`.
 
 ### YouTube

@@ -18,6 +18,7 @@ RUNS_LEDGER_KEY = "ingestion/runs/ingestion_runs.jsonl"
 
 AUDIO_EXTENSIONS = (".mp3", ".wav", ".flac")
 KRIYABAN_ONLY_SEGMENT = "kriyaban-only"
+KRIYABAN_REQUIRED_ACCESS_LEVEL = 200
 IGNORE_SEGMENT = "ignore"
 JUNK_FILENAMES = {".ds_store", "thumbs.db"}
 JUNK_SUFFIXES = {".db", ".sql"}
@@ -61,6 +62,46 @@ def path_has_kriyaban_only_component(relative_path: str) -> bool:
         for part in normalize_relative_path(relative_path).split("/")
         if part
     )
+
+
+def proposed_audio_access_level(
+    relative_path: str,
+    default_level: int = 0,
+    *,
+    ignore_path_access_levels: bool = False,
+) -> int:
+    """Return 200 when the path has a kriyaban-only component, else default_level.
+
+    Folder name wins over default_level unless ignore_path_access_levels is True.
+    The word "kriya" alone is not restricted.
+    """
+    if ignore_path_access_levels:
+        return default_level
+    if path_has_kriyaban_only_component(relative_path):
+        return KRIYABAN_REQUIRED_ACCESS_LEVEL
+    return default_level
+
+
+def relative_path_for_audio_queue(
+    file_path: Path, directory_root: Path | None = None
+) -> str:
+    """Return the path used for S3 key and access classification.
+
+    Directory ingest uses the path relative to the scanned root. A single
+    ``--audio`` file uses basename unless a parent folder is ``Kriyaban Only``
+    or ``Ignore``, in which case the key starts at that component.
+    """
+    if directory_root is not None:
+        return Path(file_path).relative_to(directory_root).as_posix()
+    parts = Path(file_path).parts
+    start = None
+    for index, part in enumerate(parts[:-1]):
+        if is_kriyaban_only_component(part) or is_ignore_component(part):
+            start = index
+            break
+    if start is None:
+        return Path(file_path).name
+    return "/".join(parts[start:])
 
 
 def is_junk_publish_file(path: Path) -> bool:

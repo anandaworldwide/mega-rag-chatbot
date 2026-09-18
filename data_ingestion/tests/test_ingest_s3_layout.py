@@ -54,7 +54,9 @@ def test_state_list_and_dump_s3_keys():
         youtube_data_map_s3_key("ananda")
         == "site-config/data_ingestion/media/ananda-youtube_data_map.json"
     )
-    assert transcriptions_db_s3_key("ananda") == "ingestion/state/ananda-transcriptions.db"
+    assert (
+        transcriptions_db_s3_key("ananda") == "ingestion/state/ananda-transcriptions.db"
+    )
     assert (
         transcriptions_dir_s3_prefix("ananda")
         == "ingestion/state/transcriptions/ananda"
@@ -67,3 +69,79 @@ def test_state_list_and_dump_s3_keys():
         "ingestion/dumps/anandalib/anandalib_2025_03_06.sql.gz"
     )
     assert RUNS_LEDGER_KEY == "ingestion/runs/ingestion_runs.jsonl"
+
+
+def test_proposed_audio_access_level_kriyaban_folder_is_200():
+    from data_ingestion.utils.ingest_s3_layout import proposed_audio_access_level
+
+    assert (
+        proposed_audio_access_level(
+            "kriyaban-only/Kriya Classes with Swami Kriyananda/talk.mp3"
+        )
+        == 200
+    )
+
+
+def test_proposed_audio_access_level_finder_kriyaban_only_folder_is_200():
+    from data_ingestion.utils.ingest_s3_layout import proposed_audio_access_level
+
+    assert proposed_audio_access_level("Kriyaban Only/album/talk.mp3") == 200
+
+
+def test_proposed_audio_access_level_does_not_infer_from_word_kriya():
+    from data_ingestion.utils.ingest_s3_layout import proposed_audio_access_level
+
+    assert (
+        proposed_audio_access_level("Kriya for Public & Meditation Collection/talk.mp3")
+        == 0
+    )
+
+
+def test_proposed_audio_access_level_ignore_path_flag_uses_default():
+    from data_ingestion.utils.ingest_s3_layout import proposed_audio_access_level
+
+    assert (
+        proposed_audio_access_level(
+            "kriyaban-only/talk.mp3",
+            default_level=0,
+            ignore_path_access_levels=True,
+        )
+        == 0
+    )
+
+
+def test_relative_path_for_audio_queue_uses_directory_root():
+    from pathlib import Path
+
+    from data_ingestion.utils.ingest_s3_layout import relative_path_for_audio_queue
+
+    root = Path("/audio/treasures")
+    file_path = root / "Kriyaban Only" / "album" / "talk.mp3"
+    assert (
+        relative_path_for_audio_queue(file_path, directory_root=root)
+        == "Kriyaban Only/album/talk.mp3"
+    )
+
+
+def test_relative_path_for_audio_queue_single_file_uses_basename():
+    from pathlib import Path
+
+    from data_ingestion.utils.ingest_s3_layout import relative_path_for_audio_queue
+
+    assert (
+        relative_path_for_audio_queue(Path("/audio/bhaktan/public album/talk.mp3"))
+        == "talk.mp3"
+    )
+
+
+def test_relative_path_for_audio_queue_single_file_starts_at_kriyaban_folder():
+    from pathlib import Path
+
+    from data_ingestion.utils.ingest_s3_layout import relative_path_for_audio_queue
+
+    assert (
+        relative_path_for_audio_queue(
+            Path("/audio/bhaktan/Kriyaban Only/album/talk.mp3")
+        )
+        == "Kriyaban Only/album/talk.mp3"
+    )
