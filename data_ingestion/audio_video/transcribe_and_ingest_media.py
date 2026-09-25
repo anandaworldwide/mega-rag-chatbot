@@ -99,7 +99,12 @@ from data_ingestion.audio_video.youtube_utils import (  # noqa: E402
 from data_ingestion.utils.author_normalization import normalize_author  # noqa: E402
 from data_ingestion.utils.ingestion_run_logger import IngestionRunLogger  # noqa: E402
 from data_ingestion.utils.pinecone_utils import clear_library_vectors  # noqa: E402
-from data_ingestion.utils.s3_utils import S3UploadError, upload_to_s3  # noqa: E402
+from data_ingestion.utils.s3_utils import (  # noqa: E402
+    S3DownloadError,
+    S3UploadError,
+    download_s3_object_to_temp,
+    upload_to_s3,
+)
 from pyutil.env_utils import load_env  # noqa: E402
 from pyutil.logging_utils import configure_logging  # noqa: E402
 from pyutil.site_config_utils import (  # noqa: E402
@@ -545,7 +550,22 @@ def _process_and_store_transcription(
         return local_report
 
 
-def _handle_s3_upload(file_path, file_name, s3_key, dryrun, is_youtube_video):
+def resolve_local_audio_path(file_path, s3_key):
+    """Return a local audio path, downloading from S3 when the file is missing.
+
+    Returns (local_path, downloaded_from_s3). downloaded_from_s3 True means the
+    caller should delete the temp file and must not re-upload the object.
+    """
+    if file_path and os.path.exists(file_path):
+        return file_path, False
+    if not s3_key:
+        return None, False
+    return download_s3_object_to_temp(s3_key), True
+
+
+def _handle_s3_upload(
+    file_path, file_name, s3_key, dryrun, is_youtube_video, skip_upload=False
+):
     """
     Handles S3 upload for non-YouTube files.
     Returns local_report with upload results.
@@ -561,6 +581,13 @@ def _handle_s3_upload(file_path, file_name, s3_key, dryrun, is_youtube_video):
         "private_videos": 0,
     }
 
+    if skip_upload:
+        local_report["skipped"] += 1
+        logger.info(
+            f"Skipping S3 upload for {file_name}; object is already the original"
+        )
+        return local_report
+
     # After successful processing, upload to S3 only if it's not a YouTube video and not a dry run
     if not dryrun and not is_youtube_video and file_path:
         try:
@@ -568,7 +595,9 @@ def _handle_s3_upload(file_path, file_name, s3_key, dryrun, is_youtube_video):
                 # Fallback to a default S3 key if not provided
                 s3_key = f"public/audio/default/{os.path.basename(file_path)}"
 
-            upload_to_s3(file_path, s3_key)
+            uploaded = upload_to_s3(file_path, s3_key)
+            if uploaded is False:
+                local_report["skipped"] += 1
         except S3UploadError as e:
             error_msg = f"Error uploading {file_name} to S3: {str(e)}"
             logger.error(error_msg)
@@ -593,6 +622,7 @@ def process_file(
     youtube_data=None,
     s3_key=None,
     site=None,
+    skip_upload=False,
 ):
     """
     Core processing pipeline for a single media file or YouTube video.
@@ -603,7 +633,7 @@ def process_file(
     3. Chunk the transcription into segments
     4. Create embeddings for chunks
     5. Store in Pinecone with metadata
-    6. Upload original to S3 (non-YouTube only)
+    6. Upload original to S3 (non-YouTube only; skipped if downloaded from S3)
 
     Returns a report dictionary with processing statistics and any errors
     """
@@ -665,7 +695,7 @@ def process_file(
 
     # Step 4: Handle S3 upload
     upload_report = _handle_s3_upload(
-        file_path, file_name, s3_key, dryrun, is_youtube_video
+        file_path, file_name, s3_key, dryrun, is_youtube_video, skip_upload=skip_upload
     )
 
     # Merge all reports
@@ -774,8 +804,25 @@ def process_item(item, args, client, index, site_config):
         "chunk_lengths": [],
     }
 
+    s3_key = item["data"].get("s3_key")
+    downloaded_from_s3 = False
+
     if item["type"] == "audio_file":
-        file_to_process = item["data"]["file_path"]
+        try:
+            file_to_process, downloaded_from_s3 = resolve_local_audio_path(
+                item["data"].get("file_path"), s3_key
+            )
+        except S3DownloadError as e:
+            logger.error(str(e))
+            error_report["error_details"].append(str(e))
+            return item["id"], error_report
+        if not file_to_process:
+            error_msg = (
+                f"Audio file not found locally and no s3_key for item {item['id']}"
+            )
+            logger.error(error_msg)
+            error_report["error_details"].append(error_msg)
+            return item["id"], error_report
         is_youtube_video = False
         youtube_data = None
     elif item["type"] == "youtube_video":
@@ -800,7 +847,6 @@ def process_item(item, args, client, index, site_config):
 
     author = item["data"]["author"]
     library = item["data"]["library"]
-    s3_key = item["data"].get("s3_key")
     required_access_level = int(item["data"].get("required_access_level", 0) or 0)
 
     start_time = time.time()
@@ -818,19 +864,22 @@ def process_item(item, args, client, index, site_config):
         youtube_data=youtube_data,
         s3_key=s3_key,
         site=args.site,
+        skip_upload=downloaded_from_s3,
     )
     end_time = time.time()
     processing_time = end_time - start_time
 
-    if file_to_process:
-        # Save the processing time estimate
+    if file_to_process and os.path.exists(file_to_process):
         file_size = os.path.getsize(file_to_process)
         save_estimate(item["type"], processing_time, file_size)
 
-    # Clean up temporary YouTube audio file if necessary
-    if is_youtube_video and file_to_process and os.path.exists(file_to_process):
+    if (
+        (downloaded_from_s3 or is_youtube_video)
+        and file_to_process
+        and os.path.exists(file_to_process)
+    ):
         os.remove(file_to_process)
-        logger.info(f"Deleted temporary YouTube audio file: {file_to_process}")
+        logger.info(f"Deleted temporary audio file: {file_to_process}")
 
     return item["id"], report
 

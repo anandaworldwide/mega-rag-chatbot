@@ -1,6 +1,7 @@
 import logging
 import os
 import random
+import tempfile
 import time
 from collections import defaultdict
 
@@ -12,6 +13,12 @@ logger = logging.getLogger(__name__)
 
 class S3UploadError(Exception):
     """Custom exception for S3 upload errors."""
+
+    pass
+
+
+class S3DownloadError(Exception):
+    """Custom exception for S3 download errors."""
 
     pass
 
@@ -120,6 +127,57 @@ def upload_to_s3(file_path, s3_key, max_attempts=5, overwrite=False):
                 error_message = f"Error uploading {file_path}: {str(e)}"
                 logger.error(error_message)
                 raise S3UploadError(error_message) from e
+
+
+def download_s3_object_to_file(s3_key, dest_path, max_attempts=5):
+    """Download an S3 object to dest_path."""
+    if not s3_key:
+        raise ValueError("s3_key must be provided")
+
+    s3_client = get_s3_client()
+    bucket_name = get_bucket_name()
+    if not bucket_name:
+        raise S3DownloadError("S3_BUCKET_NAME is not set")
+
+    parent = os.path.dirname(os.path.abspath(dest_path))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+    for attempt in range(max_attempts):
+        try:
+            s3_client.download_file(bucket_name, s3_key, dest_path)
+            logger.info(f"Downloaded s3://{bucket_name}/{s3_key} to {dest_path}")
+            return dest_path
+        except ClientError as e:
+            if (
+                e.response["Error"]["Code"] == "RequestTimeTooSkewed"
+                and attempt < max_attempts - 1
+            ):
+                wait_time = exponential_backoff(attempt)
+                logger.info(
+                    f"RequestTimeTooSkewed error. Retrying in {wait_time:.2f} seconds..."
+                )
+                time.sleep(wait_time)
+                continue
+            error_message = f"Error downloading {s3_key}: {str(e)}"
+            logger.error(error_message)
+            raise S3DownloadError(error_message) from e
+
+    raise S3DownloadError(f"Failed to download {s3_key} after {max_attempts} attempts")
+
+
+def download_s3_object_to_temp(s3_key):
+    """Download an S3 object to a temporary file. Caller must delete it."""
+    suffix = os.path.splitext(s3_key)[1] or ".mp3"
+    fd, temp_path = tempfile.mkstemp(prefix="ingest-audio-", suffix=suffix)
+    os.close(fd)
+    try:
+        download_s3_object_to_file(s3_key, temp_path)
+    except Exception:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        raise
+    return temp_path
 
 
 def check_unique_filenames(directory_path):  # noqa: C901

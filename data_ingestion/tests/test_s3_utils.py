@@ -418,3 +418,48 @@ class TestS3Utils:
 
         # Should return empty dict when no conflicts
         assert result == {}
+
+    def test_download_s3_object_to_file_success(self, tmp_path):
+        from data_ingestion.utils.s3_utils import download_s3_object_to_file
+
+        dest = tmp_path / "talk.mp3"
+        mock_s3_client = MagicMock()
+
+        with (
+            patch(
+                "data_ingestion.utils.s3_utils.get_s3_client",
+                return_value=mock_s3_client,
+            ),
+            patch(
+                "data_ingestion.utils.s3_utils.get_bucket_name",
+                return_value="ananda-chatbot",
+            ),
+        ):
+            download_s3_object_to_file("public/audio/bhaktan/talk.mp3", str(dest))
+
+        mock_s3_client.download_file.assert_called_once_with(
+            "ananda-chatbot", "public/audio/bhaktan/talk.mp3", str(dest)
+        )
+
+    def test_download_s3_object_to_temp_uses_key_suffix(self):
+        from data_ingestion.utils.s3_utils import download_s3_object_to_temp
+
+        with patch(
+            "data_ingestion.utils.s3_utils.download_s3_object_to_file"
+        ) as mock_download:
+            mock_download.side_effect = lambda key, dest, max_attempts=5: dest
+            temp_path = download_s3_object_to_temp(
+                "public/audio/bhaktan/kriyaban-only/talk.flac"
+            )
+
+        try:
+            assert temp_path.endswith(".flac")
+            mock_download.assert_called_once()
+            assert mock_download.call_args.args[0] == (
+                "public/audio/bhaktan/kriyaban-only/talk.flac"
+            )
+            assert mock_download.call_args.args[1] == temp_path
+            assert os.path.exists(temp_path)
+        finally:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)

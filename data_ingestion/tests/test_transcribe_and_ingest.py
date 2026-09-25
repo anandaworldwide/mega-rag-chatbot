@@ -357,3 +357,191 @@ def test_counting_logic_for_cached_transcriptions():
     assert final_report["fully_indexed"] == 1, "File was successfully indexed"
     assert final_report["errors"] == 0, "No errors should be reported"
     assert len(final_report["chunk_lengths"]) == 2, "Chunk data should be preserved"
+
+
+def test_resolve_local_audio_path_uses_existing_file(tmp_path):
+    from data_ingestion.audio_video.transcribe_and_ingest_media import (
+        resolve_local_audio_path,
+    )
+
+    local = tmp_path / "talk.mp3"
+    local.write_bytes(b"audio")
+
+    path, downloaded = resolve_local_audio_path(
+        str(local), "public/audio/bhaktan/talk.mp3"
+    )
+
+    assert path == str(local)
+    assert downloaded is False
+
+
+def test_resolve_local_audio_path_downloads_when_file_missing():
+    from data_ingestion.audio_video.transcribe_and_ingest_media import (
+        resolve_local_audio_path,
+    )
+
+    with patch(
+        "data_ingestion.audio_video.transcribe_and_ingest_media.download_s3_object_to_temp",
+        return_value="/tmp/ingest-audio-talk.mp3",
+    ) as mock_download:
+        path, downloaded = resolve_local_audio_path(
+            "/missing/talk.mp3", "public/audio/bhaktan/talk.mp3"
+        )
+
+    assert path == "/tmp/ingest-audio-talk.mp3"
+    assert downloaded is True
+    mock_download.assert_called_once_with("public/audio/bhaktan/talk.mp3")
+
+
+def test_resolve_local_audio_path_without_s3_key_returns_none():
+    from data_ingestion.audio_video.transcribe_and_ingest_media import (
+        resolve_local_audio_path,
+    )
+
+    path, downloaded = resolve_local_audio_path("/missing/talk.mp3", None)
+
+    assert path is None
+    assert downloaded is False
+
+
+def test_handle_s3_upload_skips_when_downloaded_from_s3():
+    from data_ingestion.audio_video.transcribe_and_ingest_media import _handle_s3_upload
+
+    with patch(
+        "data_ingestion.audio_video.transcribe_and_ingest_media.upload_to_s3"
+    ) as mock_upload:
+        report = _handle_s3_upload(
+            "/tmp/talk.mp3",
+            "talk.mp3",
+            "public/audio/bhaktan/talk.mp3",
+            dryrun=False,
+            is_youtube_video=False,
+            skip_upload=True,
+        )
+
+    mock_upload.assert_not_called()
+    assert report["errors"] == 0
+    assert report["skipped"] == 1
+
+
+def test_handle_s3_upload_skips_when_object_already_same_size():
+    from data_ingestion.audio_video.transcribe_and_ingest_media import _handle_s3_upload
+
+    with patch(
+        "data_ingestion.audio_video.transcribe_and_ingest_media.upload_to_s3",
+        return_value=False,
+    ) as mock_upload:
+        report = _handle_s3_upload(
+            "/tmp/talk.mp3",
+            "talk.mp3",
+            "public/audio/bhaktan/talk.mp3",
+            dryrun=False,
+            is_youtube_video=False,
+        )
+
+    mock_upload.assert_called_once()
+    assert report["errors"] == 0
+    assert report["skipped"] == 1
+
+
+def test_process_item_downloads_missing_audio_and_skips_reupload():
+    from data_ingestion.audio_video.transcribe_and_ingest_media import process_item
+
+    item = {
+        "id": "item-1",
+        "type": "audio_file",
+        "data": {
+            "file_path": "/missing/talk.mp3",
+            "s3_key": "public/audio/bhaktan/talk.mp3",
+            "author": "Swami Kriyananda",
+            "library": "The Bhaktan Files",
+            "required_access_level": 0,
+        },
+    }
+    args = Mock(force=False, dryrun=False, site="ananda")
+
+    with (
+        patch(
+            "data_ingestion.audio_video.transcribe_and_ingest_media.resolve_local_audio_path",
+            return_value=("/tmp/ingest-audio-talk.mp3", True),
+        ) as mock_resolve,
+        patch(
+            "data_ingestion.audio_video.transcribe_and_ingest_media.process_file",
+            return_value={"processed": 1, "errors": 0},
+        ) as mock_process_file,
+        patch("os.path.getsize", return_value=1024),
+        patch("os.path.exists", return_value=True),
+        patch("os.remove") as mock_remove,
+        patch("data_ingestion.audio_video.transcribe_and_ingest_media.save_estimate"),
+    ):
+        item_id, report = process_item(item, args, Mock(), Mock(), {})
+
+    assert item_id == "item-1"
+    assert report["processed"] == 1
+    mock_resolve.assert_called_once_with(
+        "/missing/talk.mp3", "public/audio/bhaktan/talk.mp3"
+    )
+    assert mock_process_file.call_args.kwargs["s3_key"] == (
+        "public/audio/bhaktan/talk.mp3"
+    )
+    assert mock_process_file.call_args.kwargs["skip_upload"] is True
+    mock_remove.assert_called_once_with("/tmp/ingest-audio-talk.mp3")
+
+
+def test_process_item_keeps_local_audio_and_does_not_skip_upload(tmp_path):
+    from data_ingestion.audio_video.transcribe_and_ingest_media import process_item
+
+    local = tmp_path / "talk.mp3"
+    local.write_bytes(b"audio")
+    item = {
+        "id": "item-2",
+        "type": "audio_file",
+        "data": {
+            "file_path": str(local),
+            "s3_key": "public/audio/bhaktan/talk.mp3",
+            "author": "Swami Kriyananda",
+            "library": "The Bhaktan Files",
+            "required_access_level": 0,
+        },
+    }
+    args = Mock(force=False, dryrun=False, site="ananda")
+
+    with (
+        patch(
+            "data_ingestion.audio_video.transcribe_and_ingest_media.process_file",
+            return_value={"processed": 1, "errors": 0},
+        ) as mock_process_file,
+        patch("data_ingestion.audio_video.transcribe_and_ingest_media.save_estimate"),
+    ):
+        process_item(item, args, Mock(), Mock(), {})
+
+    assert mock_process_file.call_args.kwargs["skip_upload"] is False
+    assert mock_process_file.call_args.args[0] == str(local)
+    assert local.exists()
+
+
+def test_process_item_reports_s3_download_error():
+    from data_ingestion.audio_video.transcribe_and_ingest_media import process_item
+    from data_ingestion.utils.s3_utils import S3DownloadError
+
+    item = {
+        "id": "item-3",
+        "type": "audio_file",
+        "data": {
+            "file_path": "/missing/talk.mp3",
+            "s3_key": "public/audio/bhaktan/talk.mp3",
+            "author": "Swami Kriyananda",
+            "library": "The Bhaktan Files",
+        },
+    }
+    args = Mock(force=False, dryrun=False, site="ananda")
+
+    with patch(
+        "data_ingestion.audio_video.transcribe_and_ingest_media.resolve_local_audio_path",
+        side_effect=S3DownloadError("NoSuchKey"),
+    ):
+        item_id, report = process_item(item, args, Mock(), Mock(), {})
+
+    assert item_id == "item-3"
+    assert report["errors"] == 1
+    assert report["error_details"] == ["NoSuchKey"]

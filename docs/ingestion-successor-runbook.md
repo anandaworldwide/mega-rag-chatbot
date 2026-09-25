@@ -128,7 +128,11 @@ runs without `--yes` refuse to queue. Path component `kriyaban-only` /
 `Kriyaban Only` proposes 200; `--required-access-level` is the default for
 everything else. `--ignore-path-access-levels` forces the flag on every file.
 `Ignore/` folders and non-audio files are not queued. The processor then prompts
-`Is it OK to proceed?` and shows `PINECONE_INGEST_INDEX_NAME`.
+`Is it OK to proceed?` and shows `PINECONE_INGEST_INDEX_NAME`. If the queued
+`file_path` is gone, it downloads `s3_key` to a temp file, transcribes, and
+deletes the temp. It does not re-upload when the object is already the original
+(same-size skip, or when the file was just downloaded from S3). Whisper cache is
+content-hash, so a previously transcribed talk is not billed again after download.
 
 ### YouTube
 
