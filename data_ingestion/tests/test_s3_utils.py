@@ -463,3 +463,30 @@ class TestS3Utils:
         finally:
             if os.path.exists(temp_path):
                 os.remove(temp_path)
+
+    def test_list_s3_object_keys_returns_objects_under_prefix(self):
+        from data_ingestion.utils.s3_utils import list_s3_object_keys
+
+        mock_s3_client = MagicMock()
+        mock_paginator = MagicMock()
+        mock_s3_client.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [
+            {
+                "Contents": [
+                    {"Key": "public/audio/treasures/open.mp3"},
+                    {"Key": "public/audio/treasures/kriyaban-only/"},
+                    {"Key": "public/audio/treasures/kriyaban-only/talk.mp3"},
+                ]
+            }
+        ]
+
+        keys = list_s3_object_keys(
+            "public/audio/treasures/",
+            s3_client=mock_s3_client,
+            bucket_name="ananda-chatbot",
+        )
+
+        assert keys == [
+            "public/audio/treasures/open.mp3",
+            "public/audio/treasures/kriyaban-only/talk.mp3",
+        ]

@@ -102,37 +102,57 @@ Do **not** publish `data_ingestion/media/transcriptions copy/` or PhotoWise list
 (`photo-youtube-playlists.xlsx`). New MP3s, YouTube URLs, and library dumps go to
 S3 with this CLI before or as they are processed; a laptop is not the archive.
 
-## Current processing commands (laptop)
+## Audio ingest
 
-These still read **local** files. Phase 1 does not change that. Put files on S3
-first, then copy what you need locally (or keep a working tree that already
-mirrors S3).
+One command pulls the Whisper cache, queues audio, transcribes, and pushes the
+cache back even if the run fails partway through.
 
-### Audio
+```bash
+# Already on S3. Start with a small prefix, not the whole library.
+caffeinate -i uv run python data_ingestion/bin/ingest_cli.py audio \
+  --site ananda \
+  --library treasures \
+  --author 'Swami Kriyananda' \
+  --s3-prefix public/audio/treasures/kriyaban-only/ \
+  --yes
+
+# New local files: publish, then queue that directory
+uv run python data_ingestion/bin/ingest_cli.py audio \
+  --site ananda \
+  --library bhaktan \
+  --author 'Swami Kriyananda' \
+  --local-dir /path/to/new-talks \
+  --yes
+```
+
+`--yes` accepts the kriyaban/public split and the Pinecone proceed prompt. It
+does not wipe a library. `caffeinate -i` only keeps the Mac from idle-sleep.
+
+`--s3-prefix` lists keys, skips `Ignore/` and non-audio, and queues the rest
+with an empty local path. The transcriber downloads each object, skips Whisper
+when the content hash is already cached, and does not re-upload. Listing does
+not know the hash until download, so a huge prefix still downloads files that
+are already transcribed.
+
+Path component `kriyaban-only` / `Kriyaban Only` proposes 200. The word "kriya"
+does not. `--required-access-level` is the default for everything else (default
+0). `--ignore-path-access-levels` forces that flag on every file.
+
+The engines underneath, if you need them directly:
 
 ```bash
 uv run python data_ingestion/audio_video/manage_queue.py \
   --site ananda \
-  --directory /path/to/bhaktan-talks \
+  --s3-prefix public/audio/treasures/kriyaban-only/ \
   --default-author 'Swami Kriyananda' \
-  --library bhaktan \
-  --required-access-level 0 \
+  --library treasures \
   --yes
 
-uv run python data_ingestion/audio_video/transcribe_and_ingest_media.py --site ananda
+uv run python data_ingestion/audio_video/transcribe_and_ingest_media.py \
+  --site ananda --yes
 ```
 
-`--library` for audio must be `bhaktan` or `treasures`. Queueing prints a
-kriyaban-only vs public split and waits unless `--yes` is set. Non-interactive
-runs without `--yes` refuse to queue. Path component `kriyaban-only` /
-`Kriyaban Only` proposes 200; `--required-access-level` is the default for
-everything else. `--ignore-path-access-levels` forces the flag on every file.
-`Ignore/` folders and non-audio files are not queued. The processor then prompts
-`Is it OK to proceed?` and shows `PINECONE_INGEST_INDEX_NAME`. If the queued
-`file_path` is gone, it downloads `s3_key` to a temp file, transcribes, and
-deletes the temp. It does not re-upload when the object is already the original
-(same-size skip, or when the file was just downloaded from S3). Whisper cache is
-content-hash, so a previously transcribed talk is not billed again after download.
+`--library` for audio must be `bhaktan` or `treasures`.
 
 ### YouTube
 

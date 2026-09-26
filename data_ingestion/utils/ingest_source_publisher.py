@@ -157,8 +157,14 @@ class IngestSourcePublisher:
         """Upload Whisper cache, YouTube map, and the local run ledger."""
         report = SyncReport()
         state_files = [
-            (Path(get_youtube_data_map_path(self.site)), youtube_data_map_s3_key(self.site)),
-            (Path(get_transcriptions_db_path(self.site)), transcriptions_db_s3_key(self.site)),
+            (
+                Path(get_youtube_data_map_path(self.site)),
+                youtube_data_map_s3_key(self.site),
+            ),
+            (
+                Path(get_transcriptions_db_path(self.site)),
+                transcriptions_db_s3_key(self.site),
+            ),
             (get_default_log_path(), RUNS_LEDGER_KEY),
         ]
         for local_path, s3_key in state_files:
@@ -180,7 +186,9 @@ class IngestSourcePublisher:
         cache_files = sorted(transcriptions_dir.rglob("*"))
         cache_files = [path for path in cache_files if path.is_file()]
         if not cache_files:
-            report.notes.append(f"No transcription cache files under {transcriptions_dir}")
+            report.notes.append(
+                f"No transcription cache files under {transcriptions_dir}"
+            )
         print(
             f"Comparing {len(cache_files)} transcription cache files...",
             file=sys.stderr,
@@ -203,7 +211,11 @@ class IngestSourcePublisher:
         """Upload a YouTube source list (xlsx, txt, or json)."""
         filename = dest_name or Path(local_path).name
         return SyncReport(
-            actions=[self._sync_one(Path(local_path), youtube_list_s3_key(filename), dry_run=dry_run)]
+            actions=[
+                self._sync_one(
+                    Path(local_path), youtube_list_s3_key(filename), dry_run=dry_run
+                )
+            ]
         )
 
     def upload_dump(
@@ -212,7 +224,9 @@ class IngestSourcePublisher:
         """Upload an Ananda Library SQL dump to the official dump prefix."""
         filename = dest_name or Path(local_path).name
         return SyncReport(
-            actions=[self._sync_one(Path(local_path), dump_s3_key(filename), dry_run=dry_run)]
+            actions=[
+                self._sync_one(Path(local_path), dump_s3_key(filename), dry_run=dry_run)
+            ]
         )
 
     def inventory(self, *, audio_dirs: dict[str, Path] | None = None) -> SyncReport:
@@ -279,6 +293,50 @@ class IngestSourcePublisher:
             return
         self.s3_client.upload_file(str(local_path), self.bucket, s3_key)
 
+    def pull_state(self) -> SyncReport:
+        """Download Whisper cache from S3 when the local copy is missing or a different size."""
+        report = SyncReport()
+        db_path = Path(get_transcriptions_db_path(self.site))
+        report.actions.append(
+            self._pull_one(db_path, transcriptions_db_s3_key(self.site))
+        )
+        prefix = f"{transcriptions_dir_s3_prefix(self.site)}/"
+        local_root = Path(get_transcriptions_dir(self.site))
+        for key in self._list_keys(prefix):
+            relative = key[len(prefix) :]
+            if not relative:
+                continue
+            report.actions.append(self._pull_one(local_root / relative, key))
+        return report
+
+    def _list_keys(self, prefix: str) -> list[str]:
+        keys = []
+        paginator = self.s3_client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self.bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                key = obj["Key"]
+                if not key.endswith("/"):
+                    keys.append(key)
+        return keys
+
+    def _pull_one(self, local_path: Path, s3_key: str) -> SyncAction:
+        try:
+            response = self.s3_client.head_object(Bucket=self.bucket, Key=s3_key)
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") in {"404", "NoSuchKey"}:
+                return SyncAction(
+                    local_path=local_path, s3_key=s3_key, status="missing_remote"
+                )
+            raise
+        remote_size = response.get("ContentLength")
+        if local_path.is_file() and local_path.stat().st_size == remote_size:
+            return SyncAction(
+                local_path=local_path, s3_key=s3_key, status="skip_same_size"
+            )
+        local_path.parent.mkdir(parents=True, exist_ok=True)
+        self.s3_client.download_file(self.bucket, s3_key, str(local_path))
+        return SyncAction(local_path=local_path, s3_key=s3_key, status="download")
+
 
 def load_library_config() -> dict[str, str]:
     """Load audio library keys from library_config.json."""
@@ -297,12 +355,16 @@ def is_youtube_source_list(path: Path) -> bool:
 def parse_library_path_mapping(raw_value: str) -> tuple[str, Path]:
     """Parse LIBRARY=PATH pairs used by the inventory CLI."""
     if "=" not in raw_value:
-        raise ValueError("Expected LIBRARY=PATH, for example bhaktan=/data/bhaktan-talks")
+        raise ValueError(
+            "Expected LIBRARY=PATH, for example bhaktan=/data/bhaktan-talks"
+        )
     library, path_text = raw_value.split("=", 1)
     library = library.strip()
     path_text = path_text.strip()
     if not library or not path_text:
-        raise ValueError("Expected LIBRARY=PATH, for example bhaktan=/data/bhaktan-talks")
+        raise ValueError(
+            "Expected LIBRARY=PATH, for example bhaktan=/data/bhaktan-talks"
+        )
     return library, Path(path_text).expanduser()
 
 

@@ -300,3 +300,38 @@ def test_parse_library_path_mapping():
     assert path == Path("/data/bhaktan-talks")
     with pytest.raises(ValueError, match="LIBRARY=PATH"):
         parse_library_path_mapping("bhaktan")
+
+
+def test_pull_state_downloads_missing_transcriptions_db(tmp_path):
+    db_path = tmp_path / "ananda-transcriptions.db"
+    cache_dir = tmp_path / "transcriptions"
+    s3_client = MagicMock()
+    s3_client.head_object.return_value = {"ContentLength": 12}
+    paginator = MagicMock()
+    s3_client.get_paginator.return_value = paginator
+    paginator.paginate.return_value = [{"Contents": []}]
+    publisher = IngestSourcePublisher(
+        site="ananda",
+        bucket="ananda-chatbot",
+        s3_client=s3_client,
+        repo_root=tmp_path,
+    )
+
+    with (
+        patch(
+            "data_ingestion.utils.ingest_source_publisher.get_transcriptions_db_path",
+            return_value=str(db_path),
+        ),
+        patch(
+            "data_ingestion.utils.ingest_source_publisher.get_transcriptions_dir",
+            return_value=str(cache_dir),
+        ),
+    ):
+        report = publisher.pull_state()
+
+    assert report.actions[0].status == "download"
+    s3_client.download_file.assert_called_once_with(
+        "ananda-chatbot",
+        "ingestion/state/ananda-transcriptions.db",
+        str(db_path),
+    )

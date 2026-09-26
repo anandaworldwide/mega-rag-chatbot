@@ -126,6 +126,7 @@ from data_ingestion.audio_video.youtube_utils import (  # noqa: E402
 from data_ingestion.utils.author_normalization import normalize_author  # noqa: E402
 from data_ingestion.utils.ingest_s3_layout import (  # noqa: E402
     AUDIO_EXTENSIONS,
+    AUDIO_PREFIX,
     KRIYABAN_REQUIRED_ACCESS_LEVEL,
     audio_s3_key,
     is_junk_publish_file,
@@ -134,6 +135,7 @@ from data_ingestion.utils.ingest_s3_layout import (  # noqa: E402
     relative_path_for_audio_queue,
 )
 from data_ingestion.utils.ingestion_run_logger import IngestionRunLogger  # noqa: E402
+from data_ingestion.utils.s3_utils import list_s3_object_keys  # noqa: E402
 from pyutil.env_utils import load_env  # noqa: E402
 from pyutil.logging_utils import configure_logging  # noqa: E402
 from pyutil.site_config_utils import load_site_config  # noqa: E402
@@ -260,6 +262,52 @@ def collect_audio_queue_plan(
     )
     return AudioQueuePlan(
         candidates=candidates,
+        skipped_ignore=skipped_ignore,
+        skipped_non_audio=skipped_non_audio,
+    )
+
+
+def collect_s3_audio_queue_plan(
+    object_keys,
+    library,
+    default_access_level=0,
+    *,
+    ignore_path_access_levels=False,
+):
+    """Classify S3 object keys under public/audio/{library}/ for queueing.
+
+    Ignore/ and non-audio keys stay on S3 and are not queued. Queued items
+    have an empty file_path so the transcriber downloads s3_key.
+    """
+    prefix = f"{AUDIO_PREFIX}/{library}/"
+    skipped_ignore = 0
+    skipped_non_audio = 0
+    candidates = []
+    for key in object_keys:
+        if not key.startswith(prefix) or key.endswith("/"):
+            continue
+        relative_path = key[len(prefix) :]
+        if path_has_ignore_component(relative_path):
+            skipped_ignore += 1
+            continue
+        if Path(relative_path).suffix.lower() not in AUDIO_EXTENSIONS:
+            if not is_junk_publish_file(Path(relative_path)):
+                skipped_non_audio += 1
+            continue
+        candidates.append(
+            AudioQueueCandidate(
+                file_path="",
+                relative_path=relative_path,
+                s3_key=key,
+                required_access_level=proposed_audio_access_level(
+                    relative_path,
+                    default_access_level,
+                    ignore_path_access_levels=ignore_path_access_levels,
+                ),
+            )
+        )
+    return AudioQueuePlan(
+        candidates=tuple(candidates),
         skipped_ignore=skipped_ignore,
         skipped_non_audio=skipped_non_audio,
     )
@@ -506,7 +554,7 @@ def process_directory(
     )
 
 
-def add_to_queue(args, queue, source=None):
+def add_to_queue(args, queue, source=None):  # noqa: C901
     """
     Central routing function for all queue additions. Handles YouTube videos, playlists, and audio files.
 
@@ -557,6 +605,15 @@ def add_to_queue(args, queue, source=None):
             else:
                 logger.error(f"Failed to add YouTube video to queue: {video['url']}")
 
+    elif isinstance(getattr(args, "s3_prefix", None), str):
+        added_items = queue_s3_audio(args, queue)
+        if added_items:
+            added_count += len(added_items)
+            logger.info(f"Added {len(added_items)} audio file(s) to queue from S3")
+        else:
+            logger.error(
+                f"Failed to add any audio files from S3 prefix: {args.s3_prefix}"
+            )
     elif args.audio or args.directory:
         input_path = args.audio or args.directory
         added_items = process_audio_input(
@@ -578,6 +635,35 @@ def add_to_queue(args, queue, source=None):
     else:
         logger.error("No valid input provided for adding to queue")
     return {"queued": added_count}
+
+
+def queue_s3_audio(args, queue):
+    """List an S3 prefix and queue eligible audio keys."""
+    if args.library not in LIBRARY_CONFIG:
+        raise ValueError(
+            f"Error: Library '{args.library}' not found in library_config.json. Please use a valid library name."
+        )
+    prefix = args.s3_prefix or f"{AUDIO_PREFIX}/{args.library}/"
+    if not prefix.endswith("/"):
+        prefix = f"{prefix}/"
+    object_keys = list_s3_object_keys(prefix)
+    plan = collect_s3_audio_queue_plan(
+        object_keys,
+        args.library,
+        args.required_access_level,
+        ignore_path_access_levels=args.ignore_path_access_levels,
+    )
+    site_config = load_site_config(args.site) if args.site else None
+    return _confirm_and_enqueue_audio_plan(
+        queue,
+        plan,
+        args.default_author,
+        args.library,
+        args.site,
+        args.yes,
+        None,
+        site_config,
+    )
 
 
 def truncate_path(file_path, num_dirs=3):
@@ -1029,6 +1115,14 @@ def _setup_argument_parser():
         help="Path to text file containing YouTube URLs (one per line)",
     )
     content.add_argument(
+        "--s3-prefix",
+        metavar="PREFIX",
+        help=(
+            "Queue audio already on S3 under this prefix "
+            "(for example public/audio/treasures/kriyaban-only/)"
+        ),
+    )
+    content.add_argument(
         "--playlists-file",
         "-P",
         metavar="PATH",
@@ -1165,7 +1259,15 @@ def _validate_arguments(args, parser):
                 args.reprocess_processing_items,
                 args.remove_completed,
                 args.urls_file,
-                any([args.video, args.playlist, args.audio, args.directory]),
+                any(
+                    [
+                        args.video,
+                        args.playlist,
+                        args.audio,
+                        args.directory,
+                        args.s3_prefix,
+                    ]
+                ),
             ]
         ]
     )
@@ -1194,7 +1296,15 @@ def _handle_content_validation(args, parser):
     # Content operations require default_author and library
     content_operations = [
         args.urls_file,
-        any([args.video, args.playlist, args.audio, args.directory]),
+        any(
+            [
+                args.video,
+                args.playlist,
+                args.audio,
+                args.directory,
+                args.s3_prefix,
+            ]
+        ),
     ]
 
     if any(content_operations) and (not args.default_author or not args.library):
@@ -1282,6 +1392,7 @@ def _get_queue_operation(args):
         ("playlist", args.playlist),
         ("audio", args.audio),
         ("directory", args.directory),
+        ("s3_prefix", args.s3_prefix),
         ("urls_file", args.urls_file),
         ("playlists_file", args.playlists_file),
         ("status", args.status),
@@ -1315,6 +1426,7 @@ def _build_queue_source_summary(args):
         "playlist": args.playlist,
         "audio": args.audio,
         "directory": args.directory,
+        "s3_prefix": args.s3_prefix,
         "urls_file": args.urls_file,
         "playlists_file": args.playlists_file,
         "item_id": args.remove or args.reprocess,
@@ -1354,7 +1466,7 @@ def _route_operation(args, queue):
         return _handle_reset_operations(args, queue)
 
     # Content addition operations
-    if any([args.video, args.playlist, args.audio, args.directory]):
+    if any([args.video, args.playlist, args.audio, args.directory, args.s3_prefix]):
         return _handle_content_addition_operations(args, queue)
 
     # No valid operation specified

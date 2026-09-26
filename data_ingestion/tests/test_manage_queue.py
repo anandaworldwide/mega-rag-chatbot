@@ -563,3 +563,26 @@ class TestAudioQueuePlan:
         )
 
         assert plan.candidates[0].required_access_level == 0
+
+    def test_collect_s3_audio_queue_plan_splits_access_and_skips_ignore(self):
+        from data_ingestion.audio_video.manage_queue import collect_s3_audio_queue_plan
+
+        plan = collect_s3_audio_queue_plan(
+            [
+                "public/audio/treasures/open.mp3",
+                "public/audio/treasures/README.md",
+                "public/audio/treasures/Ignore/dup.mp3",
+                "public/audio/treasures/kriyaban-only/secret.mp3",
+                "public/audio/bhaktan/other.mp3",
+            ],
+            "treasures",
+        )
+
+        by_name = {item.relative_path: item for item in plan.candidates}
+        assert set(by_name) == {"open.mp3", "kriyaban-only/secret.mp3"}
+        assert by_name["open.mp3"].required_access_level == 0
+        assert by_name["open.mp3"].file_path == ""
+        assert by_name["open.mp3"].s3_key == "public/audio/treasures/open.mp3"
+        assert by_name["kriyaban-only/secret.mp3"].required_access_level == 200
+        assert plan.skipped_ignore == 1
+        assert plan.skipped_non_audio == 1

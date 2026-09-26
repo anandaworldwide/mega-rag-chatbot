@@ -1109,6 +1109,12 @@ def _parse_arguments():
         help="Continue processing even if filename conflicts are found",
     )
     processing.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        help="Accept the Pinecone proceed prompt without waiting",
+    )
+    processing.add_argument(
         "--workers",
         type=_parse_positive_int,
         default=None,
@@ -1364,7 +1370,7 @@ def main():
     logger.info(
         f"Target pinecone collection: {os.environ.get('PINECONE_INGEST_INDEX_NAME')}"
     )
-    user_input = input("Is it OK to proceed? (Yes/no): ")
+    user_input = "yes" if args.yes else input("Is it OK to proceed? (Yes/no): ")
     if user_input.lower() in ["no", "n"]:
         logger.info("Operation aborted by the user.")
         outcome["aborted_by_user"] = True
