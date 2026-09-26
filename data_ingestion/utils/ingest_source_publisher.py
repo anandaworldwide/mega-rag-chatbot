@@ -369,13 +369,24 @@ def parse_library_path_mapping(raw_value: str) -> tuple[str, Path]:
 
 
 def format_sync_report(report: SyncReport, *, dry_run: bool) -> str:
-    """Render a human-readable publish report."""
+    """Render a human-readable publish report.
+
+    Same-size matches stay in the summary count. The line list shows files
+    that still need a decision: uploads, missing local copies, and other
+    mismatches.
+    """
     mode = "DRY-RUN (no uploads)" if dry_run else "APPLY (uploads enabled)"
     lines = [mode, ""]
+    notable = [action for action in report.actions if action.status != "skip_same_size"]
     if not report.actions:
         lines.append("No files compared.")
-    for action in report.actions:
-        lines.append(f"{action.status:16}  {action.s3_key}  <-  {action.local_path}")
+    elif not notable:
+        lines.append("Every compared file already matches S3.")
+    else:
+        for action in notable:
+            lines.append(
+                f"{action.status:16}  {action.s3_key}  <-  {action.local_path}"
+            )
     lines.append("")
     lines.append(
         f"upload={len(report.uploads)}  "

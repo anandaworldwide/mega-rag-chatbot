@@ -457,11 +457,39 @@ def _confirm_and_enqueue_audio_plan(
     if not confirm_audio_access_split(
         plan, yes=yes, interactive=interactive, site_config=site_config
     ):
-        return []
-    return _enqueue_audio_plan(queue, plan, default_author, library, site_id)
+        return [], True
+    return _enqueue_audio_plan(queue, plan, default_author, library, site_id), False
 
 
 def process_audio_input(
+    input_path,
+    queue,
+    default_author,
+    library,
+    site_id=None,
+    required_access_level=0,
+    yes=False,
+    ignore_path_access_levels=False,
+    interactive=None,
+    site_config=None,
+):
+    """Queue one local audio file or directory. Returns queued item ids."""
+    item_ids, _cancelled = _queue_local_audio(
+        input_path,
+        queue,
+        default_author,
+        library,
+        site_id,
+        required_access_level,
+        yes=yes,
+        ignore_path_access_levels=ignore_path_access_levels,
+        interactive=interactive,
+        site_config=site_config,
+    )
+    return item_ids
+
+
+def _queue_local_audio(
     input_path,
     queue,
     default_author,
@@ -504,7 +532,7 @@ def process_audio_input(
             and Path(input_path).suffix.lower() not in AUDIO_EXTENSIONS
         ):
             logger.error(f"Unsupported file type: {input_path}")
-            return []
+            return [], False
     elif os.path.isdir(input_path):
         plan = collect_audio_queue_plan(
             input_path,
@@ -514,7 +542,7 @@ def process_audio_input(
         )
     else:
         logger.error(f"Invalid input path: {input_path}")
-        return []
+        return [], False
 
     return _confirm_and_enqueue_audio_plan(
         queue,
@@ -606,8 +634,10 @@ def add_to_queue(args, queue, source=None):  # noqa: C901
                 logger.error(f"Failed to add YouTube video to queue: {video['url']}")
 
     elif isinstance(getattr(args, "s3_prefix", None), str):
-        added_items = queue_s3_audio(args, queue)
-        if added_items:
+        added_items, cancelled = queue_s3_audio(args, queue)
+        if cancelled:
+            logger.info("Audio not queued.")
+        elif added_items:
             added_count += len(added_items)
             logger.info(f"Added {len(added_items)} audio file(s) to queue from S3")
         else:
@@ -616,7 +646,7 @@ def add_to_queue(args, queue, source=None):  # noqa: C901
             )
     elif args.audio or args.directory:
         input_path = args.audio or args.directory
-        added_items = process_audio_input(
+        added_items, cancelled = _queue_local_audio(
             input_path,
             queue,
             args.default_author,
@@ -626,7 +656,9 @@ def add_to_queue(args, queue, source=None):  # noqa: C901
             yes=args.yes,
             ignore_path_access_levels=args.ignore_path_access_levels,
         )
-        if added_items:
+        if cancelled:
+            logger.info("Audio not queued.")
+        elif added_items:
             added_count += len(added_items)
             logger.info(f"Added {len(added_items)} audio file(s) to queue")
         else:

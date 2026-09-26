@@ -248,12 +248,21 @@ def test_format_sync_report_includes_counts_and_dry_run_banner():
         actions=[
             SyncAction(Path("a.mp3"), "public/audio/bhaktan/a.mp3", "upload"),
             SyncAction(Path("b.mp3"), "public/audio/bhaktan/b.mp3", "skip_same_size"),
+            SyncAction(
+                Path("c.xlsx"),
+                "site-config/data_ingestion/youtube/lists/c.xlsx",
+                "missing_local",
+            ),
         ]
     )
     text = format_sync_report(report, dry_run=True)
     assert "DRY-RUN" in text
     assert "upload=1" in text
     assert "skip_same_size=1" in text
+    assert "missing_local=1" in text
+    assert "public/audio/bhaktan/a.mp3" in text
+    assert "site-config/data_ingestion/youtube/lists/c.xlsx" in text
+    assert "public/audio/bhaktan/b.mp3" not in text
 
 
 @patch("data_ingestion.utils.ingest_source_publisher.get_default_log_path")

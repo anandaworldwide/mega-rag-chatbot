@@ -304,16 +304,15 @@ class TestManageQueue:
             == "https://youtube.com/playlist?list=test_playlist"
         )
 
-    @patch("data_ingestion.audio_video.manage_queue.process_audio_input")
-    def test_add_to_queue_audio_file(self, mock_process_audio_input):
+    @patch("data_ingestion.audio_video.manage_queue._queue_local_audio")
+    def test_add_to_queue_audio_file(self, mock_queue_local_audio):
         """Test that add_to_queue correctly delegates audio file processing."""
-        # Setup mock
-        mock_process_audio_input.return_value = ["audio_item_id"]
+        mock_queue_local_audio.return_value = (["audio_item_id"], False)
 
-        # Create mock args and queue
         mock_args = MagicMock()
         mock_args.video = None
         mock_args.playlist = None
+        mock_args.s3_prefix = None
         mock_args.audio = "/path/to/audio.mp3"
         mock_args.directory = None
         mock_args.default_author = "Test Author"
@@ -325,11 +324,10 @@ class TestManageQueue:
 
         mock_queue = MagicMock()
 
-        # Call function
-        add_to_queue(mock_args, mock_queue)
+        result = add_to_queue(mock_args, mock_queue)
 
-        # Verify audio processing delegation
-        mock_process_audio_input.assert_called_once_with(
+        assert result == {"queued": 1}
+        mock_queue_local_audio.assert_called_once_with(
             "/path/to/audio.mp3",
             mock_queue,
             "Test Author",
@@ -586,3 +584,24 @@ class TestAudioQueuePlan:
         assert by_name["kriyaban-only/secret.mp3"].required_access_level == 200
         assert plan.skipped_ignore == 1
         assert plan.skipped_non_audio == 1
+
+    def test_s3_prefix_decline_is_not_a_queue_failure(self, caplog):
+        from data_ingestion.audio_video.manage_queue import add_to_queue
+
+        mock_args = MagicMock()
+        mock_args.video = None
+        mock_args.playlist = None
+        mock_args.s3_prefix = "public/audio/treasures/kriyaban-only/"
+        mock_args.audio = None
+        mock_args.directory = None
+        caplog.set_level("INFO")
+
+        with patch(
+            "data_ingestion.audio_video.manage_queue.queue_s3_audio",
+            return_value=([], True),
+        ):
+            result = add_to_queue(mock_args, MagicMock())
+
+        assert result == {"queued": 0}
+        assert "Failed to add any audio files from S3 prefix" not in caplog.text
+        assert "Audio not queued." in caplog.text
