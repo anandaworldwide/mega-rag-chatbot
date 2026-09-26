@@ -259,6 +259,35 @@ def test_run_youtube_reports_playlist_failure_and_queues_the_rest(tmp_path, caps
     publisher.write_youtube_source_list.assert_not_called()
 
 
+def test_library_cli_parses_dump_and_replace(monkeypatch):
+    seen = {}
+
+    def handler(args):
+        seen["command"] = args.command
+        seen["dump"] = args.dump
+        seen["s3_key"] = args.s3_key
+        seen["replace_library"] = args.replace_library
+
+    monkeypatch.setattr("data_ingestion.bin.ingest_cli._run_library_command", handler)
+    main(
+        [
+            "library",
+            "--site",
+            "ananda",
+            "--dump",
+            "anandalib.sql.gz",
+            "--replace-library",
+        ]
+    )
+
+    assert seen == {
+        "command": "library",
+        "dump": "anandalib.sql.gz",
+        "s3_key": None,
+        "replace_library": True,
+    }
+
+
 def test_youtube_cli_parses_add_and_remove(monkeypatch):
     seen = {}
 

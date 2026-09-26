@@ -524,3 +524,29 @@ def test_pull_youtube_data_map_downloads_when_local_file_is_missing(tmp_path):
         "site-config/data_ingestion/media/ananda-youtube_data_map.json",
         str(map_path),
     )
+
+
+def test_latest_dump_key_picks_the_last_object_name(tmp_path):
+    s3_client = MagicMock()
+    paginator = MagicMock()
+    s3_client.get_paginator.return_value = paginator
+    paginator.paginate.return_value = [
+        {
+            "Contents": [
+                {"Key": "ingestion/dumps/anandalib/anandalib_wp_20260101.sql.gz"},
+                {"Key": "ingestion/dumps/anandalib/anandalib_wp_20260914.sql.gz"},
+                {"Key": "ingestion/dumps/anandalib/"},
+            ]
+        }
+    ]
+    publisher = IngestSourcePublisher(
+        site="ananda",
+        bucket="ananda-chatbot",
+        s3_client=s3_client,
+        repo_root=tmp_path,
+    )
+
+    assert (
+        publisher.latest_dump_key()
+        == "ingestion/dumps/anandalib/anandalib_wp_20260914.sql.gz"
+    )

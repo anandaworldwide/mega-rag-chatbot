@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Laptop orchestrator for Luca ingest. Audio and YouTube subcommands."""
+"""Laptop orchestrator for Luca ingest. Audio, YouTube, and library subcommands."""
 
 from __future__ import annotations
 
@@ -30,6 +30,9 @@ from data_ingestion.audio_video.youtube_source_list import (  # noqa: E402
 from data_ingestion.audio_video.youtube_utils import (  # noqa: E402
     get_playlist_videos,
     load_youtube_data_map,
+)
+from data_ingestion.sql_to_vector_db.library_ingest import (  # noqa: E402
+    run_library,
 )
 from data_ingestion.utils.author_normalization import (  # noqa: E402
     normalize_author as default_normalize_author,
@@ -293,6 +296,47 @@ def _run_youtube_command(args) -> None:
     run_youtube(args, publisher=publisher, repo_root=_project_root)
 
 
+def _library_parser(subparsers) -> None:
+    library = subparsers.add_parser(
+        "library",
+        help="Import an Ananda Library dump, ingest it, and refresh the title catalog",
+    )
+    library.add_argument("--site", required=True)
+    library.add_argument(
+        "--dump",
+        help="Local .sql or .sql.gz file. Uploaded to S3 before import.",
+    )
+    library.add_argument(
+        "--s3-key",
+        help="Dump object key. Default is the latest key under ingestion/dumps/anandalib/.",
+    )
+    library.add_argument(
+        "--replace-library",
+        action="store_true",
+        help=(
+            "Delete existing Ananda Library vectors before ingest. "
+            "Requires typing the library name. This is not implied by --yes."
+        ),
+    )
+    library.set_defaults(handler=_run_library_command)
+
+
+def _run_library_command(args) -> None:
+    load_env(args.site)
+    bucket = get_bucket_name()
+    if not bucket:
+        raise SystemExit("S3_BUCKET_NAME is not set")
+    publisher = IngestSourcePublisher(
+        site=args.site,
+        bucket=bucket,
+        s3_client=get_s3_client(),
+        repo_root=_project_root,
+    )
+    run_library(
+        args, publisher=publisher, repo_root=_project_root, runner=subprocess.run
+    )
+
+
 def _run_audio_command(args) -> None:
     load_env(args.site)
     bucket = get_bucket_name()
@@ -312,6 +356,7 @@ def main(argv: list[str] | None = None) -> None:
     subparsers = parser.add_subparsers(dest="command", required=True)
     _audio_parser(subparsers)
     _youtube_parser(subparsers)
+    _library_parser(subparsers)
     args = parser.parse_args(argv)
     args.handler(args)
 

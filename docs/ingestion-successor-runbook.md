@@ -19,8 +19,9 @@ Related:
 - AWS CLI working with `--profile ananda`
 - Repo-root `.env.ananda` (OpenAI, Pinecone ingest index, `S3_BUCKET_NAME`, MySQL
   `DB_*` if you will import a library dump)
-- Local MySQL only when running an Ananda Library dump (Phase 1: native MySQL as
-  today; Docker Compose comes later)
+- Docker and a `mysql` client when running an Ananda Library dump. Compose binds
+  `127.0.0.1:3307`, so that port must be free. Host port 3306 is left alone
+  because a local MySQL may already be using it.
 - Enough disk for one run’s downloads and Whisper splits
 - macOS overnight Whisper: wrap the ingest command with `caffeinate -i` so idle sleep does not pause Python. That is
   not the same as `--yes` (which only auto-accepts confirmation prompts)
@@ -203,30 +204,48 @@ for a one-off local file. It does not update the S3 JSON list.
 
 1. Download the latest WordPress dump from
    [anandalibrary.org DB backup](https://www.anandalibrary.org/wp-admin/tools.php?page=wp-db-backup).
-   WP-DB-Backup appends HTML after the gzip; Archive Utility will fail. Use
-   `gzip -cd dump.sql.gz > dump.sql` (ignore `trailing garbage`). Re-gzip that
-   SQL before publishing so S3 does not keep the HTML trailer.
-2. Publish the dump to S3 (`dump --apply`) so it is not laptop-only.
-3. Import and ingest:
+   WP-DB-Backup appends HTML after the gzip. The library command reads the gzip
+   member and ignores that trailer. Re-gzip a clean SQL file before you upload
+   if you do not want the HTML stored on S3.
+2. Import and ingest. A local `--dump` is uploaded to
+   `ingestion/dumps/anandalib/` first. With no `--dump` and no `--s3-key`, the
+   command uses the latest object under that prefix.
 
 ```bash
-uv run python data_ingestion/sql_to_vector_db/process_anandalib_dump.py \
-  -u "$DB_USER" /path/to/anandalib_wp_YYYYMMDD.sql
-
-uv run python data_ingestion/sql_to_vector_db/ingest_db_text.py \
+uv run python data_ingestion/bin/ingest_cli.py library \
   --site ananda \
-  --database anandalib_YYYY_MM_DD \
-  --library-name "Ananda Library" \
-  --keep-data \
-  --required-access-level-field luca_required_access_level
+  --dump /path/to/anandalib_wp_YYYYMMDD.sql.gz
+
+# Latest dump already on S3
+uv run python data_ingestion/bin/ingest_cli.py library --site ananda
 ```
 
-`--keep-data` is the incremental default. Omitting it **deletes all**
-`text||Ananda Library||*` vectors after a `y/N` prompt. `process_anandalib_dump.py`
-still prompts for a MySQL password. The dump import creates
-`anandalib_YYYY_MM_DD`; `ingest_db_text.py` connects to that live database.
+The command starts MySQL from
+`data_ingestion/sql_to_vector_db/docker-compose.yml`, imports with `DB_USER` /
+`DB_PASSWORD` and no password prompt, and always connects to `127.0.0.1:3307`.
+It does not use `DB_HOST` from `.env.ananda`. Ingest keeps existing
+`Ananda Library` vectors. PDFs still go to `public/pdf/Ananda Library/{hash}.pdf`.
+The title catalog is rebuilt and published at the end. A successful run removes
+the Compose volume. A failed ingest stops MySQL and leaves the volume.
 
-### After any ingest that adds titles
+Full replace deletes `text||Ananda Library||*` after you type `Ananda Library`.
+There is no `--yes` for that. The ingest script then asks `y/N` again before
+the delete.
+
+```bash
+uv run python data_ingestion/bin/ingest_cli.py library \
+  --site ananda \
+  --replace-library \
+  --dump /path/to/anandalib_wp_YYYYMMDD.sql.gz
+```
+
+The dated database name `anandalib_YYYY_MM_DD` exists only inside Compose. The
+S3 dump is what the next operator re-imports.
+
+### After audio or YouTube ingest that adds titles
+
+The library command already rebuilds and publishes the title catalog. Audio and
+YouTube do not:
 
 ```bash
 uv run python bin/analyze_title_prefix_catalog.py \
@@ -261,4 +280,4 @@ uv run python data_ingestion/bin/list_ingestion_runs.py --site ananda --status c
 | Pinecone | `PINECONE_INGEST_INDEX_NAME` / `PINECONE_INDEX_NAME` |
 | OpenAI | Whisper + embeddings |
 | Ananda Library WP admin | Dump download |
-| Local MySQL | Dump import only |
+| Docker + `mysql` client | Ananda Library dump import |

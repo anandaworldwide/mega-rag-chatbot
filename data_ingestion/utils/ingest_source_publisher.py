@@ -286,6 +286,22 @@ class IngestSourcePublisher:
             ]
         )
 
+    def latest_dump_key(self) -> str:
+        """Return the last Ananda Library dump key under the official prefix."""
+        keys = sorted(self._list_keys(f"{DUMPS_PREFIX}/"))
+        if not keys:
+            raise SystemExit(
+                f"No dump under s3://{self.bucket}/{DUMPS_PREFIX}/. Pass --dump."
+            )
+        return keys[-1]
+
+    def download_dump(self, s3_key: str, dest: Path) -> Path:
+        """Download one dump object to dest."""
+        dest = Path(dest)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        self.s3_client.download_file(self.bucket, s3_key, str(dest))
+        return dest
+
     def upload_dump(
         self, local_path: Path, *, dry_run: bool = True, dest_name: str | None = None
     ) -> SyncReport:

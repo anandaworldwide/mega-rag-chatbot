@@ -22,22 +22,34 @@ python pdf_to_vector_db.py \
 
 ### Database Text Ingestion
 
-Import structured text data from MySQL databases.
+Ananda Library dumps go through the library CLI (Compose MySQL, `--keep-data`,
+title catalog). See
+[docs/ingestion-successor-runbook.md](../docs/ingestion-successor-runbook.md).
 
 ```bash
-python sql_to_vector_db/ingest_db_text.py \
+uv run python data_ingestion/bin/ingest_cli.py library \
+  --site ananda \
+  --dump /path/to/anandalib_wp_YYYYMMDD.sql.gz
+```
+
+The engine underneath, if you already have a live database:
+
+```bash
+uv run python data_ingestion/sql_to_vector_db/ingest_db_text.py \
   --site ananda \
   --database anandalib_2025_03_06 \
-  --library "Ananda Library"
+  --library-name "Ananda Library" \
+  --keep-data
 ```
 
 If the source `wp_posts` table has a numeric column for content access, pass it explicitly:
 
 ```bash
-python sql_to_vector_db/ingest_db_text.py \
+uv run python data_ingestion/sql_to_vector_db/ingest_db_text.py \
   --site ananda \
   --database anandalib_2025_03_06 \
-  --library "Ananda Library" \
+  --library-name "Ananda Library" \
+  --keep-data \
   --required-access-level-field luca_required_access_level
 ```
 

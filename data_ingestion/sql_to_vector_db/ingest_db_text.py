@@ -1003,7 +1003,7 @@ def load_environment(site_name: str) -> dict:
     Load environment variables for a specific site and return a dictionary of database connection details.
     Uses the load_env utility to load environment variables with the site name as a prefix.
     """
-    load_env(f"{site_name.upper()}")
+    load_env(site_name)
     logger.info(f"Loaded environment for site: {site_name} using load_env utility.")
 
     required_vars = [

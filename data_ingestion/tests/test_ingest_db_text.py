@@ -757,7 +757,7 @@ class TestEnvironmentLoading(unittest.TestCase):
         """Test successful environment loading."""
         # Should not raise any exceptions
         ingest_db_text.load_environment("test-site")
-        mock_load_env.assert_called_once_with("TEST-SITE")
+        mock_load_env.assert_called_once_with("test-site")
 
     @patch("data_ingestion.sql_to_vector_db.ingest_db_text.load_env")
     @patch.dict(

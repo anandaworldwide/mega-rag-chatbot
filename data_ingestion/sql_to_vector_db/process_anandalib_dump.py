@@ -105,48 +105,104 @@ ALTER TABLE wp_posts
     return temp_filename
 
 
-def import_database(sql_file: str, db_name: str, username: str):
+def _write_mysql_defaults(username: str, password: str, host: str, port: int) -> str:
+    """Write a 0600 client defaults file so mysql does not prompt for a password."""
+    fd, path = tempfile.mkstemp(prefix="anandalib-mysql-", text=True)
+    os.chmod(path, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(
+            "\n".join(
+                [
+                    "[client]",
+                    f"user={username}",
+                    f"password={password}",
+                    f"host={host}",
+                    f"port={port}",
+                    "",
+                ]
+            )
+        )
+    return path
+
+
+def import_database(
+    sql_file: str,
+    db_name: str,
+    username: str,
+    *,
+    password: str | None = None,
+    host: str = "127.0.0.1",
+    port: int = 3306,
+    runner=subprocess.run,
+):
     """Imports the processed SQL file into a new MySQL database.
 
     Creates the target database if it doesn't exist and then uses the
     mysql command-line tool to import the data from the processed SQL file.
-    Requires the user to enter their MySQL password when prompted.
+    A password uses a defaults file. Without one, mysql prompts via ``-p``.
 
     Args:
         sql_file (str): Path to the processed SQL file.
         db_name (str): Name of the database to import into.
         username (str): MySQL username for authentication.
+        password: MySQL password. Omit to prompt interactively.
+        host: MySQL host.
+        port: MySQL port.
+        runner: Command runner, defaulting to subprocess.run.
 
     Raises:
-        SystemExit: If database creation or import fails.
+        RuntimeError: If database creation or import fails.
     """
-    # Create database using mysql command line
-    # Critical security fix - never use shell=True with variable interpolation
-    create_db_cmd = [
-        "mysql",
-        "-u",
-        username,
-        "-p",
-        "-e",
-        f"CREATE DATABASE IF NOT EXISTS `{db_name}`",
-    ]
+    defaults_path = None
+    if password is None:
+        mysql_base = ["mysql", "-u", username, "-h", host, "-P", str(port), "-p"]
+    else:
+        defaults_path = _write_mysql_defaults(username, password, host, port)
+        mysql_base = ["mysql", f"--defaults-extra-file={defaults_path}"]
     try:
-        # Run the command, checking for errors
-        subprocess.run(create_db_cmd, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Error creating database: {e}")
-        sys.exit(1)
+        runner(
+            [
+                *mysql_base,
+                "-e",
+                f"CREATE DATABASE IF NOT EXISTS `{db_name}`",
+            ],
+            check=True,
+        )
+        with open(sql_file, encoding="utf-8") as sql_handle:
+            runner([*mysql_base, db_name], stdin=sql_handle, check=True, text=True)
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(f"MySQL import failed: {exc}") from exc
+    finally:
+        if defaults_path is not None:
+            os.unlink(defaults_path)
 
-    # Import processed SQL file using mysql command line
-    # Critical security fix - use stdin instead of shell redirection
-    import_cmd = ["mysql", "-u", username, "-p", db_name]
+
+def import_ananda_library_dump(
+    sql_file: str,
+    username: str,
+    *,
+    password: str | None,
+    host: str = "127.0.0.1",
+    port: int = 3306,
+    db_name: str | None = None,
+    runner=subprocess.run,
+) -> str:
+    """Process a dump and import it. Returns the dated database name."""
+    database_name = db_name or get_new_db_name()
+    processed_file = process_sql_file(sql_file, database_name)
     try:
-        # Run the command with SQL file as stdin, checking for errors
-        with open(sql_file, encoding="utf-8") as f:
-            subprocess.run(import_cmd, stdin=f, check=True, text=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Error importing database: {e}")
-        sys.exit(1)
+        import_database(
+            processed_file,
+            database_name,
+            username,
+            password=password,
+            host=host,
+            port=port,
+            runner=runner,
+        )
+    finally:
+        os.unlink(processed_file)
+    return database_name
 
 
 def main():
@@ -176,24 +232,27 @@ def main():
         print(f"Error: File '{input_file}' not found")
         sys.exit(1)
 
-    # Generate new database name based on current date
-    new_db_name = get_new_db_name()
+    password = os.environ.get("DB_PASSWORD")
+    host = os.environ.get("DB_HOST", "127.0.0.1")
+    port = int(os.environ.get("DB_PORT", "3306"))
 
     print(f"Processing SQL dump file: {input_file}")
-    print(f"Creating new database: {new_db_name}")
     print(f"Using MySQL username: {username}")
+    print(f"Using MySQL host: {host}:{port}")
+    if password:
+        print("Using DB_PASSWORD from the environment.")
+    else:
+        print("DB_PASSWORD is not set. mysql will prompt.")
 
     try:
-        # Process the SQL file, creating a temporary processed file
-        processed_file = process_sql_file(input_file, new_db_name)
-
-        # Import the processed file into the new database
         print("Importing processed SQL file...")
-        import_database(processed_file, new_db_name, username)
-
-        # Clean up by removing the temporary processed SQL file
-        os.unlink(processed_file)
-
+        new_db_name = import_ananda_library_dump(
+            input_file,
+            username,
+            password=password,
+            host=host,
+            port=port,
+        )
         print(f"Successfully imported database as: {new_db_name}")
 
     except Exception as e:
