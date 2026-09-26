@@ -39,7 +39,7 @@ Bucket comes from `S3_BUCKET_NAME` in `.env.ananda` (usually `ananda-chatbot`).
 | What | S3 key / prefix |
 | --- | --- |
 | Audio originals | `public/audio/{library}/...` (`bhaktan`, `treasures`) |
-| YouTube source lists | `site-config/data_ingestion/youtube/lists/` |
+| YouTube source lists | `site-config/data_ingestion/youtube/lists/{site}-youtube-links.json` |
 | Processed YouTube map | `site-config/data_ingestion/media/{site}-youtube_data_map.json` |
 | Whisper SQLite index | `ingestion/state/{site}-transcriptions.db` |
 | Whisper JSON cache | `ingestion/state/transcriptions/{site}/` |
@@ -83,7 +83,7 @@ uv run python bin/publish_ingest_sources_to_s3.py --site ananda audio \
 # Whisper cache and youtube_data_map (run ledger syncs automatically on ingest)
 uv run python bin/publish_ingest_sources_to_s3.py --site ananda state --apply
 
-# YouTube spreadsheet or URL list
+# Legacy YouTube spreadsheet (the ingest CLI reads the JSON list, not this file)
 uv run python bin/publish_ingest_sources_to_s3.py --site ananda youtube-list \
   --file data_ingestion/audio_video/data/luca-youtube-links.xlsx --apply
 
@@ -104,8 +104,12 @@ S3 with this CLI before or as they are processed; a laptop is not the archive.
 
 ## Audio ingest
 
-One command pulls the Whisper cache, queues audio, transcribes, and pushes the
-cache back even if the run fails partway through.
+One command queues audio, transcribes, and pushes new Whisper cache files back
+even if the run fails partway through. A local Whisper cache younger than 24
+hours is reused, including on the way back up, so the command does not compare
+every cached file to S3. After 24 hours the local cache is deleted and
+downloaded again. An empty laptop still downloads the full cache.
+`state --apply` remains the full compare.
 
 ```bash
 # Already on S3. Start with a small prefix, not the whole library.
@@ -156,21 +160,44 @@ uv run python data_ingestion/audio_video/transcribe_and_ingest_media.py \
 
 ### YouTube
 
+The source list is JSON in S3 (`{site}-youtube-links.json`). The command pulls
+the processed map, queues videos that are not in it, transcribes, and pushes
+the map plus any new Whisper cache files back even if the run fails partway
+through. The Whisper cache on this laptop is reused for 24 hours, then deleted
+and downloaded again. YouTube
+audio is not stored on S3. Pinecone keeps the video URL. `--library` is the
+display name `Ananda Youtube`. Access level is the flag you pass when adding;
+there is no folder convention.
+
 ```bash
-uv run python data_ingestion/audio_video/manage_queue.py \
+# Add a playlist (or --add-url) and ingest only new videos
+caffeinate -i uv run python data_ingestion/bin/ingest_cli.py youtube \
   --site ananda \
-  --playlists-file data_ingestion/audio_video/data/luca-youtube-links.xlsx \
-  --default-author 'Swami Kriyananda' \
   --library 'Ananda Youtube' \
-  --required-access-level 0
+  --author 'Swami Kriyananda' \
+  --add-playlist 'https://www.youtube.com/playlist?list=PLAYLIST_ID' \
+  --required-access-level 0 \
+  --yes
 
-# or: --urls-file /path/to/urls.txt --video URL --playlist URL
+# Ingest whatever is already on the list
+caffeinate -i uv run python data_ingestion/bin/ingest_cli.py youtube \
+  --site ananda \
+  --yes
 
-uv run python data_ingestion/audio_video/transcribe_and_ingest_media.py --site ananda
+# Edit the list without queueing
+uv run python data_ingestion/bin/ingest_cli.py youtube \
+  --site ananda \
+  --remove-url 'https://youtu.be/VIDEO_ID' \
+  --no-ingest
 ```
 
-Processed IDs live in `data_ingestion/media/{site}-youtube_data_map.json`. YouTube
-audio is not stored on S3 (Pinecone keeps the video URL).
+`--yes` accepts the Pinecone proceed prompt. A playlist that yt-dlp cannot read
+stays on the list and is printed as failed; the other entries are still queued.
+Adding requires `--author` and `--library`. Those values are stored on the
+entry. Later ingest runs use the stored values.
+
+The older `manage_queue.py --playlists-file` / `--urls-file` path still works
+for a one-off local file. It does not update the S3 JSON list.
 
 ### Ananda Library dump
 

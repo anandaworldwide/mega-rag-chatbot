@@ -1,12 +1,16 @@
-"""Tests for the audio ingest orchestrator."""
+"""Tests for the audio and YouTube ingest orchestrator."""
 
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
+
 from data_ingestion.bin.ingest_cli import (
     build_queue_argv,
     build_transcribe_argv,
+    main,
     run_audio,
+    run_youtube,
 )
 
 
@@ -64,9 +68,229 @@ def test_run_audio_pushes_state_when_transcribe_fails(tmp_path):
     else:
         raise AssertionError("expected transcribe failure")
 
-    publisher.pull_state.assert_called_once()
+    publisher.pull_state.assert_called_once_with(reuse_local=True)
     publisher.sync_audio.assert_not_called()
-    publisher.sync_state.assert_called_once_with(dry_run=False)
+    publisher.sync_state.assert_called_once_with(
+        dry_run=False,
+        cache_snapshot=publisher.whisper_cache_snapshot.return_value,
+    )
     assert len(calls) == 2
     assert "manage_queue.py" in calls[0][1]
     assert build_transcribe_argv(_audio_args(), tmp_path) == calls[1]
+
+
+def _youtube_args(**overrides):
+    args = MagicMock()
+    args.site = "ananda"
+    args.author = "Swami Kriyananda"
+    args.library = "Ananda Youtube"
+    args.required_access_level = 0
+    args.add_url = ["https://youtu.be/newvideo111"]
+    args.add_playlist = []
+    args.remove_url = []
+    args.remove_playlist = []
+    args.list_name = None
+    args.no_ingest = False
+    args.yes = True
+    for key, value in overrides.items():
+        setattr(args, key, value)
+    return args
+
+
+def test_run_youtube_queues_new_video_and_syncs_when_transcribe_fails(tmp_path):
+    publisher = MagicMock()
+    publisher.read_youtube_source_list.return_value = {"entries": []}
+    queue = MagicMock()
+    queue.add_item.return_value = "item-1"
+    calls = []
+
+    def runner(command, check):
+        calls.append(command)
+        raise RuntimeError("whisper failed")
+
+    with pytest.raises(RuntimeError, match="whisper failed"):
+        run_youtube(
+            _youtube_args(),
+            publisher=publisher,
+            repo_root=tmp_path,
+            runner=runner,
+            expand_playlist=lambda url: [],
+            queue_factory=lambda: queue,
+            load_processed_ids=lambda site: set(),
+            normalize_author=lambda author, site: author,
+        )
+
+    publisher.pull_state.assert_called_once_with(reuse_local=True)
+    publisher.pull_youtube_data_map.assert_called_once()
+    filename, payload = publisher.write_youtube_source_list.call_args.args
+    assert filename == "ananda-youtube-links.json"
+    assert payload["entries"][0]["kind"] == "url"
+    assert payload["entries"][0]["library"] == "Ananda Youtube"
+    assert payload["entries"][0]["required_access_level"] == 0
+    queued = queue.add_item.call_args.args[1]
+    assert queued["youtube_id"] == "newvideo111"
+    assert "transcribe_and_ingest_media.py" in calls[0][1]
+    assert "--yes" in calls[0]
+    publisher.sync_state.assert_called_once_with(
+        dry_run=False,
+        cache_snapshot=publisher.whisper_cache_snapshot.return_value,
+    )
+
+
+def test_run_youtube_does_not_transcribe_videos_already_in_the_map(tmp_path):
+    publisher = MagicMock()
+    publisher.read_youtube_source_list.return_value = {
+        "entries": [
+            {
+                "kind": "url",
+                "url": "https://youtu.be/newvideo111",
+                "author": "Swami Kriyananda",
+                "library": "Ananda Youtube",
+                "required_access_level": 0,
+            }
+        ]
+    }
+    queue = MagicMock()
+    runner = MagicMock()
+
+    selection = run_youtube(
+        _youtube_args(add_url=[]),
+        publisher=publisher,
+        repo_root=tmp_path,
+        runner=runner,
+        expand_playlist=lambda url: [],
+        queue_factory=lambda: queue,
+        load_processed_ids=lambda site: {"newvideo111"},
+        normalize_author=lambda author, site: author,
+    )
+
+    assert selection.videos == []
+    assert selection.skipped_processed == 1
+    publisher.write_youtube_source_list.assert_not_called()
+    queue.add_item.assert_not_called()
+    runner.assert_not_called()
+    publisher.sync_state.assert_called_once_with(
+        dry_run=False,
+        cache_snapshot=publisher.whisper_cache_snapshot.return_value,
+    )
+
+
+def test_run_youtube_list_edit_without_ingest_skips_state_sync(tmp_path):
+    publisher = MagicMock()
+    publisher.read_youtube_source_list.return_value = {"entries": []}
+    runner = MagicMock()
+
+    result = run_youtube(
+        _youtube_args(no_ingest=True),
+        publisher=publisher,
+        repo_root=tmp_path,
+        runner=runner,
+        expand_playlist=lambda url: [],
+        queue_factory=MagicMock,
+        load_processed_ids=lambda site: set(),
+        normalize_author=lambda author, site: author,
+    )
+
+    assert result is None
+    publisher.pull_state.assert_not_called()
+    publisher.pull_youtube_data_map.assert_not_called()
+    publisher.write_youtube_source_list.assert_called_once()
+    runner.assert_not_called()
+    publisher.sync_state.assert_not_called()
+
+
+def test_run_youtube_add_requires_author_and_library(tmp_path):
+    publisher = MagicMock()
+
+    with pytest.raises(SystemExit, match="--author and --library"):
+        run_youtube(
+            _youtube_args(author=None, library=None),
+            publisher=publisher,
+            repo_root=tmp_path,
+            expand_playlist=lambda url: [],
+            queue_factory=MagicMock,
+            load_processed_ids=lambda site: set(),
+            normalize_author=lambda author, site: author,
+        )
+
+    publisher.read_youtube_source_list.assert_not_called()
+
+
+def test_run_youtube_reports_playlist_failure_and_queues_the_rest(tmp_path, capsys):
+    publisher = MagicMock()
+    publisher.read_youtube_source_list.return_value = {
+        "entries": [
+            {
+                "kind": "playlist",
+                "url": "https://www.youtube.com/playlist?list=PLbroken",
+                "author": "Swami Kriyananda",
+                "library": "Ananda Youtube",
+                "required_access_level": 0,
+            },
+            {
+                "kind": "url",
+                "url": "https://youtu.be/newvideo111",
+                "author": "Swami Kriyananda",
+                "library": "Ananda Youtube",
+                "required_access_level": 0,
+            },
+        ]
+    }
+    queue = MagicMock()
+    queue.add_item.return_value = "item-1"
+
+    def expand_playlist(url):
+        raise RuntimeError("yt-dlp unavailable")
+
+    selection = run_youtube(
+        _youtube_args(add_url=[]),
+        publisher=publisher,
+        repo_root=tmp_path,
+        runner=MagicMock(),
+        expand_playlist=expand_playlist,
+        queue_factory=lambda: queue,
+        load_processed_ids=lambda site: set(),
+        normalize_author=lambda author, site: author,
+    )
+
+    assert [video.youtube_id for video in selection.videos] == ["newvideo111"]
+    assert "PLbroken" in capsys.readouterr().out
+    assert queue.add_item.call_args.args[1]["youtube_id"] == "newvideo111"
+    publisher.write_youtube_source_list.assert_not_called()
+
+
+def test_youtube_cli_parses_add_and_remove(monkeypatch):
+    seen = {}
+
+    def handler(args):
+        seen["command"] = args.command
+        seen["add_playlist"] = args.add_playlist
+        seen["remove_url"] = args.remove_url
+        seen["required_access_level"] = args.required_access_level
+        seen["library"] = args.library
+
+    monkeypatch.setattr("data_ingestion.bin.ingest_cli._run_youtube_command", handler)
+    main(
+        [
+            "youtube",
+            "--site",
+            "ananda",
+            "--author",
+            "Swami Kriyananda",
+            "--library",
+            "Ananda Youtube",
+            "--add-playlist",
+            "https://www.youtube.com/playlist?list=PLabc",
+            "--remove-url",
+            "https://youtu.be/oldvideo111",
+            "--required-access-level",
+            "200",
+            "--yes",
+        ]
+    )
+
+    assert seen["command"] == "youtube"
+    assert seen["library"] == "Ananda Youtube"
+    assert seen["add_playlist"] == ["https://www.youtube.com/playlist?list=PLabc"]
+    assert seen["remove_url"] == ["https://youtu.be/oldvideo111"]
+    assert seen["required_access_level"] == 200

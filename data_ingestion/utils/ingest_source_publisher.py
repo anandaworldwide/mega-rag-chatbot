@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import json
+import shutil
 import sys
+import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -37,6 +40,7 @@ from data_ingestion.utils.ingestion_run_logger import get_default_log_path
 LIBRARY_CONFIG_PATH = (
     Path(__file__).resolve().parent.parent / "audio_video" / "library_config.json"
 )
+WHISPER_CACHE_MAX_AGE_SECONDS = 24 * 60 * 60
 
 
 @dataclass(frozen=True)
@@ -153,8 +157,17 @@ class IngestSourcePublisher:
         )
         return report
 
-    def sync_state(self, *, dry_run: bool = True) -> SyncReport:
-        """Upload Whisper cache, YouTube map, and the local run ledger."""
+    def sync_state(
+        self,
+        *,
+        dry_run: bool = True,
+        cache_snapshot: dict[str, int] | None = None,
+    ) -> SyncReport:
+        """Upload Whisper cache, YouTube map, and the local run ledger.
+
+        Pass cache_snapshot from whisper_cache_snapshot() to upload only cache
+        files added or resized since that snapshot. Omit it for a full compare.
+        """
         report = SyncReport()
         state_files = [
             (
@@ -172,8 +185,13 @@ class IngestSourcePublisher:
 
         transcriptions_dir = Path(get_transcriptions_dir(self.site))
         prefix = transcriptions_dir_s3_prefix(self.site)
-        print("Scanning local transcription cache...", file=sys.stderr, flush=True)
         if not transcriptions_dir.is_dir():
+            if cache_snapshot is None:
+                print(
+                    "Scanning local transcription cache...",
+                    file=sys.stderr,
+                    flush=True,
+                )
             report.actions.append(
                 SyncAction(
                     local_path=transcriptions_dir,
@@ -183,27 +201,77 @@ class IngestSourcePublisher:
             )
             return report
 
-        cache_files = sorted(transcriptions_dir.rglob("*"))
-        cache_files = [path for path in cache_files if path.is_file()]
-        if not cache_files:
-            report.notes.append(
-                f"No transcription cache files under {transcriptions_dir}"
-            )
-        print(
-            f"Comparing {len(cache_files)} transcription cache files...",
-            file=sys.stderr,
-            flush=True,
+        cache_files = sorted(
+            path for path in transcriptions_dir.rglob("*") if path.is_file()
         )
+        if cache_snapshot is not None:
+            cache_files = [
+                path
+                for path in cache_files
+                if cache_snapshot.get(path.relative_to(transcriptions_dir).as_posix())
+                != path.stat().st_size
+            ]
+            if not cache_files:
+                print("Whisper cache unchanged.", file=sys.stderr, flush=True)
+                return report
+            print(
+                f"Uploading {len(cache_files)} new or changed Whisper cache files...",
+                file=sys.stderr,
+                flush=True,
+            )
+        else:
+            print("Scanning local transcription cache...", file=sys.stderr, flush=True)
+            if not cache_files:
+                report.notes.append(
+                    f"No transcription cache files under {transcriptions_dir}"
+                )
+            print(
+                f"Comparing {len(cache_files)} transcription cache files...",
+                file=sys.stderr,
+                flush=True,
+            )
         for local_path in tqdm(
             cache_files,
             desc="Transcription cache",
             unit="file",
             file=sys.stderr,
+            disable=cache_snapshot is not None and not sys.stderr.isatty(),
         ):
             relative = local_path.relative_to(transcriptions_dir).as_posix()
             s3_key = f"{prefix}/{relative}"
             report.actions.append(self._sync_one(local_path, s3_key, dry_run=dry_run))
         return report
+
+    def read_youtube_source_list(self, filename: str) -> dict:
+        """Download a JSON source list. A missing object is an empty list."""
+        key = youtube_list_s3_key(filename)
+        try:
+            response = self.s3_client.get_object(Bucket=self.bucket, Key=key)
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") in {"404", "NoSuchKey"}:
+                return {"entries": []}
+            raise
+        payload = json.loads(response["Body"].read().decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError(f"YouTube source list {key} must be a JSON object")
+        return payload
+
+    def write_youtube_source_list(self, filename: str, payload: dict) -> str:
+        """Upload a JSON source list and return its S3 key."""
+        key = youtube_list_s3_key(filename)
+        body = json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8")
+        self.s3_client.put_object(
+            Bucket=self.bucket,
+            Key=key,
+            Body=body,
+            ContentType="application/json",
+        )
+        return key
+
+    def pull_youtube_data_map(self) -> SyncAction:
+        """Download the processed YouTube map when the local copy differs."""
+        local_path = Path(get_youtube_data_map_path(self.site))
+        return self._pull_one(local_path, youtube_data_map_s3_key(self.site))
 
     def upload_youtube_list(
         self, local_path: Path, *, dry_run: bool = True, dest_name: str | None = None
@@ -293,21 +361,111 @@ class IngestSourcePublisher:
             return
         self.s3_client.upload_file(str(local_path), self.bucket, s3_key)
 
-    def pull_state(self) -> SyncReport:
-        """Download Whisper cache from S3 when the local copy is missing or a different size."""
+    def whisper_cache_snapshot(self) -> dict[str, int]:
+        """Return relative cache path to size for files already on this laptop."""
+        cache_dir = Path(get_transcriptions_dir(self.site))
+        if not cache_dir.is_dir():
+            return {}
+        return {
+            path.relative_to(cache_dir).as_posix(): path.stat().st_size
+            for path in cache_dir.rglob("*")
+            if path.is_file()
+        }
+
+    def pull_state(
+        self, *, reuse_local: bool = False, now: float | None = None
+    ) -> SyncReport:
+        """Download Whisper cache from S3 when the local copy is missing or a different size.
+
+        reuse_local keeps a local cache that is less than 24 hours old and skips
+        the S3 listing. An older cache is deleted and downloaded again. An empty
+        laptop still downloads the full cache.
+        """
         report = SyncReport()
+        current = time.time() if now is None else now
+        if reuse_local and self._reuse_fresh_whisper_cache(report, current):
+            return report
+        print("Checking Whisper transcription index...", file=sys.stderr, flush=True)
         db_path = Path(get_transcriptions_db_path(self.site))
         report.actions.append(
             self._pull_one(db_path, transcriptions_db_s3_key(self.site))
         )
         prefix = f"{transcriptions_dir_s3_prefix(self.site)}/"
         local_root = Path(get_transcriptions_dir(self.site))
-        for key in self._list_keys(prefix):
+        with _StderrSpinner("Listing Whisper cache on S3"):
+            keys = [key for key in self._list_keys(prefix) if key[len(prefix) :]]
+        print(
+            f"Comparing {len(keys)} Whisper cache files on S3...",
+            file=sys.stderr,
+            flush=True,
+        )
+        for key in tqdm(
+            keys,
+            desc="Whisper cache",
+            unit="file",
+            file=sys.stderr,
+            disable=not sys.stderr.isatty(),
+        ):
             relative = key[len(prefix) :]
-            if not relative:
-                continue
             report.actions.append(self._pull_one(local_root / relative, key))
+        if reuse_local:
+            self._write_whisper_cache_freshness(current)
         return report
+
+    def _reuse_fresh_whisper_cache(self, report: SyncReport, now: float) -> bool:
+        """Return True when the local cache is still inside the 24-hour window."""
+        stamped = self._read_whisper_cache_freshness()
+        if not self._local_whisper_cache_present():
+            return False
+        if stamped is None or now - stamped < WHISPER_CACHE_MAX_AGE_SECONDS:
+            if stamped is None:
+                self._write_whisper_cache_freshness(now)
+            count = len(self.whisper_cache_snapshot())
+            print(
+                f"Using local Whisper cache ({count} files, fresh for 24 hours).",
+                file=sys.stderr,
+                flush=True,
+            )
+            report.notes.append(f"reused local whisper cache ({count} files)")
+            return True
+        print(
+            "Whisper cache is older than 24 hours. Refreshing from S3...",
+            file=sys.stderr,
+            flush=True,
+        )
+        self._ditch_local_whisper_cache()
+        report.notes.append("ditched stale whisper cache")
+        return False
+
+    def _local_whisper_cache_present(self) -> bool:
+        db_path = Path(get_transcriptions_db_path(self.site))
+        return db_path.is_file() and bool(self.whisper_cache_snapshot())
+
+    def _freshness_path(self) -> Path:
+        cache_dir = Path(get_transcriptions_dir(self.site))
+        return cache_dir.parent / f".{self.site}-whisper-cache-fresh-at"
+
+    def _read_whisper_cache_freshness(self) -> float | None:
+        path = self._freshness_path()
+        if not path.is_file():
+            return None
+        try:
+            return float(path.read_text().strip())
+        except ValueError:
+            return None
+
+    def _write_whisper_cache_freshness(self, now: float) -> None:
+        path = self._freshness_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"{now}\n")
+
+    def _ditch_local_whisper_cache(self) -> None:
+        cache_dir = Path(get_transcriptions_dir(self.site))
+        if cache_dir.is_dir():
+            shutil.rmtree(cache_dir)
+        db_path = Path(get_transcriptions_db_path(self.site))
+        if db_path.is_file():
+            db_path.unlink()
 
     def _list_keys(self, prefix: str) -> list[str]:
         keys = []
@@ -336,6 +494,46 @@ class IngestSourcePublisher:
         local_path.parent.mkdir(parents=True, exist_ok=True)
         self.s3_client.download_file(self.bucket, s3_key, str(local_path))
         return SyncAction(local_path=local_path, s3_key=s3_key, status="download")
+
+
+class _StderrSpinner:
+    """Show a spinning status line on a terminal while a step has no count yet."""
+
+    _FRAMES = "|/-\\"
+
+    def __init__(self, message: str):
+        self.message = message
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._tty = sys.stderr.isatty()
+
+    def __enter__(self):
+        if not self._tty:
+            print(self.message, file=sys.stderr, flush=True)
+            return self
+        self._thread = threading.Thread(target=self._spin, daemon=True)
+        self._thread.start()
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=1)
+        if self._tty:
+            print(file=sys.stderr, flush=True)
+        return False
+
+    def _spin(self) -> None:
+        index = 0
+        while not self._stop.wait(0.1):
+            frame = self._FRAMES[index % len(self._FRAMES)]
+            print(
+                f"\r{frame} {self.message}",
+                end="",
+                file=sys.stderr,
+                flush=True,
+            )
+            index += 1
 
 
 def load_library_config() -> dict[str, str]:

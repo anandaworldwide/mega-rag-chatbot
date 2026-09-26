@@ -264,5 +264,5 @@ def get_playlist_videos(playlist_url: str, output_path: str = "."):
             return videos
 
     except Exception as e:
-        print(f"An error occurred while fetching playlist videos: {e}")
-        return []
+        logger.error(f"An error occurred while fetching playlist videos: {e}")
+        raise

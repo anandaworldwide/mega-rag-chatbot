@@ -613,7 +613,11 @@ def add_to_queue(args, queue, source=None):  # noqa: C901
 
     elif args.playlist:
         # Bulk process all videos in playlist while preserving order
-        videos = get_playlist_videos(args.playlist)
+        try:
+            videos = get_playlist_videos(args.playlist)
+        except Exception:
+            logger.error(f"Failed to fetch playlist: {args.playlist}")
+            return {"queued": added_count}
         for video in videos:
             logger.debug(f"Video to add: {video}")
             item_id = queue.add_item(
@@ -902,7 +906,11 @@ def _process_playlist_videos(playlist_url, title, all_videos, video_sources):
     Returns:
         int: Number of videos processed
     """
-    videos = get_playlist_videos(playlist_url)
+    try:
+        videos = get_playlist_videos(playlist_url)
+    except Exception:
+        logger.error(f"Failed to fetch playlist: {playlist_url}")
+        return 0
 
     # Track video sources for duplicate reporting
     for video in videos:
@@ -1105,6 +1113,29 @@ def process_urls_file(args, queue):
     logger.info(f"Processed {processed} videos")
     logger.info(f"Skipped {skipped} already processed videos")
     return {"queued": processed, "skipped": skipped, "errors": errors}
+
+
+def enqueue_youtube_videos(queue, videos) -> int:
+    """Queue YouTube videos that the caller already decided are new."""
+    added = 0
+    for video in videos:
+        item_id = queue.add_item(
+            "youtube_video",
+            {
+                "url": video.url,
+                "youtube_id": video.youtube_id,
+                "author": video.author,
+                "library": video.library,
+                "source": video.source,
+                "required_access_level": video.required_access_level,
+            },
+        )
+        if item_id:
+            added += 1
+            logger.info(f"Added YouTube video to queue: {item_id}")
+        else:
+            logger.error(f"Failed to add YouTube video to queue: {video.url}")
+    return added
 
 
 def _setup_argument_parser():

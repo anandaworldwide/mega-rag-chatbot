@@ -13,11 +13,13 @@ import pytest
 
 from data_ingestion.audio_video.manage_queue import (
     add_to_queue,
+    enqueue_youtube_videos,
     get_unique_files,
     initialize_environment,
     process_audio_input,
     truncate_path,
 )
+from data_ingestion.audio_video.youtube_source_list import YoutubeVideoCandidate
 
 
 class TestManageQueue:
@@ -605,3 +607,31 @@ class TestAudioQueuePlan:
         assert result == {"queued": 0}
         assert "Failed to add any audio files from S3 prefix" not in caplog.text
         assert "Audio not queued." in caplog.text
+
+
+def test_enqueue_youtube_videos_stores_access_level_and_source():
+    queue = MagicMock()
+    queue.add_item.return_value = "item-1"
+    video = YoutubeVideoCandidate(
+        url="https://youtu.be/newvideo111",
+        youtube_id="newvideo111",
+        author="Swami Kriyananda",
+        library="Ananda Youtube",
+        required_access_level=0,
+        source="https://www.youtube.com/playlist?list=PLabc",
+    )
+
+    added = enqueue_youtube_videos(queue, [video])
+
+    assert added == 1
+    queue.add_item.assert_called_once_with(
+        "youtube_video",
+        {
+            "url": "https://youtu.be/newvideo111",
+            "youtube_id": "newvideo111",
+            "author": "Swami Kriyananda",
+            "library": "Ananda Youtube",
+            "source": "https://www.youtube.com/playlist?list=PLabc",
+            "required_access_level": 0,
+        },
+    )

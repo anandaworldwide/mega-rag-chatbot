@@ -151,6 +151,7 @@ performance alarms and misdirect optimization efforts.
 ### Key Scripts
 
 - `bin/publish_ingest_sources_to_s3.py` - Publish audio, YouTube lists, dumps, and Whisper state to S3
+- `data_ingestion/bin/ingest_cli.py` - Laptop orchestrator for audio and YouTube (`youtube` reads the S3 JSON list and ingests new videos only)
 - `pdf_to_vector_db.py` - PDF document ingestion
 - `transcribe_and_ingest_media.py` - Audio/video processing
 - `website_crawler.py` - Web content crawling

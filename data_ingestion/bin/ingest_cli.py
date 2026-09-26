@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Laptop orchestrator for Luca ingest. v1 implements the audio subcommand."""
+"""Laptop orchestrator for Luca ingest. Audio and YouTube subcommands."""
 
 from __future__ import annotations
 
@@ -13,6 +13,27 @@ _project_root = _script_dir.parents[1]
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
+from data_ingestion.audio_video.IngestQueue import IngestQueue  # noqa: E402
+from data_ingestion.audio_video.manage_queue import (  # noqa: E402
+    enqueue_youtube_videos,
+)
+from data_ingestion.audio_video.youtube_source_list import (  # noqa: E402
+    YoutubeSourceEntry,
+    YoutubeVideoCandidate,
+    add_source_entry,
+    default_youtube_list_name,
+    parse_source_list,
+    plan_new_youtube_videos,
+    remove_source_entry,
+    serialize_source_list,
+)
+from data_ingestion.audio_video.youtube_utils import (  # noqa: E402
+    get_playlist_videos,
+    load_youtube_data_map,
+)
+from data_ingestion.utils.author_normalization import (  # noqa: E402
+    normalize_author as default_normalize_author,
+)
 from data_ingestion.utils.ingest_s3_layout import AUDIO_PREFIX  # noqa: E402
 from data_ingestion.utils.ingest_source_publisher import (  # noqa: E402
     IngestSourcePublisher,
@@ -60,10 +81,20 @@ def build_transcribe_argv(args, repo_root: Path) -> list[str]:
     return command
 
 
-def run_audio(args, *, publisher, repo_root: Path, runner=subprocess.run) -> None:
-    """Pull Whisper state, queue, transcribe, then push Whisper state."""
-    publisher.pull_state()
+def _run_with_local_whisper_cache(publisher, work) -> None:
+    """Reuse the local Whisper cache and upload only files this run changes."""
+    publisher.pull_state(reuse_local=True)
+    cache_snapshot = publisher.whisper_cache_snapshot()
     try:
+        work()
+    finally:
+        publisher.sync_state(dry_run=False, cache_snapshot=cache_snapshot)
+
+
+def run_audio(args, *, publisher, repo_root: Path, runner=subprocess.run) -> None:
+    """Queue and transcribe, reusing the local Whisper cache."""
+
+    def work() -> None:
         if args.local_dir:
             publisher.sync_audio(
                 Path(args.local_dir),
@@ -73,8 +104,133 @@ def run_audio(args, *, publisher, repo_root: Path, runner=subprocess.run) -> Non
             )
         runner(build_queue_argv(args, repo_root), check=True)
         runner(build_transcribe_argv(args, repo_root), check=True)
-    finally:
-        publisher.sync_state(dry_run=False)
+
+    _run_with_local_whisper_cache(publisher, work)
+
+
+def _youtube_list_filename(args) -> str:
+    return args.list_name or default_youtube_list_name(args.site)
+
+
+def _require_youtube_author(args) -> None:
+    if (args.add_url or args.add_playlist) and (not args.author or not args.library):
+        raise SystemExit(
+            "Adding a YouTube URL or playlist requires --author and --library"
+        )
+
+
+def _edited_youtube_entries(entries, args):
+    updated = list(entries)
+    changed = False
+    additions = [("url", args.add_url or []), ("playlist", args.add_playlist or [])]
+    for kind, urls in additions:
+        for url in urls:
+            updated, added = add_source_entry(
+                updated,
+                YoutubeSourceEntry(
+                    kind=kind,
+                    url=url.strip(),
+                    author=args.author,
+                    library=args.library,
+                    required_access_level=args.required_access_level,
+                ),
+            )
+            changed = changed or added
+    removals = [
+        ("url", args.remove_url or []),
+        ("playlist", args.remove_playlist or []),
+    ]
+    for kind, urls in removals:
+        for url in urls:
+            updated, removed = remove_source_entry(updated, kind=kind, url=url.strip())
+            changed = changed or removed
+    return updated, changed
+
+
+def update_youtube_source_list(args, publisher):
+    """Read the S3 JSON list, apply add/remove, and write it back when it changed."""
+    filename = _youtube_list_filename(args)
+    entries = parse_source_list(publisher.read_youtube_source_list(filename))
+    entries, changed = _edited_youtube_entries(entries, args)
+    if changed:
+        publisher.write_youtube_source_list(filename, serialize_source_list(entries))
+    return entries
+
+
+def _print_youtube_selection(selection) -> None:
+    if selection.failed:
+        print("YouTube items left on the list after a failure:")
+        for item in selection.failed:
+            print(f"  {item}")
+    print(
+        "YouTube: "
+        f"queued={len(selection.videos)} "
+        f"skipped_processed={selection.skipped_processed} "
+        f"failed={len(selection.failed)}"
+    )
+
+
+def _normalize_youtube_candidates(videos, site: str, normalize_author):
+    return [
+        YoutubeVideoCandidate(
+            url=video.url,
+            youtube_id=video.youtube_id,
+            author=normalize_author(video.author, site),
+            library=video.library,
+            required_access_level=video.required_access_level,
+            source=video.source,
+        )
+        for video in videos
+    ]
+
+
+def _load_processed_youtube_ids(site: str) -> set[str]:
+    return set(load_youtube_data_map(site))
+
+
+def _expand_youtube_playlist(url: str):
+    return get_playlist_videos(url)
+
+
+def run_youtube(
+    args,
+    *,
+    publisher,
+    repo_root: Path,
+    runner=subprocess.run,
+    expand_playlist=_expand_youtube_playlist,
+    queue_factory=IngestQueue,
+    load_processed_ids=_load_processed_youtube_ids,
+    normalize_author=default_normalize_author,
+):
+    """Pull the processed map, edit the S3 list, queue new videos, push state."""
+    _require_youtube_author(args)
+    if args.no_ingest:
+        update_youtube_source_list(args, publisher)
+        return None
+
+    selection = None
+
+    def work() -> None:
+        nonlocal selection
+        print("Pulling YouTube map...", file=sys.stderr, flush=True)
+        publisher.pull_youtube_data_map()
+        entries = update_youtube_source_list(args, publisher)
+        selection = plan_new_youtube_videos(
+            entries, set(load_processed_ids(args.site)), expand_playlist
+        )
+        _print_youtube_selection(selection)
+        if selection.videos:
+            enqueue_youtube_videos(
+                queue_factory(),
+                _normalize_youtube_candidates(
+                    selection.videos, args.site, normalize_author
+                ),
+            )
+            runner(build_transcribe_argv(args, repo_root), check=True)
+
+    _run_with_local_whisper_cache(publisher, work)
+    return selection
 
 
 def _audio_parser(subparsers) -> None:
@@ -91,6 +247,50 @@ def _audio_parser(subparsers) -> None:
     audio.add_argument("--yes", action="store_true")
     audio.add_argument("--ignore-path-access-levels", action="store_true")
     audio.set_defaults(handler=_run_audio_command)
+
+
+def _youtube_parser(subparsers) -> None:
+    youtube = subparsers.add_parser(
+        "youtube",
+        help="Edit the S3 YouTube list and ingest videos that are not processed yet",
+    )
+    youtube.add_argument("--site", required=True)
+    youtube.add_argument("--author")
+    youtube.add_argument("--library", help="Display name, for example 'Ananda Youtube'")
+    youtube.add_argument("--required-access-level", type=int, default=0)
+    youtube.add_argument("--add-url", action="append")
+    youtube.add_argument("--add-playlist", action="append")
+    youtube.add_argument("--remove-url", action="append")
+    youtube.add_argument("--remove-playlist", action="append")
+    youtube.add_argument(
+        "--list-name",
+        help="JSON filename under the YouTube lists prefix (default: {site}-youtube-links.json)",
+    )
+    youtube.add_argument(
+        "--no-ingest",
+        action="store_true",
+        help="Update the S3 list and do not queue or transcribe",
+    )
+    youtube.add_argument(
+        "--yes",
+        action="store_true",
+        help="Accept the Pinecone proceed prompt",
+    )
+    youtube.set_defaults(handler=_run_youtube_command)
+
+
+def _run_youtube_command(args) -> None:
+    load_env(args.site)
+    bucket = get_bucket_name()
+    if not bucket:
+        raise SystemExit("S3_BUCKET_NAME is not set")
+    publisher = IngestSourcePublisher(
+        site=args.site,
+        bucket=bucket,
+        s3_client=get_s3_client(),
+        repo_root=_project_root,
+    )
+    run_youtube(args, publisher=publisher, repo_root=_project_root)
 
 
 def _run_audio_command(args) -> None:
@@ -111,6 +311,7 @@ def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Luca ingest orchestrator")
     subparsers = parser.add_subparsers(dest="command", required=True)
     _audio_parser(subparsers)
+    _youtube_parser(subparsers)
     args = parser.parse_args(argv)
     args.handler(args)
 

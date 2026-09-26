@@ -1,5 +1,7 @@
 """Tests for publishing ingest originals and state to S3."""
 
+import json
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -311,6 +313,120 @@ def test_parse_library_path_mapping():
         parse_library_path_mapping("bhaktan")
 
 
+def test_spinner_prints_status_when_stderr_is_not_a_terminal(capsys):
+    from data_ingestion.utils.ingest_source_publisher import _StderrSpinner
+
+    with _StderrSpinner("Listing Whisper cache on S3"):
+        pass
+
+    assert "Listing Whisper cache on S3" in capsys.readouterr().err
+
+
+def test_pull_state_reuses_local_cache_without_listing_s3(tmp_path):
+    db_path = tmp_path / "ananda-transcriptions.db"
+    db_path.write_bytes(b"db")
+    cache_dir = tmp_path / "transcriptions"
+    cache_dir.mkdir()
+    (cache_dir / "a.json.gz").write_bytes(b"abc")
+    s3_client = MagicMock()
+    publisher = IngestSourcePublisher(
+        site="ananda",
+        bucket="ananda-chatbot",
+        s3_client=s3_client,
+        repo_root=tmp_path,
+    )
+
+    with (
+        patch(
+            "data_ingestion.utils.ingest_source_publisher.get_transcriptions_db_path",
+            return_value=str(db_path),
+        ),
+        patch(
+            "data_ingestion.utils.ingest_source_publisher.get_transcriptions_dir",
+            return_value=str(cache_dir),
+        ),
+    ):
+        report = publisher.pull_state(reuse_local=True)
+
+    s3_client.get_paginator.assert_not_called()
+    s3_client.head_object.assert_not_called()
+    assert report.notes == ["reused local whisper cache (1 files)"]
+    assert (tmp_path / ".ananda-whisper-cache-fresh-at").is_file()
+
+
+def test_pull_state_refreshes_cache_older_than_24_hours(tmp_path):
+    db_path = tmp_path / "ananda-transcriptions.db"
+    db_path.write_bytes(b"db")
+    cache_dir = tmp_path / "transcriptions" / "ananda"
+    cache_dir.mkdir(parents=True)
+    stale_file = cache_dir / "a.json.gz"
+    stale_file.write_bytes(b"abc")
+    stamp = cache_dir.parent / ".ananda-whisper-cache-fresh-at"
+    stamp.write_text(f"{time.time() - (25 * 60 * 60)}\n")
+    s3_client = MagicMock()
+    s3_client.head_object.return_value = {"ContentLength": 2}
+    paginator = MagicMock()
+    s3_client.get_paginator.return_value = paginator
+    paginator.paginate.return_value = [{"Contents": []}]
+    publisher = IngestSourcePublisher(
+        site="ananda",
+        bucket="ananda-chatbot",
+        s3_client=s3_client,
+        repo_root=tmp_path,
+    )
+
+    with (
+        patch(
+            "data_ingestion.utils.ingest_source_publisher.get_transcriptions_db_path",
+            return_value=str(db_path),
+        ),
+        patch(
+            "data_ingestion.utils.ingest_source_publisher.get_transcriptions_dir",
+            return_value=str(cache_dir),
+        ),
+    ):
+        report = publisher.pull_state(reuse_local=True)
+
+    assert not stale_file.exists()
+    assert "ditched stale whisper cache" in report.notes
+    s3_client.get_paginator.assert_called_once()
+
+
+@patch("data_ingestion.utils.ingest_source_publisher.get_default_log_path")
+@patch("data_ingestion.utils.ingest_source_publisher.get_transcriptions_dir")
+@patch("data_ingestion.utils.ingest_source_publisher.get_transcriptions_db_path")
+@patch("data_ingestion.utils.ingest_source_publisher.get_youtube_data_map_path")
+def test_sync_state_with_snapshot_uploads_only_new_cache_files(
+    mock_youtube_map,
+    mock_transcriptions_db,
+    mock_transcriptions_dir,
+    mock_log_path,
+    tmp_path,
+):
+    cache_dir = tmp_path / "transcriptions" / "ananda"
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "old.json.gz").write_bytes(b"old")
+    (cache_dir / "new.json.gz").write_bytes(b"new!")
+    mock_youtube_map.return_value = str(tmp_path / "map.json")
+    mock_transcriptions_db.return_value = str(tmp_path / "index.db")
+    mock_transcriptions_dir.return_value = str(cache_dir)
+    mock_log_path.return_value = tmp_path / "runs.jsonl"
+    s3_client = MagicMock()
+    s3_client.head_object.side_effect = _not_found_error()
+    publisher = IngestSourcePublisher(
+        site="ananda",
+        bucket="ananda-chatbot",
+        s3_client=s3_client,
+        repo_root=tmp_path,
+    )
+
+    publisher.sync_state(dry_run=False, cache_snapshot={"old.json.gz": 3})
+
+    uploaded = [call.args[2] for call in s3_client.upload_file.call_args_list]
+    assert "ingestion/state/transcriptions/ananda/new.json.gz" in uploaded
+    assert "ingestion/state/transcriptions/ananda/old.json.gz" not in uploaded
+
+
 def test_pull_state_downloads_missing_transcriptions_db(tmp_path):
     db_path = tmp_path / "ananda-transcriptions.db"
     cache_dir = tmp_path / "transcriptions"
@@ -343,4 +459,68 @@ def test_pull_state_downloads_missing_transcriptions_db(tmp_path):
         "ananda-chatbot",
         "ingestion/state/ananda-transcriptions.db",
         str(db_path),
+    )
+
+
+def test_read_youtube_source_list_returns_empty_when_missing(tmp_path):
+    s3_client = MagicMock()
+    s3_client.get_object.side_effect = _not_found_error()
+    publisher = IngestSourcePublisher(
+        site="ananda",
+        bucket="ananda-chatbot",
+        s3_client=s3_client,
+        repo_root=tmp_path,
+    )
+
+    assert publisher.read_youtube_source_list("ananda-youtube-links.json") == {
+        "entries": []
+    }
+    s3_client.get_object.assert_called_once_with(
+        Bucket="ananda-chatbot",
+        Key="site-config/data_ingestion/youtube/lists/ananda-youtube-links.json",
+    )
+
+
+def test_write_youtube_source_list_puts_json(tmp_path):
+    s3_client = MagicMock()
+    publisher = IngestSourcePublisher(
+        site="ananda",
+        bucket="ananda-chatbot",
+        s3_client=s3_client,
+        repo_root=tmp_path,
+    )
+    payload = {"entries": [{"kind": "url", "url": "https://youtu.be/abcdefghijk"}]}
+
+    key = publisher.write_youtube_source_list("ananda-youtube-links.json", payload)
+
+    assert key == ("site-config/data_ingestion/youtube/lists/ananda-youtube-links.json")
+    put_kwargs = s3_client.put_object.call_args.kwargs
+    assert put_kwargs["Bucket"] == "ananda-chatbot"
+    assert put_kwargs["Key"] == key
+    assert put_kwargs["ContentType"] == "application/json"
+    assert json.loads(put_kwargs["Body"].decode("utf-8")) == payload
+
+
+def test_pull_youtube_data_map_downloads_when_local_file_is_missing(tmp_path):
+    map_path = tmp_path / "ananda-youtube_data_map.json"
+    s3_client = MagicMock()
+    s3_client.head_object.return_value = {"ContentLength": 4}
+    publisher = IngestSourcePublisher(
+        site="ananda",
+        bucket="ananda-chatbot",
+        s3_client=s3_client,
+        repo_root=tmp_path,
+    )
+
+    with patch(
+        "data_ingestion.utils.ingest_source_publisher.get_youtube_data_map_path",
+        return_value=str(map_path),
+    ):
+        action = publisher.pull_youtube_data_map()
+
+    assert action.status == "download"
+    s3_client.download_file.assert_called_once_with(
+        "ananda-chatbot",
+        "site-config/data_ingestion/media/ananda-youtube_data_map.json",
+        str(map_path),
     )
