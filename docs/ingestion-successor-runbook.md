@@ -389,15 +389,46 @@ Run it from the repo root after any of these succeed:
 - `uv run python bin/publish_ingest_sources_to_s3.py --site ananda state --apply`
 - `uv run python data_ingestion/bin/ingest_cli.py audio`
 - `uv run python data_ingestion/bin/ingest_cli.py youtube`
-- `uv run python data_ingestion/bin/ingest_cli.py library`
 - `uv run python data_ingestion/bin/ingest_cli.py pdf`
-- `./bin/publish_title_catalog_to_s3.sh`
 
 ```bash
 ./bin/sync_ingest_backup_from_s3.sh /Volumes/your-disk/ananda-chatbot
 ```
 
-`--dry-run` lists transfers and does not download. The script syncs `public/audio/`, `public/pdf/Ananda Library/`, `ingestion/` (Crystal PDFs, bhaktan and treasures prep notes, dumps, Whisper cache, run ledger), `site-config/data_ingestion/` (YouTube lists, `youtube_data_map`, exclusion rules), and `site-config/title-catalog/`. It never passes `--delete`.
+`--dry-run` lists transfers and does not download. It never passes `--delete`.
+
+The script copies only prefixes where S3 is the source of truth:
+
+| Prefix | Why S3 is the copy that matters |
+| --- | --- |
+| `public/audio/` | Bhaktan and Treasures originals. No other store. |
+| `ingestion/sources/crystal/pdfs/` | Crystal Clarity books. Not re-downloadable from chat. |
+| `ingestion/sources/bhaktan/` and `ingestion/sources/treasures/` | Prep notes and files set aside before ingest. |
+| `ingestion/state/` | Whisper cache. Rebuilding it means paying for transcription again. |
+| `ingestion/runs/` | Ingest run ledger. |
+| `site-config/data_ingestion/` | YouTube source lists, `youtube_data_map`, and `exclusion_rules.json`. |
+
+Leave these off the disk. They are rebuilt from something else:
+
+| Prefix | Rebuild from |
+| --- | --- |
+| `ingestion/dumps/anandalib/` | A fresh export from the Ananda Library MySQL database. S3 only holds the copy last uploaded. |
+| `public/pdf/Ananda Library/` | That same database, via `ingest_cli.py library`. Chat PDFs are `{hash}.pdf` under this prefix. |
+| `public/pdf/test_library/` | Test output. |
+| `site-config/title-catalog/` | Pinecone, via `bin/analyze_title_prefix_catalog.py` and `bin/publish_title_catalog_to_s3.sh`. |
+| `site-config/location/` | The locations CSV on ananda.org. A cron copies it onto S3. |
+| `public/newsletters/luca/` | Images uploaded for a sent newsletter. Not library content. |
+| `site-config/archived-2025-07/` | Retired prompt snapshot. Live prompts are in git at `web/site-config/prompts/`. |
+
+`site-config/dev/blacklist/ananda.txt` is also only on S3 (the admin blacklist editor writes it). It is a few dozen bytes and is not part of this ingest backup.
+
+The backup disk has to be case-sensitive. macOS Desktop is not. These three Treasures pairs are different objects with different byte sizes, and a case-insensitive disk can hold only one of each:
+
+- `Gratitude.mp3` and `gratitude.mp3`
+- `Humility.mp3` and `humility.mp3`
+- `How to Open Your Heart.mp3` and `How To Open Your Heart.mp3`
+
+On Desktop, each run overwrites one file with the other casing, so the next run downloads the pair again. That is the whole case-collision set under `public/audio/` (2,429 objects, 3 pairs). A case-sensitive APFS volume keeps both.
 
 After the first sync onto a new disk, confirm one audio object and one Crystal PDF. The two byte counts match:
 

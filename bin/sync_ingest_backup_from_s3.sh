@@ -13,13 +13,14 @@ set -euo pipefail
 usage() {
   echo "Usage: $(basename "$0") <dest-dir> [--dry-run]"
   echo ""
-  echo "Downloads these s3://ananda-chatbot prefixes into <dest-dir>:"
-  echo "  public/audio/"
-  echo "  public/pdf/Ananda Library/"
-  echo "  ingestion/"
-  echo "  site-config/data_ingestion/"
-  echo "  site-config/title-catalog/"
+  echo "Downloads S3 source-of-truth prefixes into <dest-dir>:"
+  echo "  public/audio/                  bhaktan and treasures originals"
+  echo "  ingestion/sources/             Crystal PDFs and library prep notes"
+  echo "  ingestion/state/               Whisper cache"
+  echo "  ingestion/runs/                ingest run ledger"
+  echo "  site-config/data_ingestion/    YouTube lists, processed map, exclusion rules"
   echo ""
+  echo "Skips objects that can be rebuilt: public/pdf/, ingestion/dumps/, site-config/title-catalog/."
   echo "Does not delete local files that are gone from S3."
 }
 
@@ -48,15 +49,18 @@ BUCKET="ananda-chatbot"
 sync_one() {
   local prefix="$1"
   mkdir -p "${DEST}/${prefix}"
+  # public/audio/treasures/. is a 0-byte directory marker. macOS rejects a
+  # file named ".", so the CLI fails that one key and returns non-zero.
+  local -a exclude=(--exclude "treasures/." --exclude "*/." --exclude ".")
   if [[ "$DRY_RUN" -eq 1 ]]; then
-    aws s3 sync "s3://${BUCKET}/${prefix}" "${DEST}/${prefix}" --profile "$PROFILE" --dryrun
+    aws s3 sync "s3://${BUCKET}/${prefix}" "${DEST}/${prefix}" --profile "$PROFILE" "${exclude[@]}" --dryrun
   else
-    aws s3 sync "s3://${BUCKET}/${prefix}" "${DEST}/${prefix}" --profile "$PROFILE"
+    aws s3 sync "s3://${BUCKET}/${prefix}" "${DEST}/${prefix}" --profile "$PROFILE" "${exclude[@]}"
   fi
 }
 
 sync_one "public/audio/"
-sync_one "public/pdf/Ananda Library/"
-sync_one "ingestion/"
+sync_one "ingestion/sources/"
+sync_one "ingestion/state/"
+sync_one "ingestion/runs/"
 sync_one "site-config/data_ingestion/"
-sync_one "site-config/title-catalog/"
