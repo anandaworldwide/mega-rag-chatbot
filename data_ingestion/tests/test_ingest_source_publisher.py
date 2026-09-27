@@ -550,3 +550,28 @@ def test_latest_dump_key_picks_the_last_object_name(tmp_path):
         publisher.latest_dump_key()
         == "ingestion/dumps/anandalib/anandalib_wp_20260914.sql.gz"
     )
+
+
+def test_upload_pdf_tree_uses_non_public_prefix_and_refuses_public(tmp_path):
+    book = tmp_path / "ALL" / "Book.pdf"
+    book.parent.mkdir()
+    book.write_bytes(b"pdf")
+    s3_client = MagicMock()
+    s3_client.head_object.side_effect = _not_found_error()
+    publisher = IngestSourcePublisher(
+        site="crystal",
+        bucket="ananda-chatbot",
+        s3_client=s3_client,
+        repo_root=tmp_path,
+    )
+
+    report = publisher.upload_pdf_tree(
+        tmp_path, "ingestion/sources/crystal/pdfs", dry_run=True
+    )
+
+    assert [action.s3_key for action in report.uploads] == [
+        "ingestion/sources/crystal/pdfs/ALL/Book.pdf"
+    ]
+    s3_client.upload_file.assert_not_called()
+    with pytest.raises(SystemExit, match="public"):
+        publisher.upload_pdf_tree(tmp_path, "public/pdf", dry_run=True)

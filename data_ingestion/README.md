@@ -13,11 +13,24 @@ originals belong in S3, not on a personal disk. See
 
 Ingest PDF documents with full-document processing and spaCy semantic chunking.
 
+Crystal Clarity books are archived at `ingestion/sources/crystal/pdfs/` (not
+`public/`). The CLI downloads books that are not already in Pinecone and keeps
+existing vectors.
+
 ```bash
-python pdf_to_vector_db.py \
+uv run python data_ingestion/bin/ingest_cli.py pdf \
   --site crystal \
-  --library "Crystal Clarity" \
-  --file-path media/pdf-docs/crystal/ALL/
+  --local-dir data_ingestion/media/pdf-docs/crystal/ALL
+```
+
+The engine underneath still takes `--library-name` and `--keep-data`:
+
+```bash
+uv run python data_ingestion/pdf_to_vector_db.py \
+  --site crystal \
+  --library-name "Crystal Clarity" \
+  --file-path media/pdf-docs/crystal/ALL/ \
+  --keep-data
 ```
 
 ### Database Text Ingestion

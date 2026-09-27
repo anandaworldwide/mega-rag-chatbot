@@ -587,6 +587,25 @@ class TestAudioQueuePlan:
         assert plan.skipped_ignore == 1
         assert plan.skipped_non_audio == 1
 
+    def test_collect_s3_audio_queue_plan_queues_m4a_and_does_not_infer_kriya(self):
+        from data_ingestion.audio_video.manage_queue import collect_s3_audio_queue_plan
+
+        album = "_ Swami Kriyatalks (ONLY FOR KRIYABANS)"
+        plan = collect_s3_audio_queue_plan(
+            [
+                f"public/audio/bhaktan/{album}/Swami on Kechari Mudra(1).m4a",
+                f"public/audio/bhaktan/kriyaban-only/{album}/Higher Kriya.m4a",
+            ],
+            "bhaktan",
+        )
+
+        by_key = {item.s3_key: item.required_access_level for item in plan.candidates}
+        assert by_key[f"public/audio/bhaktan/{album}/Swami on Kechari Mudra(1).m4a"] == 0
+        assert (
+            by_key[f"public/audio/bhaktan/kriyaban-only/{album}/Higher Kriya.m4a"]
+            == 200
+        )
+
     def test_s3_prefix_decline_is_not_a_queue_failure(self, caplog):
         from data_ingestion.audio_video.manage_queue import add_to_queue
 

@@ -191,7 +191,11 @@ def init_db(site: str):
 
 
 def get_saved_transcription(
-    file_path, is_youtube_video=False, youtube_id=None, site=None
+    file_path,
+    is_youtube_video=False,
+    youtube_id=None,
+    site=None,
+    content_hash_path=None,
 ):
     """
     Retrieve transcription for a given file or YouTube video.
@@ -217,7 +221,7 @@ def get_saved_transcription(
         else:
             return None
     else:
-        file_hash = get_file_hash(file_path)
+        file_hash = get_file_hash(content_hash_path or file_path)
 
     db_path = get_transcriptions_db_path(site)
     transcriptions_dir = get_transcriptions_dir(site)
@@ -284,7 +288,9 @@ def get_saved_transcription(
     return None
 
 
-def save_transcription(file_path, transcripts, youtube_id=None, site=None):
+def save_transcription(
+    file_path, transcripts, youtube_id=None, site=None, content_hash_path=None
+):
     """
     Save transcription to gzipped JSON file and update database.
 
@@ -306,7 +312,7 @@ def save_transcription(file_path, transcripts, youtube_id=None, site=None):
         else:
             file_hash = hashlib.md5(youtube_id.encode()).hexdigest()
     else:
-        file_hash = get_file_hash(file_path)
+        file_hash = get_file_hash(content_hash_path or file_path)
 
     # Convert list of transcripts to expected format if needed
     if isinstance(transcripts, list):
@@ -375,6 +381,7 @@ def transcribe_media(  # noqa: C901
     youtube_id=None,
     interrupt_event=None,
     site=None,
+    content_hash_path=None,
 ):
     """
     Transcribe audio file, using existing transcription if available and not forced.
@@ -388,7 +395,11 @@ def transcribe_media(  # noqa: C901
     file_name = os.path.basename(file_path) if file_path else f"YouTube_{youtube_id}"
 
     existing_transcription = get_saved_transcription(
-        file_path, is_youtube_video, youtube_id, site
+        file_path,
+        is_youtube_video,
+        youtube_id,
+        site,
+        content_hash_path=content_hash_path,
     )
     if existing_transcription and not force:
         logger.debug("transcribe_media: Using existing transcription")
@@ -454,7 +465,11 @@ def transcribe_media(  # noqa: C901
 
         if transcripts:
             save_transcription(
-                file_path, transcripts, youtube_id if is_youtube_video else None, site
+                file_path,
+                transcripts,
+                youtube_id if is_youtube_video else None,
+                site,
+                content_hash_path=content_hash_path,
             )
             return transcripts
 

@@ -313,6 +313,44 @@ class IngestSourcePublisher:
             ]
         )
 
+    def list_prefix(self, prefix: str) -> list[str]:
+        """Return object keys under prefix."""
+        return self._list_keys(prefix)
+
+    def upload_pdf_tree(
+        self, local_dir: Path, prefix: str, *, dry_run: bool = True
+    ) -> SyncReport:
+        """Upload PDFs under prefix. Refuses a public/ destination."""
+        prefix = prefix.strip("/")
+        if prefix.startswith("public"):
+            raise SystemExit(f"Crystal PDFs must not use a public prefix: {prefix}")
+        local_dir = Path(local_dir)
+        report = SyncReport()
+        pdfs = sorted(
+            path
+            for path in local_dir.rglob("*")
+            if path.is_file() and path.suffix.lower() == ".pdf"
+        )
+        for path in pdfs:
+            relative = path.relative_to(local_dir).as_posix()
+            report.actions.append(
+                self._sync_one(path, f"{prefix}/{relative}", dry_run=dry_run)
+            )
+        return report
+
+    def download_pdfs(self, keys, dest_dir: Path, prefix: str) -> Path:
+        """Download PDF keys, preserving the path under prefix."""
+        prefix = prefix.strip("/") + "/"
+        dest_dir = Path(dest_dir)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        for key in keys:
+            if not key.startswith(prefix):
+                raise SystemExit(f"PDF key is outside {prefix}: {key}")
+            dest = dest_dir / key[len(prefix) :]
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            self.s3_client.download_file(self.bucket, key, str(dest))
+        return dest_dir
+
     def inventory(self, *, audio_dirs: dict[str, Path] | None = None) -> SyncReport:
         """Compare default local state files and optional audio trees to S3."""
         report = self.sync_state(dry_run=True)

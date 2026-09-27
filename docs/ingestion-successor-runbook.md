@@ -1,11 +1,11 @@
 # Luca Ingestion Successor Runbook
 
 This is the operator guide for Luca (`ananda`) audio, YouTube, and Ananda Library
-ingestion. **S3 is the official store for originals and processing state.** A
+ingestion, plus Crystal Clarity PDFs. **S3 is the official store for originals and processing state.** A
 developer laptop is temporary compute. Do not keep the only copy of MP3s, YouTube
-lists, dumps, or Whisper caches on a personal disk.
+lists, dumps, Whisper caches, or Crystal book files on a personal disk.
 
-Crystal/Jairam PDF ingest and the website crawler are out of scope here.
+Jairam/PhotoWise PDF ingest and the website crawler are out of scope here.
 
 Related:
 
@@ -45,6 +45,7 @@ Bucket comes from `S3_BUCKET_NAME` in `.env.ananda` (usually `ananda-chatbot`).
 | Whisper SQLite index | `ingestion/state/{site}-transcriptions.db` |
 | Whisper JSON cache | `ingestion/state/transcriptions/{site}/` |
 | Ananda Library dumps | `ingestion/dumps/anandalib/` |
+| Crystal Clarity PDFs | `ingestion/sources/crystal/pdfs/` (not under `public/`) |
 | Ingest run ledger | `ingestion/runs/ingestion_runs.jsonl` (live sync; local cache under `.cache/ingestion-runs/`) |
 
 Audio `--library` is a key in
@@ -93,11 +94,13 @@ uv run python bin/publish_ingest_sources_to_s3.py --site ananda dump \
   --file /path/to/anandalib_wp_YYYYMMDD.sql.gz --apply
 ```
 
-After a successful media ingest on a laptop, run `state --apply` again so the
-next developer does not re-transcribe. The run ledger is pulled from S3, appended
-locally, and pushed back on every ingest event. `list_ingestion_runs.py --site`
-pulls the shared ledger before printing. Set `INGESTION_RUN_LOG_S3_SYNC=0` only
-for offline tests.
+`audio` and `youtube` already pull the Whisper cache and push it back, along
+with `youtube_data_map` and the transcriptions database, even if the run stops
+early. A cache younger than 24 hours is reused. `state --apply` is the full
+compare when you want to repair that cache, not the step after every media run.
+The run ledger is pulled from S3, appended locally, and pushed back on every
+ingest event. `list_ingestion_runs.py --site` pulls the shared ledger before
+printing. Set `INGESTION_RUN_LOG_S3_SYNC=0` only for offline tests.
 
 Do **not** publish `data_ingestion/media/transcriptions copy/` or PhotoWise lists
 (`photo-youtube-playlists.xlsx`). New MP3s, YouTube URLs, and library dumps go to
@@ -138,6 +141,13 @@ with an empty local path. The transcriber downloads each object, skips Whisper
 when the content hash is already cached, and does not re-upload. Listing does
 not know the hash until download, so a huge prefix still downloads files that
 are already transcribed.
+
+`.m4a` is queued with `.mp3`, `.wav`, and `.flac`. Whisper receives a temporary
+mp3. The S3 object and Pinecone `filename` stay the `.m4a` key. The two Bhaktan
+talks that were only `.m4a` live under
+`public/audio/bhaktan/kriyaban-only/_ Swami Kriyatalks (ONLY FOR KRIYABANS)/`.
+The album name does not set access level 200; the `kriyaban-only` path
+component does.
 
 Path component `kriyaban-only` / `Kriyaban Only` proposes 200. The word "kriya"
 does not. `--required-access-level` is the default for everything else (default
@@ -271,13 +281,46 @@ uv run python data_ingestion/bin/list_ingestion_runs.py --site ananda --status c
 - Do not colocate this work with the crawler VM.
 - AWS commands for this project use `--profile ananda`.
 
+## Crystal Clarity PDFs
+
+Copyrighted books. Objects go to `ingestion/sources/crystal/pdfs/` in the Luca
+bucket (`S3_BUCKET_NAME` from `.env.ananda`, usually `ananda-chatbot`).
+`.env.crystal` supplies the Crystal Pinecone index. Its own `S3_BUCKET_NAME` is
+a different bucket and is not used here. Do not put these objects under
+`public/`. Access level stays 0. This command does not rebuild the Luca title
+catalog.
+
+```bash
+# Upload a local tree, then ingest books not already in Pinecone.
+# A match is the PDF filename or the vector-id title. Existing Crystal
+# vectors store a product URL in source, so the title is what skips them.
+caffeinate -i uv run python data_ingestion/bin/ingest_cli.py pdf \
+  --site crystal \
+  --local-dir data_ingestion/media/pdf-docs/crystal/ALL
+
+# Later runs, files already on S3:
+caffeinate -i uv run python data_ingestion/bin/ingest_cli.py pdf --site crystal
+```
+
+Default is `--keep-data`. `--replace-library` deletes `Crystal Clarity` vectors
+and requires typing `Crystal Clarity`. `--yes` does not skip that prompt.
+Jairam and PhotoWise stay on `pdf_to_vector_db.py` with a local directory.
+
 ## Credentials a successor needs
 
-| Secret / access | Where |
-| --- | --- |
-| `.env.ananda` | Repo root, not in git |
-| AWS profile `ananda` | S3 bucket + title catalog |
-| Pinecone | `PINECONE_INGEST_INDEX_NAME` / `PINECONE_INDEX_NAME` |
-| OpenAI | Whisper + embeddings |
-| Ananda Library WP admin | Dump download |
-| Docker + `mysql` client | Ananda Library dump import |
+Do not commit `.env.*`. AWS CLI commands for this bucket use `--profile ananda`.
+`audio` and `youtube` sync the Whisper cache and YouTube map themselves.
+`state --apply` is the full repair compare.
+
+| Secret / access | Where | Used for |
+| --- | --- | --- |
+| `.env.ananda` | Repo root, not in git | Luca site: S3 bucket, Pinecone, OpenAI, Ananda Library DB user |
+| `.env.crystal` | Repo root, not in git | Crystal Pinecone index and OpenAI key. PDF objects still go to the Luca S3 bucket |
+| AWS profile `ananda` | Local AWS config | S3 reads and writes, including the title catalog |
+| `PINECONE_INGEST_INDEX_NAME` | Site env | Index the CLIs write |
+| `PINECONE_INDEX_NAME` | Site env | Live query index. Leave it on production during a shadow run |
+| `OPENAI_API_KEY` | Site env | Whisper and embeddings |
+| Ananda Library WP admin | Password manager | Download a new SQL dump before `library` |
+| Docker + `mysql` client | Laptop | Ananda Library dump import on `127.0.0.1:3307` |
+| ffmpeg | Laptop | Audio chunking, and temporary mp3s for `.m4a` |
+| `caffeinate` | macOS | `caffeinate -i` keeps a long ingest from idle-sleep. Separate from `--yes` |

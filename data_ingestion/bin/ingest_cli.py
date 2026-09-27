@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Laptop orchestrator for Luca ingest. Audio, YouTube, and library subcommands."""
+"""Laptop orchestrator for Luca ingest. Audio, YouTube, library, and Crystal PDFs."""
 
 from __future__ import annotations
 
@@ -30,6 +30,12 @@ from data_ingestion.audio_video.youtube_source_list import (  # noqa: E402
 from data_ingestion.audio_video.youtube_utils import (  # noqa: E402
     get_playlist_videos,
     load_youtube_data_map,
+)
+from data_ingestion.crystal_pdf_ingest import (  # noqa: E402
+    CRYSTAL_LIBRARY_NAME,
+    read_dotenv_value,
+    represented_titles_from_index,
+    run_pdf,
 )
 from data_ingestion.sql_to_vector_db.library_ingest import (  # noqa: E402
     run_library,
@@ -321,6 +327,63 @@ def _library_parser(subparsers) -> None:
     library.set_defaults(handler=_run_library_command)
 
 
+def _pdf_parser(subparsers) -> None:
+    pdf = subparsers.add_parser(
+        "pdf",
+        help="Upload and ingest Crystal Clarity PDFs from a non-public S3 prefix",
+    )
+    pdf.add_argument("--site", required=True)
+    pdf.add_argument(
+        "--local-dir",
+        help="Local PDF tree to upload before ingest. Relative paths are kept.",
+    )
+    pdf.add_argument(
+        "--s3-prefix",
+        help="S3 prefix. Default is ingestion/sources/crystal/pdfs. Never public/.",
+    )
+    pdf.add_argument(
+        "--replace-library",
+        action="store_true",
+        help=(
+            "Delete existing Crystal Clarity vectors before ingest. "
+            "Requires typing the library name. This is not implied by --yes."
+        ),
+    )
+    pdf.set_defaults(handler=_run_pdf_command)
+
+
+def _load_crystal_represented_basenames() -> set[str]:
+    import os
+
+    from data_ingestion.utils.pinecone_utils import get_pinecone_client
+
+    index_name = os.environ.get("PINECONE_INGEST_INDEX_NAME")
+    if not index_name:
+        raise SystemExit("PINECONE_INGEST_INDEX_NAME is not set")
+    index = get_pinecone_client().Index(index_name)
+    return set(), represented_titles_from_index(index, CRYSTAL_LIBRARY_NAME)
+
+
+def _run_pdf_command(args) -> None:
+    load_env(args.site)
+    # Pinecone comes from .env.crystal. The PDF archive is the Luca bucket in
+    # .env.ananda. .env.crystal names a different bucket this AWS profile cannot write.
+    bucket = read_dotenv_value(_project_root / ".env.ananda", "S3_BUCKET_NAME")
+    publisher = IngestSourcePublisher(
+        site=args.site,
+        bucket=bucket,
+        s3_client=get_s3_client(),
+        repo_root=_project_root,
+    )
+    run_pdf(
+        args,
+        publisher=publisher,
+        repo_root=_project_root,
+        runner=subprocess.run,
+        load_represented=_load_crystal_represented_basenames,
+    )
+
+
 def _run_library_command(args) -> None:
     load_env(args.site)
     bucket = get_bucket_name()
@@ -357,6 +420,7 @@ def main(argv: list[str] | None = None) -> None:
     _audio_parser(subparsers)
     _youtube_parser(subparsers)
     _library_parser(subparsers)
+    _pdf_parser(subparsers)
     args = parser.parse_args(argv)
     args.handler(args)
 

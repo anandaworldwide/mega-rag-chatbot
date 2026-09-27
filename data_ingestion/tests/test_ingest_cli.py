@@ -288,6 +288,37 @@ def test_library_cli_parses_dump_and_replace(monkeypatch):
     }
 
 
+def test_pdf_cli_parses_local_dir_and_replace(monkeypatch):
+    seen = {}
+
+    def handler(args):
+        seen["command"] = args.command
+        seen["site"] = args.site
+        seen["local_dir"] = args.local_dir
+        seen["replace_library"] = args.replace_library
+        seen["s3_prefix"] = args.s3_prefix
+
+    monkeypatch.setattr("data_ingestion.bin.ingest_cli._run_pdf_command", handler)
+    main(
+        [
+            "pdf",
+            "--site",
+            "crystal",
+            "--local-dir",
+            "/books",
+            "--replace-library",
+        ]
+    )
+
+    assert seen == {
+        "command": "pdf",
+        "site": "crystal",
+        "local_dir": "/books",
+        "replace_library": True,
+        "s3_prefix": None,
+    }
+
+
 def test_youtube_cli_parses_add_and_remove(monkeypatch):
     seen = {}
 

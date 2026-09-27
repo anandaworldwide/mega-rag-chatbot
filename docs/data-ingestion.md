@@ -151,7 +151,7 @@ performance alarms and misdirect optimization efforts.
 ### Key Scripts
 
 - `bin/publish_ingest_sources_to_s3.py` - Publish audio, YouTube lists, dumps, and Whisper state to S3
-- `data_ingestion/bin/ingest_cli.py` - Laptop orchestrator for audio, YouTube, and Ananda Library dumps (`library` starts Compose MySQL, imports, ingests with `--keep-data`, and refreshes the title catalog)
+- `data_ingestion/bin/ingest_cli.py` - Laptop orchestrator for audio, YouTube, Ananda Library dumps, and Crystal Clarity PDFs (`library` starts Compose MySQL, imports, ingests with `--keep-data`, and refreshes the title catalog; `pdf` reads `ingestion/sources/crystal/pdfs/` and always passes `--keep-data` unless `--replace-library`)
 - `pdf_to_vector_db.py` - PDF document ingestion
 - `transcribe_and_ingest_media.py` - Audio/video processing
 - `website_crawler.py` - Web content crawling

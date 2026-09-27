@@ -20,7 +20,9 @@ Technical Constraints:
 import hashlib
 import logging
 import os
+import subprocess
 import wave
+from pathlib import Path
 
 from mutagen.id3 import ID3NoHeaderError
 from mutagen.mp3 import MP3
@@ -143,6 +145,36 @@ def get_wav_metadata(file_path):
     except Exception as e:
         logger.error(f"Error reading WAV metadata for {file_path}: {e}")
         raise
+
+
+def build_m4a_to_mp3_command(source_path: str, dest_path: str) -> list[str]:
+    """ffmpeg argv that writes a temporary mp3. The .m4a source is not an output."""
+    return [
+        "ffmpeg",
+        "-y",
+        "-i",
+        source_path,
+        "-vn",
+        "-codec:a",
+        "libmp3lame",
+        "-qscale:a",
+        "2",
+        dest_path,
+    ]
+
+
+def materialize_whisper_audio(source_path: str, runner=subprocess.run):
+    """Return (path for Whisper, temp paths to delete).
+
+    .mp3 and .wav are passed through. .m4a is converted to a sibling
+    ``.whisper.mp3`` because split_audio only loads mp3 and wav. The source
+    file is left in place so playback can stay the .m4a object.
+    """
+    if not source_path or Path(source_path).suffix.lower() != ".m4a":
+        return source_path, []
+    dest_path = str(Path(source_path).with_suffix(".whisper.mp3"))
+    runner(build_m4a_to_mp3_command(source_path, dest_path), check=True)
+    return dest_path, [dest_path]
 
 
 def get_file_hash(file_path):

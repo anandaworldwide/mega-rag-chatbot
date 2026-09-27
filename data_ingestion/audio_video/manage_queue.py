@@ -180,7 +180,9 @@ def get_unique_files(directory_path):
     # Collect all relevant files
     for root, _, files in os.walk(directory_path):
         for file in files:
-            if file.lower().endswith((".mp3", ".wav", ".flac", ".mp4", ".avi", ".mov")):
+            if file.lower().endswith(
+                (".mp3", ".wav", ".flac", ".m4a", ".mp4", ".avi", ".mov")
+            ):
                 files_to_check.append(os.path.join(root, file))
 
     # Process files with progress bar for long-running operations

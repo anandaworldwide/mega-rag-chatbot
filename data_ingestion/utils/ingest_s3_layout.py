@@ -14,9 +14,10 @@ YOUTUBE_LISTS_PREFIX = "site-config/data_ingestion/youtube/lists"
 MEDIA_STATE_PREFIX = "site-config/data_ingestion/media"
 INGESTION_STATE_PREFIX = "ingestion/state"
 DUMPS_PREFIX = "ingestion/dumps/anandalib"
+CRYSTAL_PDF_PREFIX = "ingestion/sources/crystal/pdfs"
 RUNS_LEDGER_KEY = "ingestion/runs/ingestion_runs.jsonl"
 
-AUDIO_EXTENSIONS = (".mp3", ".wav", ".flac")
+AUDIO_EXTENSIONS = (".mp3", ".wav", ".flac", ".m4a")
 KRIYABAN_ONLY_SEGMENT = "kriyaban-only"
 KRIYABAN_REQUIRED_ACCESS_LEVEL = 200
 IGNORE_SEGMENT = "ignore"

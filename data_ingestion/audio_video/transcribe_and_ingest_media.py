@@ -70,6 +70,7 @@ if _project_root not in sys.path:
 from data_ingestion.audio_video.IngestQueue import IngestQueue  # noqa: E402
 from data_ingestion.audio_video.media_utils import (  # noqa: E402
     get_media_metadata,
+    materialize_whisper_audio,
     print_chunk_statistics,
 )
 from data_ingestion.audio_video.pinecone_utils import (  # noqa: E402
@@ -274,7 +275,14 @@ def _validate_and_setup_processing(
 
 
 def _perform_transcription(
-    file_path, file_name, is_youtube_video, youtube_id, force, youtube_data, site
+    file_path,
+    file_name,
+    is_youtube_video,
+    youtube_id,
+    force,
+    youtube_data,
+    site,
+    content_hash_path=None,
 ):
     """
     Performs the actual transcription with comprehensive error handling.
@@ -297,7 +305,12 @@ def _perform_transcription(
 
     try:
         transcription = transcribe_media(
-            file_path, force, is_youtube_video, youtube_id, site=site
+            file_path,
+            force,
+            is_youtube_video,
+            youtube_id,
+            site=site,
+            content_hash_path=content_hash_path,
         )
         if transcription:
             local_report["processed"] += 1
@@ -352,6 +365,7 @@ def _handle_transcription(
     library_name,
     youtube_data,
     site,
+    content_hash_path=None,
 ):
     """
     Handles transcription logic - checking cache and transcribing if needed.
@@ -371,7 +385,11 @@ def _handle_transcription(
     # Check cache first to avoid redundant processing
     try:
         existing_transcription = get_saved_transcription(
-            file_path, is_youtube_video, youtube_id, site
+            file_path,
+            is_youtube_video,
+            youtube_id,
+            site,
+            content_hash_path=content_hash_path,
         )
     except Exception as e:
         error_msg = (
@@ -423,6 +441,7 @@ def _handle_transcription(
             force,
             youtube_data,
             site,
+            content_hash_path=content_hash_path,
         )
 
 
@@ -623,6 +642,7 @@ def process_file(
     s3_key=None,
     site=None,
     skip_upload=False,
+    content_hash_path=None,
 ):
     """
     Core processing pipeline for a single media file or YouTube video.
@@ -667,6 +687,7 @@ def process_file(
         library_name,
         youtube_data,
         site,
+        content_hash_path=content_hash_path,
     )
 
     if transcription is None:  # Error in transcription
@@ -784,6 +805,33 @@ def worker(task_queue, result_queue, args, stop_event):
                 result_queue.put((None, {"errors": 1, "error_details": [str(e)]}))
 
 
+def _whisper_inputs(item_type, source_path):
+    """Return (whisper path, temp paths, content hash path)."""
+    if item_type != "audio_file" or not source_path:
+        return source_path, [], None
+    whisper_path, whisper_temps = materialize_whisper_audio(source_path)
+    content_hash_path = None
+    if os.path.splitext(source_path)[1].lower() == ".m4a":
+        content_hash_path = source_path
+    return whisper_path, whisper_temps, content_hash_path
+
+
+def _cleanup_audio_temps(
+    source_path, whisper_temps, downloaded_from_s3, is_youtube_video
+):
+    for temp_path in whisper_temps:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
+            logger.info(f"Deleted temporary Whisper audio: {temp_path}")
+    if (
+        (downloaded_from_s3 or is_youtube_video)
+        and source_path
+        and os.path.exists(source_path)
+    ):
+        os.remove(source_path)
+        logger.info(f"Deleted temporary audio file: {source_path}")
+
+
 def process_item(item, args, client, index, site_config):
     """
     Processes a single media item with timing metrics and cleanup.
@@ -843,43 +891,52 @@ def process_item(item, args, client, index, site_config):
         error_report["error_details"].append(f"Unknown item type: {item['type']}")
         return item["id"], error_report
 
+    source_path = file_to_process
+    file_to_process, whisper_temps, content_hash_path = _whisper_inputs(
+        item["type"], source_path
+    )
     logger.debug(f"File to process: {file_to_process}")
 
     author = item["data"]["author"]
     library = item["data"]["library"]
     required_access_level = int(item["data"].get("required_access_level", 0) or 0)
+    # Never upload the temporary Whisper mp3 over an .m4a playback object.
+    skip_upload = downloaded_from_s3 or content_hash_path is not None
 
-    start_time = time.time()
-    report = process_file(
-        file_to_process,
-        index,
-        client,
-        args.force,
-        dryrun=args.dryrun,
-        default_author=author,
-        library_name=library,
-        site_config=site_config,
-        required_access_level=required_access_level,
-        is_youtube_video=is_youtube_video,
-        youtube_data=youtube_data,
-        s3_key=s3_key,
-        site=args.site,
-        skip_upload=downloaded_from_s3,
-    )
-    end_time = time.time()
-    processing_time = end_time - start_time
+    try:
+        start_time = time.time()
+        report = process_file(
+            file_to_process,
+            index,
+            client,
+            args.force,
+            dryrun=args.dryrun,
+            default_author=author,
+            library_name=library,
+            site_config=site_config,
+            required_access_level=required_access_level,
+            is_youtube_video=is_youtube_video,
+            youtube_data=youtube_data,
+            s3_key=s3_key,
+            site=args.site,
+            skip_upload=skip_upload,
+            content_hash_path=content_hash_path,
+        )
+        end_time = time.time()
+        processing_time = end_time - start_time
 
-    if file_to_process and os.path.exists(file_to_process):
-        file_size = os.path.getsize(file_to_process)
-        save_estimate(item["type"], processing_time, file_size)
-
-    if (
-        (downloaded_from_s3 or is_youtube_video)
-        and file_to_process
-        and os.path.exists(file_to_process)
-    ):
-        os.remove(file_to_process)
-        logger.info(f"Deleted temporary audio file: {file_to_process}")
+        sized_path = (
+            source_path
+            if source_path and os.path.exists(source_path)
+            else file_to_process
+        )
+        if sized_path and os.path.exists(sized_path):
+            file_size = os.path.getsize(sized_path)
+            save_estimate(item["type"], processing_time, file_size)
+    finally:
+        _cleanup_audio_temps(
+            source_path, whisper_temps, downloaded_from_s3, is_youtube_video
+        )
 
     return item["id"], report
 
