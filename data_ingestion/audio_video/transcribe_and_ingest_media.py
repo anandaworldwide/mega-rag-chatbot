@@ -67,7 +67,10 @@ _project_root = os.path.dirname(os.path.dirname(_script_dir))
 if _project_root not in sys.path:
     sys.path.insert(0, _project_root)
 
-from data_ingestion.audio_video.IngestQueue import IngestQueue  # noqa: E402
+from data_ingestion.audio_video.IngestQueue import (  # noqa: E402
+    IngestQueue,
+    format_queue_status_summary,
+)
 from data_ingestion.audio_video.media_utils import (  # noqa: E402
     get_media_metadata,
     materialize_whisper_audio,
@@ -550,6 +553,14 @@ def _process_and_store_transcription(
                     access_level=access_level,
                     required_access_level=required_access_level,
                 )
+            except ValueError as e:
+                if str(e) != "No valid text chunks found for embedding creation":
+                    raise
+                warning = f"No spoken text to embed for {file_name}"
+                logger.warning(warning)
+                local_report["skipped"] += 1
+                local_report["warnings"].append(warning)
+                return local_report
             except Exception as e:
                 error_msg = f"Error processing {'YouTube video' if is_youtube_video else 'file'} {file_name}: {str(e)}"
                 logger.error(error_msg)
@@ -891,6 +902,13 @@ def process_item(item, args, client, index, site_config):
         error_report["error_details"].append(f"Unknown item type: {item['type']}")
         return item["id"], error_report
 
+    required_access_level = int(item["data"].get("required_access_level", 0) or 0)
+    if required_access_level == 200:
+        logger.info(
+            "Kriyaban-only: required_access_level 200 for %s",
+            s3_key or item["data"].get("url") or file_to_process,
+        )
+
     source_path = file_to_process
     file_to_process, whisper_temps, content_hash_path = _whisper_inputs(
         item["type"], source_path
@@ -899,7 +917,6 @@ def process_item(item, args, client, index, site_config):
 
     author = item["data"]["author"]
     library = item["data"]["library"]
-    required_access_level = int(item["data"].get("required_access_level", 0) or 0)
     # Never upload the temporary Whisper mp3 over an .m4a playback object.
     skip_upload = downloaded_from_s3 or content_hash_path is not None
 
@@ -1504,7 +1521,11 @@ def main():
         print_enhanced_chunk_statistics(overall_report["chunk_lengths"])
 
     queue_status = ingest_queue.get_queue_status()
-    logger.info(f"Final queue status: {queue_status}")
+    summary = format_queue_status_summary(ingest_queue, site=args.site)
+    if "need attention" in summary:
+        logger.warning(summary)
+    else:
+        logger.info(summary)
     outcome.update(
         {
             "processed": overall_report.get("processed", 0),

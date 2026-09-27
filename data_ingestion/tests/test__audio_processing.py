@@ -776,5 +776,51 @@ class TestAudioProcessing(unittest.TestCase):
         logger.debug("Process file with invalid path test completed")
 
 
+def test_no_spoken_text_warns_instead_of_counting_an_error(caplog, monkeypatch):
+    from data_ingestion.audio_video.transcribe_and_ingest_media import (
+        _process_and_store_transcription,
+    )
+
+    monkeypatch.setattr(
+        "data_ingestion.audio_video.transcribe_and_ingest_media.apply_transcription_corrections",
+        lambda transcription, site: transcription,
+    )
+    monkeypatch.setattr(
+        "data_ingestion.audio_video.transcribe_and_ingest_media.chunk_transcription",
+        lambda _transcription: [{"text": "", "words": []}],
+    )
+
+    def raise_empty(_chunks, _client):
+        raise ValueError("No valid text chunks found for embedding creation")
+
+    monkeypatch.setattr(
+        "data_ingestion.audio_video.transcribe_and_ingest_media.create_embeddings",
+        raise_empty,
+    )
+
+    with caplog.at_level(logging.DEBUG):
+        report = _process_and_store_transcription(
+            transcription={"text": ""},
+            file_name="chant.mp3",
+            file_path="/tmp/chant.mp3",
+            pinecone_index=MagicMock(),
+            client=MagicMock(),
+            dryrun=False,
+            is_youtube_video=False,
+            youtube_data=None,
+            default_author="Swami Kriyananda",
+            library_name="Treasures",
+            s3_key="public/audio/treasures/chant.mp3",
+            site_config={},
+            required_access_level=0,
+            site="ananda",
+        )
+
+    assert report["errors"] == 0
+    assert report["skipped"] == 1
+    assert not any(record.levelno >= logging.ERROR for record in caplog.records)
+    assert any("No spoken text" in record.message for record in caplog.records)
+
+
 if __name__ == "__main__":
     main()

@@ -71,6 +71,11 @@ except ImportError:
 
 ## Development Workflow
 
+### Interrupted work
+
+- If the user interrupts a task, bookmark what was unfinished and resume it when the interruption is over, without waiting to be asked.
+- The bookmark is the unfinished task, the next concrete step, and any file already edited for it.
+
 ### Vivek 404 source links
 
 - Vivek (`ananda-public`) is instructed to cite **only** Resource Links from `web/site-config/prompts/ananda-public-base.txt`. A 404 source is often a **stale hardcoded whitelist URL**, not a Pinecone/crawler orphan.

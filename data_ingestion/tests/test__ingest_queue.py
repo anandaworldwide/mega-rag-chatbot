@@ -4,7 +4,10 @@ import shutil
 import sys
 import unittest
 
-from data_ingestion.audio_video.IngestQueue import IngestQueue
+from data_ingestion.audio_video.IngestQueue import (
+    IngestQueue,
+    format_queue_status_summary,
+)
 
 # Add the parent directory (audio_video/) to the Python path
 parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -12,9 +15,7 @@ sys.path.append(parent_dir)
 
 # Centralized test data
 TEST_AUDIO_FILE_1 = "media/test/unit-test-data/how-to-commune-with-god.mp3"
-TEST_AUDIO_FILE_2 = (
-    "media/test/unit-test-data/Treasures/01 Creativity & Initiative.mp3"
-)
+TEST_AUDIO_FILE_2 = "media/test/unit-test-data/Treasures/01 Creativity & Initiative.mp3"
 TEST_YOUTUBE_URL = "https://youtu.be/2s77yXNPwb0?si=abjnjhhBj9qGE1IY"
 TEST_AUTHOR = "Swami Kriyananda"
 TEST_LIBRARY = "Treasures"
@@ -29,6 +30,31 @@ class TestIngestQueue(unittest.TestCase):
     def tearDown(self):
         if os.path.exists(self.test_queue_dir):
             shutil.rmtree(self.test_queue_dir)
+
+    def test_queue_status_summary_lists_failures_and_omits_completed(self):
+        completed = self.queue.add_item(
+            "audio_file",
+            {
+                "s3_key": "public/audio/treasures/done.mp3",
+                "file_path": "",
+            },
+        )
+        failed = self.queue.add_item(
+            "audio_file",
+            {
+                "s3_key": "public/audio/treasures/bad.mp3",
+                "file_path": "",
+            },
+        )
+        self.queue.update_item_status(completed, "completed")
+        self.queue.update_item_status(failed, "error")
+
+        summary = format_queue_status_summary(self.queue, site="ananda")
+
+        self.assertIn("'error': 1", summary)
+        self.assertIn("public/audio/treasures/bad.mp3", summary)
+        self.assertNotIn("done.mp3", summary)
+        self.assertIn("--reprocess-failed", summary)
 
     def test_add_item(self):
         item_type = "audio_file"

@@ -488,6 +488,42 @@ def test_process_item_downloads_missing_audio_and_skips_reupload():
     mock_remove.assert_called_once_with("/tmp/ingest-audio-talk.mp3")
 
 
+def test_process_item_logs_kriyaban_access_level(caplog, tmp_path):
+    import logging
+
+    from data_ingestion.audio_video.transcribe_and_ingest_media import process_item
+
+    local = tmp_path / "talk.mp3"
+    local.write_bytes(b"audio")
+    item = {
+        "id": "item-200",
+        "type": "audio_file",
+        "data": {
+            "file_path": str(local),
+            "s3_key": "public/audio/bhaktan/kriyaban-only/talk.mp3",
+            "author": "Swami Kriyananda",
+            "library": "The Bhaktan Files",
+            "required_access_level": 200,
+        },
+    }
+    args = Mock(force=False, dryrun=False, site="ananda")
+
+    with (
+        patch(
+            "data_ingestion.audio_video.transcribe_and_ingest_media.process_file",
+            return_value={"processed": 1, "errors": 0},
+        ),
+        patch("data_ingestion.audio_video.transcribe_and_ingest_media.save_estimate"),
+        caplog.at_level(logging.INFO),
+    ):
+        process_item(item, args, Mock(), Mock(), {})
+
+    assert (
+        "Kriyaban-only: required_access_level 200 for "
+        "public/audio/bhaktan/kriyaban-only/talk.mp3" in caplog.text
+    )
+
+
 def test_process_item_keeps_local_audio_and_does_not_skip_upload(tmp_path):
     from data_ingestion.audio_video.transcribe_and_ingest_media import process_item
 

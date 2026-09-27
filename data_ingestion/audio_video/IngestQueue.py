@@ -417,3 +417,47 @@ class IngestQueue:
                 except OSError as e:
                     logger.error(f"Error resetting item {filename}: {e}")
         logger.info("All items in the queue have been reset to 'pending' status.")
+
+
+_ATTENTION_STATUSES = ("error", "interrupted", "processing")
+
+
+def _queue_item_label(item: dict) -> str:
+    data = item.get("data") or {}
+    return (
+        data.get("s3_key")
+        or data.get("url")
+        or data.get("file_path")
+        or item.get("id", "")
+    )
+
+
+def format_queue_status_summary(queue, site: str | None = None) -> str:
+    """Return queue counts and the items that failed or got stuck.
+
+    Completed items are counted and not listed.
+    """
+    status = queue.get_queue_status()
+    lines = [f"Queue status: {status}"]
+    pending = status.get("pending", 0)
+    if pending:
+        lines.append(f"{pending} items still pending.")
+    attention = [
+        item
+        for item in queue.get_all_items()
+        if item.get("status") in _ATTENTION_STATUSES
+    ]
+    if not attention:
+        return "\n".join(lines)
+    lines.append(f"{len(attention)} queue items need attention:")
+    for item in attention:
+        lines.append(f"  {item.get('status')}: {_queue_item_label(item)}")
+    if site and any(
+        item.get("status") in {"error", "interrupted"} for item in attention
+    ):
+        lines.append(
+            "Reprocess failures with: "
+            "uv run python data_ingestion/audio_video/manage_queue.py "
+            f"--site {site} --reprocess-failed"
+        )
+    return "\n".join(lines)
