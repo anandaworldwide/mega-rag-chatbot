@@ -209,6 +209,41 @@ entry. Later ingest runs use the stored values.
 The older `manage_queue.py --playlists-file` / `--urls-file` path still works
 for a one-off local file. It does not update the S3 JSON list.
 
+### Stopping and resuming audio or YouTube
+
+Audio files and YouTube videos share one queue and one transcriber. Ctrl-C and
+wait for `Shutting down gracefully`. The item in progress becomes
+`interrupted`. Items not yet started stay `pending`. Completed items stay
+`completed`. The transcriber only takes `pending` items, and it reuses Whisper
+cache files already written.
+
+Resume with the transcriber. Run the original `ingest_cli.py audio` or
+`youtube` command again only when you mean to queue new work.
+`audio` lists S3 and appends a new queue item for every file, including ones
+already completed. `youtube` skips videos already in the processed map, then
+appends a new queue item for every video that is not in that map yet, including
+ones still `pending` or `interrupted`.
+
+```bash
+uv run python data_ingestion/audio_video/manage_queue.py \
+  --site ananda \
+  --reprocess-failed
+
+caffeinate -i uv run python data_ingestion/audio_video/transcribe_and_ingest_media.py \
+  --site ananda \
+  --yes
+```
+
+`--reprocess-failed` puts `interrupted` and `error` items back to `pending`.
+If the process was killed outright, an item can stay `processing`. Reset that
+in a separate command, then start the transcriber:
+
+```bash
+uv run python data_ingestion/audio_video/manage_queue.py \
+  --site ananda \
+  --reprocess-processing-items
+```
+
 ### Ananda Library dump
 
 1. Download the latest WordPress dump from
@@ -271,6 +306,7 @@ uv run python bin/analyze_title_prefix_catalog.py \
 ```bash
 uv run python data_ingestion/audio_video/manage_queue.py --site ananda --status
 uv run python data_ingestion/audio_video/manage_queue.py --site ananda --remove-completed
+# Resume a stopped audio or YouTube run: see "Stopping and resuming audio or YouTube" above.
 uv run python data_ingestion/bin/list_ingestion_runs.py --site ananda --status completed
 ```
 
