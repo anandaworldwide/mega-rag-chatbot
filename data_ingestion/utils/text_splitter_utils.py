@@ -1551,7 +1551,10 @@ class SpacyTextSplitter:
                         )
                         overlap_tokens = prev_chunk_tokens[-actual_overlap:]
                         overlap_text = " ".join(overlap_tokens).strip()
-                    overlapped_chunk = overlap_text + " " + chunk
+                    # A token split can leave punctuation at the start of the next
+                    # chunk. Do not insert a space in front of that punctuation.
+                    joiner = "" if chunk[:1] in ".,!?;:" else " "
+                    overlapped_chunk = overlap_text + joiner + chunk
 
                     # Safety check: verify we didn't exceed target token limit
                     final_token_count = len(self._tokenize_text(overlapped_chunk))

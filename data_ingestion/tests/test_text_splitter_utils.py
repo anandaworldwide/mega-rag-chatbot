@@ -31,14 +31,12 @@ class _FakeSpacySpan:
 
 
 def _fake_spacy_tokenize(text: str) -> list[_FakeSpacyToken]:
-    # Keep in sync with mock_tiktoken() tokenization below:
+    # Keep token boundaries in sync with mock_tiktoken() below:
     # split words and keep punctuation as separate tokens.
-    raw_tokens = re.findall(r"\w+|[^\w\s]", text)
+    # whitespace_ is the whitespace that follows the token, matching real spaCy.
     tokens: list[_FakeSpacyToken] = []
-    for tok in raw_tokens:
-        # No space before punctuation, otherwise single space
-        whitespace_ = "" if bool(re.fullmatch(r"[^\w\s]", tok)) else " "
-        tokens.append(_FakeSpacyToken(tok, whitespace_))
+    for match in re.finditer(r"(\w+|[^\w\s])(\s*)", text):
+        tokens.append(_FakeSpacyToken(match.group(1), match.group(2)))
     return tokens
 
 
@@ -1020,14 +1018,8 @@ class TestTokenizationBugFixes:
         except Exception as e:
             pytest.skip(f"Error during tokenization comparison: {e}")
 
-    @pytest.mark.xfail(
-        reason="Mock tiktoken doesn't perfectly preserve punctuation spacing like real tiktoken"
-    )
     def test_punctuation_preservation_in_overlap(self):
-        """
-        Test that punctuation is preserved correctly in overlap text after the tiktoken fix.
-        Note: This test may fail with mocked tiktoken due to differences in tokenization behavior.
-        """
+        """Punctuation spacing survives token splits and overlap."""
         splitter = SpacyTextSplitter(chunk_size=600, chunk_overlap=120)
 
         # Create text with various punctuation that could be problematic
@@ -1052,48 +1044,47 @@ class TestTokenizationBugFixes:
 
         # Split the text
         chunks = splitter.split_text(full_text, document_id="punctuation_test")
+        assert len(chunks) >= 2, "Expected overlap across at least two chunks"
 
-        if len(chunks) >= 2:
-            # Check the second chunk for overlap
-            second_chunk = chunks[1]
+        second_chunk = chunks[1]
 
-            # Look for common punctuation patterns that should be preserved
-            punctuation_tests = [
-                ("don't", "Contraction with apostrophe"),
-                ("won't", "Another contraction"),
-                ("can't", "Third contraction"),
-                ("1,234.56", "Number with comma and decimal"),
-                ("12/31/2023", "Date with slashes"),
-                ("https://example.com", "URL"),
-                ("test@example.com", "Email address"),
-                ("x = y + z", "Mathematical expression"),
-                ("H₂O", "Chemical formula"),
-                ('"like this"', "Quoted text"),
-                ("it's", "Contraction with apostrophe"),
-            ]
+        # Look for common punctuation patterns that should be preserved
+        punctuation_tests = [
+            ("don't", "Contraction with apostrophe"),
+            ("won't", "Another contraction"),
+            ("can't", "Third contraction"),
+            ("1,234.56", "Number with comma and decimal"),
+            ("12/31/2023", "Date with slashes"),
+            ("https://example.com", "URL"),
+            ("test@example.com", "Email address"),
+            ("x = y + z", "Mathematical expression"),
+            ("H₂O", "Chemical formula"),
+            ('"like this"', "Quoted text"),
+            ("it's", "Contraction with apostrophe"),
+        ]
 
-            for pattern, description in punctuation_tests:
-                if pattern in second_chunk:
-                    print(f"✓ {description}: '{pattern}' found correctly")
-                # Note: Not all patterns may be in overlap, so we don't assert here
+        for pattern, description in punctuation_tests:
+            if pattern in second_chunk:
+                print(f"✓ {description}: '{pattern}' found correctly")
+            # Note: Not all patterns may be in overlap, so we don't assert here
 
-            # Check for common punctuation errors that should NOT exist
-            error_patterns = [
-                (" ,", "Space before comma"),
-                (" .", "Space before period"),
-                (" !", "Space before exclamation"),
-                (" ?", "Space before question mark"),
-                ("don ' t", "Broken contraction"),
-                ("won ' t", "Broken contraction"),
-                ("can ' t", "Broken contraction"),
-                ("it ' s", "Broken contraction"),
-            ]
+        # Check for common punctuation errors that should NOT exist
+        error_patterns = [
+            (" ,", "Space before comma"),
+            (" .", "Space before period"),
+            (" !", "Space before exclamation"),
+            (" ?", "Space before question mark"),
+            ("don ' t", "Broken contraction"),
+            ("won ' t", "Broken contraction"),
+            ("can ' t", "Broken contraction"),
+            ("it ' s", "Broken contraction"),
+        ]
 
-            errors_found = []
-            for error_pattern, description in error_patterns:
-                if error_pattern in second_chunk:
-                    errors_found.append(f"{description}: '{error_pattern}'")
+        errors_found = []
+        for error_pattern, description in error_patterns:
+            if error_pattern in second_chunk:
+                errors_found.append(f"{description}: '{error_pattern}'")
 
-            assert len(errors_found) == 0, (
-                f"Found punctuation errors in overlap: {errors_found}"
-            )
+        assert len(errors_found) == 0, (
+            f"Found punctuation errors in overlap: {errors_found}"
+        )
