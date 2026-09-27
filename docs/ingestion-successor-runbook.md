@@ -2,8 +2,8 @@
 
 This is the operator guide for Luca (`ananda`) audio, YouTube, and Ananda Library
 ingestion, plus Crystal Clarity PDFs. **S3 is the official store for originals and processing state.** A
-developer laptop is temporary compute. Do not keep the only copy of MP3s, YouTube
-lists, dumps, Whisper caches, or Crystal book files on a personal disk.
+developer laptop is temporary compute. S3 is the official copy. A second copy of
+those prefixes belongs on an external disk; see [Disk backup of S3](#disk-backup-of-s3).
 
 Jairam/PhotoWise PDF ingest and the website crawler are out of scope here.
 
@@ -46,6 +46,7 @@ Bucket comes from `S3_BUCKET_NAME` in `.env.ananda` (usually `ananda-chatbot`).
 | Whisper JSON cache | `ingestion/state/transcriptions/{site}/` |
 | Ananda Library dumps | `ingestion/dumps/anandalib/` |
 | Crystal Clarity PDFs | `ingestion/sources/crystal/pdfs/` (not under `public/`) |
+| Library prep notes | `ingestion/sources/{library}/` for `bhaktan` and `treasures`: `README.rtf` plus an `ignore/` tree of files set aside before ingest. Not under `public/`. Audio ingest does not list this prefix. |
 | Ingest run ledger | `ingestion/runs/ingestion_runs.jsonl` (live sync; local cache under `.cache/ingestion-runs/`) |
 
 Audio `--library` is a key in
@@ -64,6 +65,19 @@ Treasures kriyaban talks live only under
 `public/audio/treasures/kriyaban-only/`. Do not publish the four kriya-class
 albums at library root, and do not upload
 `Thumb drive from Krishna 7-2024/Kriyaban Only/` (deleted duplicate tree).
+
+Prep notes for how a local collection was cleaned before ingest live next to the
+Crystal PDFs, not in the audio tree:
+
+- `ingestion/sources/treasures/README.rtf` and `ingestion/sources/treasures/ignore/`
+- `ingestion/sources/bhaktan/README.rtf` and `ingestion/sources/bhaktan/ignore/`
+
+`ingest_cli.py audio` lists `public/audio/{library}/` only, so these objects are
+never queued. Bhaktan's ignore MP3s are Wodehouse readings. Copies of those same
+files also remain in the public library under
+`public/audio/bhaktan/Swami reading PG Wodehouse/` and two files under
+`public/audio/bhaktan/Swami in India 2010/`. The `ingestion/sources/bhaktan/`
+copy is the set-aside record. It does not remove the public copies.
 
 ## Publish leftovers and new files to S3
 
@@ -96,7 +110,10 @@ uv run python bin/publish_ingest_sources_to_s3.py --site ananda dump \
 
 `audio` and `youtube` already pull the Whisper cache and push it back, along
 with `youtube_data_map` and the transcriptions database, even if the run stops
-early. A cache younger than 24 hours is reused. `state --apply` is the full
+early. Cache files younger than 24 hours are reused, but the transcription
+database, YouTube map, and run ledger are still refreshed from S3 first, so a
+stale local copy is not uploaded over the shared one. A missing or unreadable
+freshness stamp refreshes the whole cache. `state --apply` is the full
 compare when you want to repair that cache, not the step after every media run.
 The run ledger is pulled from S3, appended locally, and pushed back on every
 ingest event. `list_ingestion_runs.py --site` pulls the shared ledger before
@@ -109,11 +126,11 @@ S3 with this CLI before or as they are processed; a laptop is not the archive.
 ## Audio ingest
 
 One command queues audio, transcribes, and pushes new Whisper cache files back
-even if the run fails partway through. A local Whisper cache younger than 24
-hours is reused, including on the way back up, so the command does not compare
-every cached file to S3. After 24 hours the local cache is deleted and
-downloaded again. An empty laptop still downloads the full cache.
-`state --apply` remains the full compare.
+even if the run fails partway through. A local Whisper file cache younger than
+24 hours is reused, so the command does not compare every cached file to S3.
+The transcription database is still downloaded when S3 differs. A missing or
+unreadable freshness stamp, a cache older than 24 hours, and an empty laptop
+download the full cache. `state --apply` remains the full compare.
 
 ```bash
 # Already on S3. Start with a small prefix, not the whole library.
@@ -143,12 +160,14 @@ not know the hash until download, so a huge prefix still downloads files that
 are already transcribed.
 
 `.m4a` is queued with `.mp3`, `.wav`, and `.flac`. Whisper receives a temporary
-mp3. The S3 object and Pinecone `filename` stay the `.m4a` key. The two Bhaktan
+mp3 outside the source folder. Title and album tags are read from the `.m4a`.
+A local `.m4a` that is not already on S3 is uploaded as that `.m4a`. The two Bhaktan
 talks that were only `.m4a` live under
 `public/audio/bhaktan/kriyaban-only/_ Swami Kriyatalks (ONLY FOR KRIYABANS)/`.
 A folder named `kriyaban-only` / `Kriyaban Only` proposes 200. So does a folder
 whose name contains `kriyaban only` or `only for kriyabans`, which covers
-`_ Swami Kriyatalks (ONLY FOR KRIYABANS)`. The word "kriya" does not.
+`_ Swami Kriyatalks (ONLY FOR KRIYABANS)`. Those phrases in the filename do
+not. The word "kriya" does not.
 `--required-access-level` is the default for everything else (default 0).
 `--ignore-path-access-levels` forces that flag on every file.
 
@@ -171,10 +190,12 @@ uv run python data_ingestion/audio_video/transcribe_and_ingest_media.py \
 ### YouTube
 
 The source list is JSON in S3 (`{site}-youtube-links.json`). The command pulls
-the processed map, queues videos that are not in it, transcribes, and pushes
-the map plus any new Whisper cache files back even if the run fails partway
-through. The Whisper cache on this laptop is reused for 24 hours, then deleted
-and downloaded again. YouTube
+the processed map, queues videos that are not in it and not already in the
+queue, transcribes, and pushes the map plus any new Whisper cache files back
+even if the run fails partway through. Re-adding a URL updates its author,
+library, and access level. The Whisper file cache on this laptop is reused for
+24 hours, then deleted and downloaded again. The transcription database is
+still refreshed from S3 during that window. YouTube
 audio is not stored on S3. Pinecone keeps the video URL. `--library` is the
 display name `Ananda Youtube`. Access level is the flag you pass when adding;
 there is no folder convention.
@@ -342,6 +363,39 @@ caffeinate -i uv run python data_ingestion/bin/ingest_cli.py pdf --site crystal
 Default is `--keep-data`. `--replace-library` deletes `Crystal Clarity` vectors
 and requires typing `Crystal Clarity`. `--yes` does not skip that prompt.
 Jairam and PhotoWise stay on `pdf_to_vector_db.py` with a local directory.
+
+## Disk backup of S3
+
+Bucket versioning on `ananda-chatbot` is already enabled (checked 2026-09-27). An overwritten or deleted key can be restored from an older S3 version. There is no lifecycle rule, so old versions are kept until someone adds one. Versioning does not survive deletion of the bucket or loss of the AWS account. That case uses the disk copy.
+
+S3 stays canonical. The disk is recovery only. Crystal PDFs on the disk stay private to that developer. Not a shared drive.
+
+Two developers who have the `ananda` AWS profile each keep their own disk. The developer who just wrote to S3 syncs before they treat the session as finished. The other developer runs the same command to their own disk at least once a quarter, including a quarter when nobody ingested.
+
+Run it from the repo root after any of these succeed:
+
+- `uv run python bin/publish_ingest_sources_to_s3.py --site ananda ... --apply`
+- `uv run python bin/publish_ingest_sources_to_s3.py --site ananda state --apply`
+- `uv run python data_ingestion/bin/ingest_cli.py audio`
+- `uv run python data_ingestion/bin/ingest_cli.py youtube`
+- `uv run python data_ingestion/bin/ingest_cli.py library`
+- `uv run python data_ingestion/bin/ingest_cli.py pdf`
+- `./bin/publish_title_catalog_to_s3.sh`
+
+```bash
+./bin/sync_ingest_backup_from_s3.sh /Volumes/your-disk/ananda-chatbot
+```
+
+`--dry-run` lists transfers and does not download. The script syncs `public/audio/`, `public/pdf/Ananda Library/`, `ingestion/` (Crystal PDFs, bhaktan and treasures prep notes, dumps, Whisper cache, run ledger), `site-config/data_ingestion/` (YouTube lists, `youtube_data_map`, exclusion rules), and `site-config/title-catalog/`. It never passes `--delete`.
+
+After the first sync onto a new disk, confirm one audio object and one Crystal PDF. The two byte counts match:
+
+```bash
+KEY='ingestion/sources/crystal/pdfs/Example.pdf'
+aws s3api head-object --bucket ananda-chatbot --key "$KEY" --profile ananda \
+  --query ContentLength --output text
+stat -f%z "/Volumes/your-disk/ananda-chatbot/$KEY"
+```
 
 ## Credentials a successor needs
 

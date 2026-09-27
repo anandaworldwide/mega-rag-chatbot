@@ -447,6 +447,14 @@ class DirectoryLoader:
         return documents
 
 
+def remember_pdf_filename(metadata: dict) -> None:
+    """Record the PDF basename before source is replaced by a product URL."""
+    source = str((metadata or {}).get("source") or "")
+    name = os.path.basename(source)
+    if name.lower().endswith(".pdf"):
+        metadata["pdf_filename"] = name
+
+
 def _extract_document_metadata(raw_doc: Document) -> tuple[str, str, str]:
     """
     Extract metadata from document with comprehensive field name checking.
@@ -828,6 +836,9 @@ async def process_document(
     Returns:
         tuple[bool, int, int]: (success, total_chunks, failed_chunks)
     """
+    # Keep the PDF filename before source is replaced by a product URL.
+    remember_pdf_filename(raw_doc.metadata)
+
     # Extract and validate metadata
     source_url, title, author = _extract_document_metadata(raw_doc)
 
@@ -1007,6 +1018,9 @@ async def _process_valid_chunk(
         "access_level": "public",
         "required_access_level": 0,
     }
+    pdf_filename = doc.metadata.get("pdf_filename")
+    if pdf_filename:
+        minimal_metadata["pdf_filename"] = pdf_filename
 
     # Add page reference if it was calculated during processing
     page_reference = doc.metadata.get("page")

@@ -232,6 +232,19 @@ class ChunkingMetrics:
                 print(f"  ... and {len(self.anomalies) - 200} more anomalies")
 
 
+_OVERLAP_NO_SPACE_PREFIXES = frozenset(".,!?;:)]}\"'")
+
+
+def overlap_joiner(chunk: str) -> str:
+    """Return the separator between overlap text and the next chunk.
+
+    Punctuation and closing quotes or brackets stay attached to the previous word.
+    """
+    if chunk[:1] in _OVERLAP_NO_SPACE_PREFIXES:
+        return ""
+    return " "
+
+
 class SpacyTextSplitter:
     """Text splitter that uses spaCy to split text into chunks by paragraphs with fixed sizing."""
 
@@ -1553,8 +1566,7 @@ class SpacyTextSplitter:
                         overlap_text = " ".join(overlap_tokens).strip()
                     # A token split can leave punctuation at the start of the next
                     # chunk. Do not insert a space in front of that punctuation.
-                    joiner = "" if chunk[:1] in ".,!?;:" else " "
-                    overlapped_chunk = overlap_text + joiner + chunk
+                    overlapped_chunk = overlap_text + overlap_joiner(chunk) + chunk
 
                     # Safety check: verify we didn't exceed target token limit
                     final_token_count = len(self._tokenize_text(overlapped_chunk))

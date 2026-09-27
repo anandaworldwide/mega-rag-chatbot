@@ -50,6 +50,7 @@ class YoutubeIngestSelection:
     videos: list[YoutubeVideoCandidate]
     skipped_processed: int
     failed: list[str]
+    skipped_queued: int = 0
 
 
 def serialize_source_list(entries: list[YoutubeSourceEntry]) -> dict:
@@ -81,13 +82,20 @@ def parse_source_list(payload: dict) -> list[YoutubeSourceEntry]:
 def add_source_entry(
     entries: list[YoutubeSourceEntry], entry: YoutubeSourceEntry
 ) -> tuple[list[YoutubeSourceEntry], bool]:
-    """Append an entry. The same kind and URL is kept once."""
-    if any(
-        existing.kind == entry.kind and existing.url == entry.url
-        for existing in entries
-    ):
-        return list(entries), False
-    return [*entries, entry], True
+    """Append an entry, or replace metadata when the same kind and URL exists."""
+    updated = []
+    found = False
+    changed = False
+    for existing in entries:
+        if existing.kind == entry.kind and existing.url == entry.url:
+            found = True
+            updated.append(entry)
+            changed = existing != entry
+            continue
+        updated.append(existing)
+    if not found:
+        return [*entries, entry], True
+    return updated, changed
 
 
 def remove_source_entry(
@@ -98,10 +106,23 @@ def remove_source_entry(
     return kept, len(kept) != len(entries)
 
 
+def youtube_ids_already_queued(items) -> set[str]:
+    """Return YouTube ids that already have a queue item."""
+    ids = set()
+    for item in items:
+        if not isinstance(item, dict) or item.get("type") != "youtube_video":
+            continue
+        youtube_id = (item.get("data") or {}).get("youtube_id")
+        if youtube_id:
+            ids.add(str(youtube_id))
+    return ids
+
+
 def plan_new_youtube_videos(
     entries: list[YoutubeSourceEntry],
     processed_ids: set[str],
     expand_playlist,
+    queued_ids: set[str] | None = None,
 ) -> YoutubeIngestSelection:
     """Select videos whose IDs are absent from the processed map.
 
@@ -111,8 +132,10 @@ def plan_new_youtube_videos(
     videos: list[YoutubeVideoCandidate] = []
     seen: set[str] = set()
     skipped = 0
+    skipped_queued = 0
     failed: list[str] = []
     processed = set(processed_ids)
+    queued = {str(youtube_id) for youtube_id in (queued_ids or set())}
 
     for entry in entries:
         candidates, entry_failed = _candidates_for_entry(entry, expand_playlist)
@@ -123,6 +146,9 @@ def plan_new_youtube_videos(
             seen.add(youtube_id)
             if youtube_id in processed:
                 skipped += 1
+                continue
+            if youtube_id in queued:
+                skipped_queued += 1
                 continue
             videos.append(
                 YoutubeVideoCandidate(
@@ -136,7 +162,10 @@ def plan_new_youtube_videos(
             )
 
     return YoutubeIngestSelection(
-        videos=videos, skipped_processed=skipped, failed=failed
+        videos=videos,
+        skipped_processed=skipped,
+        failed=failed,
+        skipped_queued=skipped_queued,
     )
 
 

@@ -56,6 +56,18 @@ class TestIngestQueue(unittest.TestCase):
         self.assertNotIn("done.mp3", summary)
         self.assertIn("--reprocess-failed", summary)
 
+    def test_queue_status_summary_names_processing_reset(self):
+        stuck = self.queue.add_item(
+            "audio_file",
+            {"s3_key": "public/audio/treasures/stuck.mp3", "file_path": ""},
+        )
+        self.queue.update_item_status(stuck, "processing")
+
+        summary = format_queue_status_summary(self.queue, site="ananda")
+
+        self.assertIn("--reprocess-processing-items", summary)
+        self.assertNotIn("--reprocess-failed", summary)
+
     def test_add_item(self):
         item_type = "audio_file"
         data = {

@@ -463,10 +463,14 @@ def _process_and_store_transcription(
     site_config,
     required_access_level,
     site=None,
+    metadata_path=None,
 ):
     """
     Processes transcription into chunks and stores in Pinecone.
     Returns local_report with processing results.
+
+    metadata_path is the original media file when file_path is a temporary
+    Whisper conversion. Title and album tags are read from metadata_path.
     """
     local_report = {
         "processed": 0,
@@ -520,7 +524,7 @@ def _process_and_store_transcription(
                     album = None  # YouTube videos don't have albums
                 else:
                     title, mp3_author, duration, url, album = get_media_metadata(
-                        file_path, site
+                        metadata_path or file_path, site
                     )
                     author = normalize_author(
                         mp3_author if mp3_author != "Unknown" else default_author, site
@@ -687,6 +691,9 @@ def process_file(
     if file_name is None:  # Error in setup
         return setup_report
 
+    if content_hash_path:
+        file_name = os.path.basename(content_hash_path)
+
     # Step 2: Handle transcription (check cache or transcribe)
     transcription, transcription_report = _handle_transcription(
         file_path,
@@ -720,14 +727,20 @@ def process_file(
         site_config,
         required_access_level,
         site=site,
+        metadata_path=content_hash_path,
     )
 
     if processing_report["errors"] > 0:
         return processing_report
 
-    # Step 4: Handle S3 upload
+    # Step 4: Handle S3 upload of the original, never the temporary Whisper mp3.
     upload_report = _handle_s3_upload(
-        file_path, file_name, s3_key, dryrun, is_youtube_video, skip_upload=skip_upload
+        content_hash_path or file_path,
+        file_name,
+        s3_key,
+        dryrun,
+        is_youtube_video,
+        skip_upload=skip_upload,
     )
 
     # Merge all reports
@@ -917,8 +930,9 @@ def process_item(item, args, client, index, site_config):
 
     author = item["data"]["author"]
     library = item["data"]["library"]
-    # Never upload the temporary Whisper mp3 over an .m4a playback object.
-    skip_upload = downloaded_from_s3 or content_hash_path is not None
+    # The S3 download is already the original object. A local .m4a still needs
+    # upload, and that upload must be the .m4a rather than the Whisper mp3.
+    skip_upload = downloaded_from_s3
 
     try:
         start_time = time.time()
@@ -1339,6 +1353,29 @@ def _process_items_with_progress(
     return overall_report
 
 
+def _take_finished_results(result_queue, items_to_process, ingest_queue) -> list[dict]:
+    """Apply results workers already finished, and return those reports.
+
+    Items still in items_to_process have not reported a result.
+    """
+    finished = []
+    while True:
+        try:
+            item_id, report = result_queue.get_nowait()
+        except Empty:
+            return finished
+        finished.append(report)
+        if item_id is None:
+            continue
+        ingest_queue.update_item_status(
+            item_id,
+            "completed" if report.get("errors", 0) == 0 else "error",
+        )
+        items_to_process[:] = [
+            item for item in items_to_process if item["id"] != item_id
+        ]
+
+
 def _run_worker_pool_processing(args, overall_report):
     """Run the main worker pool processing loop."""
     # Initialize multiprocessing resources
@@ -1357,6 +1394,10 @@ def _run_worker_pool_processing(args, overall_report):
         initializer=worker,
         initargs=(task_queue, result_queue, args, stop_event),
     ) as pool:
+        ingest_queue = (
+            IngestQueue(queue_dir=args.queue) if args.queue else IngestQueue()
+        )
+
         # Set up graceful shutdown handlers for clean termination
         def graceful_shutdown(_signum, _frame):
             logger.info("\nReceived interrupt signal. Shutting down gracefully...")
@@ -1365,6 +1406,13 @@ def _run_worker_pool_processing(args, overall_report):
                 task_queue.put(None)
             pool.close()
             pool.join()
+            finished = _take_finished_results(
+                result_queue, items_to_process, ingest_queue
+            )
+            if finished:
+                report_container["report"] = merge_reports(
+                    [report_container["report"], *finished]
+                )
             for item in items_to_process:
                 ingest_queue.update_item_status(item["id"], "interrupted")
 
@@ -1382,10 +1430,6 @@ def _run_worker_pool_processing(args, overall_report):
 
         signal.signal(signal.SIGINT, graceful_shutdown)
         signal.signal(signal.SIGTERM, graceful_shutdown)
-
-        ingest_queue = (
-            IngestQueue(queue_dir=args.queue) if args.queue else IngestQueue()
-        )
 
         try:
             updated_report = _process_items_with_progress(

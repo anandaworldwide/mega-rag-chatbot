@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from data_ingestion.bin.ingest_cli import (
+    _load_crystal_represented,
     _run_audio_command,
     _run_youtube_command,
     build_queue_argv,
@@ -151,6 +152,7 @@ def test_run_youtube_queues_new_video_and_syncs_when_transcribe_fails(tmp_path):
     publisher.read_youtube_source_list.return_value = {"entries": []}
     queue = MagicMock()
     queue.add_item.return_value = "item-1"
+    queue.get_all_items.return_value = []
     calls = []
 
     def runner(command, check):
@@ -200,6 +202,7 @@ def test_run_youtube_does_not_transcribe_videos_already_in_the_map(tmp_path):
         ]
     }
     queue = MagicMock()
+    queue.get_all_items.return_value = []
     runner = MagicMock()
 
     selection = run_youtube(
@@ -287,6 +290,7 @@ def test_run_youtube_reports_playlist_failure_and_queues_the_rest(tmp_path, caps
     }
     queue = MagicMock()
     queue.add_item.return_value = "item-1"
+    queue.get_all_items.return_value = []
 
     def expand_playlist(url):
         raise RuntimeError("yt-dlp unavailable")
@@ -406,3 +410,26 @@ def test_youtube_cli_parses_add_and_remove(monkeypatch):
     assert seen["add_playlist"] == ["https://www.youtube.com/playlist?list=PLabc"]
     assert seen["remove_url"] == ["https://youtu.be/oldvideo111"]
     assert seen["required_access_level"] == 200
+
+
+def test_crystal_loader_returns_filenames_and_titles(monkeypatch):
+    monkeypatch.setenv("PINECONE_INGEST_INDEX_NAME", "crystal-index")
+
+    class _Index:
+        pass
+
+    class _Client:
+        def Index(self, name):
+            assert name == "crystal-index"
+            return _Index()
+
+    monkeypatch.setattr(
+        "data_ingestion.utils.pinecone_utils.get_pinecone_client",
+        lambda: _Client(),
+    )
+    monkeypatch.setattr(
+        "data_ingestion.crystal_pdf_ingest.represented_pdfs_from_index",
+        lambda index, library: ({"already.pdf"}, {"product title"}),
+    )
+
+    assert _load_crystal_represented() == ({"already.pdf"}, {"product title"})

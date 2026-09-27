@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -30,10 +31,12 @@ def select_new_pdf_keys(
 ) -> list[str]:
     """Return PDF keys that are not already in Pinecone.
 
-    A book is already represented when its filename matches a source basename
-    or its sanitized stem matches a vector-id title. Existing Crystal vectors
-    store a product URL in source, so the title match is what skips them.
-    Raises SystemExit if any key uses a public/ prefix.
+    A book is already represented when its filename matches a stored PDF name
+    or its full sanitized stem matches a vector-id title of at most 50
+    characters. A longer stem is not compared to a truncated title. Existing
+    Crystal vectors store a product URL in source, so the title match is what
+    skips those. New ingests also store pdf_filename. Raises SystemExit if any
+    key uses a public/ prefix.
     """
     represented = {name.lower() for name in represented_basenames}
     titles = {title.casefold() for title in (represented_titles or set())}
@@ -45,8 +48,10 @@ def select_new_pdf_keys(
             continue
         if Path(key).name.lower() in represented:
             continue
-        stem = _sanitize_text(Path(key).stem)[:50].casefold()
-        if stem and stem in titles:
+        # Title match is exact and only for stems that were not truncated.
+        # A 50-character prefix is not an identity: two books can share it.
+        stem = _sanitize_text(Path(key).stem)
+        if stem and len(stem) <= 50 and stem.casefold() in titles:
             continue
         selected.append(key)
     return selected
@@ -108,34 +113,56 @@ def build_pdf_argv(repo_root: Path, file_path: Path, *, keep_data: bool) -> list
     return command
 
 
-def represented_titles_from_index(index, library_name: str) -> set[str]:
-    """List vector ids and return their title segments. Does not fetch vectors."""
+def _library_vector_ids(index, library_name: str) -> list[str]:
     prefix = f"text||{library_name}||"
     vector_ids = []
     for batch in index.list(prefix=prefix):
         vector_ids.extend(batch)
-    return titles_from_vector_ids(vector_ids)
+    return vector_ids
 
 
-def represented_basenames_from_index(index, library_name: str) -> set[str]:
-    """Read one vector per document and return PDF filenames already stored."""
-    prefix = f"text||{library_name}||"
-    vector_ids = []
-    for batch in index.list(prefix=prefix):
-        vector_ids.extend(batch)
+def _metadata_of(vector) -> dict:
+    metadata = (
+        vector.get("metadata", {})
+        if isinstance(vector, dict)
+        else getattr(vector, "metadata", {})
+    )
+    return metadata or {}
+
+
+def _basenames_for_vector_ids(index, vector_ids) -> set[str]:
+    """Read one vector per document and collect PDF filenames."""
     sample_ids = one_vector_id_per_document(vector_ids)
     sources = []
     for start in range(0, len(sample_ids), 10):
         fetched = index.fetch(ids=sample_ids[start : start + 10])
         vectors = fetched["vectors"] if isinstance(fetched, dict) else fetched.vectors
         for vector in vectors.values():
-            metadata = (
-                vector.get("metadata", {})
-                if isinstance(vector, dict)
-                else getattr(vector, "metadata", {})
-            )
-            sources.append((metadata or {}).get("source"))
+            metadata = _metadata_of(vector)
+            filename = metadata.get("pdf_filename")
+            if filename:
+                sources.append(filename)
+            sources.append(metadata.get("source"))
     return pdf_basenames_from_sources(sources)
+
+
+def represented_titles_from_index(index, library_name: str) -> set[str]:
+    """List vector ids and return their title segments. Does not fetch vectors."""
+    return titles_from_vector_ids(_library_vector_ids(index, library_name))
+
+
+def represented_basenames_from_index(index, library_name: str) -> set[str]:
+    """Read one vector per document and return PDF filenames already stored."""
+    return _basenames_for_vector_ids(index, _library_vector_ids(index, library_name))
+
+
+def represented_pdfs_from_index(index, library_name: str) -> tuple[set[str], set[str]]:
+    """Return (filenames, title segments) from one listing of the library."""
+    vector_ids = _library_vector_ids(index, library_name)
+    return (
+        _basenames_for_vector_ids(index, vector_ids),
+        titles_from_vector_ids(vector_ids),
+    )
 
 
 def run_pdf(
@@ -191,11 +218,38 @@ def run_pdf(
         f"Crystal PDFs to ingest: {len(to_download)} "
         f"(keep_data={keep_data}, library={CRYSTAL_LIBRARY_NAME})"
     )
-    work = dest_dir or Path(tempfile.mkdtemp(prefix="crystal-pdfs-"))
-    publisher.download_pdfs(to_download, work, prefix)
-    runner(
-        build_pdf_argv(repo_root, work, keep_data=keep_data),
-        check=True,
-        cwd=repo_root,
+    return _ingest_pdf_directory(
+        publisher,
+        repo_root,
+        runner,
+        to_download,
+        prefix,
+        keep_data=keep_data,
+        dest_dir=dest_dir,
     )
-    return to_download
+
+
+def _ingest_pdf_directory(
+    publisher,
+    repo_root: Path,
+    runner,
+    to_download: list[str],
+    prefix: str,
+    *,
+    keep_data: bool,
+    dest_dir: Path | None,
+) -> list[str]:
+    """Download and ingest PDFs. A generated temp directory is removed."""
+    cleanup = dest_dir is None
+    work = dest_dir or Path(tempfile.mkdtemp(prefix="crystal-pdfs-"))
+    try:
+        publisher.download_pdfs(to_download, work, prefix)
+        runner(
+            build_pdf_argv(repo_root, work, keep_data=keep_data),
+            check=True,
+            cwd=repo_root,
+        )
+        return to_download
+    finally:
+        if cleanup:
+            shutil.rmtree(work, ignore_errors=True)

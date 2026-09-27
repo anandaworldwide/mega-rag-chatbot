@@ -57,15 +57,17 @@ def path_has_ignore_component(relative_path: str) -> bool:
 
 
 def path_has_kriyaban_only_component(relative_path: str) -> bool:
-    """Return True if any folder is Kriyaban Only or names that album.
+    """Return True if any parent folder is Kriyaban Only or names that album.
 
     Exact ``kriyaban-only`` / ``Kriyaban Only`` still matches. A folder whose
     name contains ``kriyaban only`` or ``only for kriyabans`` also matches.
-    The word ``kriya`` and the name Kriyananda do not.
+    The filename is not a folder. The word ``kriya`` and the name Kriyananda
+    do not match.
     """
-    for part in normalize_relative_path(relative_path).split("/"):
-        if not part:
-            continue
+    parts = [
+        part for part in normalize_relative_path(relative_path).split("/") if part
+    ]
+    for part in parts[:-1]:
         normalized = normalize_path_component(part)
         if "kriyaban-only" in normalized or "only-for-kriyabans" in normalized:
             return True

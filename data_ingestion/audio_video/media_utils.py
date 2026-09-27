@@ -21,11 +21,13 @@ import hashlib
 import logging
 import os
 import subprocess
+import tempfile
 import wave
 from pathlib import Path
 
 from mutagen.id3 import ID3NoHeaderError
 from mutagen.mp3 import MP3
+from mutagen.mp4 import MP4
 from pydub import AudioSegment
 from pydub.silence import split_on_silence
 
@@ -49,6 +51,8 @@ def get_media_metadata(file_path, site_id=None):
     try:
         if file_extension == ".mp3":
             return get_mp3_metadata(file_path, site_id)
+        elif file_extension == ".m4a":
+            return get_m4a_metadata(file_path, site_id)
         elif file_extension == ".wav":
             return get_wav_metadata(file_path)
         else:
@@ -128,6 +132,29 @@ def get_mp3_metadata(file_path, site_id=None):
         raise
 
 
+def get_m4a_metadata(file_path, site_id=None):
+    """Read title, author, duration, and album from an .m4a file.
+
+    Returns the same tuple as get_mp3_metadata. URL is always None.
+    A missing title falls back to the .m4a stem, not a converted filename.
+    """
+    audio = MP4(file_path)
+    tags = audio.tags or {}
+
+    def first(key: str, default: str) -> str:
+        values = tags.get(key) or []
+        if not values:
+            return default
+        return str(values[0])
+
+    title = first("\xa9nam", os.path.splitext(os.path.basename(file_path))[0])
+    author = normalize_author(first("\xa9ART", "Unknown"), site_id)
+    album_values = tags.get("\xa9alb") or []
+    album = str(album_values[0]) if album_values else None
+    duration = audio.info.length
+    return title, author, duration, None, album
+
+
 def get_wav_metadata(file_path):
     """
     Extracts WAV metadata from header.
@@ -170,14 +197,21 @@ def build_m4a_to_mp3_command(source_path: str, dest_path: str) -> list[str]:
 def materialize_whisper_audio(source_path: str, runner=subprocess.run):
     """Return (path for Whisper, temp paths to delete).
 
-    .mp3 and .wav are passed through. .m4a is converted to a sibling
-    ``.whisper.mp3`` because split_audio only loads mp3 and wav. The source
-    file is left in place so playback can stay the .m4a object.
+    .mp3 and .wav are passed through. .m4a is converted to a temporary mp3
+    outside the source directory because split_audio only loads mp3 and wav.
+    The source file is left in place so playback can stay the .m4a object.
     """
     if not source_path or Path(source_path).suffix.lower() != ".m4a":
         return source_path, []
-    dest_path = str(Path(source_path).with_suffix(".whisper.mp3"))
-    runner(build_m4a_to_mp3_command(source_path, dest_path), check=True)
+    stem = Path(source_path).stem
+    fd, dest_path = tempfile.mkstemp(prefix=f"{stem}.whisper.", suffix=".mp3")
+    os.close(fd)
+    try:
+        runner(build_m4a_to_mp3_command(source_path, dest_path), check=True)
+    except Exception:
+        if os.path.exists(dest_path):
+            os.remove(dest_path)
+        raise
     return dest_path, [dest_path]
 
 

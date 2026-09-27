@@ -200,7 +200,33 @@ def test_replace_library_cancel_does_not_start_mysql(tmp_path: Path):
     publisher.upload_dump.assert_not_called()
 
 
-def test_failed_ingest_stops_mysql_without_deleting_the_volume(tmp_path: Path):
+def test_unsafe_db_user_does_not_start_mysql(tmp_path: Path):
+    dump = tmp_path / "anandalib.sql"
+    dump.write_text("SELECT 1;\n", encoding="utf-8")
+    runner = MagicMock()
+
+    try:
+        run_library(
+            SimpleNamespace(
+                site="ananda",
+                dump=str(dump),
+                s3_key=None,
+                replace_library=False,
+            ),
+            publisher=MagicMock(),
+            repo_root=tmp_path,
+            runner=runner,
+            environ={"DB_USER": "bad user", "DB_PASSWORD": "pw"},
+        )
+    except SystemExit as exc:
+        assert "DB_USER" in str(exc)
+    else:
+        raise AssertionError("expected unsafe DB_USER to be rejected")
+
+    runner.assert_not_called()
+
+
+def test_failed_ingest_removes_the_mysql_volume(tmp_path: Path):
     dump = tmp_path / "anandalib.sql"
     dump.write_text("SELECT 1;\n", encoding="utf-8")
     calls = []
@@ -231,8 +257,7 @@ def test_failed_ingest_stops_mysql_without_deleting_the_volume(tmp_path: Path):
     else:
         raise AssertionError("expected ingest failure")
 
-    assert calls[-1][-1] == "down"
-    assert "-v" not in calls[-1]
+    assert calls[-1][-2:] == ["down", "-v"]
     assert not any("analyze_title_prefix_catalog.py" in command[1] for command in calls)
 
 

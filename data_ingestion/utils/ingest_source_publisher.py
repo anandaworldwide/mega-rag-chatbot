@@ -346,7 +346,7 @@ class IngestSourcePublisher:
         for key in keys:
             if not key.startswith(prefix):
                 raise SystemExit(f"PDF key is outside {prefix}: {key}")
-            dest = dest_dir / key[len(prefix) :]
+            dest = _pdf_download_destination(dest_dir, key[len(prefix) :])
             dest.parent.mkdir(parents=True, exist_ok=True)
             self.s3_client.download_file(self.bucket, key, str(dest))
         return dest_dir
@@ -431,13 +431,17 @@ class IngestSourcePublisher:
     ) -> SyncReport:
         """Download Whisper cache from S3 when the local copy is missing or a different size.
 
-        reuse_local keeps a local cache that is less than 24 hours old and skips
-        the S3 listing. An older cache is deleted and downloaded again. An empty
-        laptop still downloads the full cache.
+        reuse_local keeps cache files that are less than 24 hours old and skips
+        the S3 listing of those files. The transcription database, YouTube map,
+        and run ledger are still refreshed. A missing or unreadable stamp, an
+        older cache, and an empty laptop download the full cache.
         """
         report = SyncReport()
         current = time.time() if now is None else now
         if reuse_local and self._reuse_fresh_whisper_cache(report, current):
+            # File cache stays local. These three objects are still refreshed so a
+            # stale laptop copy cannot be uploaded over the shared S3 versions.
+            self._pull_shared_state_files(report)
             return report
         print("Checking Whisper transcription index...", file=sys.stderr, flush=True)
         db_path = Path(get_transcriptions_db_path(self.site))
@@ -466,14 +470,35 @@ class IngestSourcePublisher:
             self._write_whisper_cache_freshness(current)
         return report
 
+    def _shared_state_files(self) -> list[tuple[Path, str]]:
+        """YouTube map, transcription index, and run ledger."""
+        return [
+            (
+                Path(get_youtube_data_map_path(self.site)),
+                youtube_data_map_s3_key(self.site),
+            ),
+            (
+                Path(get_transcriptions_db_path(self.site)),
+                transcriptions_db_s3_key(self.site),
+            ),
+            (Path(get_default_log_path()), RUNS_LEDGER_KEY),
+        ]
+
+    def _pull_shared_state_files(self, report: SyncReport) -> None:
+        for local_path, s3_key in self._shared_state_files():
+            report.actions.append(self._pull_one(local_path, s3_key))
+
     def _reuse_fresh_whisper_cache(self, report: SyncReport, now: float) -> bool:
-        """Return True when the local cache is still inside the 24-hour window."""
+        """Return True when the local cache is still inside the 24-hour window.
+
+        A missing or unreadable stamp is not fresh. The cache is downloaded again.
+        """
         stamped = self._read_whisper_cache_freshness()
         if not self._local_whisper_cache_present():
             return False
-        if stamped is None or now - stamped < WHISPER_CACHE_MAX_AGE_SECONDS:
-            if stamped is None:
-                self._write_whisper_cache_freshness(now)
+        if stamped is None:
+            return False
+        if now - stamped < WHISPER_CACHE_MAX_AGE_SECONDS:
             count = len(self.whisper_cache_snapshot())
             print(
                 f"Using local Whisper cache ({count} files, fresh for 24 hours).",
@@ -588,6 +613,18 @@ class _StderrSpinner:
                 flush=True,
             )
             index += 1
+
+
+def _pdf_download_destination(dest_dir: Path, relative: str) -> Path:
+    """Return a path under dest_dir. Reject absolute paths and parent segments."""
+    parts = Path(relative).parts
+    if not relative or Path(relative).is_absolute() or ".." in parts:
+        raise SystemExit(f"PDF key escapes the download directory: {relative}")
+    dest_root = dest_dir.resolve()
+    dest = (dest_root / relative).resolve()
+    if not dest.is_relative_to(dest_root):
+        raise SystemExit(f"PDF key escapes the download directory: {relative}")
+    return dest
 
 
 def load_library_config() -> dict[str, str]:

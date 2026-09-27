@@ -9,6 +9,7 @@ from data_ingestion.crystal_pdf_ingest import (
     pdf_basenames_from_sources,
     read_dotenv_value,
     represented_basenames_from_index,
+    represented_pdfs_from_index,
     run_pdf,
     select_new_pdf_keys,
     titles_from_vector_ids,
@@ -169,6 +170,83 @@ def test_select_new_pdf_keys_skips_title_already_in_pinecone():
     selected = select_new_pdf_keys(keys, set(), titles)
 
     assert selected == ["ingestion/sources/crystal/pdfs/ALL/Brand New Book.pdf"]
+
+
+def test_represented_pdfs_skip_same_file_when_title_differs():
+    class Index:
+        def list(self, prefix):
+            assert prefix == "text||Crystal Clarity||"
+            yield [
+                "text||Crystal Clarity||pdf||Product Title From PDF Info||Author||hash||0"
+            ]
+
+        def fetch(self, ids):
+            return {
+                "vectors": {
+                    ids[0]: {
+                        "metadata": {
+                            "source": "https://shop.example/book",
+                            "pdf_filename": "Already.pdf",
+                        }
+                    }
+                }
+            }
+
+    basenames, titles = represented_pdfs_from_index(Index(), "Crystal Clarity")
+    keys = [
+        "ingestion/sources/crystal/pdfs/ALL/Already.pdf",
+        "ingestion/sources/crystal/pdfs/ALL/Brand New Book.pdf",
+    ]
+
+    assert select_new_pdf_keys(keys, basenames, titles) == [
+        "ingestion/sources/crystal/pdfs/ALL/Brand New Book.pdf"
+    ]
+
+
+def test_select_new_pdf_keys_does_not_skip_a_longer_filename():
+    long_name = "A Fight for Religious Freedom and a Much Longer Distinct Title"
+    key = f"ingestion/sources/crystal/pdfs/ALL/{long_name}.pdf"
+    titles = titles_from_vector_ids(
+        [
+            "text||Crystal Clarity||pdf||A Fight for Religious Freedom||Jon Parsons||001e782d||113"
+        ]
+    )
+
+    assert select_new_pdf_keys([key], set(), titles) == [key]
+
+
+def test_run_pdf_removes_its_temp_directory(tmp_path, monkeypatch):
+    work = tmp_path / "crystal-pdfs"
+    publisher = MagicMock()
+    publisher.list_prefix.return_value = [
+        "ingestion/sources/crystal/pdfs/ALL/New Book.pdf"
+    ]
+
+    def download(_keys, dest, _prefix):
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / "New Book.pdf").write_bytes(b"pdf")
+
+    publisher.download_pdfs.side_effect = download
+    monkeypatch.setattr(
+        "data_ingestion.crystal_pdf_ingest.tempfile.mkdtemp",
+        lambda **_kwargs: str(work),
+    )
+    args = MagicMock()
+    args.site = "crystal"
+    args.s3_prefix = None
+    args.replace_library = False
+    args.local_dir = None
+
+    run_pdf(
+        args,
+        publisher=publisher,
+        repo_root=tmp_path,
+        runner=lambda *_args, **_kwargs: None,
+        represented_basenames=set(),
+        represented_titles=set(),
+    )
+
+    assert not work.exists()
 
 
 def test_read_dotenv_value_reads_archive_bucket(tmp_path):

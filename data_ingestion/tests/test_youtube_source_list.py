@@ -49,6 +49,28 @@ def test_add_source_entry_keeps_one_copy_of_the_same_url():
     assert twice == [entry]
 
 
+def test_add_source_entry_updates_access_level_for_the_same_url():
+    original = YoutubeSourceEntry(
+        kind="url",
+        url="https://youtu.be/abcdefghijk",
+        author="Swami Kriyananda",
+        library="Ananda Youtube",
+        required_access_level=0,
+    )
+    restricted = YoutubeSourceEntry(
+        kind="url",
+        url=original.url,
+        author=original.author,
+        library=original.library,
+        required_access_level=200,
+    )
+
+    updated, changed = add_source_entry([original], restricted)
+
+    assert changed is True
+    assert updated == [restricted]
+
+
 def test_remove_source_entry_matches_kind_and_url():
     video = YoutubeSourceEntry(
         kind="url",
@@ -117,6 +139,26 @@ def test_plan_new_youtube_videos_skips_processed_ids():
     ]
     assert selection.videos[1].required_access_level == 200
     assert selection.failed == []
+    assert selection.skipped_queued == 0
+
+
+def test_plan_new_youtube_videos_skips_ids_already_in_the_queue():
+    direct = YoutubeSourceEntry(
+        kind="url",
+        url="https://youtu.be/newvideo111",
+        author="Swami Kriyananda",
+        library="Ananda Youtube",
+    )
+
+    selection = plan_new_youtube_videos(
+        [direct],
+        set(),
+        lambda _url: [],
+        queued_ids={"newvideo111"},
+    )
+
+    assert selection.videos == []
+    assert selection.skipped_queued == 1
 
 
 def test_plan_new_youtube_videos_keeps_going_when_a_playlist_fails():

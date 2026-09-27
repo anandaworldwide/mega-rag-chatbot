@@ -140,6 +140,49 @@ async def test_process_document(mock_env):
 
 
 @pytest.mark.asyncio
+async def test_process_document_keeps_pdf_filename_when_source_is_a_url(mock_env):
+    captured = {}
+
+    def split(docs):
+        captured["metadata"] = dict(docs[0].metadata)
+        return []
+
+    with (
+        patch(
+            "data_ingestion.utils.text_splitter_utils.SpacyTextSplitter.split_documents",
+            side_effect=split,
+        ),
+        patch("pdf_to_vector_db.is_exiting", return_value=False),
+    ):
+        document = Document(
+            page_content="Enough text to process.",
+            metadata={
+                "source": "/tmp/crystal/ALL/Already.pdf",
+                "page": 0,
+                "pdf": {
+                    "info": {
+                        "Title": "Product Title",
+                        "Subject": "https://shop.example/already",
+                    }
+                },
+            },
+        )
+        await pdf_ingestion.process_document(
+            document,
+            AsyncMock(),
+            OpenAIEmbeddings(model="text-embedding-ada-002"),
+            0,
+            "Crystal Clarity",
+            SpacyTextSplitter(),
+            "crystal",
+        )
+
+    assert captured["metadata"]["pdf_filename"] == "Already.pdf"
+    assert captured["metadata"]["source"] == "https://shop.example/already"
+    assert captured["metadata"]["title"] == "Product Title"
+
+
+@pytest.mark.asyncio
 async def test_process_chunk(mock_env):
     """Test processing a single document chunk"""
     # Mock OpenAI embeddings and add shutdown signal mocking

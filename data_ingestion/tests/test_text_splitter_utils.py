@@ -6,6 +6,7 @@ import pytest
 from data_ingestion.utils.text_splitter_utils import (
     Document,
     SpacyTextSplitter,
+    overlap_joiner,
 )
 
 
@@ -13,6 +14,13 @@ from data_ingestion.utils.text_splitter_utils import (
 # Fake spaCy classes for proper iteration support in tests
 # (MagicMock.__iter__ doesn't work correctly with Python's iteration protocol)
 # =============================================================================
+def test_overlap_joiner_omits_space_before_closing_punctuation():
+    assert overlap_joiner(". next") == ""
+    assert overlap_joiner(") continues") == ""
+    assert overlap_joiner('"quoted') == ""
+    assert overlap_joiner("word") == " "
+
+
 class _FakeSpacyToken:
     def __init__(self, text: str, whitespace_: str):
         self.text = text

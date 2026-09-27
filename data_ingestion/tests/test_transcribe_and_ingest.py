@@ -20,6 +20,7 @@ import pytest
 from data_ingestion.audio_video.transcribe_and_ingest_media import (
     _parse_positive_int,
     _resolve_worker_count,
+    _take_finished_results,
     merge_reports,
     preprocess_youtube_video,
     process_file,
@@ -581,3 +582,20 @@ def test_process_item_reports_s3_download_error():
     assert item_id == "item-3"
     assert report["errors"] == 1
     assert report["error_details"] == ["NoSuchKey"]
+
+
+def test_take_finished_results_keeps_success_and_leaves_inflight():
+    from queue import Queue
+
+    result_queue = Queue()
+    result_queue.put(("done", {"errors": 0}))
+    result_queue.put(("bad", {"errors": 1}))
+    items = [{"id": "done"}, {"id": "bad"}, {"id": "still-running"}]
+    queue = Mock()
+
+    finished = _take_finished_results(result_queue, items, queue)
+
+    assert [item["id"] for item in items] == ["still-running"]
+    assert queue.update_item_status.call_args_list[0].args == ("done", "completed")
+    assert queue.update_item_status.call_args_list[1].args == ("bad", "error")
+    assert finished[0]["errors"] == 0

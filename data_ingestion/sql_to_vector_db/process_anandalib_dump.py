@@ -105,6 +105,18 @@ ALTER TABLE wp_posts
     return temp_filename
 
 
+def _mysql_option_value(value: str) -> str:
+    """Quote a client option so #, quotes, and newlines stay inside the value."""
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+    )
+    return f'"{escaped}"'
+
+
 def _write_mysql_defaults(username: str, password: str, host: str, port: int) -> str:
     """Write a 0600 client defaults file so mysql does not prompt for a password."""
     fd, path = tempfile.mkstemp(prefix="anandalib-mysql-", text=True)
@@ -114,9 +126,9 @@ def _write_mysql_defaults(username: str, password: str, host: str, port: int) ->
             "\n".join(
                 [
                     "[client]",
-                    f"user={username}",
-                    f"password={password}",
-                    f"host={host}",
+                    f"user={_mysql_option_value(username)}",
+                    f"password={_mysql_option_value(password)}",
+                    f"host={_mysql_option_value(host)}",
                     f"port={port}",
                     "",
                 ]

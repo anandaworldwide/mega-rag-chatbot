@@ -182,10 +182,10 @@ def run_library(
     if not user or not password:
         raise SystemExit("DB_USER and DB_PASSWORD must be set")
     confirm_library_replace(bool(args.replace_library), prompt)
+    grant_command = build_grant_command(repo_root, user)
 
     work = Path(tempfile.mkdtemp(prefix="anandalib-import-"))
     started = False
-    succeeded = False
     database_name = ""
     try:
         dump_path = resolve_library_dump(args, publisher, work)
@@ -196,7 +196,6 @@ def run_library(
             env=compose_environment(base_env),
         )
         started = True
-        grant_command = build_grant_command(repo_root, user)
         if grant_command is not None:
             runner(
                 grant_command,
@@ -229,12 +228,12 @@ def run_library(
                 env=local_env,
             )
             runner(build_publish_argv(repo_root, args.site), check=True, env=local_env)
-        succeeded = True
     finally:
         if started:
-            down_args = ("down", "-v") if succeeded else ("down",)
+            # The MySQL image volume is anonymous. Leaving it on failure does
+            # not help the next start, and the dump would sit on disk.
             runner(
-                build_compose_command(repo_root, *down_args),
+                build_compose_command(repo_root, "down", "-v"),
                 check=False,
                 env=compose_environment(base_env),
             )

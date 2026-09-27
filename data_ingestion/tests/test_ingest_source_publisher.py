@@ -328,7 +328,9 @@ def test_pull_state_reuses_local_cache_without_listing_s3(tmp_path):
     cache_dir = tmp_path / "transcriptions"
     cache_dir.mkdir()
     (cache_dir / "a.json.gz").write_bytes(b"abc")
+    (cache_dir.parent / ".ananda-whisper-cache-fresh-at").write_text(f"{time.time()}\n")
     s3_client = MagicMock()
+    s3_client.head_object.return_value = {"ContentLength": 2}
     publisher = IngestSourcePublisher(
         site="ananda",
         bucket="ananda-chatbot",
@@ -349,9 +351,120 @@ def test_pull_state_reuses_local_cache_without_listing_s3(tmp_path):
         report = publisher.pull_state(reuse_local=True)
 
     s3_client.get_paginator.assert_not_called()
-    s3_client.head_object.assert_not_called()
+    s3_client.head_object.assert_called()
     assert report.notes == ["reused local whisper cache (1 files)"]
     assert (tmp_path / ".ananda-whisper-cache-fresh-at").is_file()
+
+
+def test_pull_state_refreshes_when_freshness_stamp_is_missing(tmp_path):
+    db_path = tmp_path / "ananda-transcriptions.db"
+    db_path.write_bytes(b"db")
+    cache_dir = tmp_path / "transcriptions"
+    cache_dir.mkdir()
+    (cache_dir / "a.json.gz").write_bytes(b"abc")
+    s3_client = MagicMock()
+    s3_client.head_object.return_value = {"ContentLength": 2}
+    paginator = MagicMock()
+    s3_client.get_paginator.return_value = paginator
+    paginator.paginate.return_value = [{"Contents": []}]
+    publisher = IngestSourcePublisher(
+        site="ananda",
+        bucket="ananda-chatbot",
+        s3_client=s3_client,
+        repo_root=tmp_path,
+    )
+
+    with (
+        patch(
+            "data_ingestion.utils.ingest_source_publisher.get_transcriptions_db_path",
+            return_value=str(db_path),
+        ),
+        patch(
+            "data_ingestion.utils.ingest_source_publisher.get_transcriptions_dir",
+            return_value=str(cache_dir),
+        ),
+    ):
+        report = publisher.pull_state(reuse_local=True)
+
+    s3_client.get_paginator.assert_called_once()
+    assert "reused local whisper cache" not in " ".join(report.notes)
+
+
+def test_pull_state_refreshes_when_freshness_stamp_is_corrupt(tmp_path):
+    db_path = tmp_path / "ananda-transcriptions.db"
+    db_path.write_bytes(b"db")
+    cache_dir = tmp_path / "transcriptions"
+    cache_dir.mkdir()
+    (cache_dir / "a.json.gz").write_bytes(b"abc")
+    (cache_dir.parent / ".ananda-whisper-cache-fresh-at").write_text(
+        "not-a-timestamp\n"
+    )
+    s3_client = MagicMock()
+    s3_client.head_object.return_value = {"ContentLength": 2}
+    paginator = MagicMock()
+    s3_client.get_paginator.return_value = paginator
+    paginator.paginate.return_value = [{"Contents": []}]
+    publisher = IngestSourcePublisher(
+        site="ananda",
+        bucket="ananda-chatbot",
+        s3_client=s3_client,
+        repo_root=tmp_path,
+    )
+
+    with (
+        patch(
+            "data_ingestion.utils.ingest_source_publisher.get_transcriptions_db_path",
+            return_value=str(db_path),
+        ),
+        patch(
+            "data_ingestion.utils.ingest_source_publisher.get_transcriptions_dir",
+            return_value=str(cache_dir),
+        ),
+    ):
+        publisher.pull_state(reuse_local=True)
+
+    s3_client.get_paginator.assert_called_once()
+
+
+def test_pull_state_refreshes_transcription_db_while_reusing_cache_files(tmp_path):
+    db_path = tmp_path / "ananda-transcriptions.db"
+    db_path.write_bytes(b"db")
+    cache_dir = tmp_path / "transcriptions"
+    cache_dir.mkdir()
+    (cache_dir / "a.json.gz").write_bytes(b"abc")
+    (cache_dir.parent / ".ananda-whisper-cache-fresh-at").write_text(f"{time.time()}\n")
+    s3_client = MagicMock()
+    s3_client.head_object.return_value = {"ContentLength": 9}
+    publisher = IngestSourcePublisher(
+        site="ananda",
+        bucket="ananda-chatbot",
+        s3_client=s3_client,
+        repo_root=tmp_path,
+    )
+
+    with (
+        patch(
+            "data_ingestion.utils.ingest_source_publisher.get_transcriptions_db_path",
+            return_value=str(db_path),
+        ),
+        patch(
+            "data_ingestion.utils.ingest_source_publisher.get_transcriptions_dir",
+            return_value=str(cache_dir),
+        ),
+        patch(
+            "data_ingestion.utils.ingest_source_publisher.get_youtube_data_map_path",
+            return_value=str(tmp_path / "map.json"),
+        ),
+        patch(
+            "data_ingestion.utils.ingest_source_publisher.get_default_log_path",
+            return_value=tmp_path / "runs.jsonl",
+        ),
+    ):
+        publisher.pull_state(reuse_local=True)
+
+    s3_client.get_paginator.assert_not_called()
+    downloaded = [call.args[1] for call in s3_client.download_file.call_args_list]
+    assert "ingestion/state/ananda-transcriptions.db" in downloaded
 
 
 def test_pull_state_refreshes_cache_older_than_24_hours(tmp_path):
@@ -460,6 +573,24 @@ def test_pull_state_downloads_missing_transcriptions_db(tmp_path):
         "ingestion/state/ananda-transcriptions.db",
         str(db_path),
     )
+
+
+def test_download_pdfs_rejects_parent_directory_keys(tmp_path):
+    publisher = IngestSourcePublisher(
+        site="crystal",
+        bucket="ananda-chatbot",
+        s3_client=MagicMock(),
+        repo_root=tmp_path,
+    )
+
+    with pytest.raises(SystemExit, match="escapes"):
+        publisher.download_pdfs(
+            ["ingestion/sources/crystal/pdfs/../../secret.pdf"],
+            tmp_path / "pdfs",
+            "ingestion/sources/crystal/pdfs",
+        )
+
+    publisher.s3_client.download_file.assert_not_called()
 
 
 def test_read_youtube_source_list_returns_empty_when_missing(tmp_path):

@@ -178,7 +178,7 @@ class TestMetadataExtraction(unittest.TestCase):
 
     def test_unsupported_format(self):
         """Test handling of unsupported file formats"""
-        filepath = os.path.join(self.temp_dir, 'test.m4a')
+        filepath = os.path.join(self.temp_dir, 'test.ogg')
         self.temp_files.append(filepath)
         
         with open(filepath, 'wb') as f:

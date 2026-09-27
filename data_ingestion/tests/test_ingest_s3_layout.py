@@ -97,6 +97,17 @@ def test_proposed_audio_access_level_album_phrases_are_200():
     )
 
 
+def test_proposed_audio_access_level_filename_phrase_stays_public():
+    from data_ingestion.utils.ingest_s3_layout import proposed_audio_access_level
+
+    assert (
+        proposed_audio_access_level(
+            "public album/Swami on Kechari (only for kriyabans).mp3"
+        )
+        == 0
+    )
+
+
 def test_proposed_audio_access_level_does_not_infer_from_word_kriya():
     from data_ingestion.utils.ingest_s3_layout import proposed_audio_access_level
 

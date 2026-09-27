@@ -37,7 +37,34 @@ def test_import_database_uses_defaults_file_instead_of_password_prompt(tmp_path)
     assert import_command[-1] == "anandalib_2026_09_26"
     assert create_has_stdin is False
     assert import_has_stdin is True
-    assert "password=secret-pass" in defaults_text
-    assert "host=127.0.0.1" in defaults_text
+    assert 'password="secret-pass"' in defaults_text
+    assert 'host="127.0.0.1"' in defaults_text
     assert "port=3306" in defaults_text
-    assert "user=root" in defaults_text
+    assert 'user="root"' in defaults_text
+
+
+def test_import_database_quotes_passwords_that_contain_comment_characters(tmp_path):
+    sql_file = tmp_path / "dump.sql"
+    sql_file.write_text("SELECT 1;\n", encoding="utf-8")
+    seen = []
+
+    def runner(command, **_kwargs):
+        defaults_arg = next(
+            part for part in command if str(part).startswith("--defaults-extra-file=")
+        )
+        defaults_path = defaults_arg.split("=", 1)[1]
+        with open(defaults_path, encoding="utf-8") as defaults_file:
+            seen.append(defaults_file.read())
+        return None
+
+    import_database(
+        str(sql_file),
+        "anandalib_2026_09_26",
+        "root",
+        password='sec#ret"pass\n',
+        host="127.0.0.1",
+        port=3306,
+        runner=runner,
+    )
+
+    assert 'password="sec#ret\\"pass\\n"' in seen[0]

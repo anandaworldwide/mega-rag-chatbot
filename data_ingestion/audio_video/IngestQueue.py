@@ -460,4 +460,10 @@ def format_queue_status_summary(queue, site: str | None = None) -> str:
             "uv run python data_ingestion/audio_video/manage_queue.py "
             f"--site {site} --reprocess-failed"
         )
+    if site and any(item.get("status") == "processing" for item in attention):
+        lines.append(
+            "Reset stuck processing items with: "
+            "uv run python data_ingestion/audio_video/manage_queue.py "
+            f"--site {site} --reprocess-processing-items"
+        )
     return "\n".join(lines)

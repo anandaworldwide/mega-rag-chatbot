@@ -28,6 +28,7 @@ from data_ingestion.audio_video.youtube_source_list import (  # noqa: E402
     plan_new_youtube_videos,
     remove_source_entry,
     serialize_source_list,
+    youtube_ids_already_queued,
 )
 from data_ingestion.audio_video.youtube_utils import (  # noqa: E402
     get_playlist_videos,
@@ -36,7 +37,6 @@ from data_ingestion.audio_video.youtube_utils import (  # noqa: E402
 from data_ingestion.crystal_pdf_ingest import (  # noqa: E402
     CRYSTAL_LIBRARY_NAME,
     read_dotenv_value,
-    represented_titles_from_index,
     run_pdf,
 )
 from data_ingestion.sql_to_vector_db.library_ingest import (  # noqa: E402
@@ -186,6 +186,7 @@ def _print_youtube_selection(selection) -> None:
         "YouTube: "
         f"queued={len(selection.videos)} "
         f"skipped_processed={selection.skipped_processed} "
+        f"skipped_queued={selection.skipped_queued} "
         f"failed={len(selection.failed)}"
     )
 
@@ -236,13 +237,17 @@ def run_youtube(
         print("Pulling YouTube map...", file=sys.stderr, flush=True)
         publisher.pull_youtube_data_map()
         entries = update_youtube_source_list(args, publisher)
+        queue = queue_factory()
         selection = plan_new_youtube_videos(
-            entries, set(load_processed_ids(args.site)), expand_playlist
+            entries,
+            set(load_processed_ids(args.site)),
+            expand_playlist,
+            queued_ids=youtube_ids_already_queued(queue.get_all_items()),
         )
         _print_youtube_selection(selection)
         if selection.videos:
             enqueue_youtube_videos(
-                queue_factory(),
+                queue,
                 _normalize_youtube_candidates(
                     selection.videos, args.site, normalize_author
                 ),
@@ -373,16 +378,17 @@ def _pdf_parser(subparsers) -> None:
     pdf.set_defaults(handler=_run_pdf_command)
 
 
-def _load_crystal_represented_basenames() -> set[str]:
+def _load_crystal_represented() -> tuple[set[str], set[str]]:
     import os
 
+    from data_ingestion.crystal_pdf_ingest import represented_pdfs_from_index
     from data_ingestion.utils.pinecone_utils import get_pinecone_client
 
     index_name = os.environ.get("PINECONE_INGEST_INDEX_NAME")
     if not index_name:
         raise SystemExit("PINECONE_INGEST_INDEX_NAME is not set")
     index = get_pinecone_client().Index(index_name)
-    return set(), represented_titles_from_index(index, CRYSTAL_LIBRARY_NAME)
+    return represented_pdfs_from_index(index, CRYSTAL_LIBRARY_NAME)
 
 
 def _run_pdf_command(args) -> None:
@@ -402,7 +408,7 @@ def _run_pdf_command(args) -> None:
         publisher=publisher,
         repo_root=_project_root,
         runner=subprocess.run,
-        load_represented=_load_crystal_represented_basenames,
+        load_represented=_load_crystal_represented,
     )
 
 
