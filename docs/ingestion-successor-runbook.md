@@ -235,7 +235,9 @@ The command starts MySQL from
 `DB_PASSWORD` and no password prompt, and always connects to `127.0.0.1:3307`.
 It does not use `DB_HOST` from `.env.ananda`. Ingest keeps existing
 `Ananda Library` vectors. PDFs still go to `public/pdf/Ananda Library/{hash}.pdf`.
-The title catalog is rebuilt and published at the end. A successful run removes
+The title catalog is rebuilt and published at the end. Pass `--skip-catalog`
+on a shadow-index run so that publish does not replace the shared dev/prod
+catalog. A successful run removes
 the Compose volume. A failed ingest stops MySQL and leaves the volume.
 
 Full replace deletes `text||Ananda Library||*` after you type `Ananda Library`.

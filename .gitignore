@@ -70,3 +70,4 @@ next-env.d.ts
 /venv/
 
 .cache/
+queue/*.json

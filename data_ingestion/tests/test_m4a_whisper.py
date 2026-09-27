@@ -22,7 +22,16 @@ def test_materialize_whisper_audio_converts_m4a_without_replacing_it(tmp_path):
     assert Path(whisper_path).name == "talk.whisper.mp3"
     assert source.read_bytes() == b"m4a-bytes"
     assert temps == [whisper_path]
-    assert commands[0][:4] == ["ffmpeg", "-y", "-i", str(source)]
+    assert commands[0][:8] == [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostats",
+        "-y",
+        "-i",
+        str(source),
+    ]
     assert commands[0][-1] == whisper_path
 
 

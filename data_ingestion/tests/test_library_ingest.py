@@ -95,6 +95,43 @@ def test_run_library_keeps_vectors_and_tears_down_mysql(tmp_path: Path):
     assert calls[0][1]["MYSQL_PASSWORD"] == "pw"
 
 
+def test_skip_catalog_ingests_without_publishing_the_title_catalog(tmp_path: Path):
+    dump = tmp_path / "anandalib.sql"
+    dump.write_text("SELECT 1;\n", encoding="utf-8")
+    calls = []
+
+    def runner(command, **_kwargs):
+        calls.append(list(command))
+
+    def importer(*_args, **_kwargs):
+        return "anandalib_2026_09_26"
+
+    run_library(
+        SimpleNamespace(
+            site="ananda",
+            dump=str(dump),
+            s3_key=None,
+            replace_library=False,
+            skip_catalog=True,
+        ),
+        publisher=MagicMock(),
+        repo_root=tmp_path,
+        runner=runner,
+        importer=importer,
+        environ={"DB_USER": "libuser", "DB_PASSWORD": "pw"},
+    )
+
+    commands = calls
+    assert any("ingest_db_text.py" in command[1] for command in commands)
+    assert not any(
+        "analyze_title_prefix_catalog.py" in command[1] for command in commands
+    )
+    assert not any(
+        command[0].endswith("publish_title_catalog_to_s3.sh") for command in commands
+    )
+    assert commands[-1][-2:] == ["down", "-v"]
+
+
 def test_replace_library_requires_typed_name_and_omits_keep_data(tmp_path: Path):
     dump = tmp_path / "anandalib.sql"
     dump.write_text("SELECT 1;\n", encoding="utf-8")

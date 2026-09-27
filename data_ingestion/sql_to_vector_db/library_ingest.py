@@ -211,7 +211,6 @@ def run_library(
             port=LOCAL_MYSQL_PORT,
         )
         local_env = local_mysql_environment(base_env)
-        version = artifact_version or f"{args.site}-catalog"
         runner(
             build_ingest_db_argv(
                 repo_root,
@@ -222,12 +221,14 @@ def run_library(
             check=True,
             env=local_env,
         )
-        runner(
-            build_catalog_argv(repo_root, args.site, version),
-            check=True,
-            env=local_env,
-        )
-        runner(build_publish_argv(repo_root, args.site), check=True, env=local_env)
+        if not getattr(args, "skip_catalog", False):
+            version = artifact_version or f"{args.site}-catalog"
+            runner(
+                build_catalog_argv(repo_root, args.site, version),
+                check=True,
+                env=local_env,
+            )
+            runner(build_publish_argv(repo_root, args.site), check=True, env=local_env)
         succeeded = True
     finally:
         if started:

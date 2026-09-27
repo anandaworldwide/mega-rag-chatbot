@@ -1,11 +1,15 @@
 """Tests for the audio and YouTube ingest orchestrator."""
 
+import logging
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 
 from data_ingestion.bin.ingest_cli import (
+    _run_audio_command,
+    _run_youtube_command,
     build_queue_argv,
     build_transcribe_argv,
     main,
@@ -28,6 +32,51 @@ def _audio_args(**overrides):
     for key, value in overrides.items():
         setattr(args, key, value)
     return args
+
+
+def test_audio_command_logs_pinecone_index_before_processing(monkeypatch, caplog):
+    monkeypatch.setenv("PINECONE_INGEST_INDEX_NAME", "ananda-2026-09-26--3-large")
+    order = []
+
+    def load_env(_site):
+        order.append("load_env")
+
+    def run_audio(_args, **_kwargs):
+        order.append("run_audio")
+
+    monkeypatch.setattr("data_ingestion.bin.ingest_cli.load_env", load_env)
+    monkeypatch.setattr(
+        "data_ingestion.bin.ingest_cli.get_bucket_name", lambda: "ananda-chatbot"
+    )
+    monkeypatch.setattr("data_ingestion.bin.ingest_cli.get_s3_client", lambda: object())
+    monkeypatch.setattr(
+        "data_ingestion.bin.ingest_cli.IngestSourcePublisher", MagicMock()
+    )
+    monkeypatch.setattr("data_ingestion.bin.ingest_cli.run_audio", run_audio)
+
+    with caplog.at_level(logging.INFO):
+        _run_audio_command(SimpleNamespace(site="ananda"))
+
+    assert "Target pinecone collection: ananda-2026-09-26--3-large" in caplog.text
+    assert order == ["load_env", "run_audio"]
+
+
+def test_youtube_list_edit_does_not_log_the_pinecone_index(monkeypatch, caplog):
+    monkeypatch.setenv("PINECONE_INGEST_INDEX_NAME", "ananda-2026-09-26--3-large")
+    monkeypatch.setattr("data_ingestion.bin.ingest_cli.load_env", lambda _site: None)
+    monkeypatch.setattr(
+        "data_ingestion.bin.ingest_cli.get_bucket_name", lambda: "ananda-chatbot"
+    )
+    monkeypatch.setattr("data_ingestion.bin.ingest_cli.get_s3_client", lambda: object())
+    monkeypatch.setattr(
+        "data_ingestion.bin.ingest_cli.IngestSourcePublisher", MagicMock()
+    )
+    monkeypatch.setattr("data_ingestion.bin.ingest_cli.run_youtube", lambda *a, **k: None)
+
+    with caplog.at_level(logging.INFO):
+        _run_youtube_command(SimpleNamespace(site="ananda", no_ingest=True))
+
+    assert "Target pinecone collection" not in caplog.text
 
 
 def test_build_queue_argv_uses_s3_prefix_for_library():
@@ -267,6 +316,7 @@ def test_library_cli_parses_dump_and_replace(monkeypatch):
         seen["dump"] = args.dump
         seen["s3_key"] = args.s3_key
         seen["replace_library"] = args.replace_library
+        seen["skip_catalog"] = args.skip_catalog
 
     monkeypatch.setattr("data_ingestion.bin.ingest_cli._run_library_command", handler)
     main(
@@ -277,6 +327,7 @@ def test_library_cli_parses_dump_and_replace(monkeypatch):
             "--dump",
             "anandalib.sql.gz",
             "--replace-library",
+            "--skip-catalog",
         ]
     )
 
@@ -285,6 +336,7 @@ def test_library_cli_parses_dump_and_replace(monkeypatch):
         "dump": "anandalib.sql.gz",
         "s3_key": None,
         "replace_library": True,
+        "skip_catalog": True,
     }
 
 

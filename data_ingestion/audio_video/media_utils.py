@@ -151,6 +151,10 @@ def build_m4a_to_mp3_command(source_path: str, dest_path: str) -> list[str]:
     """ffmpeg argv that writes a temporary mp3. The .m4a source is not an output."""
     return [
         "ffmpeg",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-nostats",
         "-y",
         "-i",
         source_path,

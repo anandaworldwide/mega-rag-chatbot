@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import argparse
+import logging
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -49,6 +51,15 @@ from data_ingestion.utils.ingest_source_publisher import (  # noqa: E402
 )
 from data_ingestion.utils.s3_utils import get_bucket_name, get_s3_client  # noqa: E402
 from pyutil.env_utils import load_env  # noqa: E402
+from pyutil.logging_utils import configure_logging  # noqa: E402
+
+logger = logging.getLogger(__name__)
+
+
+def announce_pinecone_index() -> None:
+    """Log the ingest index before a long run starts."""
+    index_name = os.environ.get("PINECONE_INGEST_INDEX_NAME") or "(not set)"
+    logger.info("Target pinecone collection: %s", index_name)
 
 
 def build_queue_argv(args, repo_root: Path) -> list[str]:
@@ -290,6 +301,8 @@ def _youtube_parser(subparsers) -> None:
 
 def _run_youtube_command(args) -> None:
     load_env(args.site)
+    if not args.no_ingest:
+        announce_pinecone_index()
     bucket = get_bucket_name()
     if not bucket:
         raise SystemExit("S3_BUCKET_NAME is not set")
@@ -322,6 +335,14 @@ def _library_parser(subparsers) -> None:
         help=(
             "Delete existing Ananda Library vectors before ingest. "
             "Requires typing the library name. This is not implied by --yes."
+        ),
+    )
+    library.add_argument(
+        "--skip-catalog",
+        action="store_true",
+        help=(
+            "Do not rebuild or publish the shared title catalog. "
+            "Use this for a shadow-index ingest."
         ),
     )
     library.set_defaults(handler=_run_library_command)
@@ -366,6 +387,7 @@ def _load_crystal_represented_basenames() -> set[str]:
 
 def _run_pdf_command(args) -> None:
     load_env(args.site)
+    announce_pinecone_index()
     # Pinecone comes from .env.crystal. The PDF archive is the Luca bucket in
     # .env.ananda. .env.crystal names a different bucket this AWS profile cannot write.
     bucket = read_dotenv_value(_project_root / ".env.ananda", "S3_BUCKET_NAME")
@@ -386,6 +408,7 @@ def _run_pdf_command(args) -> None:
 
 def _run_library_command(args) -> None:
     load_env(args.site)
+    announce_pinecone_index()
     bucket = get_bucket_name()
     if not bucket:
         raise SystemExit("S3_BUCKET_NAME is not set")
@@ -402,6 +425,7 @@ def _run_library_command(args) -> None:
 
 def _run_audio_command(args) -> None:
     load_env(args.site)
+    announce_pinecone_index()
     bucket = get_bucket_name()
     if not bucket:
         raise SystemExit("S3_BUCKET_NAME is not set")
@@ -422,6 +446,7 @@ def main(argv: list[str] | None = None) -> None:
     _library_parser(subparsers)
     _pdf_parser(subparsers)
     args = parser.parse_args(argv)
+    configure_logging()
     args.handler(args)
 
 
