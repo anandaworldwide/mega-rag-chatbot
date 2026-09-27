@@ -21,8 +21,10 @@ import logging
 import os
 import random
 import re
+import shutil
 import time
 import uuid
+from pathlib import Path
 
 from mutagen.id3 import COMM, ID3, TALB, TIT2, TPE1
 from mutagen.mp3 import MP3
@@ -31,6 +33,64 @@ from yt_dlp.utils import DownloadError
 
 # Set up logging
 logger = logging.getLogger(__name__)
+_deno_missing_logged = False
+
+
+class _YtdlpLogger:
+    """Send yt-dlp messages to our logger without its traceback dump."""
+
+    def debug(self, msg):
+        logger.debug(msg)
+
+    def info(self, msg):
+        logger.info(msg)
+
+    def warning(self, msg):
+        logger.warning(msg)
+
+    def error(self, msg):
+        logger.error(msg)
+
+
+def _deno_executable() -> str | None:
+    """Return Deno 2.3+ even when the ingest process PATH omits it."""
+    found = shutil.which("deno")
+    if found:
+        return found
+    candidate = Path.home() / ".deno" / "bin" / "deno"
+    if os.access(candidate, os.X_OK):
+        return str(candidate)
+    return None
+
+
+def _youtube_dl_options(**extra):
+    """Options that use the current YouTube challenge solver.
+
+    yt-dlp 2026 enables only Deno by default. This machine has Deno, but not
+    on the PATH used by `uv run`. Node 20 is installed and is too old.
+    Without a supported runtime, yt-dlp uses a deprecated client and the
+    media download returns HTTP 403.
+    """
+    global _deno_missing_logged
+    opts = {
+        "quiet": True,
+        "noprogress": True,
+        "no_warnings": False,
+        "logger": _YtdlpLogger(),
+    }
+    deno = _deno_executable()
+    if deno:
+        opts["js_runtimes"] = {"deno": {"path": deno}}
+        opts["remote_components"] = ["ejs:npm"]
+    elif not _deno_missing_logged:
+        _deno_missing_logged = True
+        logger.error(
+            "Deno 2.3+ was not found on PATH or at ~/.deno/bin/deno. "
+            "YouTube downloads will get HTTP 403 until it is installed. "
+            "See https://github.com/yt-dlp/yt-dlp/wiki/EJS"
+        )
+    opts.update(extra)
+    return opts
 
 
 # Update the path to be relative to the project root
@@ -72,20 +132,22 @@ def download_youtube_audio(url: str, output_path: str = "."):
     # Generate unique filename to prevent collisions in concurrent downloads
     random_filename = str(uuid.uuid4())
 
-    # Configure yt-dlp for best quality audio extraction
-    ydl_opts = {
-        "format": "bestaudio/best",
-        "postprocessors": [
+    # android_vr (yt-dlp's default) returns media URLs that YouTube answers
+    # with HTTP 403. android and mweb still serve a progressive MP4.
+    ydl_opts = _youtube_dl_options(
+        format="best",
+        extractor_args={"youtube": {"player_client": ["android", "mweb"]}},
+        postprocessors=[
             {
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",
                 "preferredquality": "192",  # Balanced quality vs size
             }
         ],
-        "outtmpl": os.path.join(output_path, f"{random_filename}.%(ext)s"),
-        "noplaylist": True,
-        "extract_flat": False,
-    }
+        outtmpl=os.path.join(output_path, f"{random_filename}.%(ext)s"),
+        noplaylist=True,
+        extract_flat=False,
+    )
 
     max_retries = 3
     for attempt in range(max_retries):
@@ -229,17 +291,16 @@ def get_playlist_videos(playlist_url: str, output_path: str = "."):
     def exponential_sleep(attempt):
         return 5 * (2**attempt) + random.uniform(0, 1)
 
-    # Configure yt-dlp for metadata-only extraction
-    ydl_opts = {
-        "extract_flat": True,  # Don't download videos
-        "force_generic_extractor": True,
-        "ignoreerrors": True,  # Continue on per-video errors
-        "retry_sleep_functions": {
+    ydl_opts = _youtube_dl_options(
+        extract_flat=True,  # Don't download videos
+        force_generic_extractor=True,
+        ignoreerrors=True,  # Continue on per-video errors
+        retry_sleep_functions={
             "http": exponential_sleep,
             "fragment": exponential_sleep,
             "file_access": exponential_sleep,
         },
-    }
+    )
 
     try:
         with YoutubeDL(ydl_opts) as ydl:

@@ -758,6 +758,10 @@ def worker(task_queue, result_queue, args, stop_event):
     sharing resources between processes. Continues processing until
     stop_event is set or queue is empty.
     """
+    # Ctrl+C is handled by the parent. Workers that also receive it print a
+    # traceback from inside yt-dlp or a retry sleep.
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
+
     # Each worker maintains isolated OpenAI/Pinecone connections
     # to avoid resource sharing issues between processes
     configure_logging(args.debug)
@@ -819,6 +823,8 @@ def worker(task_queue, result_queue, args, stop_event):
         except Empty:
             # No work available - keep checking until stop_event is set
             continue
+        except KeyboardInterrupt:
+            return
         except Exception as e:
             logger.error(f"Worker error: {str(e)}")
             logger.exception("Full traceback:")
@@ -1402,9 +1408,7 @@ def _run_worker_pool_processing(args, overall_report):
         def graceful_shutdown(_signum, _frame):
             logger.info("\nReceived interrupt signal. Shutting down gracefully...")
             stop_event.set()
-            for _ in range(num_processes):
-                task_queue.put(None)
-            pool.close()
+            pool.terminate()
             pool.join()
             finished = _take_finished_results(
                 result_queue, items_to_process, ingest_queue

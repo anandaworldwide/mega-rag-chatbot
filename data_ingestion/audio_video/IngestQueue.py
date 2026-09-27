@@ -456,9 +456,12 @@ def format_queue_status_summary(queue, site: str | None = None) -> str:
         item.get("status") in {"error", "interrupted"} for item in attention
     ):
         lines.append(
-            "Reprocess failures with: "
+            "Reprocess failures with:\n"
             "uv run python data_ingestion/audio_video/manage_queue.py "
-            f"--site {site} --reprocess-failed"
+            f"--site {site} --reprocess-failed\n"
+            "Then run the transcriber:\n"
+            "caffeinate -i uv run python data_ingestion/audio_video/transcribe_and_ingest_media.py "
+            f"--site {site} --yes"
         )
     if site and any(item.get("status") == "processing" for item in attention):
         lines.append(

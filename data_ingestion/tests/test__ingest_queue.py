@@ -55,6 +55,8 @@ class TestIngestQueue(unittest.TestCase):
         self.assertIn("public/audio/treasures/bad.mp3", summary)
         self.assertNotIn("done.mp3", summary)
         self.assertIn("--reprocess-failed", summary)
+        self.assertIn("transcribe_and_ingest_media.py", summary)
+        self.assertIn("--yes", summary)
 
     def test_queue_status_summary_names_processing_reset(self):
         stuck = self.queue.add_item(

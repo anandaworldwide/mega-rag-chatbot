@@ -83,6 +83,47 @@ class TestYouTubeProcessing(TestCase):
             self.test_video_url, download=True
         )
 
+    @patch(
+        "data_ingestion.audio_video.youtube_utils._deno_executable",
+        return_value="/usr/bin/deno",
+    )
+    @patch("data_ingestion.audio_video.youtube_utils.extract_youtube_id")
+    @patch("data_ingestion.audio_video.youtube_utils.YoutubeDL")
+    @patch("os.path.exists")
+    @patch("os.path.getsize")
+    @patch("uuid.uuid4")
+    @patch("data_ingestion.audio_video.youtube_utils.add_metadata_to_mp3")
+    def test_download_enables_deno_challenge_solver(
+        self,
+        mock_add_metadata,
+        mock_uuid,
+        mock_getsize,
+        mock_exists,
+        mock_ytdl,
+        mock_extract_id,
+        _mock_deno,
+    ):
+        """YouTube downloads must use Deno. Without it yt-dlp gets HTTP 403."""
+        mock_uuid.return_value = "test-uuid"
+        mock_extract_id.return_value = self.test_video_id
+        mock_ytdl_instance = MagicMock()
+        mock_ytdl.return_value = mock_ytdl_instance
+        mock_ytdl_instance.__enter__.return_value = mock_ytdl_instance
+        mock_ytdl_instance.extract_info.return_value = self.mock_video_info
+        mock_exists.return_value = True
+        mock_getsize.return_value = 1024
+
+        download_youtube_audio(self.test_video_url)
+
+        opts = mock_ytdl.call_args.args[0]
+        self.assertEqual(opts["js_runtimes"]["deno"]["path"], "/usr/bin/deno")
+        self.assertIn("ejs:npm", opts["remote_components"])
+        self.assertEqual(
+            opts["extractor_args"]["youtube"]["player_client"],
+            ["android", "mweb"],
+        )
+        self.assertEqual(opts["format"], "best")
+
     @patch("data_ingestion.audio_video.youtube_utils.extract_youtube_id")
     @patch("data_ingestion.audio_video.youtube_utils.YoutubeDL")
     @patch("os.path.exists")

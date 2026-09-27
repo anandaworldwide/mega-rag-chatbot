@@ -65,6 +65,11 @@ Treasures kriyaban talks live only under
 `public/audio/treasures/kriyaban-only/`. Do not publish the four kriya-class
 albums at library root, and do not upload
 `Thumb drive from Krishna 7-2024/Kriyaban Only/` (deleted duplicate tree).
+On 2026-09-27, 23 byte-identical public copies of those talks were removed from
+`public/audio/treasures/` and copied to
+`ingestion/sources/treasures/ignore/Duplicates and overlaps./`. The manifest is
+`public-duplicate-move-2026-09-27.json` in that folder. The kriyaban objects
+were left in place.
 
 Prep notes for how a local collection was cleaned before ingest live next to the
 Crystal PDFs, not in the audio tree:
@@ -221,6 +226,12 @@ uv run python data_ingestion/bin/ingest_cli.py youtube \
   --remove-url 'https://youtu.be/VIDEO_ID' \
   --no-ingest
 ```
+
+YouTube downloads use Deno 2.3+ for the current yt-dlp challenge solver. Deno
+may live at `~/.deno/bin/deno` when it is not on PATH. Node 20 is not accepted.
+Without Deno, yt-dlp uses a deprecated client and the media download returns
+HTTP 403. The default `android_vr` media URLs also return 403, so downloads
+use the `android` and `mweb` player clients.
 
 `--yes` accepts the Pinecone proceed prompt. A playlist that yt-dlp cannot read
 stays on the list and is printed as failed; the other entries are still queued.
