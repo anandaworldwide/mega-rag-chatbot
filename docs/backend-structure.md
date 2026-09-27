@@ -302,6 +302,11 @@ API endpoints are defined in `pages/api/` and `app/api/`. Most endpoints are pro
   - **Schedule:** Daily at 3:00 AM UTC (configured in `vercel.json`).
   - **Logic:** Downloads CSV from `LOCATION_DATA_DOWNLOAD_URL` if defined, compares to existing S3 file
     (`site-config/location/${siteId}-locations.csv`), uploads if different. Sends ops alerts on updates or failures.
+- **`GET|POST /api/cron/remindLucaS3Backup`** (`pages/api/cron/remindLucaS3Backup.ts`)
+  - **Purpose:** Quarterly email reminding the Luca ops list (`OPS_ALERT_EMAIL`) to back up Luca S3 locally.
+  - **Auth:** Requires Cron Secret or JWT authentication. The path is public at the middleware so the Luca cron can reach it; the handler still checks the secret.
+  - **Schedule:** 15:00 UTC on 1 January, 1 April, 1 July, and 1 October (`vercel.json`). Morning Pacific time.
+  - **Logic:** Sends only when `SITE_ID` is `ananda`. Other deployments that share this cron return without emailing.
 - **`GET|POST /api/cron/nagPendingAccessRequests`** (`pages/api/cron/nagPendingAccessRequests.ts`)
   - **Purpose:** Reminds admins about access requests still pending after three days, then every three days until
     handled.

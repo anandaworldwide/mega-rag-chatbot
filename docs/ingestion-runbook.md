@@ -343,7 +343,7 @@ drive.
 
 Two developers who have the `ananda` AWS profile each keep their own disk. The developer who just wrote to S3 syncs
 before they treat the session as finished. The other developer runs the same command to their own disk at least once a
-quarter, including a quarter when nobody ingested.
+quarter, including a quarter when nobody ingested. The Luca Vercel deployment also emails `OPS_ALERT_EMAIL` at 15:00 UTC on the first day of each quarter.
 
 Run it from the repo root after any of these succeed:
 

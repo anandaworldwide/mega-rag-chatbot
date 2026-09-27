@@ -60,6 +60,7 @@ export const PUBLIC_PATHS: PublicPathsConfig = {
     "/api/auth/resetPassword",
     "/api/auth/checkAuthMethod",
     "/api/auth/loginWithPassword",
+    "/api/cron/remindLucaS3Backup",
   ],
 
   // Static assets that should always be accessible
