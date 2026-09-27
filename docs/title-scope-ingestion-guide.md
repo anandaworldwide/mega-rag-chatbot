@@ -3,7 +3,7 @@
 This is the operational checklist for keeping chat title scoping current after new content lands in Pinecone.
 
 For the full Luca ingest operator flow (S3 originals, audio, YouTube, Ananda Library), see
-[ingestion-successor-runbook.md](ingestion-successor-runbook.md).
+[ingestion-runbook.md](ingestion-runbook.md).
 
 ## Site Flag
 

@@ -10,7 +10,7 @@ references to detailed implementation documentation.
 state. A developer laptop runs the existing Python CLIs when ingest is needed (infrequent, hours to a day). Do not keep
 the only copy of MP3s, YouTube lists, dumps, or Whisper caches on a personal disk.
 
-- Successor runbook: [ingestion-successor-runbook.md](ingestion-successor-runbook.md)
+- Runbook: [ingestion-runbook.md](ingestion-runbook.md)
 - Publish helper: `bin/publish_ingest_sources_to_s3.py`
 
 ### Data Ingestion Pipeline

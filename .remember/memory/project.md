@@ -579,7 +579,7 @@ except ImportError:
 - Luca audio, YouTube source lists, Ananda Library dumps, Whisper cache, and `youtube_data_map` are official in S3, not
   on a personal laptop. Publish with `bin/publish_ingest_sources_to_s3.py`. The ingest run ledger syncs live to
   `ingestion/runs/ingestion_runs.jsonl` (disable with `INGESTION_RUN_LOG_S3_SYNC=0`). Processing still runs on a
-  developer laptop via the existing CLIs. Runbook: `docs/ingestion-successor-runbook.md`.
+  developer laptop via the existing CLIs. Runbook: `docs/ingestion-runbook.md`.
 - Ananda Library dumps: `ingest_cli.py library`. Default keeps vectors. `--replace-library` requires typing
   `Ananda Library` and is not skipped by `--yes`. Import uses Compose MySQL on `127.0.0.1:3307`, not `.env` `DB_HOST`. Host port 3306 stays free for a local MySQL.
 - `ingest_db_text.py` loads `.env.<site>` with the site id as passed (`ananda`), not an uppercased filename.

@@ -5,7 +5,7 @@ optimal RAG performance.
 
 Run scripts from the **monorepo root** with `uv run python data_ingestion/...`. Luca audio, YouTube, and Ananda Library
 originals belong in S3, not on a personal disk. See
-[docs/ingestion-successor-runbook.md](../docs/ingestion-successor-runbook.md).
+[docs/ingestion-runbook.md](../docs/ingestion-runbook.md).
 
 ## Content Sources
 
@@ -37,7 +37,7 @@ uv run python data_ingestion/pdf_to_vector_db.py \
 
 Ananda Library dumps go through the library CLI (Compose MySQL, `--keep-data`,
 title catalog). See
-[docs/ingestion-successor-runbook.md](../docs/ingestion-successor-runbook.md).
+[docs/ingestion-runbook.md](../docs/ingestion-runbook.md).
 
 ```bash
 uv run python data_ingestion/bin/ingest_cli.py library \
