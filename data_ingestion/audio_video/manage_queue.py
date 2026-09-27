@@ -438,7 +438,6 @@ def _enqueue_audio_plan(queue, plan, default_author, library, site_id):
         )
         if item_id:
             added_items.append(item_id)
-            logger.info(f"Added audio file to queue: {item_id} - {item.file_path}")
         else:
             logger.error(f"Failed to add audio file to queue: {item.file_path}")
     return added_items
@@ -645,7 +644,9 @@ def add_to_queue(args, queue, source=None):  # noqa: C901
             logger.info("Audio not queued.")
         elif added_items:
             added_count += len(added_items)
-            logger.info(f"Added {len(added_items)} audio file(s) to queue from S3")
+            logger.info(
+                f"Added {len(added_items)} {_file_noun(len(added_items))} to the queue from S3"
+            )
         else:
             logger.error(
                 f"Failed to add any audio files from S3 prefix: {args.s3_prefix}"
@@ -666,7 +667,9 @@ def add_to_queue(args, queue, source=None):  # noqa: C901
             logger.info("Audio not queued.")
         elif added_items:
             added_count += len(added_items)
-            logger.info(f"Added {len(added_items)} audio file(s) to queue")
+            logger.info(
+                f"Added {len(added_items)} {_file_noun(len(added_items))} to the queue"
+            )
         else:
             logger.error(f"Failed to add any audio files from: {input_path}")
 

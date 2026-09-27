@@ -600,7 +600,9 @@ class TestAudioQueuePlan:
         )
 
         by_key = {item.s3_key: item.required_access_level for item in plan.candidates}
-        assert by_key[f"public/audio/bhaktan/{album}/Swami on Kechari Mudra(1).m4a"] == 0
+        assert (
+            by_key[f"public/audio/bhaktan/{album}/Swami on Kechari Mudra(1).m4a"] == 200
+        )
         assert (
             by_key[f"public/audio/bhaktan/kriyaban-only/{album}/Higher Kriya.m4a"]
             == 200

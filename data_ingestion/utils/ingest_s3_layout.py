@@ -57,12 +57,19 @@ def path_has_ignore_component(relative_path: str) -> bool:
 
 
 def path_has_kriyaban_only_component(relative_path: str) -> bool:
-    """Return True if any path component is a Kriyaban Only folder."""
-    return any(
-        is_kriyaban_only_component(part)
-        for part in normalize_relative_path(relative_path).split("/")
-        if part
-    )
+    """Return True if any folder is Kriyaban Only or names that album.
+
+    Exact ``kriyaban-only`` / ``Kriyaban Only`` still matches. A folder whose
+    name contains ``kriyaban only`` or ``only for kriyabans`` also matches.
+    The word ``kriya`` and the name Kriyananda do not.
+    """
+    for part in normalize_relative_path(relative_path).split("/"):
+        if not part:
+            continue
+        normalized = normalize_path_component(part)
+        if "kriyaban-only" in normalized or "only-for-kriyabans" in normalized:
+            return True
+    return False
 
 
 def proposed_audio_access_level(
@@ -71,10 +78,10 @@ def proposed_audio_access_level(
     *,
     ignore_path_access_levels: bool = False,
 ) -> int:
-    """Return 200 when the path has a kriyaban-only component, else default_level.
+    """Return 200 when the path names a kriyaban-only folder, else default_level.
 
     Folder name wins over default_level unless ignore_path_access_levels is True.
-    The word "kriya" alone is not restricted.
+    ``kriyaban only`` and ``only for kriyabans`` count. The word "kriya" does not.
     """
     if ignore_path_access_levels:
         return default_level

@@ -88,6 +88,15 @@ def test_proposed_audio_access_level_finder_kriyaban_only_folder_is_200():
     assert proposed_audio_access_level("Kriyaban Only/album/talk.mp3") == 200
 
 
+def test_proposed_audio_access_level_album_phrases_are_200():
+    from data_ingestion.utils.ingest_s3_layout import proposed_audio_access_level
+
+    album = "_ Swami Kriyatalks (ONLY FOR KRIYABANS)"
+    assert (
+        proposed_audio_access_level(f"{album}/Kriyaban Only Talks Misc/talk.mp3") == 200
+    )
+
+
 def test_proposed_audio_access_level_does_not_infer_from_word_kriya():
     from data_ingestion.utils.ingest_s3_layout import proposed_audio_access_level
 

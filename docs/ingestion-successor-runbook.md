@@ -146,12 +146,11 @@ are already transcribed.
 mp3. The S3 object and Pinecone `filename` stay the `.m4a` key. The two Bhaktan
 talks that were only `.m4a` live under
 `public/audio/bhaktan/kriyaban-only/_ Swami Kriyatalks (ONLY FOR KRIYABANS)/`.
-The album name does not set access level 200; the `kriyaban-only` path
-component does.
-
-Path component `kriyaban-only` / `Kriyaban Only` proposes 200. The word "kriya"
-does not. `--required-access-level` is the default for everything else (default
-0). `--ignore-path-access-levels` forces that flag on every file.
+A folder named `kriyaban-only` / `Kriyaban Only` proposes 200. So does a folder
+whose name contains `kriyaban only` or `only for kriyabans`, which covers
+`_ Swami Kriyatalks (ONLY FOR KRIYABANS)`. The word "kriya" does not.
+`--required-access-level` is the default for everything else (default 0).
+`--ignore-path-access-levels` forces that flag on every file.
 
 The engines underneath, if you need them directly:
 
