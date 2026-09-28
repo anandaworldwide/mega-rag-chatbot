@@ -19,6 +19,7 @@ import pytest
 
 from data_ingestion.audio_video.transcribe_and_ingest_media import (
     _parse_positive_int,
+    _process_items_with_progress,
     _resolve_worker_count,
     _take_finished_results,
     merge_reports,
@@ -50,6 +51,44 @@ def sample_youtube_data():
             "description": "Test description",
         },
     }
+
+
+def test_process_items_logs_how_many_queue_items_remain(caplog):
+    ingest_queue = Mock()
+    ingest_queue.get_queue_status.return_value = {"pending": 2}
+    ingest_queue.get_next_item.side_effect = [{"id": "a"}, {"id": "b"}, None, None]
+    result_queue = Mock()
+    result_queue.get.side_effect = [
+        ("a", {"errors": 0}),
+        ("b", {"errors": 0}),
+    ]
+    overall_report = {
+        "processed": 0,
+        "skipped": 0,
+        "errors": 0,
+        "error_details": [],
+        "warnings": [],
+        "fully_indexed": 0,
+        "chunk_lengths": [],
+        "private_videos": 0,
+    }
+
+    with caplog.at_level("INFO"):
+        _process_items_with_progress(
+            Mock(),
+            result_queue,
+            [],
+            overall_report,
+            ingest_queue,
+            num_processes=2,
+        )
+
+    assert (
+        "Queue: 0 done this run, 2 left (2 in progress, 0 not started)" in caplog.text
+    )
+    assert (
+        "Queue: 2 done this run, 0 left (0 in progress, 0 not started)" in caplog.text
+    )
 
 
 def test_resolve_worker_count_preserves_default():

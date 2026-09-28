@@ -1294,6 +1294,49 @@ def _setup_vector_clearing(args, ingest_queue):
                 sys.exit(1)
 
 
+QUEUE_STATUS_INTERVAL_SECONDS = 60
+
+
+def format_queue_progress(
+    done: int, failed: int, in_progress: int, not_started: int
+) -> str:
+    """One line for how much of this run is finished and how much is left."""
+    left = in_progress + not_started
+    failed_part = f", {failed} failed" if failed else ""
+    return (
+        f"Queue: {done} done this run{failed_part}, "
+        f"{left} left ({in_progress} in progress, {not_started} not started)"
+    )
+
+
+class _RunProgress:
+    """Counts for the queue line printed while a media run is in flight."""
+
+    def __init__(self, pending_at_start: int):
+        self.pending_at_start = pending_at_start
+        self.pulled = 0
+        self.failed = 0
+        self.items_processed = 0
+
+    def note_pulled(self):
+        self.pulled += 1
+
+    def note_finished(self, report: dict):
+        if report.get("errors", 0):
+            self.failed += 1
+        self.items_processed += 1
+
+    def log(self, in_progress: int):
+        logger.info(
+            format_queue_progress(
+                done=self.items_processed - self.failed,
+                failed=self.failed,
+                in_progress=in_progress,
+                not_started=max(self.pending_at_start - self.pulled, 0),
+            )
+        )
+
+
 def _process_items_with_progress(
     task_queue,
     result_queue,
@@ -1304,8 +1347,8 @@ def _process_items_with_progress(
     report_container=None,
 ):
     """Process items with progress tracking."""
-    total_items = 0  # Track the total number of items
-    items_processed = 0
+    progress = _RunProgress(ingest_queue.get_queue_status().get("pending", 0))
+    total_items = 0
 
     # Pre-fill task queue to match worker count for optimal startup
     for _ in range(num_processes):
@@ -1315,48 +1358,49 @@ def _process_items_with_progress(
         task_queue.put(item)
         items_to_process.append(item)
         total_items += 1
+        progress.note_pulled()
 
-    # Main processing loop with progress tracking
-    with tqdm(total=total_items, desc="Processing items") as pbar:
-        while items_processed < total_items:
+    if progress.pending_at_start or total_items:
+        progress.log(len(items_to_process))
+
+    # Bar total is every pending item, not just the worker prefill.
+    with tqdm(total=progress.pending_at_start or None, desc="Processing items") as pbar:
+        while progress.items_processed < total_items:
             try:
-                # 5 minute timeout for result processing
-                item_id, report = result_queue.get(timeout=300)
-
-                # Update item status and tracking
-                if item_id is not None:
-                    ingest_queue.update_item_status(
-                        item_id,
-                        "completed" if report["errors"] == 0 else "error",
-                    )
-                    # Remove completed item from active tracking
-                    items_to_process[:] = [
-                        item for item in items_to_process if item["id"] != item_id
-                    ]
-
-                # Aggregate results and update progress
+                item_id, report = result_queue.get(
+                    timeout=QUEUE_STATUS_INTERVAL_SECONDS
+                )
+                _record_finished_item(item_id, report, items_to_process, ingest_queue)
+                progress.note_finished(report)
                 overall_report = merge_reports([overall_report, report])
-                items_processed += 1
-                pbar.update(1)
-
-                # Update the report container so signal handler can access latest results
                 if report_container is not None:
                     report_container["report"] = overall_report
+                pbar.update(1)
 
-                # Keep task queue filled by adding new items as others complete
                 item = ingest_queue.get_next_item()
                 if item:
                     task_queue.put(item)
                     items_to_process.append(item)
                     total_items += 1
+                    progress.note_pulled()
+
+                progress.log(len(items_to_process))
 
             except Empty:
-                # Log timeout but continue - workers may still be processing
-                logger.info(
-                    "Main loop: Timeout while waiting for results. Continuing..."
-                )
+                progress.log(len(items_to_process))
 
     return overall_report
+
+
+def _record_finished_item(item_id, report, items_to_process, ingest_queue):
+    """Mark one worker result complete and drop it from the in-flight list."""
+    if item_id is None:
+        return
+    ingest_queue.update_item_status(
+        item_id,
+        "completed" if report["errors"] == 0 else "error",
+    )
+    items_to_process[:] = [item for item in items_to_process if item["id"] != item_id]
 
 
 def _take_finished_results(result_queue, items_to_process, ingest_queue) -> list[dict]:

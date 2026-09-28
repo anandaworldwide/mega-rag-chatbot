@@ -682,10 +682,10 @@ def chunk_transcription(transcript, target_chunk_size=150, overlap=75):  # noqa:
             )
             target_percentage = (target_range_chunks / len(chunks)) * 100
 
-            logger.info(
+            logger.debug(
                 f"Chunking results: {len(chunks)} chunks, avg {avg_words:.1f} words/chunk"
             )
-            logger.info(
+            logger.debug(
                 f"Target range ({target_min_words}-{target_max_words} words): {target_range_chunks}/{len(chunks)} chunks ({target_percentage:.1f}%)"
             )
 

@@ -8,7 +8,10 @@ from unittest.mock import MagicMock, patch
 
 from botocore.exceptions import ClientError
 
-from data_ingestion.audio_video.youtube_utils import download_youtube_audio
+from data_ingestion.audio_video.youtube_utils import (
+    _YtdlpLogger,
+    download_youtube_audio,
+)
 from data_ingestion.utils.s3_utils import upload_to_s3
 
 logger = logging.getLogger(__name__)
@@ -123,6 +126,21 @@ class TestYouTubeProcessing(TestCase):
             ["android", "mweb"],
         )
         self.assertEqual(opts["format"], "best")
+
+    def test_expected_format_skips_are_not_warnings(self):
+        ytdlp_logger = _YtdlpLogger()
+        skipped = (
+            "[youtube] abc: mweb client https formats require a GVS PO Token "
+            "which was not provided."
+        )
+        with patch("data_ingestion.audio_video.youtube_utils.logger") as mock_logger:
+            ytdlp_logger.warning(skipped)
+            ytdlp_logger.warning("Sign in to confirm you're not a bot")
+
+        mock_logger.debug.assert_called_once_with(skipped)
+        mock_logger.warning.assert_called_once_with(
+            "Sign in to confirm you're not a bot"
+        )
 
     @patch("data_ingestion.audio_video.youtube_utils.extract_youtube_id")
     @patch("data_ingestion.audio_video.youtube_utils.YoutubeDL")

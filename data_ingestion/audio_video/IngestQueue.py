@@ -129,7 +129,7 @@ class IngestQueue:
                                 f.seek(0)
                                 json.dump(item, f)
                                 f.truncate()
-                                logger.info(f"Retrieved and locked item: {item['id']}")
+                                logger.debug(f"Retrieved and locked item: {item['id']}")
                                 return item
                         finally:
                             fcntl.flock(f, fcntl.LOCK_UN)
@@ -160,7 +160,11 @@ class IngestQueue:
                 f.seek(0)
                 json.dump(item, f)
                 f.truncate()
-                logger.info(f"Updated item {item_id} to status {status}")
+                status_message = f"Updated item {item_id} to status {status}"
+                if status == "completed":
+                    logger.debug(status_message)
+                else:
+                    logger.info(status_message)
                 return True
         except OSError as e:
             logger.error(f"Error updating item {item_id}: {e}")

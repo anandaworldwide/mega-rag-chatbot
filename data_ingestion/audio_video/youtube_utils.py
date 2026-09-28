@@ -36,6 +36,13 @@ logger = logging.getLogger(__name__)
 _deno_missing_logged = False
 
 
+_EXPECTED_YTDLP_WARNING_MARKERS = (
+    "SABR-only",
+    "GVS PO Token",
+    "skipped as they are missing a URL",
+)
+
+
 class _YtdlpLogger:
     """Send yt-dlp messages to our logger without its traceback dump."""
 
@@ -46,6 +53,11 @@ class _YtdlpLogger:
         logger.info(msg)
 
     def warning(self, msg):
+        # android/mweb skip some formats on every video. The download still
+        # uses the progressive MP4, so these warnings are not failures.
+        if any(marker in msg for marker in _EXPECTED_YTDLP_WARNING_MARKERS):
+            logger.debug(msg)
+            return
         logger.warning(msg)
 
     def error(self, msg):
@@ -175,7 +187,7 @@ def download_youtube_audio(url: str, output_path: str = "."):
             add_metadata_to_mp3(audio_path, metadata, url)
 
             logger.info(f"Downloaded and extracted audio successfully: {info['title']}")
-            logger.info(f"File saved as: {audio_path}")
+            logger.debug(f"File saved as: {audio_path}")
 
             return {
                 "audio_path": audio_path,
@@ -245,7 +257,7 @@ def add_metadata_to_mp3(mp3_path: str, metadata: dict, url: str):
         audio.tags.add(COMM(encoding=3, lang="eng", desc="url", text=url))
 
         audio.save()
-        logger.info("Metadata added successfully to MP3.")
+        logger.debug("Metadata added successfully to MP3.")
 
     except Exception as e:
         logger.error(f"An error occurred while adding metadata to MP3: {e}")
