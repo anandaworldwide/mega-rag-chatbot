@@ -41,7 +41,7 @@ describe("/api/cron/remindLucaS3Backup", () => {
     expect(res._getStatusCode()).toBe(200);
     expect(mockSendOpsAlert).toHaveBeenCalledWith(
       "Reminder: back up Luca S3",
-      expect.stringContaining("./bin/sync_ingest_backup_from_s3.sh /Users/Michael/Desktop/luca-s3-backup"),
+      expect.stringContaining("./bin/sync_ingest_backup_from_s3.sh ~/Desktop/luca-s3-backup"),
       undefined,
       { alertLabel: "" }
     );
