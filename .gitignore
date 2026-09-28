@@ -52,6 +52,10 @@ secrets.json
 # temporary files
 .temp-*
 .tmp_*/
+# YouTube downloads land in the repo root. MP3s in subdirectories stay tracked.
+/*.mp3
+/*.mp4
+/*.mp4.part
 
 # vercel
 .vercel
