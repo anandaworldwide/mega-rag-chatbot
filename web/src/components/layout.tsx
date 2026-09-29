@@ -24,8 +24,11 @@ interface LayoutProps {
   isChatEmpty?: boolean;
   // When true, pins the footer at the bottom and makes children scrollable
   hasConversation?: boolean;
-  // Chat page only: drop the mobile footer bar and offer Feedback from the header instead.
+  // Chat page only, and only honored for the ananda (Luca) site: drop the mobile footer
+  // bar and offer Feedback from the header instead. Other sites keep their footer.
   hideMobileFooter?: boolean;
+  // Chat page only: use dynamic viewport height below the md breakpoint.
+  useMobileDvh?: boolean;
 }
 
 export default function Layout({
@@ -38,6 +41,7 @@ export default function Layout({
   isChatEmpty = true,
   hasConversation = false,
   hideMobileFooter = false,
+  useMobileDvh = false,
 }: LayoutProps) {
   const [isClient, setIsClient] = useState(false);
   const [, setVisitCount] = useLocalStorage("visitCount", 0);
@@ -58,11 +62,14 @@ export default function Layout({
     }
   }, [errorMessage]);
 
+  // Only Luca's chat page drops the mobile footer. Other sites keep Contact, copyright, etc.
+  const hideFooterOnMobile = Boolean(hideMobileFooter && siteConfig?.siteId === "ananda");
+
   // Render the appropriate header based on siteConfig
   const renderHeader = () => {
     if (!siteConfig) return null;
 
-    const onFeedbackClick = hideMobileFooter ? () => setIsFeedbackModalOpen(true) : undefined;
+    const onFeedbackClick = hideFooterOnMobile ? () => setIsFeedbackModalOpen(true) : undefined;
 
     const headerProps = {
       siteConfig,
@@ -99,7 +106,9 @@ export default function Layout({
   if (!isClient) return null;
 
   return (
-    <div className={`h-screen max-md:h-[100dvh] flex flex-col ${useWideLayout ? "w-full" : "app-container-wrap"}`}>
+    <div
+      className={`h-screen ${useMobileDvh ? "max-md:h-[100dvh]" : ""} flex flex-col ${useWideLayout ? "w-full" : "app-container-wrap"}`}
+    >
       <div
         className={`${hasConversation ? "flex-1 min-h-0" : "flex-grow"} flex flex-col ${useWideLayout ? "max-w-none w-full" : "max-w-[800px] mx-auto"} app-container ${hasConversation ? "overflow-hidden" : ""}`}
       >
@@ -108,7 +117,7 @@ export default function Layout({
           <main className="flex flex-col h-full">{children}</main>
         </div>
       </div>
-      <div className={`${hasConversation ? "flex-shrink-0" : ""} ${hideMobileFooter ? "max-md:hidden" : ""}`}>
+      <div className={`${hasConversation ? "flex-shrink-0" : ""} ${hideFooterOnMobile ? "max-md:hidden" : ""}`}>
         <Footer siteConfig={siteConfig} onFeedbackClick={() => setIsFeedbackModalOpen(true)} />
       </div>
       {/* Feedback button */}

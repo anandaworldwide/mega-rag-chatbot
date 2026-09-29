@@ -3022,7 +3022,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         onTemporarySessionChange={handleTemporarySessionChange}
         isChatEmpty={shouldShowSuggestions}
         hasConversation={shouldUsePinnedChatShell}
-        hideMobileFooter
+        hideMobileFooter={siteConfig?.siteId === "ananda"}
+        useMobileDvh
       >
         {showPopup && popupMessage && <Popup message={popupMessage} onClose={closePopup} siteConfig={siteConfig} />}
 

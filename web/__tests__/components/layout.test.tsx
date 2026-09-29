@@ -55,14 +55,27 @@ const siteConfig = {
   feedbackIcon: "michael.jpeg",
 } as any;
 
-function renderLayout(hideMobileFooter = false) {
+function renderLayout(
+  hideMobileFooter = false,
+  options: { siteId?: string; useMobileDvh?: boolean } = {}
+) {
   return render(
     <SudoProvider disableChecks>
-      <Layout siteConfig={siteConfig} hideMobileFooter={hideMobileFooter}>
+      <Layout
+        siteConfig={{ ...siteConfig, siteId: options.siteId ?? siteConfig.siteId }}
+        hideMobileFooter={hideMobileFooter}
+        useMobileDvh={options.useMobileDvh}
+      >
         <div>Chat body</div>
       </Layout>
     </SudoProvider>
   );
+}
+
+function screenRoot() {
+  const root = document.querySelector("div.h-screen");
+  if (!root) throw new Error("layout root not found");
+  return root;
 }
 
 describe("Layout mobile chat chrome", () => {
@@ -85,6 +98,7 @@ describe("Layout mobile chat chrome", () => {
 
     const floating = document.querySelector(".fixed.bottom-6");
     expect(floating).toHaveClass("hidden", "md:block");
+    expect(screenRoot().className).not.toContain("max-md:h-[100dvh]");
 
     fireEvent.click(feedback);
     expect(await screen.findByRole("dialog")).toBeInTheDocument();
@@ -101,5 +115,24 @@ describe("Layout mobile chat chrome", () => {
     expect(footer.parentElement).not.toHaveClass("max-md:hidden");
     expect(within(screen.getByRole("banner")).queryByRole("button", { name: "Feedback" })).not.toBeInTheDocument();
     expect(document.querySelector(".fixed.bottom-6")).toHaveClass("hidden", "md:block");
+    expect(screenRoot().className).not.toContain("max-md:h-[100dvh]");
+  });
+
+  it.each(["ananda-public", "crystal", "jairam"])(
+    "keeps the mobile footer and omits the header Feedback icon for %s even when hideMobileFooter is set",
+    async (siteId) => {
+      renderLayout(true, { siteId });
+
+      const footer = await screen.findByRole("contentinfo");
+      expect(footer.parentElement).not.toHaveClass("max-md:hidden");
+      expect(within(screen.getByRole("banner")).queryByRole("button", { name: "Feedback" })).not.toBeInTheDocument();
+    }
+  );
+
+  it("adds the mobile dvh height only when the chat page opts in", async () => {
+    renderLayout(true, { useMobileDvh: true });
+
+    await screen.findByRole("contentinfo");
+    expect(screenRoot()).toHaveClass("h-screen", "max-md:h-[100dvh]");
   });
 });
