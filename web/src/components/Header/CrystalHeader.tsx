@@ -7,9 +7,10 @@ import { getParentSiteUrl } from "@/utils/client/siteConfig";
 interface CrystalHeaderProps {
   siteConfig: SiteConfig;
   onNewChat?: () => void;
+  onFeedbackClick?: () => void;
 }
 
-export default function CrystalHeader({ siteConfig, onNewChat }: CrystalHeaderProps) {
+export default function CrystalHeader({ siteConfig, onNewChat, onFeedbackClick }: CrystalHeaderProps) {
   const parentSiteUrl = getParentSiteUrl(siteConfig);
 
   return (
@@ -57,6 +58,16 @@ export default function CrystalHeader({ siteConfig, onNewChat }: CrystalHeaderPr
                 <span className="material-icons text-xl" aria-hidden="true">
                   edit_square
                 </span>
+              </button>
+            )}
+            {onFeedbackClick && (
+              <button
+                type="button"
+                onClick={onFeedbackClick}
+                className="md:hidden font-['Open_Sans'] text-[15px] font-bold text-white hover:text-gray-200"
+                aria-label="Give feedback"
+              >
+                Feedback
               </button>
             )}
             <Link

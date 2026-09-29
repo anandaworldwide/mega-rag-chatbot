@@ -5,9 +5,10 @@ import { getParentSiteUrl, getParentSiteName } from "@/utils/client/siteConfig";
 interface JairamHeaderProps {
   siteConfig: SiteConfig;
   onNewChat?: () => void;
+  onFeedbackClick?: () => void;
 }
 
-export default function JairamHeader({ siteConfig, onNewChat }: JairamHeaderProps) {
+export default function JairamHeader({ siteConfig, onNewChat, onFeedbackClick }: JairamHeaderProps) {
   const parentSiteUrl = getParentSiteUrl(siteConfig);
   const parentSiteName = getParentSiteName(siteConfig);
 
@@ -23,6 +24,7 @@ export default function JairamHeader({ siteConfig, onNewChat }: JairamHeaderProp
         onTemporarySessionChange={undefined}
         isChatEmpty={true}
         allowTemporarySessions={false}
+        onFeedbackClick={onFeedbackClick}
       />
   );
 }

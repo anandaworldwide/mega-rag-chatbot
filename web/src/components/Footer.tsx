@@ -22,7 +22,10 @@ const Footer: React.FC<FooterProps> = ({ siteConfig, onFeedbackClick }) => {
   return (
     <>
       {/* Main footer section */}
-      <footer className="bg-white text-gray-500 py-4 border-t border-t-slate-200">
+      <footer
+        className="bg-white text-gray-500 py-4 border-t border-t-slate-200"
+        style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+      >
         <div className="mx-auto max-w-[800px] px-4">
           <div className="flex flex-wrap justify-center items-center">
             {footerConfig.links.map((link, index) => {

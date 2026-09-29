@@ -19,7 +19,8 @@
  * allowing for easy customization of features and behavior.
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useLayoutEffect, useRef } from "react";
+import { useHideOnScroll } from "@/hooks/useHideOnScroll";
 import DOMPurify from "dompurify";
 import validator from "validator";
 import styles from "@/styles/Home.module.css";
@@ -79,6 +80,13 @@ interface ChatInputProps {
   onTemporarySessionChange?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   categorizedQueries?: { general: string[]; location: string[]; resources: string[] } | null;
   shouldShowSuggestions?: boolean; // Hide suggestions after first question
+  /** Scrollable answer list. Mobile follow-up box hides while this scrolls down. */
+  scrollContainerRef?: React.RefObject<HTMLElement | null>;
+  /** Turn on mobile hide-on-scroll for the pinned follow-up box. */
+  enableHideOnScroll?: boolean;
+  /** Increment to show the follow-up box (scroll-to-bottom control). */
+  revealSignal?: number;
+  onMobileBarChange?: (state: { hidden: boolean; height: number }) => void;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
@@ -117,12 +125,26 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   onDismissFilterConflict,
   categorizedQueries,
   shouldShowSuggestions = true,
+  scrollContainerRef,
+  enableHideOnScroll = false,
+  revealSignal = 0,
+  onMobileBarChange,
 }) => {
   // State variables for managing component behavior
   const [, setLocalQuery] = useState<string>("");
   const [hasInteracted, setHasInteracted] = useState<boolean>(false);
   const [isFirstQuery, setIsFirstQuery] = useState<boolean>(true);
-  const [isMobile, setIsMobile] = useState<boolean>(false);
+  const [isMobile, setIsMobile] = useState<boolean>(() =>
+    typeof window !== "undefined" ? window.innerWidth < 768 : false
+  );
+  const [isFocused, setIsFocused] = useState(false);
+  const [reduceMotion, setReduceMotion] = useState<boolean>(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return false;
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  });
+  const barRef = useRef<HTMLDivElement>(null);
+  const onMobileBarChangeRef = useRef(onMobileBarChange);
+  onMobileBarChangeRef.current = onMobileBarChange;
   //const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Analyze error to determine if it's a Firestore index error
@@ -164,6 +186,62 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       window.removeEventListener("resize", handleResize);
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setReduceMotion(media.matches);
+    update();
+    media.addEventListener?.("change", update);
+    return () => media.removeEventListener?.("change", update);
+  }, []);
+
+  const hideOnScrollEnabled = Boolean(enableHideOnScroll && isMobile);
+  const inputHasText = input.trim().length > 0;
+  const { hidden: hiddenByScroll, reveal } = useHideOnScroll(scrollContainerRef, {
+    enabled: hideOnScrollEnabled,
+    forceVisible: isFocused || inputHasText || loading,
+    threshold: 12,
+    bottomOffset: 48,
+  });
+  const followUpHidden = hideOnScrollEnabled && hiddenByScroll;
+  const revealSignalRef = useRef(revealSignal);
+
+  useEffect(() => {
+    if (revealSignalRef.current === revealSignal) return;
+    revealSignalRef.current = revealSignal;
+    reveal();
+  }, [revealSignal, reveal]);
+
+  useLayoutEffect(() => {
+    const scroller = scrollContainerRef?.current;
+    const bar = barRef.current;
+    if (!hideOnScrollEnabled || !scroller || !bar) {
+      if (scroller) scroller.style.paddingBottom = "";
+      onMobileBarChangeRef.current?.({ hidden: false, height: 0 });
+      return;
+    }
+
+    const apply = () => {
+      const height = bar.offsetHeight;
+      // Reserve the bar's height so the last line can scroll clear of the overlay.
+      scroller.style.paddingBottom = followUpHidden ? "0px" : `${height}px`;
+      onMobileBarChangeRef.current?.({ hidden: followUpHidden, height });
+    };
+
+    apply();
+    if (typeof ResizeObserver === "undefined") {
+      return () => {
+        scroller.style.paddingBottom = "";
+      };
+    }
+    const observer = new ResizeObserver(apply);
+    observer.observe(bar);
+    return () => {
+      observer.disconnect();
+      scroller.style.paddingBottom = "";
+    };
+  }, [followUpHidden, hideOnScrollEnabled, scrollContainerRef, input, loading]);
 
   // Effect to reset input and update first query state
   useEffect(() => {
@@ -282,10 +360,32 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }
   };
 
+  const mobileBarStyle: React.CSSProperties | undefined = hideOnScrollEnabled
+    ? {
+        position: "absolute",
+        left: "0.5rem",
+        right: "0.5rem",
+        bottom: 0,
+        zIndex: 10,
+        margin: 0,
+        backgroundColor: "#fff",
+        transform: followUpHidden ? "translateY(100%)" : "translateY(0)",
+        transition: reduceMotion ? "none" : "transform 300ms ease-out",
+        pointerEvents: followUpHidden ? "none" : "auto",
+      }
+    : undefined;
+
   // Render the chat input interface
   return (
     <div
-      className={`${styles.center} w-full px-2 md:px-0 ${shouldShowSuggestions ? "mt-0" : "mt-2 md:mt-4"}`}
+      ref={barRef}
+      data-testid="follow-up-bar"
+      data-hidden={followUpHidden ? "true" : "false"}
+      aria-hidden={followUpHidden ? true : undefined}
+      className={`${styles.center} w-full px-2 md:px-0 ${shouldShowSuggestions ? "mt-0" : "mt-2 md:mt-4"} ${
+        hideOnScrollEnabled ? "![padding-bottom:calc(1rem+env(safe-area-inset-bottom))]" : ""
+      }`}
+      style={mobileBarStyle}
     >
       <div className="w-full">
         <form onSubmit={onSubmit}>
@@ -329,6 +429,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               </label>
               <textarea
                 onKeyDown={onEnter}
+                onFocus={() => setIsFocused(true)}
+                onBlur={() => setIsFocused(false)}
                 onChange={(e) => {
                   handleInputChange(e);
                   adjustTextAreaHeight();

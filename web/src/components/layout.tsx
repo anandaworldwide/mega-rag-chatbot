@@ -24,6 +24,8 @@ interface LayoutProps {
   isChatEmpty?: boolean;
   // When true, pins the footer at the bottom and makes children scrollable
   hasConversation?: boolean;
+  // Chat page only: drop the mobile footer bar and offer Feedback from the header instead.
+  hideMobileFooter?: boolean;
 }
 
 export default function Layout({
@@ -35,6 +37,7 @@ export default function Layout({
   onTemporarySessionChange,
   isChatEmpty = true,
   hasConversation = false,
+  hideMobileFooter = false,
 }: LayoutProps) {
   const [isClient, setIsClient] = useState(false);
   const [, setVisitCount] = useLocalStorage("visitCount", 0);
@@ -59,17 +62,21 @@ export default function Layout({
   const renderHeader = () => {
     if (!siteConfig) return null;
 
+    const onFeedbackClick = hideMobileFooter ? () => setIsFeedbackModalOpen(true) : undefined;
+
     const headerProps = {
       siteConfig,
       onNewChat,
       temporarySession,
       onTemporarySessionChange,
       isChatEmpty,
+      onFeedbackClick,
     };
 
     const headerPropsNoTempSessions = {
       siteConfig,
       onNewChat,
+      onFeedbackClick,
     };
 
     switch (siteConfig.siteId) {
@@ -92,7 +99,7 @@ export default function Layout({
   if (!isClient) return null;
 
   return (
-    <div className={`h-screen flex flex-col ${useWideLayout ? "w-full" : "app-container-wrap"}`}>
+    <div className={`h-screen max-md:h-[100dvh] flex flex-col ${useWideLayout ? "w-full" : "app-container-wrap"}`}>
       <div
         className={`${hasConversation ? "flex-1 min-h-0" : "flex-grow"} flex flex-col ${useWideLayout ? "max-w-none w-full" : "max-w-[800px] mx-auto"} app-container ${hasConversation ? "overflow-hidden" : ""}`}
       >
@@ -101,7 +108,7 @@ export default function Layout({
           <main className="flex flex-col h-full">{children}</main>
         </div>
       </div>
-      <div className={hasConversation ? "flex-shrink-0" : ""}>
+      <div className={`${hasConversation ? "flex-shrink-0" : ""} ${hideMobileFooter ? "max-md:hidden" : ""}`}>
         <Footer siteConfig={siteConfig} onFeedbackClick={() => setIsFeedbackModalOpen(true)} />
       </div>
       {/* Feedback button */}

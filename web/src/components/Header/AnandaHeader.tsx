@@ -9,6 +9,7 @@ interface AnandaHeaderProps {
   temporarySession?: boolean;
   onTemporarySessionChange?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   isChatEmpty?: boolean;
+  onFeedbackClick?: () => void;
 }
 
 export default function AnandaHeader({
@@ -17,6 +18,7 @@ export default function AnandaHeader({
   temporarySession,
   onTemporarySessionChange,
   isChatEmpty,
+  onFeedbackClick,
 }: AnandaHeaderProps) {
   const parentSiteUrl = getParentSiteUrl(siteConfig);
   const parentSiteName = getParentSiteName(siteConfig);
@@ -48,6 +50,7 @@ export default function AnandaHeader({
         allowTemporarySessions={siteConfig.allowTemporarySessions}
         logoComponent={logoComponent}
         helpUrl={siteConfig.help_url}
+        onFeedbackClick={onFeedbackClick}
       />
     </>
   );

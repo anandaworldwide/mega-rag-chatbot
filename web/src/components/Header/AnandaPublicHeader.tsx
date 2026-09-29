@@ -5,9 +5,10 @@ import { getParentSiteUrl, getParentSiteName } from "@/utils/client/siteConfig";
 interface AnandaHeaderProps {
   siteConfig: SiteConfig;
   onNewChat?: () => void;
+  onFeedbackClick?: () => void;
 }
 
-export default function AnandaHeader({ siteConfig, onNewChat }: AnandaHeaderProps) {
+export default function AnandaHeader({ siteConfig, onNewChat, onFeedbackClick }: AnandaHeaderProps) {
   const parentSiteUrl = getParentSiteUrl(siteConfig);
   const parentSiteName = getParentSiteName(siteConfig);
 
@@ -24,6 +25,7 @@ export default function AnandaHeader({ siteConfig, onNewChat }: AnandaHeaderProp
         onTemporarySessionChange={undefined}
         isChatEmpty={true}
         allowTemporarySessions={false}
+        onFeedbackClick={onFeedbackClick}
       />
     </>
   );

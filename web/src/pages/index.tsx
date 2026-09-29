@@ -21,6 +21,7 @@ import DownvoteFeedbackModal from "@/components/DownvoteFeedbackModal";
 import ChatHistorySidebar from "@/components/ChatHistorySidebar";
 import AnswerFeedbackPrompt from "@/components/AnswerFeedbackPrompt";
 import ConversationTitleBar from "@/components/ConversationTitleBar";
+import StarButton from "@/components/StarButton";
 
 // Hook imports
 import usePopup from "@/hooks/usePopup";
@@ -460,6 +461,14 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   const scrollButtonContainerRef = useRef<HTMLDivElement>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [showScrollDownButton, setShowScrollDownButton] = useState(false);
+  const [revealFollowUpSignal, setRevealFollowUpSignal] = useState(0);
+  const [followUpBar, setFollowUpBar] = useState<{ hidden: boolean; height: number }>({
+    hidden: false,
+    height: 0,
+  });
+  const handleMobileBarChange = useCallback((next: { hidden: boolean; height: number }) => {
+    setFollowUpBar((prev) => (prev.hidden === next.hidden && prev.height === next.height ? prev : next));
+  }, []);
   const [shimmerScrollButton, setShimmerScrollButton] = useState(false); // Shimmer animation when new content arrives
   const [_scrollClickState, setScrollClickState] = useState(0); // 0: initial, 1: scrolled to content
   // Track which user message to highlight when clicked from suggested queries
@@ -2981,6 +2990,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     });
     setShowScrollDownButton(false);
     setScrollClickState(0);
+    setRevealFollowUpSignal((signal) => signal + 1);
 
     // Focus on the input field if not on mobile
     if (window.innerWidth >= 768 && textAreaRef.current) {
@@ -3012,6 +3022,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
         onTemporarySessionChange={handleTemporarySessionChange}
         isChatEmpty={shouldShowSuggestions}
         hasConversation={shouldUsePinnedChatShell}
+        hideMobileFooter
       >
         {showPopup && popupMessage && <Popup message={popupMessage} onClose={closePopup} siteConfig={siteConfig} />}
 
@@ -3045,24 +3056,41 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
             <div className="mx-auto w-full max-w-4xl px-4 flex flex-col h-full min-h-0">
               {/* Hamburger Menu Button - Only show on sites that require login */}
               {siteConfig?.requireLogin && (
-                <div className="flex-shrink-0 lg:hidden flex items-center justify-between p-4 border-b border-gray-200">
+                <div className="flex-shrink-0 lg:hidden flex items-center justify-between border-b border-gray-200 p-4 max-md:py-2">
                   <button
                     onClick={() => {
                       logEvent("chat_history_sidebar_open", "Chat History", "hamburger_menu");
                       setSidebarOpen(true);
                     }}
-                    className="p-2 rounded-md hover:bg-gray-100"
+                    className="p-2 rounded-md hover:bg-gray-100 flex-shrink-0"
                     aria-label="Open chat history"
                   >
                     <span className="material-icons text-gray-600">history</span>
                   </button>
-                  <h1 className="text-lg font-semibold text-gray-900">Chat</h1>
-                  <div className="w-10"></div> {/* Spacer for centering */}
+                  {currentConvId ? (
+                    <div className="md:hidden flex min-w-0 flex-1 items-center gap-2">
+                      <h2 className="min-w-0 flex-1 truncate text-sm font-medium text-gray-700">
+                        {conversationTitle || "Untitled Conversation"}
+                      </h2>
+                      <StarButton
+                        convId={currentConvId}
+                        isStarred={isCurrentConversationStarred}
+                        onStarChange={handleStarChange}
+                        size="sm"
+                        location="title_bar"
+                        className="flex-shrink-0"
+                      />
+                    </div>
+                  ) : (
+                    <h1 className="md:hidden text-lg font-semibold text-gray-900">Chat</h1>
+                  )}
+                  <h1 className="hidden md:block text-lg font-semibold text-gray-900">Chat</h1>
+                  <div className={`w-10 flex-shrink-0 ${currentConvId ? "max-md:hidden" : ""}`}></div>
                 </div>
               )}
-              {/* Conversation Title Bar - Only show on sites that require login */}
+              {/* Conversation title row stays its own line from md up to lg. Mobile merges it above. */}
               {siteConfig?.requireLogin && (
-                <div className="flex-shrink-0">
+                <div className="flex-shrink-0 max-md:hidden">
                   <ConversationTitleBar
                     convId={currentConvId}
                     title={conversationTitle}
@@ -3145,7 +3173,15 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                 /* Conversation layout - messages scrollable, input at bottom */
                 <>
                   {/* Wrapper for scrollable area and scroll button */}
-                  <div className="flex-1 min-h-0 relative">
+                  <div
+                    className="flex-1 min-h-0 relative"
+                    style={
+                      {
+                        "--scroll-btn-bottom":
+                          followUpBar.hidden || followUpBar.height === 0 ? "1rem" : `${followUpBar.height + 16}px`,
+                      } as React.CSSProperties
+                    }
+                  >
                     {/* Messages container - scrollable area */}
                     <div className="h-full overflow-hidden answers-container">
                       <div ref={messageListRef} className="h-full overflow-y-auto">
@@ -3238,7 +3274,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                     {/* Animated Scroll Down Button - centered at bottom of scroll area */}
                     <div
                       ref={scrollButtonContainerRef}
-                      className={`absolute z-50 bottom-4 left-1/2 -translate-x-1/2 transition-all duration-300 ease-out transform 
+                      className={`absolute z-50 bottom-4 max-md:bottom-[var(--scroll-btn-bottom)] left-1/2 -translate-x-1/2 transition-all duration-300 ease-out transform 
                       ${showScrollDownButton ? "translate-y-0 opacity-100 pointer-events-auto" : "translate-y-8 opacity-0 pointer-events-none"}`}
                       style={{ willChange: "transform, opacity" }}
                     >
@@ -3253,7 +3289,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                     </div>
                   </div>
                   {/* Input area - pinned to bottom when conversation is active */}
-                  <div className="flex-shrink-0 px-2 md:px-0 pb-2 bg-white relative z-10">
+                  <div className="flex-shrink-0 px-2 md:px-0 pb-2 bg-white relative z-10 max-md:h-0 max-md:overflow-visible max-md:pb-0">
                     {/* Render chat input component */}
                     {isLoadingQueries ? null : (
                       <ChatInput
@@ -3294,6 +3330,10 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                         onTemporarySessionChange={handleTemporarySessionChange}
                         categorizedQueries={categorizedQueries}
                         shouldShowSuggestions={shouldShowSuggestions}
+                        scrollContainerRef={messageListRef}
+                        enableHideOnScroll
+                        revealSignal={revealFollowUpSignal}
+                        onMobileBarChange={handleMobileBarChange}
                       />
                     )}
                   </div>

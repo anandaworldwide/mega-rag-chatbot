@@ -274,4 +274,170 @@ describe("ChatInput", () => {
 
     expect(screen.queryByText("auto_fix_high")).not.toBeInTheDocument();
   });
+
+  describe("mobile follow-up auto-hide", () => {
+
+function setWindowWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: width });
+}
+
+function prepareScroller(el: HTMLElement) {
+  let scrollTop = 0;
+  Object.defineProperty(el, "scrollHeight", { configurable: true, value: 2400 });
+  Object.defineProperty(el, "clientHeight", { configurable: true, value: 500 });
+  Object.defineProperty(el, "scrollTop", {
+    configurable: true,
+    get: () => scrollTop,
+    set: (value: number) => {
+      scrollTop = value;
+    },
+  });
+  Object.defineProperty(el, "offsetHeight", { configurable: true, value: 500 });
+}
+
+function FollowUpHarness({
+  width,
+  input = "",
+  loading = false,
+  revealSignal = 0,
+  enableHideOnScroll = true,
+}: {
+  width: number;
+  input?: string;
+  loading?: boolean;
+  revealSignal?: number;
+  enableHideOnScroll?: boolean;
+}) {
+  const scrollerRef = React.useRef<HTMLDivElement>(null);
+  React.useLayoutEffect(() => {
+    if (scrollerRef.current) prepareScroller(scrollerRef.current);
+  }, []);
+  setWindowWidth(width);
+  return (
+    <div>
+      <div ref={scrollerRef} data-testid="answer-scroller" />
+      <ChatInput
+        {...defaultProps}
+        input={input}
+        loading={loading}
+        shouldShowSuggestions={false}
+        selectedTitleScope={null}
+        setSelectedTitleScope={jest.fn()}
+        scrollContainerRef={scrollerRef}
+        enableHideOnScroll={enableHideOnScroll}
+        revealSignal={revealSignal}
+      />
+    </div>
+  );
+}
+
+describe("ChatInput mobile follow-up auto-hide", () => {
+  const originalWidth = window.innerWidth;
+  const originalOffsetHeight = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+  const originalMatchMedia = window.matchMedia;
+
+  beforeEach(() => {
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+      configurable: true,
+      get() {
+        return 140;
+      },
+    });
+  });
+
+  afterEach(() => {
+    setWindowWidth(originalWidth);
+    if (originalOffsetHeight) {
+      Object.defineProperty(HTMLElement.prototype, "offsetHeight", originalOffsetHeight);
+    }
+    window.matchMedia = originalMatchMedia;
+  });
+
+  function bar() {
+    return screen.getByTestId("follow-up-bar");
+  }
+
+  it("hides after scrolling down and shows after scrolling up on mobile", () => {
+    render(<FollowUpHarness width={390} />);
+    const scroller = screen.getByTestId("answer-scroller");
+
+    expect(bar()).toHaveAttribute("data-hidden", "false");
+    expect(bar()).toHaveStyle({ transform: "translateY(0)" });
+    expect(scroller).toHaveStyle({ paddingBottom: "140px" });
+    expect(bar().className).toContain("env(safe-area-inset-bottom)");
+
+    scroller.scrollTop = 40;
+    fireEvent.scroll(scroller);
+
+    expect(bar()).toHaveAttribute("data-hidden", "true");
+    expect(bar()).toHaveStyle({ transform: "translateY(100%)", pointerEvents: "none" });
+    expect(scroller).toHaveStyle({ paddingBottom: "0px" });
+
+    scroller.scrollTop = 0;
+    fireEvent.scroll(scroller);
+    expect(bar()).toHaveAttribute("data-hidden", "false");
+    expect(bar()).toHaveStyle({ transform: "translateY(0)" });
+  });
+
+  it("stays visible while the field is focused, has text, or a request is loading", () => {
+    const { rerender } = render(<FollowUpHarness width={390} />);
+    const scroller = screen.getByTestId("answer-scroller");
+
+    fireEvent.focus(screen.getByRole("textbox", { name: "Chat message" }));
+    scroller.scrollTop = 80;
+    fireEvent.scroll(scroller);
+    expect(bar()).toHaveAttribute("data-hidden", "false");
+
+    fireEvent.blur(screen.getByRole("textbox", { name: "Chat message" }));
+    scroller.scrollTop = 160;
+    fireEvent.scroll(scroller);
+    expect(bar()).toHaveAttribute("data-hidden", "true");
+
+    rerender(<FollowUpHarness width={390} input="still typing" />);
+    scroller.scrollTop = 240;
+    fireEvent.scroll(screen.getByTestId("answer-scroller"));
+    expect(bar()).toHaveAttribute("data-hidden", "false");
+
+    rerender(<FollowUpHarness width={390} loading />);
+    scroller.scrollTop = 320;
+    fireEvent.scroll(screen.getByTestId("answer-scroller"));
+    expect(bar()).toHaveAttribute("data-hidden", "false");
+  });
+
+  it("shows again when the scroll-to-bottom signal fires", () => {
+    const { rerender } = render(<FollowUpHarness width={390} />);
+    const scroller = screen.getByTestId("answer-scroller");
+    scroller.scrollTop = 50;
+    fireEvent.scroll(scroller);
+    expect(bar()).toHaveAttribute("data-hidden", "true");
+
+    rerender(<FollowUpHarness width={390} revealSignal={1} />);
+    expect(bar()).toHaveAttribute("data-hidden", "false");
+  });
+
+  it("does not animate when reduced motion is requested", () => {
+    window.matchMedia = jest.fn().mockImplementation((query: string) => ({
+      matches: query.includes("prefers-reduced-motion"),
+      media: query,
+      addEventListener: jest.fn(),
+      removeEventListener: jest.fn(),
+    })) as unknown as typeof window.matchMedia;
+
+    render(<FollowUpHarness width={390} />);
+    expect(bar()).toHaveStyle({ transition: "none", transform: "translateY(0)" });
+  });
+
+  it("leaves the desktop follow-up box in normal flow", () => {
+    render(<FollowUpHarness width={1280} />);
+    const scroller = screen.getByTestId("answer-scroller");
+    scroller.scrollTop = 200;
+    fireEvent.scroll(scroller);
+
+    expect(bar()).toHaveAttribute("data-hidden", "false");
+    expect(bar().style.transform).toBe("");
+    expect(bar().style.position).toBe("");
+    expect(scroller.style.paddingBottom).toBe("");
+  });
+  });
+  });
 });

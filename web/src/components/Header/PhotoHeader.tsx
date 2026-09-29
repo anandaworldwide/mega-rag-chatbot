@@ -8,6 +8,7 @@ interface PhotoHeaderProps {
   temporarySession?: boolean;
   onTemporarySessionChange?: (event: React.MouseEvent<HTMLButtonElement>) => void;
   isChatEmpty?: boolean;
+  onFeedbackClick?: () => void;
 }
 
 export default function PhotoHeader({
@@ -16,6 +17,7 @@ export default function PhotoHeader({
   temporarySession,
   onTemporarySessionChange,
   isChatEmpty,
+  onFeedbackClick,
 }: PhotoHeaderProps) {
   const parentSiteUrl = getParentSiteUrl(siteConfig);
   const parentSiteName = getParentSiteName(siteConfig);
@@ -33,6 +35,7 @@ export default function PhotoHeader({
         onTemporarySessionChange={onTemporarySessionChange}
         isChatEmpty={isChatEmpty}
         allowTemporarySessions={siteConfig.allowTemporarySessions}
+        onFeedbackClick={onFeedbackClick}
       />
     </>
   );

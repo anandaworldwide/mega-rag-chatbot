@@ -25,6 +25,8 @@ interface BaseHeaderProps {
   isChatEmpty?: boolean;
   allowTemporarySessions?: boolean;
   helpUrl?: string;
+  /** Mobile chat pages: opens the same feedback modal the footer used to open. */
+  onFeedbackClick?: () => void;
 }
 
 export default function BaseHeader({
@@ -40,6 +42,7 @@ export default function BaseHeader({
   isChatEmpty = true,
   allowTemporarySessions = false,
   helpUrl,
+  onFeedbackClick,
 }: BaseHeaderProps) {
   const router = useRouter();
   const [isLoggedIn, setIsLoggedIn] = useState(() => {
@@ -249,6 +252,16 @@ export default function BaseHeader({
               <WhatsNewDropdown siteConfig={siteConfig} requireLogin={requireLogin} />
             )}
             <HelpDropdown helpUrl={helpUrl} />
+            {onFeedbackClick && (
+              <button
+                type="button"
+                onClick={onFeedbackClick}
+                className="md:hidden font-['Open_Sans'] text-[15px] font-bold text-white hover:text-gray-200"
+                aria-label="Give feedback"
+              >
+                Feedback
+              </button>
+            )}
             {requireLogin && authReady && (
               <nav className="flex space-x-4">
                 {isLoggedIn ? (
