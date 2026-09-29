@@ -17,7 +17,7 @@ jest.mock("@/components/SuggestedQueries", () =>
 
 // React imports after mocks
 import React from "react";
-import { render, fireEvent, screen } from "@testing-library/react";
+import { render, fireEvent, screen, act } from "@testing-library/react";
 import { ChatInput } from "@/components/ChatInput";
 import { SiteConfig } from "@/types/siteConfig";
 
@@ -384,7 +384,7 @@ describe("ChatInput mobile follow-up auto-hide", () => {
     expect(bar()).toHaveStyle({ transform: "translateY(0)" });
   });
 
-  it("stays visible while the field is focused, has text, or a request is loading", () => {
+  it("stays visible while the field is focused or has text", () => {
     const { rerender } = render(<FollowUpHarness width={390} />);
     const scroller = screen.getByTestId("answer-scroller");
 
@@ -402,11 +402,107 @@ describe("ChatInput mobile follow-up auto-hide", () => {
     scroller.scrollTop = 240;
     fireEvent.scroll(screen.getByTestId("answer-scroller"));
     expect(bar()).toHaveAttribute("data-hidden", "false");
+  });
 
-    rerender(<FollowUpHarness width={390} loading />);
-    scroller.scrollTop = 320;
+  it("hides on scroll-down while a response is streaming and returns on scroll-up or at the bottom", () => {
+    render(<FollowUpHarness width={390} loading />);
+    const scroller = screen.getByTestId("answer-scroller");
+
+    expect(bar()).toHaveAttribute("data-hidden", "false");
+    expect(screen.getByRole("button", { name: "Stop generating" })).toBeInTheDocument();
+
+    scroller.scrollTop = 40;
+    fireEvent.scroll(scroller);
+    expect(bar()).toHaveAttribute("data-hidden", "true");
+    expect(bar()).toHaveStyle({ transform: "translateY(100%)", pointerEvents: "none" });
+
+    scroller.scrollTop = 0;
+    fireEvent.scroll(scroller);
+    expect(bar()).toHaveAttribute("data-hidden", "false");
+    expect(screen.getByRole("button", { name: "Stop generating" })).toBeInTheDocument();
+
+    scroller.scrollTop = 80;
+    fireEvent.scroll(scroller);
+    expect(bar()).toHaveAttribute("data-hidden", "true");
+
+    // 2400 - 1860 - 500 = 40, inside the 48px bottom offset
+    scroller.scrollTop = 1860;
+    fireEvent.scroll(scroller);
+    expect(bar()).toHaveAttribute("data-hidden", "false");
+    expect(bar()).toHaveStyle({ transform: "translateY(0)", pointerEvents: "auto" });
+    expect(screen.getByRole("button", { name: "Stop generating" })).toBeInTheDocument();
+  });
+
+  it("stays visible while typing during a stream", () => {
+    const { rerender } = render(<FollowUpHarness width={390} loading />);
+    const scroller = screen.getByTestId("answer-scroller");
+    const field = screen.getByRole("textbox", { name: "Chat message" });
+
+    fireEvent.focus(field);
+    scroller.scrollTop = 60;
+    fireEvent.scroll(scroller);
+    expect(bar()).toHaveAttribute("data-hidden", "false");
+
+    fireEvent.blur(field);
+    rerender(<FollowUpHarness width={390} loading input="draft follow-up" />);
+    scroller.scrollTop = 140;
     fireEvent.scroll(screen.getByTestId("answer-scroller"));
     expect(bar()).toHaveAttribute("data-hidden", "false");
+  });
+
+  async function flushFocusTimeout() {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  it("blurs after send on mobile so streaming scroll can hide the bar", async () => {
+    // Earlier desktop submits schedule a focus timeout and do not flush it.
+    await flushFocusTimeout();
+    const { rerender } = render(<FollowUpHarness width={390} input="What is karma?" />);
+    const field = screen.getByRole("textbox", { name: "Chat message" });
+    field.focus();
+    fireEvent.focus(field);
+
+    fireEvent.submit(field.closest("form")!);
+    expect(field).not.toHaveFocus();
+    await flushFocusTimeout();
+
+    expect(field).not.toHaveFocus();
+    expect(defaultProps.handleSubmit).toHaveBeenCalled();
+
+    rerender(<FollowUpHarness width={390} input="" loading />);
+    const scroller = screen.getByTestId("answer-scroller");
+    scroller.scrollTop = 50;
+    fireEvent.scroll(scroller);
+    expect(bar()).toHaveAttribute("data-hidden", "true");
+  });
+
+  it("blurs after Enter on mobile", async () => {
+    await flushFocusTimeout();
+    render(<FollowUpHarness width={390} input="What is karma?" />);
+    const field = screen.getByRole("textbox", { name: "Chat message" });
+    field.focus();
+    fireEvent.focus(field);
+
+    fireEvent.keyDown(field, { key: "Enter", code: "Enter" });
+    expect(field).not.toHaveFocus();
+    await flushFocusTimeout();
+
+    expect(field).not.toHaveFocus();
+    expect(defaultProps.handleEnter).toHaveBeenCalled();
+  });
+
+  it("refocuses the field after submit on desktop", async () => {
+    await flushFocusTimeout();
+    render(<FollowUpHarness width={1280} input="What is karma?" />);
+    const field = screen.getByRole("textbox", { name: "Chat message" });
+
+    fireEvent.submit(field.closest("form")!);
+    expect(field).not.toHaveFocus();
+    await flushFocusTimeout();
+
+    expect(field).toHaveFocus();
   });
 
   it("shows again when the scroll-to-bottom signal fires", () => {

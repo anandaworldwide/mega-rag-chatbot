@@ -200,7 +200,9 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const inputHasText = input.trim().length > 0;
   const { hidden: hiddenByScroll, reveal } = useHideOnScroll(scrollContainerRef, {
     enabled: hideOnScrollEnabled,
-    forceVisible: isFocused || inputHasText || loading,
+    // Loading is omitted on purpose: scrolling down to read a streaming answer
+    // must hide the bar. Focus and unsent text still keep it on screen.
+    forceVisible: isFocused || inputHasText,
     threshold: 12,
     bottomOffset: 48,
   });
@@ -265,6 +267,19 @@ export const ChatInput: React.FC<ChatInputProps> = ({
     }, 0);
   };
 
+  // Parent skips refocus below 768px, but this component was calling focusInput()
+  // after every send. On a phone that leaves the textarea focused for the whole
+  // stream, and isFocused would pin the follow-up bar. Blur instead so a
+  // scroll-down can hide it while the answer is still streaming.
+  const settleFocusAfterSend = () => {
+    if (isMobile) {
+      textAreaRef.current?.blur();
+      setIsFocused(false);
+      return;
+    }
+    focusInput();
+  };
+
   // Function to sanitize user input
   const sanitizeInput = (input: string) => {
     return DOMPurify.sanitize(input).toString();
@@ -304,7 +319,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
       setIsNearBottom(true);
       handleSubmit(e, sanitizedInput);
       setQuery("");
-      focusInput();
+      settleFocusAfterSend();
       logEvent("submit_query", "Engagement", sanitizedInput);
     }
   };
@@ -332,7 +347,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
         setIsNearBottom(true);
         handleEnter(e, sanitizedInput);
         setQuery("");
-        focusInput();
+        settleFocusAfterSend();
       }
     }
   };

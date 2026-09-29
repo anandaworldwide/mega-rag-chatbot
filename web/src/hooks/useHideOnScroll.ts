@@ -5,7 +5,7 @@ export interface UseHideOnScrollOptions {
   enabled?: boolean;
   /** Same-direction travel, in pixels, required before the bar toggles. */
   threshold?: number;
-  /** Focused input, typed text, or an in-flight request. */
+  /** Keep the bar visible, for example while the field is focused or holds unsent text. */
   forceVisible?: boolean;
   /** Distance from the bottom that counts as the end of the conversation. */
   bottomOffset?: number;
