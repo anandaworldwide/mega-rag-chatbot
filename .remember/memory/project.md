@@ -371,6 +371,7 @@ except ImportError:
 
 ### Code Style
 
+- **Imports at the top of the file.** Do not import inside a function or halfway through a block unless a cycle or a deferred heavy import makes that necessary.
 - **TypeScript over JavaScript** - always
 - **OOP over functional** - user preference
 - **Testing approach**: TDD with failing → passing pattern; prefer one-test-at-a-time skill when expanding suites

@@ -37,6 +37,7 @@ from data_ingestion.audio_video.youtube_utils import (  # noqa: E402
 from data_ingestion.crystal_pdf_ingest import (  # noqa: E402
     CRYSTAL_LIBRARY_NAME,
     read_dotenv_value,
+    represented_pdfs_from_index,
     run_pdf,
 )
 from data_ingestion.sql_to_vector_db.library_ingest import (  # noqa: E402
@@ -45,10 +46,14 @@ from data_ingestion.sql_to_vector_db.library_ingest import (  # noqa: E402
 from data_ingestion.utils.author_normalization import (  # noqa: E402
     normalize_author as default_normalize_author,
 )
+from data_ingestion.utils.credential_errors import (  # noqa: E402
+    abort_on_credential_error,
+)
 from data_ingestion.utils.ingest_s3_layout import AUDIO_PREFIX  # noqa: E402
 from data_ingestion.utils.ingest_source_publisher import (  # noqa: E402
     IngestSourcePublisher,
 )
+from data_ingestion.utils.pinecone_utils import get_pinecone_client  # noqa: E402
 from data_ingestion.utils.s3_utils import get_bucket_name, get_s3_client  # noqa: E402
 from pyutil.env_utils import load_env  # noqa: E402
 from pyutil.logging_utils import configure_logging  # noqa: E402
@@ -379,15 +384,14 @@ def _pdf_parser(subparsers) -> None:
 
 
 def _load_crystal_represented() -> tuple[set[str], set[str]]:
-    import os
-
-    from data_ingestion.crystal_pdf_ingest import represented_pdfs_from_index
-    from data_ingestion.utils.pinecone_utils import get_pinecone_client
-
     index_name = os.environ.get("PINECONE_INGEST_INDEX_NAME")
     if not index_name:
         raise SystemExit("PINECONE_INGEST_INDEX_NAME is not set")
-    index = get_pinecone_client().Index(index_name)
+    try:
+        index = get_pinecone_client().Index(index_name)
+    except Exception as error:
+        abort_on_credential_error(error)
+        raise
     return represented_pdfs_from_index(index, CRYSTAL_LIBRARY_NAME)
 
 

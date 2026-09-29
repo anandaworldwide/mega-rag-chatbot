@@ -4,6 +4,7 @@ import sys
 
 from pinecone import NotFoundException, Pinecone, PineconeException, ServerlessSpec
 
+from data_ingestion.utils.credential_errors import abort_on_credential_error
 from data_ingestion.utils.pinecone_utils import generate_vector_id
 
 logger = logging.getLogger(__name__)
@@ -308,6 +309,7 @@ def store_in_pinecone(
         try:
             pinecone_index.upsert(vectors=batch)
         except Exception as e:
+            abort_on_credential_error(e)
             error_message = str(e)
             if "429" in error_message and "Too Many Requests" in error_message:
                 # Rate limit exceeded - likely monthly quota

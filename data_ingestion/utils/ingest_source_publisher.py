@@ -343,7 +343,14 @@ class IngestSourcePublisher:
         prefix = prefix.strip("/") + "/"
         dest_dir = Path(dest_dir)
         dest_dir.mkdir(parents=True, exist_ok=True)
-        for key in keys:
+        keys = list(keys)
+        for key in tqdm(
+            keys,
+            desc="Downloading Crystal PDFs",
+            unit="file",
+            file=sys.stderr,
+            disable=not sys.stderr.isatty(),
+        ):
             if not key.startswith(prefix):
                 raise SystemExit(f"PDF key is outside {prefix}: {key}")
             dest = _pdf_download_destination(dest_dir, key[len(prefix) :])

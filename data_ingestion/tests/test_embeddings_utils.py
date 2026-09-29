@@ -317,6 +317,27 @@ class TestOpenAIEmbeddings:
 
         assert mock_openai_client.embeddings.create.call_count == 2
 
+    def test_invalid_api_key_stops_without_retry(self, mock_env, mock_openai_client):
+        embeddings = OpenAIEmbeddings(max_retries=3, retry_delay=0.01)
+        mock_openai_client.embeddings.create.side_effect = Exception(
+            "Error code: 401 - Incorrect API key provided: sk-test. "
+            "{'code': 'invalid_api_key'}"
+        )
+
+        def stop_process(code):
+            raise SystemExit(code)
+
+        with (
+            patch(
+                "data_ingestion.utils.credential_errors.os._exit",
+                side_effect=stop_process,
+            ),
+            pytest.raises(SystemExit),
+        ):
+            embeddings.embed_query("test text")
+
+        assert mock_openai_client.embeddings.create.call_count == 1
+
     @pytest.mark.asyncio
     async def test_embed_async_retry_logic(self, mock_env, mock_openai_client):
         """Test async retry logic on API failures."""

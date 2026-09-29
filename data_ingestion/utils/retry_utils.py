@@ -17,6 +17,8 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from data_ingestion.utils.credential_errors import abort_on_credential_error
+
 logger = logging.getLogger(__name__)
 
 
@@ -78,6 +80,7 @@ async def retry_with_backoff(
             return await operation_func()
         except Exception as e:
             last_exception = e
+            abort_on_credential_error(e)
 
             # Check if this is a fatal error that shouldn't be retried
             error_str = str(e).lower()
@@ -159,6 +162,7 @@ def retry_with_backoff_sync(
             return operation_func()
         except Exception as e:
             last_exception = e
+            abort_on_credential_error(e)
 
             # Check if this is a fatal error that shouldn't be retried
             error_str = str(e).lower()

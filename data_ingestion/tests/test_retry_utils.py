@@ -84,7 +84,16 @@ class TestRetryWithBackoffAsync:
         mock_operation = AsyncMock()
         mock_operation.side_effect = Exception("Invalid API key")
 
-        with pytest.raises(Exception, match="Invalid API key"):
+        def stop_process(code):
+            raise SystemExit(code)
+
+        with (
+            patch(
+                "data_ingestion.utils.credential_errors.os._exit",
+                side_effect=stop_process,
+            ),
+            pytest.raises(SystemExit),
+        ):
             await retry_with_backoff(
                 mock_operation, max_retries=3, operation_name="test_operation"
             )
@@ -149,14 +158,29 @@ class TestRetryWithBackoffAsync:
             "Rate limit exceeded",
         ]
 
+        def stop_process(code):
+            raise SystemExit(code)
+
         for error_msg in fatal_errors:
             mock_operation = AsyncMock()
             mock_operation.side_effect = Exception(error_msg)
 
-            with pytest.raises(Exception, match=error_msg):
-                await retry_with_backoff(
-                    mock_operation, max_retries=3, operation_name="test_operation"
-                )
+            if "api key" in error_msg.lower():
+                with (
+                    patch(
+                        "data_ingestion.utils.credential_errors.os._exit",
+                        side_effect=stop_process,
+                    ),
+                    pytest.raises(SystemExit),
+                ):
+                    await retry_with_backoff(
+                        mock_operation, max_retries=3, operation_name="test_operation"
+                    )
+            else:
+                with pytest.raises(Exception, match=error_msg):
+                    await retry_with_backoff(
+                        mock_operation, max_retries=3, operation_name="test_operation"
+                    )
 
             assert mock_operation.call_count == 1
             mock_operation.reset_mock()
@@ -365,16 +389,33 @@ class TestErrorMessageHandling:
             "AUTHENTICATION FAILED",
         ]
 
+        def stop_process(code):
+            raise SystemExit(code)
+
         for error_msg in fatal_variations:
             mock_operation = AsyncMock()
             mock_operation.side_effect = Exception(error_msg)
 
-            with pytest.raises(Exception, match=error_msg):
-                await retry_with_backoff(
-                    mock_operation,
-                    max_retries=3,
-                    operation_name="test_case_insensitive",
-                )
+            if "api key" in error_msg.lower():
+                with (
+                    patch(
+                        "data_ingestion.utils.credential_errors.os._exit",
+                        side_effect=stop_process,
+                    ),
+                    pytest.raises(SystemExit),
+                ):
+                    await retry_with_backoff(
+                        mock_operation,
+                        max_retries=3,
+                        operation_name="test_case_insensitive",
+                    )
+            else:
+                with pytest.raises(Exception, match=error_msg):
+                    await retry_with_backoff(
+                        mock_operation,
+                        max_retries=3,
+                        operation_name="test_case_insensitive",
+                    )
 
             assert mock_operation.call_count == 1
             mock_operation.reset_mock()

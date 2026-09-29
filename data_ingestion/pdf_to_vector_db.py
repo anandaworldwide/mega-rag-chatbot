@@ -44,6 +44,7 @@ else:
 
 from data_ingestion.utils.author_normalization import normalize_author
 from data_ingestion.utils.checkpoint_utils import pdf_checkpoint_integration
+from data_ingestion.utils.credential_errors import abort_on_credential_error
 from data_ingestion.utils.embeddings_utils import OpenAIEmbeddings
 from data_ingestion.utils.pinecone_utils import (
     clear_library_vectors,
@@ -637,6 +638,7 @@ async def _process_single_batch(
         if isinstance(result, Exception):
             chunk_idx = start_idx + i
             failed_chunks.append(chunk_idx)
+            abort_on_credential_error(result)
             logger.error(f"Error processing chunk {chunk_idx}: {result}")
 
     if failed_chunks:

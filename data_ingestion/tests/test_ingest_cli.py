@@ -72,7 +72,9 @@ def test_youtube_list_edit_does_not_log_the_pinecone_index(monkeypatch, caplog):
     monkeypatch.setattr(
         "data_ingestion.bin.ingest_cli.IngestSourcePublisher", MagicMock()
     )
-    monkeypatch.setattr("data_ingestion.bin.ingest_cli.run_youtube", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "data_ingestion.bin.ingest_cli.run_youtube", lambda *a, **k: None
+    )
 
     with caplog.at_level(logging.INFO):
         _run_youtube_command(SimpleNamespace(site="ananda", no_ingest=True))
@@ -424,11 +426,11 @@ def test_crystal_loader_returns_filenames_and_titles(monkeypatch):
             return _Index()
 
     monkeypatch.setattr(
-        "data_ingestion.utils.pinecone_utils.get_pinecone_client",
+        "data_ingestion.bin.ingest_cli.get_pinecone_client",
         lambda: _Client(),
     )
     monkeypatch.setattr(
-        "data_ingestion.crystal_pdf_ingest.represented_pdfs_from_index",
+        "data_ingestion.bin.ingest_cli.represented_pdfs_from_index",
         lambda index, library: ({"already.pdf"}, {"product title"}),
     )
 

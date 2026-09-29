@@ -7,6 +7,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from tqdm import tqdm
+
 from data_ingestion.utils.ingest_s3_layout import CRYSTAL_PDF_PREFIX
 from data_ingestion.utils.pinecone_utils import _sanitize_text
 
@@ -115,9 +117,22 @@ def build_pdf_argv(repo_root: Path, file_path: Path, *, keep_data: bool) -> list
 
 def _library_vector_ids(index, library_name: str) -> list[str]:
     prefix = f"text||{library_name}||"
+    print(
+        f"Listing {library_name} vectors already in the index...",
+        file=sys.stderr,
+        flush=True,
+    )
     vector_ids = []
-    for batch in index.list(prefix=prefix):
-        vector_ids.extend(batch)
+    with tqdm(
+        desc="Listing stored vectors",
+        unit="vector",
+        file=sys.stderr,
+        disable=not sys.stderr.isatty(),
+    ) as bar:
+        for batch in index.list(prefix=prefix):
+            batch = list(batch)
+            vector_ids.extend(batch)
+            bar.update(len(batch))
     return vector_ids
 
 
@@ -134,15 +149,26 @@ def _basenames_for_vector_ids(index, vector_ids) -> set[str]:
     """Read one vector per document and collect PDF filenames."""
     sample_ids = one_vector_id_per_document(vector_ids)
     sources = []
-    for start in range(0, len(sample_ids), 10):
-        fetched = index.fetch(ids=sample_ids[start : start + 10])
-        vectors = fetched["vectors"] if isinstance(fetched, dict) else fetched.vectors
-        for vector in vectors.values():
-            metadata = _metadata_of(vector)
-            filename = metadata.get("pdf_filename")
-            if filename:
-                sources.append(filename)
-            sources.append(metadata.get("source"))
+    with tqdm(
+        total=len(sample_ids),
+        desc="Reading stored PDF names",
+        unit="book",
+        file=sys.stderr,
+        disable=not sys.stderr.isatty(),
+    ) as bar:
+        for start in range(0, len(sample_ids), 10):
+            chunk = sample_ids[start : start + 10]
+            fetched = index.fetch(ids=chunk)
+            vectors = (
+                fetched["vectors"] if isinstance(fetched, dict) else fetched.vectors
+            )
+            for vector in vectors.values():
+                metadata = _metadata_of(vector)
+                filename = metadata.get("pdf_filename")
+                if filename:
+                    sources.append(filename)
+                sources.append(metadata.get("source"))
+            bar.update(len(chunk))
     return pdf_basenames_from_sources(sources)
 
 

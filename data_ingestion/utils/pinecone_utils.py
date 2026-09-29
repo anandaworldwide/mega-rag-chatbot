@@ -26,6 +26,7 @@ from typing import Any
 from pinecone import Pinecone, ServerlessSpec
 from pinecone.exceptions import PineconeException
 
+from .credential_errors import abort_on_credential_error
 from .document_hash import generate_document_hash
 
 logger = logging.getLogger(__name__)
@@ -563,6 +564,7 @@ def batch_upsert_vectors(
                 )
 
             except Exception as e:
+                abort_on_credential_error(e)
                 logger.error(f"Error upserting batch {i // batch_size + 1}: {e}")
                 # Continue with next batch rather than failing completely
                 continue
