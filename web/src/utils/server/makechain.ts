@@ -464,8 +464,6 @@ async function runStandardRetrieval(
   sourceCount: number,
   searchFilter: Record<string, unknown> | undefined,
   includedLibraries: Array<string | { name: string; weight?: number }>,
-  sendData?: (data: StreamingResponseData) => void,
-  loggedLibraries?: Set<string>,
   minRetrievalScore?: number
 ): Promise<{ documents: Document[]; relevance: RelevanceStats }> {
   const allDocuments: Document[] = [];
@@ -488,24 +486,11 @@ async function runStandardRetrieval(
       sourceCount,
       includedLibraries as { name: string; weight?: number }[]
     );
-    if (sendData) {
-      sendData({ log: `[RAG] Weighted source distribution: ${JSON.stringify(sourcesDistribution)}` });
-    }
     const retrievalPromises = sourcesDistribution
       .filter(({ sources }) => sources > 0)
-      .map(async ({ name, sources }) => {
-        const result = await retrieveDocumentsByLibrary(
-          retriever,
-          name,
-          sources,
-          question,
-          searchFilter,
-          minRetrievalScore
-        );
-        if (sendData) sendData({ log: `[RAG] Retrieved ${result.documents.length} docs from library: ${name}` });
-        loggedLibraries?.add(name);
-        return result;
-      });
+      .map(({ name, sources }) =>
+        retrieveDocumentsByLibrary(retriever, name, sources, question, searchFilter, minRetrievalScore)
+      );
     const resultArrays = await Promise.all(retrievalPromises);
     resultArrays.forEach((result) => {
       allDocuments.push(...result.documents);
@@ -523,7 +508,6 @@ async function runStandardRetrieval(
     finalFilter,
     minRetrievalScore
   );
-  if (sendData) sendData({ log: `[RAG] Retrieved ${result.documents.length} docs from combined libraries` });
   return { documents: result.documents, relevance: result };
 }
 
@@ -584,10 +568,6 @@ export const makeChain = async (
       const libName = typeof lib === "string" ? lib : lib.name;
       return selectedLibraries.includes(libName);
     });
-    if (sendData && includedLibraries.length > 0) {
-      const libraryNames = includedLibraries.map((lib) => (typeof lib === "string" ? lib : lib.name)).join(", ");
-      sendData({ log: `[RAG] Filtering to selected libraries: ${libraryNames}` });
-    }
   }
 
   try {
@@ -694,9 +674,6 @@ export const makeChain = async (
       }
       if (bindRetrievalTools) {
         console.log(`✅ Retrieval tools bound to chat model (model=${answerModelName})`);
-        if (sendData) {
-          sendData({ log: "[RAG] Retrieval tools bound to AI model", toolResponse: true });
-        }
       }
     } else {
       answerModel = baseAnswerModel as BaseLanguageModel;
@@ -714,7 +691,6 @@ export const makeChain = async (
   } catch (error) {
     const errorMsg = `Failed to initialize models: ${error}`;
     console.error(errorMsg, error);
-    if (sendData) sendData({ log: errorMsg });
 
     // Send ops alert for OpenAI model initialization failures
     try {
@@ -871,9 +847,6 @@ Error details: ${errorString}`,
     new StringOutputParser(),
   ]);
 
-  // Track libraries we've already logged to prevent duplicates
-  const loggedLibraries = new Set<string>();
-
   // Runnable sequence for retrieving documents
   const retrievalSequence = RunnableSequence.from([
     async (input: AnswerChainInput) => {
@@ -883,7 +856,6 @@ Error details: ${errorString}`,
       if (isLocationQuery) {
         if (sendData) {
           sendData({ sourceDocs: [], isLocationQuery: true });
-          sendData({ log: "🌍 LOCATION QUERY: Skipped vector search - using geo-tools only for faster response" });
         }
         if (timingMetrics) {
           timingMetrics.retrievalMs = Date.now() - retrievalStart;
@@ -895,8 +867,6 @@ Error details: ${errorString}`,
       const minRetrievalScore = getMinRetrievalScore(siteConfig);
       let retrievalRelevance = emptyRelevanceStats();
       try {
-        if (sendData) sendData({ log: `[RAG] Retrieving documents: requested=${sourceCount}` });
-
         // Only treat "auto" as a blend trigger when the site has opted in. Otherwise a stray
         // collection="auto" from a non-auto site must fall back to whole_library, not blend.
         let collectionMode: AuthorScopeMode;
@@ -941,22 +911,19 @@ Error details: ${errorString}`,
         }
 
         if (useAutoAuthorScope && scopeDescriptor.kind !== "blend") {
-          logAuthorScopeDebug(
-            {
-              question: input.question,
-              authorMatchQuestion,
-              selectedCollectionKey,
-              collectionMode,
-              scopeHint: capturedAuthorScopeHint,
-              scopeDescriptor,
-              activeFilterPromptData,
-              authorIndexSize: {
-                authors: authorScopeIndex.canonicalAuthors.length,
-                aliases: Object.keys(authorScopeIndex.aliasIndex).length,
-              },
+          logAuthorScopeDebug({
+            question: input.question,
+            authorMatchQuestion,
+            selectedCollectionKey,
+            collectionMode,
+            scopeHint: capturedAuthorScopeHint,
+            scopeDescriptor,
+            activeFilterPromptData,
+            authorIndexSize: {
+              authors: authorScopeIndex.canonicalAuthors.length,
+              aliases: Object.keys(authorScopeIndex.aliasIndex).length,
             },
-            sendData
-          );
+          });
         }
 
         if (scopeDescriptor.kind === "blend") {
@@ -979,23 +946,20 @@ Error details: ${errorString}`,
           );
           retrievalRelevance = blendRelevance;
           if (useAutoAuthorScope) {
-            logAuthorScopeDebug(
-              {
-                question: input.question,
-                authorMatchQuestion,
-                selectedCollectionKey,
-                collectionMode,
-                scopeHint: capturedAuthorScopeHint,
-                scopeDescriptor,
-                activeFilterPromptData,
-                blendRetrieval: blendRetrievalDebug,
-                authorIndexSize: {
-                  authors: authorScopeIndex.canonicalAuthors.length,
-                  aliases: Object.keys(authorScopeIndex.aliasIndex).length,
-                },
+            logAuthorScopeDebug({
+              question: input.question,
+              authorMatchQuestion,
+              selectedCollectionKey,
+              collectionMode,
+              scopeHint: capturedAuthorScopeHint,
+              scopeDescriptor,
+              activeFilterPromptData,
+              blendRetrieval: blendRetrievalDebug,
+              authorIndexSize: {
+                authors: authorScopeIndex.canonicalAuthors.length,
+                aliases: Object.keys(authorScopeIndex.aliasIndex).length,
               },
-              sendData
-            );
+            });
           }
           allDocuments.push(...blendedDocs);
         } else {
@@ -1015,17 +979,13 @@ Error details: ${errorString}`,
             sourceCount,
             searchFilter,
             includedLibraries,
-            sendData,
-            loggedLibraries,
             minRetrievalScore
           );
           retrievalRelevance = standardRelevance;
           allDocuments.push(...docs);
         }
-
-        if (sendData) sendData({ log: `[RAG] Documents retrieved: found=${allDocuments.length}` });
       } catch (err) {
-        if (sendData) sendData({ log: `[RAG] Error retrieving documents: ${err}` });
+        console.error(`[RAG] Error retrieving documents: ${err}`);
         throw err;
       }
 
@@ -1039,11 +999,10 @@ Error details: ${errorString}`,
             ? `⚠️ NO SOURCES: All ${retrievalRelevance.rawHitCount} retrieved documents were below minRetrievalScore (${minRetrievalScore}) for question: "${input.question.substring(0, 100)}..."`
             : `⚠️ NO SOURCES: No documents retrieved for question: "${input.question.substring(0, 100)}..."`;
         console.warn(warningMsg);
+        if (reason === "low_relevance" && minRetrievalScore !== undefined) {
+          console.warn(formatRelevanceCutoffLog(minRetrievalScore, retrievalRelevance));
+        }
         if (sendData) {
-          sendData({ log: warningMsg });
-          if (reason === "low_relevance" && minRetrievalScore !== undefined) {
-            sendData({ log: formatRelevanceCutoffLog(minRetrievalScore, retrievalRelevance) });
-          }
           sendData({ sourceDocs: [] });
         }
         if (resolveDocs) {
@@ -1301,11 +1260,8 @@ Error details: ${errorString}`,
     {
       question: async (input: AnswerChainInput) => {
         capturedUserUtterance = input.question;
-        // Debug: Log the original question only if not in temporary mode
         if (!temporarySession) {
-          const debugMsg = `🔍 ORIGINAL QUESTION: "${input.question}"`;
-          console.log(debugMsg);
-          if (sendData) sendData({ log: debugMsg });
+          console.log(`🔍 ORIGINAL QUESTION: "${input.question}"`);
         }
 
         // TODO: Possibly remove this. Simple social pattern code. There was a query where someone said,
@@ -1326,20 +1282,6 @@ Error details: ${errorString}`,
           return input.question;
         }
 
-        // TEMPORARY DEBUG: Show context being provided to reformulation BEFORE calling
-        if (!temporarySession) {
-          if (sendData) {
-            sendData({ log: `🔍 ORIGINAL: "${input.question}"` });
-            sendData({ log: `🔍 HISTORY LENGTH: ${input.chat_history?.length || 0} characters` });
-            if (input.chat_history && input.chat_history.length > 0) {
-              // Show a truncated version of the chat history
-              const truncatedHistory =
-                input.chat_history.length > 300 ? input.chat_history.substring(0, 300) + "..." : input.chat_history;
-              sendData({ log: `🔍 CHAT HISTORY PREVIEW: ${truncatedHistory}` });
-            }
-          }
-        }
-
         // Get the reformulated standalone question
         let standaloneQuestion: string;
         const rephraseStart = Date.now();
@@ -1356,9 +1298,6 @@ Error details: ${errorString}`,
             );
             standaloneQuestion = rephraseResult.standaloneQuestion;
             capturedAuthorScopeHint = rephraseResult.authorScope;
-            if (sendData) {
-              sendData({ log: `[RAG] Author scope hint: ${capturedAuthorScopeHint}` });
-            }
           } else if (input.chat_history.length > 0) {
             standaloneQuestion = await standaloneQuestionChain.invoke(input);
           } else {
@@ -1374,17 +1313,10 @@ Error details: ${errorString}`,
           }
         }
 
-        // Debug: Show the result of reformulation only if not in temporary mode
         if (!temporarySession) {
-          const debugMsg = `🔍 REFORMULATED TO: "${standaloneQuestion}"`;
-          console.log(debugMsg);
-          if (sendData) sendData({ log: debugMsg });
-
-          // Additional debug: Check if reformulation actually changed anything
+          console.log(`🔍 REFORMULATED TO: "${standaloneQuestion}"`);
           if (standaloneQuestion === input.question) {
-            const warnMsg = `⚠️ REFORMULATION WARNING: Question unchanged - this may indicate missing context in history`;
-            console.warn(warnMsg);
-            if (sendData) sendData({ log: warnMsg });
+            console.warn("⚠️ REFORMULATION WARNING: Question unchanged - this may indicate missing context in history");
           }
         }
 
@@ -1684,9 +1616,7 @@ export async function setupAndExecuteLanguageModelChain(
         const expectedSiteId = process.env.SITE_ID || "default";
 
         if (siteConfig.siteId !== expectedSiteId) {
-          const error = `Error: Backend is using incorrect site ID: ${siteConfig.siteId}. Expected: ${expectedSiteId}`;
-          console.error(error);
-          sendData({ log: error });
+          console.error(`Error: Backend is using incorrect site ID: ${siteConfig.siteId}. Expected: ${expectedSiteId}`);
         }
         sendData({ siteId: siteConfig.siteId });
       }
@@ -1698,10 +1628,6 @@ export async function setupAndExecuteLanguageModelChain(
       // Prepare geo-awareness tools if enabled
       let geoTools: any[] = [];
       if (isGeoEnabled && request) {
-        if (sendData) {
-          sendData({ log: "[GEO] Geo-awareness tools bound to AI model", toolResponse: true });
-        }
-
         // Import tools dynamically to avoid circular dependencies
         const { TOOL_DEFINITIONS } = await import("./tools");
         geoTools = TOOL_DEFINITIONS;
@@ -1837,23 +1763,14 @@ export async function setupAndExecuteLanguageModelChain(
               async handleToolStart(tool: any, input: string) {
                 streamingDeadline.touchStreamingActivity();
                 console.log(`🔧 Tool called: ${tool.name} with input: ${JSON.stringify(input)}`);
-                if (sendData) {
-                  sendData({ log: `[TOOL] Calling ${tool.name}`, toolResponse: true });
-                }
               },
               async handleToolEnd(output: string) {
                 streamingDeadline.touchStreamingActivity();
                 console.log(`🔧 Tool output: ${output}`);
-                if (sendData) {
-                  sendData({ log: `[TOOL] Tool execution completed`, toolResponse: true });
-                }
               },
               async handleToolError(error: Error) {
                 streamingDeadline.touchStreamingActivity();
                 console.error(`🔧 Tool error: ${error.message}`);
-                if (sendData) {
-                  sendData({ log: `[TOOL] Tool error: ${error.message}`, toolResponse: true });
-                }
               },
             } as Partial<BaseCallbackHandler>,
           ],
@@ -2299,9 +2216,6 @@ export async function setupAndExecuteLanguageModelChain(
         const modelInfoForWarning = siteConfig?.modelName || modelName || "unknown"; // Get model name
         const warningMsg = `Warning: AI response from model ${modelInfoForWarning} indicates no relevant information was found for question: "${sanitizedQuestion.substring(0, 100)}..."`;
         console.warn(warningMsg);
-        sendData({ log: warningMsg });
-        // Optionally, send a warning to the client if needed, though this is after `done:true` has been sent.
-        // sendData({ warning: "AI response indicates no relevant information found." });
       }
 
       const finalTiming: Partial<TimingMetrics> = {};
@@ -2409,14 +2323,10 @@ export async function setupAndExecuteLanguageModelChain(
       lastError = error as Error;
       retryCount++;
       if (retryCount < MAX_RETRIES) {
-        const warningMsg = `Attempt ${retryCount} failed. Retrying in ${RETRY_DELAY_MS}ms...`;
-        console.warn(warningMsg, error);
-        sendData({ log: warningMsg });
+        console.warn(`Attempt ${retryCount} failed. Retrying in ${RETRY_DELAY_MS}ms...`, error);
         await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
       } else {
-        const errorMsg = "All retry attempts failed";
-        console.error(errorMsg, error);
-        sendData({ log: errorMsg });
+        console.error("All retry attempts failed", error);
         throw lastError;
       }
     }

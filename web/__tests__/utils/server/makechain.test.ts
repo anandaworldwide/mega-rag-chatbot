@@ -1535,13 +1535,6 @@ describe("makeChain", () => {
         mockSiteConfig
       )
     ).rejects.toThrow("Model initialization failed");
-
-    // Verify sendData was called with error log
-    expect(sendData).toHaveBeenCalledWith(
-      expect.objectContaining({
-        log: expect.stringContaining("Failed to initialize models"),
-      })
-    );
   });
 
   test("should handle missing site ID error", async () => {
@@ -1795,8 +1788,8 @@ describe("makeChain", () => {
         false
       );
 
-      // Should log error about incorrect site ID
-      expect(sendData).toHaveBeenCalledWith(
+      expect(sendData).toHaveBeenCalledWith(expect.objectContaining({ siteId: "different-site" }));
+      expect(sendData).not.toHaveBeenCalledWith(
         expect.objectContaining({
           log: expect.stringContaining("Backend is using incorrect site ID"),
         })
@@ -3048,11 +3041,12 @@ describe("makeChain", () => {
         combinedContent: "[]",
       });
       expect(sendData).toHaveBeenCalledWith({ sourceDocs: [] });
-      expect(sendData).toHaveBeenCalledWith(
+      expect(sendData).not.toHaveBeenCalledWith(
         expect.objectContaining({
           log: expect.stringContaining("below minRetrievalScore"),
         })
       );
+      expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("below minRetrievalScore"));
     });
 
     it("returns scored documents when hits pass minRetrievalScore", async () => {
@@ -3168,9 +3162,10 @@ describe("makeChain", () => {
 
       expect(result).toEqual({ documents: [], combinedContent: "[]" });
       expect(sendData).toHaveBeenCalledWith({ sourceDocs: [] });
-      expect(sendData).toHaveBeenCalledWith(
+      expect(sendData).not.toHaveBeenCalledWith(
         expect.objectContaining({ log: expect.stringContaining("below minRetrievalScore") })
       );
+      expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("below minRetrievalScore"));
     });
 
     it("applies the cutoff within the auto-blend, keeping only passing docs with raw scores", async () => {

@@ -1,5 +1,4 @@
 import type { SiteConfig as AppSiteConfig } from "@/types/siteConfig";
-import type { StreamingResponseData } from "@/types/StreamingResponseData";
 import type { AuthorScopeDescriptor, AuthorScopeHint, AuthorScopeMode } from "@/utils/server/authorConstants";
 import type { AuthorScopeBlendRetrievalDebug } from "@/utils/server/authorScopeRetrieval";
 
@@ -272,15 +271,6 @@ export function formatAuthorScopeDebugLog(input: {
   return lines.join("\n");
 }
 
-export function logAuthorScopeDebug(
-  input: Parameters<typeof formatAuthorScopeDebugLog>[0],
-  sendData?: (data: StreamingResponseData) => void
-): void {
-  const message = formatAuthorScopeDebugLog(input);
-  console.log(message);
-  if (sendData) {
-    for (const line of message.split("\n")) {
-      sendData({ log: line });
-    }
-  }
+export function logAuthorScopeDebug(input: Parameters<typeof formatAuthorScopeDebugLog>[0]): void {
+  console.log(formatAuthorScopeDebugLog(input));
 }
