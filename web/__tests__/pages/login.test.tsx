@@ -1,8 +1,9 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import Login from "@/pages/login";
 import { SiteConfig } from "@/types/siteConfig";
+import { fetchWithAuth } from "@/utils/client/tokenManager";
 
 jest.mock("next/router", () => ({
   useRouter: () => ({
@@ -79,7 +80,7 @@ describe("Login page Voice Control accessibility", () => {
     expect(emailInput).toHaveAttribute("id", "email-input");
     expect(emailInput).toHaveAttribute("name", "email");
     expect(emailInput).toHaveAttribute("type", "email");
-    expect(emailInput).toHaveAttribute("autocomplete", "email");
+    expect(emailInput).toHaveAttribute("autocomplete", "username");
     expect(emailInput).toHaveAttribute("aria-labelledby", "email-input-label");
     expect(document.getElementById("email-input-label")).toHaveAttribute("for", "email-input");
   });
@@ -89,5 +90,41 @@ describe("Login page Voice Control accessibility", () => {
 
     const mailIcon = screen.getByText("mail");
     expect(mailIcon).toHaveAttribute("aria-hidden", "true");
+  });
+});
+
+describe("Login page iOS/password-manager autofill", () => {
+  beforeEach(() => {
+    jest.mocked(fetchWithAuth).mockReset();
+  });
+
+  it("uses username autocomplete on the email field while keeping type=email", () => {
+    render(<Login siteConfig={mockSiteConfig} contactEmail="support@example.com" />);
+
+    const emailInput = screen.getByRole("textbox", { name: "Email Address" });
+    expect(emailInput).toHaveAttribute("id", "email-input");
+    expect(emailInput).toHaveAttribute("autocomplete", "username");
+    expect(emailInput).toHaveAttribute("type", "email");
+  });
+
+  it("pairs the password field with a username-autocomplete input carrying the entered email", async () => {
+    jest.mocked(fetchWithAuth).mockResolvedValue({
+      ok: true,
+      json: async () => ({ hasPassword: true }),
+    } as Response);
+
+    render(<Login siteConfig={mockSiteConfig} contactEmail="support@example.com" />);
+
+    const emailInput = screen.getByRole("textbox", { name: "Email Address" });
+    fireEvent.change(emailInput, { target: { value: "user@example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    const passwordInput = await waitFor(() => screen.getByLabelText("Password"));
+    expect(passwordInput).toHaveAttribute("autocomplete", "current-password");
+
+    const usernameInput = document.querySelector('input[name="username"][autocomplete="username"]');
+    expect(usernameInput).toBeInTheDocument();
+    expect(usernameInput).toHaveAttribute("type", "email");
+    expect(usernameInput).toHaveValue("user@example.com");
   });
 });
