@@ -359,7 +359,7 @@ export default function Login({ siteConfig, contactEmail }: LoginProps) {
                   name="email"
                   type="email"
                   inputMode="email"
-                  autoComplete="email"
+                  autoComplete="username"
                   autoCapitalize="none"
                   autoCorrect="off"
                   spellCheck={false}
@@ -415,6 +415,17 @@ export default function Login({ siteConfig, contactEmail }: LoginProps) {
                   Enter your password for <strong className="text-gray-900">{email}</strong>
                 </p>
               </div>
+
+              <input
+                type="email"
+                name="username"
+                autoComplete="username"
+                value={email}
+                readOnly
+                tabIndex={-1}
+                aria-hidden="true"
+                className="sr-only"
+              />
 
               <div className="mb-5">
                 <label htmlFor="password" id="password-label" className="block text-sm font-medium text-gray-700 mb-2">
