@@ -29,11 +29,14 @@ from pathlib import Path
 from mutagen.id3 import COMM, ID3, TALB, TIT2, TPE1
 from mutagen.mp3 import MP3
 from yt_dlp import YoutubeDL
+from yt_dlp.cookies import SUPPORTED_BROWSERS
 from yt_dlp.utils import DownloadError
 
 # Set up logging
 logger = logging.getLogger(__name__)
 _deno_missing_logged = False
+_cookies_browser_logged = False
+YOUTUBE_COOKIES_FROM_BROWSER_ENV = "YOUTUBE_COOKIES_FROM_BROWSER"
 
 
 _EXPECTED_YTDLP_WARNING_MARKERS = (
@@ -75,6 +78,41 @@ def _deno_executable() -> str | None:
     return None
 
 
+def _cookies_from_browser() -> tuple | None:
+    """Return yt-dlp's cookiesfrombrowser tuple when the operator opted in.
+
+    The value is a browser name, optionally with a profile after a colon:
+    ``chrome`` or ``chrome:Profile 1``. The android client cannot send these
+    cookies, so downloads that use them ask for mweb and tv instead.
+    """
+    raw = os.environ.get(YOUTUBE_COOKIES_FROM_BROWSER_ENV, "").strip()
+    if not raw:
+        return None
+    browser, _, profile = raw.partition(":")
+    browser = browser.strip().lower()
+    profile = profile.strip() or None
+    if browser not in SUPPORTED_BROWSERS:
+        logger.error(
+            "YOUTUBE_COOKIES_FROM_BROWSER=%s is not a supported browser. "
+            "Use one of: %s",
+            raw,
+            ", ".join(sorted(SUPPORTED_BROWSERS)),
+        )
+        return None
+    return (browser, profile, None, None)
+
+
+def _youtube_player_clients() -> list[str]:
+    """Clients that still return a downloadable file.
+
+    android does not accept cookies. When a browser session is configured,
+    use the clients that do.
+    """
+    if _cookies_from_browser():
+        return ["mweb", "tv"]
+    return ["android", "mweb"]
+
+
 def _youtube_dl_options(**extra):
     """Options that use the current YouTube challenge solver.
 
@@ -101,6 +139,20 @@ def _youtube_dl_options(**extra):
             "YouTube downloads will get HTTP 403 until it is installed. "
             "See https://github.com/yt-dlp/yt-dlp/wiki/EJS"
         )
+    cookies_from_browser = _cookies_from_browser()
+    if cookies_from_browser:
+        global _cookies_browser_logged
+        opts["cookiesfrombrowser"] = cookies_from_browser
+        if not _cookies_browser_logged:
+            _cookies_browser_logged = True
+            profile = cookies_from_browser[1] or "the most recently used profile"
+            logger.info(
+                "Using YouTube cookies from the %s browser (%s). "
+                "Be logged in to youtube.com there. macOS may ask for "
+                "Keychain access to Chrome Safe Storage.",
+                cookies_from_browser[0],
+                profile,
+            )
     opts.update(extra)
     return opts
 
@@ -148,7 +200,7 @@ def download_youtube_audio(url: str, output_path: str = "."):
     # with HTTP 403. android and mweb still serve a progressive MP4.
     ydl_opts = _youtube_dl_options(
         format="best",
-        extractor_args={"youtube": {"player_client": ["android", "mweb"]}},
+        extractor_args={"youtube": {"player_client": _youtube_player_clients()}},
         postprocessors=[
             {
                 "key": "FFmpegExtractAudio",

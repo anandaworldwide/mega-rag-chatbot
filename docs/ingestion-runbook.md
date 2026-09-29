@@ -205,6 +205,9 @@ uv run python data_ingestion/bin/ingest_cli.py youtube \
 YouTube downloads use Deno 2.3+ for the current yt-dlp challenge solver. Deno may live at `~/.deno/bin/deno` when it is
 not on PATH. Node 20 is not accepted. Without Deno, yt-dlp uses a deprecated client and the media download returns
 HTTP 403. The default `android_vr` media URLs also return 403, so downloads use the `android` and `mweb` player clients.
+If YouTube answers `Sign in to confirm you're not a bot`, set `YOUTUBE_COOKIES_FROM_BROWSER=chrome` in
+`.env.ananda` (or `safari` or `firefox`) and be logged in to youtube.com in that browser. The download then uses the
+`mweb` and `tv` clients, which can send those cookies. The `android` client cannot.
 
 `--yes` accepts the Pinecone proceed prompt. A playlist that yt-dlp cannot read stays on the list and is printed as
 failed; the other entries are still queued. Adding requires `--author` and `--library`. Those values are stored on the
