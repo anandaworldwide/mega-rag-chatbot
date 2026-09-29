@@ -3271,10 +3271,10 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                       </div>
                     </div>
 
-                    {/* Animated Scroll Down Button - centered at bottom of scroll area */}
+                    {/* Scroll-to-bottom. Hidden within 50px of the end. On mobile it sits on the right, clear of the answer actions. */}
                     <div
                       ref={scrollButtonContainerRef}
-                      className={`absolute z-50 bottom-4 max-md:bottom-[var(--scroll-btn-bottom)] left-1/2 -translate-x-1/2 transition-all duration-300 ease-out transform 
+                      className={`absolute z-50 bottom-4 max-md:bottom-[var(--scroll-btn-bottom)] left-1/2 -translate-x-1/2 max-md:left-auto max-md:right-3 max-md:translate-x-0 transition-all duration-300 ease-out transform 
                       ${showScrollDownButton ? "translate-y-0 opacity-100 pointer-events-auto" : "translate-y-8 opacity-0 pointer-events-none"}`}
                       style={{ willChange: "transform, opacity" }}
                     >
@@ -3289,7 +3289,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                     </div>
                   </div>
                   {/* Input area - pinned to bottom when conversation is active */}
-                  <div className="flex-shrink-0 px-2 md:px-0 pb-2 bg-white relative z-10 max-md:h-0 max-md:overflow-visible max-md:pb-0">
+                  <div className="flex-shrink-0 px-2 md:px-0 pb-2 bg-white relative z-10 max-md:h-0 max-md:overflow-visible max-md:px-0 max-md:pb-0 max-md:bg-transparent">
                     {/* Render chat input component */}
                     {isLoadingQueries ? null : (
                       <ChatInput

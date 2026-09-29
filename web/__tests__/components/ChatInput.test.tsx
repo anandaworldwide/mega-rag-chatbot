@@ -362,7 +362,12 @@ describe("ChatInput mobile follow-up auto-hide", () => {
     const scroller = screen.getByTestId("answer-scroller");
 
     expect(bar()).toHaveAttribute("data-hidden", "false");
-    expect(bar()).toHaveStyle({ transform: "translateY(0)" });
+    expect(bar()).toHaveStyle({
+      transform: "translateY(0)",
+      backgroundColor: "rgb(255, 255, 255)",
+      left: "-1rem",
+      right: "-1rem",
+    });
     expect(scroller).toHaveStyle({ paddingBottom: "140px" });
     expect(bar().className).toContain("env(safe-area-inset-bottom)");
 

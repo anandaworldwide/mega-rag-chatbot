@@ -21,8 +21,8 @@ export default function CrystalHeader({ siteConfig, onNewChat, onFeedbackClick }
           backgroundImage: `url("data:image/svg+xml;utf8,<svg viewBox='0 0 1512 68' xmlns='http://www.w3.org/2000/svg' preserveAspectRatio='none'><rect x='0' y='0' height='100%' width='100%' fill='url(%23grad)' opacity='0.20000000298023224'/><defs><radialGradient id='grad' gradientUnits='userSpaceOnUse' cx='0' cy='0' r='10' gradientTransform='matrix(62.9 2.8609e-7 -7.2655e-8 15.974 756 34)'><stop stop-color='rgba(255,255,255,0.2)' offset='0'/><stop stop-color='rgba(128,201,241,0.2)' offset='0.5'/><stop stop-color='rgba(64,173,234,0.2)' offset='0.75'/><stop stop-color='rgba(0,146,227,0.2)' offset='1'/></radialGradient></defs></svg>")`,
         }}
       >
-        <div className="flex justify-between items-center h-full px-[35px]">
-          <div className="flex items-center gap-[35px] pt-[5px]">
+        <div className="flex justify-between items-center h-full px-[35px] max-md:px-3">
+          <div className="flex items-center gap-[35px] max-md:gap-2 pt-[5px] flex-shrink-0">
             <Link href="/">
               <Image
                 src="https://www.crystalclarity.com/cdn/shop/files/logo-white.png?v=1671755975&width=382"
@@ -46,7 +46,7 @@ export default function CrystalHeader({ siteConfig, onNewChat, onFeedbackClick }
               </div>
             </nav>
           </div>
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-4 max-md:space-x-1 flex-shrink-0">
             {/* Show new chat button */}
             {onNewChat && (
               <button
@@ -64,10 +64,13 @@ export default function CrystalHeader({ siteConfig, onNewChat, onFeedbackClick }
               <button
                 type="button"
                 onClick={onFeedbackClick}
-                className="md:hidden font-['Open_Sans'] text-[15px] font-bold text-white hover:text-gray-200"
-                aria-label="Give feedback"
+                aria-label="Feedback"
+                title="Feedback"
+                className="md:hidden text-white hover:text-gray-200 p-1 rounded-xl hover:bg-white/10 transition-colors"
               >
-                Feedback
+                <span className="material-icons text-xl" aria-hidden="true">
+                  feedback
+                </span>
               </button>
             )}
             <Link

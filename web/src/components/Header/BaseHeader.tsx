@@ -176,10 +176,10 @@ export default function BaseHeader({
           )}')`,
         }}
       >
-        <div className="flex justify-between items-center h-full px-[35px]">
-          <div className="flex items-center gap-[35px] pt-[5px]">
+        <div className="flex justify-between items-center h-full px-[35px] max-md:px-3">
+          <div className="flex items-center gap-[35px] max-md:gap-2 pt-[5px] flex-shrink-0">
             {logoComponent ? (
-              <Link href="/" onClick={handleLogoClick}>
+              <Link href="/" onClick={handleLogoClick} className="flex-shrink-0">
                 {logoComponent}
               </Link>
             ) : null}
@@ -211,7 +211,7 @@ export default function BaseHeader({
               </div>
             </nav>
           </div>
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-4 max-md:space-x-1 flex-shrink-0">
             {/* Show temporary session button when chat is empty and temporary sessions are allowed */}
             {isChatEmpty && allowTemporarySessions && !temporarySession && onTemporarySessionChange && (
               <button
@@ -256,10 +256,13 @@ export default function BaseHeader({
               <button
                 type="button"
                 onClick={onFeedbackClick}
-                className="md:hidden font-['Open_Sans'] text-[15px] font-bold text-white hover:text-gray-200"
-                aria-label="Give feedback"
+                aria-label="Feedback"
+                title="Feedback"
+                className="md:hidden text-white hover:text-gray-200 p-1 rounded-xl hover:bg-white/10 transition-colors"
               >
-                Feedback
+                <span className="material-icons text-xl" aria-hidden="true">
+                  feedback
+                </span>
               </button>
             )}
             {requireLogin && authReady && (

@@ -78,9 +78,10 @@ describe("Layout mobile chat chrome", () => {
     expect(footer.parentElement?.className).not.toMatch(/(?:^|\s)hidden(?:\s|$)/);
 
     const header = screen.getByRole("banner");
-    const feedback = within(header).getByRole("button", { name: "Give feedback" });
+    const feedback = within(header).getByRole("button", { name: "Feedback" });
     expect(feedback).toHaveClass("md:hidden");
-    expect(feedback).toHaveTextContent("Feedback");
+    expect(feedback.querySelector(".material-icons")).toHaveTextContent("feedback");
+    expect(feedback.textContent).not.toMatch(/^\s*Feedback\s*$/);
 
     const floating = document.querySelector(".fixed.bottom-6");
     expect(floating).toHaveClass("hidden", "md:block");
@@ -98,7 +99,7 @@ describe("Layout mobile chat chrome", () => {
       expect(screen.getByRole("banner")).toBeInTheDocument();
     });
     expect(footer.parentElement).not.toHaveClass("max-md:hidden");
-    expect(within(screen.getByRole("banner")).queryByRole("button", { name: "Give feedback" })).not.toBeInTheDocument();
+    expect(within(screen.getByRole("banner")).queryByRole("button", { name: "Feedback" })).not.toBeInTheDocument();
     expect(document.querySelector(".fixed.bottom-6")).toHaveClass("hidden", "md:block");
   });
 });

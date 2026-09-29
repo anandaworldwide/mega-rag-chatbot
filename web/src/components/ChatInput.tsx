@@ -363,12 +363,17 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   const mobileBarStyle: React.CSSProperties | undefined = hideOnScrollEnabled
     ? {
         position: "absolute",
-        left: "0.5rem",
-        right: "0.5rem",
+        // Break out of the column padding so the white strip is the full page width,
+        // including the side gutters and the safe-area padding below the composer.
+        left: "-1rem",
+        right: "-1rem",
         bottom: 0,
         zIndex: 10,
         margin: 0,
+        width: "auto",
         backgroundColor: "#fff",
+        paddingLeft: "1rem",
+        paddingRight: "1rem",
         transform: followUpHidden ? "translateY(100%)" : "translateY(0)",
         transition: reduceMotion ? "none" : "transform 300ms ease-out",
         pointerEvents: followUpHidden ? "none" : "auto",
