@@ -226,8 +226,10 @@ export const ChatInput: React.FC<ChatInputProps> = ({
 
     const apply = () => {
       const height = bar.offsetHeight;
-      // Reserve the bar's height so the last line can scroll clear of the overlay.
-      scroller.style.paddingBottom = followUpHidden ? "0px" : `${height}px`;
+      // Always reserve the bar height, including while it is hidden. Otherwise the
+      // user can reach the true content bottom and the bottom-reveal overlay covers
+      // the last content (SuggestionPills).
+      scroller.style.paddingBottom = `${height}px`;
       onMobileBarChangeRef.current?.({ hidden: followUpHidden, height });
     };
 

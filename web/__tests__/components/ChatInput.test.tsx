@@ -376,12 +376,32 @@ describe("ChatInput mobile follow-up auto-hide", () => {
 
     expect(bar()).toHaveAttribute("data-hidden", "true");
     expect(bar()).toHaveStyle({ transform: "translateY(100%)", pointerEvents: "none" });
-    expect(scroller).toHaveStyle({ paddingBottom: "0px" });
+    expect(scroller).toHaveStyle({ paddingBottom: "140px" });
 
     scroller.scrollTop = 0;
     fireEvent.scroll(scroller);
     expect(bar()).toHaveAttribute("data-hidden", "false");
     expect(bar()).toHaveStyle({ transform: "translateY(0)" });
+    expect(scroller).toHaveStyle({ paddingBottom: "140px" });
+  });
+
+  it("keeps paddingBottom equal to the bar height while hidden or visible on a 390px screen", () => {
+    render(<FollowUpHarness width={390} />);
+    const scroller = screen.getByTestId("answer-scroller");
+
+    expect(bar()).toHaveAttribute("data-hidden", "false");
+    expect(scroller).toHaveStyle({ paddingBottom: "140px" });
+
+    scroller.scrollTop = 40;
+    fireEvent.scroll(scroller);
+    expect(bar()).toHaveAttribute("data-hidden", "true");
+    expect(scroller).toHaveStyle({ paddingBottom: "140px" });
+
+    // 2400 - 1860 - 500 = 40, inside the 48px bottom-reveal offset
+    scroller.scrollTop = 1860;
+    fireEvent.scroll(scroller);
+    expect(bar()).toHaveAttribute("data-hidden", "false");
+    expect(scroller).toHaveStyle({ paddingBottom: "140px" });
   });
 
   it("stays visible while the field is focused or has text", () => {
@@ -430,6 +450,7 @@ describe("ChatInput mobile follow-up auto-hide", () => {
     fireEvent.scroll(scroller);
     expect(bar()).toHaveAttribute("data-hidden", "false");
     expect(bar()).toHaveStyle({ transform: "translateY(0)", pointerEvents: "auto" });
+    expect(scroller).toHaveStyle({ paddingBottom: "140px" });
     expect(screen.getByRole("button", { name: "Stop generating" })).toBeInTheDocument();
   });
 
