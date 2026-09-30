@@ -737,6 +737,62 @@ class TestExclusionRulesIntegration(unittest.TestCase):
         self.assertEqual(processed_data[0]["required_access_level"], 200)
         self.assertEqual(processed_data[0]["access_level"], "kriyaban")
 
+    @patch(
+        "data_ingestion.sql_to_vector_db.ingest_db_text.download_exclusion_rules_from_s3"
+    )
+    def test_fetch_data_ignores_missing_required_access_level_column(
+        self, mock_download_rules
+    ):
+        """A dump without the access column is public instead of failing the query."""
+        mock_download_rules.return_value = None
+        mock_connection = MagicMock()
+        mock_cursor = MagicMock()
+        mock_connection.cursor.return_value.__enter__.return_value = mock_cursor
+        mock_cursor.fetchone.return_value = None
+        mock_cursor.fetchall.return_value = [
+            {
+                "ID": 1,
+                "post_content": "<p>Open content</p>",
+                "post_name": "open-post",
+                "post_title": "Open Post",
+                "PARENT_TITLE_1": None,
+                "PARENT_TITLE_2": None,
+                "PARENT_TITLE_3": None,
+                "PARENT_SLUG_1": None,
+                "PARENT_SLUG_2": None,
+                "PARENT_SLUG_3": None,
+                "CHILD_TITLE": "Open Post",
+                "post_author": 1,
+                "post_date": datetime(2023, 6, 15),
+                "post_type": "content",
+                "categories": None,
+                "authors_list": "Test Author",
+                "PARENT3_AUTHOR_ID": 1,
+                "post_parent": 0,
+            }
+        ]
+
+        with patch(
+            "data_ingestion.sql_to_vector_db.ingest_db_text.replace_smart_quotes"
+        ) as mock_replace_quotes:
+            mock_replace_quotes.side_effect = lambda text: text
+            processed_data = ingest_db_text.fetch_data(
+                mock_connection,
+                {
+                    "base_url": "https://example.com/",
+                    "post_types": ["content"],
+                    "category_taxonomy": "library-category",
+                },
+                "Test Library",
+                {1: "Test Author"},
+                "ananda",
+                required_access_level_field="luca_required_access_level",
+            )
+
+        executed_sql = mock_cursor.execute.call_args_list[-1].args[0]
+        self.assertNotIn("luca_required_access_level", executed_sql)
+        self.assertEqual(processed_data[0]["required_access_level"], 0)
+
 
 class TestEnvironmentLoading(unittest.TestCase):
     """Test cases for environment variable loading."""
@@ -788,6 +844,7 @@ class TestDatabaseUtilities(unittest.TestCase):
                 "DB_USER": "test_user",
                 "DB_PASSWORD": "test_pass",
                 "DB_HOST": "test_host",
+                "DB_PORT": "3307",
                 "DB_CHARSET": "utf8mb4",
                 "DB_COLLATION": "utf8mb4_unicode_ci",
             },
@@ -797,6 +854,7 @@ class TestDatabaseUtilities(unittest.TestCase):
             self.assertEqual(config["user"], "test_user")
             self.assertEqual(config["password"], "test_pass")
             self.assertEqual(config["host"], "test_host")
+            self.assertEqual(config["port"], 3307)
             self.assertEqual(config["database"], "test_database")
             self.assertEqual(config["charset"], "utf8mb4")
             self.assertEqual(config["collation"], "utf8mb4_unicode_ci")

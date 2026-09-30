@@ -1037,6 +1037,7 @@ def get_db_config(args):
         "user": os.getenv("DB_USER"),
         "password": os.getenv("DB_PASSWORD"),
         "host": os.getenv("DB_HOST"),
+        "port": int(os.getenv("DB_PORT", "3306")),
         "database": args.database,
         "charset": os.getenv("DB_CHARSET", "utf8mb4"),
         "collation": os.getenv("DB_COLLATION", "utf8mb4_unicode_ci"),
@@ -1263,6 +1264,14 @@ def validate_sql_column_name(column_name: str) -> None:
         raise ValueError(
             "--required-access-level-field must be a simple wp_posts column name"
         )
+
+
+def wp_posts_has_column(db_connection, column_name: str) -> bool:
+    """Return whether wp_posts has this column in the connected database."""
+    validate_sql_column_name(column_name)
+    with db_connection.cursor() as cursor:
+        cursor.execute("SHOW COLUMNS FROM wp_posts LIKE %s", (column_name,))
+        return cursor.fetchone() is not None
 
 
 def fetch_authors(db_connection) -> dict[int, str]:
@@ -1535,6 +1544,15 @@ def fetch_data(
     # Use the confirmed taxonomy slug for authors
     author_taxonomy = "library-author"
     base_url = site_config["base_url"]
+
+    if required_access_level_field and not wp_posts_has_column(
+        db_connection, required_access_level_field
+    ):
+        logger.warning(
+            "wp_posts has no column %s. Required access level will be 0.",
+            required_access_level_field,
+        )
+        required_access_level_field = None
 
     # Construct SQL query and parameters
     query, params = _construct_sql_query(
@@ -2105,8 +2123,13 @@ def setup_connections_and_index(
     args: argparse.Namespace, dry_run: bool, no_pinecone: bool = False
 ) -> tuple[pymysql.Connection, Pinecone.Index]:
     """Establishes database and Pinecone connections and ensures the index exists."""
-    logger.info("Establishing connections...")
     db_config = get_db_config(args)
+    logger.info(
+        "Connecting to MySQL %s:%s database %s",
+        db_config["host"],
+        db_config["port"],
+        db_config["database"],
+    )
     db_connection = get_db_connection(db_config)
 
     if no_pinecone:

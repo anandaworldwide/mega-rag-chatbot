@@ -299,7 +299,25 @@ class IngestSourcePublisher:
         """Download one dump object to dest."""
         dest = Path(dest)
         dest.parent.mkdir(parents=True, exist_ok=True)
-        self.s3_client.download_file(self.bucket, s3_key, str(dest))
+        print(f"Downloading {s3_key}...", file=sys.stderr, flush=True)
+        size = None
+        try:
+            size = self.s3_client.head_object(Bucket=self.bucket, Key=s3_key)[
+                "ContentLength"
+            ]
+        except ClientError:
+            size = None
+        with tqdm(
+            total=size,
+            desc="Downloading library dump",
+            unit="B",
+            unit_scale=True,
+            file=sys.stderr,
+            disable=not sys.stderr.isatty(),
+        ) as bar:
+            self.s3_client.download_file(
+                self.bucket, s3_key, str(dest), Callback=bar.update
+            )
         return dest
 
     def upload_dump(

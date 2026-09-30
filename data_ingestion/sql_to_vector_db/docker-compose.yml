@@ -10,8 +10,6 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-}
     ports:
       - "127.0.0.1:3307:3306"
-    volumes:
-      - ./docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d:ro
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci

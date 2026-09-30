@@ -1,5 +1,7 @@
 """Tests for non-interactive Ananda Library dump import."""
 
+import subprocess
+
 from data_ingestion.sql_to_vector_db.process_anandalib_dump import import_database
 
 
@@ -68,3 +70,52 @@ def test_import_database_quotes_passwords_that_contain_comment_characters(tmp_pa
     )
 
     assert 'password="sec#ret\\"pass\\n"' in seen[0]
+
+
+def test_import_database_streams_sql_through_a_pipe(tmp_path, monkeypatch):
+    sql_file = tmp_path / "dump.sql"
+    payload = b"SELECT 1;\n" * 3
+    sql_file.write_bytes(payload)
+    written = []
+
+    class FakeStdin:
+        def write(self, chunk):
+            written.append(chunk)
+
+        def close(self):
+            pass
+
+    class FakeProcess:
+        stdin = FakeStdin()
+
+        def wait(self):
+            return 0
+
+    def fake_run(command, **kwargs):
+        assert kwargs.get("stdin") is None
+        return subprocess.CompletedProcess(command, 0)
+
+    def fake_popen(command, stdin=None):
+        assert stdin is subprocess.PIPE
+        assert command[-1] == "anandalib_2026_09_26"
+        return FakeProcess()
+
+    monkeypatch.setattr(
+        "data_ingestion.sql_to_vector_db.process_anandalib_dump.subprocess.run",
+        fake_run,
+    )
+    monkeypatch.setattr(
+        "data_ingestion.sql_to_vector_db.process_anandalib_dump.subprocess.Popen",
+        fake_popen,
+    )
+
+    import_database(
+        str(sql_file),
+        "anandalib_2026_09_26",
+        "root",
+        password="secret-pass",
+        host="127.0.0.1",
+        port=3307,
+    )
+
+    assert b"".join(written) == payload

@@ -18,6 +18,8 @@ import sys
 import tempfile
 from datetime import datetime
 
+from tqdm import tqdm
+
 
 def print_usage():
     """Prints usage instructions and exits."""
@@ -137,6 +139,39 @@ def _write_mysql_defaults(username: str, password: str, host: str, port: int) ->
     return path
 
 
+def _pipe_sql_to_mysql(command: list[str], sql_file: str) -> None:
+    """Stream a dump into mysql. subprocess.run cannot show progress for stdin."""
+    total = os.path.getsize(sql_file)
+    process = subprocess.Popen(command, stdin=subprocess.PIPE)
+    stdin = process.stdin
+    assert stdin is not None
+    try:
+        with (
+            open(sql_file, "rb") as sql_handle,
+            tqdm(
+                total=total,
+                desc="Importing library SQL",
+                unit="B",
+                unit_scale=True,
+                file=sys.stderr,
+                disable=not sys.stderr.isatty(),
+            ) as bar,
+        ):
+            while True:
+                chunk = sql_handle.read(1024 * 1024)
+                if not chunk:
+                    break
+                stdin.write(chunk)
+                bar.update(len(chunk))
+    except BrokenPipeError:
+        pass
+    finally:
+        stdin.close()
+    returncode = process.wait()
+    if returncode != 0:
+        raise subprocess.CalledProcessError(returncode, command)
+
+
 def import_database(
     sql_file: str,
     db_name: str,
@@ -145,7 +180,7 @@ def import_database(
     password: str | None = None,
     host: str = "127.0.0.1",
     port: int = 3306,
-    runner=subprocess.run,
+    runner=None,
 ):
     """Imports the processed SQL file into a new MySQL database.
 
@@ -165,6 +200,7 @@ def import_database(
     Raises:
         RuntimeError: If database creation or import fails.
     """
+    run = runner or subprocess.run
     defaults_path = None
     if password is None:
         mysql_base = ["mysql", "-u", username, "-h", host, "-P", str(port), "-p"]
@@ -172,7 +208,7 @@ def import_database(
         defaults_path = _write_mysql_defaults(username, password, host, port)
         mysql_base = ["mysql", f"--defaults-extra-file={defaults_path}"]
     try:
-        runner(
+        run(
             [
                 *mysql_base,
                 "-e",
@@ -180,8 +216,16 @@ def import_database(
             ],
             check=True,
         )
-        with open(sql_file, encoding="utf-8") as sql_handle:
-            runner([*mysql_base, db_name], stdin=sql_handle, check=True, text=True)
+        print(
+            f"Importing {db_name} into MySQL on {host}:{port}...",
+            file=sys.stderr,
+            flush=True,
+        )
+        if runner is None:
+            _pipe_sql_to_mysql([*mysql_base, db_name], sql_file)
+        else:
+            with open(sql_file, "rb") as sql_handle:
+                run([*mysql_base, db_name], stdin=sql_handle, check=True)
     except subprocess.CalledProcessError as exc:
         raise RuntimeError(f"MySQL import failed: {exc}") from exc
     finally:
@@ -197,7 +241,7 @@ def import_ananda_library_dump(
     host: str = "127.0.0.1",
     port: int = 3306,
     db_name: str | None = None,
-    runner=subprocess.run,
+    runner=None,
 ) -> str:
     """Process a dump and import it. Returns the dated database name."""
     database_name = db_name or get_new_db_name()

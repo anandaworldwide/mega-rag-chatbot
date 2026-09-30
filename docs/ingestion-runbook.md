@@ -266,7 +266,7 @@ uv run python data_ingestion/bin/ingest_cli.py library --site ananda
 
 The command starts MySQL from `data_ingestion/sql_to_vector_db/docker-compose.yml`, imports with `DB_USER` /
 `DB_PASSWORD` and no password prompt, and always connects to `127.0.0.1:3307`. It does not use `DB_HOST` from
-`.env.ananda`. Ingest keeps existing `Ananda Library` vectors. PDFs still go to `public/pdf/Ananda Library/{hash}.pdf`.
+`.env.ananda`. Ingest keeps existing `Ananda Library` vectors. A dump whose `wp_posts` table has no `luca_required_access_level` column is ingested as access level 0. PDFs still go to `public/pdf/Ananda Library/{hash}.pdf`.
 The title catalog is rebuilt and published at the end. Pass `--skip-catalog` on a shadow-index run so that publish does
 not replace the shared dev/prod catalog. A successful run removes the Compose volume. A failed ingest stops MySQL and
 leaves the volume.

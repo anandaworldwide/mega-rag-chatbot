@@ -123,6 +123,10 @@ def build_grant_command(repo_root: Path, user: str) -> list[str] | None:
 
     The MySQL image creates MYSQL_USER with no privileges unless MYSQL_DATABASE
     is set. Root is skipped. The password stays inside the container.
+
+    This runs through compose exec. A bind-mounted init script cannot be
+    executed on Docker Desktop for Mac: the entrypoint sees the file as
+    executable, then /bin/bash fails with "bad interpreter: Permission denied".
     """
     if user == "root":
         return None
