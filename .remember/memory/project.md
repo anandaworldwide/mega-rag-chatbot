@@ -76,6 +76,10 @@ except ImportError:
 - If the user interrupts a task, bookmark what was unfinished and resume it when the interruption is over, without waiting to be asked.
 - The bookmark is the unfinished task, the next concrete step, and any file already edited for it.
 
+### Agent mode
+
+- When the session is in agent mode and the topic is an active problem, implement the code changes you recommend. Do not stop at advice unless the user says they want to discuss and not implement yet.
+
 ### Vivek 404 source links
 
 - Vivek (`ananda-public`) is instructed to cite **only** Resource Links from `web/site-config/prompts/ananda-public-base.txt`. A 404 source is often a **stale hardcoded whitelist URL**, not a Pinecone/crawler orphan.

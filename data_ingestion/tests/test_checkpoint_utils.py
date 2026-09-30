@@ -498,7 +498,7 @@ class TestIntegrationFunctions:
     
     def test_pdf_checkpoint_integration_new(self):
         """Test PDF checkpoint integration with new checkpoint."""
-        processed_count, signature, save_func = pdf_checkpoint_integration(
+        processed_count, signature, save_func, _clear = pdf_checkpoint_integration(
             self.temp_dir, self.pdf_dir, "test_library", keep_data=True
         )
         
@@ -515,6 +515,27 @@ class TestIntegrationFunctions:
         loaded = manager.load_checkpoint("test_library", "file")
         assert loaded.processed_files == 2
         assert loaded.folder_signature == signature
+
+    def test_pdf_checkpoint_skips_backups_and_clear_removes_the_file(self):
+        """PDF checkpoints do not rotate backups, and clear removes leftovers."""
+        _count, _signature, save_func, clear_func = pdf_checkpoint_integration(
+            self.temp_dir, self.pdf_dir, "test_library", keep_data=True
+        )
+        save_func(1)
+        save_func(2)
+        checkpoint_path = os.path.join(
+            self.temp_dir, "file_checkpoint_test_library_test_library.json"
+        )
+        assert os.path.exists(checkpoint_path)
+        assert not os.path.exists(checkpoint_path + ".bak1")
+        leftover_backup = checkpoint_path + ".bak1"
+        with open(leftover_backup, "w", encoding="utf-8") as backup_file:
+            backup_file.write("{}")
+
+        clear_func()
+
+        assert not os.path.exists(checkpoint_path)
+        assert not os.path.exists(leftover_backup)
     
     def test_pdf_checkpoint_integration_existing(self):
         """Test PDF checkpoint integration with existing checkpoint."""
@@ -528,7 +549,7 @@ class TestIntegrationFunctions:
         manager.save_checkpoint(existing, "test_library")
         
         # Test integration
-        processed_count, _, save_func = pdf_checkpoint_integration(
+        processed_count, _, save_func, _clear = pdf_checkpoint_integration(
             self.temp_dir, self.pdf_dir, "test_library", keep_data=True
         )
         
@@ -545,7 +566,7 @@ class TestIntegrationFunctions:
         manager.save_checkpoint(existing, "test_library")
         
         # Test integration
-        processed_count, _, _ = pdf_checkpoint_integration(
+        processed_count, _, _, _clear = pdf_checkpoint_integration(
             self.temp_dir, self.pdf_dir, "test_library", keep_data=True
         )
         
@@ -559,7 +580,7 @@ class TestIntegrationFunctions:
         manager.save_checkpoint(existing, "test_library")
         
         # Test integration
-        processed_count, _, _ = pdf_checkpoint_integration(
+        processed_count, _, _, _clear = pdf_checkpoint_integration(
             self.temp_dir, self.pdf_dir, "test_library", keep_data=False
         )
         

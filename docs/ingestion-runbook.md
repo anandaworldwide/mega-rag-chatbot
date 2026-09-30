@@ -333,7 +333,7 @@ caffeinate -i uv run python data_ingestion/bin/ingest_cli.py pdf --site crystal
 ```
 
 Default is `--keep-data`. `--replace-library` deletes `Crystal Clarity` vectors and requires typing `Crystal Clarity`.
-`--yes` does not skip that prompt. Jairam and PhotoWise stay on `pdf_to_vector_db.py` with a local directory.
+`--yes` does not skip that prompt. Books run eight at a time. The PDF checkpoint is removed when that process exits, including a stop, so it does not resume the next run. A later run skips a book whose filename is already in Pinecone. Jairam and PhotoWise stay on `pdf_to_vector_db.py` with a local directory.
 
 ## Disk backup of S3
 

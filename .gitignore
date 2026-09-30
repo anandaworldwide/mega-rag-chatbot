@@ -52,6 +52,8 @@ secrets.json
 # temporary files
 .temp-*
 .tmp_*/
+# PDF ingest checkpoints. The process deletes them on exit; ignore a leftover from a hard kill.
+media/pdf-docs/file_checkpoint*
 # YouTube downloads land in the repo root. MP3s in subdirectories stay tracked.
 /*.mp3
 /*.mp4

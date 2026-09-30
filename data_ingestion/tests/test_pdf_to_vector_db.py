@@ -1,3 +1,4 @@
+import asyncio
 import tempfile
 from unittest.mock import AsyncMock, patch
 
@@ -450,3 +451,55 @@ async def test_punctuation_preservation_in_pdf_processing(mock_env):
         print(
             f"PDF punctuation preservation test passed. Processed {len(processed_chunks)} chunks."
         )
+
+
+@pytest.mark.asyncio
+async def test_pdf_files_overlap_up_to_the_worker_limit(monkeypatch):
+    monkeypatch.setattr(pdf_ingestion, "PDF_FILE_CONCURRENCY", 4)
+    current = 0
+    peak = 0
+
+    async def fake_process(*_args, **_kwargs):
+        nonlocal current, peak
+        current += 1
+        peak = max(peak, current)
+        await asyncio.sleep(0.05)
+        current -= 1
+        return True, None
+
+    monkeypatch.setattr(pdf_ingestion, "_process_single_pdf", fake_process)
+    paths = [f"/tmp/{index}.pdf" for index in range(8)]
+
+    processed, failed = await pdf_ingestion._process_pdf_files(
+        paths,
+        0,
+        None,
+        None,
+        "Crystal Clarity",
+        None,
+        lambda _count: True,
+        "crystal",
+        None,
+    )
+
+    assert peak == 4
+    assert processed == 8
+    assert failed == []
+
+
+@pytest.mark.asyncio
+async def test_batch_timeout_cancels_chunks_instead_of_crashing(monkeypatch):
+    async def hang(*_args, **_kwargs):
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(pdf_ingestion, "process_chunk", hang)
+    failed = await pdf_ingestion._process_single_batch(
+        [Document(page_content="hello", metadata={})],
+        0,
+        None,
+        None,
+        "Crystal Clarity",
+        timeout=0.05,
+    )
+
+    assert failed == 1

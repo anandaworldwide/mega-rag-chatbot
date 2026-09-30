@@ -374,7 +374,9 @@ def create_folder_signature(directory: str, pattern: str = "*.pdf") -> str:
     return hashlib.md5(signature_string.encode()).hexdigest()
 
 
-def create_file_checkpoint_manager(checkpoint_dir: str, site_id: str | None = None) -> CheckpointManager:
+def create_file_checkpoint_manager(
+    checkpoint_dir: str, site_id: str | None = None, backup_count: int = 3
+) -> CheckpointManager:
     """
     Create a checkpoint manager configured for file-based checkpointing.
     
@@ -392,7 +394,7 @@ def create_file_checkpoint_manager(checkpoint_dir: str, site_id: str | None = No
     config = CheckpointConfig(
         checkpoint_dir=checkpoint_dir,
         checkpoint_file=checkpoint_file,
-        backup_count=3,
+        backup_count=backup_count,
         atomic_writes=True
     )
     
@@ -475,20 +477,25 @@ def pdf_checkpoint_integration(
     folder_path: str,
     library_name: str,
     keep_data: bool = True
-) -> tuple[int, str, Callable]:
+) -> tuple[int, str, Callable, Callable]:
     """
     Integration function for PDF ingestion checkpointing.
-    
+
+    PDF checkpoints do not keep backup copies. The caller removes the file
+    when the process exits.
+
     Args:
         checkpoint_dir: Directory for checkpoint files
         folder_path: Path to PDF folder
         library_name: Library name for identification
         keep_data: Whether to resume from existing checkpoint
-        
+
     Returns:
-        Tuple[processed_count, folder_signature, save_function]
+        Tuple[processed_count, folder_signature, save_function, clear_function]
     """
-    manager = create_file_checkpoint_manager(checkpoint_dir, library_name)
+    manager = create_file_checkpoint_manager(
+        checkpoint_dir, library_name, backup_count=0
+    )
     
     # Create current folder signature
     current_signature = create_folder_signature(folder_path, "**/*.pdf")
@@ -511,8 +518,15 @@ def pdf_checkpoint_integration(
             timestamp=datetime.now().isoformat()
         )
         return manager.save_checkpoint(data, library_name)
-    
-    return processed_count, current_signature, save_checkpoint
+
+    def clear_checkpoint() -> None:
+        """Remove the checkpoint and any backups left from older runs."""
+        path = manager._get_checkpoint_path(library_name)
+        manager.clear_checkpoint(library_name)
+        for backup in Path(path).parent.glob(Path(path).name + ".bak*"):
+            backup.unlink(missing_ok=True)
+
+    return processed_count, current_signature, save_checkpoint, clear_checkpoint
 
 
 def sql_checkpoint_integration(

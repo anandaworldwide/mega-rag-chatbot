@@ -30,6 +30,7 @@ import logging
 import os
 import re
 import sys
+import threading
 from typing import TYPE_CHECKING, Any
 
 import pdfplumber
@@ -73,6 +74,10 @@ logging.basicConfig(
     level=logging.WARNING, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+# One book at a time left the OpenAI and Pinecone calls idle. Eight files in
+# flight, each still chunked in small batches, stays inside normal API limits.
+PDF_FILE_CONCURRENCY = 8
 logger.setLevel(logging.DEBUG)  # Enable DEBUG only for this script
 
 # Global variable for file path
@@ -582,8 +587,20 @@ def _calculate_page_references(
     return valid_docs
 
 
+def _chunk_task_finished(task: asyncio.Task) -> bool:
+    """A timed-out batch cancels its tasks. Those chunks were not stored."""
+    if task.cancelled() or not task.done():
+        return False
+    return task.exception() is None
+
+
 async def _process_single_batch(
-    batch: list, start_idx: int, pinecone_index, embeddings, library_name: str
+    batch: list,
+    start_idx: int,
+    pinecone_index,
+    embeddings,
+    library_name: str,
+    timeout: float = 120.0,
 ) -> int:
     """
     Process a single batch of document chunks with improved error handling.
@@ -606,8 +623,8 @@ async def _process_single_batch(
             logger.info("Graceful shutdown detected while preparing batch tasks.")
             return 0
 
-        task = process_chunk(
-            doc, pinecone_index, embeddings, start_idx + j, library_name
+        task = asyncio.create_task(
+            process_chunk(doc, pinecone_index, embeddings, start_idx + j, library_name)
         )
         tasks.append(task)
 
@@ -615,22 +632,20 @@ async def _process_single_batch(
     try:
         results = await asyncio.wait_for(
             asyncio.gather(*tasks, return_exceptions=True),
-            timeout=120.0,  # Increased timeout to 2 minutes per batch
+            timeout=timeout,
         )
-    except asyncio.TimeoutError:
-        logger.warning("Batch processing timeout after 2 minutes")
-        # Cancel remaining tasks on timeout
+    except TimeoutError:
+        logger.warning("Batch processing timeout after %.0f seconds", timeout)
         for task in tasks:
             if not task.done():
                 task.cancel()
-        # Check if we should exit due to shutdown signal
+        await asyncio.gather(*tasks, return_exceptions=True)
+        unfinished = sum(1 for task in tasks if not _chunk_task_finished(task))
         if is_exiting():
             logger.info("Graceful shutdown detected during batch timeout.")
-            return 0
         else:
-            # If not shutting down, continue with a warning
             logger.warning("Continuing after batch timeout...")
-            return 0
+        return unfinished
 
     # Check for exceptions and handle them
     failed_chunks = []
@@ -1477,6 +1492,77 @@ async def _process_single_pdf(
         return False, failure_reason
 
 
+async def _process_pdf_files(
+    pdf_file_paths,
+    start_index,
+    pinecone_index,
+    embeddings,
+    library_name,
+    text_splitter,
+    save_checkpoint_func,
+    site_id,
+    max_files,
+):
+    """Process PDF files with bounded concurrency.
+
+    The checkpoint stays a single file cursor. It advances only through the
+    contiguous finished prefix, so a later file finishing first does not skip
+    an earlier one on resume.
+    """
+    indices = list(range(start_index, len(pdf_file_paths)))
+    if max_files:
+        indices = indices[:max_files]
+    finished: set[int] = set()
+    checkpoint_lock = threading.Lock()
+    failed_files = []
+    processed_count = 0
+    semaphore = asyncio.Semaphore(PDF_FILE_CONCURRENCY)
+
+    def checkpoint_for(file_index: int):
+        def save(next_index: int) -> bool:
+            with checkpoint_lock:
+                if next_index == file_index + 1:
+                    finished.add(file_index)
+                cursor = start_index
+                while cursor in finished:
+                    cursor += 1
+                return save_checkpoint_func(cursor)
+
+        return save
+
+    async def run_one(file_index: int):
+        nonlocal processed_count
+        if is_exiting():
+            return
+        async with semaphore:
+            if is_exiting():
+                return
+            success, failure_reason = await _process_single_pdf(
+                pdf_file_paths[file_index],
+                file_index,
+                len(pdf_file_paths),
+                pinecone_index,
+                embeddings,
+                library_name,
+                text_splitter,
+                checkpoint_for(file_index),
+                site_id,
+            )
+            if success:
+                processed_count += 1
+            else:
+                failed_files.append(
+                    {
+                        "file_path": pdf_file_paths[file_index],
+                        "file_index": file_index,
+                        "reason": failure_reason,
+                    }
+                )
+
+    await asyncio.gather(*(run_one(file_index) for file_index in indices))
+    return processed_count, failed_files
+
+
 def _print_final_statistics(
     total_files: int,
     files_processed: int,
@@ -1659,80 +1745,45 @@ async def run(
         return
 
     # Set up checkpoint management
-    processed_files_count, current_folder_signature, save_checkpoint_func = (
-        pdf_checkpoint_integration(
-            checkpoint_dir="./media/pdf-docs",
-            folder_path=file_path,
-            library_name=library_name,
-            keep_data=keep_data,
-        )
+    (
+        processed_files_count,
+        current_folder_signature,
+        save_checkpoint_func,
+        clear_checkpoint_func,
+    ) = pdf_checkpoint_integration(
+        checkpoint_dir="./media/pdf-docs",
+        folder_path=file_path,
+        library_name=library_name,
+        keep_data=keep_data,
     )
 
     # Set up signal handler for graceful shutdown
     setup_signal_handlers()
 
-    # Track failures for reporting
-    failed_files = []
-
-    # Process PDF files with progress tracking
-    files_actually_processed_in_this_run = 0
-    for i in range(processed_files_count, len(pdf_file_paths)):
-        if is_exiting():
-            logger.info(
-                "Graceful shutdown detected: saving progress before exiting loop."
-            )
-            save_checkpoint_func(i)
-            if i == 0:
-                logger.info(
-                    "Exiting before processing any files. Next run will start from the beginning."
-                )
-            else:
-                logger.info(
-                    f"Exiting. Processed up to file index {i - 1}. Next run will start from file index {i}."
-                )
-            sys.exit(0)
-
-        current_pdf_path = pdf_file_paths[i]
-
-        # Process single PDF file
-        success, failure_reason = await _process_single_pdf(
-            current_pdf_path,
-            i,
-            len(pdf_file_paths),
+    try:
+        logger.info("Processing up to %s PDFs at a time", PDF_FILE_CONCURRENCY)
+        files_actually_processed_in_this_run, failed_files = await _process_pdf_files(
+            pdf_file_paths,
+            processed_files_count,
             pinecone_index,
             embeddings,
             library_name,
             text_splitter,
             save_checkpoint_func,
             site_id,
+            max_files,
         )
 
-        if success:
-            files_actually_processed_in_this_run += 1
-        else:
-            # Track failure for reporting
-            failed_files.append(
-                {
-                    "file_path": current_pdf_path,
-                    "file_index": i,
-                    "reason": failure_reason,
-                }
-            )
-
-        if max_files and files_actually_processed_in_this_run >= max_files:
-            logger.info(
-                f"Reached max_files limit. Stopping after {max_files} files processed."
-            )
-            break
-
-    # Print final statistics and suggestions
-    _print_final_statistics(
-        len(pdf_file_paths),
-        files_actually_processed_in_this_run,
-        library_name,
-        text_splitter,
-        failed_files,
-    )
+        # Print final statistics and suggestions
+        _print_final_statistics(
+            len(pdf_file_paths),
+            files_actually_processed_in_this_run,
+            library_name,
+            text_splitter,
+            failed_files,
+        )
+    finally:
+        clear_checkpoint_func()
 
 
 def main():
