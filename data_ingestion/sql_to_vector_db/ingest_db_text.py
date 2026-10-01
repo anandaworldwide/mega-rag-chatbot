@@ -98,8 +98,8 @@ from pyutil.site_config_utils import (
     load_site_config,
 )
 
-# Configure logging
-configure_logging(debug=True)
+# Configure logging. Debug floods the library run with per-chunk splitter lines.
+configure_logging()
 logger = logging.getLogger(__name__)
 
 # Constants

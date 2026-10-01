@@ -505,9 +505,9 @@ class SpacyTextSplitter:
                 f"avg_chars={avg_chunk_chars:.1f}"
             )
 
-            # Log edge cases for this document using token counts
+            # A short tail chunk is normal overlap, not a failed split.
             if min_chunk_tokens < 62:  # Less than 25% of target
-                self.logger.warning(
+                self.logger.debug(
                     f"Very small chunks detected (ID: {document_id}): "
                     f"minimum {min_chunk_tokens} tokens"
                 )

@@ -49,6 +49,39 @@ class TestAuthorExtraction(unittest.TestCase):
             "Maitri Jones",
         )
 
+    def test_strips_trailing_date_from_visible_byline(self):
+        html = article_html(
+            body=(
+                '<div class="ananda-x-entry-subtitle">'
+                "by Nayaswami Devi March 10, 2023</div>"
+            )
+        )
+        self.assertEqual(
+            extract_author_from_html(html, site_id="ananda-public"),
+            "Nayaswami Devi Novak",
+        )
+
+    def test_keeps_credentials_when_stripping_byline_date(self):
+        html = article_html(
+            body=(
+                '<div class="ananda-x-entry-subtitle">'
+                "by Peter Van Houten, M.D. April 20, 2016</div>"
+            )
+        )
+        self.assertEqual(
+            extract_author_from_html(html, site_id="ananda-public"),
+            "Peter Van Houten, M.D.",
+        )
+
+    def test_dated_site_wide_byline_is_not_an_author(self):
+        html = article_html(
+            body=(
+                '<div class="ananda-x-entry-subtitle">'
+                "by Ananda Sangha Worldwide February 7, 2024</div>"
+            )
+        )
+        self.assertIsNone(extract_author_from_html(html, site_id="ananda-public"))
+
     def test_prefers_visible_byline_over_meta(self):
         html = article_html(
             head='<meta name="author" content="Ananda Sangha Worldwide" />',

@@ -10,10 +10,14 @@ from typing import Any
 from bs4 import BeautifulSoup
 
 try:
-    from data_ingestion.utils.author_normalization import normalize_author
+    from data_ingestion.utils.author_normalization import (
+        normalize_author,
+        strip_trailing_byline_date,
+    )
 except ImportError:
-    from utils.author_normalization import (
-        normalize_author,  # type: ignore[import-not-found]
+    from utils.author_normalization import (  # type: ignore[import-not-found]
+        normalize_author,
+        strip_trailing_byline_date,
     )
 
 logger = logging.getLogger(__name__)
@@ -57,7 +61,7 @@ def _parse_byline(text: str) -> str | None:
     match = BYLINE_PATTERN.match(normalized_text)
     if not match:
         return None
-    author = match.group(1).strip()
+    author = strip_trailing_byline_date(match.group(1).strip())
     return author or None
 
 
@@ -198,7 +202,8 @@ def _is_site_wide_meta_author(author: str) -> bool:
 
 
 def _normalize_author_name(author: str, site_id: str | None) -> str | None:
-    if _is_site_wide_meta_author(author):
+    author = strip_trailing_byline_date(author)
+    if not author or _is_site_wide_meta_author(author):
         return None
     normalized = normalize_author(author, site_id)
     return normalized if normalized != "Unknown" else None

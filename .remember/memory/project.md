@@ -588,6 +588,9 @@ except ImportError:
 - Ananda Library dumps: `ingest_cli.py library`. Default keeps vectors. `--replace-library` requires typing
   `Ananda Library` and is not skipped by `--yes`. Import uses Compose MySQL on `127.0.0.1:3307`, not `.env` `DB_HOST`. Host port 3306 stays free for a local MySQL.
 - `ingest_db_text.py` loads `.env.<site>` with the site id as passed (`ananda`), not an uppercased filename.
+- To-do: live Pinecone `ananda.org` authors still have a trailing `Month D, YYYY` glued on from the crawler byline
+  (`Nayaswami Devi March 10, 2023`). New crawls strip it. Clean the existing metadata on
+  `ananda-2025-06-19--3-large` after the shadow comparison. Do not recrawl as part of the shadow cutover.
 
 ### Treasures kriyaban access (do not guess from “kriya”)
 

@@ -1,9 +1,12 @@
 """Tests for the Ananda Library dump orchestrator."""
 
 import gzip
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
+
+import pytest
 
 from data_ingestion.sql_to_vector_db.library_ingest import (
     materialize_sql_dump,
@@ -259,6 +262,40 @@ def test_failed_ingest_removes_the_mysql_volume(tmp_path: Path):
 
     assert calls[-1][-2:] == ["down", "-v"]
     assert not any("analyze_title_prefix_catalog.py" in command[1] for command in calls)
+
+
+def test_run_library_exits_when_docker_is_not_running(tmp_path: Path):
+    dump = tmp_path / "anandalib.sql"
+    dump.write_text("SELECT 1;\n", encoding="utf-8")
+    calls = []
+
+    def runner(command, **_kwargs):
+        calls.append(list(command))
+        if list(command)[:2] == ["docker", "info"]:
+            raise subprocess.CalledProcessError(1, command)
+        if command[0] == "docker":
+            raise subprocess.CalledProcessError(1, command)
+        return None
+
+    with pytest.raises(SystemExit, match="Docker is not running"):
+        run_library(
+            SimpleNamespace(
+                site="ananda",
+                dump=str(dump),
+                s3_key=None,
+                replace_library=False,
+                skip_catalog=True,
+            ),
+            publisher=MagicMock(),
+            repo_root=tmp_path,
+            runner=runner,
+            importer=lambda *_args, **_kwargs: "anandalib_2026_09_26",
+            environ={"DB_USER": "libuser", "DB_PASSWORD": "pw"},
+        )
+
+    assert "up" in calls[0]
+    assert calls[1] == ["docker", "info"]
+    assert not any(command[-2:] == ["down", "-v"] for command in calls)
 
 
 def test_run_library_downloads_latest_s3_dump_when_no_local_file(tmp_path: Path):

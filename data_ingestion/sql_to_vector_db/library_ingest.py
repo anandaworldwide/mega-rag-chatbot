@@ -6,6 +6,7 @@ import os
 import re
 import shlex
 import shutil
+import subprocess
 import sys
 import tempfile
 import zlib
@@ -144,6 +145,20 @@ def build_grant_command(repo_root: Path, user: str) -> list[str] | None:
     ]
 
 
+def docker_daemon_is_running(runner) -> bool:
+    """Return whether the Docker daemon accepts a client connection."""
+    try:
+        runner(
+            ["docker", "info"],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return False
+    return True
+
+
 def confirm_library_replace(replace: bool, prompt) -> None:
     """Require the library name to be typed. --yes does not skip this."""
     if not replace:
@@ -194,11 +209,18 @@ def run_library(
     try:
         dump_path = resolve_library_dump(args, publisher, work)
         sql_path = materialize_sql_dump(dump_path, work)
-        runner(
-            build_compose_command(repo_root, "up", "-d", "--wait"),
-            check=True,
-            env=compose_environment(base_env),
-        )
+        try:
+            runner(
+                build_compose_command(repo_root, "up", "-d", "--wait"),
+                check=True,
+                env=compose_environment(base_env),
+            )
+        except subprocess.CalledProcessError:
+            if not docker_daemon_is_running(runner):
+                raise SystemExit(
+                    "Docker is not running. Start Docker Desktop and rerun this command."
+                ) from None
+            raise
         started = True
         if grant_command is not None:
             runner(

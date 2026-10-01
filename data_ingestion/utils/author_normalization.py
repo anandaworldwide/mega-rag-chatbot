@@ -17,6 +17,17 @@ logger = logging.getLogger(__name__)
 # Cache for loaded author mappings per site
 _author_mapping_cache: dict[str, dict[str, str]] = {}
 
+_TRAILING_BYLINE_DATE = re.compile(
+    r"\s+(?:January|February|March|April|May|June|July|August|September|"
+    r"October|November|December)\s+\d{1,2},\s+\d{4}\s*$",
+    re.IGNORECASE,
+)
+
+
+def strip_trailing_byline_date(author: str) -> str:
+    """Drop a publication date glued onto the end of a byline."""
+    return _TRAILING_BYLINE_DATE.sub("", author).strip()
+
 # Crawler Docker image (see data_ingestion/crawler/Dockerfile)
 _CONTAINER_MAPPINGS_PATH = "/app/web/site-config/author_mappings.json"
 
@@ -179,8 +190,8 @@ def normalize_author(author: str | None, site_id: str | None = None) -> str:
     if not author:
         return "Unknown"
 
-    # Strip whitespace
-    author = author.strip()
+    # Strip whitespace and a trailing "Month D, YYYY" left on a byline.
+    author = strip_trailing_byline_date(author.strip())
 
     if not author:
         return "Unknown"
