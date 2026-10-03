@@ -424,6 +424,18 @@ on a new index it writes only the videos added since the last ingest. `--reindex
 skips IDs already in the local queue, and reuses the Whisper cache. Embeddings still run. Videos that were removed
 from the source list are not copied, even if they remain in the map and in the live index.
 
+Same-named Treasures and Bhaktan files that were ingested twice are dropped from the shadow index
+with `bin/drop_shadow_audio_duplicates.py`. The album copy stays. A loose `treasures/<name>.mp3`, the extra
+Life With Master folder, and `Swami in America 2011 & interviews 2010` are the copies it removes. Track
+numbers such as `01.mp3` are left alone. The command refuses to run when the ingest index and the live
+index are the same name. It does not move the S3 objects, because the live index may still play those keys.
+Move the extra keys under `Ignore/` only after cutover, or the next audio ingest will write them again.
+
+```bash
+uv run python bin/drop_shadow_audio_duplicates.py --site ananda
+uv run python bin/drop_shadow_audio_duplicates.py --site ananda --apply
+```
+
 ```bash
 caffeinate -i uv run python data_ingestion/bin/ingest_cli.py youtube \
   --site ananda \
