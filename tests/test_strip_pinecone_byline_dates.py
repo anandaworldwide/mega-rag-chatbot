@@ -76,6 +76,25 @@ class TestCrawlerIdPrefix:
         assert SCRIPT.crawler_id_prefix("www.ananda.org") == "text||ananda.org||web||"
 
 
+class TestConfirmMetadataUpdate:
+    def test_empty_enter_asks_again_until_yes(self, capsys):
+        answers = iter(["", "   ", "y", "yes"])
+
+        assert SCRIPT.confirm_metadata_update(
+            "live-index", lambda _prompt: next(answers)
+        )
+
+        assert capsys.readouterr().out.count("Type yes or no.") == 3
+
+    def test_no_returns_false_without_treating_empty_as_no(self):
+        answers = iter(["", "no"])
+
+        assert (
+            SCRIPT.confirm_metadata_update("live-index", lambda _prompt: next(answers))
+            is False
+        )
+
+
 class TestListingPage:
     def test_pagination_title_is_a_listing(self):
         assert SCRIPT.is_listing_page(
