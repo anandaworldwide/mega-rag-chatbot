@@ -143,6 +143,7 @@ def _youtube_args(**overrides):
     args.remove_playlist = []
     args.list_name = None
     args.no_ingest = False
+    args.reindex = False
     args.yes = True
     for key, value in overrides.items():
         setattr(args, key, value)
@@ -227,6 +228,40 @@ def test_run_youtube_does_not_transcribe_videos_already_in_the_map(tmp_path):
         dry_run=False,
         cache_snapshot=publisher.whisper_cache_snapshot.return_value,
     )
+
+
+def test_run_youtube_reindex_queues_videos_already_in_the_map(tmp_path):
+    publisher = MagicMock()
+    publisher.read_youtube_source_list.return_value = {
+        "entries": [
+            {
+                "kind": "url",
+                "url": "https://youtu.be/newvideo111",
+                "author": "Swami Kriyananda",
+                "library": "Ananda Youtube",
+                "required_access_level": 0,
+            }
+        ]
+    }
+    queue = MagicMock()
+    queue.get_all_items.return_value = []
+    runner = MagicMock()
+
+    selection = run_youtube(
+        _youtube_args(add_url=[], reindex=True),
+        publisher=publisher,
+        repo_root=tmp_path,
+        runner=runner,
+        expand_playlist=lambda url: [],
+        queue_factory=lambda: queue,
+        load_processed_ids=lambda site: {"newvideo111"},
+        normalize_author=lambda author, site: author,
+    )
+
+    assert selection.skipped_processed == 0
+    assert selection.videos[0].youtube_id == "newvideo111"
+    queue.add_item.assert_called_once()
+    runner.assert_called_once()
 
 
 def test_run_youtube_list_edit_without_ingest_skips_state_sync(tmp_path):

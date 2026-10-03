@@ -190,9 +190,15 @@ caffeinate -i uv run python data_ingestion/bin/ingest_cli.py youtube \
   --required-access-level 0 \
   --yes
 
-# Ingest whatever is already on the list
+# Ingest videos on the list that are not in the processed map yet
 caffeinate -i uv run python data_ingestion/bin/ingest_cli.py youtube \
   --site ananda \
+  --yes
+
+# Fill a new Pinecone index with the current list. See Shadow index below.
+caffeinate -i uv run python data_ingestion/bin/ingest_cli.py youtube \
+  --site ananda \
+  --reindex \
   --yes
 
 # Edit the list without queueing
@@ -405,6 +411,31 @@ KEY='ingestion/sources/crystal/pdfs/Example.pdf'
 aws s3api head-object --bucket ananda-chatbot --key "$KEY" --profile ananda \
   --query ContentLength --output text
 stat -f%z "/Volumes/your-disk/ananda-chatbot/$KEY"
+```
+
+## Shadow index
+
+A new index is a full copy of the current sources, written to `PINECONE_INGEST_INDEX_NAME`. Leave
+`PINECONE_INDEX_NAME` on the live index. Do not publish the title catalog from that run.
+
+YouTube is the step that is different from a normal update. The processed map means "this video was transcribed," not
+"this video is in the index you are writing." `youtube` without `--reindex` only queues IDs missing from that map, so
+on a new index it writes only the videos added since the last ingest. `--reindex` queues the current source list,
+skips IDs already in the local queue, and reuses the Whisper cache. Embeddings still run. Videos that were removed
+from the source list are not copied, even if they remain in the map and in the live index.
+
+```bash
+caffeinate -i uv run python data_ingestion/bin/ingest_cli.py youtube \
+  --site ananda \
+  --reindex \
+  --yes
+```
+
+Ananda Library on that same index uses `--skip-catalog`. Compare the new index with the live one before any cutover:
+
+```bash
+uv run python bin/vector_db_stats.py --site ananda
+uv run python bin/vector_db_stats.py --site ananda --use-non-ingest
 ```
 
 ## Credentials a developer needs

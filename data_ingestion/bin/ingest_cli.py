@@ -243,9 +243,12 @@ def run_youtube(
         publisher.pull_youtube_data_map()
         entries = update_youtube_source_list(args, publisher)
         queue = queue_factory()
+        processed_ids = set()
+        if not args.reindex:
+            processed_ids = set(load_processed_ids(args.site))
         selection = plan_new_youtube_videos(
             entries,
-            set(load_processed_ids(args.site)),
+            processed_ids,
             expand_playlist,
             queued_ids=youtube_ids_already_queued(queue.get_all_items()),
         )
@@ -300,6 +303,15 @@ def _youtube_parser(subparsers) -> None:
         "--no-ingest",
         action="store_true",
         help="Update the S3 list and do not queue or transcribe",
+    )
+    youtube.add_argument(
+        "--reindex",
+        action="store_true",
+        help=(
+            "Queue every video on the current source list, including ones already in "
+            "the processed map. Use this to fill a new Pinecone index from the Whisper "
+            "cache. Videos removed from the list are not queued."
+        ),
     )
     youtube.add_argument(
         "--yes",
