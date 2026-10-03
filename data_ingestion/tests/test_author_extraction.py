@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup
 from data_ingestion.crawler.author_extraction import (
     extract_author_from_html,
     is_article_page,
+    replacement_for_dated_author,
 )
 
 ARTICLE_DATALAYER = (
@@ -256,13 +257,19 @@ class TestPageProcessingAuthorPropagation(unittest.TestCase):
         crawler.text_splitter.split_text.return_value = ["chunk one"]
         crawler.should_process_content.return_value = True
         crawler.remove_url_from_pinecone.return_value = 0
-        crawler.create_embeddings.return_value = [{"id": "vec-1", "values": [], "metadata": {}}]
+        crawler.create_embeddings.return_value = [
+            {"id": "vec-1", "values": [], "metadata": {}}
+        ]
 
         content = PageContent(
             url="https://www.ananda.org/blog/example/",
             title="Example Post",
             content="Article body with enough words to chunk.",
-            metadata={"type": "text", "source": "https://www.ananda.org/blog/example/", "author": "Tyagi Jayadev"},
+            metadata={
+                "type": "text",
+                "source": "https://www.ananda.org/blog/example/",
+                "author": "Tyagi Jayadev",
+            },
         )
 
         _update_pinecone_vectors(
@@ -282,7 +289,9 @@ class TestPageProcessingAuthorPropagation(unittest.TestCase):
         )
 
         crawler.reset_mock()
-        crawler.create_embeddings.return_value = [{"id": "vec-1", "values": [], "metadata": {}}]
+        crawler.create_embeddings.return_value = [
+            {"id": "vec-1", "values": [], "metadata": {}}
+        ]
 
         pages_inc, restart_inc, rate_limit = _process_page_content(
             content,
@@ -301,6 +310,38 @@ class TestPageProcessingAuthorPropagation(unittest.TestCase):
             content.title,
             author="Tyagi Jayadev",
         )
+
+
+class TestDatedAuthorReplacement(unittest.TestCase):
+    def test_strips_date_and_applies_canonical_mapping(self):
+        self.assertEqual(
+            replacement_for_dated_author(
+                "Nayaswami Devi March 10, 2023", "ananda-public"
+            ),
+            "Nayaswami Devi Novak",
+        )
+
+    def test_keeps_credentials_after_stripping_date(self):
+        self.assertEqual(
+            replacement_for_dated_author(
+                "Peter Van Houten, M.D. April 20, 2016", "ananda-public"
+            ),
+            "Peter Van Houten, M.D.",
+        )
+
+    def test_site_wide_dated_byline_is_omitted(self):
+        self.assertEqual(
+            replacement_for_dated_author(
+                "Ananda Sangha Worldwide February 7, 2024", "ananda-public"
+            ),
+            "",
+        )
+
+    def test_leaves_undated_names_alone(self):
+        self.assertIsNone(
+            replacement_for_dated_author("Nayaswami Devi", "ananda-public")
+        )
+        self.assertIsNone(replacement_for_dated_author("Maitri Jones", "ananda-public"))
 
 
 if __name__ == "__main__":

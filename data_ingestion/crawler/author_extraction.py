@@ -209,6 +209,22 @@ def _normalize_author_name(author: str, site_id: str | None) -> str | None:
     return normalized if normalized != "Unknown" else None
 
 
+def replacement_for_dated_author(author: str, site_id: str | None) -> str | None:
+    """Author a new crawl would store when a trailing Month D, YYYY is glued on.
+
+    Returns None when ``author`` has no trailing date, so unrelated names are
+    left for the mapping cleanup script. Returns "" when a new crawl would
+    omit the author (blank or a site-wide byline such as Ananda Sangha Worldwide).
+    """
+    if not isinstance(author, str):
+        return None
+    current = author.strip()
+    if not current or strip_trailing_byline_date(current) == current:
+        return None
+    normalized = _normalize_author_name(current, site_id)
+    return normalized if normalized is not None else ""
+
+
 def extract_author_from_soup(
     soup: BeautifulSoup, site_id: str | None = None, html: str = ""
 ) -> str | None:
