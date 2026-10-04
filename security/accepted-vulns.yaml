@@ -194,3 +194,25 @@ node:
       Table-header ID XSS in showdown is not reachable for clipboard export of
       trusted chat answers. Revisit if showdown ships a patch or we replace the
       converter.
+
+  - id: "1240912"
+    package: node-forge
+    reason: >-
+      no patched release; reachability limited
+    review_by: "2026-11-04"
+    mitigation: >-
+      GHSA-86w9-cpqp-85rv affects node-forge <=1.4.0 and lists no patched
+      release. npm latest is 1.4.0, which is still inside that range.
+      firebase-admin 13.8.0 calls forge.pki.privateKeyFromPem only to read a
+      service-account PEM. It does not verify untrusted RSA signatures.
+
+  - id: "1240992"
+    package: braces
+    reason: >-
+      no patched release; reachability limited
+    review_by: "2026-11-04"
+    mitigation: >-
+      GHSA-vfj7-8cjw-p6xm affects braces <=3.0.3 and lists no patched release.
+      The 3.x line stops at 3.0.3. Lockfile parents are chokidar 3.6.0 and
+      micromatch 4.0.8. Both are dev tooling and expand tool globs, not
+      request input.
