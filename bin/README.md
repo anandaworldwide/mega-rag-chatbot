@@ -48,10 +48,14 @@ variants and a canonical name, then updates records in Pinecone to use the canon
 
 ### `strip_pinecone_byline_dates.py`
 
-Clears the author on live `ananda.org` listing, archive, and search vectors whose author still has a trailing
-`Month D, YYYY`. Article pages with that date keep the author, with the date removed and the canonical name applied.
-It reads `PINECONE_INDEX_NAME` and refuses to run when that name equals `PINECONE_INGEST_INDEX_NAME`. Dry-run by
-default.
+Remove a trailing `Month D, YYYY` from author metadata on live `ananda.org` vectors.
+Article pages keep the canonical author name.
+The script does not write an empty author.
+When the new author is empty, the script keeps the original author.
+The script reports each skipped chunk id.
+The script reads `PINECONE_INDEX_NAME`.
+The script stops when that name equals `PINECONE_INGEST_INDEX_NAME`.
+Dry-run is the default.
 
 ```bash
 uv run python bin/strip_pinecone_byline_dates.py --site ananda-public
@@ -106,6 +110,9 @@ Deletes records from a Pinecone index based on various criteria:
 
 Generates statistics about vectors in a Pinecone index. It counts occurrences of metadata fields like 'author',
 'library', and 'type', processing vectors in batches. Can filter by an ID prefix.
+A missing, empty, or blank author is counted as "Unknown author".
+Use `--list-unknown-authors` to list the source documents for those chunks.
+That command does not write to Pinecone or Firestore.
 
 ### `count_questions.py`
 
