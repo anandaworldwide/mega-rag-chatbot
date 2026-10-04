@@ -18,7 +18,7 @@
     "acorn-jsx": "^5.3.2",
     "commander": "^14.0.1",
     "esrecurse": "^4.3.0",
-    "next": "^16.3.4"
+    "next": "^16.3.6"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
@@ -29,7 +29,8 @@
     "typescript": "^6.0.2"
   },
   "overrides": {
-    "@grpc/grpc-js": "1.14.4",
+    "@grpc/grpc-js": "1.14.5",
+    "@fastify/busboy": "3.2.1",
     "tsx": "4.22.4",
     "@langchain/classic": "1.0.34",
     "handlebars": "^4.7.9",
@@ -41,10 +42,10 @@
     "fast-uri": "4.1.4",
     "fast-xml-parser": "5.7.2",
     "minimatch@3": {
-      "brace-expansion": "1.1.18"
+      "brace-expansion": "1.1.21"
     },
     "minimatch@10": {
-      "brace-expansion": "5.0.9"
+      "brace-expansion": "5.0.12"
     },
     "nanoid": "3.3.18",
     "node-forge": "^1.4.0",
@@ -54,7 +55,7 @@
     "langsmith": "0.7.1",
     "sharp": "0.35.4",
     "uuid": "11.1.1",
-    "undici": "6.28.0",
+    "undici": "6.28.1",
     "qs": "6.16.0",
     "colord": "2.10.0",
     "smol-toml": "1.8.0"
