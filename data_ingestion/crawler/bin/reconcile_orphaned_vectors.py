@@ -118,6 +118,17 @@ EXIT_GUARD_BLOCKED = 2
 EXIT_TIMEOUT = 124
 
 
+def _progress(desc: str, total: int | None = None, unit: str = "vec") -> tqdm:
+    """Meter for a long Pinecone or HTTP loop. Hidden when stderr is not a terminal."""
+    return tqdm(
+        total=total,
+        desc=desc,
+        unit=unit,
+        file=sys.stderr,
+        disable=not sys.stderr.isatty(),
+    )
+
+
 class ReconcileFatalError(Exception):
     """Non-recoverable configuration or precondition failure."""
 
@@ -474,13 +485,19 @@ def list_crawler_vector_ids(
 ) -> list[str]:
     """List crawler vector IDs for a prefix, optionally truncated to a sample size."""
     all_ids: list[str] = []
-    for batch in index.list(prefix=prefix):
-        if ctx is not None:
-            ctx.check_deadline()
-        all_ids.extend(batch)
-        if sample and len(all_ids) >= sample:
-            return all_ids[:sample]
-    return all_ids
+    bar = _progress("Listing")
+    try:
+        for batch in index.list(prefix=prefix):
+            if ctx is not None:
+                ctx.check_deadline()
+            page = list(batch)
+            all_ids.extend(page)
+            bar.update(len(page))
+            if sample and len(all_ids) >= sample:
+                return all_ids[:sample]
+        return all_ids
+    finally:
+        bar.close()
 
 
 def _parse_fetch_batch(
@@ -509,7 +526,9 @@ def _fetch_batch_with_retry(index: Any, batch_ids: list[str]) -> list[tuple[str,
     last_error: Exception | None = None
     for _attempt in range(2):
         try:
-            results, _missing = _parse_fetch_batch(batch_ids, index.fetch(ids=batch_ids))
+            results, _missing = _parse_fetch_batch(
+                batch_ids, index.fetch(ids=batch_ids)
+            )
             return results
         except Exception as exc:
             last_error = exc
@@ -541,35 +560,41 @@ def scan_pinecone_orphans(
     batch_size = 10
 
     batches = [all_ids[i : i + batch_size] for i in range(0, len(all_ids), batch_size)]
+    bar = _progress("Fetching", total=len(all_ids))
     with ThreadPoolExecutor(max_workers=fetch_workers) as ex:
-        future_to_batch = {ex.submit(_fetch_batch_with_retry, index, b): b for b in batches}
-        for fut in tqdm(
-            as_completed(future_to_batch), total=len(future_to_batch), desc="Fetching"
-        ):
-            ctx.check_deadline()
-            batch_ids = future_to_batch[fut]
-            try:
-                results = fut.result()
-            except Exception as e:
+        future_to_batch = {
+            ex.submit(_fetch_batch_with_retry, index, b): b for b in batches
+        }
+        try:
+            for fut in as_completed(future_to_batch):
+                ctx.check_deadline()
+                batch_ids = future_to_batch[fut]
+                try:
+                    results = fut.result()
+                except Exception as e:
+                    with lock:
+                        ctx.fetch_failures += 1
+                        ctx.unexamined_vectors += len(batch_ids)
+                        msg = f"{type(e).__name__}: {e}"
+                        if len(ctx.fetch_error_samples) < MAX_FETCH_ERROR_SAMPLES:
+                            ctx.fetch_error_samples.append(msg)
+                    print(
+                        f"\nfetch error ({ctx.fetch_failures} total, "
+                        f"{ctx.unexamined_vectors:,} unexamined): {e}"
+                    )
+                    bar.update(len(batch_ids))
+                    continue
                 with lock:
-                    ctx.fetch_failures += 1
-                    ctx.unexamined_vectors += len(batch_ids)
-                    msg = f"{type(e).__name__}: {e}"
-                    if len(ctx.fetch_error_samples) < MAX_FETCH_ERROR_SAMPLES:
-                        ctx.fetch_error_samples.append(msg)
-                print(
-                    f"\nfetch error ({ctx.fetch_failures} total, "
-                    f"{ctx.unexamined_vectors:,} unexamined): {e}"
-                )
-                continue
-            with lock:
-                for vid, nu in results:
-                    scanned += 1
-                    if nu not in db_urls:
-                        orphan_map.setdefault(nu, []).append(vid)
-                missing = len(batch_ids) - len(results)
-                if missing:
-                    ctx.unexamined_vectors += missing
+                    for vid, nu in results:
+                        scanned += 1
+                        if nu not in db_urls:
+                            orphan_map.setdefault(nu, []).append(vid)
+                    missing = len(batch_ids) - len(results)
+                    if missing:
+                        ctx.unexamined_vectors += missing
+                bar.update(len(batch_ids))
+        finally:
+            bar.close()
 
     ctx.scanned_vectors = scanned
     ctx.orphan_map = orphan_map
@@ -603,8 +628,6 @@ def check_ambiguous_liveness(
 
     sleep_per_req = (workers / rate) if rate > 0 else 0.0
     statuses: dict[str, Any] = {}
-    t0 = time.time()
-    done = 0
 
     def worker(u: str):
         code = http_status(u, timeout)
@@ -612,19 +635,17 @@ def check_ambiguous_liveness(
             time.sleep(sleep_per_req)
         return u, code
 
+    bar = _progress("Liveness", total=len(urls), unit="url")
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futures = [ex.submit(worker, u) for u in urls]
-        for fut in as_completed(futures):
-            ctx.check_deadline()
-            u, code = fut.result()
-            statuses[u] = code
-            done += 1
-            if done % 100 == 0:
-                rps = done / (time.time() - t0)
-                print(
-                    f"  liveness checked {done}/{len(urls)} ({rps:.1f} req/s)",
-                    flush=True,
-                )
+        try:
+            for fut in as_completed(futures):
+                ctx.check_deadline()
+                u, code = fut.result()
+                statuses[u] = code
+                bar.update(1)
+        finally:
+            bar.close()
     return statuses
 
 
@@ -819,7 +840,9 @@ def emit_report(
         if fetch_failures:
             print(f"  Pinecone fetch failures: {fetch_failures:,}")
         if unexamined_vectors:
-            print(f"  Unexamined vectors (fetch/missing metadata): {unexamined_vectors:,}")
+            print(
+                f"  Unexamined vectors (fetch/missing metadata): {unexamined_vectors:,}"
+            )
         for d in (
             "skip_pattern",
             "tracking_param",
@@ -868,9 +891,7 @@ def enforce_delete_guard(
 ) -> None:
     """Abort if the delete set is an implausibly large fraction of the index."""
     guard_basis, basis_label = guard_basis_and_label(total_index_vectors, scanned)
-    if is_guard_blocked(
-        delete_ids, guard_basis, args.max_delete_fraction, args.force
-    ):
+    if is_guard_blocked(delete_ids, guard_basis, args.max_delete_fraction, args.force):
         raise ReconcileFatalError(
             f"delete set is {len(delete_ids) / guard_basis:.1%} of {basis_label} vectors "
             f"({len(delete_ids):,} / {guard_basis:,}; > --max-delete-fraction "
@@ -883,9 +904,15 @@ def delete_orphan_vectors(index: Any, delete_ids: list[str], ctx: RunContext) ->
     """Delete vectors from Pinecone in batches."""
     ctx.phase = "deleting"
     print(f"\nDeleting {len(delete_ids):,} vectors ...")
-    for i in tqdm(range(0, len(delete_ids), 100), desc="Deleting"):
-        ctx.check_deadline()
-        index.delete(ids=delete_ids[i : i + 100])
+    bar = _progress("Deleting", total=len(delete_ids))
+    try:
+        for i in range(0, len(delete_ids), 100):
+            ctx.check_deadline()
+            batch = delete_ids[i : i + 100]
+            index.delete(ids=batch)
+            bar.update(len(batch))
+    finally:
+        bar.close()
     print("Deletion complete.")
 
 
@@ -902,11 +929,7 @@ def write_manifest(
     unexamined_vectors: int = 0,
 ) -> None:
     """Write manifest after apply decision so on-disk state matches what happened."""
-    deleted_map = (
-        {u: orphan_map[u] for u in delete_urls}
-        if applied
-        else {}
-    )
+    deleted_map = {u: orphan_map[u] for u in delete_urls} if applied else {}
     manifest_path.write_text(
         json.dumps(
             {
@@ -1041,9 +1064,7 @@ def _email_action_line(result: ReconcileResult) -> str:
             "Review partial results; re-run manually or increase --max-runtime-seconds."
         )
     if result.applied:
-        return (
-            f"Action: auto-deleted {len(result.delete_ids):,} vectors (--apply-if-safe)."
-        )
+        return f"Action: auto-deleted {len(result.delete_ids):,} vectors (--apply-if-safe)."
     if result.needs_review:
         pct = len(result.delete_ids) / result.guard_basis if result.guard_basis else 0
         return (
@@ -1114,7 +1135,9 @@ def _email_prompt_url_lines(result: ReconcileResult) -> list[str]:
             )
     elif extras:
         lines.extend(
-            _email_url_sample_lines(extras, f"  Outside Resource Links ({len(extras)}):")
+            _email_url_sample_lines(
+                extras, f"  Outside Resource Links ({len(extras)}):"
+            )
         )
     return lines
 
@@ -1310,7 +1333,9 @@ def build_timeout_result(
     )
 
 
-def write_partial_timeout_manifest(ctx: RunContext, partial: PartialReconcileState | None) -> None:
+def write_partial_timeout_manifest(
+    ctx: RunContext, partial: PartialReconcileState | None
+) -> None:
     """Persist partial manifest on timeout when orphan data exists."""
     if ctx.manifest_path is None or not ctx.orphan_map or partial is None:
         return
@@ -1478,9 +1503,7 @@ def run_reconciliation(args: argparse.Namespace, ctx: RunContext) -> ReconcileRe
         ctx.unexamined_vectors,
     )
 
-    guard_basis, guard_basis_label = guard_basis_and_label(
-        total_index_vectors, scanned
-    )
+    guard_basis, guard_basis_label = guard_basis_and_label(total_index_vectors, scanned)
     guard_blocked = is_guard_blocked(
         delete_ids, guard_basis, args.max_delete_fraction, args.force
     )

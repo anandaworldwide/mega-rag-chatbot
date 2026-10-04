@@ -20,8 +20,8 @@ retrieval-augmented generation (RAG) systems.
 - **Database-Driven Queue**: SQLite-based crawl queue with retry logic and exponential backoff
 - **Health Check Server**: Flask-based monitoring endpoint with detailed statistics
 - **Email Alerts**: Automatic email notifications for critical issues (process down, wedged crawler, database errors)
-- **Supervisor Service**: macOS launchd integration with bounded execution (45-minute cycles)
-- **Log Rotation**: Python-based log rotation with compression and automatic cleanup
+- **Bounded runs**: systemd starts each crawl on the production VM and stops it after the time limit
+- **Logs**: the systemd journal stores the crawl logs
 - **Graceful Shutdown**: Proper signal handling and state preservation
 
 ### Advanced Features
@@ -38,16 +38,14 @@ retrieval-augmented generation (RAG) systems.
 
 - Python 3.11
 - UV-managed crawler environment
-- macOS (for daemon support) or Docker (for cloud deployment)
+- Docker on the production VM
 - Access to Pinecone and OpenAI APIs
 
-### Deployment Options
+### Deployment
 
-The crawler can run in two modes:
-
-1. **Local (macOS)**: Uses macOS LaunchAgent for bounded cycles (see [DAEMON_MANAGEMENT.md](DAEMON_MANAGEMENT.md))
-2. **Production (Linux VM)**: Docker on a dedicated host (for example Lightsail) with systemd timers; see
-   [CLOUD-DEPLOYMENT.md](CLOUD-DEPLOYMENT.md) and committed samples under [deploy/vm/](deploy/vm/).
+The production crawler runs on one Linux VM. systemd starts each crawl from a timer. See
+[CLOUD-DEPLOYMENT.md](CLOUD-DEPLOYMENT.md) and [deploy/vm/](deploy/vm/). The macOS LaunchAgent on the laptop is out of
+service.
 
 ### Setup
 
@@ -107,7 +105,7 @@ python website_crawler.py --site ananda-public --fresh-start
 
 ### Health Monitoring
 
-The crawler includes a comprehensive health monitoring system using macOS LaunchAgents:
+Run a health check or a daily report with these commands:
 
 ```bash
 # Run hourly health check (sends alerts if issues detected)
@@ -119,44 +117,13 @@ python health_daily_report.py --site ananda-public
 
 See [HEALTH_CRON_README.md](HEALTH_CRON_README.md) for detailed setup instructions.
 
-### Supervisor Service Management
+### Production logs
 
-The crawler now uses a bounded execution supervisor managed by macOS launchd:
-
-```bash
-# Check service status
-launchctl list com.ananda.crawler
-
-# Start service
-launchctl start com.ananda.crawler
-
-# Stop service
-launchctl stop com.ananda.crawler
-
-# View logs
-tail -f ~/Library/Logs/AnandaCrawler/supervisor_ananda-public.log
-
-# Follow crawler activity logs
-tail -f ~/Library/Logs/AnandaCrawler/crawler_ananda-public.log
-
-# Follow both logs simultaneously
-tail -f ~/Library/Logs/AnandaCrawler/supervisor_ananda-public.log ~/Library/Logs/AnandaCrawler/crawler_ananda-public.log
-```
-
-### Log Management
+The VM stores crawl logs in the systemd journal:
 
 ```bash
-# Rotate logs manually
-python bin/log_rotate.py --log-dir ~/Library/Logs/AnandaCrawler
-
-# Check what would be rotated (dry run)
-python bin/log_rotate.py --log-dir ~/Library/Logs/AnandaCrawler --dry-run
-
-# Custom settings
-python bin/log_rotate.py --log-dir ~/Library/Logs/AnandaCrawler --max-age-days 7 --no-compress
+journalctl -u ananda-crawler.service -n 100 --no-pager
 ```
-
-Logs are automatically rotated daily at 2 AM via LaunchAgent.
 
 ### Utility Scripts (`bin/`)
 
@@ -240,104 +207,6 @@ python bin/delete_by_skip_pattern.py --site ananda-public --dry-run
 python bin/delete_by_skip_pattern.py --site ananda-public
 ```
 
-#### Log Rotation
-
-Rotate and compress old log files:
-
-```bash
-# Rotate logs manually
-python bin/log_rotate.py --log-dir ~/Library/Logs/AnandaCrawler
-
-# Dry run
-python bin/log_rotate.py --log-dir ~/Library/Logs/AnandaCrawler --dry-run
-```
-
-### LaunchAgent Setup (macOS)
-
-The crawler uses macOS LaunchAgents instead of traditional cron jobs for better security compliance and reliability on
-modern macOS systems.
-
-#### Log Rotation LaunchAgent
-
-The log rotation LaunchAgent is automatically configured and runs daily at 2:00 AM:
-
-```bash
-# Check if log rotation LaunchAgent is loaded
-launchctl list | grep com.ananda.log-rotate
-
-# Manually trigger log rotation (for testing)
-launchctl start com.ananda.log-rotate
-
-# View log rotation output
-tail -f ~/Library/Logs/AnandaCrawler/log-rotate.log
-
-# View log rotation errors (if any)
-tail -f ~/Library/Logs/AnandaCrawler/log-rotate-error.log
-```
-
-#### Health Monitoring LaunchAgents
-
-For automated health monitoring, create LaunchAgents for the health check scripts:
-
-```bash
-# Create hourly health check LaunchAgent
-cat > ~/Library/LaunchAgents/com.ananda.health-check.plist << 'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.ananda.health-check</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/usr/bin/python3</string>
-        <string>/Users/$(whoami)/bin/health_cron_check.py</string>
-        <string>--site</string>
-        <string>ananda-public</string>
-    </array>
-    <key>StartCalendarInterval</key>
-    <dict>
-        <key>Minute</key>
-        <integer>0</integer>
-    </dict>
-    <key>StandardOutPath</key>
-    <string>/Users/$(whoami)/Library/Logs/AnandaCrawler/health-check.log</string>
-    <key>StandardErrorPath</key>
-    <string>/Users/$(whoami)/Library/Logs/AnandaCrawler/health-check-error.log</string>
-</dict>
-</plist>
-EOF
-
-# Load the health check LaunchAgent
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ananda.health-check.plist
-```
-
-**Note**: Copy the health check script to `~/bin/` first:
-
-```bash
-cp data_ingestion/crawler/health_cron_check.py ~/bin/
-chmod +x ~/bin/health_cron_check.py
-```
-
-#### LaunchAgent Management Commands
-
-```bash
-# List all Ananda LaunchAgents
-launchctl list | grep com.ananda
-
-# Load a LaunchAgent
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ananda.service-name.plist
-
-# Unload a LaunchAgent
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.ananda.service-name.plist
-
-# Start a LaunchAgent manually
-launchctl start com.ananda.service-name
-
-# Check LaunchAgent status
-launchctl list com.ananda.service-name
-```
-
 ## Configuration
 
 ### Site Configuration Options
@@ -370,8 +239,8 @@ launchctl list com.ananda.service-name
 │   (45-min       │    │                 │    │   Service       │
 │    bounded)     │    │ • Status check  │    │ • Bounded exec  │
 │ • Content fetch │    │ • Statistics    │    │ • Auto-restart  │
-│ • Link discovery│    │ • Process info  │    │ • launchd       │
-│ • Queue mgmt    │    │ • Email alerts  │    │ • Log rotation  │
+│ • Link discovery│    │ • Process info  │    │ • systemd       │
+│ • Queue mgmt    │    │ • Email alerts  │    │ • journal logs  │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
          │                       │                       │
          └───────────────────────┼───────────────────────┘
@@ -465,11 +334,11 @@ CREATE TABLE csv_tracking (
 
 ### Log Files
 
-Service logs are stored in `~/Library/Logs/AnandaCrawler/`:
+The production crawler writes logs to the systemd journal on the VM.
 
-- `supervisor-{site_id}.log` - Supervisor service output
-- `crawler_{site_id}.log` - Crawler activity output
-- `*_*.log.gz` - Rotated compressed logs (automatic daily rotation)
+```bash
+journalctl -u ananda-crawler.service -n 100 --no-pager
+```
 
 ## Development
 
@@ -492,8 +361,6 @@ python -m pytest tests/ --cov=crawler --cov-report=html
 1. Create environment file: `.env.{site_id}`
 2. Create configuration: `crawler_config/{site_id}-config.json`
 3. Test configuration: `python website_crawler.py --site {site_id} --stop-after 5`
-4. Update launchd plist with new site ID
-5. Load the service: `launchctl load ~/Library/LaunchAgents/com.ananda.crawler.plist`
 
 ### Debugging
 
@@ -520,9 +387,8 @@ This will:
 
 #### Memory Usage
 
-- Automatic log rotation via LaunchAgent (daily at 2 AM)
-- Set resource limits in launchd plist
-- Monitor with health check endpoint
+- Read crawl logs with `journalctl` on the VM
+- Monitor the crawl with the health check endpoint
 
 #### Storage Optimization
 
