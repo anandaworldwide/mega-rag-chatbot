@@ -4,8 +4,7 @@ Production crawling runs on a **single dedicated Linux host** (for example AWS L
 ECS/Fargate. The crawler stays **containerized** (same `Dockerfile`), uses **`DATA_DIR`** on persistent disk for SQLite,
 locks, and logs, and uses **bounded runs** (`--max-runtime-minutes`) triggered by **systemd** (timer + oneshot service).
 
-For local development on macOS (LaunchAgent / `manage_crawler.sh`), see [README.md](README.md) and
-[DAEMON_MANAGEMENT.md](DAEMON_MANAGEMENT.md).
+The macOS LaunchAgent on the laptop is out of service. Do not run a second crawler against the same site database.
 
 ## Critical rule: one writer
 
@@ -88,14 +87,10 @@ After edits: `sudo systemctl daemon-reload`, `sudo systemctl enable --now ananda
 On the VM: `git pull` in the repo, rebuild the image, then run the crawler service once or wait for the timer. No ECR or
 ECS task definition steps.
 
-## Switching between production VM and local
+## Laptop crawler
 
-1. **Stop the production writer** (disable the systemd timer and stop any running `docker run` crawler on the VM).
-2. Copy the SQLite file from the VM to your machine (for example `scp`), into the path your local `DATA_DIR` or default
-   dev layout expects.
-3. Run local daemon only while debugging; do not re-enable the VM timer until you are finished.
-4. **Copy the database back** and re-enable the VM schedule, or restore from a VM backup if local was only for read-only
-   tests.
+The macOS LaunchAgent on the laptop is out of service. Do not run `website_crawler.py` on the laptop while the VM timer
+is active. Two writers can damage the SQLite database.
 
 ## Retiring legacy AWS (Fargate / EFS / EventBridge)
 

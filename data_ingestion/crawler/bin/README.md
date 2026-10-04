@@ -9,7 +9,7 @@
 | `cleanup_old_pinecone_vectors.py` | Remove stale vectors from Pinecone index       |
 | `delete_by_skip_pattern.py`       | Delete URLs matching configured skip patterns  |
 | `reconcile_orphaned_vectors.py`   | Find/delete Pinecone vectors whose URL has no live crawl_queue row. Also liveness-checks HTTP(S) URLs in system prompts (the weekly ananda-public run covers both Vivek and Luca) and reports 404s / Resource Links whitelist drift. Weekly prod: `--apply-if-safe --email-report --max-runtime-seconds 7140` (2h systemd timer in `deploy/vm/`). |
-| `log_rotate.py`                   | Rotate and compress crawler log files          |
+| `log_rotate.py`                   | Rotate old local log files. The production VM uses the systemd journal. |
 | `pinecone_health_check.py`        | Verify Pinecone connectivity and index health  |
 
 ## Local Operations
@@ -17,8 +17,8 @@
 | Script                     | Description                                        |
 | -------------------------- | -------------------------------------------------- |
 | `cleanup-docker-images.sh` | Remove old/unused Docker images locally            |
-| `manage_crawler.sh`        | Start/stop/status wrapper for local crawler daemon |
+| `manage_crawler.sh`        | Retired wrapper for the laptop LaunchAgent. Do not use it. |
 
 Production deployment on a dedicated VM (Docker + systemd) is documented in
-[../CLOUD-DEPLOYMENT.md](../CLOUD-DEPLOYMENT.md#switching-between-production-vm-and-local). **systemd unit/timer samples**
+[../CLOUD-DEPLOYMENT.md](../CLOUD-DEPLOYMENT.md#laptop-crawler). **systemd unit/timer samples**
 and backup scripts: [../deploy/vm/README.md](../deploy/vm/README.md).
