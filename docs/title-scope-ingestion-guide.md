@@ -15,14 +15,13 @@ This feature is site-config gated.
 
 ## When To Run This
 
-Run this flow any time you ingest new content that adds or changes `metadata.title` values, including:
+Run this flow as the last step of each laptop ingest. The library command publishes the catalog. After audio, YouTube, or Crystal Clarity, run the commands below.
 
-- PDF/book ingestion via `data_ingestion/pdf_to_vector_db.py`
-- Audio/video ingestion via `data_ingestion/audio_video/transcribe_and_ingest_media.py`
-- Web ingestion via `data_ingestion/crawler/website_crawler.py`
-- Database text ingestion via `data_ingestion/sql_to_vector_db/ingest_db_text.py`
+Do this after an ingest that adds titles or changes titles:
 
-If the ingest only updates content inside existing titles and does not add/remove titles or hierarchy segments, the title catalog refresh is optional. If in doubt, rebuild it.
+- Ananda Library
+- Audio and YouTube
+- Crystal Clarity PDFs on the Luca index
 
 ## Required Inputs
 
