@@ -41,7 +41,7 @@ ages past cooldown.
 | -------------- | -------------------------------------------------------------------------- | ------------------------------------------ |
 | `actionable`   | Fix exists and was published ≥7 days ago; severity ≥ threshold            | Fails nightly CI                           |
 | `in_cooldown`  | Fix exists but was published <7 days ago; install tooling defers install  | Informational only; listed in digest       |
-| `no_fix`       | No fixed release exists                                                    | Fails unless listed in accepted-vulns.yaml |
+| `no_fix`       | No fixed release exists (no patched version, `fixAvailable` is false, or the patched range is empty) | Informational. Listed in the digest; does not fail nightly CI |
 | `accepted`     | Matches an entry in `security/accepted-vulns.yaml`                        | Informational; auto-expires on `review_by` |
 
 Fix publish dates are resolved by querying PyPI (`/pypi/<pkg>/<ver>/json`)
@@ -56,7 +56,11 @@ Node audit notes:
   absurd major-downgrade suggestions (e.g. `jest@25` for a `brace-expansion`
   leaf still in cooldown).
 - When npm points a leaf advisory at a different package major bump, cooldown
-  classification uses the affected package's own `latest` publish date.
+  classification uses the affected package's own `latest` publish date only
+  when that version sits outside the advisory's vulnerable range. If `latest`
+  is still vulnerable (no patched release — for example `node-forge@1.4.0`
+  matching `<=1.4.0`, or `braces@3.0.3` matching `<=3.0.3`), the finding is
+  `no_fix` and does not fail CI.
 
 ### Monorepo note
 

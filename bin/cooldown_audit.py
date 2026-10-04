@@ -10,13 +10,17 @@ finding as:
     in_cooldown  Fix is available but was published within the cooldown
                  window; install tooling (uv ``exclude-newer`` / ``.npmrc``
                  ``min-release-age``) is intentionally deferring it.
-    no_fix       No fixed release exists. Must be listed in the accepted-vulns
-                 file or it is treated as actionable.
+    no_fix       No fixed release exists: the audit reported no patched version,
+                 ``fixAvailable`` is false, or the patched range is empty.
+                 Listed in the report, but does not fail the run. An
+                 accepted-vulns entry still reclassifies it as accepted.
     accepted     Matches an entry in ``security/accepted-vulns.yaml``. Any
                  ``review_by`` date in the past converts the finding back into
                  actionable so policy exceptions cannot quietly rot.
 
-Exit code 0 when there are only informational findings, 1 otherwise.
+Exit code 0 when there are only informational findings (``in_cooldown``,
+``no_fix``, ``accepted``, or ``actionable`` below ``--fail-level``), 1 when
+an actionable finding is at or above ``--fail-level``.
 
 Usage::
 
@@ -43,6 +47,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import time
@@ -96,6 +101,11 @@ class Finding:
     accepted_reason: str | None = None
     accepted_review_by: str | None = None
     note: str | None = None
+    # Advisory vulnerable range (npm ``via[].range``), e.g. ``"<=1.4.0"``.
+    # A candidate fix that still matches this range is not a patched release.
+    vulnerable_range: str | None = None
+    # Set when the advisory explicitly reports an empty patched-version range.
+    no_patched_release: bool = False
 
     def severity_rank(self) -> int:
         return SEVERITY_ORDER.get(self.severity.lower(), -1)
@@ -328,6 +338,24 @@ def _npm_extract_fix(entry: dict) -> tuple[str | None, str | None, bool]:
     return None, None, False
 
 
+def _patched_range_is_empty(source: dict) -> bool:
+    """True when the advisory explicitly says nothing has been patched.
+
+    ``npm audit`` usually omits this field. GitHub-style payloads include
+    ``patched_versions`` / ``patchedVersions`` as null or "" in that case.
+    A missing field is not the same thing — callers then use ``range``.
+    """
+    for key in ("patched_versions", "patchedVersions"):
+        if key not in source:
+            continue
+        raw = source[key]
+        if raw is None or raw == [] or raw == ():
+            return True
+        if isinstance(raw, str) and not raw.strip():
+            return True
+    return False
+
+
 def _npm_via_severity(source: dict, fallback: str) -> str:
     sev = source.get("severity")
     if sev:
@@ -372,7 +400,9 @@ def run_npm_audit(audit_dir: str) -> list[Finding]:
         top_severity = str(entry.get("severity") or "unknown").lower()
         fix_pkg, fix_version, fix_major = _npm_extract_fix(entry)
 
-        advisories: list[dict] = [v for v in (entry.get("via") or []) if isinstance(v, dict)]
+        advisories: list[dict] = [
+            v for v in (entry.get("via") or []) if isinstance(v, dict)
+        ]
         if not advisories:
             # ``via`` is only string pointers to other packages. The leaf package
             # that owns the advisory is already emitted from its own audit
@@ -391,6 +421,12 @@ def run_npm_audit(audit_dir: str) -> list[Finding]:
             key = (advisory_id, fix_pkg or "", fix_version or "")
             if key in seen:
                 continue
+            raw_range = source.get("range")
+            vulnerable_range = (
+                raw_range.strip()
+                if isinstance(raw_range, str) and raw_range.strip()
+                else None
+            )
             seen[key] = Finding(
                 ecosystem="node",
                 vuln_id=advisory_id,
@@ -402,9 +438,153 @@ def run_npm_audit(audit_dir: str) -> list[Finding]:
                 severity=_npm_via_severity(source, top_severity),
                 summary=str(source.get("title") or "").strip(),
                 advisory_url=str(source.get("url") or "") or None,
+                vulnerable_range=vulnerable_range,
+                no_patched_release=_patched_range_is_empty(source),
             )
 
     return list(seen.values())
+
+
+# ---------------------------------------------------------------------------
+# npm vulnerable-range checks
+# ---------------------------------------------------------------------------
+
+# Advisory ranges from ``npm audit`` are full ``major.minor.patch`` comparators
+# (``<=1.4.0``, ``>=4.0.0 <5.0.12``, ``||`` unions, hyphen ranges). Partial
+# versions such as ``1.2`` are left unparsed so we do not guess wrong and
+# hide a real fix.
+_NPM_NUM = re.compile(r"^[0-9]+$")
+_NPM_COMP = re.compile(
+    r"^(?P<op><=|>=|<|>|=|==)?"
+    r"\s*v?(?P<ver>[0-9]+(?:\.[0-9]+){2}(?:-[0-9A-Za-z.-]+)?)$"
+)
+
+
+def _parse_npm_version(value: str) -> tuple[tuple[int, ...], tuple[str, ...]]:
+    value = value.strip()
+    if value[:1] in ("v", "V"):
+        value = value[1:]
+    value = value.split("+", 1)[0]
+    if "-" in value:
+        core, pre = value.split("-", 1)
+        pre_ids = tuple(part for part in pre.split(".") if part != "")
+    else:
+        core, pre_ids = value, ()
+    parts: list[int] = []
+    for piece in core.split("."):
+        if not piece or not _NPM_NUM.match(piece):
+            raise ValueError(f"bad npm version: {value}")
+        parts.append(int(piece))
+    if len(parts) < 3:
+        raise ValueError(f"partial npm version: {value}")
+    return tuple(parts), pre_ids
+
+
+def _cmp_npm_ident(left: str, right: str) -> int:
+    left_num = bool(_NPM_NUM.match(left))
+    right_num = bool(_NPM_NUM.match(right))
+    if left_num and right_num:
+        return (int(left) > int(right)) - (int(left) < int(right))
+    if left_num:
+        return -1
+    if right_num:
+        return 1
+    return (left > right) - (left < right)
+
+
+def _cmp_npm_pre(left: tuple[str, ...], right: tuple[str, ...]) -> int:
+    if not left and not right:
+        return 0
+    if not left:
+        return 1
+    if not right:
+        return -1
+    for one, other in zip(left, right, strict=False):
+        found = _cmp_npm_ident(one, other)
+        if found:
+            return found
+    return (len(left) > len(right)) - (len(left) < len(right))
+
+
+def _cmp_npm_version(left: str, right: str) -> int:
+    left_nums, left_pre = _parse_npm_version(left)
+    right_nums, right_pre = _parse_npm_version(right)
+    width = max(len(left_nums), len(right_nums))
+    left_pad = left_nums + (0,) * (width - len(left_nums))
+    right_pad = right_nums + (0,) * (width - len(right_nums))
+    if left_pad != right_pad:
+        return (left_pad > right_pad) - (left_pad < right_pad)
+    return _cmp_npm_pre(left_pre, right_pre)
+
+
+def _npm_cmp_op(version: str, op: str, target: str) -> bool:
+    found = _cmp_npm_version(version, target)
+    if op in ("=", "=="):
+        return found == 0
+    if op == "<":
+        return found < 0
+    if op == "<=":
+        return found <= 0
+    if op == ">":
+        return found > 0
+    if op == ">=":
+        return found >= 0
+    raise ValueError(op)
+
+
+def _parse_npm_comparator(token: str) -> tuple[str, str]:
+    match = _NPM_COMP.match(token.strip())
+    if not match:
+        raise ValueError(f"bad npm comparator: {token}")
+    return match.group("op") or "=", match.group("ver")
+
+
+def _npm_prerelease_allowed(version: str, comps: list[tuple[str, str]]) -> bool:
+    """npm ignores prereleases unless a comparator shares major.minor.patch."""
+    _nums, pre = _parse_npm_version(version)
+    if not pre:
+        return True
+    core = _nums[:3]
+    for _op, target in comps:
+        target_nums, target_pre = _parse_npm_version(target)
+        if target_pre and target_nums[:3] == core:
+            return True
+    return False
+
+
+def _npm_clause_contains(version: str, clause: str) -> bool:
+    clause = clause.strip()
+    if not clause or clause == "*":
+        _nums, pre = _parse_npm_version(version)
+        return not pre
+    if " - " in clause:
+        left, right = clause.split(" - ", 1)
+        comps = [(">=", left.strip()), ("<=", right.strip())]
+    else:
+        comps = [_parse_npm_comparator(tok) for tok in clause.split() if tok]
+    if not comps:
+        raise ValueError(clause)
+    if not all(_npm_cmp_op(version, op, target) for op, target in comps):
+        return False
+    return _npm_prerelease_allowed(version, comps)
+
+
+def npm_range_contains(version: str, range_spec: str) -> bool:
+    """Return whether ``version`` is inside an npm vulnerable range.
+
+    Unparseable ranges return False so a real fix is not discarded.
+    """
+    spec = (range_spec or "").strip()
+    if not spec:
+        return False
+    try:
+        return any(
+            _npm_clause_contains(version, clause)
+            for clause in (part.strip() for part in spec.split("||"))
+            if clause
+        )
+    except ValueError:
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -454,11 +634,7 @@ def _apply_accepted_entry(
 
 def _resolve_npm_boolean_fix(finding: Finding, registry: RegistryClient) -> None:
     """``fixAvailable: true`` → fill in current ``latest`` version as the fix."""
-    if (
-        finding.ecosystem != "node"
-        or finding.fix_versions
-        or not finding.fix_package
-    ):
+    if finding.ecosystem != "node" or finding.fix_versions or not finding.fix_package:
         return
     latest_version, latest_published = npm_latest_version_and_date(
         registry, finding.fix_package
@@ -489,9 +665,7 @@ def _prefer_same_package_npm_fix(finding: Finding, registry: RegistryClient) -> 
     if not latest_version:
         return
 
-    suggested = (
-        f"{finding.fix_package}@{', '.join(finding.fix_versions) or '?'}"
-    )
+    suggested = f"{finding.fix_package}@{', '.join(finding.fix_versions) or '?'}"
     finding.note = (
         f"npm suggested {suggested} (major); classifying against "
         f"{finding.package}@{latest_version}"
@@ -502,9 +676,39 @@ def _prefer_same_package_npm_fix(finding: Finding, registry: RegistryClient) -> 
         finding.fix_published_at = latest_published
 
 
-def _publish_dates_for(
-    finding: Finding, registry: RegistryClient
-) -> list[datetime]:
+def _drop_unpatched_fixes(finding: Finding) -> None:
+    """Drop fix versions that are still inside the advisory vulnerable range.
+
+    ``npm audit`` sets ``fixAvailable: true`` for node-forge even though every
+    published release (latest ``1.4.0``) matches ``<=1.4.0``. It also points
+    braces at a ``tailwindcss`` major while braces itself has no release
+    outside ``<=3.0.3``. ``_prefer_same_package_npm_fix`` then substitutes
+    that package's current latest and the cooldown clock treats the years-old
+    publish date as an overdue fix. Those are "no fix available".
+    """
+    rng = finding.vulnerable_range
+    if not rng or not finding.fix_versions:
+        return
+    patched = [ver for ver in finding.fix_versions if not npm_range_contains(ver, rng)]
+    if len(patched) == len(finding.fix_versions):
+        return
+    if patched:
+        finding.fix_published_at = None
+        finding.fix_versions = patched
+        return
+    claimed = ", ".join(finding.fix_versions)
+    pkg = finding.fix_package or finding.package
+    finding.note = (
+        f"No patched release available; {pkg}@{claimed} still matches "
+        f"vulnerable range {rng}."
+    )
+    finding.fix_versions = []
+    finding.fix_package = None
+    finding.fix_is_major = False
+    finding.fix_published_at = None
+
+
+def _publish_dates_for(finding: Finding, registry: RegistryClient) -> list[datetime]:
     lookup_package = (
         finding.fix_package
         if finding.ecosystem == "node" and finding.fix_package
@@ -543,15 +747,30 @@ def classify(
             _apply_accepted_entry(finding, accepted_entry, now)
             continue
 
+        if finding.no_patched_release:
+            finding.classification = "no_fix"
+            finding.fix_versions = []
+            finding.fix_package = None
+            finding.fix_is_major = False
+            finding.fix_published_at = None
+            if not finding.note:
+                finding.note = "No patched release available (patched range is empty)."
+            continue
+
         _prefer_same_package_npm_fix(finding, registry)
         _resolve_npm_boolean_fix(finding, registry)
+        # Latest (or an npm-suggested version) that is still inside the
+        # advisory range is not a released fix. Do this before the cooldown
+        # clock so an old vulnerable "latest" cannot fail the nightly.
+        _drop_unpatched_fixes(finding)
 
         if not finding.fix_versions:
             finding.classification = "no_fix"
-            finding.note = (
-                "No fix version reported by the audit tool; add to "
-                f"{DEFAULT_ACCEPTED_VULNS} with justification or upgrade."
-            )
+            if not finding.note:
+                finding.note = (
+                    "No fix version reported by the audit tool; add to "
+                    f"{DEFAULT_ACCEPTED_VULNS} with justification or upgrade."
+                )
             continue
 
         publish_dates = _publish_dates_for(finding, registry)
@@ -649,7 +868,9 @@ def render_markdown(findings: list[Finding], ecosystem: str, fail_level: str) ->
             return
         md.append(f"#### {title}")
         md.append("")
-        md.append("| Severity | Package | ID | Fix (package@version) | Published | Note |")
+        md.append(
+            "| Severity | Package | ID | Fix (package@version) | Published | Note |"
+        )
         md.append("| --- | --- | --- | --- | --- | --- |")
         for f in items:
             if f.fix_package and f.fix_versions:
