@@ -290,9 +290,11 @@ uv run python data_ingestion/bin/ingest_cli.py library \
 The dated database name `anandalib_YYYY_MM_DD` exists only inside Compose. The S3 dump is what the next operator
 re-imports.
 
-### After audio or YouTube ingest that adds titles
+### Title catalog
 
-The library command already rebuilds and publishes the title catalog. Audio and YouTube do not:
+Publish the title catalog as the last step of each laptop ingest. Do this after Ananda Library, audio, YouTube, and Crystal Clarity. The library command does this step. Audio, YouTube, and the Crystal command do not.
+
+Chat search finds new vectors before this step. The Luca title list shows a new title only after you publish. Development and production read this same copy in S3.
 
 ```bash
 uv run python bin/analyze_title_prefix_catalog.py \
@@ -318,13 +320,14 @@ uv run python data_ingestion/bin/list_ingestion_runs.py --site ananda --status c
   index name.
 - Do not colocate this work with the crawler VM.
 - AWS commands for this project use `--profile ananda`.
+- Publish the title catalog as the last step of a laptop ingest that adds titles.
 
 ## Crystal Clarity PDFs
 
 Copyrighted books. Objects go to `ingestion/sources/crystal/pdfs/` in the Luca bucket (`S3_BUCKET_NAME` from
 `.env.ananda`, usually `ananda-chatbot`). `.env.crystal` supplies the Crystal Pinecone index. Its own `S3_BUCKET_NAME`
 is a different bucket and is not used here. Do not put these objects under `public/`. Access level stays 0. This command
-does not rebuild the Luca title catalog.
+does not publish the Luca title catalog. Publish that catalog after this command. See Title catalog above.
 
 ```bash
 # Upload a local tree, then ingest books not already in Pinecone.
@@ -343,9 +346,11 @@ Default is `--keep-data`. `--replace-library` deletes `Crystal Clarity` vectors 
 
 ## Disk backup of S3
 
-Bucket versioning on `ananda-chatbot` is already enabled (checked 2026-09-27). An overwritten or deleted key can be
-restored from an older S3 version. There is no lifecycle rule, so old versions are kept until someone adds one.
-Versioning does not survive deletion of the bucket or loss of the AWS account. That case uses the disk copy.
+Bucket versioning on `ananda-chatbot` is enabled. A lifecycle rule expires a noncurrent version after 90 days. The same
+rule aborts an incomplete multipart upload after 7 days. Current objects stay.
+
+You can restore an overwritten key or a deleted key from an older S3 version during those 90 days. Versioning does not
+survive deletion of the bucket or loss of the AWS account. That case uses the disk copy.
 
 S3 stays canonical. The disk is recovery only. Crystal PDFs on the disk stay private to that developer. Not a shared
 drive.
