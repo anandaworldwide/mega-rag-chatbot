@@ -250,6 +250,9 @@ except ImportError:
 - **Example**: `parser.add_argument("--video", "-v", ...)` not `("-v", "--video", ...)`
 - **Pinecone ops scripts**: Prefer `--vector-id-prefix` style selectors over broad title substring matching when the ID
   structure can target the document set directly
+- **Parallel batch work**: Long Pinecone scans and similar batch jobs should use threads or other parallel processing
+  where the API allows it. Default to 8 workers on this laptop. Keep Pinecone metadata writes on the existing
+  ~5 updates/sec limiter; parallelize the read/scan side, not the rate-limited writes.
 - **Pinecone debug caching**: Cache only listed vector IDs locally for repeated runs; do not cache full mutable metadata
 - **Ingestion access metadata**: Do not infer required content access from file paths or folders. Audio/video ingestion stores
   an explicit `--required-access-level` value on queue items from `manage_queue.py`; processing reads it from the queue.

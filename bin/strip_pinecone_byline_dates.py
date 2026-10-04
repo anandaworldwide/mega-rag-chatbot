@@ -180,6 +180,18 @@ def display_author(author: str) -> str:
     return OMITTED_AUTHOR_LABEL if author == "" else author
 
 
+def confirm_metadata_update(index_name: str, read_line=input) -> bool:
+    """Ask until the operator types yes or no. Empty input asks again."""
+    prompt = f"\nUpdate author metadata on {index_name}? Type yes or no: "
+    while True:
+        answer = read_line(prompt).strip().lower()
+        if answer == "yes":
+            return True
+        if answer == "no":
+            return False
+        print("Type yes or no. Ctrl+C exits without writing.")
+
+
 def _metadata_text(metadata: dict, key: str) -> str:
     value = metadata.get(key)
     if isinstance(value, str):
@@ -509,14 +521,8 @@ def main() -> None:
         print("\nDry run. No metadata was changed. Re-run with --apply to write.")
         return
 
-    if not args.yes:
-        confirmation = (
-            input(f"\nUpdate author metadata on {index_name}? (yes/No): ")
-            .strip()
-            .lower()
-        )
-        if confirmation not in ("yes", "y"):
-            raise SystemExit("Aborted.")
+    if not args.yes and not confirm_metadata_update(index_name):
+        raise SystemExit("Aborted. No metadata was changed.")
 
     rate_limiter = FilterUpdateRateLimiter(min_interval_sec=args.update_interval)
     print("\nConfirming single-replacement authors with filter dry-run...")
