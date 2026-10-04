@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 
 """
-Remove a trailing "Month D, YYYY" from author metadata on live ananda.org vectors.
+Clean a trailing "Month D, YYYY" from author metadata on live ananda.org vectors.
 
-Article pages keep the canonical author name.
-Do not write an empty author.
-When the new author is empty, keep the original author.
-Report the chunk id as "skipped: author would be empty".
+Listing, archive, and search pages lose the author. The byline on those pages
+belongs to one teaser, not to the page. Article pages keep the author with the
+date removed and the site's canonical name applied.
 
-The script uses PINECONE_INDEX_NAME.
-The script does not read PINECONE_INGEST_INDEX_NAME except to refuse a matching name.
+Uses PINECONE_INDEX_NAME. It does not read PINECONE_INGEST_INDEX_NAME except to
+refuse to run when the two names are the same.
 
 Dry-run is the default. Pass --apply to write.
 
@@ -181,11 +180,6 @@ def display_author(author: str) -> str:
     return OMITTED_AUTHOR_LABEL if author == "" else author
 
 
-def author_replacement_is_writable(replacement: str) -> bool:
-    """Return True when the new author is a non-empty string."""
-    return isinstance(replacement, str) and bool(replacement.strip())
-
-
 def confirm_metadata_update(index_name: str, read_line=input) -> bool:
     """Ask until the operator types yes or no. Empty input asks again."""
     prompt = f"\nUpdate author metadata on {index_name}? Type yes or no: "
@@ -242,11 +236,8 @@ def classify_dated_author(
 ) -> tuple[str, str] | None:
     """Return (replacement, reason) when author has a trailing Month D, YYYY.
 
-    A listing page or a site-wide byline returns an empty replacement.
-    The caller does not write an empty replacement.
-    The caller keeps the original author and reports the chunk.
-    An article page returns the canonical name.
-    Return None when there is no trailing date.
+    Listing pages and site-wide bylines replace the author with "". Article
+    pages keep the canonical name. Returns None when there is no trailing date.
     """
     canonical = replacement_for_dated_author(author, site_id)
     if canonical is None:
@@ -273,22 +264,12 @@ class DatedAuthorPlan:
         return len(self.vector_ids)
 
 
-@dataclass
-class SkippedEmptyAuthor:
-    """A chunk whose new author would be empty. The original author stays."""
-
-    vector_id: str
-    author: str
-    reason: str
-
-
 def _record_dated_author(
     vector_id: str,
     vector,
     library: str,
     site_id: str,
     groups: dict[tuple[str, str, str], DatedAuthorPlan],
-    skipped: list[SkippedEmptyAuthor],
 ) -> None:
     metadata = dict(getattr(vector, "metadata", None) or {})
     if metadata.get("library") != library:
@@ -302,12 +283,6 @@ def _record_dated_author(
     if classified is None:
         return
     replacement, reason = classified
-    # The new author is empty. Keep the original author. Do not write "".
-    if not author_replacement_is_writable(replacement):
-        skipped.append(
-            SkippedEmptyAuthor(vector_id=vector_id, author=author, reason=reason)
-        )
-        return
     key = (author, replacement, reason)
     plan = groups.get(key)
     if plan is None:
@@ -322,19 +297,13 @@ def _record_dated_author(
     plan.vector_ids.append(vector_id)
 
 
-def _mark_filter_updates(
-    plans: list[DatedAuthorPlan], skipped_authors: set[str]
-) -> None:
-    """Use a filter update only when one author has one new name.
-
-    A skipped chunk keeps its author.
-    A filter update would change that chunk too.
-    """
+def _mark_filter_updates(plans: list[DatedAuthorPlan]) -> None:
+    """Filter updates are safe only when one author string has one replacement."""
     by_author: dict[str, list[DatedAuthorPlan]] = defaultdict(list)
     for plan in plans:
         by_author[plan.author].append(plan)
-    for author, author_plans in by_author.items():
-        use_filter = len(author_plans) == 1 and author not in skipped_authors
+    for author_plans in by_author.values():
+        use_filter = len(author_plans) == 1
         for plan in author_plans:
             plan.use_filter = use_filter
 
@@ -344,13 +313,12 @@ def collect_dated_authors(
     prefix: str,
     library: str,
     site_id: str,
-) -> tuple[list[DatedAuthorPlan], int, list[SkippedEmptyAuthor]]:
+) -> tuple[list[DatedAuthorPlan], int]:
     """Scan crawler vectors and group dated authors by the write they need.
 
-    Return plans, the scanned count, and chunks skipped for an empty author.
+    Returns (plans, scanned vector count).
     """
     groups: dict[tuple[str, str, str], DatedAuthorPlan] = {}
-    skipped: list[SkippedEmptyAuthor] = []
     scanned = 0
     batch: list[str] = []
 
@@ -362,7 +330,7 @@ def collect_dated_authors(
         vectors = getattr(response, "vectors", None) or {}
         scanned += len(ids)
         for vector_id, vector in vectors.items():
-            _record_dated_author(vector_id, vector, library, site_id, groups, skipped)
+            _record_dated_author(vector_id, vector, library, site_id, groups)
 
     for id_batch in index.list(prefix=prefix):
         if isinstance(id_batch, str):
@@ -379,8 +347,8 @@ def collect_dated_authors(
 
     consume(batch)
     plans = sorted(groups.values(), key=lambda plan: (-plan.count, plan.author))
-    _mark_filter_updates(plans, {item.author for item in skipped})
-    return plans, scanned, skipped
+    _mark_filter_updates(plans)
+    return plans, scanned
 
 
 def _count_matching_vectors(index, author: str, library: str, rate_limiter) -> int:
@@ -401,8 +369,6 @@ def _bulk_replace_author(
     library: str,
     rate_limiter: FilterUpdateRateLimiter,
 ) -> int:
-    if not author_replacement_is_writable(replacement):
-        return 0
     updated_total = 0
     while True:
         response = _filter_update(
@@ -440,22 +406,11 @@ def _print_plan(site_id: str, plans: list[DatedAuthorPlan]) -> None:
             print(f"  sample: {plan.vector_ids[0]}")
 
 
-def _print_skipped_empty_authors(skipped: list[SkippedEmptyAuthor]) -> None:
-    """Report each chunk whose new author would be empty."""
-    if not skipped:
-        return
-    print(f"\nSkipped {len(skipped):,} chunks. The new author is empty.")
-    for item in skipped:
-        print(f"{item.vector_id} skipped: author would be empty")
-
-
 def _update_vector_ids(
     index,
     plan: DatedAuthorPlan,
     rate_limiter: FilterUpdateRateLimiter,
 ) -> int:
-    if not author_replacement_is_writable(plan.replacement):
-        return 0
     for vector_id in plan.vector_ids:
         _filter_update(
             index,
@@ -474,10 +429,6 @@ def apply_plan(
 ) -> int:
     updated = 0
     for plan in plans:
-        if not author_replacement_is_writable(plan.replacement):
-            for vector_id in plan.vector_ids:
-                print(f"{vector_id} skipped: author would be empty")
-            continue
         if plan.use_filter:
             updated += _bulk_replace_author(
                 index, plan.author, plan.replacement, library, rate_limiter
@@ -494,9 +445,7 @@ def apply_plan(
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
-            "Remove a trailing Month D, YYYY from live author metadata. "
-            "Keep the original author when the new author is empty. "
-            "Do not write an empty author."
+            "Strip trailing byline dates from author metadata in the live Pinecone index."
         )
     )
     parser.add_argument(
@@ -512,10 +461,7 @@ def main() -> None:
     parser.add_argument(
         "--apply",
         action="store_true",
-        help=(
-            "Write metadata. Do not write an empty author. "
-            "Without this flag the script only reports matches."
-        ),
+        help="Write metadata. Without this flag the script only reports matches.",
     )
     parser.add_argument(
         "--yes",
@@ -563,20 +509,12 @@ def main() -> None:
 
     index = Pinecone(api_key=api_key).Index(index_name)
     print("\nScanning crawler vectors for dated authors...")
-    plans, scanned, skipped = collect_dated_authors(index, prefix, library, args.site)
-    dated_vectors = sum(plan.count for plan in plans) + len(skipped)
+    plans, scanned = collect_dated_authors(index, prefix, library, args.site)
+    dated_vectors = sum(plan.count for plan in plans)
     print(f"Scanned {scanned:,} vectors. Found {dated_vectors:,} with a trailing date.")
     _print_plan(args.site, plans)
-    # Print skips before the dry-run return and before --apply writes.
-    _print_skipped_empty_authors(skipped)
 
     if not plans:
-        if not skipped:
-            return
-        if args.apply:
-            print("\nNo author updates to write.")
-        else:
-            print("\nDry run. No metadata was changed. Re-run with --apply to write.")
         return
 
     if not args.apply:

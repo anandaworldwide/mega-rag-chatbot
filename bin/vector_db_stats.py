@@ -13,19 +13,12 @@ efficient metadata fetching (100 vectors per API call).
 Usage:
     python bin/vector_db_stats.py --site <site_id> [--prefix <id_prefix>] [--use-non-ingest|-n]
     python bin/vector_db_stats.py --site <site_id> --env <dev|prod> --write-firestore
-    python bin/vector_db_stats.py --site <site_id> --list-unknown-authors
 
 Example:
     python bin/vector_db_stats.py --site ananda
     python bin/vector_db_stats.py --site ananda --prefix "text||Crystal Clarity||"
     python bin/vector_db_stats.py --site ananda --use-non-ingest
     python bin/vector_db_stats.py --site ananda --env prod --write-firestore
-    python bin/vector_db_stats.py --site ananda --list-unknown-authors
-
-Unknown authors:
-    Count a missing, empty, or blank author as "Unknown author".
-    --list-unknown-authors reads Pinecone and prints the source documents.
-    That command does not write to Pinecone or Firestore.
 
 Firestore Integration:
     Use --write-firestore flag to write stats directly to Firestore for UI consumption.
@@ -52,20 +45,13 @@ Weekly Cron Setup:
 """
 
 import argparse
-import csv
 import json
 import os
 import sys
 import time
 from collections import Counter
-from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
-
-import firebase_admin
-from firebase_admin import credentials, firestore
-from pinecone import Pinecone
-from tqdm import tqdm
 
 # Ensure the repo root is importable when this script is run by file path
 # (Python puts bin/ on sys.path[0], not the repo root, so `pyutil` would be missing).
@@ -73,43 +59,12 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from pyutil.env_utils import load_env  # noqa: E402
+import firebase_admin
+from firebase_admin import credentials, firestore
+from pinecone import Pinecone
+from tqdm import tqdm
 
-# Firestore map keys must be non-empty strings. One label holds every blank author.
-UNKNOWN_AUTHOR = "Unknown author"
-UNKNOWN_LIBRARY = "Unknown library"
-UNKNOWN_TYPE = "Unknown type"
-_FIRESTORE_MAP_FIELDS = ("authors", "libraries", "mediaTypes")
-
-
-def firestore_map_key(value, fallback):
-    """Return a non-empty string key. A blank value uses fallback."""
-    if isinstance(value, str) and value.strip():
-        return value
-    return fallback
-
-
-def author_value_is_unknown(metadata):
-    """Return True when the chunk has no usable author string."""
-    if not metadata or "author" not in metadata:
-        return True
-    value = metadata.get("author")
-    return not isinstance(value, str) or not value.strip()
-
-
-def unknown_author_warning_line(chunk_count):
-    """Build the one warning line for chunks that have no author."""
-    return (
-        f"Warning: {chunk_count:,} chunks have no author. "
-        f'The script counts them as "{UNKNOWN_AUTHOR}".'
-    )
-
-
-def _metadata_text(metadata, key):
-    value = metadata.get(key) if metadata else None
-    if isinstance(value, str):
-        return value.strip()
-    return ""
+from pyutil.env_utils import load_env
 
 
 def collect_vector_ids(index, id_prefix, vectors_to_process):
@@ -158,39 +113,38 @@ def collect_vector_ids(index, id_prefix, vectors_to_process):
     return all_ids, api_calls_made
 
 
-def _add_library_document(library_documents, library_key, vector_id, metadata):
-    if library_key not in library_documents:
-        library_documents[library_key] = set()
-
-    doc_id = extract_document_identifier(vector_id, metadata)
-    if doc_id:
-        library_documents[library_key].add(doc_id)
+def is_blank_key(value):
+    """Return True when value cannot be a Firestore map key."""
+    return not isinstance(value, str) or not value.strip()
 
 
 def process_vector_metadata(vector_id, vector_data, stats, library_documents):
-    """Count one vector. Return 1 when the author is unknown."""
+    """Count one vector. Return 1 when the author is blank, else 0.
+
+    A blank author is not counted. A chunk with no author field is not
+    counted either. Listing pages have a blank author on purpose.
+    """
     metadata = vector_data.metadata or {}
+    blank_author = 0
 
-    if author_value_is_unknown(metadata):
-        stats["author"][UNKNOWN_AUTHOR] += 1
-        unknown_author_chunks = 1
-    else:
-        stats["author"][metadata["author"]] += 1
-        unknown_author_chunks = 0
+    if metadata:
+        for field in ["author", "library", "type"]:
+            if field in metadata:
+                if field == "author" and is_blank_key(metadata[field]):
+                    blank_author = 1
+                    continue
+                stats[field][metadata[field]] += 1
 
-    if "library" in metadata:
-        raw_library = metadata.get("library")
-        library_key = firestore_map_key(raw_library, UNKNOWN_LIBRARY)
-        stats["library"][library_key] += 1
-        # Keep the old rule: only a truthy library contributes a document id.
-        if raw_library:
-            _add_library_document(library_documents, library_key, vector_id, metadata)
+        library = metadata.get("library")
+        if library:
+            if library not in library_documents:
+                library_documents[library] = set()
 
-    if "type" in metadata:
-        type_key = firestore_map_key(metadata.get("type"), UNKNOWN_TYPE)
-        stats["type"][type_key] += 1
+            doc_id = extract_document_identifier(vector_id, metadata)
+            if doc_id:
+                library_documents[library].add(doc_id)
 
-    return unknown_author_chunks
+    return blank_author
 
 
 def fetch_and_process_metadata(index, all_ids, stats, library_documents):
@@ -204,7 +158,7 @@ def fetch_and_process_metadata(index, all_ids, stats, library_documents):
     fetch_api_calls = 0
 
     fetch_pbar = tqdm(total=len(all_ids), desc="Fetching metadata")
-    unknown_author_chunks = 0
+    blank_authors = 0
 
     for i in range(0, len(all_ids), fetch_batch_size):
         batch_ids = all_ids[i : i + fetch_batch_size]
@@ -215,7 +169,7 @@ def fetch_and_process_metadata(index, all_ids, stats, library_documents):
             fetch_api_calls += 1
 
             for vector_id, vector_data in fetch_result.vectors.items():
-                unknown_author_chunks += process_vector_metadata(
+                blank_authors += process_vector_metadata(
                     vector_id, vector_data, stats, library_documents
                 )
 
@@ -227,7 +181,12 @@ def fetch_and_process_metadata(index, all_ids, stats, library_documents):
             continue
 
     fetch_pbar.close()
-    return total_processed, fetch_api_calls, unknown_author_chunks
+    if blank_authors:
+        print(
+            f"\nWarning: {blank_authors:,} chunks have a blank author. "
+            "The author stats do not count them."
+        )
+    return total_processed, fetch_api_calls
 
 
 def get_pinecone_stats(index_name, id_prefix=None, max_vectors=None):
@@ -263,7 +222,7 @@ def get_pinecone_stats(index_name, id_prefix=None, max_vectors=None):
 
     if not all_ids:
         print("No vectors found matching criteria")
-        return stats, {}, 0
+        return stats, {}
 
     print(
         f"Collected {len(all_ids):,} vector IDs in {id_collection_time:.1f}s using {api_calls_made} API calls"
@@ -274,8 +233,8 @@ def get_pinecone_stats(index_name, id_prefix=None, max_vectors=None):
 
     print("Phase 2: Fetching metadata...")
     metadata_fetch_start = time.time()
-    total_processed, fetch_api_calls, unknown_author_chunks = (
-        fetch_and_process_metadata(index, all_ids, stats, library_documents)
+    total_processed, fetch_api_calls = fetch_and_process_metadata(
+        index, all_ids, stats, library_documents
     )
     metadata_fetch_end = time.time()
     metadata_fetch_time = metadata_fetch_end - metadata_fetch_start
@@ -292,7 +251,7 @@ def get_pinecone_stats(index_name, id_prefix=None, max_vectors=None):
 
     library_doc_counts = {lib: len(docs) for lib, docs in library_documents.items()}
 
-    return stats, library_doc_counts, unknown_author_chunks
+    return stats, library_doc_counts
 
 
 def extract_document_identifier(vector_id, metadata):
@@ -350,18 +309,14 @@ def extract_document_identifier(vector_id, metadata):
         return None
 
 
-def print_stats(stats, library_doc_counts, unknown_author_chunks=0):
+def print_stats(stats, library_doc_counts):
     """
     Prints formatted statistics for each metadata category.
 
     Args:
         stats: Dictionary containing Counters for each metadata field
         library_doc_counts: Dictionary of library -> unique document count
-        unknown_author_chunks: Chunks counted under "Unknown author"
     """
-    if unknown_author_chunks:
-        print(unknown_author_warning_line(unknown_author_chunks))
-
     for category, counter in stats.items():
         print(f"\n{category.upper()} STATS:")
 
@@ -438,125 +393,13 @@ def verify_firestore_access(site: str, env: str) -> None:
     print("✓ Firestore credentials verified.")
 
 
-def coerce_firestore_map(counter, fallback):
-    """Merge counts onto non-empty string keys."""
-    merged = {}
-    for key, count in counter.items():
-        safe_key = firestore_map_key(key, fallback)
-        merged[safe_key] = merged.get(safe_key, 0) + count
-    return merged
-
-
-def validate_firestore_map_keys(payload):
-    """Stop before a write when a map key is empty or not a string."""
-    for map_name in _FIRESTORE_MAP_FIELDS:
-        for key in payload[map_name]:
-            if not isinstance(key, str) or not key.strip():
-                raise ValueError(
-                    f"The {map_name} map has an empty key. "
-                    "The script did not write to Firestore."
-                )
-
-
-def build_stats_payload(stats, site):
-    """Build the libraryStats document. Every map key is a non-empty string."""
-    authors = coerce_firestore_map(stats["author"], UNKNOWN_AUTHOR)
-    # whole_library is the total for the "All authors" choice.
-    authors["whole_library"] = sum(stats["author"].values())
-    payload = {
-        "site": site,
-        "libraries": coerce_firestore_map(stats["library"], UNKNOWN_LIBRARY),
-        "mediaTypes": coerce_firestore_map(stats["type"], UNKNOWN_TYPE),
-        "authors": authors,
-        "calculatedAt": datetime.now(UTC),
-        "lastUpdated": firestore.SERVER_TIMESTAMP,
-    }
-    validate_firestore_map_keys(payload)
-    return payload
-
-
-@dataclass(frozen=True)
-class UnknownAuthorDocument:
-    """One source document whose chunks have no author."""
-
-    title: str
-    source: str
-    url: str
-    chunk_count: int
-
-
-def group_unknown_author_documents(records):
-    """Group unknown-author chunks by title, source, and url."""
-    counts = Counter()
-    for metadata in records:
-        if not author_value_is_unknown(metadata):
-            continue
-        metadata = metadata or {}
-        key = (
-            _metadata_text(metadata, "title"),
-            _metadata_text(metadata, "source"),
-            _metadata_text(metadata, "url"),
-        )
-        counts[key] += 1
-
-    groups = [
-        UnknownAuthorDocument(title, source, url, count)
-        for (title, source, url), count in counts.items()
-    ]
-    groups.sort(key=lambda item: (-item.chunk_count, item.title, item.source, item.url))
-    return groups
-
-
-def _display_field(value):
-    return value if value else "(none)"
-
-
-def print_unknown_author_documents(groups):
-    """Print each source document, its chunk count, and the total."""
-    total = sum(group.chunk_count for group in groups)
-    print("Unknown author documents")
-    print(f"{'Chunks':>8} | Title | Source | URL")
-    for group in groups:
-        print(
-            f"{group.chunk_count:8} | {_display_field(group.title)} | "
-            f"{_display_field(group.source)} | {_display_field(group.url)}"
-        )
-    print(f"Total chunks: {total:,}")
-
-
-def write_unknown_authors_csv(path, groups):
-    """Write the document list to a local CSV file. Do not write to a database."""
-    with open(path, "w", newline="", encoding="utf-8") as csv_file:
-        writer = csv.writer(csv_file)
-        writer.writerow(["chunk_count", "title", "source", "url"])
-        for group in groups:
-            writer.writerow([group.chunk_count, group.title, group.source, group.url])
-
-
-def _iter_fetched_metadata(index, all_ids):
-    fetch_batch_size = 20
-    for i in range(0, len(all_ids), fetch_batch_size):
-        batch_ids = [str(id_val) for id_val in all_ids[i : i + fetch_batch_size]]
-        try:
-            fetch_result = index.fetch(ids=batch_ids)
-        except Exception as e:
-            print(f"\nError fetching batch at position {i}: {e}")
-            continue
-        vectors = getattr(fetch_result, "vectors", None) or {}
-        for _vector_id, vector_data in vectors.items():
-            yield getattr(vector_data, "metadata", None) or {}
-
-
-def collect_unknown_author_documents(index, id_prefix, max_vectors):
-    """Read vectors and group chunks that have no author. Do not write."""
-    index_stats = index.describe_index_stats()
-    total_vectors = index_stats.total_vector_count
-    print(f"Index has {total_vectors:,} total vectors")
-    vectors_to_process = min(max_vectors or total_vectors, total_vectors)
-    print(f"Processing {vectors_to_process:,} vectors using systematic enumeration...")
-    all_ids, _api_calls = collect_vector_ids(index, id_prefix, vectors_to_process)
-    records = list(_iter_fetched_metadata(index, all_ids))
-    return group_unknown_author_documents(records)
+def drop_blank_keys(counts, map_name):
+    """Remove blank keys. Firestore rejects an empty map key."""
+    blank = [key for key in counts if is_blank_key(key)]
+    for key in blank:
+        print(f"Warning: The {map_name} map has a blank key. The script removes it.")
+        del counts[key]
+    return counts
 
 
 def write_stats_to_firestore(stats, site, env):
@@ -571,7 +414,23 @@ def write_stats_to_firestore(stats, site, env):
     _initialize_firebase_admin(env)
     db = firestore.client()
 
-    stats_data = build_stats_payload(stats, site)
+    # Prepare authors data with total count for "All authors" / "whole_library"
+    authors_dict = dict(stats["author"])
+
+    # Calculate total for "whole_library" (All authors) - sum of all author counts
+    # This represents the total when no author filter is applied (radio button: "All authors")
+    total_count = sum(stats["author"].values())
+    authors_dict["whole_library"] = total_count
+
+    # Prepare data - convert Counters to regular dicts
+    stats_data = {
+        "site": site,
+        "libraries": drop_blank_keys(dict(stats["library"]), "libraries"),
+        "mediaTypes": drop_blank_keys(dict(stats["type"]), "mediaTypes"),
+        "authors": drop_blank_keys(authors_dict, "authors"),
+        "calculatedAt": datetime.now(timezone.utc),
+        "lastUpdated": firestore.SERVER_TIMESTAMP,
+    }
 
     print(f"\nWriting stats to Firestore for site: {site}")
     print(f"  - Libraries: {len(stats_data['libraries'])} entries")
@@ -595,126 +454,68 @@ def write_stats_to_firestore(stats, site, env):
     print(f"  Environment: {env}")
 
 
-def build_parser():
-    parser = argparse.ArgumentParser(
-        description="Count Pinecone vector metadata and write library stats."
-    )
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Get Pinecone vector statistics")
     parser.add_argument(
-        "--site", required=True, help="Site ID for environment variables."
+        "--site", required=True, help="Site ID for environment variables"
     )
-    parser.add_argument("--prefix", help="Read only vector IDs that use this prefix.")
+    parser.add_argument("--prefix", help="Filter vectors by ID prefix")
     parser.add_argument(
         "--use-non-ingest",
         "-n",
         action="store_true",
-        help="Read PINECONE_INDEX_NAME instead of PINECONE_INGEST_INDEX_NAME.",
+        help="Use non-ingest Pinecone environment variables",
     )
     parser.add_argument(
         "--max-vectors",
         type=int,
-        help="Stop after this many vectors. The default is all vectors.",
+        help="Maximum number of vectors to process (default: all)",
     )
     parser.add_argument(
         "--env",
         choices=["dev", "prod"],
-        help="Choose the dev or prod Firestore database.",
+        help="Target environment (dev or prod Firestore)",
     )
     parser.add_argument(
         "--write-firestore",
         action="store_true",
-        help="Write the stats to Firestore. Require --env.",
+        help="Write results directly to Firestore",
     )
-    parser.add_argument(
-        "--list-unknown-authors",
-        action="store_true",
-        help=(
-            "List source documents that have no author. "
-            "Read Pinecone only. Do not write to Pinecone or Firestore."
-        ),
-    )
-    parser.add_argument(
-        "--unknown-authors-csv",
-        metavar="PATH",
-        help=(
-            "Write the unknown-author document list to this CSV file. "
-            "Use this option with --list-unknown-authors."
-        ),
-    )
-    return parser
+    args = parser.parse_args()
 
+    # Load environment variables for the specified site
+    load_env(args.site)
 
-def resolve_index_name(use_non_ingest):
-    """Return the Pinecone index name for this run."""
-    if use_non_ingest:
+    # Override index name if using non-ingest
+    if args.use_non_ingest:
         index_name = os.getenv("PINECONE_INDEX_NAME")
         if not index_name:
             raise ValueError("PINECONE_INDEX_NAME environment variable not set.")
-        return index_name
+    else:
+        index_name = os.getenv("PINECONE_INGEST_INDEX_NAME")
+        if not index_name:
+            raise ValueError("PINECONE_INGEST_INDEX_NAME environment variable not set.")
 
-    index_name = os.getenv("PINECONE_INGEST_INDEX_NAME")
-    if not index_name:
-        raise ValueError("PINECONE_INGEST_INDEX_NAME environment variable not set.")
-    return index_name
+    print(f"Using Pinecone database: {index_name}")
 
-
-def _open_index(index_name):
-    return Pinecone(api_key=os.getenv("PINECONE_API_KEY")).Index(index_name)
-
-
-def run_list_unknown_authors(args, index_name):
-    """Print unknown-author documents. Do not write to Pinecone or Firestore."""
-    index = _open_index(index_name)
-    groups = collect_unknown_author_documents(index, args.prefix, args.max_vectors)
-    print_unknown_author_documents(groups)
-    if args.unknown_authors_csv:
-        write_unknown_authors_csv(args.unknown_authors_csv, groups)
-        print(f"Wrote {args.unknown_authors_csv}")
-
-
-def run_stats(args, index_name):
-    """Count metadata. Write to Firestore only when --write-firestore is set."""
-    # Check credentials before the scan. A bad key then fails in seconds.
+    # Validate Firestore credentials up front so a rotated key fails fast instead of
+    # after the multi-minute Pinecone scan.
     if args.write_firestore:
         if not args.env:
             print("\nError: --env is required when using --write-firestore")
             print("Usage: --env [dev|prod] --write-firestore")
-            raise SystemExit(1)
+            exit(1)
         verify_firestore_access(args.site, args.env)
 
     start_time = time.time()
-    stats, library_doc_counts, unknown_author_chunks = get_pinecone_stats(
+    stats, library_doc_counts = get_pinecone_stats(
         index_name, args.prefix, args.max_vectors
     )
     end_time = time.time()
 
     print(f"\nCompleted in {end_time - start_time:.1f} seconds")
-    print_stats(stats, library_doc_counts, unknown_author_chunks)
+    print_stats(stats, library_doc_counts)
 
+    # Write to Firestore if requested
     if args.write_firestore:
         write_stats_to_firestore(stats, args.site, args.env)
-
-
-def main(argv=None):
-    parser = build_parser()
-    args = parser.parse_args(argv)
-    if args.unknown_authors_csv and not args.list_unknown_authors:
-        parser.error("Use --unknown-authors-csv with --list-unknown-authors.")
-    if args.list_unknown_authors and args.write_firestore:
-        parser.error(
-            "Do not use --write-firestore with --list-unknown-authors. "
-            "This command is read-only."
-        )
-
-    load_env(args.site)
-    index_name = resolve_index_name(args.use_non_ingest)
-    print(f"Using Pinecone database: {index_name}")
-
-    if args.list_unknown_authors:
-        run_list_unknown_authors(args, index_name)
-        return
-
-    run_stats(args, index_name)
-
-
-if __name__ == "__main__":
-    main()
