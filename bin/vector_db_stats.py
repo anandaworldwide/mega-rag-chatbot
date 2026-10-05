@@ -113,12 +113,26 @@ def collect_vector_ids(index, id_prefix, vectors_to_process):
     return all_ids, api_calls_made
 
 
+def is_blank_key(value):
+    """Return True when value cannot be a Firestore map key."""
+    return not isinstance(value, str) or not value.strip()
+
+
 def process_vector_metadata(vector_id, vector_data, stats, library_documents):
+    """Count one vector. Return 1 when the author is blank, else 0.
+
+    A blank author is not counted. A chunk with no author field is not
+    counted either. Listing pages have a blank author on purpose.
+    """
     metadata = vector_data.metadata or {}
+    blank_author = 0
 
     if metadata:
         for field in ["author", "library", "type"]:
             if field in metadata:
+                if field == "author" and is_blank_key(metadata[field]):
+                    blank_author = 1
+                    continue
                 stats[field][metadata[field]] += 1
 
         library = metadata.get("library")
@@ -129,6 +143,8 @@ def process_vector_metadata(vector_id, vector_data, stats, library_documents):
             doc_id = extract_document_identifier(vector_id, metadata)
             if doc_id:
                 library_documents[library].add(doc_id)
+
+    return blank_author
 
 
 def fetch_and_process_metadata(index, all_ids, stats, library_documents):
@@ -142,6 +158,7 @@ def fetch_and_process_metadata(index, all_ids, stats, library_documents):
     fetch_api_calls = 0
 
     fetch_pbar = tqdm(total=len(all_ids), desc="Fetching metadata")
+    blank_authors = 0
 
     for i in range(0, len(all_ids), fetch_batch_size):
         batch_ids = all_ids[i : i + fetch_batch_size]
@@ -152,7 +169,7 @@ def fetch_and_process_metadata(index, all_ids, stats, library_documents):
             fetch_api_calls += 1
 
             for vector_id, vector_data in fetch_result.vectors.items():
-                process_vector_metadata(
+                blank_authors += process_vector_metadata(
                     vector_id, vector_data, stats, library_documents
                 )
 
@@ -164,6 +181,11 @@ def fetch_and_process_metadata(index, all_ids, stats, library_documents):
             continue
 
     fetch_pbar.close()
+    if blank_authors:
+        print(
+            f"\nWarning: {blank_authors:,} chunks have a blank author. "
+            "The author stats do not count them."
+        )
     return total_processed, fetch_api_calls
 
 
@@ -371,6 +393,15 @@ def verify_firestore_access(site: str, env: str) -> None:
     print("✓ Firestore credentials verified.")
 
 
+def drop_blank_keys(counts, map_name):
+    """Remove blank keys. Firestore rejects an empty map key."""
+    blank = [key for key in counts if is_blank_key(key)]
+    for key in blank:
+        print(f"Warning: The {map_name} map has a blank key. The script removes it.")
+        del counts[key]
+    return counts
+
+
 def write_stats_to_firestore(stats, site, env):
     """
     Write stats directly to Firestore.
@@ -394,9 +425,9 @@ def write_stats_to_firestore(stats, site, env):
     # Prepare data - convert Counters to regular dicts
     stats_data = {
         "site": site,
-        "libraries": dict(stats["library"]),
-        "mediaTypes": dict(stats["type"]),
-        "authors": authors_dict,
+        "libraries": drop_blank_keys(dict(stats["library"]), "libraries"),
+        "mediaTypes": drop_blank_keys(dict(stats["type"]), "mediaTypes"),
+        "authors": drop_blank_keys(authors_dict, "authors"),
         "calculatedAt": datetime.now(timezone.utc),
         "lastUpdated": firestore.SERVER_TIMESTAMP,
     }
