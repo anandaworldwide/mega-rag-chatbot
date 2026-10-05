@@ -18,23 +18,6 @@
 #   mitigation: optional operational mitigation note
 
 python:
-  - id: CVE-2025-3000
-    package: torch
-    reason: >-
-      No fixed PyPI release reported by pip-audit. Reranking tooling is dormant
-      experimental code and does not load untrusted models or arbitrary
-      checkpoints from users.
-    review_by: "2026-10-07"
-    mitigation: "Dormant reranking subgraph; not deployed on Vercel or crawler Docker."
-
-  - id: CVE-2026-28500
-    package: onnx
-    reason: >-
-      No fixed PyPI release. Reranking tooling is dormant experimental code and
-      does not load untrusted models via onnx.hub.load().
-    review_by: "2026-10-07"
-    mitigation: "Dormant reranking subgraph; not deployed on Vercel or crawler Docker."
-
   - id: CVE-2026-1839
     package: transformers
     reason: >-
@@ -45,7 +28,7 @@ python:
       hardcoded trusted HF model); not deployed on Vercel or crawler Docker.
       Requires coordinated transformers/tokenizers/optimum-onnx upgrade if
       reranking is revived.
-    review_by: "2026-10-07"
+    review_by: "2027-01-05"
     mitigation: "Dormant reranking subgraph; no user-controlled model loading."
 
   - id: CVE-2026-4372
@@ -56,7 +39,7 @@ python:
       block the upgrade. Reranking is dormant; the only import is offline
       evaluate_rerankers.py with hardcoded trusted model sources and no
       Trainer, pipeline, or user-controlled from_pretrained paths.
-    review_by: "2026-10-07"
+    review_by: "2027-01-05"
     mitigation: "Dormant reranking subgraph; not reachable in production."
 
   - id: PYSEC-2025-211
@@ -65,7 +48,7 @@ python:
       No fixed release reported by pip-audit. Same constraint as CVE-2026-1839:
       reranking depends on optimum-onnx 0.1.0 which pins transformers<4.58.0.
       Requires coordinated transformers 5.x / optimum-onnx upgrade.
-    review_by: "2026-10-07"
+    review_by: "2027-01-05"
     mitigation: "Dormant reranking subgraph; not deployed in production."
 
   - id: PYSEC-2025-212
@@ -74,7 +57,7 @@ python:
       No fixed release reported by pip-audit. Same constraint as CVE-2026-1839:
       reranking depends on optimum-onnx 0.1.0 which pins transformers<4.58.0.
       Requires coordinated transformers 5.x / optimum-onnx upgrade.
-    review_by: "2026-10-07"
+    review_by: "2027-01-05"
     mitigation: "Dormant reranking subgraph; not deployed in production."
 
   - id: PYSEC-2025-213
@@ -83,7 +66,7 @@ python:
       No fixed release reported by pip-audit. Same constraint as CVE-2026-1839:
       reranking depends on optimum-onnx 0.1.0 which pins transformers<4.58.0.
       Requires coordinated transformers 5.x / optimum-onnx upgrade.
-    review_by: "2026-10-07"
+    review_by: "2027-01-05"
     mitigation: "Dormant reranking subgraph; not deployed in production."
 
   - id: PYSEC-2025-214
@@ -92,7 +75,7 @@ python:
       No fixed release reported by pip-audit. Same constraint as CVE-2026-1839:
       reranking depends on optimum-onnx 0.1.0 which pins transformers<4.58.0.
       Requires coordinated transformers 5.x / optimum-onnx upgrade.
-    review_by: "2026-10-07"
+    review_by: "2027-01-05"
     mitigation: "Dormant reranking subgraph; not deployed in production."
 
   - id: PYSEC-2025-215
@@ -101,7 +84,7 @@ python:
       No fixed release reported by pip-audit. Same constraint as CVE-2026-1839:
       reranking depends on optimum-onnx 0.1.0 which pins transformers<4.58.0.
       Requires coordinated transformers 5.x / optimum-onnx upgrade.
-    review_by: "2026-10-07"
+    review_by: "2027-01-05"
     mitigation: "Dormant reranking subgraph; not deployed in production."
 
   - id: PYSEC-2025-216
@@ -110,7 +93,7 @@ python:
       No fixed release reported by pip-audit. Same constraint as CVE-2026-1839:
       reranking depends on optimum-onnx 0.1.0 which pins transformers<4.58.0.
       Requires coordinated transformers 5.x / optimum-onnx upgrade.
-    review_by: "2026-10-07"
+    review_by: "2027-01-05"
     mitigation: "Dormant reranking subgraph; not deployed in production."
 
   - id: PYSEC-2025-217
@@ -119,7 +102,7 @@ python:
       No fixed release reported by pip-audit. Same constraint as CVE-2026-1839:
       reranking depends on optimum-onnx 0.1.0 which pins transformers<4.58.0.
       Requires coordinated transformers 5.x / optimum-onnx upgrade.
-    review_by: "2026-10-07"
+    review_by: "2027-01-05"
     mitigation: "Dormant reranking subgraph; not deployed in production."
 
   - id: PYSEC-2025-218
@@ -128,7 +111,7 @@ python:
       No fixed release reported by pip-audit. Same constraint as CVE-2026-1839:
       reranking depends on optimum-onnx 0.1.0 which pins transformers<4.58.0.
       Requires coordinated transformers 5.x / optimum-onnx upgrade.
-    review_by: "2026-10-07"
+    review_by: "2027-01-05"
     mitigation: "Dormant reranking subgraph; not deployed in production."
 
   - id: PYSEC-2026-2288
@@ -137,7 +120,7 @@ python:
       Fix is in transformers>=5.0.0, but adoption is blocked by tokenizers==0.21.1
       and optimum-onnx 0.1.0 (pins transformers<4.58.0). Same coordinated-upgrade
       requirement as CVE-2026-1839 / CVE-2026-4372.
-    review_by: "2026-10-07"
+    review_by: "2027-01-05"
     mitigation: "Dormant reranking subgraph; not deployed in production."
 
   - id: PYSEC-2026-2289
@@ -146,7 +129,7 @@ python:
       Fix is in transformers>=5.3.0, but adoption is blocked by tokenizers==0.21.1
       and optimum-onnx 0.1.0 (pins transformers<4.58.0). Same coordinated-upgrade
       requirement as CVE-2026-1839 / CVE-2026-4372.
-    review_by: "2026-10-07"
+    review_by: "2027-01-05"
     mitigation: "Dormant reranking subgraph; not deployed in production."
 
   - id: PYSEC-2026-2290
@@ -155,7 +138,7 @@ python:
       No fixed release reported by pip-audit. Same constraint as CVE-2026-1839:
       reranking depends on optimum-onnx 0.1.0 which pins transformers<4.58.0.
       Requires coordinated transformers 5.x / optimum-onnx upgrade.
-    review_by: "2026-10-07"
+    review_by: "2027-01-05"
     mitigation: "Dormant reranking subgraph; not deployed in production."
 
 node:
