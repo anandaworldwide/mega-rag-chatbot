@@ -16,6 +16,7 @@ INGESTION_STATE_PREFIX = "ingestion/state"
 DUMPS_PREFIX = "ingestion/dumps/anandalib"
 CRYSTAL_PDF_PREFIX = "ingestion/sources/crystal/pdfs"
 RUNS_LEDGER_KEY = "ingestion/runs/ingestion_runs.jsonl"
+NOTION_WIKI_STATE_KEY = "ingestion/state/notion-wiki/ananda.json"
 
 AUDIO_EXTENSIONS = (".mp3", ".wav", ".flac", ".m4a")
 KRIYABAN_ONLY_SEGMENT = "kriyaban-only"

@@ -1,6 +1,6 @@
 # Luca Ingestion Runbook
 
-This is the operator guide for Luca (`ananda`) audio, YouTube, and Ananda Library ingestion, plus Crystal Clarity PDFs.
+This is the operator guide for Luca (`ananda`) audio, YouTube, and Ananda Library ingestion, plus Crystal Clarity PDFs and the Ananda family wiki.
 **S3 is the official store for originals and processing state.** A developer laptop is temporary compute. S3 is the
 official copy. A second copy of those prefixes belongs on an external disk; see [Disk backup of S3](#disk-backup-of-s3).
 
@@ -16,7 +16,7 @@ Related:
 - Repo clone, Python 3.11, `uv sync` from the repo root
 - ffmpeg
 - AWS CLI working with `--profile ananda`
-- Repo-root `.env.ananda` (OpenAI, Pinecone ingest index, `S3_BUCKET_NAME`, MySQL `DB_*` if you will import a library
+- Repo-root `.env.ananda` (OpenAI, Pinecone ingest index, `S3_BUCKET_NAME`, `NOTION_WIKI_API_KEY` for the family wiki, MySQL `DB_*` if you will import a library
   dump)
 - Docker and a `mysql` client when running an Ananda Library dump. Compose binds `127.0.0.1:3307`, so that port must be
   free. Host port 3306 is left alone because a local MySQL may already be using it.
@@ -46,6 +46,7 @@ Bucket comes from `S3_BUCKET_NAME` in `.env.ananda` (usually `ananda-chatbot`).
 | Crystal Clarity PDFs  | `ingestion/sources/crystal/pdfs/` (not under `public/`)                                                                                                                                          |
 | Library prep notes    | `ingestion/sources/{library}/` for `bhaktan` and `treasures`: `README.rtf` plus an `ignore/` tree of files set aside before ingest. Not under `public/`. Audio ingest does not list this prefix. |
 | Ingest run ledger     | `ingestion/runs/ingestion_runs.jsonl` (live sync; local cache under `.cache/ingestion-runs/`)                                                                                                    |
+| Family wiki state     | `ingestion/state/notion-wiki/ananda.json` (page ids and `last_edited_time` for the Notion ingest)                                                                                               |
 
 Audio `--library` is a key in
 [`data_ingestion/audio_video/library_config.json`](../data_ingestion/audio_video/library_config.json) (`bhaktan`,
@@ -344,6 +345,27 @@ caffeinate -i uv run python data_ingestion/bin/ingest_cli.py pdf --site crystal
 Default is `--keep-data`. `--replace-library` deletes `Crystal Clarity` vectors and requires typing `Crystal Clarity`.
 `--yes` does not skip that prompt. Books run eight at a time. The PDF checkpoint is removed when that process exits, including a stop, so it does not resume the next run. A later run skips a book whose filename is already in Pinecone. Jairam and PhotoWise stay on `pdf_to_vector_db.py` with a local directory.
 
+## Ananda family wiki
+
+The wiki is a Luca library named `Ananda Family Wiki`. Vivek does not include that library. Luca and Vivek share one Pinecone index. The library name keeps the wiki off Vivek. Each vector uses access level `disciple` and `required_access_level` `100`.
+
+The command reads Notion with `NOTION_WIKI_API_KEY` from `.env.ananda`. Create a Notion integration with read access. Share each named root, or the teamspace, with that integration. Do not use the web crawler. Do not use the downvote-task Notion token.
+
+Add each root to [`data_ingestion/notion/wiki_roots.json`](../data_ingestion/notion/wiki_roots.json). Each entry has a `name` and a `page_id`. The file starts with an empty `roots` list. The command exits until you add at least one root. A page under two roots is ingested once.
+
+```bash
+uv run python data_ingestion/bin/ingest_cli.py notion --site ananda --dry-run
+uv run python data_ingestion/bin/ingest_cli.py notion --site ananda
+```
+
+The dry run lists pages. It prints the library name. It does not write Pinecone or S3. A full run writes `PINECONE_INGEST_INDEX_NAME`. That index is the live index today. The command requires `--site ananda`.
+
+State is `ingestion/state/notion-wiki/ananda.json`. The next run updates a page only when `last_edited_time` changes. A page that leaves every named root, or is archived, loses its vectors. The command deletes by `notion_page_id` and `library` together.
+
+This command does not publish the title catalog. Images, files, and embeds are skipped. A page with no body text is skipped. A title, a status, or an assignee is not body text. Text in the page body, or in a text property, is ingested. Child pages of an empty page are still read.
+
+Chat shows this library only to the emails in `WIKI_LIBRARY_EMAILS`. Set that variable in `.env.ananda` and on the Luca web deployment. An empty value hides the library from every user. Add an email, then reload the chat page.
+
 ## Disk backup of S3
 
 Bucket versioning on `ananda-chatbot` is enabled. A lifecycle rule expires a noncurrent version after 90 days. The same
@@ -468,6 +490,7 @@ cache and YouTube map themselves. `state --apply` is the full repair compare.
 | `PINECONE_INGEST_INDEX_NAME` | Site env              | Index the CLIs write                                                              |
 | `PINECONE_INDEX_NAME`        | Site env              | Live query index. Leave it on production during a shadow run                      |
 | `OPENAI_API_KEY`             | Site env              | Whisper and embeddings                                                            |
+| `NOTION_WIKI_API_KEY`        | `.env.ananda` only    | Read token for the family wiki. Do not reuse the downvote-task Notion token.     |
 | Ananda Library WP admin      | Password manager      | Download a new SQL dump before `library`                                          |
 | Docker + `mysql` client      | Laptop                | Ananda Library dump import on `127.0.0.1:3307`                                    |
 | ffmpeg                       | Laptop                | Audio chunking, and temporary mp3s for `.m4a`                                     |

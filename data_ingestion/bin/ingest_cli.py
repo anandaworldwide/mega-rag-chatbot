@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Laptop orchestrator for Luca ingest. Audio, YouTube, library, and Crystal PDFs."""
+"""Laptop orchestrator for Luca ingest. Audio, YouTube, library, Crystal PDFs, and the family wiki."""
 
 from __future__ import annotations
 
@@ -39,6 +39,13 @@ from data_ingestion.crystal_pdf_ingest import (  # noqa: E402
     read_dotenv_value,
     represented_pdfs_from_index,
     run_pdf,
+)
+from data_ingestion.notion.client import NotionWikiClient, NotionWikiError  # noqa: E402
+from data_ingestion.notion.sync import (  # noqa: E402
+    DEFAULT_ROOTS_PATH,
+    default_embeddings,
+    default_splitter,
+    run_notion_wiki,
 )
 from data_ingestion.sql_to_vector_db.library_ingest import (  # noqa: E402
     run_library,
@@ -445,6 +452,47 @@ def _run_library_command(args) -> None:
     )
 
 
+def _run_notion_command(args) -> None:
+    if args.site != "ananda":
+        raise SystemExit("The notion command requires --site ananda")
+    load_env(args.site)
+    announce_pinecone_index()
+    token = os.environ.get("NOTION_WIKI_API_KEY", "").strip()
+    if not token:
+        raise SystemExit("NOTION_WIKI_API_KEY is not set")
+    bucket = get_bucket_name()
+    if not bucket:
+        raise SystemExit("S3_BUCKET_NAME is not set")
+    index = None
+    splitter = None
+    embeddings = None
+    if not args.dry_run:
+        index_name = os.environ.get("PINECONE_INGEST_INDEX_NAME")
+        if not index_name:
+            raise SystemExit("PINECONE_INGEST_INDEX_NAME is not set")
+        try:
+            index = get_pinecone_client().Index(index_name)
+        except Exception as error:
+            abort_on_credential_error(error)
+            raise
+        splitter = default_splitter()
+        embeddings = default_embeddings()
+    try:
+        run_notion_wiki(
+            site=args.site,
+            dry_run=args.dry_run,
+            roots_path=args.roots or DEFAULT_ROOTS_PATH,
+            notion=NotionWikiClient(token),
+            index=index,
+            s3_client=get_s3_client(),
+            bucket=bucket,
+            splitter=splitter,
+            embeddings=embeddings,
+        )
+    except NotionWikiError as error:
+        raise SystemExit(str(error)) from error
+
+
 def _run_audio_command(args) -> None:
     load_env(args.site)
     announce_pinecone_index()
@@ -460,6 +508,21 @@ def _run_audio_command(args) -> None:
     run_audio(args, publisher=publisher, repo_root=_project_root)
 
 
+def _notion_parser(subparsers) -> None:
+    notion = subparsers.add_parser(
+        "notion",
+        help="Ingest named Ananda family wiki roots",
+    )
+    notion.add_argument("--site", required=True)
+    notion.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="List pages and print the library name. Do not write Pinecone or S3.",
+    )
+    notion.add_argument("--roots", type=Path, default=None)
+    notion.set_defaults(handler=_run_notion_command)
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Luca ingest orchestrator")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -467,6 +530,7 @@ def main(argv: list[str] | None = None) -> None:
     _youtube_parser(subparsers)
     _library_parser(subparsers)
     _pdf_parser(subparsers)
+    _notion_parser(subparsers)
     args = parser.parse_args(argv)
     configure_logging()
     args.handler(args)

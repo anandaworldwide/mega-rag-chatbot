@@ -27,7 +27,8 @@
       "Treasures",
       "The Bhaktan Files",
       "ananda.org",
-      "Crystal Clarity"
+      "Crystal Clarity",
+      "Ananda Family Wiki"
     ],
     "enableSalesforceAccessNotice": true,
     "accessControl": {
@@ -100,6 +101,10 @@
       "Ananda Library": {
         "displayName": "Ananda Library",
         "url": "https://www.anandalibrary.org/"
+      },
+      "Ananda Family Wiki": {
+        "displayName": "Ananda Family Wiki",
+        "url": "https://anandafamily.notion.site"
       }
     },
     "enableSuggestedQueries": true,

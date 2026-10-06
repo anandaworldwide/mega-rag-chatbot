@@ -96,6 +96,7 @@ import { TitleScopeSelection } from "@/types/titleScope";
 import { resolveClaudeAbTestModel } from "@/utils/server/claudeAbTest";
 import { TypedSuggestion } from "@/types/Suggestion";
 import { buildPineconeAccessFilterClauses, resolveEffectiveAccessLevelForEmail } from "@/utils/server/accessLevelUtils";
+import { applyWikiLibraryGate } from "@/utils/server/wikiLibraryAccess";
 import {
   acquireChatRequestLock,
   isValidClientRequestId,
@@ -768,7 +769,8 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
   };
 
   // Load site configuration
-  const siteConfig = loadSiteConfigSync();
+  const loadedSiteConfig = loadSiteConfigSync();
+  let siteConfig = loadedSiteConfig;
 
   if (!siteConfig) {
     const response = NextResponse.json({ error: "Failed to load site configuration" }, { status: 500 });
@@ -798,6 +800,9 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
   }
 
   const { sanitizedInput, originalQuestion } = validationResult;
+  const wikiGate = applyWikiLibraryGate(siteConfig, token.email, sanitizedInput.selectedLibraries);
+  siteConfig = wikiGate.siteConfig;
+  sanitizedInput.selectedLibraries = wikiGate.selectedLibraries;
   let effectiveModelName = modelName;
   let abTestModel: string | undefined;
 
