@@ -1,4 +1,4 @@
-import { JwtPayload, verifyToken } from "@/utils/server/jwtUtils";
+import jwt from "jsonwebtoken";
 
 export const WIKI_LIBRARY_NAME = "Ananda Family Wiki";
 export const WIKI_LIBRARY_COOKIE = "wikiLibrary";
@@ -77,8 +77,18 @@ export function emailFromAuthCookieHeader(cookieHeader: string | undefined): str
   if (!token) {
     return undefined;
   }
+  const jwtSecret = process.env.SECURE_TOKEN;
+  if (!jwtSecret) {
+    return undefined;
+  }
   try {
-    const payload: JwtPayload = verifyToken(token);
+    // Verify with jsonwebtoken only. Do not import jwtUtils: that module loads
+    // firebase-admin, and _app.tsx would then fail the Vercel client compile.
+    const payload = jwt.verify(token, jwtSecret, {
+      algorithms: ["HS256"],
+      issuer: "mega-rag-chatbot",
+      audience: "mega-rag-chatbot-users",
+    }) as { email?: string };
     return payload.email;
   } catch (error) {
     console.error("Wiki library gate could not read the auth cookie:", error);
