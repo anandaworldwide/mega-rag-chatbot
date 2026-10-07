@@ -23,6 +23,9 @@ node_modules/
 /coverage
 .pytest_cache/
 
+# Notion wiki resume files from a laptop ingest
+data_ingestion/notion/.progress/
+
 # next.js
 /.next/
 /out/

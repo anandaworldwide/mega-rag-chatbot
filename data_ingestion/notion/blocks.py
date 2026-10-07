@@ -29,6 +29,11 @@ _SKIP_BLOCK_TYPES = frozenset(
     }
 )
 _CHILD_BLOCK_TYPES = frozenset({"child_page", "child_database"})
+# These strings are special tokens for the embedding model. A literal match
+# makes tokenization and the embedding API fail.
+_MODEL_TOKEN_RE = re.compile(
+    r"<\|(endoftext|endofprompt|fim_prefix|fim_middle|fim_suffix)\|>"
+)
 _PAGE_ID_RE = re.compile(
     r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
     r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
@@ -150,6 +155,11 @@ def page_has_indexable_text(page: dict, blocks: list[dict]) -> bool:
         if _property_plain(prop).strip():
             return True
     return False
+
+
+def neutralize_model_tokens(text: str) -> str:
+    """Break special-token strings so the tokenizer and the embedding API accept the text."""
+    return _MODEL_TOKEN_RE.sub(r"<| \1 |>", text)
 
 
 def page_plain_text(page: dict, blocks: list[dict]) -> str:

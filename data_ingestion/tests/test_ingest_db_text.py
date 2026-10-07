@@ -1387,7 +1387,7 @@ class TestSQLChunkingStrategy(unittest.TestCase):
         self._token_cache: dict[str, int] = {}
         self._next_id = 0
 
-        def mock_encode(text: str):
+        def mock_encode(text: str, **_kwargs):
             if not text or not text.strip():
                 return []
             # Split words and keep punctuation as separate tokens (rough tiktoken approximation)

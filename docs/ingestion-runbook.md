@@ -356,11 +356,16 @@ Add each root to [`data_ingestion/notion/wiki_roots.json`](../data_ingestion/not
 ```bash
 uv run python data_ingestion/bin/ingest_cli.py notion --site ananda --dry-run
 uv run python data_ingestion/bin/ingest_cli.py notion --site ananda
+uv run python data_ingestion/bin/ingest_cli.py notion --site ananda --rechunk
 ```
 
 The dry run lists pages. It prints the library name. It does not write Pinecone or S3. A full run writes `PINECONE_INGEST_INDEX_NAME`. That index is the live index today. The command requires `--site ananda`.
 
 State is `ingestion/state/notion-wiki/ananda.json`. The next run updates a page only when `last_edited_time` changes. A page that leaves every named root, or is archived, loses its vectors. The command deletes by `notion_page_id` and `library` together.
+
+The command also saves local progress after each page. Resume a stopped run with `--continue`. The command prints that command when it stops on an unexpected error.
+
+`--rechunk` reads page ids from the S3 state file. It reads each of those pages from Notion. The command uses only those page ids. It upserts every page. The command upserts a page when `last_edited_time` is the same. A stopped `--rechunk` command starts again with `--continue`.
 
 This command does not publish the title catalog. Images, files, and embeds are skipped. A page with no body text is skipped. A title, a status, or an assignee is not body text. Text in the page body, or in a text property, is ingested. Child pages of an empty page are still read.
 

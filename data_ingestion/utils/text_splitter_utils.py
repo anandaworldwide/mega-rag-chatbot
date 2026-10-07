@@ -390,7 +390,7 @@ class SpacyTextSplitter:
             model_name = self._get_embedding_model()
             encoding = tiktoken.encoding_for_model(model_name)
             # Get token IDs and convert back to strings for compatibility
-            token_ids = encoding.encode(text)
+            token_ids = encoding.encode(text, disallowed_special=())
             # Convert token IDs back to token strings
             tokens = [encoding.decode([token_id]) for token_id in token_ids]
             return tokens
@@ -414,6 +414,20 @@ class SpacyTextSplitter:
                     f"spaCy tokenization failed, using whitespace fallback: {e}"
                 )
                 return text.split()
+
+    def _get_encoding(self):
+        """Return the embedding tokenizer. Cache it on this splitter."""
+        encoding = getattr(self, "_encoding", None)
+        if encoding is None:
+            encoding = tiktoken.encoding_for_model(self._get_embedding_model())
+            self._encoding = encoding
+        return encoding
+
+    def _token_count(self, text: str) -> int:
+        """Count embedding tokens. This is the same count the overlap step uses."""
+        if not text or not text.strip():
+            return 0
+        return len(self._get_encoding().encode(text, disallowed_special=()))
 
     def _clean_text(self, text: str) -> str:
         """
@@ -742,64 +756,94 @@ class SpacyTextSplitter:
         return merged_chunks
 
     def _split_by_tokens(self, text: str, doc: Doc | None) -> list[str]:
-        """Split text into token-based chunks using spaCy tokenization."""
+        """Split text into chunks that fit the embedding-token budget.
+
+        spaCy tokens are the split points. The size is the embedding token count.
+        A spaCy word can be several embedding tokens, so a word count is not the budget.
+        """
         if doc is None:
-            # Fallback to simple word splitting if no spaCy doc available
-            words = text.split()
-            if not words:
-                return []
+            return self._split_words_to_token_budget(text)
 
-            chunks = []
-            current_chunk = []
-            current_token_count = 0
-
-            for word in words:
-                # Estimate 1 token per word for fallback
-                if current_token_count + 1 > self.chunk_size and current_chunk:
-                    chunks.append(" ".join(current_chunk))
-                    current_chunk = [word]
-                    current_token_count = 1
-                else:
-                    current_chunk.append(word)
-                    current_token_count += 1
-
-            # Add the last chunk
-            if current_chunk:
-                chunks.append(" ".join(current_chunk))
-
-            self.logger.debug(
-                f"Split text into {len(chunks)} word-based chunks (fallback mode)"
-            )
-            return chunks
-
-        # Use spaCy tokens for accurate token counting
         tokens = [token for token in doc if not token.is_space]
         if not tokens:
             return []
 
-        chunks = []
-        current_chunk_tokens = []
-        current_token_count = 0
-
+        chunks: list[str] = []
+        current_text = ""
         for token in tokens:
-            # If adding this token would exceed chunk_size, start a new chunk
-            if current_token_count + 1 > self.chunk_size and current_chunk_tokens:
-                # Join tokens with appropriate spacing
-                chunk_text = self._reconstruct_text_from_tokens(current_chunk_tokens)
-                chunks.append(chunk_text)
-                current_chunk_tokens = [token]
-                current_token_count = 1
-            else:
-                current_chunk_tokens.append(token)
-                current_token_count += 1
+            piece = token.text + (getattr(token, "whitespace_", "") or "")
+            current_text = self._fit_piece(chunks, current_text, piece)
 
-        # Add the last chunk
-        if current_chunk_tokens:
-            chunk_text = self._reconstruct_text_from_tokens(current_chunk_tokens)
-            chunks.append(chunk_text)
-
+        self._append_chunk(chunks, current_text)
         self.logger.debug(f"Split text into {len(chunks)} token-based chunks")
         return chunks
+
+    def _split_words_to_token_budget(self, text: str) -> list[str]:
+        """Split on spaces when spaCy is not available. Size each chunk with embedding tokens."""
+        words = text.split()
+        if not words:
+            return []
+
+        chunks: list[str] = []
+        current_text = ""
+        for word in words:
+            piece = f" {word}" if current_text else word
+            current_text = self._fit_piece(chunks, current_text, piece)
+
+        self._append_chunk(chunks, current_text)
+        self.logger.debug(
+            f"Split text into {len(chunks)} word-based chunks (fallback mode)"
+        )
+        return chunks
+
+    def _fit_piece(self, chunks: list[str], current_text: str, piece: str) -> str:
+        """Add piece to the open chunk, or close that chunk when the piece does not fit."""
+        if not piece or not piece.strip():
+            return current_text
+
+        bare = piece.strip()
+        if self._token_count(bare) > self.chunk_size:
+            self._append_chunk(chunks, current_text)
+            chunks.extend(self._split_text_by_token_budget(bare))
+            return ""
+
+        trial = f"{current_text}{piece}"
+        if current_text and self._token_count(trial) > self.chunk_size:
+            self._append_chunk(chunks, current_text)
+            return piece
+        return trial
+
+    def _append_chunk(self, chunks: list[str], text: str) -> None:
+        finished = text.strip()
+        if finished:
+            chunks.append(finished)
+
+    def _split_text_by_token_budget(self, text: str) -> list[str]:
+        """Cut one oversized string into slices that each fit the embedding-token budget."""
+        encoding = self._get_encoding()
+        token_ids = encoding.encode(text, disallowed_special=())
+        budget = max(self.chunk_size, 1)
+        parts: list[str] = []
+        start = 0
+        while start < len(token_ids):
+            end = self._token_slice_end(encoding, token_ids, start, budget)
+            piece = encoding.decode(token_ids[start:end]).strip()
+            if piece:
+                parts.append(piece)
+            start = end if end > start else start + 1
+        return parts
+
+    def _token_slice_end(
+        self, encoding, token_ids: list[int], start: int, budget: int
+    ) -> int:
+        """Return an end index whose decoded text fits the budget."""
+        end = min(start + budget, len(token_ids))
+        while end > start + 1:
+            piece = encoding.decode(token_ids[start:end]).strip()
+            if not piece or len(encoding.encode(piece, disallowed_special=())) <= budget:
+                return end
+            end -= 1
+        return start + 1
 
     def _reconstruct_text_from_tokens(self, tokens: list) -> str:
         """Reconstruct text from spaCy tokens, preserving original spacing."""
@@ -1386,17 +1430,22 @@ class SpacyTextSplitter:
             # Last resort: use full text but we'll force split it later
             return [text.strip()] if text.strip() else []
 
+    def _joined_token_count(self, parts: list[str], extra: str) -> int:
+        """Count embedding tokens in the text that grouping would store."""
+        if not parts:
+            return self._token_count(extra)
+        return self._token_count(" ".join([*parts, extra]))
+
     def _group_paragraphs_into_chunks(self, paragraphs: list[str]) -> list[str]:
         """Group paragraphs to reach target chunk size."""
         chunks = []
-        current_chunk = []
-        current_length = 0
+        current_chunk: list[str] = []
 
         # Show progress for documents with many paragraphs (>100)
         paragraphs_iter = self._get_paragraphs_iterator(paragraphs)
 
         for para in paragraphs_iter:
-            para_tokens = len(self._tokenize_text(para))
+            para_tokens = self._token_count(para)
 
             # If this single paragraph is larger than chunk size, split it immediately
             if para_tokens > self.chunk_size:
@@ -1404,17 +1453,15 @@ class SpacyTextSplitter:
                     para, para_tokens, chunks, current_chunk
                 )
                 current_chunk = []
-                current_length = 0
                 continue
 
             # If adding this paragraph would exceed chunk size, finalize current chunk
-            if current_length + para_tokens > self.chunk_size and current_chunk:
+            joined_count = self._joined_token_count(current_chunk, para)
+            if current_chunk and joined_count > self.chunk_size:
                 chunks.append(" ".join(current_chunk))
                 current_chunk = [para]
-                current_length = para_tokens
             else:
                 current_chunk.append(para)
-                current_length += para_tokens
 
         # Close progress bar if it was opened (tqdm objects have close method)
         if hasattr(paragraphs_iter, "close") and callable(
@@ -1491,6 +1538,72 @@ class SpacyTextSplitter:
 
         return final_chunks
 
+    def _prepend_overlap(self, chunk: str, previous: str) -> str:
+        """Copy the end of the previous chunk onto this chunk when the copy fits."""
+        chunk_tokens = self._token_count(chunk)
+        room = self.target_chunk_size - chunk_tokens - self._token_count(" ")
+        if room <= 0:
+            self._log_skipped_overlap(chunk_tokens)
+            return chunk
+        try:
+            encoding = self._get_encoding()
+            previous_ids = encoding.encode(previous, disallowed_special=())
+        except (ImportError, Exception) as error:
+            self.logger.warning(
+                f"Failed to use tiktoken for overlap calculation: {error}"
+            )
+            return self._prepend_overlap_from_token_strings(chunk, previous, room)
+
+        overlap_count = min(self.chunk_overlap, len(previous_ids), room)
+        fitted = self._fit_overlap_prefix(chunk, encoding, previous_ids, overlap_count)
+        return chunk if fitted is None else fitted
+
+    def _log_skipped_overlap(self, chunk_tokens: int) -> None:
+        message = (
+            f"Chunk already at target token limit ({chunk_tokens} tokens), "
+            "skipping overlap"
+        )
+        if chunk_tokens > self.target_chunk_size:
+            self.logger.warning(message)
+            return
+        self.logger.debug(message)
+
+    def _fit_overlap_prefix(
+        self, chunk: str, encoding, previous_ids: list[int], overlap_count: int
+    ) -> str | None:
+        """Shorten the overlap until the joined chunk fits the target."""
+        while overlap_count > 0:
+            overlap_text = encoding.decode(previous_ids[-overlap_count:]).strip()
+            candidate = self._candidate_with_overlap(chunk, overlap_text)
+            if (
+                candidate is not None
+                and self._token_count(candidate) <= self.target_chunk_size
+            ):
+                return candidate
+            overlap_count -= 1
+        return None
+
+    def _candidate_with_overlap(self, chunk: str, overlap_text: str) -> str | None:
+        if not overlap_text:
+            return None
+        return overlap_text + overlap_joiner(chunk) + chunk
+
+    def _prepend_overlap_from_token_strings(
+        self, chunk: str, previous: str, room: int
+    ) -> str:
+        previous_tokens = self._tokenize_text(previous)
+        overlap_count = min(self.chunk_overlap, len(previous_tokens), max(room, 0))
+        while overlap_count > 0:
+            overlap_text = " ".join(previous_tokens[-overlap_count:]).strip()
+            candidate = self._candidate_with_overlap(chunk, overlap_text)
+            if (
+                candidate is not None
+                and self._token_count(candidate) <= self.target_chunk_size
+            ):
+                return candidate
+            overlap_count -= 1
+        return chunk
+
     def _apply_overlap_to_chunks(self, chunks: list[str]) -> list[str]:
         """
         Apply overlap to chunks by prepending tokens from the previous chunk.
@@ -1520,65 +1633,8 @@ class SpacyTextSplitter:
 
             overlapped_chunk = chunk
 
-            # Add overlap from previous chunk using NLTK tokenization
             if i > 0:
-                # Calculate how much overlap we can add without exceeding target token limit
-                chunk_tokens = len(self._tokenize_text(chunk))
-                # Account for the space character that will be added during concatenation
-                space_tokens = len(self._tokenize_text(" "))
-                max_overlap_tokens = (
-                    self.target_chunk_size - chunk_tokens - space_tokens
-                )
-
-                if max_overlap_tokens > 0:
-                    # Use tiktoken directly for consistent tokenization
-                    try:
-                        model_name = self._get_embedding_model()
-                        encoding = tiktoken.encoding_for_model(model_name)
-
-                        # Tokenize the previous chunk to get token IDs
-                        prev_chunk_token_ids = encoding.encode(chunks[i - 1])
-
-                        # Use the minimum of: configured overlap, available previous tokens, and token budget
-                        actual_overlap = min(
-                            self.chunk_overlap,
-                            len(prev_chunk_token_ids),
-                            max_overlap_tokens,
-                        )
-
-                        # Take the last N token IDs for overlap
-                        overlap_token_ids = prev_chunk_token_ids[-actual_overlap:]
-
-                        # Use tiktoken's decode to properly reconstruct text
-                        overlap_text = encoding.decode(overlap_token_ids).strip()
-                    except (ImportError, Exception) as e:
-                        # Fallback to _tokenize_text method if tiktoken fails
-                        self.logger.warning(
-                            f"Failed to use tiktoken for overlap calculation: {e}"
-                        )
-                        prev_chunk_tokens = self._tokenize_text(chunks[i - 1])
-                        actual_overlap = min(
-                            self.chunk_overlap,
-                            len(prev_chunk_tokens),
-                            max_overlap_tokens,
-                        )
-                        overlap_tokens = prev_chunk_tokens[-actual_overlap:]
-                        overlap_text = " ".join(overlap_tokens).strip()
-                    # A token split can leave punctuation at the start of the next
-                    # chunk. Do not insert a space in front of that punctuation.
-                    overlapped_chunk = overlap_text + overlap_joiner(chunk) + chunk
-
-                    # Safety check: verify we didn't exceed target token limit
-                    final_token_count = len(self._tokenize_text(overlapped_chunk))
-                    if final_token_count > self.target_chunk_size:
-                        self.logger.warning(
-                            f"Overlap would exceed target token limit ({final_token_count} > {self.target_chunk_size}), using original chunk"
-                        )
-                        overlapped_chunk = chunk
-                else:
-                    self.logger.warning(
-                        f"Chunk already at target token limit ({chunk_tokens} tokens), skipping overlap"
-                    )
+                overlapped_chunk = self._prepend_overlap(chunk, chunks[i - 1])
 
             overlapped_chunks.append(overlapped_chunk)
 

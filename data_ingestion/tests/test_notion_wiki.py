@@ -18,13 +18,21 @@ from data_ingestion.notion.blocks import (
     blocks_to_text,
     build_chunk_metadata,
     collect_child_refs,
+    neutralize_model_tokens,
     normalize_page_id,
     page_has_indexable_text,
     page_plain_text,
     plan_sync,
 )
 from data_ingestion.notion.client import NotionWikiClient, NotionWikiError
-from data_ingestion.notion.sync import load_roots, run_notion_wiki, walk_roots
+from data_ingestion.notion.sync import (
+    WikiPage,
+    _upsert_status,
+    build_vectors,
+    load_roots,
+    run_notion_wiki,
+    walk_roots,
+)
 from data_ingestion.utils.ingest_s3_layout import NOTION_WIKI_STATE_KEY
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -403,6 +411,49 @@ def test_empty_task_cards_are_left_out():
     assert "Call the center" in walk.pages[PAGE_C].text
 
 
+def test_upsert_status_uses_the_title():
+    assert _upsert_status("UX meeting notes") == "upsert UX meeting notes"
+    assert "aaaaaaaa" not in _upsert_status("UX meeting notes")
+    long_title = "Notes " * 20
+    assert _upsert_status(long_title).startswith("upsert Notes")
+    assert _upsert_status(long_title).endswith("...")
+    assert len(_upsert_status(long_title)) < 80
+
+
+def test_model_token_text_is_safe_to_tokenize():
+    import tiktoken
+
+    raw = "The stop token is <|endoftext|> and <|fim_prefix|>."
+    safe = neutralize_model_tokens(raw)
+    assert "<|endoftext|>" not in safe
+    assert "<|fim_prefix|>" not in safe
+    assert "endoftext" in safe
+    encoding = tiktoken.encoding_for_model("text-embedding-3-large")
+    encoding.encode(safe)
+    with pytest.raises(ValueError, match="endoftext"):
+        encoding.encode(raw)
+
+
+def test_build_vectors_rewrites_model_tokens_before_chunking():
+    seen: dict[str, str] = {}
+
+    class _RecordingSplitter:
+        def split_text(self, text: str, document_id: str | None = None) -> list[str]:
+            seen["text"] = text
+            return ["The stop token is <| endoftext |>."]
+
+    page = WikiPage(
+        page_id=PAGE_A,
+        title="Commands for OpenAI",
+        url="https://www.notion.so/example",
+        last_edited_time="t1",
+        text="The stop token is <|endoftext|>.",
+    )
+    vectors = build_vectors(page, _RecordingSplitter(), _Embeddings())
+    assert "<|endoftext|>" not in seen["text"]
+    assert vectors
+
+
 def test_page_body_text_is_indexable():
     page = _page(PAGE_A, "Guide", "t1")
     assert page_has_indexable_text(page, []) is False
@@ -538,6 +589,7 @@ def test_ingest_upserts_changed_pages_and_saves_state(tmp_path: Path):
         bucket="ananda-chatbot",
         splitter=_Splitter(),
         embeddings=_Embeddings(),
+        progress_dir=tmp_path / "progress",
     )
     assert plan.upsert == (PAGE_A,)
     assert plan.delete == (PAGE_B,)
@@ -548,10 +600,287 @@ def test_ingest_upserts_changed_pages_and_saves_state(tmp_path: Path):
     assert vector["metadata"]["library"] == LIBRARY_NAME
     assert vector["metadata"]["required_access_level"] == 100
     assert vector["id"].startswith("text||Ananda Family Wiki||notion||")
-    saved = json.loads(s3.puts[0]["Body"].decode())
-    assert s3.puts[0]["Key"] == NOTION_WIKI_STATE_KEY
+    saved = json.loads(s3.puts[-1]["Body"].decode())
+    assert s3.puts[-1]["Key"] == NOTION_WIKI_STATE_KEY
     assert saved["library"] == LIBRARY_NAME
     assert saved["pages"] == {PAGE_A: "t2"}
+
+
+class _MemoryS3(_MissingS3):
+    def get_object(self, **kwargs):
+        for put in reversed(self.puts):
+            if put.get("Key") == kwargs.get("Key"):
+                return {"Body": _Body(put["Body"])}
+        raise ClientError(
+            {"Error": {"Code": "NoSuchKey", "Message": "missing"}},
+            "GetObject",
+        )
+
+
+class _BoomEmbeddings:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        self.calls += 1
+        if self.calls > 1:
+            raise RuntimeError("boom")
+        return [[0.1, 0.2] for _text in texts]
+
+
+class _CountEmbeddings:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        self.calls += 1
+        return [[0.1, 0.2] for _text in texts]
+
+
+def _two_page_notion() -> _Notion:
+    return _Notion(
+        pages={
+            PAGE_A: _page(PAGE_A, "Home", "t1"),
+            PAGE_B: _page(PAGE_B, "Commands for OpenAI", "t2"),
+        },
+        trees={
+            PAGE_A: [
+                _paragraph("Home body"),
+                {
+                    "id": PAGE_B,
+                    "type": "child_page",
+                    "child_page": {"title": "Commands for OpenAI"},
+                    "children": [],
+                },
+            ],
+            PAGE_B: [_paragraph("Token notes")],
+        },
+    )
+
+
+def test_failed_upsert_resumes_with_continue(tmp_path: Path):
+    roots = tmp_path / "roots.json"
+    roots.write_text(
+        json.dumps({"roots": [{"name": "Home", "page_id": PAGE_A}]}),
+        encoding="utf-8",
+    )
+    notion = _two_page_notion()
+    progress_dir = tmp_path / "progress"
+    s3 = _MemoryS3()
+    with pytest.raises(RuntimeError, match="boom"):
+        run_notion_wiki(
+            site="ananda",
+            dry_run=False,
+            roots_path=roots,
+            notion=notion,
+            index=_Index(),
+            s3_client=s3,
+            bucket="ananda-chatbot",
+            splitter=_Splitter(),
+            embeddings=_BoomEmbeddings(),
+            progress_dir=progress_dir,
+        )
+    saved = json.loads(s3.puts[-1]["Body"].decode())
+    assert saved["pages"] == {PAGE_A: "t1"}
+    meta = json.loads((progress_dir / "ananda-meta.json").read_text(encoding="utf-8"))
+    assert meta["phase"] == "upsert"
+    assert meta["completed"] == [PAGE_A]
+
+    reads: list[str] = []
+    real_get_page = notion.get_page
+
+    def get_page(page_id: str) -> dict:
+        reads.append(page_id)
+        return real_get_page(page_id)
+
+    notion.get_page = get_page
+    embeddings = _CountEmbeddings()
+    run_notion_wiki(
+        site="ananda",
+        dry_run=False,
+        continue_run=True,
+        roots_path=roots,
+        notion=notion,
+        index=_Index(),
+        s3_client=s3,
+        bucket="ananda-chatbot",
+        splitter=_Splitter(),
+        embeddings=embeddings,
+        progress_dir=progress_dir,
+    )
+    assert reads == []
+    assert embeddings.calls == 1
+    assert not (progress_dir / "ananda-meta.json").exists()
+
+
+def _seed_state(s3: _MemoryS3, pages: dict[str, str]) -> None:
+    s3.puts.append(
+        {
+            "Key": NOTION_WIKI_STATE_KEY,
+            "Body": json.dumps({"library": LIBRARY_NAME, "pages": pages}).encode(),
+        }
+    )
+
+
+def test_rechunk_upserts_stored_pages_without_a_tree_walk(tmp_path: Path):
+    notion = _Notion(
+        pages={
+            PAGE_A: _page(PAGE_A, "Home", "t1"),
+            PAGE_B: _page(PAGE_B, "Notes", "t1"),
+            PAGE_C: _page(PAGE_C, "Child", "t9"),
+        },
+        trees={
+            PAGE_A: [
+                _paragraph("Home body"),
+                {
+                    "id": PAGE_C,
+                    "type": "child_page",
+                    "child_page": {"title": "Child"},
+                    "children": [],
+                },
+                {
+                    "id": DB_ID,
+                    "type": "child_database",
+                    "child_database": {"title": "Tasks"},
+                    "children": [],
+                },
+            ],
+            PAGE_B: [_paragraph("Notes body")],
+            PAGE_C: [_paragraph("Child body")],
+        },
+        databases={DB_ID: [_page(PAGE_C, "Child", "t9")]},
+    )
+    reads: list[str] = []
+    database_reads: list[str] = []
+    real_get_page = notion.get_page
+
+    def get_page(page_id: str) -> dict:
+        reads.append(page_id)
+        return real_get_page(page_id)
+
+    def query_database(database_id: str) -> list[dict]:
+        database_reads.append(database_id)
+        return notion.databases.get(database_id, [])
+
+    notion.get_page = get_page
+    notion.query_database = query_database
+    s3 = _MemoryS3()
+    _seed_state(s3, {PAGE_A: "t1", PAGE_B: "t1"})
+    plan = run_notion_wiki(
+        site="ananda",
+        dry_run=False,
+        rechunk=True,
+        roots_path=tmp_path / "roots.json",
+        notion=notion,
+        index=_Index(),
+        s3_client=s3,
+        bucket="ananda-chatbot",
+        splitter=_Splitter(),
+        embeddings=_Embeddings(),
+        progress_dir=tmp_path / "progress",
+    )
+    assert reads == [PAGE_A, PAGE_B]
+    assert database_reads == []
+    assert plan.upsert == (PAGE_A, PAGE_B)
+    assert plan.skip == ()
+    saved = json.loads(s3.puts[-1]["Body"].decode())
+    assert saved["pages"] == {PAGE_A: "t1", PAGE_B: "t1"}
+    assert not (tmp_path / "progress" / "ananda-meta.json").exists()
+
+
+def test_rechunk_continue_upserts_the_remaining_page(tmp_path: Path):
+    notion = _Notion(
+        pages={
+            PAGE_A: _page(PAGE_A, "Home", "t1"),
+            PAGE_B: _page(PAGE_B, "Notes", "t1"),
+        },
+        trees={
+            PAGE_A: [_paragraph("Home body")],
+            PAGE_B: [_paragraph("Notes body")],
+        },
+    )
+    progress_dir = tmp_path / "progress"
+    s3 = _MemoryS3()
+    _seed_state(s3, {PAGE_A: "t1", PAGE_B: "t1"})
+    with pytest.raises(RuntimeError, match="boom"):
+        run_notion_wiki(
+            site="ananda",
+            dry_run=False,
+            rechunk=True,
+            roots_path=tmp_path / "roots.json",
+            notion=notion,
+            index=_Index(),
+            s3_client=s3,
+            bucket="ananda-chatbot",
+            splitter=_Splitter(),
+            embeddings=_BoomEmbeddings(),
+            progress_dir=progress_dir,
+        )
+    reads: list[str] = []
+    real_get_page = notion.get_page
+
+    def get_page(page_id: str) -> dict:
+        reads.append(page_id)
+        return real_get_page(page_id)
+
+    notion.get_page = get_page
+    embeddings = _CountEmbeddings()
+    plan = run_notion_wiki(
+        site="ananda",
+        dry_run=False,
+        continue_run=True,
+        roots_path=tmp_path / "roots.json",
+        notion=notion,
+        index=_Index(),
+        s3_client=s3,
+        bucket="ananda-chatbot",
+        splitter=_Splitter(),
+        embeddings=embeddings,
+        progress_dir=progress_dir,
+    )
+    assert reads == []
+    assert embeddings.calls == 1
+    assert plan.upsert == (PAGE_B,)
+    assert not (progress_dir / "ananda-meta.json").exists()
+
+
+def test_rechunk_without_state_exits(tmp_path: Path):
+    with pytest.raises(SystemExit, match="No saved Notion wiki pages to rechunk"):
+        run_notion_wiki(
+            site="ananda",
+            dry_run=False,
+            rechunk=True,
+            roots_path=tmp_path / "roots.json",
+            notion=_Notion({}, {}),
+            index=_Index(),
+            s3_client=_MissingS3(),
+            bucket="ananda-chatbot",
+            splitter=_Splitter(),
+            embeddings=_Embeddings(),
+            progress_dir=tmp_path / "progress",
+        )
+
+
+def test_continue_without_progress_exits(tmp_path: Path):
+    roots = tmp_path / "roots.json"
+    roots.write_text(
+        json.dumps({"roots": [{"name": "Home", "page_id": PAGE_A}]}),
+        encoding="utf-8",
+    )
+    with pytest.raises(SystemExit, match="No saved Notion wiki progress"):
+        run_notion_wiki(
+            site="ananda",
+            dry_run=False,
+            continue_run=True,
+            roots_path=roots,
+            notion=_Notion({}, {}),
+            index=_Index(),
+            s3_client=_MissingS3(),
+            bucket="ananda-chatbot",
+            splitter=_Splitter(),
+            embeddings=_Embeddings(),
+            progress_dir=tmp_path / "missing-progress",
+        )
 
 
 def test_empty_roots_exit_after_library_name(caplog, tmp_path: Path):
@@ -635,6 +964,54 @@ def test_notion_dry_run_command_skips_pinecone(monkeypatch):
     assert seen["dry_run"] is True
     assert seen["index"] is None
     assert seen["roots_path"].name == "wiki_roots.json"
+
+
+def test_notion_command_prints_continue_reminder(monkeypatch, capsys):
+    monkeypatch.setenv("NOTION_WIKI_API_KEY", "test-token")
+    monkeypatch.setenv("PINECONE_INGEST_INDEX_NAME", "shared-index")
+    monkeypatch.setattr("data_ingestion.bin.ingest_cli.load_env", lambda _site: None)
+    monkeypatch.setattr(
+        "data_ingestion.bin.ingest_cli.get_bucket_name", lambda: "ananda-chatbot"
+    )
+    monkeypatch.setattr("data_ingestion.bin.ingest_cli.get_s3_client", lambda: object())
+
+    def fake_run(**_kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("data_ingestion.bin.ingest_cli.run_notion_wiki", fake_run)
+    with pytest.raises(SystemExit):
+        _run_notion_command(
+            SimpleNamespace(
+                site="ananda", dry_run=True, roots=None, continue_run=False
+            )
+        )
+    assert "--continue" in capsys.readouterr().err
+
+
+def test_main_parses_notion_rechunk(monkeypatch):
+    seen: dict = {}
+
+    def fake_handler(args):
+        seen["rechunk"] = args.rechunk
+
+    monkeypatch.setattr(
+        "data_ingestion.bin.ingest_cli._run_notion_command", fake_handler
+    )
+    main(["notion", "--site", "ananda", "--rechunk"])
+    assert seen == {"rechunk": True}
+
+
+def test_main_parses_notion_continue(monkeypatch):
+    seen: dict = {}
+
+    def fake_handler(args):
+        seen["continue_run"] = args.continue_run
+
+    monkeypatch.setattr(
+        "data_ingestion.bin.ingest_cli._run_notion_command", fake_handler
+    )
+    main(["notion", "--site", "ananda", "--continue"])
+    assert seen == {"continue_run": True}
 
 
 def test_main_parses_notion_dry_run(monkeypatch):

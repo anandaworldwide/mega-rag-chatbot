@@ -533,6 +533,7 @@ def batch_upsert_vectors(
     vectors: list[dict[str, Any]],
     batch_size: int = 100,
     progress_callback: Callable | None = None,
+    log_summary: bool = True,
 ) -> tuple[bool, int]:
     """
     Upsert vectors to Pinecone in batches with error handling.
@@ -569,7 +570,10 @@ def batch_upsert_vectors(
                 # Continue with next batch rather than failing completely
                 continue
 
-        logger.info(f"Successfully upserted {total_upserted}/{len(vectors)} vectors")
+        if log_summary:
+            logger.info(
+                f"Successfully upserted {total_upserted}/{len(vectors)} vectors"
+            )
         return True, total_upserted
 
     except Exception as e:

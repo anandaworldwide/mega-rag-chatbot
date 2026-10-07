@@ -115,7 +115,7 @@ def mock_tiktoken(mocker):
     _token_cache = {}
     _next_id = [0]
 
-    def mock_encode(text):
+    def mock_encode(text, **_kwargs):
         if not text or not text.strip():
             return []
         # Simple tokenization: split words and keep punctuation separate
@@ -837,6 +837,35 @@ class TestTokenizationBugFixes:
             # At least one word from the previous chunk should appear in the current chunk
             overlap_found = any(word in current_start for word in prev_words)
             assert overlap_found, f"No overlap found between chunks {i - 1} and {i}"
+
+    def test_long_words_keep_embedding_token_room_for_overlap(self, mocker, caplog):
+        """A word can be several embedding tokens. The split must use that count.
+
+        spaCy counts Stichtingsafspraken as one word. The embedding tokenizer
+        counts it as several tokens. The old split kept the whole paragraph,
+        then skipped overlap and logged a warning.
+        """
+        import tiktoken
+
+        mocker.patch(
+            "data_ingestion.utils.text_splitter_utils.tiktoken.encoding_for_model",
+            return_value=tiktoken.get_encoding("cl100k_base"),
+        )
+        splitter = SpacyTextSplitter(log_summary_on_split=False)
+        text = " ".join(["Stichtingsafspraken"] * 80)
+        cleaned = splitter._clean_text(text)
+
+        with caplog.at_level("WARNING"):
+            chunks = splitter.split_text(text, document_id="statuten")
+
+        base_chunks = splitter._chunk_by_paragraphs(cleaned)
+        assert len(chunks) > 1
+        assert len(chunks) == len(base_chunks)
+        assert len(chunks[1]) > len(base_chunks[1])
+        for chunk in chunks:
+            assert splitter._token_count(chunk) <= splitter.target_chunk_size
+        assert "skipping overlap" not in caplog.text
+        assert "would exceed target token limit" not in caplog.text
 
     def test_extreme_case_with_very_large_chunks(self):
         """Test handling of extreme cases with very large chunks."""

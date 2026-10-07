@@ -8,6 +8,7 @@ import logging
 import os
 import subprocess
 import sys
+import traceback
 from pathlib import Path
 
 _script_dir = Path(__file__).resolve().parent
@@ -43,6 +44,7 @@ from data_ingestion.crystal_pdf_ingest import (  # noqa: E402
 from data_ingestion.notion.client import NotionWikiClient, NotionWikiError  # noqa: E402
 from data_ingestion.notion.sync import (  # noqa: E402
     DEFAULT_ROOTS_PATH,
+    continue_reminder,
     default_embeddings,
     default_splitter,
     run_notion_wiki,
@@ -477,10 +479,23 @@ def _run_notion_command(args) -> None:
             raise
         splitter = default_splitter()
         embeddings = default_embeddings()
+    _execute_notion_wiki(
+        args,
+        token=token,
+        bucket=bucket,
+        index=index,
+        splitter=splitter,
+        embeddings=embeddings,
+    )
+
+
+def _execute_notion_wiki(args, *, token: str, bucket: str, index, splitter, embeddings) -> None:
     try:
         run_notion_wiki(
             site=args.site,
             dry_run=args.dry_run,
+            continue_run=getattr(args, "continue_run", False),
+            rechunk=getattr(args, "rechunk", False),
             roots_path=args.roots or DEFAULT_ROOTS_PATH,
             notion=NotionWikiClient(token),
             index=index,
@@ -490,7 +505,33 @@ def _run_notion_command(args) -> None:
             embeddings=embeddings,
         )
     except NotionWikiError as error:
+        _emit_continue_reminder()
         raise SystemExit(str(error)) from error
+    except SystemExit as error:
+        if not _is_quiet_notion_exit(error):
+            _emit_continue_reminder()
+        raise
+    except KeyboardInterrupt:
+        _emit_continue_reminder()
+        raise
+    except Exception:
+        traceback.print_exc()
+        _emit_continue_reminder()
+        raise SystemExit(1) from None
+
+
+def _emit_continue_reminder() -> None:
+    print(continue_reminder(), file=sys.stderr)
+
+
+def _is_quiet_notion_exit(error: SystemExit) -> bool:
+    message = str(error)
+    return (
+        "No saved Notion wiki progress" in message
+        or "Do not combine --continue" in message
+        or "No saved Notion wiki pages to rechunk" in message
+        or "Saved progress is a tree walk" in message
+    )
 
 
 def _run_audio_command(args) -> None:
@@ -520,6 +561,20 @@ def _notion_parser(subparsers) -> None:
         help="List pages and print the library name. Do not write Pinecone or S3.",
     )
     notion.add_argument("--roots", type=Path, default=None)
+    notion.add_argument(
+        "--continue",
+        dest="continue_run",
+        action="store_true",
+        help="Resume a saved wiki run. Skip pages that are already saved.",
+    )
+    notion.add_argument(
+        "--rechunk",
+        action="store_true",
+        help=(
+            "Fetch stored wiki pages and upsert every page. "
+            "Do not walk the tree."
+        ),
+    )
     notion.set_defaults(handler=_run_notion_command)
 
 
