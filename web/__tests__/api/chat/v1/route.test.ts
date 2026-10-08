@@ -1338,11 +1338,12 @@ describe("Retry Mechanism", () => {
 
     /**
      * Title generation starts in a parallel promise before the answer chain.
-     * makechain sends done: true before route.ts awaits the title for Firestore.
-     * A hanging title call must not delay answer tokens or the done event.
+     * makechain sends done: true before route.ts saves the answer and emits suggestions.
+     * route.ts then awaits the title only to write Firestore (and keeps the stream open).
+     * The browser ends loading on done. A hanging title must not delay done, docId, or suggestions.
      * ChatOpenAI still uses a 10s timeout in titleGeneration.ts.
      */
-    test("slow title generation does not delay answer tokens or the done event", async () => {
+    test("slow title generation does not delay done, docId, or suggestions", async () => {
       mockSiteConfig.requireLogin = true;
       (global as { __TEST_JWT_PAYLOAD__?: unknown }).__TEST_JWT_PAYLOAD__ = {
         client: "web",
@@ -1376,7 +1377,7 @@ describe("Retry Mechanism", () => {
             fullResponse: "Answer token",
             finalDocs: [],
             restatedQuestion: "How do I meditate properly for better results and spiritual growth?",
-            suggestionsPromise: Promise.resolve([]),
+            suggestionsPromise: Promise.resolve([{ id: "s1", text: "Go deeper?", type: "deeper" }]),
             model: "gpt-4.1-mini",
             temperature: 0.3,
             isLocationQuery: false,
@@ -1392,15 +1393,28 @@ describe("Retry Mechanism", () => {
       );
       expect(response.status).toBe(200);
 
-      const { events, reader } = await readSseUntil(response, (seen) => seen.some((event) => event.done === true));
+      const { events, reader } = await readSseUntil(response, (seen) => {
+        const hasDone = seen.some((event) => event.done === true);
+        const hasDocId = seen.some((event) => event.docId === "saved-doc-title-latency");
+        const hasSuggestions = seen.some((event) => Array.isArray(event.suggestions) && event.suggestions.length > 0);
+        return hasDone && hasDocId && hasSuggestions;
+      });
 
       const tokenIndex = events.findIndex((event) => event.token === "Answer token");
       const doneIndex = events.findIndex((event) => event.done === true);
+      const docIdIndex = events.findIndex((event) => event.docId === "saved-doc-title-latency");
+      const suggestionsIndex = events.findIndex(
+        (event) => Array.isArray(event.suggestions) && event.suggestions.length > 0
+      );
 
       expect(generateTitle).toHaveBeenCalled();
       expect(tokenIndex).toBeGreaterThanOrEqual(0);
       expect(doneIndex).toBeGreaterThan(tokenIndex);
+      expect(docIdIndex).toBeGreaterThan(doneIndex);
+      expect(suggestionsIndex).toBeGreaterThan(docIdIndex);
+      expect(events[suggestionsIndex].suggestions).toHaveLength(1);
       expect(titleResolved).toBe(false);
+      expect(events.some((event) => typeof event.title === "string")).toBe(false);
 
       resolveTitle!("Meditation practice for spiritual growth");
       await hangingTitle;
