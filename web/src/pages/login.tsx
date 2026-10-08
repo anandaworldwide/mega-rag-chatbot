@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/router";
+import type { GetServerSideProps } from "next";
 import { SiteConfig } from "@/types/siteConfig";
 import { getSiteName, getTagline } from "@/utils/client/siteConfig";
 import { fetchWithAuth } from "@/utils/client/tokenManager";
 import AdminApproverSelector from "@/components/AdminApproverSelector";
 import AuthLayout from "@/components/AuthLayout";
 import FeedbackModal from "@/components/FeedbackModal";
+import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 
 interface LoginProps {
   siteConfig: SiteConfig | null;
@@ -604,3 +606,17 @@ export default function Login({ siteConfig, contactEmail }: LoginProps) {
     </>
   );
 }
+
+export const getServerSideProps: GetServerSideProps<LoginProps> = async () => {
+  try {
+    const siteConfig = await loadSiteConfig();
+    if (!siteConfig?.requireLogin) {
+      return { notFound: true };
+    }
+    const contactEmail = process.env.CONTACT_EMAIL?.trim() || null;
+    return { props: { siteConfig, contactEmail } };
+  } catch (error) {
+    console.error("Failed to load site config for login page:", error);
+    return { notFound: true };
+  }
+};

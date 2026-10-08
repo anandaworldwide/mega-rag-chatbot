@@ -193,6 +193,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   });
   if (!allowed) return;
 
+  const siteConfig = await loadSiteConfig();
+  if (!siteConfig?.requireLogin) {
+    return res.status(403).json({ error: "Access requests are not available for this site" });
+  }
+
   if (!db) return res.status(503).json({ error: "Database not available" });
 
   const {

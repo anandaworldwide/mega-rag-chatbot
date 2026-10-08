@@ -40,11 +40,14 @@ export default function RequestSubmittedPage({ siteConfig }: RequestSubmittedPag
 }
 
 export const getServerSideProps: GetServerSideProps = async () => {
-  const siteConfig = await loadSiteConfig();
-
-  return {
-    props: {
-      siteConfig,
-    },
-  };
+  try {
+    const siteConfig = await loadSiteConfig();
+    if (!siteConfig?.requireLogin) {
+      return { notFound: true };
+    }
+    return { props: { siteConfig } };
+  } catch (error) {
+    console.error("Failed to load site config for request-submitted page:", error);
+    return { notFound: true };
+  }
 };

@@ -288,6 +288,13 @@ Password authentication is only available on sites with `requireLogin: true` in 
 
 All password-related endpoints check `siteConfig?.requireLogin` and return 403 if not enabled.
 
+Access-request and login entry points are also limited to login-required sites:
+
+- `/login` and `/request-submitted` return 404 when `requireLogin` is not true
+- `/api/auth/requestLoginLink`, `/api/admin/requestApproval`, and `/api/admin/approvers` return 403 when
+  `requireLogin` is not true
+- No-login sites (`crystal`, `ananda-public` / Vivek) keep the public chat only. They do not accept access requests.
+
 ### Domain Whitelist Configuration
 
 The system supports domain-based whitelisting to streamline user onboarding for trusted organizations. Users from
