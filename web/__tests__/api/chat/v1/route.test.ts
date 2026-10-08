@@ -1173,7 +1173,7 @@ describe("Retry Mechanism", () => {
 
     /**
      * Read SSE events until predicate is true, then optionally drain until the stream closes.
-     * Used to prove tokens/done arrive while a hanging title promise is still unresolved.
+     * Used to prove done, docId, and suggestions arrive while a hanging title promise is still unresolved.
      */
     async function readSseUntil(
       response: Response,
