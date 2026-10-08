@@ -45,6 +45,7 @@ import { firestoreGet } from "@/utils/server/firestoreRetryUtils";
 import { resolvePersistUuidForRequest } from "@/utils/server/uuidUtils";
 import { sendOpsAlert } from "@/utils/server/emailOps";
 import { CHATBOT_UNAVAILABLE_USER_MESSAGE } from "@/utils/server/errorSanitization";
+import { generateTitle } from "@/utils/server/titleGeneration";
 
 const TEST_BODY_UUID = "423e4567-e89b-42d3-a456-426614174000";
 const TEST_JWT_UUID = "323e4567-e89b-42d3-a456-426614174000";
@@ -247,6 +248,11 @@ jest.mock("@/utils/server/chatRequestIdempotency", () => ({
 
 jest.mock("@/utils/server/userActivityUtils", () => ({
   updateUserActivity: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock("@/utils/server/titleGeneration", () => ({
+  generateTitle: jest.fn().mockResolvedValue("Mock conversation title"),
+  generateAndUpdateTitle: jest.fn(),
 }));
 
 jest.mock("@/utils/env", () => ({
@@ -1087,6 +1093,7 @@ describe("Retry Mechanism", () => {
     afterEach(() => {
       // Defensive: keep the shared mock config on its default so later tests aren't affected.
       mockSiteConfig.requireLogin = false;
+      delete (global as { __TEST_JWT_PAYLOAD__?: unknown }).__TEST_JWT_PAYLOAD__;
     });
 
     test("resolvePersistUuidForRequest rejects missing profile uuid on login-required sites", async () => {
@@ -1162,6 +1169,56 @@ describe("Retry Mechanism", () => {
         }
       }
       return objects;
+    }
+
+    /**
+     * Read SSE events until predicate is true, then optionally drain until the stream closes.
+     * Used to prove tokens/done arrive while a hanging title promise is still unresolved.
+     */
+    async function readSseUntil(
+      response: Response,
+      shouldStop: (events: Array<Record<string, unknown>>) => boolean
+    ): Promise<{
+      events: Array<Record<string, unknown>>;
+      reader: ReadableStreamDefaultReader<Uint8Array>;
+    }> {
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      const events: Array<Record<string, unknown>> = [];
+
+      while (!shouldStop(events)) {
+        const { done, value } = await reader.read();
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith("data:")) {
+              continue;
+            }
+            try {
+              events.push(JSON.parse(trimmed.slice("data:".length).trim()));
+            } catch {
+              // Ignore non-JSON keepalive/comment frames.
+            }
+          }
+        }
+        if (done) {
+          break;
+        }
+      }
+
+      return { events, reader };
+    }
+
+    async function drainSse(reader: ReadableStreamDefaultReader<Uint8Array>): Promise<void> {
+      let streamDone = false;
+      while (!streamDone) {
+        const { done } = await reader.read();
+        streamDone = done;
+      }
     }
 
     const STREAM_BODY = {
@@ -1277,6 +1334,77 @@ describe("Retry Mechanism", () => {
       // Streamed token count excludes the status frame entirely
       const doneTiming = doneEvent?.timing as { totalTokens?: number } | undefined;
       expect(doneTiming?.totalTokens).toBe("Hello".length);
+    });
+
+    /**
+     * Title generation starts in a parallel promise before the answer chain.
+     * makechain sends done: true before route.ts awaits the title for Firestore.
+     * A hanging title call must not delay answer tokens or the done event.
+     * ChatOpenAI still uses a 10s timeout in titleGeneration.ts.
+     */
+    test("slow title generation does not delay answer tokens or the done event", async () => {
+      mockSiteConfig.requireLogin = true;
+      (global as { __TEST_JWT_PAYLOAD__?: unknown }).__TEST_JWT_PAYLOAD__ = {
+        client: "web",
+        uuid: TEST_JWT_UUID,
+        email: "user@example.com",
+        iat: 1,
+        exp: 9999999999,
+      };
+
+      let resolveTitle: ((value: string) => void) | undefined;
+      let titleResolved = false;
+      const hangingTitle = new Promise<string>((resolve) => {
+        resolveTitle = resolve;
+      });
+      void hangingTitle.then(() => {
+        titleResolved = true;
+      });
+      (generateTitle as jest.Mock).mockReturnValueOnce(hangingTitle);
+
+      mockFirestoreAdd.mockResolvedValueOnce({ id: "saved-doc-title-latency" });
+      (makeChainModule.setupAndExecuteLanguageModelChain as jest.Mock).mockImplementationOnce(
+        async (
+          _retriever: unknown,
+          _question: unknown,
+          _history: unknown,
+          sendData: (data: Record<string, unknown>) => void
+        ) => {
+          sendData({ token: "Answer token" });
+          sendData({ done: true });
+          return {
+            fullResponse: "Answer token",
+            finalDocs: [],
+            restatedQuestion: "How do I meditate properly for better results and spiritual growth?",
+            suggestionsPromise: Promise.resolve([]),
+            model: "gpt-4.1-mini",
+            temperature: 0.3,
+            isLocationQuery: false,
+          };
+        }
+      );
+
+      const response = await POST(
+        buildStreamingRequest({
+          ...STREAM_BODY,
+          question: "How do I meditate properly for better results and spiritual growth?",
+        })
+      );
+      expect(response.status).toBe(200);
+
+      const { events, reader } = await readSseUntil(response, (seen) => seen.some((event) => event.done === true));
+
+      const tokenIndex = events.findIndex((event) => event.token === "Answer token");
+      const doneIndex = events.findIndex((event) => event.done === true);
+
+      expect(generateTitle).toHaveBeenCalled();
+      expect(tokenIndex).toBeGreaterThanOrEqual(0);
+      expect(doneIndex).toBeGreaterThan(tokenIndex);
+      expect(titleResolved).toBe(false);
+
+      resolveTitle!("Meditation practice for spiritual growth");
+      await hangingTitle;
+      await drainSse(reader);
     });
 
     test("temporary sessions skip Claude A/B assignment", async () => {

@@ -58,6 +58,7 @@ describe("titleGeneration", () => {
       expect(mockChatOpenAI).toHaveBeenCalledWith(
         expect.objectContaining({
           modelName: "gpt-4.1-mini",
+          timeout: 10000,
         })
       );
     });
