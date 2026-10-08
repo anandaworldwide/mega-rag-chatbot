@@ -2,7 +2,12 @@
  * Tests for title generation utility
  */
 
-import { generateTitle, generateAndUpdateTitle } from "@/utils/server/titleGeneration";
+import {
+  generateTitle,
+  generateAndUpdateTitle,
+  TITLE_LANGUAGE_QUESTION_RULE,
+  TITLE_LANGUAGE_SYSTEM_RULE,
+} from "@/utils/server/titleGeneration";
 import { firestoreUpdate } from "@/utils/server/firestoreRetryUtils";
 import { db } from "@/services/firebase";
 import { ChatOpenAI } from "@langchain/openai";
@@ -38,11 +43,54 @@ describe("titleGeneration", () => {
       const result = await generateTitle("How do I meditate properly for better results and spiritual growth?");
 
       expect(result).toBe("How to start and sustain a simple meditation practice");
-      expect(mockInvoke).toHaveBeenCalledWith(expect.stringContaining("Generate a concise summary (4–9 words)"));
+      expect(mockInvoke).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            content: expect.stringContaining("You write short conversation titles."),
+          }),
+        ])
+      );
+    });
+
+    it("should use gpt-4.1-mini for AI title generation", async () => {
+      const mockInvoke = jest.fn().mockResolvedValue({
+        content: "How to start and sustain a simple meditation practice",
+      });
+
+      mockChatOpenAI.mockImplementation(
+        () =>
+          ({
+            invoke: mockInvoke,
+          }) as any
+      );
+
+      await generateTitle("How do I meditate properly for better results and spiritual growth?");
+
+      expect(mockChatOpenAI).toHaveBeenCalledWith(
+        expect.objectContaining({
+          modelName: "gpt-4.1-mini",
+          timeout: 10000,
+        })
+      );
     });
 
     it("should fall back to truncated question when AI fails", async () => {
       const mockInvoke = jest.fn().mockRejectedValue(new Error("AI failed"));
+
+      mockChatOpenAI.mockImplementation(
+        () =>
+          ({
+            invoke: mockInvoke,
+          }) as any
+      );
+
+      const result = await generateTitle("How do I meditate properly for better health and wellness?");
+
+      expect(result).toBe("How do I meditate properly for better health and...");
+    });
+
+    it("should fall back to truncated question when the model times out", async () => {
+      const mockInvoke = jest.fn().mockRejectedValue(new Error("Request timed out"));
 
       mockChatOpenAI.mockImplementation(
         () =>
@@ -107,6 +155,23 @@ describe("titleGeneration", () => {
       expect(result).toBe("This is a very long title that exceeds the");
     });
 
+    it("should strip a leading Title: prefix from the model response", async () => {
+      const mockInvoke = jest.fn().mockResolvedValue({
+        content: "Title: How to start and sustain a simple meditation practice",
+      });
+
+      mockChatOpenAI.mockImplementation(
+        () =>
+          ({
+            invoke: mockInvoke,
+          }) as any
+      );
+
+      const result = await generateTitle("How do I meditate properly for better results and spiritual growth?");
+
+      expect(result).toBe("How to start and sustain a simple meditation practice");
+    });
+
     it("should handle empty AI response", async () => {
       const mockInvoke = jest.fn().mockResolvedValue({
         content: "",
@@ -141,7 +206,47 @@ describe("titleGeneration", () => {
       );
 
       expect(result).toBe("Principios básicos para realizar a Dios mediante la meditación");
-      expect(mockInvoke).toHaveBeenCalledWith(expect.stringContaining("SAME LANGUAGE as the original question"));
+      expect(mockInvoke).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            content: expect.stringContaining(TITLE_LANGUAGE_SYSTEM_RULE),
+          }),
+        ])
+      );
+    });
+
+    it("puts the user question after the last example and right before Title:", async () => {
+      const mockInvoke = jest.fn().mockResolvedValue({
+        content: "How to start and sustain a simple meditation practice",
+      });
+
+      mockChatOpenAI.mockImplementation(
+        () =>
+          ({
+            invoke: mockInvoke,
+          }) as any
+      );
+
+      const question = "How do I meditate properly for better results and spiritual growth?";
+      await generateTitle(question);
+
+      const messages = mockInvoke.mock.calls[0][0] as Array<{ content: string }>;
+      expect(messages).toHaveLength(2);
+      const systemContent = messages[0].content;
+      const humanContent = messages[1].content;
+
+      expect(systemContent).toContain(TITLE_LANGUAGE_SYSTEM_RULE);
+      expect(humanContent).toContain(TITLE_LANGUAGE_QUESTION_RULE);
+
+      const lastExampleAt = humanContent.indexOf("Title: Yogananda's teachings on divine love");
+      const questionLine = `Question: "${question}"`;
+      const questionAt = humanContent.indexOf(questionLine);
+      const titleCueAt = humanContent.lastIndexOf("\nTitle:");
+
+      expect(lastExampleAt).toBeGreaterThan(-1);
+      expect(questionAt).toBeGreaterThan(lastExampleAt);
+      expect(titleCueAt).toBeGreaterThan(questionAt);
+      expect(humanContent.slice(questionAt)).toBe(`${questionLine}\nTitle:`);
     });
   });
 

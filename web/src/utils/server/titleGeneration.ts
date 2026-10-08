@@ -6,9 +6,18 @@
  */
 
 import { ChatOpenAI } from "@langchain/openai";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import { firestoreUpdate } from "@/utils/server/firestoreRetryUtils";
 import { getAnswersCollectionName } from "@/utils/server/firestoreUtils";
 import { db } from "@/services/firebase";
+
+/** System rule that keeps titles in the question language. */
+export const TITLE_LANGUAGE_SYSTEM_RULE =
+  "Write the title in the same language as the question. Never switch to another language.";
+
+/** Immediate instruction placed after examples and immediately before the question. */
+export const TITLE_LANGUAGE_QUESTION_RULE =
+  "Write the title in the same language as this question. Do not use a different language.";
 
 /**
  * Generates a concise 8–9 word summary for a question using AI
@@ -25,43 +34,56 @@ async function generateAITitle(question: string): Promise<string | null> {
 
     // Use fast model for title generation
     const model = new ChatOpenAI({
-      modelName: "gpt-3.5-turbo",
+      modelName: "gpt-4.1-mini",
       temperature: 0.1,
       maxTokens: 40, // Allow up to ~9 words comfortably
       timeout: 10000, // 10 second timeout
     });
 
-    const prompt = `Generate a concise summary (4–9 words) for this question: "${question}"
-
-Requirements:
-- 4 to 9 words (be concise but clear)
-- Capture the main topic clearly
-- Avoid trailing punctuation
-- Sentence case (not all-caps, not Title Case)
-- IMPORTANT: Generate the title in the SAME LANGUAGE as the original question
-
-Examples:
-Question: "How do I meditate properly?"
-Title: "How to meditate properly and effectively"
-
-Question: "What are Yogananda's teachings about love?"
-Title: "Yogananda's teachings on divine love"
-
-Question: "¿Cuáles son los principios de meditación?"
-Title: "Principios básicos de la meditación"
-
-Question: "Comment méditer correctement selon Yogananda?"
-Title: "Méditation selon les enseignements de Yogananda"
-
-Title:`;
-
-    const response = await model.invoke(prompt);
+    // Chat model: language rule in the system message. Examples end in English.
+    // The real question comes last so the model does not continue a non-English example.
+    const response = await model.invoke([
+      new SystemMessage(
+        [
+          "You write short conversation titles.",
+          TITLE_LANGUAGE_SYSTEM_RULE,
+          "Use 4 to 9 words.",
+          "Capture the main topic clearly.",
+          "Avoid trailing punctuation.",
+          "Sentence case (not all-caps, not Title Case).",
+          "Do not prefix the title with Title:.",
+        ].join(" ")
+      ),
+      new HumanMessage(
+        [
+          "Examples of good titles:",
+          'Question: "¿Cuáles son los principios de meditación?"',
+          "Title: Principios básicos de la meditación",
+          "",
+          'Question: "Comment méditer correctement selon Yogananda?"',
+          "Title: Méditation selon les enseignements de Yogananda",
+          "",
+          'Question: "How do I meditate properly?"',
+          "Title: How to meditate properly and effectively",
+          "",
+          'Question: "What are Yogananda\'s teachings about love?"',
+          "Title: Yogananda's teachings on divine love",
+          "",
+          TITLE_LANGUAGE_QUESTION_RULE,
+          "",
+          `Question: "${question}"`,
+          "Title:",
+        ].join("\n")
+      ),
+    ]);
     // Simplified extraction: expect content to be a string; otherwise, skip to fallback
     let title = (response as any)?.content as string | undefined;
     if (typeof title !== "string") {
       return null;
     }
     title = title.trim();
+    // Models may echo the prompt's trailing "Title:" label.
+    title = title.replace(/^title:\s*/i, "").trim();
 
     if (title) {
       // Minimal normalization: strip outer quotes and collapse spaces
