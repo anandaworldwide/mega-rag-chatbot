@@ -144,6 +144,23 @@ describe("titleGeneration", () => {
       expect(result).toBe("This is a very long title that exceeds the");
     });
 
+    it("should strip a leading Title: prefix from the model response", async () => {
+      const mockInvoke = jest.fn().mockResolvedValue({
+        content: "Title: How to start and sustain a simple meditation practice",
+      });
+
+      mockChatOpenAI.mockImplementation(
+        () =>
+          ({
+            invoke: mockInvoke,
+          }) as any
+      );
+
+      const result = await generateTitle("How do I meditate properly for better results and spiritual growth?");
+
+      expect(result).toBe("How to start and sustain a simple meditation practice");
+    });
+
     it("should handle empty AI response", async () => {
       const mockInvoke = jest.fn().mockResolvedValue({
         content: "",

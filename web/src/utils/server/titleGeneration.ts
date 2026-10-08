@@ -62,6 +62,8 @@ Title:`;
       return null;
     }
     title = title.trim();
+    // Models may echo the prompt's trailing "Title:" label.
+    title = title.replace(/^title:\s*/i, "").trim();
 
     if (title) {
       // Minimal normalization: strip outer quotes and collapse spaces
