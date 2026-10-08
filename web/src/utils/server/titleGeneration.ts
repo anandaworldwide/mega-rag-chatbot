@@ -25,7 +25,7 @@ async function generateAITitle(question: string): Promise<string | null> {
 
     // Use fast model for title generation
     const model = new ChatOpenAI({
-      modelName: "gpt-3.5-turbo",
+      modelName: "gpt-4.1-mini",
       temperature: 0.1,
       maxTokens: 40, // Allow up to ~9 words comfortably
       timeout: 10000, // 10 second timeout

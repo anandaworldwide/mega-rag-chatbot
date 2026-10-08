@@ -41,8 +41,44 @@ describe("titleGeneration", () => {
       expect(mockInvoke).toHaveBeenCalledWith(expect.stringContaining("Generate a concise summary (4–9 words)"));
     });
 
+    it("should use gpt-4.1-mini for AI title generation", async () => {
+      const mockInvoke = jest.fn().mockResolvedValue({
+        content: "How to start and sustain a simple meditation practice",
+      });
+
+      mockChatOpenAI.mockImplementation(
+        () =>
+          ({
+            invoke: mockInvoke,
+          }) as any
+      );
+
+      await generateTitle("How do I meditate properly for better results and spiritual growth?");
+
+      expect(mockChatOpenAI).toHaveBeenCalledWith(
+        expect.objectContaining({
+          modelName: "gpt-4.1-mini",
+        })
+      );
+    });
+
     it("should fall back to truncated question when AI fails", async () => {
       const mockInvoke = jest.fn().mockRejectedValue(new Error("AI failed"));
+
+      mockChatOpenAI.mockImplementation(
+        () =>
+          ({
+            invoke: mockInvoke,
+          }) as any
+      );
+
+      const result = await generateTitle("How do I meditate properly for better health and wellness?");
+
+      expect(result).toBe("How do I meditate properly for better health and...");
+    });
+
+    it("should fall back to truncated question when the model times out", async () => {
+      const mockInvoke = jest.fn().mockRejectedValue(new Error("Request timed out"));
 
       mockChatOpenAI.mockImplementation(
         () =>
