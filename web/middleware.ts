@@ -5,6 +5,8 @@ import { createErrorCorsHeaders, handleCors, addCorsHeaders } from "./src/utils/
 import { getAllPublicPaths } from "./src/config/publicPaths";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import { wikiLibraryCookieHeader } from "./src/utils/server/wikiLibraryAccess";
+import { applyComputedWikiLibraryOverrides } from "./src/utils/server/wikiLibraryMiddlewareGate";
 
 // Log suspicious activity with details
 const logSuspiciousActivity = (req: NextRequest, reason: string) => {
@@ -92,9 +94,36 @@ const performSecurityChecks = (req: NextRequest, url: URL) => {
   }
 };
 
+function withWikiLibraryCookie(response: NextResponse, allowed: boolean): NextResponse {
+  response.headers.append("Set-Cookie", wikiLibraryCookieHeader(allowed));
+  return response;
+}
+
+function nextWithWikiLibraryGate(req: NextRequest): { response: NextResponse; wikiAllowed: boolean } {
+  const requestHeaders = new Headers(req.headers);
+  const wikiAllowed = applyComputedWikiLibraryOverrides(requestHeaders);
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  return { response: withWikiLibraryCookie(response, wikiAllowed), wikiAllowed };
+}
+
+/**
+ * Page routes that _app getInitialProps serves must match.
+ * The matcher skips only static files and /api/auth/*.
+ */
+export function pathMatchesWikiMiddleware(pathname: string): boolean {
+  if (pathname === "/") {
+    return true;
+  }
+  if (!pathname.startsWith("/")) {
+    return false;
+  }
+  const rest = pathname.slice(1);
+  return !/^(?:api\/auth|_next\/static|_next\/image|favicon\.ico|robots\.txt|images\/|fonts\/)/.test(rest);
+}
+
 // Main middleware function for /web
 export function middleware(req: NextRequest) {
-  const response = NextResponse.next();
+  const { response, wikiAllowed } = nextWithWikiLibraryGate(req);
   const url = req.nextUrl.clone(); // Use nextUrl for reliable path info within middleware
 
   // Perform security checks
@@ -103,7 +132,7 @@ export function middleware(req: NextRequest) {
   // Redirect /all to /answers (relative to /web)
   if (url.pathname === "/all") {
     url.pathname = "/answers";
-    return NextResponse.redirect(url, { status: 308 });
+    return withWikiLibraryCookie(NextResponse.redirect(url, { status: 308 }), wikiAllowed);
   }
 
   // NOTE: HTTP to HTTPS redirect is usually handled by hosting (Vercel)
@@ -169,7 +198,7 @@ export function middleware(req: NextRequest) {
             headers: createErrorCorsHeaders(req),
           }
         );
-        return apiResponse;
+        return withWikiLibraryCookie(apiResponse, wikiAllowed);
       }
 
       // For page routes, redirect to /login (relative to /web)
@@ -177,7 +206,7 @@ export function middleware(req: NextRequest) {
       const loginUrl = new URL("/login", req.url); // req.url should have correct base
       loginUrl.searchParams.set("redirect", fullPath);
 
-      return NextResponse.redirect(loginUrl);
+      return withWikiLibraryCookie(NextResponse.redirect(loginUrl), wikiAllowed);
     }
   }
 
@@ -185,13 +214,13 @@ export function middleware(req: NextRequest) {
   const corsResult = handleCors(req, siteConfig);
   if (corsResult) {
     // If handleCors returns a response (error case), return it
-    return corsResult;
+    return withWikiLibraryCookie(corsResult, wikiAllowed);
   }
 
   // Handle OPTIONS request
   if (req.method === "OPTIONS") {
     const optionsResponse = new NextResponse(null, { status: 204 });
-    return addCorsHeaders(optionsResponse, req, siteConfig);
+    return withWikiLibraryCookie(addCorsHeaders(optionsResponse, req, siteConfig), wikiAllowed);
   }
 
   // Generate nonce for CSP (Next.js compatible)

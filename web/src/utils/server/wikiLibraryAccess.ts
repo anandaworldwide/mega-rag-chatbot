@@ -1,7 +1,6 @@
-import jwt from "jsonwebtoken";
-
 export const WIKI_LIBRARY_NAME = "Ananda Family Wiki";
 export const WIKI_LIBRARY_COOKIE = "wikiLibrary";
+export const WIKI_LIBRARY_HEADER = "x-wiki-library";
 
 type LibraryEntry = string | { name: string; weight?: number };
 
@@ -63,37 +62,59 @@ export function applyWikiLibraryGate<T extends LibraryConfig>(
   };
 }
 
+export function wikiLibraryDecisionValue(allowed: boolean): "1" | "0" {
+  return allowed ? "1" : "0";
+}
+
 export function wikiLibraryCookieHeader(allowed: boolean): string {
-  const value = allowed ? "1" : "0";
-  return `${WIKI_LIBRARY_COOKIE}=${value}; Path=/; SameSite=Lax`;
+  return `${WIKI_LIBRARY_COOKIE}=${wikiLibraryDecisionValue(allowed)}; Path=/; SameSite=Lax`;
 }
 
 export function wikiLibraryCookieAllows(cookieHeader: string | undefined): boolean {
   return readCookie(cookieHeader, WIKI_LIBRARY_COOKIE) === "1";
 }
 
-export function emailFromAuthCookieHeader(cookieHeader: string | undefined): string | undefined {
-  const token = readCookie(cookieHeader, "authToken");
-  if (!token) {
-    return undefined;
+/** Server _app path: show the wiki only when middleware set this header to 1. */
+export function wikiLibraryHeaderAllows(value: string | string[] | undefined): boolean {
+  const raw = Array.isArray(value) ? value[0] : value;
+  return raw === "1";
+}
+
+/** Replace or add one cookie. Drop any earlier value for the same name. */
+export function overwriteCookieValue(
+  cookieHeader: string | undefined,
+  name: string,
+  value: string
+): string {
+  const kept: string[] = [];
+  if (cookieHeader) {
+    for (const part of cookieHeader.split(";")) {
+      const trimmed = part.trim();
+      if (!trimmed) {
+        continue;
+      }
+      const separator = trimmed.indexOf("=");
+      const key = separator === -1 ? trimmed : trimmed.slice(0, separator).trim();
+      if (key === name) {
+        continue;
+      }
+      kept.push(trimmed);
+    }
   }
-  const jwtSecret = process.env.SECURE_TOKEN;
-  if (!jwtSecret) {
-    return undefined;
-  }
-  try {
-    // Verify with jsonwebtoken only. Do not import jwtUtils: that module loads
-    // firebase-admin, and _app.tsx would then fail the Vercel client compile.
-    const payload = jwt.verify(token, jwtSecret, {
-      algorithms: ["HS256"],
-      issuer: "mega-rag-chatbot",
-      audience: "mega-rag-chatbot-users",
-    }) as { email?: string };
-    return payload.email;
-  } catch (error) {
-    console.error("Wiki library gate could not read the auth cookie:", error);
-    return undefined;
-  }
+  kept.push(`${name}=${value}`);
+  return kept.join("; ");
+}
+
+/**
+ * Drop a client-sent wiki header and wikiLibrary cookie.
+ * Write the middleware decision in their place.
+ */
+export function applyWikiLibraryRequestOverrides(headers: Headers, allowed: boolean): Headers {
+  const value = wikiLibraryDecisionValue(allowed);
+  headers.delete(WIKI_LIBRARY_HEADER);
+  headers.set(WIKI_LIBRARY_HEADER, value);
+  headers.set("cookie", overwriteCookieValue(headers.get("cookie") ?? undefined, WIKI_LIBRARY_COOKIE, value));
+  return headers;
 }
 
 function readCookie(cookieHeader: string | undefined, name: string): string | undefined {

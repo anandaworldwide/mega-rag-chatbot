@@ -11,10 +11,9 @@ import { SudoProvider } from "@/contexts/SudoContext";
 import { SiteConfig } from "@/types/siteConfig";
 import { getCommonSiteConfigProps } from "@/utils/server/getCommonSiteConfigProps";
 import {
-  canSeeWikiLibrary,
-  emailFromAuthCookieHeader,
+  WIKI_LIBRARY_HEADER,
   wikiLibraryCookieAllows,
-  wikiLibraryCookieHeader,
+  wikiLibraryHeaderAllows,
   withoutWikiLibrary,
 } from "@/utils/server/wikiLibraryAccess";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -182,21 +181,11 @@ function MyApp({ Component, pageProps }: CustomAppProps) {
 MyApp.getInitialProps = async (appContext: AppContext) => {
   const result = await getCommonSiteConfigProps();
   const req = appContext.ctx.req;
-  const res = appContext.ctx.res;
   let allowed = false;
   if (req) {
-    allowed = canSeeWikiLibrary(emailFromAuthCookieHeader(req.headers.cookie));
-    if (res) {
-      const header = wikiLibraryCookieHeader(allowed);
-      const previous = res.getHeader("Set-Cookie");
-      const cookies =
-        previous == null
-          ? [header]
-          : Array.isArray(previous)
-            ? [...previous.map(String), header]
-            : [String(previous), header];
-      res.setHeader("Set-Cookie", cookies);
-    }
+    // Fail closed. Trust only the header that middleware writes.
+    // Do not read a client cookie or a missing/unknown header on the server path.
+    allowed = wikiLibraryHeaderAllows(req.headers[WIKI_LIBRARY_HEADER]);
   } else if (typeof document !== "undefined") {
     allowed = wikiLibraryCookieAllows(document.cookie);
   }
