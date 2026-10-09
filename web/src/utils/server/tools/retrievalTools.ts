@@ -68,10 +68,83 @@ Answer the user's request completely now from those sources:
 - If they asked for a class/talk outline or other multi-part deliverable, produce the full structured answer (all required sections), not a one-liner or partial draft.
 - When they ask for quotations, give exact lines with citations.
 - If sources are thin, briefly note what is missing, then still finish the best complete answer you can from what you have.
+- If they asked to list every chapter and the sources lack a full table of contents, list every chapter you can cite and say which ones are missing.
 - Never end after only saying you will search or gather more.`;
 
 export const RETRIEVAL_POST_TOOL_RETRY_GUIDANCE = `## After retrieval tools
-The JSON sources above include any documents returned so far. If they are clearly insufficient, you may call one retrieval tool once more. Otherwise answer the user now with exact quotations and citations. Do not narrate searching in plain text — either call a tool or answer.`;
+The JSON sources above include any documents returned so far. If they are clearly insufficient, you may call one retrieval tool once more. Otherwise answer the user now with exact quotations and citations. Do not narrate searching in plain text — either call a tool or answer.
+If the user asked to list every chapter of a book, search for that book's table of contents or chapter list before answering.`;
+
+export const RETRIEVAL_FETCH_FAILED_USER_MESSAGE =
+  "Additional source fetch failed. I could not finish a complete answer. Please try again.";
+
+export const RETRIEVAL_ROUND_LIMIT_USER_MESSAGE =
+  "I reached the limit for fetching more sources and could not finish a complete answer. Please try again.";
+
+export const RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE =
+  "I could not finish a complete answer after fetching additional sources. Please try again.";
+
+/** Extra source budget for "list all chapters" queries so a second search can run. */
+export const ENUMERATIVE_ADDED_RETRIEVAL_SOURCES = 16;
+
+/**
+ * True when the user asked to list every chapter (needs TOC coverage, not one expansion).
+ */
+export function isEnumerativeListingQuery(question: string): boolean {
+  const normalized = question.toLowerCase();
+  const asksToList = /\b(list|name|enumerate|what are|give me)\b/.test(normalized);
+  const asksForChapters = /\bchapters?\b/.test(normalized);
+  const asksForAll = /\b(all|every|complete|entire|full)\b/.test(normalized);
+  return asksToList && asksForChapters && asksForAll;
+}
+
+export type FinalizeRetrievalUserAnswerParams = {
+  answerText: string;
+  fetchFailed?: boolean;
+  roundLimitHit?: boolean;
+  afterRetrievalAttempt: boolean;
+};
+
+export type FinalizeRetrievalUserAnswerResult = {
+  text: string;
+  usedFallback: boolean;
+  reason?: "fetch_failed" | "round_limit" | "incomplete";
+};
+
+/**
+ * After a retrieval-tool attempt, keep a real answer or replace leftover
+ * search narration with a plain user-facing note.
+ */
+export function finalizeRetrievalUserAnswer(
+  params: FinalizeRetrievalUserAnswerParams
+): FinalizeRetrievalUserAnswerResult {
+  const incomplete = isIncompleteRetrievalAnswer(params.answerText);
+  if (!incomplete && params.answerText.trim()) {
+    return { text: params.answerText, usedFallback: false };
+  }
+  if (!params.afterRetrievalAttempt) {
+    return { text: params.answerText, usedFallback: false };
+  }
+  if (params.fetchFailed) {
+    return {
+      text: RETRIEVAL_FETCH_FAILED_USER_MESSAGE,
+      usedFallback: true,
+      reason: "fetch_failed",
+    };
+  }
+  if (params.roundLimitHit) {
+    return {
+      text: RETRIEVAL_ROUND_LIMIT_USER_MESSAGE,
+      usedFallback: true,
+      reason: "round_limit",
+    };
+  }
+  return {
+    text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+    usedFallback: true,
+    reason: "incomplete",
+  };
+}
 
 /**
  * True when a post-retrieval "answer" is really a leaked tool call or search narration,
@@ -110,7 +183,7 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
       trimmed
     );
   const mentionsRetrievalWork =
-    /\b(search|searching|source|sources|passage|passages|chunk|chunks|quote|quotes|richer|additional|more|tighter search|tighter query|book material)\b/i.test(
+    /\b(search|searching|source|sources|passage|passages|chunk|chunks|quote|quotes|richer|additional|more|tighter search|tighter query|book material|brindaban|story passages)\b/i.test(
       trimmed
     );
   const hasGluedSearchNarration =
@@ -124,11 +197,22 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
       trimmed
     );
 
+  // Grok sometimes glues the status line: "FetchingmoreoftheBrindabanaccount..."
+  const glued = trimmed.replace(/[\s.]+/g, "").toLowerCase();
+  const gluedStartsLikeSearchNarration =
+    /^(ill|iwill|iam|im|idont|letme|gathering|pulling|searching|seeking|lookingup|fetching|trying|expanding)/.test(
+      glued
+    );
+  const gluedMentionsRetrievalWork =
+    /(search|source|passage|chunk|quote|richer|additional|more|tightersearch|tighterquery|bookmaterial|brindaban|storypassages)/.test(
+      glued
+    );
+
   // Short "I'll gather richer sources…" trail-offs, including glued status-like sentences.
   if (
     wordCount < 80 &&
-    (startsLikeSearchNarration || hasGluedSearchNarration) &&
-    (mentionsRetrievalWork || hasAdjacentFetchNarration)
+    (startsLikeSearchNarration || hasGluedSearchNarration || gluedStartsLikeSearchNarration) &&
+    (mentionsRetrievalWork || hasAdjacentFetchNarration || gluedMentionsRetrievalWork)
   ) {
     return true;
   }
@@ -251,7 +335,7 @@ export const RETRIEVAL_TOOL_DEFINITIONS = [
     function: {
       name: "search_more_sources",
       description:
-        "Run an additional semantic search with a reformulated or broadened query when current sources are weak or incomplete.",
+        "Run an additional semantic search with a reformulated or broadened query when current sources are weak or incomplete. For a request to list every chapter of a book, search for that book's table of contents or chapter list.",
       parameters: {
         type: "object",
         properties: {

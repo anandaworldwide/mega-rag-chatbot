@@ -66,8 +66,11 @@ import { NextRequest } from "next/server";
 import { extractGeoToolCalls, extractStreamedTextDelta } from "@/utils/server/geoToolCalls";
 import {
   buildRetrievalReinvokeMessages,
+  ENUMERATIVE_ADDED_RETRIEVAL_SOURCES,
   executeRetrievalTool,
+  finalizeRetrievalUserAnswer,
   getRetrievalToolGuidance,
+  isEnumerativeListingQuery,
   isIncompleteRetrievalAnswer,
   isRetrievalToolName,
   MAX_RETRIEVAL_TOOL_ITERATIONS,
@@ -1794,6 +1797,7 @@ export async function setupAndExecuteLanguageModelChain(
       // Handle tool calls with proper loop (OpenAI tool_calls + Anthropic tool_use / JSON fallback)
       let pendingToolCalls = extractGeoToolCalls(result.answer);
       const retrievalToolsEnabled = shouldBindRetrievalTools(siteConfig, modelName, isAnthropicModel);
+      const enumerativeListingQuery = isEnumerativeListingQuery(sanitizedQuestion);
       // Plain-text "I'll search…" with no tool_calls never entered this loop, so the leak became the answer.
       const firstPassIsSearchNarration =
         retrievalToolsEnabled && isIncompleteRetrievalAnswer(fullResponse);
@@ -1824,6 +1828,8 @@ export async function setupAndExecuteLanguageModelChain(
         let retrievalExpansionSucceeded = false;
         /** Prevent double answer-only recovery (buffer discard + end-of-loop safety net). */
         let retrievalAnswerForced = false;
+        let retrievalFetchFailed = false;
+        let retrievalRoundLimitHit = false;
         if (retrievalToolsEnabled) {
           const vectorStore = retriever.vectorStore as PineconeStore;
           const pineconeIndex = vectorStore?.pineconeIndex;
@@ -1838,12 +1844,39 @@ export async function setupAndExecuteLanguageModelChain(
               // search_more_sources cannot escape a named-author (e.g. Asha) hard scope.
               filter: retrievalFilterCapture.filter ?? filter,
               knownSourceIds: knownIds,
+              remainingSourceBudget: enumerativeListingQuery
+                ? ENUMERATIVE_ADDED_RETRIEVAL_SOURCES
+                : undefined,
               effectiveAccessLevel,
               siteConfig,
               minRetrievalScore: getMinRetrievalScore(siteConfig),
             });
           }
         }
+
+        const emitGuardedRetrievalAnswer = (answerText: string) => {
+          const finalized = finalizeRetrievalUserAnswer({
+            answerText,
+            fetchFailed: retrievalFetchFailed,
+            roundLimitHit: retrievalRoundLimitHit,
+            afterRetrievalAttempt:
+              retrievalIterations > 0 || firstPassIsSearchNarration || retrievalAnswerForced,
+          });
+          if (!finalized.usedFallback) {
+            return finalized.text;
+          }
+          console.warn(
+            `⚠️ Replacing incomplete retrieval answer with user-facing fallback (${finalized.reason})`
+          );
+          sendData({ status: "retrieving_more_sources" });
+          fullResponse = finalized.text;
+          tokensStreamed = finalized.text.length;
+          firstTokenTime = firstTokenTime ?? Date.now();
+          firstByteTime = firstByteTime ?? Date.now();
+          streamingDeadline.touchStreamingActivity();
+          sendData({ token: finalized.text });
+          return finalized.text;
+        };
 
         /** Answer-only recovery so the client never stuck on "Gathering additional sources...". */
         const forceRetrievalAnswerOnly = async (reason: string) => {
@@ -1932,6 +1965,9 @@ export async function setupAndExecuteLanguageModelChain(
             const isRetrievalRound = pendingToolCalls.some((call) => isRetrievalToolName(call.name));
             if (isRetrievalRound) {
               if (!retrievalToolContext || retrievalIterations >= MAX_RETRIEVAL_TOOL_ITERATIONS) {
+                if (retrievalIterations >= MAX_RETRIEVAL_TOOL_ITERATIONS) {
+                  retrievalRoundLimitHit = true;
+                }
                 await forceRetrievalAnswerOnly(
                   !retrievalToolContext ? "missing retrieval tool context" : "max retrieval iterations"
                 );
@@ -1940,7 +1976,8 @@ export async function setupAndExecuteLanguageModelChain(
 
               // Model sometimes emits another tool_call after we already expanded and unbound tools.
               // Do not flash status or re-fetch (usually 0 new / all dupes) — answer only.
-              if (retrievalExpansionSucceeded) {
+              // Enumerative "list all chapters" queries may use the second round to fetch a TOC.
+              if (retrievalExpansionSucceeded && !enumerativeListingQuery) {
                 await forceRetrievalAnswerOnly("sources already expanded; ignoring further tool calls");
                 break;
               }
@@ -1974,6 +2011,9 @@ export async function setupAndExecuteLanguageModelChain(
                     toolCall.args,
                     retrievalToolContext
                   );
+                  if (retrievalResult.ok === false) {
+                    retrievalFetchFailed = true;
+                  }
                   newlyFetchedDocs.push(...retrievalResult.documents);
                   toolResults.push({
                     tool_call_id: toolCall.id,
@@ -1992,6 +2032,9 @@ export async function setupAndExecuteLanguageModelChain(
                 }
               } catch (error) {
                 console.error(`❌ Tool ${toolCall.name} failed:`, error);
+                if (isRetrievalToolName(toolCall.name)) {
+                  retrievalFetchFailed = true;
+                }
                 toolResults.push({
                   tool_call_id: toolCall.id,
                   content: JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
@@ -2033,12 +2076,13 @@ export async function setupAndExecuteLanguageModelChain(
             });
             answerModelUsed = finalAnswerModelName;
 
-            // Only allow another retrieval tool round when the last round returned nothing usable.
-            // If docs arrived, force an answer turn — otherwise models narrate "searching more" in plain text.
+            // Only allow another retrieval tool round when the last round returned nothing usable,
+            // or when an enumerative listing still needs a TOC/chapter-list search.
+            // If docs arrived on a normal query, force an answer turn.
             const allowMoreRetrievalTools =
               isRetrievalRound &&
               retrievalToolsEnabled &&
-              newlyFetchedDocs.length === 0 &&
+              (newlyFetchedDocs.length === 0 || enumerativeListingQuery) &&
               retrievalIterations < MAX_RETRIEVAL_TOOL_ITERATIONS &&
               (retrievalToolContext?.remainingSourceBudget ?? 0) > 0;
 
@@ -2199,6 +2243,8 @@ export async function setupAndExecuteLanguageModelChain(
             );
           }
 
+          emitGuardedRetrievalAnswer(fullResponse);
+
           result.answer = currentResponse;
           console.log(`✅ Tool execution loop completed after ${iteration} iterations`);
         });
@@ -2302,8 +2348,16 @@ export async function setupAndExecuteLanguageModelChain(
       // Use the streamed fullResponse as the authoritative answer since it's what was sent to the frontend
       // result.sourceDocuments are the correctly filtered documents from makeChain.
       // result.question is the restated question from the chain
+      // Do not fall back to first-pass tool narration after a retrieval attempt.
+      const fallbackAnswerContent =
+        result.answer && typeof result.answer.content === "string" ? result.answer.content : "";
+      const authoritativeAnswer = fullResponse.trim()
+        ? fullResponse
+        : fallbackAnswerContent && !isIncompleteRetrievalAnswer(fallbackAnswerContent)
+          ? fallbackAnswerContent
+          : fullResponse;
       return {
-        fullResponse: fullResponse || result.answer.content, // Prefer streamed content, fallback to result.answer.content
+        fullResponse: authoritativeAnswer,
         finalDocs: result.sourceDocuments,
         restatedQuestion: result.question,
         suggestionsPromise,

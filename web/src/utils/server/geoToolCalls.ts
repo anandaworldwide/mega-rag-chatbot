@@ -9,6 +9,113 @@ export type NormalizedToolCall = {
   args: Record<string, unknown>;
 };
 
+function parseJsonObject(text: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function tryParseLeakedRetrievalToolJson(text: string): NormalizedToolCall | null {
+  const stripped = text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/```$/i, "")
+    .trim();
+  const match = stripped.match(
+    /\{\s*"name"\s*:\s*"(search_more_sources|get_adjacent_chunks)"\s*,\s*"parameters"\s*:\s*(\{[\s\S]*?\})\s*\}/
+  );
+  if (!match) {
+    return null;
+  }
+  const args = parseJsonObject(match[2]);
+  return {
+    id: `fallback_${match[1]}_${Date.now()}`,
+    name: match[1],
+    args: args ?? {},
+  };
+}
+
+function callsFromToolCallChunks(chunks: unknown): NormalizedToolCall[] {
+  if (!Array.isArray(chunks) || chunks.length === 0) {
+    return [];
+  }
+
+  const byIndex = new Map<number, { id: string; name: string; argsText: string }>();
+  chunks.forEach((chunk, fallbackIndex) => {
+    if (!chunk || typeof chunk !== "object") {
+      return;
+    }
+    const typed = chunk as { id?: unknown; name?: unknown; args?: unknown; index?: unknown };
+    const index = typeof typed.index === "number" ? typed.index : fallbackIndex;
+    const existing = byIndex.get(index) ?? { id: "", name: "", argsText: "" };
+    if (typeof typed.id === "string" && typed.id) {
+      existing.id = typed.id;
+    }
+    if (typeof typed.name === "string" && typed.name) {
+      existing.name = typed.name;
+    }
+    if (typeof typed.args === "string") {
+      existing.argsText += typed.args;
+    }
+    byIndex.set(index, existing);
+  });
+
+  const calls: NormalizedToolCall[] = [];
+  for (const [index, assembled] of byIndex) {
+    if (!assembled.name) {
+      continue;
+    }
+    const parsedArgs = assembled.argsText ? parseJsonObject(assembled.argsText) : null;
+    calls.push({
+      id: assembled.id || `tool_call_chunk_${index}`,
+      name: assembled.name,
+      args: parsedArgs ?? {},
+    });
+  }
+  return calls;
+}
+
+function callsFromOpenAiStyleToolCalls(rawCalls: unknown): NormalizedToolCall[] {
+  if (!Array.isArray(rawCalls) || rawCalls.length === 0) {
+    return [];
+  }
+  return rawCalls
+    .map((call, index) => {
+      if (!call || typeof call !== "object") {
+        return null;
+      }
+      const typed = call as {
+        id?: unknown;
+        name?: unknown;
+        args?: unknown;
+        function?: { name?: unknown; arguments?: unknown };
+      };
+      const nameFromFunction = typeof typed.function?.name === "string" ? typed.function.name : "";
+      const name = typeof typed.name === "string" && typed.name ? typed.name : nameFromFunction;
+      if (!name) {
+        return null;
+      }
+      let args: Record<string, unknown> = {};
+      if (typed.args && typeof typed.args === "object" && !Array.isArray(typed.args)) {
+        args = typed.args as Record<string, unknown>;
+      } else if (typeof typed.function?.arguments === "string") {
+        args = parseJsonObject(typed.function.arguments) ?? {};
+      }
+      return {
+        id: typeof typed.id === "string" && typed.id ? typed.id : `tool_call_${index}`,
+        name,
+        args,
+      };
+    })
+    .filter((call): call is NormalizedToolCall => call !== null);
+}
+
 function tryParseLeakedGeoToolJson(text: string): NormalizedToolCall | null {
   const trimmed = text.trim();
   if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
@@ -67,18 +174,31 @@ export function extractGeoToolCalls(answer: unknown): NormalizedToolCall[] {
   }
 
   const message = answer as {
-    tool_calls?: Array<{ id?: string; name?: string; args?: Record<string, unknown> }>;
+    tool_calls?: unknown;
+    tool_call_chunks?: unknown;
+    invalid_tool_calls?: unknown;
+    additional_kwargs?: { tool_calls?: unknown; function_call?: unknown };
     content?: unknown;
   };
 
-  if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
-    return message.tool_calls
-      .filter((call) => typeof call?.name === "string" && call.name.length > 0)
-      .map((call, index) => ({
-        id: typeof call.id === "string" && call.id ? call.id : `tool_call_${index}`,
-        name: call.name as string,
-        args: call.args && typeof call.args === "object" ? call.args : {},
-      }));
+  const fromNative = callsFromOpenAiStyleToolCalls(message.tool_calls);
+  if (fromNative.length > 0) {
+    return fromNative;
+  }
+
+  const fromKwargs = callsFromOpenAiStyleToolCalls(message.additional_kwargs?.tool_calls);
+  if (fromKwargs.length > 0) {
+    return fromKwargs;
+  }
+
+  const fromChunks = callsFromToolCallChunks(message.tool_call_chunks);
+  if (fromChunks.length > 0) {
+    return fromChunks;
+  }
+
+  const fromInvalid = callsFromOpenAiStyleToolCalls(message.invalid_tool_calls);
+  if (fromInvalid.length > 0) {
+    return fromInvalid;
   }
 
   if (Array.isArray(message.content)) {
@@ -101,8 +221,13 @@ export function extractGeoToolCalls(answer: unknown): NormalizedToolCall[] {
     }
   }
 
-  const leaked = tryParseLeakedGeoToolJson(textFromContent(message.content));
-  return leaked ? [leaked] : [];
+  const contentText = textFromContent(message.content);
+  const leakedRetrieval = tryParseLeakedRetrievalToolJson(contentText);
+  if (leakedRetrieval) {
+    return [leakedRetrieval];
+  }
+  const leakedGeo = tryParseLeakedGeoToolJson(contentText);
+  return leakedGeo ? [leakedGeo] : [];
 }
 
 /**

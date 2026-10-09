@@ -22,10 +22,15 @@ import {
   buildRetrievalReinvokeSystemPrompt,
   fillRetrievalAnswerTemplate,
   isIncompleteRetrievalAnswer,
+  isEnumerativeListingQuery,
+  finalizeRetrievalUserAnswer,
   RETRIEVAL_TOOL_DEFINITIONS,
   RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE,
   RETRIEVAL_TOOL_GUIDANCE,
   RETRIEVAL_TOOL_GUIDANCE_CURBED,
+  RETRIEVAL_FETCH_FAILED_USER_MESSAGE,
+  RETRIEVAL_ROUND_LIMIT_USER_MESSAGE,
+  RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
   getRetrievalToolGuidance,
 } from "../../../../src/utils/server/tools/retrievalTools";
 
@@ -416,6 +421,17 @@ describe("retrievalTools", () => {
       ).toBe(false);
     });
 
+    it("treats spaced and glued Fetching-more AY narration as incomplete", () => {
+      expect(
+        isIncompleteRetrievalAnswer(
+          "Fetching more of the Brindaban account and other AY story passages."
+        )
+      ).toBe(true);
+      expect(
+        isIncompleteRetrievalAnswer("FetchingmoreoftheBrindabanaccountandotherAYstorypassages.")
+      ).toBe(true);
+    });
+
     it("treats a full class outline answer as complete", () => {
       const outline = `
 # Living the Bhagavad Gita
@@ -436,6 +452,76 @@ Pair share: where did you face an Arjuna moment this week?
 Short quotation and seated quiet. Sources include Crystal Clarity commentaries.
 `.trim();
       expect(isIncompleteRetrievalAnswer(outline)).toBe(false);
+    });
+  });
+
+  describe("isEnumerativeListingQuery", () => {
+    it("detects list-all-chapters requests", () => {
+      expect(isEnumerativeListingQuery("List all the chapters of Autobiography of a Yogi")).toBe(
+        true
+      );
+      expect(isEnumerativeListingQuery("Give me some stories from Autobiography of a Yogi")).toBe(
+        false
+      );
+    });
+  });
+
+  describe("finalizeRetrievalUserAnswer", () => {
+    it("keeps a complete answer when the fetch returns sources", () => {
+      const answer =
+        "Here are three stories from Autobiography of a Yogi, including the Brindaban tiger and the mustard seed.";
+      const result = finalizeRetrievalUserAnswer({
+        answerText: answer,
+        afterRetrievalAttempt: true,
+      });
+      expect(result).toEqual({ text: answer, usedFallback: false });
+    });
+
+    it("says so plainly when the fetch fails", () => {
+      const result = finalizeRetrievalUserAnswer({
+        answerText: "Fetching more of the Brindaban account and other AY story passages.",
+        fetchFailed: true,
+        afterRetrievalAttempt: true,
+      });
+      expect(result).toEqual({
+        text: RETRIEVAL_FETCH_FAILED_USER_MESSAGE,
+        usedFallback: true,
+        reason: "fetch_failed",
+      });
+    });
+
+    it("says so plainly when the round limit is hit", () => {
+      const result = finalizeRetrievalUserAnswer({
+        answerText: "",
+        roundLimitHit: true,
+        afterRetrievalAttempt: true,
+      });
+      expect(result).toEqual({
+        text: RETRIEVAL_ROUND_LIMIT_USER_MESSAGE,
+        usedFallback: true,
+        reason: "round_limit",
+      });
+    });
+
+    it("replaces leftover fetch narration after a retrieval attempt", () => {
+      const result = finalizeRetrievalUserAnswer({
+        answerText: "FetchingmoreoftheBrindabanaccountandotherAYstorypassages.",
+        afterRetrievalAttempt: true,
+      });
+      expect(result).toEqual({
+        text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+        usedFallback: true,
+        reason: "incomplete",
+      });
+    });
+
+    it("does not replace a no-fetch complete answer", () => {
+      const answer = "Kriya Yoga is a meditation technique taught by Paramhansa Yogananda.";
+      const result = finalizeRetrievalUserAnswer({
+        answerText: answer,
+        afterRetrievalAttempt: false,
+      });
+      expect(result).toEqual({ text: answer, usedFallback: false });
     });
   });
 });

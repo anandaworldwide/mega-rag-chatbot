@@ -36,6 +36,61 @@ describe("extractGeoToolCalls", () => {
     expect(extractGeoToolCalls({ content: "Here are nearby centers." })).toEqual([]);
     expect(extractGeoToolCalls(null)).toEqual([]);
   });
+
+  it("assembles LangChain tool_call_chunks used by streamed Grok/OpenAI tool calls", () => {
+    const calls = extractGeoToolCalls({
+      content: "Fetching more of the Brindaban account and other AY story passages.",
+      tool_call_chunks: [
+        {
+          id: "call_ay",
+          name: "search_more_sources",
+          args: '{"query":"Autobiography of a Yogi Brindaban stories","k":8}',
+          index: 0,
+        },
+      ],
+    });
+    expect(calls).toEqual([
+      {
+        id: "call_ay",
+        name: "search_more_sources",
+        args: { query: "Autobiography of a Yogi Brindaban stories", k: 8 },
+      },
+    ]);
+  });
+
+  it("reads OpenAI-style additional_kwargs tool_calls", () => {
+    const calls = extractGeoToolCalls({
+      additional_kwargs: {
+        tool_calls: [
+          {
+            id: "call_kw",
+            type: "function",
+            function: {
+              name: "search_more_sources",
+              arguments: '{"query":"AY table of contents","k":8}',
+            },
+          },
+        ],
+      },
+    });
+    expect(calls).toEqual([
+      {
+        id: "call_kw",
+        name: "search_more_sources",
+        args: { query: "AY table of contents", k: 8 },
+      },
+    ]);
+  });
+
+  it("falls back when retrieval tool JSON is leaked as text", () => {
+    const calls = extractGeoToolCalls({
+      content:
+        'Fetching more sources.\n{"name": "search_more_sources", "parameters": {"query": "AY chapters", "k": 8}}',
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe("search_more_sources");
+    expect(calls[0].args).toEqual({ query: "AY chapters", k: 8 });
+  });
 });
 
 describe("extractStreamedTextDelta", () => {
