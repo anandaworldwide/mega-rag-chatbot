@@ -1180,7 +1180,11 @@ def test_luca_config_keeps_the_wiki_off_vivek():
         entry["name"] if isinstance(entry, dict) else entry
         for entry in config["ananda-public"]["includedLibraries"]
     ]
-    wiki_entry = next(entry for entry in ananda_entries if isinstance(entry, dict) and entry.get("name") == "Ananda Family Wiki")
+    wiki_entry = next(
+        entry
+        for entry in ananda_entries
+        if isinstance(entry, dict) and entry.get("name") == "Ananda Family Wiki"
+    )
     assert "Ananda Family Wiki" in ananda
     assert wiki_entry.get("accessEmailsEnv") == "WIKI_LIBRARY_EMAILS"
     assert "Ananda Family Wiki" not in public
