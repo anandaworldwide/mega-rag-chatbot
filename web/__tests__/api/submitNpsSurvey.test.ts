@@ -81,7 +81,24 @@ global.JSON.parse = jest.fn().mockImplementation((text) => {
   return originalJsonParse(text);
 });
 
+function mockEmptySheetReads() {
+  mockGetFn
+    .mockResolvedValueOnce({
+      data: {
+        values: [],
+      },
+    })
+    .mockResolvedValueOnce({
+      data: {
+        values: [],
+      },
+    });
+}
+
 describe("NPS Survey API", () => {
+  let infoSpy: jest.SpyInstance;
+  let errorSpy: jest.SpyInstance;
+
   // Set up environment variables before each test
   beforeEach(() => {
     process.env.GOOGLE_APPLICATION_CREDENTIALS = "test-credentials";
@@ -90,10 +107,14 @@ describe("NPS Survey API", () => {
     // Reset mock implementations to ensure clean state for each test
     mockGetFn.mockReset();
     mockAppendFn.mockReset();
+    infoSpy = jest.spyOn(console, "info").mockImplementation(() => {});
+    errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
   });
 
   // Clean up environment variables after each test
   afterEach(() => {
+    infoSpy.mockRestore();
+    errorSpy.mockRestore();
     delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
     delete process.env.NPS_SURVEY_GOOGLE_SHEET_ID;
   });
@@ -265,7 +286,13 @@ describe("NPS Survey API", () => {
 
     // Mock the append function to return success
     mockAppendFn.mockResolvedValueOnce({
-      data: { updates: { updatedCells: 5 } },
+      data: {
+        updates: {
+          updatedRange: "Responses!A10:F10",
+          updatedRows: 1,
+          updatedCells: 6,
+        },
+      },
     });
 
     const timestamp = new Date().toISOString();
@@ -282,10 +309,90 @@ describe("NPS Survey API", () => {
 
     await handler(req, res);
 
+    expect(mockAppendFn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spreadsheetId: "test-sheet-id",
+        range: "Responses!A:F",
+        valueInputOption: "USER_ENTERED",
+        insertDataOption: "INSERT_ROWS",
+      })
+    );
     expect(res.statusCode).toBe(200);
     expect(res._getJSONData()).toEqual({
       message: "Survey submitted successfully",
     });
+    expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining("updatedRange=Responses!A10:F10"));
+    expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining("spreadsheetIdSuffix=eet-id"));
+  });
+
+  it("should return 500 and log an error when updatedCells is 0", async () => {
+    mockEmptySheetReads();
+    mockAppendFn.mockResolvedValueOnce({
+      data: {
+        updates: {
+          updatedRange: "Responses!A10:F10",
+          updatedRows: 0,
+          updatedCells: 0,
+        },
+      },
+    });
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: {
+        uuid: "123e4567-e89b-12d3-a456-426614174000",
+        score: 8,
+        feedback: "Great service!",
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(500);
+    expect(res._getJSONData()).toEqual({
+      error: "Error submitting survey: no cells written to sheet",
+      code: "INTERNAL_ERROR",
+    });
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("NPS survey sheet append wrote no cells")
+    );
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("updatedCells=0"));
+    expect(infoSpy).not.toHaveBeenCalledWith(expect.stringContaining("NPS survey sheet append:"));
+  });
+
+  it("should return 500 and log an error when updatedCells is missing", async () => {
+    mockEmptySheetReads();
+    mockAppendFn.mockResolvedValueOnce({
+      data: {
+        updates: {
+          updatedRange: "Responses!A10:F10",
+          updatedRows: 1,
+        },
+      },
+    });
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: {
+        uuid: "123e4567-e89b-12d3-a456-426614174000",
+        score: 8,
+        feedback: "Great service!",
+        timestamp: new Date().toISOString(),
+      },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(500);
+    expect(res._getJSONData()).toEqual({
+      error: "Error submitting survey: no cells written to sheet",
+      code: "INTERNAL_ERROR",
+    });
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining("NPS survey sheet append wrote no cells")
+    );
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("updatedCells=missing"));
   });
 
   it("should handle Google Sheets API errors", async () => {

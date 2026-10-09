@@ -12,6 +12,30 @@ import { sanitizeTextInput } from "@/utils/server/inputSanitization";
 import { createErrorResponse, ERROR_CODES } from "@/utils/server/apiErrorResponse";
 
 /**
+ * Returns the last 6 characters of a spreadsheet ID so logs do not store the full ID.
+ */
+function maskSpreadsheetIdSuffix(spreadsheetId: string): string {
+  return spreadsheetId.slice(-6);
+}
+
+/**
+ * Builds one log line for an NPS sheet append. Do not pass email or feedback text.
+ */
+function formatNpsSheetAppendLog(fields: {
+  spreadsheetIdSuffix: string;
+  updatedRange: string | null | undefined;
+  updatedRows: number | null | undefined;
+  updatedCells: number | null | undefined;
+}): string {
+  return (
+    `spreadsheetIdSuffix=${fields.spreadsheetIdSuffix} ` +
+    `updatedRange=${fields.updatedRange ?? "missing"} ` +
+    `updatedRows=${fields.updatedRows ?? "missing"} ` +
+    `updatedCells=${fields.updatedCells ?? "missing"}`
+  );
+}
+
+/**
  * Checks if a UUID has submitted a survey in the last month
  * Returns the most recent submission timestamp if found, null otherwise
  */
@@ -232,15 +256,34 @@ async function handleRequest(req: NextApiRequest, res: NextApiResponse): Promise
     // If no recent submission, proceed with adding the new entry
     // Use sanitized values to prevent injection attacks
     // Add idempotency hash as 6th column for future duplicate detection
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: process.env.NPS_SURVEY_GOOGLE_SHEET_ID,
-      range: "Responses",
+    const spreadsheetId = process.env.NPS_SURVEY_GOOGLE_SHEET_ID;
+    const appendResponse = await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: "Responses!A:F",
       valueInputOption: "USER_ENTERED",
+      insertDataOption: "INSERT_ROWS",
       requestBody: {
         values: [[timestamp, uuid, score, sanitizedFeedback, sanitizedAdditionalComments, idempotencyHash]],
       },
     });
 
+    const updates = appendResponse.data?.updates;
+    const appendLogLine = formatNpsSheetAppendLog({
+      spreadsheetIdSuffix: maskSpreadsheetIdSuffix(spreadsheetId ?? ""),
+      updatedRange: updates?.updatedRange,
+      updatedRows: updates?.updatedRows,
+      updatedCells: updates?.updatedCells,
+    });
+
+    if (typeof updates?.updatedCells !== "number" || updates.updatedCells === 0) {
+      console.error(`NPS survey sheet append wrote no cells: ${appendLogLine}`);
+      res
+        .status(500)
+        .json(createErrorResponse("Error submitting survey: no cells written to sheet", ERROR_CODES.INTERNAL_ERROR));
+      return;
+    }
+
+    console.info(`NPS survey sheet append: ${appendLogLine}`);
     res.status(200).json({ message: "Survey submitted successfully" });
   } catch (error: any) {
     console.error("Error submitting NPS survey:", error);
