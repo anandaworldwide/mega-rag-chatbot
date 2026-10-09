@@ -151,6 +151,22 @@ export function finalizeRetrievalUserAnswer(
  * not a usable user-facing response (common when tools are unbound but the site prompt
  * still urges search_more_sources).
  */
+/** True when Grok (or similar) emitted a status line with almost no spaces. */
+export function isRunTogetherNarrationText(text: string): boolean {
+  const compact = text.replace(/[\s.,…]+/g, "");
+  if (compact.length < 25) {
+    return false;
+  }
+  const whitespaceCount = (text.match(/\s/g) || []).length;
+  if (whitespaceCount === 0) {
+    return true;
+  }
+  const tokens = text.split(/\s+/).filter(Boolean);
+  const longestToken = tokens.reduce((max, token) => Math.max(max, token.replace(/[.,…]+/g, "").length), 0);
+  const spaceRatio = whitespaceCount / Math.max(text.length, 1);
+  return longestToken >= 25 || spaceRatio < 0.08;
+}
+
 export function isIncompleteRetrievalAnswer(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) {
@@ -179,11 +195,11 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
 
   const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
   const startsLikeSearchNarration =
-    /^(i('ll| will)|i am|i'm|i don['’]t|let me|gathering|pulling|searching|seeking|looking up|fetching|trying|expanding)\b/i.test(
+    /^(i('ll| will)|i am|i'm|i don['’]t|let me(?: fetch| search| pull)?|gathering|pulling|searching|seeking|looking (?:up|for)|fetching|trying|expanding)\b/i.test(
       trimmed
     );
   const mentionsRetrievalWork =
-    /\b(search|searching|source|sources|passage|passages|chunk|chunks|quote|quotes|richer|additional|more|tighter search|tighter query|book material|brindaban|story passages)\b/i.test(
+    /\b(search|searching|source|sources|passage|passages|chunk|chunks|quote|quotes|richer|additional|more|tighter search|tighter query|book material)\b/i.test(
       trimmed
     );
   const hasGluedSearchNarration =
@@ -197,16 +213,20 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
       trimmed
     );
 
-  // Grok sometimes glues the status line: "FetchingmoreoftheBrindabanaccount..."
-  const glued = trimmed.replace(/[\s.]+/g, "").toLowerCase();
-  const gluedStartsLikeSearchNarration =
-    /^(ill|iwill|iam|im|idont|letme|gathering|pulling|searching|seeking|lookingup|fetching|trying|expanding)/.test(
-      glued
-    );
-  const gluedMentionsRetrievalWork =
-    /(search|source|passage|chunk|quote|richer|additional|more|tightersearch|tighterquery|bookmaterial|brindaban|storypassages)/.test(
-      glued
-    );
+  // Apply the no-space check only to run-together status lines, not normal prose.
+  let gluedStartsLikeSearchNarration = false;
+  let gluedMentionsRetrievalWork = false;
+  if (isRunTogetherNarrationText(trimmed)) {
+    const glued = trimmed.replace(/[\s.,…]+/g, "").toLowerCase();
+    gluedStartsLikeSearchNarration =
+      /^(fetching|searching|lookingfor|lookingup|letmefetch|letmesearch|letmepull|gathering|pulling|seeking|trying|expanding|illpull|iwill|iamsearching|imsearching|idont)/.test(
+        glued
+      );
+    gluedMentionsRetrievalWork =
+      /(search|sources?|passages?|chunks?|quotes?|additional|more|tightersearch|tighterquery|bookmaterial)/.test(
+        glued
+      );
+  }
 
   // Short "I'll gather richer sources…" trail-offs, including glued status-like sentences.
   if (

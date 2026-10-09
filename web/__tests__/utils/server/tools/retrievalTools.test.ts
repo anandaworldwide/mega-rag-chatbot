@@ -22,6 +22,7 @@ import {
   buildRetrievalReinvokeSystemPrompt,
   fillRetrievalAnswerTemplate,
   isIncompleteRetrievalAnswer,
+  isRunTogetherNarrationText,
   isEnumerativeListingQuery,
   finalizeRetrievalUserAnswer,
   RETRIEVAL_TOOL_DEFINITIONS,
@@ -421,15 +422,44 @@ describe("retrievalTools", () => {
       ).toBe(false);
     });
 
-    it("treats spaced and glued Fetching-more AY narration as incomplete", () => {
+    it("treats spaced and glued Fetching-more status lines as incomplete", () => {
       expect(
         isIncompleteRetrievalAnswer(
           "Fetching more of the Brindaban account and other AY story passages."
         )
       ).toBe(true);
+      expect(isIncompleteRetrievalAnswer("Let me fetch additional sources for the outline.")).toBe(
+        true
+      );
+      expect(isIncompleteRetrievalAnswer("Looking for more passages from the book.")).toBe(true);
       expect(
         isIncompleteRetrievalAnswer("FetchingmoreoftheBrindabanaccountandotherAYstorypassages.")
       ).toBe(true);
+      expect(isRunTogetherNarrationText("FetchingmoreoftheBrindabanaccountandotherAYstorypassages.")).toBe(
+        true
+      );
+      expect(
+        isRunTogetherNarrationText(
+          "Fetching more of the Brindaban account and other AY story passages."
+        )
+      ).toBe(false);
+    });
+
+    it("keeps short real answers complete when they start with Im/Ill/Imagine or contain moreover/resource", () => {
+      expect(
+        isIncompleteRetrievalAnswer("Immortality is the soul's nature, not a later reward.")
+      ).toBe(false);
+      expect(
+        isIncompleteRetrievalAnswer("Illumination comes through daily meditation and devotion.")
+      ).toBe(false);
+      expect(
+        isIncompleteRetrievalAnswer("Imagine a still lake at dawn, then sit in that quiet.")
+      ).toBe(false);
+      expect(
+        isIncompleteRetrievalAnswer(
+          "The teaching is, moreover, a practical resource for daily life."
+        )
+      ).toBe(false);
     });
 
     it("treats a full class outline answer as complete", () => {
