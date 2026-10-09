@@ -607,14 +607,16 @@ export default function Login({ siteConfig, contactEmail }: LoginProps) {
   );
 }
 
-export const getServerSideProps: GetServerSideProps<LoginProps> = async () => {
+export const getServerSideProps: GetServerSideProps<Pick<LoginProps, "contactEmail">> = async () => {
   try {
     const siteConfig = await loadSiteConfig();
     if (!siteConfig?.requireLogin) {
       return { notFound: true };
     }
+    // Do not return siteConfig here. _app.getInitialProps supplies the
+    // wiki-filtered siteConfig. Page props would override that filter.
     const contactEmail = process.env.CONTACT_EMAIL?.trim() || null;
-    return { props: { siteConfig, contactEmail } };
+    return { props: { contactEmail } };
   } catch (error) {
     console.error("Failed to load site config for login page:", error);
     return { notFound: true };

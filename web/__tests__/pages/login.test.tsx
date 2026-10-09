@@ -166,13 +166,27 @@ describe("/login - Server-Side Rendering", () => {
 
     expect(result).toEqual({
       props: {
-        siteConfig: {
-          ...mockSiteConfig,
-          requireLogin: true,
-        },
         contactEmail: "support@example.com",
       },
     });
+  });
+
+  it("does not return the wiki library in page props for a visitor without wiki access", async () => {
+    mockLoadSiteConfig.mockResolvedValue({
+      ...mockSiteConfig,
+      requireLogin: true,
+      includedLibraries: ["Ananda Library", "Ananda Family Wiki"],
+    });
+
+    const result = await getServerSideProps(mockSsrContext);
+
+    expect(result).toEqual({
+      props: {
+        contactEmail: "support@example.com",
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/Ananda Family Wiki/);
+    expect(result).not.toHaveProperty("props.siteConfig");
   });
 
   it("should return 404 when requireLogin is false", async () => {

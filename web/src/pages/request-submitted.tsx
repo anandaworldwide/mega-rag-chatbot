@@ -45,7 +45,9 @@ export const getServerSideProps: GetServerSideProps = async () => {
     if (!siteConfig?.requireLogin) {
       return { notFound: true };
     }
-    return { props: { siteConfig } };
+    // Do not return siteConfig here. _app.getInitialProps supplies the
+    // wiki-filtered siteConfig. Page props would override that filter.
+    return { props: {} };
   } catch (error) {
     console.error("Failed to load site config for request-submitted page:", error);
     return { notFound: true };

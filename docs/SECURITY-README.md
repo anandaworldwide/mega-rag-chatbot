@@ -291,8 +291,8 @@ All password-related endpoints check `siteConfig?.requireLogin` and return 403 i
 Access-request and login entry points are also limited to login-required sites:
 
 - `/login` and `/request-submitted` return 404 when `requireLogin` is not true
-- `/api/auth/requestLoginLink`, `/api/admin/requestApproval`, and `/api/admin/approvers` return 403 when
-  `requireLogin` is not true
+- `/api/auth/requestLoginLink`, `/api/auth/verifyAccess`, `/api/admin/requestApproval`, and `/api/admin/approvers`
+  return 403 when `requireLogin` is not true
 - No-login sites (`crystal`, `ananda-public` / Vivek) keep the public chat only. They do not accept access requests.
 
 ### Domain Whitelist Configuration
@@ -335,7 +335,8 @@ Whitelist files are stored in `web/site-config/` with environment-specific namin
 **API Endpoints Using Whitelist**:
 
 - `/api/auth/requestLoginLink` - Checks whitelist when user not found
-- `/api/auth/verifyAccess` - Skips password requirement for whitelisted domains
+- `/api/auth/verifyAccess` - Skips password requirement for whitelisted domains. Returns 403 when
+  `requireLogin` is not true.
 - `/api/admin/requestApproval` - Bypasses admin approval for whitelisted domains
 
 **User Experience**:
