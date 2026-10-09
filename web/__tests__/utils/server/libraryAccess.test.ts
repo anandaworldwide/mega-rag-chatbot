@@ -5,6 +5,7 @@ import {
   applyLibraryAccessRequestOverrides,
   applyVisibleLibraries,
   canAccessLibrary,
+  emailAllowlistFromEnv,
   encodeLibraryAccessValue,
   libraryAccessCookieNames,
   libraryAccessHeaderNames,
@@ -73,9 +74,33 @@ describe("library access gate", () => {
     expect(canAccessLibrary(publicLibrary, undefined)).toBe(true);
   });
 
+  test("an accessEmailsEnv name in the static map resolves", () => {
+    process.env.WIKI_LIBRARY_EMAILS = "mapped@ananda.org";
+    expect(canAccessLibrary(wikiLibrary, "mapped@ananda.org")).toBe(true);
+    expect(emailAllowlistFromEnv("WIKI_LIBRARY_EMAILS").has("mapped@ananda.org")).toBe(true);
+  });
+
+  test("an accessEmailsEnv name that is not in the static map yields no access", () => {
+    process.env.WIKI_LIBRARY_EMAILS = "mapped@ananda.org";
+    process.env.PRIVATE_LIBRARY_EMAILS = "mapped@ananda.org";
+    const unmapped = { name: "Private Notes", accessEmailsEnv: "PRIVATE_LIBRARY_EMAILS" };
+    expect(canAccessLibrary(unmapped, "mapped@ananda.org")).toBe(false);
+    expect(emailAllowlistFromEnv("PRIVATE_LIBRARY_EMAILS").size).toBe(0);
+    const result = applyLibraryAccessGate(
+      { includedLibraries: [publicLibrary, wikiLibrary, unmapped] },
+      "mapped@ananda.org",
+      ["Ananda Library", "Ananda Family Wiki", "Private Notes"]
+    );
+    expect(result.siteConfig.includedLibraries?.map((entry) => (typeof entry === "string" ? entry : entry.name))).toEqual([
+      "Ananda Library",
+      "Ananda Family Wiki",
+    ]);
+    expect(result.selectedLibraries).toEqual(["Ananda Library", "Ananda Family Wiki"]);
+  });
+
   test("two restricted libraries are handled independently", () => {
-    process.env.WIKI_LIBRARY_EMAILS = "wiki@ananda.org, both@ananda.org";
-    process.env.PRIVATE_LIBRARY_EMAILS = "private@ananda.org, both@ananda.org";
+    process.env.WIKI_LIBRARY_EMAILS = "wiki@ananda.org";
+    process.env.PRIVATE_LIBRARY_EMAILS = "private@ananda.org, wiki@ananda.org";
     const twoRestricted = {
       includedLibraries: [
         publicLibrary,
@@ -102,16 +127,8 @@ describe("library access gate", () => {
     ]);
     expect(privateOnly.siteConfig.includedLibraries?.map((entry) => (typeof entry === "string" ? entry : entry.name))).toEqual([
       "Ananda Library",
-      "Private Notes",
     ]);
-    expect(privateOnly.selectedLibraries).toEqual(["Ananda Library", "Private Notes"]);
-
-    const both = applyLibraryAccessGate(twoRestricted, "both@ananda.org", [
-      "Ananda Library",
-      "Ananda Family Wiki",
-      "Private Notes",
-    ]);
-    expect(both.selectedLibraries).toEqual(["Ananda Library", "Ananda Family Wiki", "Private Notes"]);
+    expect(privateOnly.selectedLibraries).toEqual(["Ananda Library"]);
   });
 
   test("the selector cookie is not enough by itself", () => {

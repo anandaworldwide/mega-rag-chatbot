@@ -25,9 +25,26 @@ export function libraryAccessEnv(entry: LibraryAccessEntry): string | undefined 
   return envName ? envName : undefined;
 }
 
+/**
+ * Next.js Edge inlines only static process.env.NAME reads.
+ * A dynamic env lookup by variable name is empty at the edge.
+ * Middleware and the chat route both use this helper.
+ * Remove the WIKI_LIBRARY_EMAILS entry when the wiki A/B test ends.
+ */
+function accessEmailEnvMap(): Record<string, string | undefined> {
+  const ACCESS_EMAIL_ENV: Record<string, string | undefined> = {
+    WIKI_LIBRARY_EMAILS: process.env.WIKI_LIBRARY_EMAILS,
+  };
+  return ACCESS_EMAIL_ENV;
+}
+
 export function emailAllowlistFromEnv(envVarName: string): Set<string> {
+  const ACCESS_EMAIL_ENV = accessEmailEnvMap();
+  if (!Object.prototype.hasOwnProperty.call(ACCESS_EMAIL_ENV, envVarName)) {
+    return new Set();
+  }
   return new Set(
-    (process.env[envVarName] || "")
+    (ACCESS_EMAIL_ENV[envVarName] || "")
       .split(",")
       .map((email) => email.trim().toLowerCase())
       .filter((email) => email.length > 0)

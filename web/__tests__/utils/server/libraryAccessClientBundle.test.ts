@@ -38,4 +38,18 @@ describe("library access client bundle", () => {
     expect(routeSource).toMatch(/applyLibraryAccessGate/);
     expect(routeSource).toMatch(/token\.email/);
   });
+
+  test("the access module has no dynamic process.env lookup", () => {
+    const accessFiles = [
+      "src/utils/server/libraryAccess.ts",
+      "src/utils/server/libraryAccessAuth.ts",
+      "src/utils/server/libraryAccessMiddlewareGate.ts",
+    ];
+    for (const rel of accessFiles) {
+      const withoutComments = readWebFile(rel)
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/\/\/.*$/gm, "");
+      expect(withoutComments).not.toMatch(/process\.env\s*\[/);
+    }
+  });
 });
