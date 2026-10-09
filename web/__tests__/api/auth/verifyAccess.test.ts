@@ -77,6 +77,11 @@ jest.mock("@/utils/server/blacklist", () => ({
   isEmailBlacklisted: jest.fn().mockResolvedValue(false),
 }));
 
+jest.mock("@/utils/server/loadSiteConfig", () => ({
+  loadSiteConfig: jest.fn(),
+  loadSiteConfigSync: jest.fn(() => ({ requireLogin: true, siteId: "ananda" })),
+}));
+
 describe("Setup file", () => {
   it("should be valid", () => {
     expect(true).toBe(true);
@@ -84,8 +89,50 @@ describe("Setup file", () => {
 });
 
 describe("/api/auth/verifyAccess", () => {
+  const { loadSiteConfigSync } = jest.requireMock("@/utils/server/loadSiteConfig");
+
   beforeEach(() => {
     jest.clearAllMocks();
+    loadSiteConfigSync.mockReturnValue({ requireLogin: true, siteId: "ananda" });
+  });
+
+  it("returns 403 when requireLogin is false", async () => {
+    loadSiteConfigSync.mockReturnValue({ requireLogin: false, siteId: "crystal" });
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: { email: "user@example.com" },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(res._getJSONData()).toEqual({ error: "Access verification is not available for this site" });
+  });
+
+  it("accepts a request when requireLogin is true", async () => {
+    const firestoreRetryUtils = await import("@/utils/server/firestoreRetryUtils");
+    const userInviteUtils = await import("@/utils/server/userInviteUtils");
+    const auditLog = await import("@/utils/server/auditLog");
+    const domainWhitelistUtils = await import("@/utils/server/domainWhitelistUtils");
+
+    jest.spyOn(domainWhitelistUtils, "isEmailDomainWhitelisted").mockResolvedValueOnce(true);
+    (firestoreRetryUtils.firestoreGet as jest.MockedFunction<any>).mockResolvedValueOnce({
+      exists: false,
+    });
+    (firestoreRetryUtils.firestoreSet as jest.MockedFunction<any>).mockResolvedValueOnce(undefined);
+    (userInviteUtils.sendActivationEmail as jest.MockedFunction<any>).mockResolvedValueOnce(undefined);
+    (auditLog.writeAuditLog as jest.MockedFunction<any>).mockResolvedValueOnce(undefined);
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: { email: "test@example.com" },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._getJSONData()).toEqual({ message: "created" });
   });
 
   it("returns access denied when email is blacklisted", async () => {
