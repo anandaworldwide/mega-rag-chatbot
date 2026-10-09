@@ -131,6 +131,7 @@ describe("/api/admin/requestApproval", () => {
     // Reset mock implementations to defaults (clearAllMocks only clears call history)
     isEmailDomainWhitelisted.mockResolvedValue(false);
     blacklistMod.isEmailBlacklisted.mockResolvedValue(false);
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true, shortname: "Luca" });
 
     // Set required environment variables
     process.env = {
@@ -168,6 +169,67 @@ describe("/api/admin/requestApproval", () => {
 
     expect(genericRateLimiter).toHaveBeenCalled();
     // Rate limiter returns early, no further processing
+  });
+
+  it("returns 403 when requireLogin is false", async () => {
+    genericRateLimiter.mockResolvedValue(true);
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "crystal", requireLogin: false, shortname: "Library Magic" });
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: {
+        requesterEmail: "requester@example.com",
+        requesterName: "Test Requester",
+        adminEmail: "admin@example.com",
+        adminName: "Test Admin",
+        adminLocation: "Test City, CA",
+      },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(res._getJSONData()).toEqual({ error: "Access requests are not available for this site" });
+    expect(firestoreRetryUtils.firestoreSet).not.toHaveBeenCalled();
+  });
+
+  it("accepts a request when requireLogin is true", async () => {
+    const mockGet = jest.fn().mockResolvedValue({ empty: true, docs: [] });
+    const mockWhere: any = jest.fn(() => ({
+      where: mockWhere,
+      limit: jest.fn(() => ({
+        get: mockGet,
+      })),
+    }));
+    const mockDoc = jest.fn(() => ({}));
+    const mockCollection = jest.fn(() => ({
+      doc: mockDoc,
+      where: mockWhere,
+    }));
+
+    genericRateLimiter.mockResolvedValue(true);
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true, shortname: "Luca" });
+    firestoreRetryUtils.firestoreSet.mockResolvedValue(undefined);
+    writeAuditLog.mockResolvedValue(undefined);
+
+    const { db } = jest.requireMock("@/services/firebase");
+    db.collection = mockCollection;
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: {
+        requesterEmail: "requester@example.com",
+        requesterName: "Test Requester",
+        adminEmail: "admin@example.com",
+        adminName: "Test Admin",
+        adminLocation: "Test City, CA",
+      },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._getJSONData().message).toBe("Approval request submitted successfully");
   });
 
   it("should return 400 for missing requester email", async () => {
@@ -321,7 +383,7 @@ describe("/api/admin/requestApproval", () => {
     }));
 
     genericRateLimiter.mockResolvedValue(true);
-    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true });
     firestoreRetryUtils.firestoreSet.mockResolvedValue(undefined);
     writeAuditLog.mockResolvedValue(undefined);
 
@@ -390,7 +452,7 @@ describe("/api/admin/requestApproval", () => {
     }));
 
     genericRateLimiter.mockResolvedValue(true);
-    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true });
     firestoreRetryUtils.firestoreSet.mockResolvedValue(undefined);
     writeAuditLog.mockResolvedValue(undefined);
 
@@ -450,7 +512,7 @@ describe("/api/admin/requestApproval", () => {
     }));
 
     genericRateLimiter.mockResolvedValue(true);
-    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true });
     firestoreRetryUtils.firestoreSet.mockRejectedValue(new Error("Database error"));
     writeAuditLog.mockResolvedValue(undefined);
 
@@ -497,7 +559,7 @@ describe("/api/admin/requestApproval", () => {
     }));
 
     genericRateLimiter.mockResolvedValue(true);
-    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true });
     firestoreRetryUtils.firestoreSet.mockResolvedValue(undefined);
     writeAuditLog.mockResolvedValue(undefined);
 
@@ -560,7 +622,7 @@ describe("/api/admin/requestApproval", () => {
     }));
 
     genericRateLimiter.mockResolvedValue(true);
-    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true });
     firestoreRetryUtils.firestoreSet.mockResolvedValue(undefined);
     writeAuditLog.mockResolvedValue(undefined);
 
@@ -627,7 +689,7 @@ describe("/api/admin/requestApproval", () => {
     }));
 
     genericRateLimiter.mockResolvedValue(true);
-    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true });
     writeAuditLog.mockResolvedValue(undefined);
 
     // Mock the db collection
@@ -694,7 +756,7 @@ describe("/api/admin/requestApproval", () => {
     }));
 
     genericRateLimiter.mockResolvedValue(true);
-    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true });
     firestoreRetryUtils.firestoreSet.mockResolvedValue(undefined);
     writeAuditLog.mockResolvedValue(undefined);
 
@@ -791,7 +853,7 @@ describe("/api/admin/requestApproval", () => {
     }));
 
     genericRateLimiter.mockResolvedValue(true);
-    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true });
     writeAuditLog.mockResolvedValue(undefined);
     mockSend.mockResolvedValue({});
 
@@ -855,7 +917,7 @@ describe("/api/admin/requestApproval", () => {
     }));
 
     genericRateLimiter.mockResolvedValue(true);
-    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true });
     firestoreRetryUtils.firestoreSet.mockResolvedValue(undefined);
     writeAuditLog.mockResolvedValue(undefined);
 
@@ -950,7 +1012,7 @@ describe("/api/admin/requestApproval", () => {
     }));
 
     genericRateLimiter.mockResolvedValue(true);
-    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true });
     writeAuditLog.mockResolvedValue(undefined);
     mockSend.mockResolvedValue({});
 
@@ -993,7 +1055,7 @@ describe("/api/admin/requestApproval", () => {
 
       isEmailDomainWhitelisted.mockResolvedValue(true);
       genericRateLimiter.mockResolvedValue(true);
-      loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+      loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true });
 
       // Mock the document reference that firestoreGet receives
       const mockDocRef = {};
@@ -1061,7 +1123,7 @@ describe("/api/admin/requestApproval", () => {
 
       isEmailDomainWhitelisted.mockResolvedValue(true);
       genericRateLimiter.mockResolvedValue(true);
-      loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+      loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true });
 
       const mockDocRef = {};
       firestoreRetryUtils.firestoreGet.mockResolvedValue({
@@ -1107,7 +1169,7 @@ describe("/api/admin/requestApproval", () => {
 
       isEmailDomainWhitelisted.mockResolvedValue(true);
       genericRateLimiter.mockResolvedValue(true);
-      loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+      loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true });
 
       const mockDocRef = {};
       firestoreRetryUtils.firestoreGet.mockResolvedValue({
@@ -1194,7 +1256,7 @@ describe("/api/admin/requestApproval", () => {
     }));
 
     genericRateLimiter.mockResolvedValue(true);
-    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true });
     writeAuditLog.mockResolvedValue(undefined);
 
     // Mock SES send to fail - set up before handler is called

@@ -75,7 +75,7 @@ describe("/api/admin/approvers", () => {
     };
 
     genericRateLimiter.mockResolvedValue(true);
-    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true });
     redisUtils.getFromCache.mockResolvedValue(mockData);
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
@@ -91,7 +91,7 @@ describe("/api/admin/approvers", () => {
 
   it("should fetch from Firestore when cache is empty", async () => {
     genericRateLimiter.mockResolvedValue(true);
-    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true });
     redisUtils.getFromCache.mockResolvedValue(null);
 
     const mockCollection = jest.fn(() => ({
@@ -145,6 +145,21 @@ describe("/api/admin/approvers", () => {
     );
   });
 
+  it("returns 403 when requireLogin is false", async () => {
+    genericRateLimiter.mockResolvedValue(true);
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "crystal", requireLogin: false });
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "GET",
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(res._getJSONData()).toEqual({ error: "Admin approver list is not available for this site" });
+    expect(redisUtils.getFromCache).not.toHaveBeenCalled();
+  });
+
   it("should return 500 when site config is unavailable", async () => {
     genericRateLimiter.mockResolvedValue(true);
     loadSiteConfig.loadSiteConfig.mockResolvedValue(null);
@@ -161,7 +176,7 @@ describe("/api/admin/approvers", () => {
 
   it("should return fallback admin approver when no approvers found and CONTACT_EMAIL is set", async () => {
     genericRateLimiter.mockResolvedValue(true);
-    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true });
     redisUtils.getFromCache.mockResolvedValue(null);
     firestoreQueryGet.mockResolvedValue({ docs: [] });
 
@@ -208,7 +223,7 @@ describe("/api/admin/approvers", () => {
 
   it("should return 404 when no approvers found and CONTACT_EMAIL is not set", async () => {
     genericRateLimiter.mockResolvedValue(true);
-    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true });
     redisUtils.getFromCache.mockResolvedValue(null);
     firestoreQueryGet.mockResolvedValue({ docs: [] });
 
@@ -242,7 +257,7 @@ describe("/api/admin/approvers", () => {
 
   it("should group approvers by region and sort regions correctly", async () => {
     genericRateLimiter.mockResolvedValue(true);
-    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true });
     redisUtils.getFromCache.mockResolvedValue(null);
 
     const mockCollection = jest.fn(() => ({
@@ -315,7 +330,7 @@ describe("/api/admin/approvers", () => {
 
   it("should sort admins within a region by location (state/country first, then city)", async () => {
     genericRateLimiter.mockResolvedValue(true);
-    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true });
     redisUtils.getFromCache.mockResolvedValue(null);
 
     const mockCollection = jest.fn(() => ({
@@ -383,7 +398,7 @@ describe("/api/admin/approvers", () => {
 
   it("should handle approvers with missing firstName/lastName", async () => {
     genericRateLimiter.mockResolvedValue(true);
-    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true });
     redisUtils.getFromCache.mockResolvedValue(null);
 
     const mockCollection = jest.fn(() => ({
@@ -456,7 +471,7 @@ describe("/api/admin/approvers", () => {
 
   it("should return 503 when database is unavailable", async () => {
     genericRateLimiter.mockResolvedValue(true);
-    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true });
     redisUtils.getFromCache.mockResolvedValue(null);
 
     // Mock db as null/falsy to trigger the database check
@@ -487,7 +502,7 @@ describe("/api/admin/approvers", () => {
 
   it("should handle errors gracefully", async () => {
     genericRateLimiter.mockResolvedValue(true);
-    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda" });
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true });
     redisUtils.getFromCache.mockResolvedValue(null);
     firestoreQueryGet.mockRejectedValue(new Error("Firestore error"));
 

@@ -1,9 +1,11 @@
 import React from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import Login from "@/pages/login";
+import Login, { getServerSideProps } from "@/pages/login";
 import { SiteConfig } from "@/types/siteConfig";
 import { fetchWithAuth } from "@/utils/client/tokenManager";
+import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
+import type { GetServerSidePropsContext } from "next";
 
 jest.mock("next/router", () => ({
   useRouter: () => ({
@@ -38,6 +40,19 @@ jest.mock("@/components/FeedbackModal", () => ({
 jest.mock("@/utils/client/tokenManager", () => ({
   fetchWithAuth: jest.fn(),
 }));
+
+jest.mock("@/utils/server/loadSiteConfig", () => ({
+  loadSiteConfig: jest.fn(),
+}));
+
+const mockLoadSiteConfig = loadSiteConfig as jest.MockedFunction<typeof loadSiteConfig>;
+const mockSsrContext = {
+  req: {},
+  res: {},
+  query: {},
+  params: {},
+  resolvedUrl: "/login",
+} as GetServerSidePropsContext;
 
 const mockSiteConfig: SiteConfig = {
   siteId: "ananda",
@@ -126,5 +141,78 @@ describe("Login page iOS/password-manager autofill", () => {
     expect(usernameInput).toBeInTheDocument();
     expect(usernameInput).toHaveAttribute("type", "email");
     expect(usernameInput).toHaveValue("user@example.com");
+  });
+});
+
+describe("/login - Server-Side Rendering", () => {
+  const originalContactEmail = process.env.CONTACT_EMAIL;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    process.env.CONTACT_EMAIL = "support@example.com";
+  });
+
+  afterEach(() => {
+    process.env.CONTACT_EMAIL = originalContactEmail;
+  });
+
+  it("should allow access when requireLogin is true", async () => {
+    mockLoadSiteConfig.mockResolvedValue({
+      ...mockSiteConfig,
+      requireLogin: true,
+    });
+
+    const result = await getServerSideProps(mockSsrContext);
+
+    expect(result).toEqual({
+      props: {
+        contactEmail: "support@example.com",
+      },
+    });
+  });
+
+  it("does not return the wiki library in page props for a visitor without wiki access", async () => {
+    mockLoadSiteConfig.mockResolvedValue({
+      ...mockSiteConfig,
+      requireLogin: true,
+      includedLibraries: ["Ananda Library", "Ananda Family Wiki"],
+    });
+
+    const result = await getServerSideProps(mockSsrContext);
+
+    expect(result).toEqual({
+      props: {
+        contactEmail: "support@example.com",
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/Ananda Family Wiki/);
+    expect(result).not.toHaveProperty("props.siteConfig");
+  });
+
+  it("should return 404 when requireLogin is false", async () => {
+    mockLoadSiteConfig.mockResolvedValue({
+      ...mockSiteConfig,
+      siteId: "crystal",
+      requireLogin: false,
+    });
+
+    const result = await getServerSideProps(mockSsrContext);
+
+    expect(result).toEqual({
+      notFound: true,
+    });
+  });
+
+  it("should return 404 when requireLogin is undefined", async () => {
+    mockLoadSiteConfig.mockResolvedValue({
+      ...mockSiteConfig,
+      requireLogin: undefined,
+    } as SiteConfig);
+
+    const result = await getServerSideProps(mockSsrContext);
+
+    expect(result).toEqual({
+      notFound: true,
+    });
   });
 });

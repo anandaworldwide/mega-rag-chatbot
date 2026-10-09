@@ -43,6 +43,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!siteConfig?.siteId) {
       return res.status(500).json({ error: "Site configuration not available" });
     }
+    if (!siteConfig.requireLogin) {
+      return res.status(403).json({ error: "Admin approver list is not available for this site" });
+    }
 
     const siteId = siteConfig.siteId;
     const cacheKey = `admin_approvers_${siteId}`;
