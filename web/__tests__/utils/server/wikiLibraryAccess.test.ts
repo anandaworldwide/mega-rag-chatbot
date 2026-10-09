@@ -1,9 +1,12 @@
 import jwt from "jsonwebtoken";
+import { emailFromAuthCookieHeader } from "@/utils/server/wikiLibraryAuth";
 import {
   applyWikiLibraryGate,
+  applyWikiLibraryRequestOverrides,
   canSeeWikiLibrary,
-  emailFromAuthCookieHeader,
+  overwriteCookieValue,
   wikiLibraryCookieAllows,
+  wikiLibraryHeaderAllows,
   withoutWikiLibrary,
 } from "@/utils/server/wikiLibraryAccess";
 
@@ -66,5 +69,47 @@ describe("wiki library gate", () => {
     });
     expect(emailFromAuthCookieHeader(`authToken=${token}`)).toBe("me@ananda.org");
     expect(emailFromAuthCookieHeader("authToken=not-a-jwt")).toBeUndefined();
+  });
+
+  test("chat API applyWikiLibraryGate blocks wiki content for a user who is not on the list", () => {
+    process.env.WIKI_LIBRARY_EMAILS = "allowed@ananda.org";
+    const result = applyWikiLibraryGate(
+      { includedLibraries: ["Ananda Library", "Ananda Family Wiki"] },
+      "visitor@ananda.org",
+      ["Ananda Family Wiki"]
+    );
+    expect(result.siteConfig.includedLibraries).toEqual(["Ananda Library"]);
+    expect(result.selectedLibraries).toBeUndefined();
+  });
+
+  test("crystal and ananda-public library lists do not change when the wiki is stripped", () => {
+    const crystal = { includedLibraries: ["Crystal Clarity"] };
+    const anandaPublic = {
+      includedLibraries: [
+        { name: "ananda.org", weight: 67 },
+        { name: "Crystal Clarity", weight: 33 },
+      ],
+    };
+    expect(withoutWikiLibrary(crystal)).toEqual(crystal);
+    expect(withoutWikiLibrary(anandaPublic)).toEqual(anandaPublic);
+  });
+
+  test("the server header reader allows only the exact middleware value 1", () => {
+    expect(wikiLibraryHeaderAllows("1")).toBe(true);
+    expect(wikiLibraryHeaderAllows("0")).toBe(false);
+    expect(wikiLibraryHeaderAllows(undefined)).toBe(false);
+    expect(wikiLibraryHeaderAllows("true")).toBe(false);
+    expect(wikiLibraryHeaderAllows(["1", "0"])).toBe(true);
+  });
+
+  test("request overrides delete a spoofed wiki header and cookie", () => {
+    const headers = new Headers({
+      "x-wiki-library": "1",
+      cookie: "authToken=abc; wikiLibrary=1; other=keep",
+    });
+    applyWikiLibraryRequestOverrides(headers, false);
+    expect(headers.get("x-wiki-library")).toBe("0");
+    expect(headers.get("cookie")).toBe("authToken=abc; other=keep; wikiLibrary=0");
+    expect(overwriteCookieValue("wikiLibrary=1; uuid=x", "wikiLibrary", "0")).toBe("uuid=x; wikiLibrary=0");
   });
 });
