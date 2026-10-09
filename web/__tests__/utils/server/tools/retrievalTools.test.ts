@@ -432,6 +432,7 @@ describe("retrievalTools", () => {
         true
       );
       expect(isIncompleteRetrievalAnswer("Looking for more passages from the book.")).toBe(true);
+      expect(isIncompleteRetrievalAnswer("Looking for additional sources.")).toBe(true);
       expect(
         isIncompleteRetrievalAnswer("FetchingmoreoftheBrindabanaccountandotherAYstorypassages.")
       ).toBe(true);
@@ -442,6 +443,12 @@ describe("retrievalTools", () => {
         isRunTogetherNarrationText(
           "Fetching more of the Brindaban account and other AY story passages."
         )
+      ).toBe(false);
+    });
+
+    it("keeps a short Looking-for-more-peace answer complete", () => {
+      expect(
+        isIncompleteRetrievalAnswer("Looking for more peace? Try daily meditation...")
       ).toBe(false);
     });
 

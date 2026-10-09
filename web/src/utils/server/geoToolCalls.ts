@@ -21,23 +21,100 @@ function parseJsonObject(text: string): Record<string, unknown> | null {
   return null;
 }
 
+function isNonEmptyArgs(args: Record<string, unknown> | null): args is Record<string, unknown> {
+  return !!args && Object.keys(args).length > 0;
+}
+
+/** Extract a `{...}` span with nested objects. Ignore braces inside strings. */
+function extractBalancedObject(text: string, openBraceIndex: number): string | null {
+  if (text[openBraceIndex] !== "{") {
+    return null;
+  }
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = openBraceIndex; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") {
+      depth += 1;
+      continue;
+    }
+    if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(openBraceIndex, i + 1);
+      }
+    }
+  }
+  return null;
+}
+
+function parseToolCallArgs(args: unknown, functionArguments?: unknown): Record<string, unknown> | null {
+  if (args && typeof args === "object" && !Array.isArray(args)) {
+    const record = args as Record<string, unknown>;
+    return isNonEmptyArgs(record) ? record : null;
+  }
+  const raw = typeof args === "string" ? args : typeof functionArguments === "string" ? functionArguments : null;
+  if (raw == null) {
+    return null;
+  }
+  if (!raw.trim()) {
+    return null;
+  }
+  const parsed = parseJsonObject(raw);
+  return isNonEmptyArgs(parsed) ? parsed : null;
+}
+
 function tryParseLeakedRetrievalToolJson(text: string): NormalizedToolCall | null {
   const stripped = text
     .trim()
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/```$/i, "")
     .trim();
-  const match = stripped.match(
-    /\{\s*"name"\s*:\s*"(search_more_sources|get_adjacent_chunks)"\s*,\s*"parameters"\s*:\s*(\{[\s\S]*?\})\s*\}/
+  const nameMatch = stripped.match(
+    /\{\s*"name"\s*:\s*"(search_more_sources|get_adjacent_chunks)"\s*,\s*"parameters"\s*:\s*\{/
   );
-  if (!match) {
+  if (!nameMatch || nameMatch.index == null) {
     return null;
   }
-  const args = parseJsonObject(match[2]);
+  const fullObject = extractBalancedObject(stripped, nameMatch.index);
+  if (!fullObject) {
+    return null;
+  }
+  const parsed = parseJsonObject(fullObject);
+  if (!parsed) {
+    return null;
+  }
+  const parameters = parsed.parameters;
+  if (!parameters || typeof parameters !== "object" || Array.isArray(parameters)) {
+    return null;
+  }
+  const args = parameters as Record<string, unknown>;
+  if (!isNonEmptyArgs(args)) {
+    return null;
+  }
   return {
-    id: `fallback_${match[1]}_${Date.now()}`,
-    name: match[1],
-    args: args ?? {},
+    id: `fallback_${nameMatch[1]}_${Date.now()}`,
+    name: nameMatch[1],
+    args,
   };
 }
 
@@ -109,6 +186,39 @@ function callsFromOpenAiStyleToolCalls(rawCalls: unknown): NormalizedToolCall[] 
       }
       return {
         id: typeof typed.id === "string" && typed.id ? typed.id : `tool_call_${index}`,
+        name,
+        args,
+      };
+    })
+    .filter((call): call is NormalizedToolCall => call !== null);
+}
+
+function callsFromInvalidToolCalls(rawCalls: unknown): NormalizedToolCall[] {
+  if (!Array.isArray(rawCalls) || rawCalls.length === 0) {
+    return [];
+  }
+  return rawCalls
+    .map((call, index) => {
+      if (!call || typeof call !== "object") {
+        return null;
+      }
+      const typed = call as {
+        id?: unknown;
+        name?: unknown;
+        args?: unknown;
+        function?: { name?: unknown; arguments?: unknown };
+      };
+      const nameFromFunction = typeof typed.function?.name === "string" ? typed.function.name : "";
+      const name = typeof typed.name === "string" && typed.name ? typed.name : nameFromFunction;
+      if (!name) {
+        return null;
+      }
+      const args = parseToolCallArgs(typed.args, typed.function?.arguments);
+      if (!args) {
+        return null;
+      }
+      return {
+        id: typeof typed.id === "string" && typed.id ? typed.id : `invalid_tool_call_${index}`,
         name,
         args,
       };
@@ -196,7 +306,7 @@ export function extractGeoToolCalls(answer: unknown): NormalizedToolCall[] {
     return fromChunks;
   }
 
-  const fromInvalid = callsFromOpenAiStyleToolCalls(message.invalid_tool_calls);
+  const fromInvalid = callsFromInvalidToolCalls(message.invalid_tool_calls);
   if (fromInvalid.length > 0) {
     return fromInvalid;
   }

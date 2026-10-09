@@ -195,9 +195,14 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
 
   const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
   const startsLikeSearchNarration =
-    /^(i('ll| will)|i am|i'm|i don['’]t|let me(?: fetch| search| pull)?|gathering|pulling|searching|seeking|looking (?:up|for)|fetching|trying|expanding)\b/i.test(
+    /^(i('ll| will)|i am|i'm|i don['’]t|let me(?: fetch| search| pull)?|gathering|pulling|searching|seeking|fetching|trying|expanding)\b/i.test(
       trimmed
     );
+  // "Looking for" is common in real answers. Treat it as a status line only when
+  // it is followed by more/additional plus sources/passages.
+  const hasLookingForRetrievalStatus =
+    /^looking (?:up|for)\b/i.test(trimmed) &&
+    /\b(?:more|additional)\b[\s\S]{0,80}\b(?:sources?|passages?)\b/i.test(trimmed);
   const mentionsRetrievalWork =
     /\b(search|searching|source|sources|passage|passages|chunk|chunks|quote|quotes|richer|additional|more|tighter search|tighter query|book material)\b/i.test(
       trimmed
@@ -231,8 +236,9 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
   // Short "I'll gather richer sources…" trail-offs, including glued status-like sentences.
   if (
     wordCount < 80 &&
-    (startsLikeSearchNarration || hasGluedSearchNarration || gluedStartsLikeSearchNarration) &&
-    (mentionsRetrievalWork || hasAdjacentFetchNarration || gluedMentionsRetrievalWork)
+    (hasLookingForRetrievalStatus ||
+      ((startsLikeSearchNarration || hasGluedSearchNarration || gluedStartsLikeSearchNarration) &&
+        (mentionsRetrievalWork || hasAdjacentFetchNarration || gluedMentionsRetrievalWork)))
   ) {
     return true;
   }

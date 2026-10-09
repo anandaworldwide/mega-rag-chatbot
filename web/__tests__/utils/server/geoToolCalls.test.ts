@@ -91,6 +91,42 @@ describe("extractGeoToolCalls", () => {
     expect(calls[0].name).toBe("search_more_sources");
     expect(calls[0].args).toEqual({ query: "AY chapters", k: 8 });
   });
+
+  it("parses leaked retrieval JSON with nested parameter objects", () => {
+    const calls = extractGeoToolCalls({
+      content:
+        '{"name": "search_more_sources", "parameters": {"query": "AY chapters", "filters": {"author": "Yogananda", "library": "Ananda Library"}, "k": 8}}',
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe("search_more_sources");
+    expect(calls[0].args).toEqual({
+      query: "AY chapters",
+      filters: { author: "Yogananda", library: "Ananda Library" },
+      k: 8,
+    });
+  });
+
+  it("skips invalid_tool_calls whose args are empty or not valid JSON", () => {
+    expect(
+      extractGeoToolCalls({
+        invalid_tool_calls: [
+          { id: "empty_string", name: "search_more_sources", args: "" },
+          { id: "empty_object", name: "search_more_sources", args: {} },
+          { id: "bad_json", name: "search_more_sources", args: "{query:" },
+        ],
+      })
+    ).toEqual([]);
+
+    const calls = extractGeoToolCalls({
+      invalid_tool_calls: [
+        { id: "empty_string", name: "search_more_sources", args: "" },
+        { id: "ok", name: "search_more_sources", args: '{"query":"AY stories","k":4}' },
+      ],
+    });
+    expect(calls).toEqual([
+      { id: "ok", name: "search_more_sources", args: { query: "AY stories", k: 4 } },
+    ]);
+  });
 });
 
 describe("extractStreamedTextDelta", () => {
