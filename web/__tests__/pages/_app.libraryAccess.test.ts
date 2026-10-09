@@ -88,7 +88,7 @@ describe("MyApp library access server path", () => {
   test("hides a restricted library when the header is missing, even if a client cookie names it", async () => {
     const result = await MyApp.getInitialProps(
       appContext({
-        cookie: `libraryAccess=${encodeLibraryAccessValue(["Ananda Family Wiki"])}; wikiLibrary=1`,
+        cookie: `libraryAccess=${encodeLibraryAccessValue(["Ananda Family Wiki"])}`,
       })
     );
     expect(result.pageProps.siteConfig.includedLibraries).toEqual(["Ananda Library"]);

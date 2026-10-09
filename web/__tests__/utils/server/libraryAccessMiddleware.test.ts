@@ -54,13 +54,12 @@ describe("library access middleware", () => {
   });
 
   test("replaces a spoofed x-library-access header from a logged-out user with no access", () => {
-    const headers = spoofedHeaders("libraryAccess=Ananda%20Family%20Wiki; wikiLibrary=1");
+    const headers = spoofedHeaders("libraryAccess=Ananda%20Family%20Wiki");
     const allowed = applyComputedLibraryAccessOverrides(headers, wikiSiteConfig);
     expect(allowed).toEqual([]);
     expect(headers.get(LIBRARY_ACCESS_HEADER)).toBe("");
     expect(headers.get("cookie")).toContain(`${LIBRARY_ACCESS_COOKIE}=`);
     expect(headers.get("cookie")).not.toMatch(/libraryAccess=Ananda/);
-    expect(headers.get("cookie")).not.toMatch(/wikiLibrary=/);
     expect(libraryAccessCookieHeader([])).toContain("libraryAccess=");
   });
 

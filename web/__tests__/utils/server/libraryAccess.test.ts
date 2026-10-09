@@ -182,12 +182,11 @@ describe("library access gate", () => {
   test("request overrides delete a spoofed access header and cookie", () => {
     const headers = new Headers({
       "x-library-access": encodeLibraryAccessValue(["Ananda Family Wiki"]),
-      cookie: "authToken=abc; libraryAccess=Ananda%20Family%20Wiki; wikiLibrary=1; other=keep",
+      cookie: "authToken=abc; libraryAccess=Ananda%20Family%20Wiki; other=keep",
     });
     applyLibraryAccessRequestOverrides(headers, []);
     expect(headers.get("x-library-access")).toBe("");
     expect(headers.get("cookie")).toBe("authToken=abc; other=keep; libraryAccess=");
-    expect(headers.get("cookie")).not.toContain("wikiLibrary=");
     expect(overwriteCookieValue("libraryAccess=old; uuid=x", "libraryAccess", "")).toBe("uuid=x; libraryAccess=");
   });
 });

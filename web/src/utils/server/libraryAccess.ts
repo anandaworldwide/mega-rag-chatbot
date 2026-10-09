@@ -1,7 +1,5 @@
 export const LIBRARY_ACCESS_COOKIE = "libraryAccess";
 export const LIBRARY_ACCESS_HEADER = "x-library-access";
-/** Old cookie name. Login and logout clear it so a stale browser value cannot linger. */
-export const LEGACY_WIKI_LIBRARY_COOKIE = "wikiLibrary";
 
 export type LibraryAccessEntry = string | { name: string; weight?: number; accessEmailsEnv?: string };
 
@@ -172,28 +170,24 @@ export function overwriteCookieValue(cookieHeader: string | undefined, name: str
   return kept.join("; ");
 }
 
-export function dropCookieValue(cookieHeader: string | undefined, name: string): string {
-  return cookiePartsWithout(cookieHeader, name).join("; ");
-}
-
 /**
- * Drop a client-sent access header and cookie, including the old wikiLibrary cookie.
+ * Drop a client-sent access header and cookie.
  * Write the middleware decision in their place.
  */
 export function applyLibraryAccessRequestOverrides(headers: Headers, allowedNames: string[]): Headers {
   const value = encodeLibraryAccessValue(allowedNames);
   headers.delete(LIBRARY_ACCESS_HEADER);
   headers.set(LIBRARY_ACCESS_HEADER, value);
-  let cookie = overwriteCookieValue(headers.get("cookie") ?? undefined, LIBRARY_ACCESS_COOKIE, value);
-  cookie = dropCookieValue(cookie, LEGACY_WIKI_LIBRARY_COOKIE);
-  headers.set("cookie", cookie);
+  headers.set(
+    "cookie",
+    overwriteCookieValue(headers.get("cookie") ?? undefined, LIBRARY_ACCESS_COOKIE, value)
+  );
   return headers;
 }
 
 export function clearLibraryAccessCookies(cookies: CookieSetter): void {
   const expired = { expires: new Date(0), path: "/" };
   cookies.set(LIBRARY_ACCESS_COOKIE, "", expired);
-  cookies.set(LEGACY_WIKI_LIBRARY_COOKIE, "", expired);
 }
 
 function cookiePartsWithout(cookieHeader: string | undefined, name: string): string[] {
