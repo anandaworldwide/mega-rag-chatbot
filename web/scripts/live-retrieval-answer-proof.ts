@@ -102,7 +102,7 @@ async function runOneQuestion(
   const index = (await getCachedPineconeIndex(indexName)) as Index<RecordMetadata>;
   const activeTypes = determineActiveMediaTypes({ text: true }, siteConfig.enabledMediaTypes);
   const filter = {
-    $and: [{ type: { $in: activeTypes } }, ...buildPineconeAccessFilterClauses(0, siteConfig)],
+    $and: [{ type: { $in: activeTypes } }, ...buildPineconeAccessFilterClauses(200, siteConfig)],
   };
   const vectorStore = await PineconeStore.fromExistingIndex(
     new OpenAIEmbeddings({
@@ -148,7 +148,7 @@ async function runOneQuestion(
     undefined,
     "whole_library",
     undefined,
-    0,
+    200,
     "live-retrieval-proof"
   );
 
@@ -177,11 +177,115 @@ async function runOneQuestion(
   };
 }
 
+async function preflightExternalKeys(): Promise<string[]> {
+  const rejected: string[] = [];
+  const xaiKey = process.env.XAI_API_KEY || "";
+  try {
+    const xaiResponse = await fetch("https://api.x.ai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${xaiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "grok-4.5",
+        messages: [{ role: "user", content: "Reply with the single word ok." }],
+        max_tokens: 8,
+      }),
+    });
+    if (!xaiResponse.ok) {
+      rejected.push("XAI_API_KEY");
+    }
+  } catch {
+    rejected.push("XAI_API_KEY");
+  }
+
+  const pineconeKey = process.env.PINECONE_API_KEY || "";
+  try {
+    const pineconeResponse = await fetch("https://api.pinecone.io/indexes", {
+      headers: {
+        "Api-Key": pineconeKey,
+        "X-Pinecone-API-Version": "2025-04",
+      },
+    });
+    if (!pineconeResponse.ok) {
+      rejected.push("PINECONE_API_KEY");
+    }
+  } catch {
+    rejected.push("PINECONE_API_KEY");
+  }
+
+  return rejected;
+}
+
 async function main() {
   const presence = envPresence();
   if (presence.missing.length > 0) {
     console.error(
       `Live proof skipped. Missing env vars: ${presence.missing.join(", ")}. Present: ${presence.present.join(", ")}.`
+    );
+    process.exit(2);
+  }
+
+  const rejectedKeys = await preflightExternalKeys();
+  if (rejectedKeys.length > 0) {
+    const artifactDir = "/opt/cursor/artifacts";
+    await mkdir(artifactDir, { recursive: true });
+    const blocked = {
+      generatedAt: new Date().toISOString(),
+      siteId: process.env.SITE_ID,
+      modelName: "grok-4.5",
+      presentEnv: presence.present,
+      rejectedEnv: rejectedKeys,
+      summary: {
+        passed: 0,
+        failed: 10,
+        blocked: true,
+        reason:
+          "Required env var names are present, but the live providers rejected the keys. Real grok-4.5 retrieval runs cannot start.",
+      },
+      rows: [
+        ...Array.from({ length: 5 }, (_, index) => ({
+          id: `stories-${index + 1}`,
+          question: "Give me some stories from Autobiography of a Yogi",
+          pass: false,
+          failReason: `blocked: rejected ${rejectedKeys.join(", ")}`,
+          model: "grok-4.5",
+          fetchedMore: false,
+          last300: "",
+          eventCount: 0,
+        })),
+        ...Array.from({ length: 5 }, (_, index) => ({
+          id: `chapters-${index + 1}`,
+          question: "List all the chapters of Autobiography of a Yogi",
+          pass: false,
+          failReason: `blocked: rejected ${rejectedKeys.join(", ")}`,
+          model: "grok-4.5",
+          fetchedMore: false,
+          last300: "",
+          eventCount: 0,
+        })),
+      ],
+    };
+    await writeFile(
+      path.join(artifactDir, "live-retrieval-answer-proof.json"),
+      JSON.stringify(blocked, null, 2),
+      "utf8"
+    );
+    const table = [
+      "| id | result | fetched more | last 300 chars |",
+      "| --- | --- | --- | --- |",
+      ...blocked.rows.map(
+        (row) => `| ${row.id} | BLOCKED (${row.failReason}) | false | |`
+      ),
+    ].join("\n");
+    await writeFile(
+      path.join(artifactDir, "live-retrieval-answer-proof.md"),
+      `# Live retrieval answer proof\n\nBlocked. Present env names: ${presence.present.join(", ")}.\nRejected keys: ${rejectedKeys.join(", ")}.\n\n${table}\n`,
+      "utf8"
+    );
+    console.error(
+      `Live proof blocked. Present env names: ${presence.present.join(", ")}. Rejected by provider: ${rejectedKeys.join(", ")}.`
     );
     process.exit(2);
   }
@@ -194,11 +298,12 @@ async function main() {
 
   const stories = "Give me some stories from Autobiography of a Yogi";
   const chapters = "List all the chapters of Autobiography of a Yogi";
+  const perQuestion = Math.max(1, Number.parseInt(process.env.LIVE_PROOF_PER_QUESTION || "5", 10));
   const questions: Array<{ id: string; question: string }> = [];
-  for (let i = 1; i <= 5; i += 1) {
+  for (let i = 1; i <= perQuestion; i += 1) {
     questions.push({ id: `stories-${i}`, question: stories });
   }
-  for (let i = 1; i <= 5; i += 1) {
+  for (let i = 1; i <= perQuestion; i += 1) {
     questions.push({ id: `chapters-${i}`, question: chapters });
   }
 
