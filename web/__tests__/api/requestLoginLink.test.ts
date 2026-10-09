@@ -77,6 +77,11 @@ jest.mock("@/utils/server/blacklist", () => ({
   isEmailBlacklisted: jest.fn().mockResolvedValue(false),
 }));
 
+jest.mock("@/utils/server/loadSiteConfig", () => ({
+  loadSiteConfig: jest.fn(),
+  loadSiteConfigSync: jest.fn(() => ({ requireLogin: true, siteId: "ananda" })),
+}));
+
 // Mock environment variables
 const originalEnv = process.env;
 beforeAll(() => {
@@ -98,8 +103,43 @@ import { sendLoginEmail, hashLoginToken } from "@/utils/server/userLoginMagicUti
 import { sendActivationEmail, hashInviteToken } from "@/utils/server/userInviteUtils";
 
 describe("requestLoginLink API", () => {
+  const { loadSiteConfigSync } = jest.requireMock("@/utils/server/loadSiteConfig");
+
   beforeEach(() => {
     jest.clearAllMocks();
+    loadSiteConfigSync.mockReturnValue({ requireLogin: true, siteId: "ananda" });
+  });
+
+  it("returns 403 when requireLogin is false", async () => {
+    loadSiteConfigSync.mockReturnValue({ requireLogin: false, siteId: "crystal" });
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: { email: "user@example.com" },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(403);
+    expect(res._getJSONData()).toEqual({ error: "Login is not available for this site" });
+    expect(firestoreGet).not.toHaveBeenCalled();
+  });
+
+  it("sends a login link when requireLogin is true", async () => {
+    (firestoreGet as unknown as jest.Mock).mockResolvedValueOnce({
+      exists: true,
+      data: () => ({ inviteStatus: "accepted" }),
+    });
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: { email: "user@example.com", redirect: "/dashboard" },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(res._getJSONData()).toEqual({ message: "login-link-sent" });
   });
 
   it("returns access denied when email is blacklisted", async () => {

@@ -243,13 +243,15 @@ API endpoints are defined in `pages/api/` and `app/api/`. Most endpoints are pro
 
 - **`GET /api/admin/approvers`** (`pages/api/admin/approvers.ts`)
   - **Purpose:** Retrieves admin approver lists from S3 for self-provisioning flow.
-  - **Auth:** Open (skipAuth: true) for self-provisioning access.
+  - **Auth:** Open (skipAuth: true) for self-provisioning access on login-required sites. Returns 403 when
+    `siteConfig.requireLogin` is not true.
   - **Logic:** Loads site configuration, fetches approver data from S3 using site-specific keys
     (`{envPrefix}{siteId}-admin-approvers.json`), caches results for 5 minutes.
   - **Response:** JSON structure with lastUpdated timestamp and regional admin groupings.
 - **`POST /api/admin/requestApproval`** (`pages/api/admin/requestApproval.ts`)
   - **Purpose:** Processes self-provisioning approval requests and sends notification emails.
-  - **Auth:** Open for self-provisioning access.
+  - **Auth:** Open for self-provisioning access on login-required sites. Returns 403 when
+    `siteConfig.requireLogin` is not true.
   - **Logic:** Stores pending request in Firestore collection, sends approval request email to selected admin with
     review link, sends confirmation email to requester.
   - **Request:** `{ email: string, name: string, selectedAdmin: { name, email, location } }`

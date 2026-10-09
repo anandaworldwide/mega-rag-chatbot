@@ -112,6 +112,28 @@ describe("/api/cron/nagPendingAccessRequests", () => {
     expect(mockFirestoreQueryGet).not.toHaveBeenCalled();
   });
 
+  it("skips crystal and does not nag an existing pending request", async () => {
+    mockLoadSiteConfig.mockResolvedValue({
+      siteId: "crystal",
+      requireLogin: false,
+      shortname: "Library Magic",
+    } as any);
+
+    const { req, res } = createMocks({ method: "POST" });
+    await handler(req as any, res as any);
+
+    expect(res._getStatusCode()).toBe(200);
+    expect(res._getJSONData()).toMatchObject({
+      message: "Site crystal does not require login - skipping pending access request nags",
+      processed: 0,
+      sent: 0,
+      skipped: 0,
+      errors: 0,
+    });
+    expect(mockFirestoreQueryGet).not.toHaveBeenCalled();
+    expect(mockSendNag).not.toHaveBeenCalled();
+  });
+
   it("sends a nag and updates lastNaggedAt for an eligible pending request", async () => {
     const createdAtMs = Date.now() - 4 * 24 * 60 * 60 * 1000;
     const createdAt = {

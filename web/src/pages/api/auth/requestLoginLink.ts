@@ -24,9 +24,15 @@ import { isEmailDomainWhitelisted } from "@/utils/server/domainWhitelistUtils";
 import { writeAuditLog } from "@/utils/server/auditLog";
 import { isDevelopment } from "@/utils/env";
 import { isEmailBlacklisted } from "@/utils/server/blacklist";
+import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
+  const siteConfig = loadSiteConfigSync();
+  if (!siteConfig?.requireLogin) {
+    return res.status(403).json({ error: "Login is not available for this site" });
+  }
 
   const allowed = await genericRateLimiter(req, res, { windowMs: 60 * 1000, max: 30, name: "request-login-link" });
   if (!allowed) return;
