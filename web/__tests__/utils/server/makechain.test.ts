@@ -54,7 +54,7 @@ jest.mock("@/utils/server/llmProvider", () => ({
 // Now import ChatOpenAI - it will be the mocked version
 import { VectorStoreRetriever } from "@langchain/core/vectorstores";
 import { Document } from "@langchain/core/documents";
-import { createStreamingDeadlineGuard, makeChain } from "../../../src/utils/server/makechain";
+import { createStreamingDeadlineGuard, makeChain, runStandardRetrieval } from "../../../src/utils/server/makechain";
 import { calculateSources, combineDocumentsFn } from "../../../src/utils/server/ragDocumentUtils";
 import fs from "fs/promises";
 import path from "path";
@@ -3355,5 +3355,72 @@ describe("setupAndExecuteLanguageModelChain streaming deadline", () => {
     await jest.runAllTimersAsync();
     await expect(resultPromise).resolves.toBe("completed");
     jest.useRealTimers();
+  });
+});
+
+describe("runStandardRetrieval library allocation", () => {
+  const lucaLibraries = [
+    "Ananda Library",
+    "Ananda Youtube",
+    "Treasures",
+    "The Bhaktan Files",
+    "ananda.org",
+    "Crystal Clarity",
+    { name: "Ananda Family Wiki", accessEmailsEnv: "WIKI_LIBRARY_EMAILS" },
+  ];
+
+  function mockRetriever() {
+    return {
+      vectorStore: {
+        similaritySearchWithScore: jest.fn().mockResolvedValue([]),
+      },
+    };
+  }
+
+  test("Luca's real mixed libraries use one Pinecone query with all 7 names and source count 4", async () => {
+    const retriever = mockRetriever();
+    await runStandardRetrieval(retriever as any, "Who is Jairam?", 4, undefined, lucaLibraries);
+
+    expect(retriever.vectorStore.similaritySearchWithScore).toHaveBeenCalledTimes(1);
+    const [, k, filter] = retriever.vectorStore.similaritySearchWithScore.mock.calls[0];
+    expect(k).toBe(4);
+    const libraryClause = (filter.$and as Array<Record<string, unknown>>).find((clause) => "library" in clause);
+    expect(libraryClause).toEqual({
+      library: {
+        $in: [
+          "Ananda Library",
+          "Ananda Youtube",
+          "Treasures",
+          "The Bhaktan Files",
+          "ananda.org",
+          "Crystal Clarity",
+          "Ananda Family Wiki",
+        ],
+      },
+    });
+  });
+
+  test("real weights still issue per-library Pinecone queries with the prior quotas", async () => {
+    const retriever = mockRetriever();
+    await runStandardRetrieval(
+      retriever as any,
+      "What is meditation?",
+      6,
+      undefined,
+      [
+        { name: "ananda.org", weight: 67 },
+        { name: "Crystal Clarity", weight: 33 },
+      ]
+    );
+
+    expect(retriever.vectorStore.similaritySearchWithScore).toHaveBeenCalledTimes(2);
+    const calls = retriever.vectorStore.similaritySearchWithScore.mock.calls;
+    const byLibrary = Object.fromEntries(
+      calls.map(([, k, filter]: [string, number, Record<string, unknown>]) => [filter.library, k])
+    );
+    expect(byLibrary).toEqual({
+      "ananda.org": 4,
+      "Crystal Clarity": 2,
+    });
   });
 });

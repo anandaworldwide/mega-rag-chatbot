@@ -281,6 +281,38 @@ describe("resolveAuthorScope", () => {
     expect(result).toEqual({ kind: "hard", collection: "whole_library" });
   });
 
+  it("still blends when includedLibraries has a wiki object without weight", () => {
+    const result = resolveAuthorScope({
+      question: "Who is Jairam?",
+      siteConfig: {
+        ...baseSiteConfig,
+        includedLibraries: [
+          "Ananda Library",
+          { name: "Ananda Family Wiki", accessEmailsEnv: "WIKI_LIBRARY_EMAILS" },
+        ],
+      } as SiteConfig,
+      collectionMode: "auto",
+    });
+
+    expect(result).toEqual({ kind: "blend", masterSwamiBoost: 0.2 });
+  });
+
+  it("bypasses blend only when a library has a real weight", () => {
+    const result = resolveAuthorScope({
+      question: "Who is Jairam?",
+      siteConfig: {
+        ...baseSiteConfig,
+        includedLibraries: [
+          { name: "ananda.org", weight: 67 },
+          { name: "Crystal Clarity", weight: 33 },
+        ],
+      } as SiteConfig,
+      collectionMode: "auto",
+    });
+
+    expect(result).toEqual({ kind: "hard", collection: "master_swami" });
+  });
+
   it("does not hard-filter Master/Swami when only the retrieval rewrite names them", () => {
     const userUtterance = "How does Kundalini relate to music?";
     const retrievalQuery =

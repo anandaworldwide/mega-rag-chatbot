@@ -45,6 +45,7 @@ import {
   getDefaultCollectionKey,
 } from "@/utils/client/siteConfig";
 import { Document } from "@langchain/core/documents";
+import { libraryEntryName } from "@/utils/libraryEntries";
 
 // Third-party library imports
 import Cookies from "js-cookie";
@@ -189,7 +190,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
   // Library selection state - initialize with all libraries
   const [selectedLibraries, setSelectedLibraries] = useState<string[]>(() => {
     const availableLibraries = siteConfig?.includedLibraries || [];
-    return availableLibraries.map((lib) => (typeof lib === "string" ? lib : lib.name));
+    return availableLibraries.map(libraryEntryName);
   });
   // Keep a ref in sync to avoid stale closures during rapid toggles/submit
   const selectedLibrariesRef = useRef<string[]>(selectedLibraries);
@@ -214,7 +215,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     };
   }, [siteConfig]);
   const defaultLibraries = useMemo(
-    () => (siteConfig?.includedLibraries || []).map((lib) => (typeof lib === "string" ? lib : lib.name)),
+    () => (siteConfig?.includedLibraries || []).map(libraryEntryName),
     [siteConfig?.includedLibraries]
   );
   const defaultSourceCount = siteConfig?.defaultNumSources || 4;

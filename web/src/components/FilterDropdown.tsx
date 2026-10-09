@@ -21,6 +21,7 @@ import {
 } from "@/utils/client/siteConfig";
 import { logEvent } from "@/utils/client/analytics";
 import { useLibraryStats } from "@/hooks/useLibraryStats";
+import { libraryEntryName } from "@/utils/libraryEntries";
 
 interface FilterDropdownProps {
   siteConfig: SiteConfig | null;
@@ -63,8 +64,8 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
 
   // Get available libraries and check if we should show library selector
   const availableLibraries = (siteConfig?.includedLibraries || []).slice().sort((a, b) => {
-    const nameA = typeof a === "string" ? a : a.name;
-    const nameB = typeof b === "string" ? b : b.name;
+    const nameA = libraryEntryName(a);
+    const nameB = libraryEntryName(b);
     return nameA.toLowerCase().localeCompare(nameB.toLowerCase());
   });
   const showLibrarySelection = availableLibraries.length > 1;
@@ -115,7 +116,7 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
 
     const collectionChanged = showAuthorSelection && collection !== defaultCollection;
 
-    const defaultLibraries = availableLibraries.map((lib) => (typeof lib === "string" ? lib : lib.name));
+    const defaultLibraries = availableLibraries.map(libraryEntryName);
     const librariesChanged =
       showLibrarySelection &&
       (selectedLibraries.length !== defaultLibraries.length ||
@@ -329,7 +330,7 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
 
     // Reset libraries
     if (showLibrarySelection) {
-      const defaultLibraries = availableLibraries.map((lib) => (typeof lib === "string" ? lib : lib.name));
+      const defaultLibraries = availableLibraries.map(libraryEntryName);
       const librariesToSelect = defaultLibraries.filter((lib) => !selectedLibraries.includes(lib));
       const librariesToDeselect = selectedLibraries.filter((lib) => !defaultLibraries.includes(lib));
 
@@ -505,7 +506,7 @@ export const FilterDropdown: React.FC<FilterDropdownProps> = ({
                   <h4 className="text-sm font-medium text-gray-900 mb-2">Content Collections</h4>
                   <div className="space-y-2">
                     {availableLibraries.map((lib) => {
-                      const libraryName = typeof lib === "string" ? lib : lib.name;
+                      const libraryName = libraryEntryName(lib);
                       const isLastSelected = selectedLibraries.length === 1 && selectedLibraries.includes(libraryName);
                       return (
                         <label key={libraryName} className="flex items-center cursor-pointer py-1">

@@ -1,3 +1,5 @@
+import { libraryEntryName } from "@/utils/libraryEntries";
+
 export const LIBRARY_ACCESS_COOKIE = "libraryAccess";
 export const LIBRARY_ACCESS_HEADER = "x-library-access";
 
@@ -12,7 +14,7 @@ type CookieSetter = {
 };
 
 export function libraryName(entry: LibraryAccessEntry): string {
-  return typeof entry === "string" ? entry : entry.name;
+  return libraryEntryName(entry);
 }
 
 export function libraryAccessEnv(entry: LibraryAccessEntry): string | undefined {

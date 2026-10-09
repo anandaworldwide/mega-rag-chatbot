@@ -1,4 +1,5 @@
 import type { SiteConfig } from "@/types/siteConfig";
+import { hasWeightedLibraries } from "@/utils/libraryEntries";
 import {
   AuthorScopeDescriptor,
   AuthorScopeHint,
@@ -30,9 +31,7 @@ function hasWordBoundaryMatch(text: string, term: string): boolean {
 }
 
 function siteHasWeightedLibraries(siteConfig?: SiteConfig | null): boolean {
-  return (
-    siteConfig?.includedLibraries?.some((entry) => typeof entry === "object" && entry.weight != null) ?? false
-  );
+  return hasWeightedLibraries(siteConfig?.includedLibraries);
 }
 
 /**
