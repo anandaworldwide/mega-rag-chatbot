@@ -37,7 +37,7 @@ export function emailFromAuthCookieHeader(cookieHeader: string | undefined): str
     }) as { email?: string };
     return payload.email;
   } catch (error) {
-    console.error("Wiki library gate could not read the auth cookie:", error);
+    console.error("Library access gate could not read the auth cookie:", error);
     return undefined;
   }
 }

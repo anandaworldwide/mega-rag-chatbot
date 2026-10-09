@@ -369,7 +369,7 @@ The command also saves local progress after each page. Resume a stopped run with
 
 This command does not publish the title catalog. Images, files, and embeds are skipped. A page with no body text is skipped. A title, a status, or an assignee is not body text. Text in the page body, or in a text property, is ingested. Child pages of an empty page are still read.
 
-Chat shows this library only to the emails in `WIKI_LIBRARY_EMAILS`. Set that variable in `.env.ananda` and on the Luca web deployment. An empty value hides the library from every user. Add an email, then reload the chat page.
+Chat shows this library only to emails in the env var named by `accessEmailsEnv` on that library in `config.json`. The wiki library uses `WIKI_LIBRARY_EMAILS`. Set that variable in `.env.ananda` and on the Luca web deployment. An empty value hides the library from every user. A library without `accessEmailsEnv` stays open. Add an email, then reload the chat page.
 
 ## Disk backup of S3
 

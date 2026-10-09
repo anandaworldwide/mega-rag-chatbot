@@ -247,6 +247,8 @@ describe("Login API", () => {
     );
     expect(res.statusCode).toBe(200);
     expect(res._getJSONData()).toEqual({ message: "Authenticated", redirect: "/" });
+    expect(setCookieMock).toHaveBeenCalledWith("libraryAccess", "", expect.objectContaining({ expires: expect.any(Date) }));
+    expect(setCookieMock).toHaveBeenCalledWith("wikiLibrary", "", expect.objectContaining({ expires: expect.any(Date) }));
     // Note: Cookie setting is tested via integration tests; node-mocks-http doesn't fully support cookie headers
   });
 

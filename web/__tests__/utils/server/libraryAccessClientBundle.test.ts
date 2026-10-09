@@ -7,12 +7,12 @@ function readWebFile(rel: string): string {
   return fs.readFileSync(path.join(webRoot, rel), "utf8");
 }
 
-describe("wiki library client bundle", () => {
+describe("library access client bundle", () => {
   test("the client _app path does not import jsonwebtoken", () => {
     const appSource = readWebFile("src/pages/_app.tsx");
-    const accessSource = readWebFile("src/utils/server/wikiLibraryAccess.ts");
+    const accessSource = readWebFile("src/utils/server/libraryAccess.ts");
     expect(appSource).not.toMatch(/jsonwebtoken/);
-    expect(appSource).not.toMatch(/wikiLibraryAuth/);
+    expect(appSource).not.toMatch(/libraryAccessAuth/);
     expect(accessSource).not.toMatch(/jsonwebtoken/);
     expect(accessSource).not.toMatch(/from ["']crypto["']/);
   });
@@ -33,9 +33,9 @@ describe("wiki library client bundle", () => {
     }
   });
 
-  test("the chat route still calls applyWikiLibraryGate", () => {
+  test("the chat route still calls applyLibraryAccessGate", () => {
     const routeSource = readWebFile("src/app/api/chat/v1/route.ts");
-    expect(routeSource).toMatch(/applyWikiLibraryGate/);
+    expect(routeSource).toMatch(/applyLibraryAccessGate/);
     expect(routeSource).toMatch(/token\.email/);
   });
 });

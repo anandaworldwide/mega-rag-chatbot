@@ -17,6 +17,15 @@ export interface AccessControlLevelConfig {
   value: number;
 }
 
+export type LibraryConfigEntry =
+  | string
+  | {
+      name: string;
+      weight?: number;
+      /** Name of an env var that holds a comma-separated allow list. Omit to keep the library public. */
+      accessEmailsEnv?: string;
+    };
+
 export interface AccessControlConfig {
   enabled?: boolean;
   levels: AccessControlLevelConfig[];
@@ -77,7 +86,7 @@ export interface SiteConfig {
   queriesPerUserPerDay: number;
   showSourceContent: boolean;
   showVoting: boolean;
-  includedLibraries?: Array<string | { name: string; weight?: number }>; // Updated
+  includedLibraries?: LibraryConfigEntry[];
   enabledMediaTypes?: ("text" | "audio" | "youtube")[];
   enableClaudeAbTest?: boolean;
   /** Soft "How did we do?" thumbs prompt after the first answer of a conversation */

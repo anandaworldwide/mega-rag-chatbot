@@ -11,11 +11,11 @@ import { SudoProvider } from "@/contexts/SudoContext";
 import { SiteConfig } from "@/types/siteConfig";
 import { getCommonSiteConfigProps } from "@/utils/server/getCommonSiteConfigProps";
 import {
-  WIKI_LIBRARY_HEADER,
-  wikiLibraryCookieAllows,
-  wikiLibraryHeaderAllows,
-  withoutWikiLibrary,
-} from "@/utils/server/wikiLibraryAccess";
+  LIBRARY_ACCESS_HEADER,
+  applyVisibleLibraries,
+  libraryAccessCookieNames,
+  libraryAccessHeaderNames,
+} from "@/utils/server/libraryAccess";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/utils/client/reactQueryConfig";
 import { initializeTokenManager } from "@/utils/client/tokenManager";
@@ -181,19 +181,19 @@ function MyApp({ Component, pageProps }: CustomAppProps) {
 MyApp.getInitialProps = async (appContext: AppContext) => {
   const result = await getCommonSiteConfigProps();
   const req = appContext.ctx.req;
-  let allowed = false;
+  let allowedRestricted: string[] = [];
   if (req) {
     // Fail closed. Trust only the header that middleware writes.
     // Do not read a client cookie or a missing/unknown header on the server path.
-    allowed = wikiLibraryHeaderAllows(req.headers[WIKI_LIBRARY_HEADER]);
+    allowedRestricted = libraryAccessHeaderNames(req.headers[LIBRARY_ACCESS_HEADER]);
   } else if (typeof document !== "undefined") {
-    allowed = wikiLibraryCookieAllows(document.cookie);
+    allowedRestricted = libraryAccessCookieNames(document.cookie);
   }
   const siteConfig = result.props.siteConfig;
   return {
     pageProps: {
       ...result.props,
-      siteConfig: siteConfig && !allowed ? withoutWikiLibrary(siteConfig) : siteConfig,
+      siteConfig: siteConfig ? applyVisibleLibraries(siteConfig, allowedRestricted) : siteConfig,
     },
   };
 };

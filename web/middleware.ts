@@ -5,8 +5,8 @@ import { createErrorCorsHeaders, handleCors, addCorsHeaders } from "./src/utils/
 import { getAllPublicPaths } from "./src/config/publicPaths";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
-import { wikiLibraryCookieHeader } from "./src/utils/server/wikiLibraryAccess";
-import { applyComputedWikiLibraryOverrides } from "./src/utils/server/wikiLibraryMiddlewareGate";
+import { libraryAccessCookieHeader } from "./src/utils/server/libraryAccess";
+import { applyComputedLibraryAccessOverrides } from "./src/utils/server/libraryAccessMiddlewareGate";
 
 // Log suspicious activity with details
 const logSuspiciousActivity = (req: NextRequest, reason: string) => {
@@ -94,23 +94,26 @@ const performSecurityChecks = (req: NextRequest, url: URL) => {
   }
 };
 
-function withWikiLibraryCookie(response: NextResponse, allowed: boolean): NextResponse {
-  response.headers.append("Set-Cookie", wikiLibraryCookieHeader(allowed));
+function withLibraryAccessCookie(response: NextResponse, allowedNames: string[]): NextResponse {
+  response.headers.append("Set-Cookie", libraryAccessCookieHeader(allowedNames));
   return response;
 }
 
-function nextWithWikiLibraryGate(req: NextRequest): { response: NextResponse; wikiAllowed: boolean } {
+function nextWithLibraryAccessGate(
+  req: NextRequest,
+  siteConfig: Parameters<typeof applyComputedLibraryAccessOverrides>[1]
+): { response: NextResponse; allowedNames: string[] } {
   const requestHeaders = new Headers(req.headers);
-  const wikiAllowed = applyComputedWikiLibraryOverrides(requestHeaders);
+  const allowedNames = applyComputedLibraryAccessOverrides(requestHeaders, siteConfig);
   const response = NextResponse.next({ request: { headers: requestHeaders } });
-  return { response: withWikiLibraryCookie(response, wikiAllowed), wikiAllowed };
+  return { response: withLibraryAccessCookie(response, allowedNames), allowedNames };
 }
 
 /**
  * Page routes that _app getInitialProps serves must match.
  * The matcher skips only static files and /api/auth/*.
  */
-export function pathMatchesWikiMiddleware(pathname: string): boolean {
+export function pathMatchesAccessMiddleware(pathname: string): boolean {
   if (pathname === "/") {
     return true;
   }
@@ -123,7 +126,9 @@ export function pathMatchesWikiMiddleware(pathname: string): boolean {
 
 // Main middleware function for /web
 export function middleware(req: NextRequest) {
-  const { response, wikiAllowed } = nextWithWikiLibraryGate(req);
+  const siteId = process.env.SITE_ID || "default";
+  const siteConfig = loadSiteConfigSync(siteId);
+  const { response, allowedNames } = nextWithLibraryAccessGate(req, siteConfig);
   const url = req.nextUrl.clone(); // Use nextUrl for reliable path info within middleware
 
   // Perform security checks
@@ -132,14 +137,10 @@ export function middleware(req: NextRequest) {
   // Redirect /all to /answers (relative to /web)
   if (url.pathname === "/all") {
     url.pathname = "/answers";
-    return withWikiLibraryCookie(NextResponse.redirect(url, { status: 308 }), wikiAllowed);
+    return withLibraryAccessCookie(NextResponse.redirect(url, { status: 308 }), allowedNames);
   }
 
   // NOTE: HTTP to HTTPS redirect is usually handled by hosting (Vercel)
-
-  // Load site configuration (ensure paths are correct for /web context)
-  const siteId = process.env.SITE_ID || "default";
-  const siteConfig = loadSiteConfigSync(siteId); // Uses adjusted import path
 
   if (!siteConfig) {
     console.error(`[Web Middleware] Configuration not found for site ID: ${siteId}`);
@@ -198,7 +199,7 @@ export function middleware(req: NextRequest) {
             headers: createErrorCorsHeaders(req),
           }
         );
-        return withWikiLibraryCookie(apiResponse, wikiAllowed);
+        return withLibraryAccessCookie(apiResponse, allowedNames);
       }
 
       // For page routes, redirect to /login (relative to /web)
@@ -206,7 +207,7 @@ export function middleware(req: NextRequest) {
       const loginUrl = new URL("/login", req.url); // req.url should have correct base
       loginUrl.searchParams.set("redirect", fullPath);
 
-      return withWikiLibraryCookie(NextResponse.redirect(loginUrl), wikiAllowed);
+      return withLibraryAccessCookie(NextResponse.redirect(loginUrl), allowedNames);
     }
   }
 
@@ -214,13 +215,13 @@ export function middleware(req: NextRequest) {
   const corsResult = handleCors(req, siteConfig);
   if (corsResult) {
     // If handleCors returns a response (error case), return it
-    return withWikiLibraryCookie(corsResult, wikiAllowed);
+    return withLibraryAccessCookie(corsResult, allowedNames);
   }
 
   // Handle OPTIONS request
   if (req.method === "OPTIONS") {
     const optionsResponse = new NextResponse(null, { status: 204 });
-    return withWikiLibraryCookie(addCorsHeaders(optionsResponse, req, siteConfig), wikiAllowed);
+    return withLibraryAccessCookie(addCorsHeaders(optionsResponse, req, siteConfig), allowedNames);
   }
 
   // Generate nonce for CSP (Next.js compatible)
