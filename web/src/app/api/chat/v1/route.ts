@@ -800,7 +800,12 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
   }
 
   const { sanitizedInput, originalQuestion } = validationResult;
-  const libraryGate = applyLibraryAccessGate(siteConfig, token.email, sanitizedInput.selectedLibraries);
+  // Access comes from the Bearer JWT email (issued from the auth cookie by
+  // /api/web-token). Do not read x-library-access here: middleware may not
+  // forward that request header to this App Router streaming route.
+  const libraryGate = applyLibraryAccessGate(siteConfig, token.email, sanitizedInput.selectedLibraries, {
+    librariesExplicit: sanitizedInput.filterExplicitness?.libraries,
+  });
   siteConfig = libraryGate.siteConfig;
   sanitizedInput.selectedLibraries = libraryGate.selectedLibraries;
   let effectiveModelName = modelName;
