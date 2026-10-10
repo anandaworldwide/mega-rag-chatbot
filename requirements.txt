@@ -438,7 +438,7 @@ pygments==2.20.0
     #   mega-rag-chatbot
     #   pytest
     #   rich
-pyjwt==2.13.0
+pyjwt==2.15.0
     # via
     #   firebase-admin
     #   mega-rag-chatbot
@@ -610,7 +610,7 @@ typing-inspection==0.4.2
     # via pydantic
 tzdata==2025.3
     # via pandas
-urllib3==2.7.0
+urllib3==2.8.0
     # via
     #   botocore
     #   mega-rag-chatbot

@@ -35,4 +35,4 @@ boto3
 # Security fixes
 orjson>=3.11.6  # CVE-2025-67221: recursion DoS fix
 requests>=2.33.0  # CVE-2026-25645
-urllib3>=2.7.0  # CVE-2025-66418, CVE-2025-66471, CVE-2026-21441: Decompression bomb fixes
+urllib3>=2.8.0  # CVE-2025-66418, CVE-2025-66471, CVE-2026-21441: Decompression bomb fixes

@@ -9,7 +9,7 @@ torch>=2.13.0,<3.0  # setuptools>=83 (GHSA-h35f-9h28-mq5c) needs torch that drop
 onnx>=1.22.0  # CVE-2026-44512 + CVE-2026-28500 + CVE-2026-27489, CVE-2026-34445/34446/34447, GHSA-q56x-g2fj-4rj6
 filelock>=3.20.1  # CVE-2025-68146: TOCTOU symlink attack fix (transitive dependency needs pinning)
 requests>=2.33.0  # CVE-2026-25645 (transitive dependency needs pinning)
-urllib3>=2.7.0  # CVE-2025-66418, CVE-2025-66471, CVE-2026-21441: Decompression bomb fixes (transitive dependency needs pinning)
+urllib3>=2.8.0  # CVE-2025-66418, CVE-2025-66471, CVE-2026-21441: Decompression bomb fixes (transitive dependency needs pinning)
 scikit-learn
 numpy
 protobuf>=6.33.5  # Includes latest protobuf security fixes.
