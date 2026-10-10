@@ -3227,9 +3227,10 @@ Use `dry_run=True` on filter updates for accurate counts (not capped like query 
 Pace filter updates to Pinecone's 5/sec metadata-update limit (`FilterUpdateRateLimiter`, default 0.21s).
 Retry with exponential backoff on HTTP 429.
 
-**`ananda` and `ananda-public` share the same Pinecone index** (`PINECONE_INDEX_NAME=ananda-2025-06-19--3-large` in
-both `.env.ananda` and `.env.ananda-public`). Metadata cleanup scripts like `bin/clean_pinecone_authors.py` only need to
-run once per shared index — do not re-run per site when sites share `PINECONE_INDEX_NAME`.
+**`ananda` and `ananda-public` share the same Pinecone index.** Read the live name from `PINECONE_INDEX_NAME` in
+`.env.ananda`, `.env.ananda-public`, and the matching Vercel site env. Metadata cleanup scripts like
+`bin/clean_pinecone_authors.py` only need to run once per shared index. Do not re-run per site when sites share
+`PINECONE_INDEX_NAME`.
 
 ### Mistake: Heredoc-in-command-substitution fails in this workspace shell
 

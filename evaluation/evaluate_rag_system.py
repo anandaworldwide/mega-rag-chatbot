@@ -12,7 +12,7 @@ Evaluates and compares RAG systems with different chunking strategies for retrie
 
 Key Operations:
 - Loads configurations via a `--site` argument, setting environment variables dynamically.
-- Connects to two Pinecone indexes (current: corpus-2025-02-15, new: test-2025-05-17--3-large-3072).
+- Connects to two Pinecone indexes (current: via PINECONE_INDEX_NAME, new: via PINECONE_INGEST_INDEX_NAME).
 - Processes a human-judged dataset (`evaluation_dataset_ananda.jsonl`) with queries and relevance scores.
 - For each query and system:
     - Tests multiple chunking strategies (fixed-size and spaCy-based) defined in CHUNKING_STRATEGIES.
