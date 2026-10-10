@@ -1014,6 +1014,9 @@ try {
 - Prevent injection attacks by sanitizing special characters
 - Validate UTF-8 encoding for international characters
 - Prevent email header injection by sanitizing newlines
+- Do not apply SQL-style apostrophe doubling (`'` → `''`) to Google Sheets free text.
+  Use `sanitizeSpreadsheetText` so apostrophes and quotes stay as typed, and prefix
+  `=` `+` `-` `@` to stop formula injection on `USER_ENTERED` appends.
 
 ### Subprocess Execution Best Practices
 

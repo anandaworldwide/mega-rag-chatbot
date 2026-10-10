@@ -61,14 +61,17 @@ export function sanitizeTextInput(
   sanitized = sanitized.replace(/javascript:/gi, "");
   sanitized = sanitized.replace(/data:text\/html/gi, "");
 
-  // SQL injection patterns (defense in depth)
-  sanitized = sanitized.replace(/['";\\]/g, (match) => {
-    // Escape quotes and semicolons
-    if (match === "'") return "''";
-    if (match === '"') return '\\"';
-    if (match === ";") return "";
-    return match;
-  });
+  // SQL-style quote escaping is defense-in-depth for parameterized stores.
+  // Skip it when allowSpecialChars is true so apostrophes and quotes stay as typed
+  // (Google Sheets and other free-text sinks must not store didn't as didn''t).
+  if (!allowSpecialChars) {
+    sanitized = sanitized.replace(/['";\\]/g, (match) => {
+      if (match === "'") return "''";
+      if (match === '"') return '\\"';
+      if (match === ";") return "";
+      return match;
+    });
+  }
 
   // Command injection patterns
   sanitized = sanitized.replace(/[|&;`$(){}[\]]/g, "");
@@ -82,6 +85,39 @@ export function sanitizeTextInput(
   sanitized = sanitized.replace(/\s+/g, " ");
 
   return sanitized;
+}
+
+/**
+ * Prefixes a leading apostrophe when Google Sheets would treat the cell as a formula.
+ * USER_ENTERED appends interpret values that start with = + - @ as formulas.
+ */
+export function neutralizeSpreadsheetFormula(value: string): string {
+  if (value.length === 0) {
+    return value;
+  }
+
+  const firstChar = value.charAt(0);
+  if (firstChar === "=" || firstChar === "+" || firstChar === "-" || firstChar === "@") {
+    return `'${value}`;
+  }
+
+  return value;
+}
+
+/**
+ * Sanitizes free-text for a Google Sheets cell.
+ * Preserves apostrophes and double quotes. Neutralizes formula injection.
+ */
+export function sanitizeSpreadsheetText(
+  input: string,
+  options: { maxLength?: number; allowNewlines?: boolean } = {}
+): string {
+  const sanitized = sanitizeTextInput(input, {
+    maxLength: options.maxLength,
+    allowNewlines: options.allowNewlines ?? true,
+    allowSpecialChars: true,
+  });
+  return neutralizeSpreadsheetFormula(sanitized);
 }
 
 /**
