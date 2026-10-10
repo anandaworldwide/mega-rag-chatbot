@@ -8,7 +8,7 @@ import { withJwtAuth } from "@/utils/server/jwtUtils";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { withPagesCors } from "@/utils/server/pagesCorsUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
-import { sanitizeTextInput } from "@/utils/server/inputSanitization";
+import { sanitizeSpreadsheetText } from "@/utils/server/inputSanitization";
 import { createErrorResponse, ERROR_CODES } from "@/utils/server/apiErrorResponse";
 
 /**
@@ -148,22 +148,20 @@ async function handleRequest(req: NextApiRequest, res: NextApiResponse): Promise
     return;
   }
 
-  // Sanitize input before writing to Google Sheets to prevent injection
+  // Sanitize for Google Sheets: keep apostrophes/quotes, block formula injection
   let sanitizedFeedback = "";
   let sanitizedAdditionalComments = "";
   try {
     if (feedback) {
-      sanitizedFeedback = sanitizeTextInput(feedback, {
+      sanitizedFeedback = sanitizeSpreadsheetText(feedback, {
         maxLength: 1000,
         allowNewlines: true,
-        allowSpecialChars: true, // Allow quotes, apostrophes for user feedback
       });
     }
     if (additionalComments) {
-      sanitizedAdditionalComments = sanitizeTextInput(additionalComments, {
+      sanitizedAdditionalComments = sanitizeSpreadsheetText(additionalComments, {
         maxLength: 1000,
         allowNewlines: true,
-        allowSpecialChars: true, // Allow quotes, apostrophes for user feedback
       });
     }
   } catch (sanitizeError: any) {

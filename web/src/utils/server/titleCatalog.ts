@@ -3,6 +3,7 @@ import fs from "fs/promises";
 import path from "path";
 import { Readable } from "stream";
 import type { SiteConfig } from "@/types/siteConfig";
+import { libraryEntryName } from "@/utils/libraryEntries";
 import type { MediaTypes } from "@/utils/determineActiveMediaTypes";
 import { determineActiveMediaTypes } from "@/utils/determineActiveMediaTypes";
 import {
@@ -362,8 +363,7 @@ export function rankTitleScopeSuggestions(
 }
 
 export function getIncludedLibraryNames(siteConfig: SiteConfig): string[] {
-  const libs = siteConfig.includedLibraries ?? [];
-  return libs.map((entry) => (typeof entry === "string" ? entry : entry.name));
+  return (siteConfig.includedLibraries ?? []).map(libraryEntryName);
 }
 
 function buildAllEnabledMediaTypes(enabled: string[] | undefined): { text: boolean; audio: boolean; youtube: boolean } {

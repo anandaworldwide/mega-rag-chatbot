@@ -46,7 +46,7 @@ Default: answer from the given sources now. Do not call tools for simple definit
 
 Only call a tool when one of these is clearly true:
 - get_adjacent_chunks: a passage you need to quote cuts off mid-sentence/mid-thought; pass that source \`id\` and prefer ±1.
-- search_more_sources: sources are clearly off-topic, empty of needed quotes, or too thin for a multi-part deliverable the user asked for (class/talk outline, research survey, quote pack, etc.). Pass a better query (same author/library/media filters apply).
+- search_more_sources: sources are clearly off-topic, empty of needed quotes, or too thin for a multi-part deliverable the user asked for (class/talk outline, research survey, quote pack, etc.). Pass a better query (same author/library/media filters apply). If the user asked for a complete list of items, search for a source that lists them all (for example a table of contents, an index, or an overview) and set complete_list=true.
 
 Do not call tools "just in case," to pad depth, or to explore neighboring numbered points that are off-topic.
 At most ${MAX_RETRIEVAL_TOOL_ITERATIONS} tool rounds and about ${MAX_ADDED_RETRIEVAL_SOURCES} added sources.`;
@@ -69,16 +69,142 @@ Answer the user's request completely now from those sources:
 - If they asked for a class/talk outline or other multi-part deliverable, produce the full structured answer (all required sections), not a one-liner or partial draft.
 - When they ask for quotations, give exact lines with citations.
 - If sources are thin, briefly note what is missing, then still finish the best complete answer you can from what you have.
+- If they asked for a complete list and the sources lack a full list, list every item you can cite and say which ones may be missing.
 - Never end after only saying you will search or gather more.`;
 
 export const RETRIEVAL_POST_TOOL_RETRY_GUIDANCE = `## After retrieval tools
-The JSON sources above include any documents returned so far. If they are clearly insufficient, you may call one retrieval tool once more. Otherwise answer the user now with exact quotations and citations. Do not narrate searching in plain text — either call a tool or answer.`;
+The JSON sources above include any documents returned so far. If they are clearly insufficient, you may call one retrieval tool once more. Otherwise answer the user now with exact quotations and citations. Do not narrate searching in plain text — either call a tool or answer.
+If the user asked for a complete list of items, search for a source that lists them all (for example a table of contents, an index, or an overview) before answering.`;
+
+export const RETRIEVAL_FETCH_FAILED_USER_MESSAGE =
+  "Additional source fetch failed. I could not finish a complete answer. Please try again.";
+
+export const RETRIEVAL_ROUND_LIMIT_USER_MESSAGE =
+  "I reached the limit for fetching more sources and could not finish a complete answer. Please try again.";
+
+export const RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE =
+  "I could not finish a complete answer after fetching additional sources. Please try again.";
+
+/** Extra source budget when search_more_sources sets complete_list. */
+export const COMPLETE_LIST_ADDED_RETRIEVAL_SOURCES = 16;
+
+/**
+ * True when a search_more_sources call asks for a complete list.
+ * Accepts boolean true, 1, or the string "true".
+ */
+export function parseCompleteListFlag(args: Record<string, unknown> | null | undefined): boolean {
+  if (!args) {
+    return false;
+  }
+  const value = args.complete_list;
+  if (value === true || value === 1) {
+    return true;
+  }
+  if (typeof value === "string" && value.trim().toLowerCase() === "true") {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * True when the loop may bind tools for one more retrieval round.
+ * complete_list may open one extra round. The round cap still wins.
+ */
+export function shouldAllowAnotherRetrievalRound(params: {
+  completeListRequested: boolean;
+  newlyFetchedCount: number;
+  retrievalIterations: number;
+  remainingSourceBudget: number;
+}): boolean {
+  if (params.retrievalIterations >= MAX_RETRIEVAL_TOOL_ITERATIONS) {
+    return false;
+  }
+  if (params.remainingSourceBudget <= 0) {
+    return false;
+  }
+  return params.newlyFetchedCount === 0 || params.completeListRequested;
+}
+
+/**
+ * True when a successful expansion already happened and complete_list is off.
+ * The loop then ignores further retrieval tool calls.
+ */
+export function shouldSkipFurtherRetrievalAfterExpansion(params: {
+  expansionSucceeded: boolean;
+  completeListRequested: boolean;
+}): boolean {
+  return params.expansionSucceeded && !params.completeListRequested;
+}
+
+export type FinalizeRetrievalUserAnswerParams = {
+  answerText: string;
+  fetchFailed?: boolean;
+  roundLimitHit?: boolean;
+  afterRetrievalAttempt: boolean;
+};
+
+export type FinalizeRetrievalUserAnswerResult = {
+  text: string;
+  usedFallback: boolean;
+  reason?: "fetch_failed" | "round_limit" | "incomplete";
+};
+
+/**
+ * After a retrieval-tool attempt, keep a real answer or replace leftover
+ * search narration with a plain user-facing note.
+ */
+export function finalizeRetrievalUserAnswer(
+  params: FinalizeRetrievalUserAnswerParams
+): FinalizeRetrievalUserAnswerResult {
+  const incomplete = isIncompleteRetrievalAnswer(params.answerText);
+  if (!incomplete && params.answerText.trim()) {
+    return { text: params.answerText, usedFallback: false };
+  }
+  if (!params.afterRetrievalAttempt) {
+    return { text: params.answerText, usedFallback: false };
+  }
+  if (params.fetchFailed) {
+    return {
+      text: RETRIEVAL_FETCH_FAILED_USER_MESSAGE,
+      usedFallback: true,
+      reason: "fetch_failed",
+    };
+  }
+  if (params.roundLimitHit) {
+    return {
+      text: RETRIEVAL_ROUND_LIMIT_USER_MESSAGE,
+      usedFallback: true,
+      reason: "round_limit",
+    };
+  }
+  return {
+    text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+    usedFallback: true,
+    reason: "incomplete",
+  };
+}
 
 /**
  * True when a post-retrieval "answer" is really a leaked tool call or search narration,
  * not a usable user-facing response (common when tools are unbound but the site prompt
  * still urges search_more_sources).
  */
+/** True when Grok (or similar) emitted a status line with almost no spaces. */
+export function isRunTogetherNarrationText(text: string): boolean {
+  const compact = text.replace(/[\s.,…]+/g, "");
+  if (compact.length < 25) {
+    return false;
+  }
+  const whitespaceCount = (text.match(/\s/g) || []).length;
+  if (whitespaceCount === 0) {
+    return true;
+  }
+  const tokens = text.split(/\s+/).filter(Boolean);
+  const longestToken = tokens.reduce((max, token) => Math.max(max, token.replace(/[.,…]+/g, "").length), 0);
+  const spaceRatio = whitespaceCount / Math.max(text.length, 1);
+  return longestToken >= 25 || spaceRatio < 0.08;
+}
+
 export function isIncompleteRetrievalAnswer(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) {
@@ -107,9 +233,14 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
 
   const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
   const startsLikeSearchNarration =
-    /^(i('ll| will)|i am|i'm|i don['’]t|let me|gathering|pulling|searching|seeking|looking up|fetching|trying|expanding)\b/i.test(
+    /^(i('ll| will)|i am|i'm|i don['’]t|let me(?: fetch| search| pull)?|gathering|pulling|searching|seeking|fetching|trying|expanding)\b/i.test(
       trimmed
     );
+  // "Looking for" is common in real answers. Treat it as a status line only when
+  // it is followed by more/additional plus sources/passages.
+  const hasLookingForRetrievalStatus =
+    /^looking (?:up|for)\b/i.test(trimmed) &&
+    /\b(?:more|additional)\b[\s\S]{0,80}\b(?:sources?|passages?)\b/i.test(trimmed);
   const mentionsRetrievalWork =
     /\b(search|searching|source|sources|passage|passages|chunk|chunks|quote|quotes|richer|additional|more|tighter search|tighter query|book material)\b/i.test(
       trimmed
@@ -125,11 +256,27 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
       trimmed
     );
 
+  // Apply the no-space check only to run-together status lines, not normal prose.
+  let gluedStartsLikeSearchNarration = false;
+  let gluedMentionsRetrievalWork = false;
+  if (isRunTogetherNarrationText(trimmed)) {
+    const glued = trimmed.replace(/[\s.,…]+/g, "").toLowerCase();
+    gluedStartsLikeSearchNarration =
+      /^(fetching|searching|lookingfor|lookingup|letmefetch|letmesearch|letmepull|gathering|pulling|seeking|trying|expanding|illpull|iwill|iamsearching|imsearching|idont)/.test(
+        glued
+      );
+    gluedMentionsRetrievalWork =
+      /(search|sources?|passages?|chunks?|quotes?|additional|more|tightersearch|tighterquery|bookmaterial)/.test(
+        glued
+      );
+  }
+
   // Short "I'll gather richer sources…" trail-offs, including glued status-like sentences.
   if (
     wordCount < 80 &&
-    (startsLikeSearchNarration || hasGluedSearchNarration) &&
-    (mentionsRetrievalWork || hasAdjacentFetchNarration)
+    (hasLookingForRetrievalStatus ||
+      ((startsLikeSearchNarration || hasGluedSearchNarration || gluedStartsLikeSearchNarration) &&
+        (mentionsRetrievalWork || hasAdjacentFetchNarration || gluedMentionsRetrievalWork)))
   ) {
     return true;
   }
@@ -252,7 +399,7 @@ export const RETRIEVAL_TOOL_DEFINITIONS = [
     function: {
       name: "search_more_sources",
       description:
-        "Run an additional semantic search with a reformulated or broadened query when current sources are weak or incomplete.",
+        "Run an additional semantic search with a reformulated or broadened query when current sources are weak or incomplete. If the user asked for a complete list of items, search for a source that lists them all (for example a table of contents, an index, or an overview) before answering.",
       parameters: {
         type: "object",
         properties: {
@@ -263,6 +410,11 @@ export const RETRIEVAL_TOOL_DEFINITIONS = [
           k: {
             type: "integer",
             description: `Number of new sources to retrieve (1-${MAX_SEARCH_MORE_K}). Default ${DEFAULT_SEARCH_MORE_K}.`,
+          },
+          complete_list: {
+            type: "boolean",
+            description:
+              "Set true only when the user asks for a complete list of all items of some kind, such as all chapters of a book, all chakras, all stages or steps. False or omit otherwise.",
           },
         },
         required: ["query"],
@@ -401,6 +553,7 @@ export class RetrievalToolContext {
   remainingSourceBudget: number;
   effectiveAccessLevel: number;
   siteConfig?: SiteConfig | null;
+  completeListBudgetApplied = false;
 
   constructor(params: {
     pineconeIndex: PineconeListIndex | Index<RecordMetadata>;
@@ -418,6 +571,15 @@ export class RetrievalToolContext {
     this.remainingSourceBudget = params.remainingSourceBudget ?? MAX_ADDED_RETRIEVAL_SOURCES;
     this.effectiveAccessLevel = params.effectiveAccessLevel;
     this.siteConfig = params.siteConfig;
+  }
+
+  /** Raise the added-source budget once when complete_list is set. */
+  applyCompleteListBudget(): void {
+    if (this.completeListBudgetApplied) {
+      return;
+    }
+    this.completeListBudgetApplied = true;
+    this.remainingSourceBudget += COMPLETE_LIST_ADDED_RETRIEVAL_SOURCES - MAX_ADDED_RETRIEVAL_SOURCES;
   }
 
   registerDocuments(docs: Document[]): Document[] {

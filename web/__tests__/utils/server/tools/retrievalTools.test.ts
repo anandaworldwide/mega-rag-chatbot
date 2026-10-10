@@ -22,10 +22,20 @@ import {
   buildRetrievalReinvokeSystemPrompt,
   fillRetrievalAnswerTemplate,
   isIncompleteRetrievalAnswer,
+  isRunTogetherNarrationText,
+  parseCompleteListFlag,
+  shouldAllowAnotherRetrievalRound,
+  shouldSkipFurtherRetrievalAfterExpansion,
+  finalizeRetrievalUserAnswer,
+  COMPLETE_LIST_ADDED_RETRIEVAL_SOURCES,
   RETRIEVAL_TOOL_DEFINITIONS,
   RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE,
+  RETRIEVAL_POST_TOOL_RETRY_GUIDANCE,
   RETRIEVAL_TOOL_GUIDANCE,
   RETRIEVAL_TOOL_GUIDANCE_CURBED,
+  RETRIEVAL_FETCH_FAILED_USER_MESSAGE,
+  RETRIEVAL_ROUND_LIMIT_USER_MESSAGE,
+  RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
   getRetrievalToolGuidance,
 } from "../../../../src/utils/server/tools/retrievalTools";
 
@@ -470,6 +480,53 @@ describe("retrievalTools", () => {
       ).toBe(false);
     });
 
+    it("treats spaced and glued Fetching-more status lines as incomplete", () => {
+      expect(
+        isIncompleteRetrievalAnswer(
+          "Fetching more of the Brindaban account and other AY story passages."
+        )
+      ).toBe(true);
+      expect(isIncompleteRetrievalAnswer("Let me fetch additional sources for the outline.")).toBe(
+        true
+      );
+      expect(isIncompleteRetrievalAnswer("Looking for more passages from the book.")).toBe(true);
+      expect(isIncompleteRetrievalAnswer("Looking for additional sources.")).toBe(true);
+      expect(
+        isIncompleteRetrievalAnswer("FetchingmoreoftheBrindabanaccountandotherAYstorypassages.")
+      ).toBe(true);
+      expect(isRunTogetherNarrationText("FetchingmoreoftheBrindabanaccountandotherAYstorypassages.")).toBe(
+        true
+      );
+      expect(
+        isRunTogetherNarrationText(
+          "Fetching more of the Brindaban account and other AY story passages."
+        )
+      ).toBe(false);
+    });
+
+    it("keeps a short Looking-for-more-peace answer complete", () => {
+      expect(
+        isIncompleteRetrievalAnswer("Looking for more peace? Try daily meditation...")
+      ).toBe(false);
+    });
+
+    it("keeps short real answers complete when they start with Im/Ill/Imagine or contain moreover/resource", () => {
+      expect(
+        isIncompleteRetrievalAnswer("Immortality is the soul's nature, not a later reward.")
+      ).toBe(false);
+      expect(
+        isIncompleteRetrievalAnswer("Illumination comes through daily meditation and devotion.")
+      ).toBe(false);
+      expect(
+        isIncompleteRetrievalAnswer("Imagine a still lake at dawn, then sit in that quiet.")
+      ).toBe(false);
+      expect(
+        isIncompleteRetrievalAnswer(
+          "The teaching is, moreover, a practical resource for daily life."
+        )
+      ).toBe(false);
+    });
+
     it("treats a full class outline answer as complete", () => {
       const outline = `
 # Living the Bhagavad Gita
@@ -490,6 +547,168 @@ Pair share: where did you face an Arjuna moment this week?
 Short quotation and seated quiet. Sources include Crystal Clarity commentaries.
 `.trim();
       expect(isIncompleteRetrievalAnswer(outline)).toBe(false);
+    });
+  });
+
+  describe("complete_list retrieval policy", () => {
+    it("parses complete_list from boolean, string, and missing args", () => {
+      expect(parseCompleteListFlag({ query: "AY chapters", complete_list: true })).toBe(true);
+      expect(parseCompleteListFlag({ query: "AY chapters", complete_list: "true" })).toBe(true);
+      expect(parseCompleteListFlag({ query: "AY chapters", complete_list: 1 })).toBe(true);
+      expect(parseCompleteListFlag({ query: "AY chapters", complete_list: false })).toBe(false);
+      expect(parseCompleteListFlag({ query: "AY chapters" })).toBe(false);
+      expect(parseCompleteListFlag(undefined)).toBe(false);
+    });
+
+    it("opens exactly one extra round and the larger budget when the flag is true", () => {
+      const ctx = new RetrievalToolContext({
+        pineconeIndex: { listPaginated: jest.fn(), fetch: jest.fn() },
+        vectorStore: { similaritySearchWithScore: jest.fn() },
+        knownSourceIds: [],
+        effectiveAccessLevel: 0,
+        siteConfig: accessSiteConfig,
+      });
+      expect(ctx.remainingSourceBudget).toBe(MAX_ADDED_RETRIEVAL_SOURCES);
+      ctx.applyCompleteListBudget();
+      expect(ctx.remainingSourceBudget).toBe(COMPLETE_LIST_ADDED_RETRIEVAL_SOURCES);
+      ctx.applyCompleteListBudget();
+      expect(ctx.remainingSourceBudget).toBe(COMPLETE_LIST_ADDED_RETRIEVAL_SOURCES);
+
+      expect(
+        shouldAllowAnotherRetrievalRound({
+          completeListRequested: true,
+          newlyFetchedCount: 4,
+          retrievalIterations: 1,
+          remainingSourceBudget: ctx.remainingSourceBudget,
+        })
+      ).toBe(true);
+      expect(
+        shouldAllowAnotherRetrievalRound({
+          completeListRequested: true,
+          newlyFetchedCount: 4,
+          retrievalIterations: 2,
+          remainingSourceBudget: ctx.remainingSourceBudget,
+        })
+      ).toBe(false);
+      expect(
+        shouldSkipFurtherRetrievalAfterExpansion({
+          expansionSucceeded: true,
+          completeListRequested: true,
+        })
+      ).toBe(false);
+    });
+
+    it("cannot exceed the retrieval round cap when complete_list is true", () => {
+      expect(MAX_RETRIEVAL_TOOL_ITERATIONS).toBe(2);
+      expect(
+        shouldAllowAnotherRetrievalRound({
+          completeListRequested: true,
+          newlyFetchedCount: 0,
+          retrievalIterations: MAX_RETRIEVAL_TOOL_ITERATIONS,
+          remainingSourceBudget: COMPLETE_LIST_ADDED_RETRIEVAL_SOURCES,
+        })
+      ).toBe(false);
+    });
+
+    it("keeps one-expansion behavior when complete_list is absent or false", () => {
+      expect(
+        shouldAllowAnotherRetrievalRound({
+          completeListRequested: false,
+          newlyFetchedCount: 3,
+          retrievalIterations: 1,
+          remainingSourceBudget: MAX_ADDED_RETRIEVAL_SOURCES,
+        })
+      ).toBe(false);
+      expect(
+        shouldAllowAnotherRetrievalRound({
+          completeListRequested: false,
+          newlyFetchedCount: 0,
+          retrievalIterations: 1,
+          remainingSourceBudget: MAX_ADDED_RETRIEVAL_SOURCES,
+        })
+      ).toBe(true);
+      expect(
+        shouldSkipFurtherRetrievalAfterExpansion({
+          expansionSucceeded: true,
+          completeListRequested: false,
+        })
+      ).toBe(true);
+    });
+
+    it("keeps List all the chapters of Autobiography of a Yogi as a complete_list example", () => {
+      const searchMore = RETRIEVAL_TOOL_DEFINITIONS.find((tool) => tool.function.name === "search_more_sources");
+      const properties = searchMore?.function.parameters.properties as Record<string, { description?: string }>;
+      expect(properties.complete_list).toBeDefined();
+      expect(properties.complete_list.description).toContain("all chapters of a book");
+      expect(searchMore?.function.description).toContain(
+        "If the user asked for a complete list of items, search for a source that lists them all"
+      );
+      expect(searchMore?.function.description).not.toMatch(/list every chapter of a book/i);
+      expect(RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE).toContain(
+        "If they asked for a complete list and the sources lack a full list"
+      );
+      expect(RETRIEVAL_POST_TOOL_RETRY_GUIDANCE).toContain(
+        "If the user asked for a complete list of items, search for a source that lists them all"
+      );
+    });
+  });
+
+  describe("finalizeRetrievalUserAnswer", () => {
+    it("keeps a complete answer when the fetch returns sources", () => {
+      const answer =
+        "Here are three stories from Autobiography of a Yogi, including the Brindaban tiger and the mustard seed.";
+      const result = finalizeRetrievalUserAnswer({
+        answerText: answer,
+        afterRetrievalAttempt: true,
+      });
+      expect(result).toEqual({ text: answer, usedFallback: false });
+    });
+
+    it("says so plainly when the fetch fails", () => {
+      const result = finalizeRetrievalUserAnswer({
+        answerText: "Fetching more of the Brindaban account and other AY story passages.",
+        fetchFailed: true,
+        afterRetrievalAttempt: true,
+      });
+      expect(result).toEqual({
+        text: RETRIEVAL_FETCH_FAILED_USER_MESSAGE,
+        usedFallback: true,
+        reason: "fetch_failed",
+      });
+    });
+
+    it("says so plainly when the round limit is hit", () => {
+      const result = finalizeRetrievalUserAnswer({
+        answerText: "",
+        roundLimitHit: true,
+        afterRetrievalAttempt: true,
+      });
+      expect(result).toEqual({
+        text: RETRIEVAL_ROUND_LIMIT_USER_MESSAGE,
+        usedFallback: true,
+        reason: "round_limit",
+      });
+    });
+
+    it("replaces leftover fetch narration after a retrieval attempt", () => {
+      const result = finalizeRetrievalUserAnswer({
+        answerText: "FetchingmoreoftheBrindabanaccountandotherAYstorypassages.",
+        afterRetrievalAttempt: true,
+      });
+      expect(result).toEqual({
+        text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+        usedFallback: true,
+        reason: "incomplete",
+      });
+    });
+
+    it("does not replace a no-fetch complete answer", () => {
+      const answer = "Kriya Yoga is a meditation technique taught by Paramhansa Yogananda.";
+      const result = finalizeRetrievalUserAnswer({
+        answerText: answer,
+        afterRetrievalAttempt: false,
+      });
+      expect(result).toEqual({ text: answer, usedFallback: false });
     });
   });
 });
