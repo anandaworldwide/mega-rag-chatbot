@@ -3,9 +3,11 @@
  */
 
 import {
+  neutralizeSpreadsheetFormula,
   sanitizeEmail,
   sanitizeForLogging,
   sanitizeName,
+  sanitizeSpreadsheetText,
   sanitizeTextInput,
   validateAndSanitizeQuestion,
 } from "@/utils/server/inputSanitization";
@@ -118,5 +120,31 @@ describe("sanitizeTextInput / sanitizeForLogging", () => {
     expect(logged).not.toContain("\n");
     expect(logged.length).toBeLessThanOrEqual(60);
     expect(sanitizeForLogging(null as any)).toBe("null");
+  });
+
+  it("still applies SQL-style apostrophe escaping when allowSpecialChars is false", () => {
+    expect(sanitizeTextInput("didn't")).toBe("didn''t");
+  });
+
+  it("preserves apostrophes and double quotes when allowSpecialChars is true", () => {
+    expect(sanitizeTextInput("didn't", { allowSpecialChars: true })).toBe("didn't");
+    expect(sanitizeTextInput('He said "thanks"', { allowSpecialChars: true })).toBe('He said "thanks"');
+  });
+});
+
+describe("sanitizeSpreadsheetText", () => {
+  it("round-trips apostrophes and double quotes exactly as typed", () => {
+    expect(sanitizeSpreadsheetText("didn't")).toBe("didn't");
+    expect(sanitizeSpreadsheetText('He said "thanks"')).toBe('He said "thanks"');
+  });
+
+  it("neutralizes a leading equals sign so Sheets stores text, not a formula", () => {
+    expect(sanitizeSpreadsheetText("=1+1")).toBe("'=1+1");
+    expect(neutralizeSpreadsheetFormula("=HYPERLINK")).toBe("'=HYPERLINK");
+    expect(neutralizeSpreadsheetFormula("+cmd")).toBe("'+cmd");
+    expect(neutralizeSpreadsheetFormula("-1")).toBe("'-1");
+    expect(neutralizeSpreadsheetFormula("@SUM")).toBe("'@SUM");
+    expect(neutralizeSpreadsheetFormula("normal text")).toBe("normal text");
+    expect(neutralizeSpreadsheetFormula("")).toBe("");
   });
 });
