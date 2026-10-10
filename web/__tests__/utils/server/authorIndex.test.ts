@@ -6,6 +6,7 @@ import {
   clearAuthorMappingsCache,
   clearAuthorScopeIndexCache,
   filterCanonicalAuthors,
+  getAliasTokenBlocklist,
   getAuthorScopeIndex,
   resolveCanonicalAuthorName,
 } from "@/utils/server/authorIndex";
@@ -101,6 +102,21 @@ describe("buildAliasIndex", () => {
     expect(index.sk).toBeUndefined();
     expect(index.py).toBeUndefined();
   });
+
+  it("does not alias the site name from Radio Ananda on the ananda site", () => {
+    const index = buildAliasIndex(["Radio Ananda", "Nayaswami Diksha McCord"], {}, "ananda");
+
+    expect(index.ananda).toBeUndefined();
+    expect(index.radio).toBe("Radio Ananda");
+    expect(index["radio ananda"]).toBe("Radio Ananda");
+    expect(index.diksha).toBe("Nayaswami Diksha McCord");
+  });
+
+  it("blocks hyphenated site-id parts such as ananda-public", () => {
+    expect(getAliasTokenBlocklist("ananda-public")).toEqual(
+      new Set(["nayaswami", "swami", "om", "sk", "py", "ananda-public", "ananda", "public"])
+    );
+  });
 });
 
 describe("resolveCanonicalAuthorName", () => {
@@ -180,6 +196,24 @@ describe("getAuthorScopeIndex", () => {
     ]);
     expect(index.aliasIndex.gyandev).toBe("Nayaswami Gyandev McCord");
     expect(index.aliasIndex.novak).toBeUndefined();
+  });
+
+  it("does not map the ananda site name to Radio Ananda", async () => {
+    mockGet.mockResolvedValue({
+      exists: true,
+      data: () => ({
+        authors: {
+          "Radio Ananda": 3,
+          "Nayaswami Diksha McCord": 12,
+        },
+      }),
+    });
+
+    const index = await getAuthorScopeIndex("ananda");
+
+    expect(index.aliasIndex.ananda).toBeUndefined();
+    expect(index.aliasIndex["radio ananda"]).toBe("Radio Ananda");
+    expect(index.aliasIndex.diksha).toBe("Nayaswami Diksha McCord");
   });
 
   it("merges Anandi Cornell into Nayaswami Anandi for unambiguous anandi token", async () => {

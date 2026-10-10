@@ -20,6 +20,28 @@ const JUNK_AUTHOR_KEYS = new Set([
 const SHARED_TOKEN_BLOCKLIST = new Set(["nayaswami", "swami", "om", "sk", "py"]);
 const TITLE_PREFIXES = ["nayaswami", "swami"];
 
+/**
+ * Tokens that must never become named-author aliases. Includes shared titles plus the
+ * site id (and its hyphen/underscore parts) so org names like "ananda" from "Radio Ananda"
+ * cannot hard-filter ordinary "What does Ananda say..." questions.
+ */
+export function getAliasTokenBlocklist(siteId?: string): Set<string> {
+  const blocked = new Set(SHARED_TOKEN_BLOCKLIST);
+  const normalizedSiteId = siteId?.trim().toLowerCase();
+  if (!normalizedSiteId) {
+    return blocked;
+  }
+  if (normalizedSiteId.length >= 3) {
+    blocked.add(normalizedSiteId);
+  }
+  for (const part of normalizedSiteId.split(/[-_]+/)) {
+    if (part.length >= 3) {
+      blocked.add(part);
+    }
+  }
+  return blocked;
+}
+
 const CACHE_TTL_MS = 60 * 60 * 1000;
 const FIRESTORE_READ_TIMEOUT_MS = 1500;
 
@@ -68,7 +90,7 @@ export function buildCanonicalAuthorsFromKeys(authorKeys: string[], siteId: stri
   ];
 }
 
-function deriveTokens(canonical: string): string[] {
+function deriveTokens(canonical: string, blockedTokens: Set<string>): string[] {
   const cleaned = canonical.trim();
   const lower = cleaned.toLowerCase();
   const parts = lower.split(/\s+/).filter(Boolean);
@@ -85,7 +107,7 @@ function deriveTokens(canonical: string): string[] {
     tokens.add(rest[rest.length - 1]);
   }
 
-  return [...tokens].filter((token) => token.length >= 3 && !SHARED_TOKEN_BLOCKLIST.has(token));
+  return [...tokens].filter((token) => token.length >= 3 && !blockedTokens.has(token));
 }
 
 export function filterCanonicalAuthors(authorKeys: string[]): string[] {
@@ -100,13 +122,15 @@ export function filterCanonicalAuthors(authorKeys: string[]): string[] {
 
 export function buildAliasIndex(
   canonicalAuthors: string[],
-  siteMappings: Record<string, string> = {}
+  siteMappings: Record<string, string> = {},
+  siteId?: string
 ): Record<string, string> {
+  const blockedTokens = getAliasTokenBlocklist(siteId);
   const ambiguousSurnames = findAmbiguousMappingSurnames(siteMappings);
   const tokenOwners = new Map<string, Set<string>>();
 
   for (const author of canonicalAuthors) {
-    for (const token of deriveTokens(author)) {
+    for (const token of deriveTokens(author, blockedTokens)) {
       if (ambiguousSurnames.has(token)) {
         continue;
       }
@@ -129,7 +153,7 @@ export function buildAliasIndex(
       continue;
     }
     const variantToken = variant.trim().toLowerCase();
-    if (variantToken.length >= 3 && !SHARED_TOKEN_BLOCKLIST.has(variantToken)) {
+    if (variantToken.length >= 3 && !blockedTokens.has(variantToken)) {
       index[variantToken] = canonical;
     }
   }
@@ -166,7 +190,7 @@ function buildIndexFromAuthorKeys(authorKeys: string[], siteId: string): AuthorS
   const canonicalAuthors = buildCanonicalAuthorsFromKeys(authorKeys, siteId);
   return {
     canonicalAuthors,
-    aliasIndex: buildAliasIndex(canonicalAuthors, siteMappings),
+    aliasIndex: buildAliasIndex(canonicalAuthors, siteMappings, siteId),
   };
 }
 
