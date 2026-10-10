@@ -254,6 +254,62 @@ describe("retrievalTools", () => {
       );
       expect(result.documents[0]?.metadata?.author).toBe("Asha Nayaswami");
     });
+
+    it("keeps the retrieval floor when a title-scope label would be set but the Pinecone filter has no title", async () => {
+      const weakId = makeId(4);
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([
+        [{ pageContent: "meek", metadata: { title: "Unrelated" }, id: weakId } as Document, 0.47],
+      ]);
+      const siteConfig = { ...accessSiteConfig, minRetrievalScore: 0.5 };
+
+      const ctx = new RetrievalToolContext({
+        pineconeIndex: { listPaginated: jest.fn(), fetch: jest.fn() },
+        vectorStore: { similaritySearchWithScore },
+        filter: { $and: [{ type: { $in: ["text"] } }] },
+        knownSourceIds: [],
+        effectiveAccessLevel: 0,
+        siteConfig,
+        minRetrievalScore: undefined,
+      });
+
+      const result = await executeSearchMoreSources({ query: "what is said about the meek", k: 2 }, ctx);
+      expect(result.ok).toBe(true);
+      expect(result.documents).toHaveLength(0);
+      expect(similaritySearchWithScore).toHaveBeenCalled();
+    });
+
+    it("skips the retrieval floor when the live Pinecone filter has a title condition", async () => {
+      const scopedId = makeId(5);
+      const titleFilter = {
+        $and: [{ type: { $in: ["text"] } }, { title: { $eq: "The Bible:: New Testament:: Book of Matthew:: Chapter 5" } }],
+      };
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([
+        [
+          {
+            pageContent: "Blessed are the meek",
+            metadata: { title: "The Bible:: New Testament:: Book of Matthew:: Chapter 5" },
+            id: scopedId,
+          } as Document,
+          0.47,
+        ],
+      ]);
+      const siteConfig = { ...accessSiteConfig, minRetrievalScore: 0.5 };
+
+      const ctx = new RetrievalToolContext({
+        pineconeIndex: { listPaginated: jest.fn(), fetch: jest.fn() },
+        vectorStore: { similaritySearchWithScore },
+        filter: titleFilter,
+        knownSourceIds: [],
+        effectiveAccessLevel: 0,
+        siteConfig,
+        minRetrievalScore: 0.5,
+      });
+
+      const result = await executeSearchMoreSources({ query: "what is said about the meek", k: 2 }, ctx);
+      expect(result.ok).toBe(true);
+      expect(result.documents).toHaveLength(1);
+      expect(result.documents[0]?.id).toBe(scopedId);
+    });
   });
 
   describe("tool definitions and helpers", () => {

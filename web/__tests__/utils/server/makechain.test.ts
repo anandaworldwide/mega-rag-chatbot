@@ -3049,12 +3049,12 @@ describe("makeChain", () => {
       expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("below minRetrievalScore"));
     });
 
-    it("keeps below-floor hits when a title scope already selects the document", async () => {
-      const scopedDoc = new Document({
+    it("keeps the retrieval floor when a title-scope label is set but the Pinecone filter has no title", async () => {
+      const weakDoc = new Document({
         pageContent: "Blessed are the meek: for they shall inherit the earth.",
-        metadata: { library: "library1", title: "The Bible:: New Testament:: Book of Matthew:: Chapter 5" },
+        metadata: { library: "library1", title: "Unrelated" },
       });
-      mockRetriever.vectorStore = createScoredVectorStoreMock([scopedDoc], { scores: [0.47] }) as any;
+      mockRetriever.vectorStore = createScoredVectorStoreMock([weakDoc], { scores: [0.47] }) as any;
 
       const sendData = jest.fn();
       const siteConfig = { ...mockSiteConfig, minRetrievalScore: 0.5, includedLibraries: [] };
@@ -3063,7 +3063,48 @@ describe("makeChain", () => {
         mockRetriever,
         { model: "gpt-4o-mini", temperature: 0.7 },
         4,
+        { $and: [{ type: { $in: ["text"] } }] },
+        sendData,
         undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        siteConfig,
+        undefined,
+        undefined,
+        undefined,
+        "The Bible:: New Testament:: Book of Matthew:: Chapter 5"
+      );
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      const result = await retrievalSequence.invoke({
+        question: "In this source, what is said about the meek?",
+        chat_history: "",
+      });
+
+      expect(result.documents).toEqual([]);
+      expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("below minRetrievalScore"));
+    });
+
+    it("skips the retrieval floor when the live Pinecone filter has a title condition", async () => {
+      const scopedDoc = new Document({
+        pageContent: "Blessed are the meek: for they shall inherit the earth.",
+        metadata: { library: "library1", title: "The Bible:: New Testament:: Book of Matthew:: Chapter 5" },
+      });
+      mockRetriever.vectorStore = createScoredVectorStoreMock([scopedDoc], { scores: [0.47] }) as any;
+
+      const sendData = jest.fn();
+      const siteConfig = { ...mockSiteConfig, minRetrievalScore: 0.5, includedLibraries: [] };
+      const titleFilter = {
+        $and: [{ type: { $in: ["text"] } }, { title: { $eq: "The Bible:: New Testament:: Book of Matthew:: Chapter 5" } }],
+      };
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        titleFilter,
         sendData,
         undefined,
         undefined,

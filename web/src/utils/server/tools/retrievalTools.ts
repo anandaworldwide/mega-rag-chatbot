@@ -15,6 +15,7 @@ import {
 } from "@/utils/server/accessLevelUtils";
 import { combineDocumentsFn } from "@/utils/server/ragDocumentUtils";
 import {
+  getEffectiveMinRetrievalScore,
   similaritySearchWithRelevance,
   type ScoredVectorStore,
 } from "@/utils/server/retrievalRelevance";
@@ -619,7 +620,7 @@ export async function executeSearchMoreSources(
     query,
     fetchK,
     ctx.filter,
-    ctx.minRetrievalScore
+    getEffectiveMinRetrievalScore(ctx.siteConfig, ctx.filter)
   );
 
   const fresh = result.documents.filter((doc) => {

@@ -9,6 +9,7 @@ import {
   formatRelevanceCutoffLog,
   getEffectiveMinRetrievalScore,
   getMinRetrievalScore,
+  pineconeFilterHasTitleCondition,
   mergeRelevanceStats,
   resolveNoSourcesReason,
   similaritySearchWithRelevance,
@@ -35,11 +36,21 @@ describe("retrievalRelevance", () => {
     expect(getMinRetrievalScore({ minRetrievalScore: -0.2 } as never)).toBeUndefined();
   });
 
-  it("disables the corpus cutoff when a title scope is already selecting the document", () => {
+  it("disables the corpus cutoff only when the live Pinecone filter has a title condition", () => {
     const siteConfig = { minRetrievalScore: 0.5 } as never;
     expect(getEffectiveMinRetrievalScore(siteConfig)).toBe(0.5);
-    expect(getEffectiveMinRetrievalScore(siteConfig, false)).toBe(0.5);
-    expect(getEffectiveMinRetrievalScore(siteConfig, true)).toBeUndefined();
+    expect(getEffectiveMinRetrievalScore(siteConfig, { $and: [{ type: { $in: ["text"] } }] })).toBe(0.5);
+    expect(
+      getEffectiveMinRetrievalScore(siteConfig, {
+        $and: [{ type: { $in: ["text"] } }, { title: { $eq: "Matthew 5" } }],
+      })
+    ).toBeUndefined();
+    expect(pineconeFilterHasTitleCondition({ $and: [{ type: { $in: ["text"] } }] })).toBe(false);
+    expect(
+      pineconeFilterHasTitleCondition({
+        $and: [{ type: { $in: ["text"] } }, { title: { $in: ["Matthew 5"] } }],
+      })
+    ).toBe(true);
   });
 
   it("filters scored documents below the floor", () => {

@@ -50,15 +50,49 @@ export function getMinRetrievalScore(siteConfig?: SiteConfig | null): number | u
 }
 
 /**
- * Corpus-wide cutoff rejects unrelated libraries. A resolved title scope already
- * selects the document, so deictic questions ("In this source...") can score below
- * the floor even when the top chunk is the right chapter.
+ * True when the filter that Pinecone will run already restricts by title.
+ * Walks `$and` / `$or` so merged author/library clauses do not hide the title term.
+ * A display label alone is not enough: if catalog load fails, no title clause is added.
+ */
+export function pineconeFilterHasTitleCondition(
+  filter?: Record<string, unknown> | null
+): boolean {
+  if (!filter || typeof filter !== "object" || Array.isArray(filter)) {
+    return false;
+  }
+  if (Object.prototype.hasOwnProperty.call(filter, "title")) {
+    return true;
+  }
+  for (const key of ["$and", "$or"] as const) {
+    const clauses = filter[key];
+    if (!Array.isArray(clauses)) {
+      continue;
+    }
+    for (const clause of clauses) {
+      if (
+        clause != null &&
+        typeof clause === "object" &&
+        !Array.isArray(clause) &&
+        pineconeFilterHasTitleCondition(clause as Record<string, unknown>)
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Corpus-wide cutoff rejects unrelated libraries. Skip it only when the live
+ * Pinecone filter already has a title condition. Deictic questions
+ * ("In this source...") can score below the floor even when the top chunk is
+ * the right chapter. A title-scope label without that filter must keep the floor.
  */
 export function getEffectiveMinRetrievalScore(
   siteConfig?: SiteConfig | null,
-  titleScopeActive = false
+  filter?: Record<string, unknown> | null
 ): number | undefined {
-  if (titleScopeActive) {
+  if (pineconeFilterHasTitleCondition(filter)) {
     return undefined;
   }
   return getMinRetrievalScore(siteConfig);
