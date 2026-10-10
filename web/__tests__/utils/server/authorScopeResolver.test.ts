@@ -61,6 +61,41 @@ describe("findExplicitAuthorMatch", () => {
     expect(findExplicitAuthorMatch("What is meditation?", baseSiteConfig)).toBeNull();
   });
 
+  it("does not treat the site name Ananda as Radio Ananda", () => {
+    const generatedAliasIndex = {
+      "radio ananda": "Radio Ananda",
+      radio: "Radio Ananda",
+    };
+
+    expect(
+      findExplicitAuthorMatch(
+        "What is the Ananda Spiritual Counseling training program, and who teaches it?",
+        baseSiteConfig,
+        ["Radio Ananda"],
+        [],
+        generatedAliasIndex
+      )
+    ).toBeNull();
+    expect(
+      findExplicitAuthorMatch(
+        "What does Ananda say about screen time and television for children?",
+        baseSiteConfig,
+        ["Radio Ananda"],
+        [],
+        generatedAliasIndex
+      )
+    ).toBeNull();
+    expect(
+      findExplicitAuthorMatch(
+        "How do different Ananda teachers explain karma?",
+        baseSiteConfig,
+        ["Radio Ananda"],
+        [],
+        generatedAliasIndex
+      )
+    ).toBeNull();
+  });
+
   it("matches Gyandev via generated alias index", () => {
     const generatedAliasIndex = {
       gyandev: "Nayaswami Gyandev McCord",
@@ -180,6 +215,23 @@ describe("getAuthorMatchQuestion", () => {
 });
 
 describe("resolveAuthorScope", () => {
+  it("stays in blend when the question uses the site name Ananda", () => {
+    const generatedAliasIndex = {
+      "radio ananda": "Radio Ananda",
+      radio: "Radio Ananda",
+    };
+
+    expect(
+      resolveAuthorScope({
+        question: "What does Ananda say about screen time and television for children?",
+        siteConfig: baseSiteConfig,
+        collectionMode: "auto",
+        knownAuthors: ["Radio Ananda"],
+        generatedAliasIndex,
+      })
+    ).toEqual({ kind: "blend", masterSwamiBoost: 0.2 });
+  });
+
   it("returns blend with default boost for auto mode", () => {
     const result = resolveAuthorScope({
       question: "What is meditation?",

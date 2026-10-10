@@ -35,3 +35,6 @@ Sites with `enableAutoAuthorScope: true` must use `masterSwamiBoost` / `broadMas
 - Named-author detection must run on the **current user utterance**, not the rephrased standalone question. Follow-up
   rewrites often inject Master/Swami names from prior turns; matching on that rewrite hard-filters authors the user did
   not name in this question.
+- Generated author aliases must not use the site name. The last token of `Radio Ananda` is `ananda`. If that token
+  becomes an alias, Auto mode hard-filters ordinary "What does Ananda say..." questions to Radio Ananda and drops the
+  real `ananda.org` pages.
