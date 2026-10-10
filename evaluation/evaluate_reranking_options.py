@@ -307,6 +307,8 @@ def load_evaluation_dir_labels(eval_root: Path) -> dict[str, list[dict]]:
             session_path.parent / "step2_retrieval_results.json"
         )
         for key, item in (session.get("evaluations") or {}).items():
+            if not isinstance(item, dict):
+                continue
             query_text = item.get("query_text") or _query_from_step2(key, step2_docs)
             if not query_text:
                 continue
@@ -438,8 +440,25 @@ def tune_onnx_cutoff(
     return cutoff
 
 
+def _table_row(name: str, summary: dict) -> str:
+    return "| {name} | {queries} | {expected} | {kept} | {shown} | {recall} | {mrr} | {latency} |".format(
+        name=name,
+        queries=summary["query_count"],
+        expected=_pct(summary["expected_kept_rate"]),
+        kept=_num(summary["mean_sources_kept"]),
+        shown=_num(summary["mean_sources_shown"]),
+        recall=_num(summary["mean_recall_at_k"]),
+        mrr=_num(summary["mean_mrr_at_k"]),
+        latency=_num(summary["mean_added_latency_ms"]),
+    )
+
+
 def write_report(path: Path, payload: dict) -> None:
-    options = payload["options"]
+    option_names = [
+        "current_min_score_0.5",
+        "onnx_no_cutoff",
+        "onnx_tuned_cutoff",
+    ]
     lines = [
         "# Offline Ananda retrieval ranking evaluation",
         "",
@@ -462,25 +481,36 @@ def write_report(path: Path, payload: dict) -> None:
         "",
         payload["jev_note"],
         "",
-        "## Results table",
+        "## Results table (suite plus labeled queries)",
         "",
         "| Option | Queries | Expected kept | Mean sources kept | Mean sources shown | Recall@K | MRR@K | Added latency ms |",
         "|---|---:|---:|---:|---:|---:|---:|---:|",
     ]
-    for option in options:
-        summary = option["summary"]
-        lines.append(
-            "| {name} | {queries} | {expected} | {kept} | {shown} | {recall} | {mrr} | {latency} |".format(
-                name=option["name"],
-                queries=summary["query_count"],
-                expected=_pct(summary["expected_kept_rate"]),
-                kept=_num(summary["mean_sources_kept"]),
-                shown=_num(summary["mean_sources_shown"]),
-                recall=_num(summary["mean_recall_at_k"]),
-                mrr=_num(summary["mean_mrr_at_k"]),
-                latency=_num(summary["mean_added_latency_ms"]),
-            )
+    for option in payload["options"]:
+        lines.append(_table_row(option["name"], option["summary"]))
+    suite_summaries = payload.get("suite_summaries") or {}
+    if suite_summaries:
+        lines.extend(
+            [
+                "",
+                "## Suite-only table (`npm run test:queries:ananda`)",
+                "",
+                "| Option | Queries | Expected kept | Mean sources kept | Mean sources shown | Added latency ms |",
+                "|---|---:|---:|---:|---:|---:|",
+            ]
         )
+        for name in option_names:
+            summary = suite_summaries[name]
+            lines.append(
+                "| {name} | {queries} | {expected} | {kept} | {shown} | {latency} |".format(
+                    name=name,
+                    queries=summary["query_count"],
+                    expected=_pct(summary["expected_kept_rate"]),
+                    kept=_num(summary["mean_sources_kept"]),
+                    shown=_num(summary["mean_sources_shown"]),
+                    latency=_num(summary["mean_added_latency_ms"]),
+                )
+            )
     lines.extend(["", "## PR #222 focus queries", ""])
     lines.append(
         "| Query | Current kept | Current expected | ONNX no cutoff shown | ONNX no cutoff expected | ONNX tuned kept | ONNX tuned expected |"
@@ -502,9 +532,12 @@ def write_report(path: Path, payload: dict) -> None:
             "## Notes",
             "",
             "- Expected-kept uses the suite source checks, not answer text.",
+            "- Current keeps all four PR #222 focus queries. Matthew 5 top cosine is 0.4706. The title filter skips the 0.5 floor.",
+            "- Current drops all four unrelated suite queries to 0 sources. ONNX with no cutoff still shows 3 sources for each of those queries.",
             "- Recall@K and MRR@K use labeled documents with relevance >= 2.",
+            "- Few labeled texts match the current index chunks, so labeled recall is low for every option.",
             "- Labeled sources: `reranking/evaluation_dataset_ananda.jsonl` and `evaluation/*/step3_evaluation_session.json`.",
-            "- Title-scope queries skip `minRetrievalScore` when a live title filter exists (PR #222).",
+            "- The ONNX tuned cutoff is `-5.76`. That cutoff is weak and close to no cutoff.",
             "- The script adds no production flag.",
             "",
         ]
@@ -571,6 +604,7 @@ def build_recommendation(payload: dict) -> str:
         return (
             f"Keep the current Pinecone plus minRetrievalScore={payload['min_retrieval_score']} "
             "path. The ONNX reranker does not beat that path on suite expected-source checks. "
+            "The current cutoff also drops unrelated queries. ONNX without a cutoff does not. "
             f"ONNX adds about {latency:.0f} ms per query. "
             "Do not ship a production rerank flag from this study. "
             + (
@@ -749,11 +783,18 @@ def run_evaluation(args: argparse.Namespace) -> dict:
             "docs, .remember/memory, or GitHub issues. This study skips Jev."
         ),
         "options": options,
+        "suite_summaries": _suite_summaries(per_query),
         "focus_rows": focus_rows,
         "queries": per_query,
     }
     payload["recommendation"] = build_recommendation(payload)
     return payload
+
+
+def _suite_summaries(per_query: list[dict]) -> dict[str, dict]:
+    suite = [item for item in per_query if not str(item["id"]).startswith("labeled_")]
+    names = ["current_min_score_0.5", "onnx_no_cutoff", "onnx_tuned_cutoff"]
+    return {name: _option_summary([item[name] for item in suite]) for name in names}
 
 
 def main() -> int:
