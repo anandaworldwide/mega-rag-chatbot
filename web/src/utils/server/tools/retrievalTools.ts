@@ -15,6 +15,7 @@ import {
 } from "@/utils/server/accessLevelUtils";
 import { combineDocumentsFn } from "@/utils/server/ragDocumentUtils";
 import {
+  getEffectiveMinRetrievalScore,
   similaritySearchWithRelevance,
   type ScoredVectorStore,
 } from "@/utils/server/retrievalRelevance";
@@ -552,7 +553,6 @@ export class RetrievalToolContext {
   remainingSourceBudget: number;
   effectiveAccessLevel: number;
   siteConfig?: SiteConfig | null;
-  minRetrievalScore?: number;
   completeListBudgetApplied = false;
 
   constructor(params: {
@@ -563,7 +563,6 @@ export class RetrievalToolContext {
     remainingSourceBudget?: number;
     effectiveAccessLevel: number;
     siteConfig?: SiteConfig | null;
-    minRetrievalScore?: number;
   }) {
     this.pineconeIndex = params.pineconeIndex as PineconeListIndex;
     this.vectorStore = params.vectorStore;
@@ -572,7 +571,6 @@ export class RetrievalToolContext {
     this.remainingSourceBudget = params.remainingSourceBudget ?? MAX_ADDED_RETRIEVAL_SOURCES;
     this.effectiveAccessLevel = params.effectiveAccessLevel;
     this.siteConfig = params.siteConfig;
-    this.minRetrievalScore = params.minRetrievalScore;
   }
 
   /** Raise the added-source budget once when complete_list is set. */
@@ -781,7 +779,7 @@ export async function executeSearchMoreSources(
     query,
     fetchK,
     ctx.filter,
-    ctx.minRetrievalScore
+    getEffectiveMinRetrievalScore(ctx.siteConfig, ctx.filter)
   );
 
   const fresh = result.documents.filter((doc) => {

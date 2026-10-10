@@ -49,6 +49,62 @@ export function getMinRetrievalScore(siteConfig?: SiteConfig | null): number | u
   return clamped;
 }
 
+/** True for a positive title `$eq` / `$in`. `$ne`, `$nin`, and bare values do not count. */
+function isPositiveTitleMatch(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const match = value as Record<string, unknown>;
+  if (typeof match.$eq === "string" && match.$eq.length > 0) {
+    return true;
+  }
+  return Array.isArray(match.$in) && match.$in.length > 0 && match.$in.every((item) => typeof item === "string");
+}
+
+/**
+ * True when the filter that Pinecone will run already restricts by title.
+ * Walks only the top level and `$and` so merged author/library clauses do not hide
+ * a required title term. A title clause only inside `$or` is not a hard restriction.
+ * A display label alone is not enough: if catalog load fails, no title clause is added.
+ */
+export function pineconeFilterHasTitleCondition(
+  filter?: Record<string, unknown> | null
+): boolean {
+  if (!filter || typeof filter !== "object" || Array.isArray(filter)) {
+    return false;
+  }
+  if (Object.prototype.hasOwnProperty.call(filter, "title")) {
+    return isPositiveTitleMatch(filter.title);
+  }
+  const andClauses = filter.$and;
+  if (!Array.isArray(andClauses)) {
+    return false;
+  }
+  return andClauses.some(
+    (clause) =>
+      clause != null &&
+      typeof clause === "object" &&
+      !Array.isArray(clause) &&
+      pineconeFilterHasTitleCondition(clause as Record<string, unknown>)
+  );
+}
+
+/**
+ * Corpus-wide cutoff rejects unrelated libraries. Skip it only when the live
+ * Pinecone filter already has a title condition. Deictic questions
+ * ("In this source...") can score below the floor even when the top chunk is
+ * the right chapter. A title-scope label without that filter must keep the floor.
+ */
+export function getEffectiveMinRetrievalScore(
+  siteConfig?: SiteConfig | null,
+  filter?: Record<string, unknown> | null
+): number | undefined {
+  if (pineconeFilterHasTitleCondition(filter)) {
+    return undefined;
+  }
+  return getMinRetrievalScore(siteConfig);
+}
+
 export function attachRetrievalScore(doc: Document, score: number): Document {
   return {
     ...doc,

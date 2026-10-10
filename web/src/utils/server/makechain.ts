@@ -104,7 +104,7 @@ import {
 import { getCondenseTemplateWithAuthorScope, invokeRephraseWithAuthorScope } from "./rephraseWithAuthorScope";
 import {
   formatRelevanceCutoffLog,
-  getMinRetrievalScore,
+  getEffectiveMinRetrievalScore,
   mergeRelevanceStats,
   resolveNoSourcesReason,
   similaritySearchWithRelevance,
@@ -863,7 +863,7 @@ Error details: ${errorString}`,
       }
 
       const allDocuments: Document[] = [];
-      const minRetrievalScore = getMinRetrievalScore(siteConfig);
+      const minRetrievalScore = getEffectiveMinRetrievalScore(siteConfig, baseFilter);
       let retrievalRelevance = emptyRelevanceStats();
       try {
         // Only treat "auto" as a blend trigger when the site has opted in. Otherwise a stray
@@ -1833,16 +1833,16 @@ export async function setupAndExecuteLanguageModelChain(
             const knownIds = originalSourceDocuments
               .map((doc) => (typeof doc.id === "string" ? doc.id : ""))
               .filter((id) => id.length > 0);
+            const searchMoreFilter = retrievalFilterCapture.filter ?? filter;
             retrievalToolContext = new RetrievalToolContext({
               pineconeIndex,
               vectorStore,
               // Prefer the author/library-scoped filter from initial retrieval so
               // search_more_sources cannot escape a named-author (e.g. Asha) hard scope.
-              filter: retrievalFilterCapture.filter ?? filter,
+              filter: searchMoreFilter,
               knownSourceIds: knownIds,
               effectiveAccessLevel,
               siteConfig,
-              minRetrievalScore: getMinRetrievalScore(siteConfig),
             });
           }
         }

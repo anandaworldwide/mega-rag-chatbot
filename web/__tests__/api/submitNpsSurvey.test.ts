@@ -325,6 +325,39 @@ describe("NPS Survey API", () => {
     expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining("spreadsheetIdSuffix=eet-id"));
   });
 
+  it("appends apostrophes, double quotes, and a leading equals exactly as stored text", async () => {
+    mockEmptySheetReads();
+    mockAppendFn.mockResolvedValueOnce({
+      data: {
+        updates: {
+          updatedRange: "Responses!A10:F10",
+          updatedRows: 1,
+          updatedCells: 6,
+        },
+      },
+    });
+
+    const timestamp = new Date().toISOString();
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: {
+        uuid: "123e4567-e89b-12d3-a456-426614174000",
+        score: 8,
+        feedback: "I didn't like the \"search\" results",
+        additionalComments: "=1+1",
+        timestamp,
+      },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(mockAppendFn).toHaveBeenCalledTimes(1);
+    const appendedRow = mockAppendFn.mock.calls[0][0].requestBody.values[0];
+    expect(appendedRow[3]).toBe("I didn't like the \"search\" results");
+    expect(appendedRow[4]).toBe("'=1+1");
+  });
+
   it("should return 500 and log an error when updatedCells is 0", async () => {
     mockEmptySheetReads();
     mockAppendFn.mockResolvedValueOnce({
