@@ -36,6 +36,119 @@ describe("extractGeoToolCalls", () => {
     expect(extractGeoToolCalls({ content: "Here are nearby centers." })).toEqual([]);
     expect(extractGeoToolCalls(null)).toEqual([]);
   });
+
+  it("assembles LangChain tool_call_chunks used by streamed Grok/OpenAI tool calls", () => {
+    const calls = extractGeoToolCalls({
+      content: "Fetching more of the Brindaban account and other AY story passages.",
+      tool_call_chunks: [
+        {
+          id: "call_ay",
+          name: "search_more_sources",
+          args: '{"query":"Autobiography of a Yogi Brindaban stories","k":8}',
+          index: 0,
+        },
+      ],
+    });
+    expect(calls).toEqual([
+      {
+        id: "call_ay",
+        name: "search_more_sources",
+        args: { query: "Autobiography of a Yogi Brindaban stories", k: 8 },
+      },
+    ]);
+  });
+
+  it("reads OpenAI-style additional_kwargs tool_calls", () => {
+    const calls = extractGeoToolCalls({
+      additional_kwargs: {
+        tool_calls: [
+          {
+            id: "call_kw",
+            type: "function",
+            function: {
+              name: "search_more_sources",
+              arguments: '{"query":"AY table of contents","k":8}',
+            },
+          },
+        ],
+      },
+    });
+    expect(calls).toEqual([
+      {
+        id: "call_kw",
+        name: "search_more_sources",
+        args: { query: "AY table of contents", k: 8 },
+      },
+    ]);
+  });
+
+  it("falls back when retrieval tool JSON is leaked as text", () => {
+    const calls = extractGeoToolCalls({
+      content:
+        'Fetching more sources.\n{"name": "search_more_sources", "parameters": {"query": "AY chapters", "k": 8}}',
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe("search_more_sources");
+    expect(calls[0].args).toEqual({ query: "AY chapters", k: 8 });
+  });
+
+  it("parses complete_list from a text-form search_more_sources call", () => {
+    const calls = extractGeoToolCalls({
+      content:
+        '{"name": "search_more_sources", "parameters": {"query": "List all the chapters of Autobiography of a Yogi", "k": 8, "complete_list": true}}',
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe("search_more_sources");
+    expect(calls[0].args).toEqual({
+      query: "List all the chapters of Autobiography of a Yogi",
+      k: 8,
+      complete_list: true,
+    });
+  });
+
+  it("normalizes a string complete_list flag from text-form JSON", () => {
+    const calls = extractGeoToolCalls({
+      content:
+        '{"name": "search_more_sources", "parameters": {"query": "all chakras", "complete_list": "true"}}',
+    });
+    expect(calls[0].args.complete_list).toBe(true);
+  });
+
+  it("parses leaked retrieval JSON with nested parameter objects", () => {
+    const calls = extractGeoToolCalls({
+      content:
+        '{"name": "search_more_sources", "parameters": {"query": "AY chapters", "filters": {"author": "Yogananda", "library": "Ananda Library"}, "k": 8}}',
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe("search_more_sources");
+    expect(calls[0].args).toEqual({
+      query: "AY chapters",
+      filters: { author: "Yogananda", library: "Ananda Library" },
+      k: 8,
+    });
+  });
+
+  it("skips invalid_tool_calls whose args are empty or not valid JSON", () => {
+    expect(
+      extractGeoToolCalls({
+        invalid_tool_calls: [
+          { id: "empty_string", name: "search_more_sources", args: "" },
+          { id: "empty_object", name: "search_more_sources", args: {} },
+          { id: "bad_json", name: "search_more_sources", args: "{query:" },
+        ],
+      })
+    ).toEqual([]);
+
+    const calls = extractGeoToolCalls({
+      invalid_tool_calls: [
+        { id: "empty_string", name: "search_more_sources", args: "" },
+        { id: "ok", name: "search_more_sources", args: '{"query":"AY stories","k":4}' },
+      ],
+    });
+    expect(calls).toEqual([
+      { id: "ok", name: "search_more_sources", args: { query: "AY stories", k: 4 } },
+    ]);
+  });
 });
 
 describe("extractStreamedTextDelta", () => {
