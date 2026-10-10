@@ -98,21 +98,10 @@ export function applyVisibleLibraries<T extends LibraryAccessConfig>(
   return { ...siteConfig, includedLibraries };
 }
 
-export type LibraryAccessGateOptions = {
-  /**
-   * True when the user changed the library menu away from the defaults they saw.
-   * When this is missing or false, the client may have omitted a restricted
-   * library only because `_app` hid it (middleware header never reached
-   * getInitialProps). Add every restricted library the email is allowed to use.
-   */
-  librariesExplicit?: boolean;
-};
-
 export function applyLibraryAccessGate<T extends LibraryAccessConfig>(
   siteConfig: T,
   email: string | null | undefined,
-  selectedLibraries: string[] | undefined,
-  options?: LibraryAccessGateOptions
+  selectedLibraries: string[] | undefined
 ): { siteConfig: T; selectedLibraries: string[] | undefined } {
   const libraries = siteConfig.includedLibraries;
   if (!libraries || libraries.length === 0) {
@@ -121,21 +110,13 @@ export function applyLibraryAccessGate<T extends LibraryAccessConfig>(
   const denied = new Set(
     libraries.filter((entry) => !canAccessLibrary(entry, email)).map(libraryName)
   );
-  const allowedRestricted = allowedRestrictedLibraryNames(siteConfig, email);
-  const gated = applyVisibleLibraries(siteConfig, allowedRestricted);
+  const gated = applyVisibleLibraries(siteConfig, allowedRestrictedLibraryNames(siteConfig, email));
   if (!selectedLibraries || selectedLibraries.length === 0) {
     return { siteConfig: gated, selectedLibraries };
   }
-  let kept = selectedLibraries.filter((name) => !denied.has(name));
-  if (options?.librariesExplicit !== true) {
-    for (const name of allowedRestricted) {
-      if (!kept.includes(name)) {
-        kept = [...kept, name];
-      }
-    }
-  }
+  const kept = selectedLibraries.filter((name) => !denied.has(name));
   if (kept.length === selectedLibraries.length) {
-    return { siteConfig: gated, selectedLibraries: kept };
+    return { siteConfig: gated, selectedLibraries };
   }
   return {
     siteConfig: gated,

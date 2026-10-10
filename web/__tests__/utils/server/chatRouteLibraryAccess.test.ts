@@ -241,18 +241,17 @@ describe("chat route library access gate", () => {
     }
   });
 
-  test("an allowed user's omitted wiki still reaches the Pinecone library filter", async () => {
+  test("an allowed user's selected wiki still reaches the Pinecone library filter", async () => {
     const { POST } = await import("@/app/api/chat/v1/route");
     const token = signUserToken("allowed@ananda.org");
-    const response = await POST(chatRequest(token, PUBLIC_LIBRARY_NAMES));
+    const response = await POST(chatRequest(token, [...PUBLIC_LIBRARY_NAMES, "Ananda Family Wiki"]));
     expect(response.status).toBe(200);
     await consumeSse(response);
 
     expect(applyLibraryAccessGate).toHaveBeenCalledWith(
       expect.objectContaining({ includedLibraries: LUCA_LIBRARIES }),
       "allowed@ananda.org",
-      PUBLIC_LIBRARY_NAMES,
-      { librariesExplicit: false }
+      [...PUBLIC_LIBRARY_NAMES, "Ananda Family Wiki"]
     );
 
     const { plan, filter, selectedLibraries } = pineconeLibraryFilterFromRoute();
@@ -272,8 +271,7 @@ describe("chat route library access gate", () => {
     expect(applyLibraryAccessGate).toHaveBeenCalledWith(
       expect.objectContaining({ includedLibraries: LUCA_LIBRARIES }),
       "visitor@ananda.org",
-      [...PUBLIC_LIBRARY_NAMES, "Ananda Family Wiki"],
-      { librariesExplicit: false }
+      [...PUBLIC_LIBRARY_NAMES, "Ananda Family Wiki"]
     );
 
     const { plan, filter, selectedLibraries } = pineconeLibraryFilterFromRoute();

@@ -42,18 +42,9 @@ describe("library access gate", () => {
     }
   });
 
-  test("an allowed user still searches the wiki when the client omitted it from selectedLibraries", () => {
+  test("an allowed user who omits the wiki from selectedLibraries keeps it out of search", () => {
     process.env.WIKI_LIBRARY_EMAILS = "me@ananda.org";
     const result = applyLibraryAccessGate(siteConfig, "me@ananda.org", ["Ananda Library"]);
-    expect(result.siteConfig.includedLibraries).toEqual([publicLibrary, wikiLibrary]);
-    expect(result.selectedLibraries).toEqual(["Ananda Library", "Ananda Family Wiki"]);
-  });
-
-  test("an allowed user who explicitly deselects the wiki keeps it out of search", () => {
-    process.env.WIKI_LIBRARY_EMAILS = "me@ananda.org";
-    const result = applyLibraryAccessGate(siteConfig, "me@ananda.org", ["Ananda Library"], {
-      librariesExplicit: true,
-    });
     expect(result.siteConfig.includedLibraries).toEqual([publicLibrary, wikiLibrary]);
     expect(result.selectedLibraries).toEqual(["Ananda Library"]);
   });

@@ -1,3 +1,4 @@
+import jwt from "jsonwebtoken";
 import MyApp from "@/pages/_app";
 import { getCommonSiteConfigProps } from "@/utils/server/getCommonSiteConfigProps";
 import { encodeLibraryAccessValue } from "@/utils/server/libraryAccess";
@@ -54,48 +55,108 @@ const siteConfig = {
 };
 
 const mockGetProps = getCommonSiteConfigProps as jest.MockedFunction<typeof getCommonSiteConfigProps>;
+const secret = "library-access-app-secret";
 
-function appContext(headers: Record<string, string | undefined>): AppContext {
+function signAuthToken(email: string): string {
+  return jwt.sign({ client: "web", email }, secret, {
+    algorithm: "HS256",
+    issuer: "mega-rag-chatbot",
+    audience: "mega-rag-chatbot-users",
+  });
+}
+
+function appContext(headers?: Record<string, string | undefined>): AppContext {
   return {
-    ctx: {
-      req: { headers },
-      res: { getHeader: jest.fn(), setHeader: jest.fn() },
-    },
+    ctx: headers
+      ? {
+          req: { headers },
+          res: { getHeader: jest.fn(), setHeader: jest.fn() },
+        }
+      : {},
     Component: () => null,
     router: { pathname: "/" } as AppContext["router"],
   } as unknown as AppContext;
 }
 
-describe("MyApp library access server path", () => {
+function libraryNames(result: { pageProps: { siteConfig: { includedLibraries?: unknown[] } } }): unknown[] {
+  return result.pageProps.siteConfig.includedLibraries || [];
+}
+
+describe("MyApp library access menu", () => {
+  const originalEmails = process.env.WIKI_LIBRARY_EMAILS;
+  const originalSecret = process.env.SECURE_TOKEN;
+  let cookieDescriptor: PropertyDescriptor | undefined;
+
   beforeEach(() => {
     mockGetProps.mockResolvedValue({
       props: { siteConfig, contactEmail: null },
     });
+    process.env.SECURE_TOKEN = secret;
+    process.env.WIKI_LIBRARY_EMAILS = "allowed@ananda.org";
+    cookieDescriptor = Object.getOwnPropertyDescriptor(Document.prototype, "cookie");
   });
 
-  test("shows a restricted library only when the middleware header names it", async () => {
-    const allowed = await MyApp.getInitialProps(
-      appContext({ "x-library-access": encodeLibraryAccessValue(["Ananda Family Wiki"]) })
+  afterEach(() => {
+    if (originalEmails === undefined) {
+      delete process.env.WIKI_LIBRARY_EMAILS;
+    } else {
+      process.env.WIKI_LIBRARY_EMAILS = originalEmails;
+    }
+    if (originalSecret === undefined) {
+      delete process.env.SECURE_TOKEN;
+    } else {
+      process.env.SECURE_TOKEN = originalSecret;
+    }
+    if (cookieDescriptor) {
+      Object.defineProperty(document, "cookie", cookieDescriptor);
+    }
+  });
+
+  test("a server render with an allowed auth cookie includes the wiki in the menu", async () => {
+    const result = await MyApp.getInitialProps(
+      appContext({ cookie: `authToken=${signAuthToken("allowed@ananda.org")}` })
     );
-    expect(allowed.pageProps.siteConfig.includedLibraries).toEqual(["Ananda Library", wikiLibrary]);
+    expect(libraryNames(result)).toEqual(["Ananda Library", wikiLibrary]);
   });
 
-  test("hides a restricted library when the middleware header is empty", async () => {
-    const result = await MyApp.getInitialProps(appContext({ "x-library-access": "" }));
-    expect(result.pageProps.siteConfig.includedLibraries).toEqual(["Ananda Library"]);
+  test("a server render with a non-allowed auth cookie hides the wiki", async () => {
+    const result = await MyApp.getInitialProps(
+      appContext({ cookie: `authToken=${signAuthToken("visitor@ananda.org")}` })
+    );
+    expect(libraryNames(result)).toEqual(["Ananda Library"]);
   });
 
-  test("hides a restricted library when the header is missing, even if a client cookie names it", async () => {
+  test("a server render without an auth cookie hides the wiki even if a client header names it", async () => {
     const result = await MyApp.getInitialProps(
       appContext({
+        "x-library-access": encodeLibraryAccessValue(["Ananda Family Wiki"]),
         cookie: `libraryAccess=${encodeLibraryAccessValue(["Ananda Family Wiki"])}`,
       })
     );
-    expect(result.pageProps.siteConfig.includedLibraries).toEqual(["Ananda Library"]);
+    expect(libraryNames(result)).toEqual(["Ananda Library"]);
   });
 
-  test("hides a restricted library when the header is unknown", async () => {
-    const result = await MyApp.getInitialProps(appContext({ "x-library-access": "true" }));
-    expect(result.pageProps.siteConfig.includedLibraries).toEqual(["Ananda Library"]);
+  test("a client navigation with the middleware libraryAccess cookie keeps the wiki", async () => {
+    Object.defineProperty(document, "cookie", {
+      configurable: true,
+      get: () => `libraryAccess=${encodeLibraryAccessValue(["Ananda Family Wiki"])}`,
+      set() {
+        /* jsdom cookie write */
+      },
+    });
+    const result = await MyApp.getInitialProps(appContext());
+    expect(libraryNames(result)).toEqual(["Ananda Library", wikiLibrary]);
+  });
+
+  test("a client navigation without the libraryAccess cookie hides the wiki", async () => {
+    Object.defineProperty(document, "cookie", {
+      configurable: true,
+      get: () => "",
+      set() {
+        /* jsdom cookie write */
+      },
+    });
+    const result = await MyApp.getInitialProps(appContext());
+    expect(libraryNames(result)).toEqual(["Ananda Library"]);
   });
 });

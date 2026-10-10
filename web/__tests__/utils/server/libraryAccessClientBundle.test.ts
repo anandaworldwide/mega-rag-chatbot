@@ -11,8 +11,12 @@ describe("library access client bundle", () => {
   test("the client _app path does not import jsonwebtoken", () => {
     const appSource = readWebFile("src/pages/_app.tsx");
     const accessSource = readWebFile("src/utils/server/libraryAccess.ts");
+    const appPropsSource = readWebFile("src/utils/server/libraryAccessAppProps.ts");
     expect(appSource).not.toMatch(/jsonwebtoken/);
     expect(appSource).not.toMatch(/libraryAccessAuth/);
+    expect(appPropsSource).not.toMatch(/from ["']jsonwebtoken["']/);
+    expect(appPropsSource).not.toMatch(/from ["']\.\/libraryAccessAuth["']/);
+    expect(appPropsSource).toMatch(/import\(["']\.\/libraryAccessAuth["']\)/);
     expect(accessSource).not.toMatch(/jsonwebtoken/);
     expect(accessSource).not.toMatch(/from ["']crypto["']/);
   });
@@ -43,6 +47,7 @@ describe("library access client bundle", () => {
     const accessFiles = [
       "src/utils/server/libraryAccess.ts",
       "src/utils/server/libraryAccessAuth.ts",
+      "src/utils/server/libraryAccessAppProps.ts",
       "src/utils/server/libraryAccessMiddlewareGate.ts",
     ];
     for (const rel of accessFiles) {

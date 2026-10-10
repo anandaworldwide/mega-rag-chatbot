@@ -10,12 +10,7 @@ import { AudioProvider } from "@/contexts/AudioContext";
 import { SudoProvider } from "@/contexts/SudoContext";
 import { SiteConfig } from "@/types/siteConfig";
 import { getCommonSiteConfigProps } from "@/utils/server/getCommonSiteConfigProps";
-import {
-  LIBRARY_ACCESS_HEADER,
-  applyVisibleLibraries,
-  libraryAccessCookieNames,
-  libraryAccessHeaderNames,
-} from "@/utils/server/libraryAccess";
+import { siteConfigForAppProps } from "@/utils/server/libraryAccessAppProps";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "@/utils/client/reactQueryConfig";
 import { initializeTokenManager } from "@/utils/client/tokenManager";
@@ -181,19 +176,11 @@ function MyApp({ Component, pageProps }: CustomAppProps) {
 MyApp.getInitialProps = async (appContext: AppContext) => {
   const result = await getCommonSiteConfigProps();
   const req = appContext.ctx.req;
-  let allowedRestricted: string[] = [];
-  if (req) {
-    // Fail closed. Trust only the header that middleware writes.
-    // Do not read a client cookie or a missing/unknown header on the server path.
-    allowedRestricted = libraryAccessHeaderNames(req.headers[LIBRARY_ACCESS_HEADER]);
-  } else if (typeof document !== "undefined") {
-    allowedRestricted = libraryAccessCookieNames(document.cookie);
-  }
-  const siteConfig = result.props.siteConfig;
+  const documentCookie = typeof document !== "undefined" ? document.cookie : undefined;
   return {
     pageProps: {
       ...result.props,
-      siteConfig: siteConfig ? applyVisibleLibraries(siteConfig, allowedRestricted) : siteConfig,
+      siteConfig: await siteConfigForAppProps(result.props.siteConfig, req, req ? undefined : documentCookie),
     },
   };
 };
