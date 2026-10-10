@@ -3,20 +3,13 @@
  * including a fallback when Claude leaks tool args as plain JSON text (common with streaming).
  */
 
+import { parseCompleteListFlag } from "@/utils/server/tools/retrievalTools";
+
 export type NormalizedToolCall = {
   id: string;
   name: string;
   args: Record<string, unknown>;
 };
-
-/** True when a text or native search_more_sources call sets complete_list. */
-function parseCompleteListArg(args: Record<string, unknown>): boolean {
-  const value = args.complete_list;
-  if (value === true || value === 1) {
-    return true;
-  }
-  return typeof value === "string" && value.trim().toLowerCase() === "true";
-}
 
 /** Keep complete_list as a boolean on search_more_sources calls, including text-form JSON. */
 function withParsedCompleteList(call: NormalizedToolCall): NormalizedToolCall {
@@ -27,7 +20,7 @@ function withParsedCompleteList(call: NormalizedToolCall): NormalizedToolCall {
     ...call,
     args: {
       ...call.args,
-      complete_list: parseCompleteListArg(call.args),
+      complete_list: parseCompleteListFlag(call.args),
     },
   };
 }
