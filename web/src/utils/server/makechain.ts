@@ -1841,7 +1841,6 @@ export async function setupAndExecuteLanguageModelChain(
               knownSourceIds: knownIds,
               effectiveAccessLevel,
               siteConfig,
-              minRetrievalScore: getEffectiveMinRetrievalScore(siteConfig, searchMoreFilter),
             });
           }
         }

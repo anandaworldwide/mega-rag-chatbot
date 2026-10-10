@@ -49,9 +49,22 @@ export function getMinRetrievalScore(siteConfig?: SiteConfig | null): number | u
   return clamped;
 }
 
+/** True for a positive title `$eq` / `$in`. `$ne`, `$nin`, and bare values do not count. */
+function isPositiveTitleMatch(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const match = value as Record<string, unknown>;
+  if (typeof match.$eq === "string" && match.$eq.length > 0) {
+    return true;
+  }
+  return Array.isArray(match.$in) && match.$in.length > 0 && match.$in.every((item) => typeof item === "string");
+}
+
 /**
  * True when the filter that Pinecone will run already restricts by title.
- * Walks `$and` / `$or` so merged author/library clauses do not hide the title term.
+ * Walks only the top level and `$and` so merged author/library clauses do not hide
+ * a required title term. A title clause only inside `$or` is not a hard restriction.
  * A display label alone is not enough: if catalog load fails, no title clause is added.
  */
 export function pineconeFilterHasTitleCondition(
@@ -61,25 +74,19 @@ export function pineconeFilterHasTitleCondition(
     return false;
   }
   if (Object.prototype.hasOwnProperty.call(filter, "title")) {
-    return true;
+    return isPositiveTitleMatch(filter.title);
   }
-  for (const key of ["$and", "$or"] as const) {
-    const clauses = filter[key];
-    if (!Array.isArray(clauses)) {
-      continue;
-    }
-    for (const clause of clauses) {
-      if (
-        clause != null &&
-        typeof clause === "object" &&
-        !Array.isArray(clause) &&
-        pineconeFilterHasTitleCondition(clause as Record<string, unknown>)
-      ) {
-        return true;
-      }
-    }
+  const andClauses = filter.$and;
+  if (!Array.isArray(andClauses)) {
+    return false;
   }
-  return false;
+  return andClauses.some(
+    (clause) =>
+      clause != null &&
+      typeof clause === "object" &&
+      !Array.isArray(clause) &&
+      pineconeFilterHasTitleCondition(clause as Record<string, unknown>)
+  );
 }
 
 /**

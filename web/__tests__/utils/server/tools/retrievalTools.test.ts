@@ -269,7 +269,6 @@ describe("retrievalTools", () => {
         knownSourceIds: [],
         effectiveAccessLevel: 0,
         siteConfig,
-        minRetrievalScore: undefined,
       });
 
       const result = await executeSearchMoreSources({ query: "what is said about the meek", k: 2 }, ctx);
@@ -302,7 +301,6 @@ describe("retrievalTools", () => {
         knownSourceIds: [],
         effectiveAccessLevel: 0,
         siteConfig,
-        minRetrievalScore: 0.5,
       });
 
       const result = await executeSearchMoreSources({ query: "what is said about the meek", k: 2 }, ctx);

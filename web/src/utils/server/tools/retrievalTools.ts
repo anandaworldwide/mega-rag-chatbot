@@ -401,7 +401,6 @@ export class RetrievalToolContext {
   remainingSourceBudget: number;
   effectiveAccessLevel: number;
   siteConfig?: SiteConfig | null;
-  minRetrievalScore?: number;
 
   constructor(params: {
     pineconeIndex: PineconeListIndex | Index<RecordMetadata>;
@@ -411,7 +410,6 @@ export class RetrievalToolContext {
     remainingSourceBudget?: number;
     effectiveAccessLevel: number;
     siteConfig?: SiteConfig | null;
-    minRetrievalScore?: number;
   }) {
     this.pineconeIndex = params.pineconeIndex as PineconeListIndex;
     this.vectorStore = params.vectorStore;
@@ -420,7 +418,6 @@ export class RetrievalToolContext {
     this.remainingSourceBudget = params.remainingSourceBudget ?? MAX_ADDED_RETRIEVAL_SOURCES;
     this.effectiveAccessLevel = params.effectiveAccessLevel;
     this.siteConfig = params.siteConfig;
-    this.minRetrievalScore = params.minRetrievalScore;
   }
 
   registerDocuments(docs: Document[]): Document[] {

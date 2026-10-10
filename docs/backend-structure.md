@@ -644,7 +644,8 @@ if (siteConfig?.requireLogin) {
     (`type||library||loc||title||author||`) then `fetch`es neighbors by exact ID; only accepts `sourceId`s already
     in context and re-checks access metadata.
   - `search_more_sources` reuses the request Pinecone filter / `minRetrievalScore` path and dedupes against known
-    source IDs. `minRetrievalScore` is skipped only when that live filter contains a title condition. A title-scope
+    source IDs. `minRetrievalScore` is skipped only when that live filter has a positive title `$eq` or `$in`
+    at the top level or inside `$and`. A title clause only inside `$or` keeps the floor. A title-scope
     display label without a title clause (for example a catalog load failure) keeps the corpus floor. Deictic
     questions ("In this source...") can score below the floor even when the top chunk is the right chapter.
   - Geo tools and retrieval tools may both be bound; Anthropic A/B holdout arms skip retrieval tools (same

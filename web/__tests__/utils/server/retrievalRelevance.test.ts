@@ -53,6 +53,19 @@ describe("retrievalRelevance", () => {
     ).toBe(true);
   });
 
+  it("does not treat a title clause only inside $or as a live title filter", () => {
+    expect(
+      pineconeFilterHasTitleCondition({
+        $or: [{ title: { $eq: "Matthew 5" } }, { type: { $in: ["text"] } }],
+      })
+    ).toBe(false);
+    expect(
+      getEffectiveMinRetrievalScore({ minRetrievalScore: 0.5 } as never, {
+        $or: [{ title: { $eq: "Matthew 5" } }],
+      })
+    ).toBe(0.5);
+  });
+
   it("filters scored documents below the floor", () => {
     const { passing, topScore, rejectedLowRelevance, rawHitCount } = filterScoredDocuments(
       [
