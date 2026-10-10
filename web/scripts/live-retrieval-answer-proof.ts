@@ -49,9 +49,63 @@ type ProofRow = {
   failReason: string | null;
   model: string;
   fetchedMore: boolean;
+  completeList: boolean;
+  retrievalRounds: number;
+  sourceCount: number;
+  listedCount: number | null;
   last300: string;
   eventCount: number;
 };
+
+const CHAPTERS_QUESTION = "List all the chapters of Autobiography of a Yogi";
+const CHAKRAS_QUESTION = "List all the chakras";
+const JAIRAM_QUESTION = "Who is Jairam?";
+const KRIYA_QUESTION = "What is Kriya Yoga?";
+const JAIRAM_LIBRARIES = ["Ananda Library", "Ananda Family Wiki"];
+
+const CHAKRA_ALIASES: Record<string, string> = {
+  muladhara: "root",
+  root: "root",
+  svadhisthana: "sacral",
+  sacral: "sacral",
+  manipura: "solar plexus",
+  "solar plexus": "solar plexus",
+  anahata: "heart",
+  heart: "heart",
+  vishuddha: "throat",
+  vishudda: "throat",
+  throat: "throat",
+  ajna: "third eye",
+  "ajña": "third eye",
+  "third eye": "third eye",
+  sahasrara: "crown",
+  crown: "crown",
+};
+
+function countListedChapters(text: string): number {
+  const numbered = new Set<number>();
+  const patterns = [/(?:^|\n)\s*(?:chapter\s+)?(\d{1,2})[\.:\)]\s+\S/gi, /chapter\s+(\d{1,2})\b/gi];
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const n = Number.parseInt(match[1], 10);
+      if (n >= 1 && n <= 60) {
+        numbered.add(n);
+      }
+    }
+  }
+  return numbered.size;
+}
+
+function countListedChakras(text: string): number {
+  const lower = text.toLowerCase();
+  const found = new Set<string>();
+  for (const [name, key] of Object.entries(CHAKRA_ALIASES)) {
+    if (lower.includes(name)) {
+      found.add(key);
+    }
+  }
+  return found.size;
+}
 
 function envPresence(): { missing: string[]; present: string[] } {
   const missing: string[] = [];
@@ -96,7 +150,8 @@ function eventPreview(data: StreamingResponseData): ProofEvent {
 
 async function runOneQuestion(
   question: string,
-  siteConfig: NonNullable<ReturnType<typeof loadSiteConfigSync>>
+  siteConfig: NonNullable<ReturnType<typeof loadSiteConfigSync>>,
+  options?: { selectedLibraries?: string[] }
 ): Promise<{ row: Omit<ProofRow, "id">; events: ProofEvent[]; rawTail: StreamingResponseData[] }> {
   const indexName = getPineconeIndexName() || "";
   const index = (await getCachedPineconeIndex(indexName)) as Index<RecordMetadata>;
@@ -119,12 +174,18 @@ async function runOneQuestion(
   const rawEvents: StreamingResponseData[] = [];
   let streamed = "";
   let fetchedMore = false;
+  let statusRounds = 0;
+  const timingMetrics: { toolRounds?: number; completeListRequested?: boolean } = {
+    toolRounds: 0,
+    completeListRequested: false,
+  };
 
   const sendData = (data: StreamingResponseData) => {
     rawEvents.push(data);
     events.push(eventPreview(data));
     if (data.status === "retrieving_more_sources") {
       fetchedMore = true;
+      statusRounds += 1;
       streamed = "";
     }
     if (data.token) {
@@ -143,9 +204,9 @@ async function runOneQuestion(
     Date.now(),
     true,
     undefined,
-    {},
+    timingMetrics,
     siteConfig.modelName,
-    undefined,
+    options?.selectedLibraries,
     "whole_library",
     undefined,
     200,
@@ -155,12 +216,28 @@ async function runOneQuestion(
   const answer = (result.fullResponse || streamed).trim();
   const last300 = answer.slice(-300);
   const endsOnFetchingMore = isIncompleteRetrievalAnswer(answer) && !isClearFailureNote(answer);
-  const pass = answer.length > 0 && !endsOnFetchingMore;
+  const completeList = timingMetrics.completeListRequested === true;
+  const retrievalRounds = Number(timingMetrics.toolRounds) || statusRounds;
+  const sourceCount = Array.isArray(result.finalDocs) ? result.finalDocs.length : 0;
+  const listedCount =
+    question === CHAPTERS_QUESTION
+      ? countListedChapters(answer)
+      : question === CHAKRAS_QUESTION
+        ? countListedChakras(answer)
+        : null;
+  const expectsNoExtraSearch = question === JAIRAM_QUESTION || question === KRIYA_QUESTION;
+  const unexpectedCompleteList = expectsNoExtraSearch && completeList;
+  const unexpectedExtraSearch = expectsNoExtraSearch && retrievalRounds > 0;
+  const pass = answer.length > 0 && !endsOnFetchingMore && !unexpectedCompleteList && !unexpectedExtraSearch;
   const failReason = !answer
     ? "empty answer"
     : endsOnFetchingMore
       ? "ended on interim fetching-more narration"
-      : null;
+      : unexpectedCompleteList
+        ? "normal question set complete_list"
+        : unexpectedExtraSearch
+          ? "normal question used extra retrieval"
+          : null;
 
   return {
     row: {
@@ -169,6 +246,10 @@ async function runOneQuestion(
       failReason,
       model: result.model || siteConfig.modelName || "unknown",
       fetchedMore,
+      completeList,
+      retrievalRounds,
+      sourceCount,
+      listedCount,
       last300,
       eventCount: events.length,
     },
@@ -219,6 +300,10 @@ async function preflightExternalKeys(): Promise<string[]> {
 }
 
 async function main() {
+  process.env.PINECONE_INDEX_NAME = "ananda-2026-09-26--3-large";
+  process.env.OPENAI_EMBEDDINGS_MODEL = "text-embedding-3-large";
+  process.env.SITE_ID = "ananda";
+
   const presence = envPresence();
   if (presence.missing.length > 0) {
     console.error(
@@ -245,23 +330,59 @@ async function main() {
           "Required env var names are present, but the live providers rejected the keys. Real grok-4.5 retrieval runs cannot start.",
       },
       rows: [
-        ...Array.from({ length: 5 }, (_, index) => ({
-          id: `stories-${index + 1}`,
-          question: "Give me some stories from Autobiography of a Yogi",
+        ...Array.from({ length: 3 }, (_, index) => ({
+          id: `chapters-${index + 1}`,
+          question: CHAPTERS_QUESTION,
           pass: false,
           failReason: `blocked: rejected ${rejectedKeys.join(", ")}`,
           model: "grok-4.5",
           fetchedMore: false,
+          completeList: false,
+          retrievalRounds: 0,
+          sourceCount: 0,
+          listedCount: null,
           last300: "",
           eventCount: 0,
         })),
-        ...Array.from({ length: 5 }, (_, index) => ({
-          id: `chapters-${index + 1}`,
-          question: "List all the chapters of Autobiography of a Yogi",
+        ...Array.from({ length: 3 }, (_, index) => ({
+          id: `chakras-${index + 1}`,
+          question: CHAKRAS_QUESTION,
           pass: false,
           failReason: `blocked: rejected ${rejectedKeys.join(", ")}`,
           model: "grok-4.5",
           fetchedMore: false,
+          completeList: false,
+          retrievalRounds: 0,
+          sourceCount: 0,
+          listedCount: null,
+          last300: "",
+          eventCount: 0,
+        })),
+        ...Array.from({ length: 2 }, (_, index) => ({
+          id: `jairam-${index + 1}`,
+          question: JAIRAM_QUESTION,
+          pass: false,
+          failReason: `blocked: rejected ${rejectedKeys.join(", ")}`,
+          model: "grok-4.5",
+          fetchedMore: false,
+          completeList: false,
+          retrievalRounds: 0,
+          sourceCount: 0,
+          listedCount: null,
+          last300: "",
+          eventCount: 0,
+        })),
+        ...Array.from({ length: 2 }, (_, index) => ({
+          id: `kriya-${index + 1}`,
+          question: KRIYA_QUESTION,
+          pass: false,
+          failReason: `blocked: rejected ${rejectedKeys.join(", ")}`,
+          model: "grok-4.5",
+          fetchedMore: false,
+          completeList: false,
+          retrievalRounds: 0,
+          sourceCount: 0,
+          listedCount: null,
           last300: "",
           eventCount: 0,
         })),
@@ -273,10 +394,10 @@ async function main() {
       "utf8"
     );
     const table = [
-      "| id | result | fetched more | last 300 chars |",
-      "| --- | --- | --- | --- |",
+      "| id | result | complete_list | retrieval rounds | sources | listed |",
+      "| --- | --- | --- | --- | --- | --- |",
       ...blocked.rows.map(
-        (row) => `| ${row.id} | BLOCKED (${row.failReason}) | false | |`
+        (row) => `| ${row.id} | BLOCKED (${row.failReason}) | false | 0 | 0 | |`
       ),
     ].join("\n");
     await writeFile(
@@ -296,16 +417,18 @@ async function main() {
     process.exit(2);
   }
 
-  const stories = "Give me some stories from Autobiography of a Yogi";
-  const chapters = "List all the chapters of Autobiography of a Yogi";
-  const perQuestion = Math.max(1, Number.parseInt(process.env.LIVE_PROOF_PER_QUESTION || "5", 10));
-  const questions: Array<{ id: string; question: string }> = [];
-  for (let i = 1; i <= perQuestion; i += 1) {
-    questions.push({ id: `stories-${i}`, question: stories });
-  }
-  for (let i = 1; i <= perQuestion; i += 1) {
-    questions.push({ id: `chapters-${i}`, question: chapters });
-  }
+  const questions: Array<{ id: string; question: string; selectedLibraries?: string[] }> = [
+    { id: "chapters-1", question: CHAPTERS_QUESTION },
+    { id: "chapters-2", question: CHAPTERS_QUESTION },
+    { id: "chapters-3", question: CHAPTERS_QUESTION },
+    { id: "chakras-1", question: CHAKRAS_QUESTION },
+    { id: "chakras-2", question: CHAKRAS_QUESTION },
+    { id: "chakras-3", question: CHAKRAS_QUESTION },
+    { id: "jairam-1", question: JAIRAM_QUESTION, selectedLibraries: JAIRAM_LIBRARIES },
+    { id: "jairam-2", question: JAIRAM_QUESTION, selectedLibraries: JAIRAM_LIBRARIES },
+    { id: "kriya-1", question: KRIYA_QUESTION },
+    { id: "kriya-2", question: KRIYA_QUESTION },
+  ];
 
   const rows: ProofRow[] = [];
   let sampleRawTail: StreamingResponseData[] = [];
@@ -315,14 +438,18 @@ async function main() {
   for (const item of questions) {
     console.log(`Running ${item.id}...`);
     try {
-      const { row, events, rawTail } = await runOneQuestion(item.question, siteConfig);
+      const { row, events, rawTail } = await runOneQuestion(item.question, siteConfig, {
+        selectedLibraries: item.selectedLibraries,
+      });
       rows.push({ id: item.id, ...row });
       if (!sampleId) {
         sampleId = item.id;
         sampleEvents = events;
         sampleRawTail = rawTail;
       }
-      console.log(`${item.id}: ${row.pass ? "PASS" : "FAIL"} model=${row.model} fetchedMore=${row.fetchedMore}`);
+      console.log(
+        `${item.id}: ${row.pass ? "PASS" : "FAIL"} model=${row.model} complete_list=${row.completeList} rounds=${row.retrievalRounds} sources=${row.sourceCount} listed=${row.listedCount ?? "-"}`
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : "unknown error";
       rows.push({
@@ -332,6 +459,10 @@ async function main() {
         failReason: `handler error: ${message}`,
         model: siteConfig.modelName || "unknown",
         fetchedMore: false,
+        completeList: false,
+        retrievalRounds: 0,
+        sourceCount: 0,
+        listedCount: null,
         last300: "",
         eventCount: 0,
       });
@@ -368,11 +499,11 @@ async function main() {
   await writeFile(artifactPath, JSON.stringify(artifact, null, 2), "utf8");
 
   const tableLines = [
-    "| id | result | fetched more | last 300 chars |",
-    "| --- | --- | --- | --- |",
+    "| id | result | complete_list | retrieval rounds | sources | listed | last 300 chars |",
+    "| --- | --- | --- | --- | --- | --- | --- |",
     ...rows.map((row) => {
       const last = row.last300.replace(/\|/g, "\\|").replace(/\n/g, " ");
-      return `| ${row.id} | ${row.pass ? "PASS" : `FAIL (${row.failReason})`} | ${row.fetchedMore} | ${last} |`;
+      return `| ${row.id} | ${row.pass ? "PASS" : `FAIL (${row.failReason})`} | ${row.completeList} | ${row.retrievalRounds} | ${row.sourceCount} | ${row.listedCount ?? "-"} | ${last} |`;
     }),
   ];
   const mdPath = path.join(artifactDir, "live-retrieval-answer-proof.md");

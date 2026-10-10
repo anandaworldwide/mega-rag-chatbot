@@ -9,6 +9,29 @@ export type NormalizedToolCall = {
   args: Record<string, unknown>;
 };
 
+/** True when a text or native search_more_sources call sets complete_list. */
+function parseCompleteListArg(args: Record<string, unknown>): boolean {
+  const value = args.complete_list;
+  if (value === true || value === 1) {
+    return true;
+  }
+  return typeof value === "string" && value.trim().toLowerCase() === "true";
+}
+
+/** Keep complete_list as a boolean on search_more_sources calls, including text-form JSON. */
+function withParsedCompleteList(call: NormalizedToolCall): NormalizedToolCall {
+  if (call.name !== "search_more_sources" || !("complete_list" in call.args)) {
+    return call;
+  }
+  return {
+    ...call,
+    args: {
+      ...call.args,
+      complete_list: parseCompleteListArg(call.args),
+    },
+  };
+}
+
 function parseJsonObject(text: string): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse(text) as unknown;
@@ -293,22 +316,22 @@ export function extractGeoToolCalls(answer: unknown): NormalizedToolCall[] {
 
   const fromNative = callsFromOpenAiStyleToolCalls(message.tool_calls);
   if (fromNative.length > 0) {
-    return fromNative;
+    return fromNative.map(withParsedCompleteList);
   }
 
   const fromKwargs = callsFromOpenAiStyleToolCalls(message.additional_kwargs?.tool_calls);
   if (fromKwargs.length > 0) {
-    return fromKwargs;
+    return fromKwargs.map(withParsedCompleteList);
   }
 
   const fromChunks = callsFromToolCallChunks(message.tool_call_chunks);
   if (fromChunks.length > 0) {
-    return fromChunks;
+    return fromChunks.map(withParsedCompleteList);
   }
 
   const fromInvalid = callsFromInvalidToolCalls(message.invalid_tool_calls);
   if (fromInvalid.length > 0) {
-    return fromInvalid;
+    return fromInvalid.map(withParsedCompleteList);
   }
 
   if (Array.isArray(message.content)) {
@@ -327,14 +350,14 @@ export function extractGeoToolCalls(answer: unknown): NormalizedToolCall[] {
       .filter((call) => call.name.length > 0);
 
     if (fromBlocks.length > 0) {
-      return fromBlocks;
+      return fromBlocks.map(withParsedCompleteList);
     }
   }
 
   const contentText = textFromContent(message.content);
   const leakedRetrieval = tryParseLeakedRetrievalToolJson(contentText);
   if (leakedRetrieval) {
-    return [leakedRetrieval];
+    return [withParsedCompleteList(leakedRetrieval)];
   }
   const leakedGeo = tryParseLeakedGeoToolJson(contentText);
   return leakedGeo ? [leakedGeo] : [];

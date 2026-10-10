@@ -636,9 +636,11 @@ if (siteConfig?.requireLogin) {
   - If the model calls a retrieval tool, the server emits SSE `status: "retrieving_more_sources"` (client shows
     "Gathering additional sources..."), executes the tool, re-emits `sourceDocs`, and re-invokes the model with
     merged sources in the normal RAG context position (prompt placeholders filled) plus `ToolMessage` payloads.
-    A second tool round is allowed only when the previous round returned no docs (max 2 rounds, ~8 added sources),
-    except "list all chapters" queries, which may use the second round and a larger added-source budget to search
-    for a table of contents. After usable docs arrive on a normal query, tools are unbound so the model must answer
+    A second tool round is allowed only when the previous round returned no docs (max 2 rounds, ~8 added sources).
+    If the model sets `complete_list` on `search_more_sources`, the server may allow one extra round and a larger
+    added-source budget. Use this flag only when the user asks for a complete list of items. The extra round can
+    fetch a full-list source, such as a table of contents, an index, or an overview. The flag cannot exceed the
+    existing round cap. After usable docs arrive on a normal query, tools are unbound so the model must answer
     rather than narrate further searching. Plain-text search narration (including glued Grok lines such as
     "FetchingmoreoftheBrindabanaccount…" and adjacent-fetch lines like "Pulling nearby ceremony text…") is discarded
     and recovered with an answer-only turn even when no tool_call was emitted. If the follow-up or recovery is still

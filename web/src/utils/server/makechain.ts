@@ -66,17 +66,18 @@ import { NextRequest } from "next/server";
 import { extractGeoToolCalls, extractStreamedTextDelta } from "@/utils/server/geoToolCalls";
 import {
   buildRetrievalReinvokeMessages,
-  ENUMERATIVE_ADDED_RETRIEVAL_SOURCES,
   executeRetrievalTool,
   finalizeRetrievalUserAnswer,
   getRetrievalToolGuidance,
-  isEnumerativeListingQuery,
   isIncompleteRetrievalAnswer,
   isRetrievalToolName,
   MAX_RETRIEVAL_TOOL_ITERATIONS,
+  parseCompleteListFlag,
   RETRIEVAL_TOOL_DEFINITIONS,
   RetrievalToolContext,
+  shouldAllowAnotherRetrievalRound,
   shouldBindRetrievalTools,
+  shouldSkipFurtherRetrievalAfterExpansion,
 } from "@/utils/server/tools/retrievalTools";
 import { sendOpsAlert } from "./emailOps";
 import {
@@ -169,6 +170,8 @@ interface TimingMetrics {
   toolRounds?: number;
   /** Wall time spent executing retrieval tools (ms). */
   retrievalToolMs?: number;
+  /** True when search_more_sources set complete_list on this request. */
+  completeListRequested?: boolean;
 }
 
 // Loads text content from local filesystem with error handling
@@ -1792,12 +1795,12 @@ export async function setupAndExecuteLanguageModelChain(
         // (after geo/retrieval tool loops), not the initial tool-call response.
         timingMetrics.toolRounds = timingMetrics.toolRounds ?? 0;
         timingMetrics.retrievalToolMs = timingMetrics.retrievalToolMs ?? 0;
+        timingMetrics.completeListRequested = false;
       }
 
       // Handle tool calls with proper loop (OpenAI tool_calls + Anthropic tool_use / JSON fallback)
       let pendingToolCalls = extractGeoToolCalls(result.answer);
       const retrievalToolsEnabled = shouldBindRetrievalTools(siteConfig, modelName, isAnthropicModel);
-      const enumerativeListingQuery = isEnumerativeListingQuery(sanitizedQuestion);
       // Plain-text "I'll search…" with no tool_calls never entered this loop, so the leak became the answer.
       const firstPassIsSearchNarration =
         retrievalToolsEnabled && isIncompleteRetrievalAnswer(fullResponse);
@@ -1826,6 +1829,8 @@ export async function setupAndExecuteLanguageModelChain(
         let retrievalToolContext: RetrievalToolContext | null = null;
         /** After a non-empty retrieval expansion, ignore further retrieval tool_calls (no second "Gathering..." flash). */
         let retrievalExpansionSucceeded = false;
+        /** True after any search_more_sources call sets complete_list. */
+        let completeListRequested = false;
         /** Prevent double answer-only recovery (buffer discard + end-of-loop safety net). */
         let retrievalAnswerForced = false;
         let retrievalFetchFailed = false;
@@ -1844,9 +1849,6 @@ export async function setupAndExecuteLanguageModelChain(
               // search_more_sources cannot escape a named-author (e.g. Asha) hard scope.
               filter: retrievalFilterCapture.filter ?? filter,
               knownSourceIds: knownIds,
-              remainingSourceBudget: enumerativeListingQuery
-                ? ENUMERATIVE_ADDED_RETRIEVAL_SOURCES
-                : undefined,
               effectiveAccessLevel,
               siteConfig,
               minRetrievalScore: getMinRetrievalScore(siteConfig),
@@ -1976,8 +1978,23 @@ export async function setupAndExecuteLanguageModelChain(
 
               // Model sometimes emits another tool_call after we already expanded and unbound tools.
               // Do not flash status or re-fetch (usually 0 new / all dupes) — answer only.
-              // Enumerative "list all chapters" queries may use the second round to fetch a TOC.
-              if (retrievalExpansionSucceeded && !enumerativeListingQuery) {
+              // complete_list may use the second round to fetch a full list source.
+              const roundRequestsCompleteList = pendingToolCalls.some(
+                (call) => call.name === "search_more_sources" && parseCompleteListFlag(call.args)
+              );
+              if (roundRequestsCompleteList) {
+                completeListRequested = true;
+                retrievalToolContext?.applyCompleteListBudget();
+                if (timingMetrics) {
+                  timingMetrics.completeListRequested = true;
+                }
+              }
+              if (
+                shouldSkipFurtherRetrievalAfterExpansion({
+                  expansionSucceeded: retrievalExpansionSucceeded,
+                  completeListRequested,
+                })
+              ) {
                 await forceRetrievalAnswerOnly("sources already expanded; ignoring further tool calls");
                 break;
               }
@@ -2077,14 +2094,17 @@ export async function setupAndExecuteLanguageModelChain(
             answerModelUsed = finalAnswerModelName;
 
             // Only allow another retrieval tool round when the last round returned nothing usable,
-            // or when an enumerative listing still needs a TOC/chapter-list search.
+            // or when complete_list still needs a full-list search.
             // If docs arrived on a normal query, force an answer turn.
             const allowMoreRetrievalTools =
               isRetrievalRound &&
               retrievalToolsEnabled &&
-              (newlyFetchedDocs.length === 0 || enumerativeListingQuery) &&
-              retrievalIterations < MAX_RETRIEVAL_TOOL_ITERATIONS &&
-              (retrievalToolContext?.remainingSourceBudget ?? 0) > 0;
+              shouldAllowAnotherRetrievalRound({
+                completeListRequested,
+                newlyFetchedCount: newlyFetchedDocs.length,
+                retrievalIterations,
+                remainingSourceBudget: retrievalToolContext?.remainingSourceBudget ?? 0,
+              });
 
             if (allowMoreRetrievalTools && typeof nextModel.bindTools === "function") {
               nextModel = nextModel.bindTools(RETRIEVAL_TOOL_DEFINITIONS) as typeof nextModel;

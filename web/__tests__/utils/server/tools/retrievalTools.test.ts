@@ -23,10 +23,14 @@ import {
   fillRetrievalAnswerTemplate,
   isIncompleteRetrievalAnswer,
   isRunTogetherNarrationText,
-  isEnumerativeListingQuery,
+  parseCompleteListFlag,
+  shouldAllowAnotherRetrievalRound,
+  shouldSkipFurtherRetrievalAfterExpansion,
   finalizeRetrievalUserAnswer,
+  COMPLETE_LIST_ADDED_RETRIEVAL_SOURCES,
   RETRIEVAL_TOOL_DEFINITIONS,
   RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE,
+  RETRIEVAL_POST_TOOL_RETRY_GUIDANCE,
   RETRIEVAL_TOOL_GUIDANCE,
   RETRIEVAL_TOOL_GUIDANCE_CURBED,
   RETRIEVAL_FETCH_FAILED_USER_MESSAGE,
@@ -492,13 +496,105 @@ Short quotation and seated quiet. Sources include Crystal Clarity commentaries.
     });
   });
 
-  describe("isEnumerativeListingQuery", () => {
-    it("detects list-all-chapters requests", () => {
-      expect(isEnumerativeListingQuery("List all the chapters of Autobiography of a Yogi")).toBe(
-        true
+  describe("complete_list retrieval policy", () => {
+    it("parses complete_list from boolean, string, and missing args", () => {
+      expect(parseCompleteListFlag({ query: "AY chapters", complete_list: true })).toBe(true);
+      expect(parseCompleteListFlag({ query: "AY chapters", complete_list: "true" })).toBe(true);
+      expect(parseCompleteListFlag({ query: "AY chapters", complete_list: 1 })).toBe(true);
+      expect(parseCompleteListFlag({ query: "AY chapters", complete_list: false })).toBe(false);
+      expect(parseCompleteListFlag({ query: "AY chapters" })).toBe(false);
+      expect(parseCompleteListFlag(undefined)).toBe(false);
+    });
+
+    it("opens exactly one extra round and the larger budget when the flag is true", () => {
+      const ctx = new RetrievalToolContext({
+        pineconeIndex: { listPaginated: jest.fn(), fetch: jest.fn() },
+        vectorStore: { similaritySearchWithScore: jest.fn() },
+        knownSourceIds: [],
+        effectiveAccessLevel: 0,
+        siteConfig: accessSiteConfig,
+      });
+      expect(ctx.remainingSourceBudget).toBe(MAX_ADDED_RETRIEVAL_SOURCES);
+      ctx.applyCompleteListBudget();
+      expect(ctx.remainingSourceBudget).toBe(COMPLETE_LIST_ADDED_RETRIEVAL_SOURCES);
+      ctx.applyCompleteListBudget();
+      expect(ctx.remainingSourceBudget).toBe(COMPLETE_LIST_ADDED_RETRIEVAL_SOURCES);
+
+      expect(
+        shouldAllowAnotherRetrievalRound({
+          completeListRequested: true,
+          newlyFetchedCount: 4,
+          retrievalIterations: 1,
+          remainingSourceBudget: ctx.remainingSourceBudget,
+        })
+      ).toBe(true);
+      expect(
+        shouldAllowAnotherRetrievalRound({
+          completeListRequested: true,
+          newlyFetchedCount: 4,
+          retrievalIterations: 2,
+          remainingSourceBudget: ctx.remainingSourceBudget,
+        })
+      ).toBe(false);
+      expect(
+        shouldSkipFurtherRetrievalAfterExpansion({
+          expansionSucceeded: true,
+          completeListRequested: true,
+        })
+      ).toBe(false);
+    });
+
+    it("cannot exceed the retrieval round cap when complete_list is true", () => {
+      expect(MAX_RETRIEVAL_TOOL_ITERATIONS).toBe(2);
+      expect(
+        shouldAllowAnotherRetrievalRound({
+          completeListRequested: true,
+          newlyFetchedCount: 0,
+          retrievalIterations: MAX_RETRIEVAL_TOOL_ITERATIONS,
+          remainingSourceBudget: COMPLETE_LIST_ADDED_RETRIEVAL_SOURCES,
+        })
+      ).toBe(false);
+    });
+
+    it("keeps one-expansion behavior when complete_list is absent or false", () => {
+      expect(
+        shouldAllowAnotherRetrievalRound({
+          completeListRequested: false,
+          newlyFetchedCount: 3,
+          retrievalIterations: 1,
+          remainingSourceBudget: MAX_ADDED_RETRIEVAL_SOURCES,
+        })
+      ).toBe(false);
+      expect(
+        shouldAllowAnotherRetrievalRound({
+          completeListRequested: false,
+          newlyFetchedCount: 0,
+          retrievalIterations: 1,
+          remainingSourceBudget: MAX_ADDED_RETRIEVAL_SOURCES,
+        })
+      ).toBe(true);
+      expect(
+        shouldSkipFurtherRetrievalAfterExpansion({
+          expansionSucceeded: true,
+          completeListRequested: false,
+        })
+      ).toBe(true);
+    });
+
+    it("keeps List all the chapters of Autobiography of a Yogi as a complete_list example", () => {
+      const searchMore = RETRIEVAL_TOOL_DEFINITIONS.find((tool) => tool.function.name === "search_more_sources");
+      const properties = searchMore?.function.parameters.properties as Record<string, { description?: string }>;
+      expect(properties.complete_list).toBeDefined();
+      expect(properties.complete_list.description).toContain("all chapters of a book");
+      expect(searchMore?.function.description).toContain(
+        "If the user asked for a complete list of items, search for a source that lists them all"
       );
-      expect(isEnumerativeListingQuery("Give me some stories from Autobiography of a Yogi")).toBe(
-        false
+      expect(searchMore?.function.description).not.toMatch(/list every chapter of a book/i);
+      expect(RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE).toContain(
+        "If they asked for a complete list and the sources lack a full list"
+      );
+      expect(RETRIEVAL_POST_TOOL_RETRY_GUIDANCE).toContain(
+        "If the user asked for a complete list of items, search for a source that lists them all"
       );
     });
   });

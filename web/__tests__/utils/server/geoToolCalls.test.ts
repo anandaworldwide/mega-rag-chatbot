@@ -92,6 +92,28 @@ describe("extractGeoToolCalls", () => {
     expect(calls[0].args).toEqual({ query: "AY chapters", k: 8 });
   });
 
+  it("parses complete_list from a text-form search_more_sources call", () => {
+    const calls = extractGeoToolCalls({
+      content:
+        '{"name": "search_more_sources", "parameters": {"query": "List all the chapters of Autobiography of a Yogi", "k": 8, "complete_list": true}}',
+    });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].name).toBe("search_more_sources");
+    expect(calls[0].args).toEqual({
+      query: "List all the chapters of Autobiography of a Yogi",
+      k: 8,
+      complete_list: true,
+    });
+  });
+
+  it("normalizes a string complete_list flag from text-form JSON", () => {
+    const calls = extractGeoToolCalls({
+      content:
+        '{"name": "search_more_sources", "parameters": {"query": "all chakras", "complete_list": "true"}}',
+    });
+    expect(calls[0].args.complete_list).toBe(true);
+  });
+
   it("parses leaked retrieval JSON with nested parameter objects", () => {
     const calls = extractGeoToolCalls({
       content:

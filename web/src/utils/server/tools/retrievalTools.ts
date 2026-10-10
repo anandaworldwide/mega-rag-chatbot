@@ -45,7 +45,7 @@ Default: answer from the given sources now. Do not call tools for simple definit
 
 Only call a tool when one of these is clearly true:
 - get_adjacent_chunks: a passage you need to quote cuts off mid-sentence/mid-thought; pass that source \`id\` and prefer ±1.
-- search_more_sources: sources are clearly off-topic, empty of needed quotes, or too thin for a multi-part deliverable the user asked for (class/talk outline, research survey, quote pack, etc.). Pass a better query (same author/library/media filters apply).
+- search_more_sources: sources are clearly off-topic, empty of needed quotes, or too thin for a multi-part deliverable the user asked for (class/talk outline, research survey, quote pack, etc.). Pass a better query (same author/library/media filters apply). If the user asked for a complete list of items, search for a source that lists them all (for example a table of contents, an index, or an overview) and set complete_list=true.
 
 Do not call tools "just in case," to pad depth, or to explore neighboring numbered points that are off-topic.
 At most ${MAX_RETRIEVAL_TOOL_ITERATIONS} tool rounds and about ${MAX_ADDED_RETRIEVAL_SOURCES} added sources.`;
@@ -68,12 +68,12 @@ Answer the user's request completely now from those sources:
 - If they asked for a class/talk outline or other multi-part deliverable, produce the full structured answer (all required sections), not a one-liner or partial draft.
 - When they ask for quotations, give exact lines with citations.
 - If sources are thin, briefly note what is missing, then still finish the best complete answer you can from what you have.
-- If they asked to list every chapter and the sources lack a full table of contents, list every chapter you can cite and say which ones are missing.
+- If they asked for a complete list and the sources lack a full list, list every item you can cite and say which ones may be missing.
 - Never end after only saying you will search or gather more.`;
 
 export const RETRIEVAL_POST_TOOL_RETRY_GUIDANCE = `## After retrieval tools
 The JSON sources above include any documents returned so far. If they are clearly insufficient, you may call one retrieval tool once more. Otherwise answer the user now with exact quotations and citations. Do not narrate searching in plain text — either call a tool or answer.
-If the user asked to list every chapter of a book, search for that book's table of contents or chapter list before answering.`;
+If the user asked for a complete list of items, search for a source that lists them all (for example a table of contents, an index, or an overview) before answering.`;
 
 export const RETRIEVAL_FETCH_FAILED_USER_MESSAGE =
   "Additional source fetch failed. I could not finish a complete answer. Please try again.";
@@ -84,18 +84,55 @@ export const RETRIEVAL_ROUND_LIMIT_USER_MESSAGE =
 export const RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE =
   "I could not finish a complete answer after fetching additional sources. Please try again.";
 
-/** Extra source budget for "list all chapters" queries so a second search can run. */
-export const ENUMERATIVE_ADDED_RETRIEVAL_SOURCES = 16;
+/** Extra source budget when search_more_sources sets complete_list. */
+export const COMPLETE_LIST_ADDED_RETRIEVAL_SOURCES = 16;
 
 /**
- * True when the user asked to list every chapter (needs TOC coverage, not one expansion).
+ * True when a search_more_sources call asks for a complete list.
+ * Accepts boolean true, 1, or the string "true".
  */
-export function isEnumerativeListingQuery(question: string): boolean {
-  const normalized = question.toLowerCase();
-  const asksToList = /\b(list|name|enumerate|what are|give me)\b/.test(normalized);
-  const asksForChapters = /\bchapters?\b/.test(normalized);
-  const asksForAll = /\b(all|every|complete|entire|full)\b/.test(normalized);
-  return asksToList && asksForChapters && asksForAll;
+export function parseCompleteListFlag(args: Record<string, unknown> | null | undefined): boolean {
+  if (!args) {
+    return false;
+  }
+  const value = args.complete_list;
+  if (value === true || value === 1) {
+    return true;
+  }
+  if (typeof value === "string" && value.trim().toLowerCase() === "true") {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * True when the loop may bind tools for one more retrieval round.
+ * complete_list may open one extra round. The round cap still wins.
+ */
+export function shouldAllowAnotherRetrievalRound(params: {
+  completeListRequested: boolean;
+  newlyFetchedCount: number;
+  retrievalIterations: number;
+  remainingSourceBudget: number;
+}): boolean {
+  if (params.retrievalIterations >= MAX_RETRIEVAL_TOOL_ITERATIONS) {
+    return false;
+  }
+  if (params.remainingSourceBudget <= 0) {
+    return false;
+  }
+  return params.newlyFetchedCount === 0 || params.completeListRequested;
+}
+
+/**
+ * True when a successful expansion already happened and complete_list is off.
+ * The loop then ignores further retrieval tool calls.
+ */
+export function shouldSkipFurtherRetrievalAfterExpansion(params: {
+  expansionSucceeded: boolean;
+  completeListRequested: boolean;
+}): boolean {
+  return params.expansionSucceeded && !params.completeListRequested;
 }
 
 export type FinalizeRetrievalUserAnswerParams = {
@@ -361,7 +398,7 @@ export const RETRIEVAL_TOOL_DEFINITIONS = [
     function: {
       name: "search_more_sources",
       description:
-        "Run an additional semantic search with a reformulated or broadened query when current sources are weak or incomplete. For a request to list every chapter of a book, search for that book's table of contents or chapter list.",
+        "Run an additional semantic search with a reformulated or broadened query when current sources are weak or incomplete. If the user asked for a complete list of items, search for a source that lists them all (for example a table of contents, an index, or an overview) before answering.",
       parameters: {
         type: "object",
         properties: {
@@ -372,6 +409,11 @@ export const RETRIEVAL_TOOL_DEFINITIONS = [
           k: {
             type: "integer",
             description: `Number of new sources to retrieve (1-${MAX_SEARCH_MORE_K}). Default ${DEFAULT_SEARCH_MORE_K}.`,
+          },
+          complete_list: {
+            type: "boolean",
+            description:
+              "Set true only when the user asks for a complete list of all items of some kind, such as all chapters of a book, all chakras, all stages or steps. False or omit otherwise.",
           },
         },
         required: ["query"],
@@ -511,6 +553,7 @@ export class RetrievalToolContext {
   effectiveAccessLevel: number;
   siteConfig?: SiteConfig | null;
   minRetrievalScore?: number;
+  completeListBudgetApplied = false;
 
   constructor(params: {
     pineconeIndex: PineconeListIndex | Index<RecordMetadata>;
@@ -530,6 +573,15 @@ export class RetrievalToolContext {
     this.effectiveAccessLevel = params.effectiveAccessLevel;
     this.siteConfig = params.siteConfig;
     this.minRetrievalScore = params.minRetrievalScore;
+  }
+
+  /** Raise the added-source budget once when complete_list is set. */
+  applyCompleteListBudget(): void {
+    if (this.completeListBudgetApplied) {
+      return;
+    }
+    this.completeListBudgetApplied = true;
+    this.remainingSourceBudget += COMPLETE_LIST_ADDED_RETRIEVAL_SOURCES - MAX_ADDED_RETRIEVAL_SOURCES;
   }
 
   registerDocuments(docs: Document[]): Document[] {

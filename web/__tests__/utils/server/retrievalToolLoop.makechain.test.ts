@@ -6,6 +6,8 @@ const FINAL_ANSWER =
 
 let mockFollowUpContent = FINAL_ANSWER;
 let mockFirstPassInvoke: jest.Mock;
+let mockFollowUpToolCallArgs: string | null = null;
+let mockFollowUpInvocations = 0;
 
 function mockChatOpenAIStream() {
   let sent = false;
@@ -31,10 +33,45 @@ jest.mock("@langchain/openai", () => ({
   })),
 }));
 
+function mockFollowUpToolCallStream(argsJson: string) {
+  let sent = false;
+  return {
+    [Symbol.asyncIterator]() {
+      return this;
+    },
+    async next() {
+      if (!sent) {
+        sent = true;
+        return {
+          value: {
+            content: "Fetching a complete list source.",
+            tool_call_chunks: [
+              {
+                id: "call_search_more_followup",
+                name: "search_more_sources",
+                args: argsJson,
+                index: 0,
+              },
+            ],
+          },
+          done: false,
+        };
+      }
+      return { done: true, value: undefined };
+    },
+  };
+}
+
 jest.mock("@/utils/server/llmProvider", () => ({
   getChatModel: jest.fn().mockImplementation(() => ({
     invoke: jest.fn().mockResolvedValue({ content: mockFollowUpContent }),
-    stream: jest.fn().mockImplementation(() => mockChatOpenAIStream()),
+    stream: jest.fn().mockImplementation(() => {
+      mockFollowUpInvocations += 1;
+      if (mockFollowUpToolCallArgs && mockFollowUpInvocations === 1) {
+        return mockFollowUpToolCallStream(mockFollowUpToolCallArgs);
+      }
+      return mockChatOpenAIStream();
+    }),
     bindTools: jest.fn().mockReturnThis(),
     bind: jest.fn().mockReturnThis(),
   })),
@@ -80,7 +117,12 @@ jest.mock("@langchain/core/runnables", () => {
 
 import { Document } from "@langchain/core/documents";
 import { setupAndExecuteLanguageModelChain } from "@/utils/server/makechain";
-import { executeRetrievalTool, RETRIEVAL_FETCH_FAILED_USER_MESSAGE } from "@/utils/server/tools/retrievalTools";
+import {
+  COMPLETE_LIST_ADDED_RETRIEVAL_SOURCES,
+  executeRetrievalTool,
+  MAX_ADDED_RETRIEVAL_SOURCES,
+  RETRIEVAL_FETCH_FAILED_USER_MESSAGE,
+} from "@/utils/server/tools/retrievalTools";
 import type { SiteConfig } from "@/types/siteConfig";
 import type { StreamingResponseData } from "@/types/StreamingResponseData";
 
@@ -109,7 +151,7 @@ function collectedAnswer(events: StreamingResponseData[]): string {
   return text;
 }
 
-async function runLoop() {
+async function runLoop(question = "Give me some stories from Autobiography of a Yogi") {
   const events: StreamingResponseData[] = [];
   const sendData = (data: StreamingResponseData) => {
     events.push(data);
@@ -137,7 +179,7 @@ async function runLoop() {
 
   const result = await setupAndExecuteLanguageModelChain(
     retriever as never,
-    "Give me some stories from Autobiography of a Yogi",
+    question,
     [],
     sendData,
     4,
@@ -161,9 +203,7 @@ async function runLoop() {
 describe("makechain retrieval tool loop", () => {
   const previousSiteId = process.env.SITE_ID;
 
-  beforeEach(() => {
-    process.env.SITE_ID = "default";
-    mockFollowUpContent = FINAL_ANSWER;
+  function stubFirstPass(argsJson: string, question: string) {
     mockFirstPassInvoke = jest.fn().mockImplementation(async (_input, options) => {
       const onToken = options?.callbacks?.[0]?.handleLLMNewToken;
       if (typeof onToken === "function") {
@@ -176,15 +216,26 @@ describe("makechain retrieval tool loop", () => {
             {
               id: "call_search_more",
               name: "search_more_sources",
-              args: '{"query":"Autobiography of a Yogi stories","k":8}',
+              args: argsJson,
               index: 0,
             },
           ],
         },
         sourceDocuments: [initialDoc],
-        question: "Give me some stories from Autobiography of a Yogi",
+        question,
       };
     });
+  }
+
+  beforeEach(() => {
+    process.env.SITE_ID = "default";
+    mockFollowUpContent = FINAL_ANSWER;
+    mockFollowUpToolCallArgs = null;
+    mockFollowUpInvocations = 0;
+    stubFirstPass(
+      '{"query":"Autobiography of a Yogi stories","k":8}',
+      "Give me some stories from Autobiography of a Yogi"
+    );
     (executeRetrievalTool as jest.Mock).mockReset();
   });
 
@@ -230,5 +281,78 @@ describe("makechain retrieval tool loop", () => {
     expect(result.fullResponse).toBe(RETRIEVAL_FETCH_FAILED_USER_MESSAGE);
     expect(result.fullResponse).not.toBe(STATUS_LINE);
     expect(collectedAnswer(events)).not.toContain("Fetching more");
+  });
+
+  it("opens one extra retrieval round and the larger budget when complete_list is true", async () => {
+    const secondDoc = new Document({
+      pageContent: "A table of contents lists every chapter.",
+      metadata: { title: "Autobiography of a Yogi", library: "Ananda Library" },
+      id: "text||Ananda Library||pdf||Autobiography||Yogananda||hash1||2",
+    });
+    stubFirstPass(
+      '{"query":"Autobiography of a Yogi table of contents","k":8,"complete_list":true}',
+      "List all the chapters of Autobiography of a Yogi"
+    );
+    mockFollowUpToolCallArgs = '{"query":"AY chapter index","k":8,"complete_list":true}';
+    (executeRetrievalTool as jest.Mock)
+      .mockResolvedValueOnce({
+        ok: true,
+        documents: [fetchedDoc],
+        content: { documents: [{ content: fetchedDoc.pageContent }], message: "Retrieved 1 additional source(s)." },
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        documents: [secondDoc],
+        content: { documents: [{ content: secondDoc.pageContent }], message: "Retrieved 1 additional source(s)." },
+      });
+
+    const { result } = await runLoop("List all the chapters of Autobiography of a Yogi");
+
+    expect(executeRetrievalTool).toHaveBeenCalledTimes(2);
+    expect(executeRetrievalTool).toHaveBeenNthCalledWith(
+      1,
+      "search_more_sources",
+      expect.objectContaining({ complete_list: true }),
+      expect.objectContaining({ remainingSourceBudget: COMPLETE_LIST_ADDED_RETRIEVAL_SOURCES })
+    );
+    expect(result.fullResponse).toBe(FINAL_ANSWER);
+    expect(result.finalDocs.map((doc) => doc.id)).toEqual(
+      expect.arrayContaining([fetchedDoc.id, secondDoc.id])
+    );
+  });
+
+  it("does not exceed the retrieval round cap when complete_list stays true", async () => {
+    stubFirstPass(
+      '{"query":"all chakras","k":8,"complete_list":true}',
+      "List all the chakras"
+    );
+    mockFollowUpToolCallArgs = '{"query":"chakra list overview","k":8,"complete_list":true}';
+    (executeRetrievalTool as jest.Mock).mockResolvedValue({
+      ok: true,
+      documents: [fetchedDoc],
+      content: { documents: [{ content: fetchedDoc.pageContent }], message: "Retrieved 1 additional source(s)." },
+    });
+
+    await runLoop("List all the chakras");
+
+    expect(executeRetrievalTool).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps one-expansion behavior when complete_list is absent", async () => {
+    mockFollowUpToolCallArgs = '{"query":"more AY stories","k":8}';
+    (executeRetrievalTool as jest.Mock).mockResolvedValue({
+      ok: true,
+      documents: [fetchedDoc],
+      content: { documents: [{ content: fetchedDoc.pageContent }], message: "Retrieved 1 additional source(s)." },
+    });
+
+    await runLoop();
+
+    expect(executeRetrievalTool).toHaveBeenCalledTimes(1);
+    expect(executeRetrievalTool).toHaveBeenCalledWith(
+      "search_more_sources",
+      { query: "Autobiography of a Yogi stories", k: 8 },
+      expect.objectContaining({ remainingSourceBudget: MAX_ADDED_RETRIEVAL_SOURCES })
+    );
   });
 });
