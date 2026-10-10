@@ -12,6 +12,7 @@ import {
   applyProviderUsageToTimingMetrics,
   isCachePromptLayoutEnabled,
   isCurbRetrievalToolsEnabled,
+  isEvalQuestionRepeatEnabled,
   logTtfbMetrics,
   resolveTtfbExperiment,
   stripVariablePromptPlaceholders,
@@ -23,12 +24,18 @@ describe("ttfbMetrics", () => {
   const originalMetricsFile = process.env.TTFB_METRICS_FILE;
   const originalNodeEnv = process.env.NODE_ENV;
   const originalVercel = process.env.VERCEL;
+  const originalEvalQuestionRepeat = process.env.EVAL_QUESTION_REPEAT;
 
   afterEach(() => {
     process.env.TTFB_EXPERIMENT = originalExperiment;
     process.env.TTFB_METRICS_FILE = originalMetricsFile;
     process.env.NODE_ENV = originalNodeEnv;
     process.env.VERCEL = originalVercel;
+    if (originalEvalQuestionRepeat === undefined) {
+      delete process.env.EVAL_QUESTION_REPEAT;
+    } else {
+      process.env.EVAL_QUESTION_REPEAT = originalEvalQuestionRepeat;
+    }
   });
 
   test("estimatePromptTokens uses ~4 chars per token", () => {
@@ -57,16 +64,88 @@ describe("ttfbMetrics", () => {
     expect(stripped).not.toContain("{question}");
   });
 
+  const defaultHumanMessageParams = {
+    context: "doc text",
+    chatHistory: "Human: hi",
+    question: "What is karma?",
+    activeFiltersSummary: "Whole library",
+  };
+
+  const DEFAULT_HUMAN_MESSAGE_GOLDEN = [
+    "# Active Filters",
+    "Whole library",
+    "",
+    "# Chat History",
+    "Human: hi",
+    "",
+    "# Context",
+    "doc text",
+    "",
+    "Question: What is karma?",
+    "Helpful answer:",
+  ].join("\n");
+
   test("buildVariableHumanMessage puts context once after filters/history", () => {
-    const human = buildVariableHumanMessage({
-      context: "doc text",
-      chatHistory: "Human: hi",
-      question: "What is karma?",
-      activeFiltersSummary: "Whole library",
-    });
+    delete process.env.EVAL_QUESTION_REPEAT;
+    process.env.NODE_ENV = "test";
+    const human = buildVariableHumanMessage(defaultHumanMessageParams);
     expect(human.indexOf("# Active Filters")).toBeLessThan(human.indexOf("# Context"));
     expect(human).toContain("doc text");
     expect(human).toContain("Question: What is karma?");
+  });
+
+  test("default human prompt is byte-identical when eval question repeat is off", () => {
+    process.env.NODE_ENV = "test";
+    delete process.env.EVAL_QUESTION_REPEAT;
+    const unsetSwitch = buildVariableHumanMessage(defaultHumanMessageParams);
+    process.env.EVAL_QUESTION_REPEAT = "0";
+    const zeroSwitch = buildVariableHumanMessage(defaultHumanMessageParams);
+    process.env.EVAL_QUESTION_REPEAT = "";
+    const emptySwitch = buildVariableHumanMessage(defaultHumanMessageParams);
+
+    expect(unsetSwitch).toBe(DEFAULT_HUMAN_MESSAGE_GOLDEN);
+    expect(zeroSwitch).toBe(DEFAULT_HUMAN_MESSAGE_GOLDEN);
+    expect(emptySwitch).toBe(DEFAULT_HUMAN_MESSAGE_GOLDEN);
+    expect(Buffer.from(unsetSwitch, "utf8").equals(Buffer.from(DEFAULT_HUMAN_MESSAGE_GOLDEN, "utf8"))).toBe(
+      true
+    );
+    expect(unsetSwitch).not.toContain("Question (repeated):");
+    expect(isEvalQuestionRepeatEnabled()).toBe(false);
+  });
+
+  test("eval question repeat stays off in production even when the env var is set", () => {
+    process.env.NODE_ENV = "production";
+    process.env.EVAL_QUESTION_REPEAT = "1";
+    const human = buildVariableHumanMessage(defaultHumanMessageParams);
+    expect(isEvalQuestionRepeatEnabled()).toBe(false);
+    expect(human).toBe(DEFAULT_HUMAN_MESSAGE_GOLDEN);
+    expect(Buffer.from(human, "utf8").equals(Buffer.from(DEFAULT_HUMAN_MESSAGE_GOLDEN, "utf8"))).toBe(true);
+  });
+
+  test("eval question repeat appends one extra line after the sources block", () => {
+    process.env.NODE_ENV = "test";
+    process.env.EVAL_QUESTION_REPEAT = "1";
+    expect(isEvalQuestionRepeatEnabled()).toBe(true);
+    const human = buildVariableHumanMessage(defaultHumanMessageParams);
+    const expectedOn = [
+      "# Active Filters",
+      "Whole library",
+      "",
+      "# Chat History",
+      "Human: hi",
+      "",
+      "# Context",
+      "doc text",
+      "",
+      "Question (repeated): What is karma?",
+      "",
+      "Question: What is karma?",
+      "Helpful answer:",
+    ].join("\n");
+    expect(human).toBe(expectedOn);
+    expect(human.indexOf("# Context")).toBeLessThan(human.indexOf("Question (repeated):"));
+    expect(human.indexOf("Question (repeated):")).toBeLessThan(human.indexOf("Question: What is karma?"));
+    expect(human).not.toBe(DEFAULT_HUMAN_MESSAGE_GOLDEN);
   });
 
   test("extractProviderUsage reads LangChain usage_metadata", () => {
