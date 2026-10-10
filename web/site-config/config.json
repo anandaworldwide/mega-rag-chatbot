@@ -28,7 +28,7 @@
       "The Bhaktan Files",
       "ananda.org",
       "Crystal Clarity",
-      "Ananda Family Wiki"
+      { "name": "Ananda Family Wiki", "accessEmailsEnv": "WIKI_LIBRARY_EMAILS" }
     ],
     "enableSalesforceAccessNotice": true,
     "accessControl": {

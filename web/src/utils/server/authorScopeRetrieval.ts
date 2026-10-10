@@ -1,5 +1,7 @@
 import type { Document } from "@langchain/core/documents";
 import type { VectorStoreRetriever } from "@langchain/core/vectorstores";
+import type { LibraryConfigEntry } from "@/types/siteConfig";
+import { libraryEntryName } from "@/utils/libraryEntries";
 import { MASTER_SWAMI_AUTHORS } from "@/utils/server/authorConstants";
 import { attachRetrievalScore, filterScoredDocuments, type RelevanceStats } from "@/utils/server/retrievalRelevance";
 
@@ -51,13 +53,12 @@ export function buildLibraryFilter(
  */
 export function buildRetrievalToolFilter(
   searchFilter: Record<string, unknown> | undefined,
-  includedLibraries?: Array<string | { name: string; weight?: number }>
+  includedLibraries?: LibraryConfigEntry[]
 ): Record<string, unknown> | undefined {
   if (!includedLibraries || includedLibraries.length === 0) {
     return searchFilter;
   }
-  const libraryNames = includedLibraries.map((lib) => (typeof lib === "string" ? lib : lib.name));
-  return buildLibraryFilter(libraryNames, searchFilter);
+  return buildLibraryFilter(includedLibraries.map(libraryEntryName), searchFilter);
 }
 
 /** Mutable capture so makeChain can hand the effective Pinecone filter to RetrievalToolContext. */

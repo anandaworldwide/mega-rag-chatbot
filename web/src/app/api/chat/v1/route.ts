@@ -96,7 +96,7 @@ import { TitleScopeSelection } from "@/types/titleScope";
 import { resolveClaudeAbTestModel } from "@/utils/server/claudeAbTest";
 import { TypedSuggestion } from "@/types/Suggestion";
 import { buildPineconeAccessFilterClauses, resolveEffectiveAccessLevelForEmail } from "@/utils/server/accessLevelUtils";
-import { applyWikiLibraryGate } from "@/utils/server/wikiLibraryAccess";
+import { applyLibraryAccessGate } from "@/utils/server/libraryAccess";
 import {
   acquireChatRequestLock,
   isValidClientRequestId,
@@ -800,9 +800,12 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
   }
 
   const { sanitizedInput, originalQuestion } = validationResult;
-  const wikiGate = applyWikiLibraryGate(siteConfig, token.email, sanitizedInput.selectedLibraries);
-  siteConfig = wikiGate.siteConfig;
-  sanitizedInput.selectedLibraries = wikiGate.selectedLibraries;
+  // Access comes from the Bearer JWT email (issued from the auth cookie by
+  // /api/web-token). Do not read x-library-access here: middleware may not
+  // forward that request header to this App Router streaming route.
+  const libraryGate = applyLibraryAccessGate(siteConfig, token.email, sanitizedInput.selectedLibraries);
+  siteConfig = libraryGate.siteConfig;
+  sanitizedInput.selectedLibraries = libraryGate.selectedLibraries;
   let effectiveModelName = modelName;
   let abTestModel: string | undefined;
 

@@ -12,6 +12,7 @@ import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreGet } from "@/utils/server/firestoreRetryUtils";
 import { isEmailBlacklisted } from "@/utils/server/blacklist";
 import { writeAuditLog } from "@/utils/server/auditLog";
+import { clearLibraryAccessCookies } from "@/utils/server/libraryAccess";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   await runMiddleware(req, res, cors);
@@ -137,6 +138,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         sameSite: "lax",
         path: "/",
       });
+      clearLibraryAccessCookies(cookies);
 
       // Delete the rate limit counter after successful login
       await deleteRateLimitCounter(req, "login");

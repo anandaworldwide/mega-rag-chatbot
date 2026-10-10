@@ -1174,12 +1174,19 @@ def test_client_error_does_not_include_a_retry_loop_for_404():
 
 def test_luca_config_keeps_the_wiki_off_vivek():
     config = json.loads((ROOT / "web/site-config/config.json").read_text())
-    ananda = config["ananda"]["includedLibraries"]
+    ananda_entries = config["ananda"]["includedLibraries"]
+    ananda = [entry["name"] if isinstance(entry, dict) else entry for entry in ananda_entries]
     public = [
         entry["name"] if isinstance(entry, dict) else entry
         for entry in config["ananda-public"]["includedLibraries"]
     ]
+    wiki_entry = next(
+        entry
+        for entry in ananda_entries
+        if isinstance(entry, dict) and entry.get("name") == "Ananda Family Wiki"
+    )
     assert "Ananda Family Wiki" in ananda
+    assert wiki_entry.get("accessEmailsEnv") == "WIKI_LIBRARY_EMAILS"
     assert "Ananda Family Wiki" not in public
     assert config["ananda"]["libraryMappings"]["Ananda Family Wiki"]["displayName"]
     assert "ananda.org" in public

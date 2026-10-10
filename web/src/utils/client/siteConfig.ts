@@ -3,6 +3,7 @@
 // These functions are designed for components that receive siteConfig as a prop
 
 import { SiteConfig, HeaderConfig, FooterConfig } from "@/types/siteConfig";
+import { libraryEntryName } from "@/utils/libraryEntries";
 
 // Helper function to get collections configuration
 // Returns an empty object if not defined in siteConfig
@@ -72,10 +73,7 @@ export const getEnableSalesforceAccessNotice = (siteConfig: SiteConfig | null) =
 // Normalize includedLibraries to a simple string array
 export const getIncludedLibraryNames = (siteConfig: SiteConfig | null): string[] => {
   if (!siteConfig?.includedLibraries) return [];
-  return siteConfig.includedLibraries.map((entry) => {
-    if (typeof entry === "string") return entry;
-    return entry.name;
-  });
+  return siteConfig.includedLibraries.map(libraryEntryName);
 };
 
 // Get welcome popup heading (defaults to 'Welcome!')

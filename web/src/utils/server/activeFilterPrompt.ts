@@ -1,4 +1,5 @@
 import type { SiteConfig as AppSiteConfig } from "@/types/siteConfig";
+import { libraryEntryName } from "@/utils/libraryEntries";
 import type { AuthorScopeDescriptor, AuthorScopeHint, AuthorScopeMode } from "@/utils/server/authorConstants";
 import type { AuthorScopeBlendRetrievalDebug } from "@/utils/server/authorScopeRetrieval";
 
@@ -23,8 +24,7 @@ export function formatInferredAuthorFocusLine(author: string): string {
 }
 
 function getSiteLibraryNames(siteConfig?: AppSiteConfig | null): string[] {
-  const libraries = siteConfig?.includedLibraries || [];
-  return libraries.map((lib) => (typeof lib === "string" ? lib : lib.name));
+  return (siteConfig?.includedLibraries || []).map(libraryEntryName);
 }
 
 function getEnabledSiteMediaTypes(siteConfig?: AppSiteConfig | null): Array<"text" | "audio" | "youtube"> {

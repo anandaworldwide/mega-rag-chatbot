@@ -5,6 +5,8 @@ import { createErrorCorsHeaders, handleCors, addCorsHeaders } from "./src/utils/
 import { getAllPublicPaths } from "./src/config/publicPaths";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
+import { libraryAccessCookieHeader } from "./src/utils/server/libraryAccess";
+import { applyComputedLibraryAccessOverrides } from "./src/utils/server/libraryAccessMiddlewareGate";
 
 // Log suspicious activity with details
 const logSuspiciousActivity = (req: NextRequest, reason: string) => {
@@ -92,9 +94,41 @@ const performSecurityChecks = (req: NextRequest, url: URL) => {
   }
 };
 
+function withLibraryAccessCookie(response: NextResponse, allowedNames: string[]): NextResponse {
+  response.headers.append("Set-Cookie", libraryAccessCookieHeader(allowedNames));
+  return response;
+}
+
+function nextWithLibraryAccessGate(
+  req: NextRequest,
+  siteConfig: Parameters<typeof applyComputedLibraryAccessOverrides>[1]
+): { response: NextResponse; allowedNames: string[] } {
+  const requestHeaders = new Headers(req.headers);
+  const allowedNames = applyComputedLibraryAccessOverrides(requestHeaders, siteConfig);
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  return { response: withLibraryAccessCookie(response, allowedNames), allowedNames };
+}
+
+/**
+ * Page routes that _app getInitialProps serves must match.
+ * The matcher skips only static files and /api/auth/*.
+ */
+export function pathMatchesAccessMiddleware(pathname: string): boolean {
+  if (pathname === "/") {
+    return true;
+  }
+  if (!pathname.startsWith("/")) {
+    return false;
+  }
+  const rest = pathname.slice(1);
+  return !/^(?:api\/auth|_next\/static|_next\/image|favicon\.ico|robots\.txt|images\/|fonts\/)/.test(rest);
+}
+
 // Main middleware function for /web
 export function middleware(req: NextRequest) {
-  const response = NextResponse.next();
+  const siteId = process.env.SITE_ID || "default";
+  const siteConfig = loadSiteConfigSync(siteId);
+  const { response, allowedNames } = nextWithLibraryAccessGate(req, siteConfig);
   const url = req.nextUrl.clone(); // Use nextUrl for reliable path info within middleware
 
   // Perform security checks
@@ -103,14 +137,10 @@ export function middleware(req: NextRequest) {
   // Redirect /all to /answers (relative to /web)
   if (url.pathname === "/all") {
     url.pathname = "/answers";
-    return NextResponse.redirect(url, { status: 308 });
+    return withLibraryAccessCookie(NextResponse.redirect(url, { status: 308 }), allowedNames);
   }
 
   // NOTE: HTTP to HTTPS redirect is usually handled by hosting (Vercel)
-
-  // Load site configuration (ensure paths are correct for /web context)
-  const siteId = process.env.SITE_ID || "default";
-  const siteConfig = loadSiteConfigSync(siteId); // Uses adjusted import path
 
   if (!siteConfig) {
     console.error(`[Web Middleware] Configuration not found for site ID: ${siteId}`);
@@ -169,7 +199,7 @@ export function middleware(req: NextRequest) {
             headers: createErrorCorsHeaders(req),
           }
         );
-        return apiResponse;
+        return withLibraryAccessCookie(apiResponse, allowedNames);
       }
 
       // For page routes, redirect to /login (relative to /web)
@@ -177,7 +207,7 @@ export function middleware(req: NextRequest) {
       const loginUrl = new URL("/login", req.url); // req.url should have correct base
       loginUrl.searchParams.set("redirect", fullPath);
 
-      return NextResponse.redirect(loginUrl);
+      return withLibraryAccessCookie(NextResponse.redirect(loginUrl), allowedNames);
     }
   }
 
@@ -185,13 +215,13 @@ export function middleware(req: NextRequest) {
   const corsResult = handleCors(req, siteConfig);
   if (corsResult) {
     // If handleCors returns a response (error case), return it
-    return corsResult;
+    return withLibraryAccessCookie(corsResult, allowedNames);
   }
 
   // Handle OPTIONS request
   if (req.method === "OPTIONS") {
     const optionsResponse = new NextResponse(null, { status: 204 });
-    return addCorsHeaders(optionsResponse, req, siteConfig);
+    return withLibraryAccessCookie(addCorsHeaders(optionsResponse, req, siteConfig), allowedNames);
   }
 
   // Generate nonce for CSP (Next.js compatible)

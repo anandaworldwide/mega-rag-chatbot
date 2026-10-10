@@ -60,20 +60,24 @@ import { TypedSuggestion } from "@/types/Suggestion";
 import { v4 as uuidv4 } from "uuid";
 
 import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
-import { SiteConfig as AppSiteConfig } from "@/types/siteConfig";
+import { SiteConfig as AppSiteConfig, LibraryConfigEntry } from "@/types/siteConfig";
 import { ChatMessage, convertChatHistory } from "@/utils/shared/chatHistory";
 import { NextRequest } from "next/server";
 import { extractGeoToolCalls, extractStreamedTextDelta } from "@/utils/server/geoToolCalls";
 import {
   buildRetrievalReinvokeMessages,
   executeRetrievalTool,
+  finalizeRetrievalUserAnswer,
   getRetrievalToolGuidance,
   isIncompleteRetrievalAnswer,
   isRetrievalToolName,
   MAX_RETRIEVAL_TOOL_ITERATIONS,
+  parseCompleteListFlag,
   RETRIEVAL_TOOL_DEFINITIONS,
   RetrievalToolContext,
+  shouldAllowAnotherRetrievalRound,
   shouldBindRetrievalTools,
+  shouldSkipFurtherRetrievalAfterExpansion,
 } from "@/utils/server/tools/retrievalTools";
 import { sendOpsAlert } from "./emailOps";
 import {
@@ -82,7 +86,8 @@ import {
   logAuthorScopeDebug,
   type ActiveFilterPromptData,
 } from "./activeFilterPrompt";
-import { calculateSources, combineDocumentsFn } from "./ragDocumentUtils";
+import { combineDocumentsFn, planLibraryRetrieval } from "./ragDocumentUtils";
+import { libraryEntryName } from "@/utils/libraryEntries";
 import { extractJsonArray } from "./suggestionParsing";
 import { filterSuggestionsForDiversity } from "./suggestionDiversity";
 import { AuthorScopeHint, AuthorScopeMode } from "./authorConstants";
@@ -166,6 +171,8 @@ interface TimingMetrics {
   toolRounds?: number;
   /** Wall time spent executing retrieval tools (ms). */
   retrievalToolMs?: number;
+  /** True when search_more_sources set complete_list on this request. */
+  completeListRequested?: boolean;
 }
 
 // Loads text content from local filesystem with error handling
@@ -458,35 +465,31 @@ function refreshActiveFilterPromptData(
   target.titleScopeLabel = refreshed.titleScopeLabel;
 }
 
-async function runStandardRetrieval(
+export async function runStandardRetrieval(
   retriever: VectorStoreRetriever,
   question: string,
   sourceCount: number,
   searchFilter: Record<string, unknown> | undefined,
-  includedLibraries: Array<string | { name: string; weight?: number }>,
+  includedLibraries: LibraryConfigEntry[],
   minRetrievalScore?: number
 ): Promise<{ documents: Document[]; relevance: RelevanceStats }> {
-  const allDocuments: Document[] = [];
-  let relevance = emptyRelevanceStats();
+  const plan = planLibraryRetrieval(includedLibraries, sourceCount);
 
-  if (!includedLibraries || includedLibraries.length === 0) {
+  if (plan.mode === "unfiltered") {
     const result = await similaritySearchWithRelevance(
       retriever.vectorStore,
       question,
-      sourceCount,
+      plan.sourceCount,
       searchFilter,
       minRetrievalScore
     );
     return { documents: result.documents, relevance: result };
   }
 
-  const hasWeights = includedLibraries.some((lib) => typeof lib === "object" && lib !== null);
-  if (hasWeights) {
-    const sourcesDistribution = calculateSources(
-      sourceCount,
-      includedLibraries as { name: string; weight?: number }[]
-    );
-    const retrievalPromises = sourcesDistribution
+  if (plan.mode === "weighted") {
+    const allDocuments: Document[] = [];
+    let relevance = emptyRelevanceStats();
+    const retrievalPromises = plan.allocations
       .filter(({ sources }) => sources > 0)
       .map(({ name, sources }) =>
         retrieveDocumentsByLibrary(retriever, name, sources, question, searchFilter, minRetrievalScore)
@@ -499,12 +502,11 @@ async function runStandardRetrieval(
     return { documents: allDocuments, relevance };
   }
 
-  const libraryNames = includedLibraries.map((lib) => (typeof lib === "string" ? lib : lib.name));
-  const finalFilter = buildLibraryFilter(libraryNames, searchFilter);
+  const finalFilter = buildLibraryFilter(plan.libraryNames, searchFilter);
   const result = await similaritySearchWithRelevance(
     retriever.vectorStore,
     question,
-    sourceCount,
+    plan.sourceCount,
     finalFilter,
     minRetrievalScore
   );
@@ -560,14 +562,11 @@ export const makeChain = async (
   }
 
   // Get included libraries from siteConfig if available
-  let includedLibraries: Array<string | { name: string; weight?: number }> = siteConfig?.includedLibraries || [];
+  let includedLibraries: LibraryConfigEntry[] = siteConfig?.includedLibraries || [];
 
   // Filter libraries based on user selection if provided
   if (selectedLibraries && selectedLibraries.length > 0) {
-    includedLibraries = includedLibraries.filter((lib) => {
-      const libName = typeof lib === "string" ? lib : lib.name;
-      return selectedLibraries.includes(libName);
-    });
+    includedLibraries = includedLibraries.filter((lib) => selectedLibraries.includes(libraryEntryName(lib)));
   }
 
   try {
@@ -928,9 +927,7 @@ Error details: ${errorString}`,
 
         if (scopeDescriptor.kind === "blend") {
           const libraryNames =
-            includedLibraries.length > 0
-              ? includedLibraries.map((lib) => (typeof lib === "string" ? lib : lib.name))
-              : undefined;
+            includedLibraries.length > 0 ? includedLibraries.map(libraryEntryName) : undefined;
           if (retrievalFilterCapture) {
             retrievalFilterCapture.filter = buildRetrievalToolFilter(baseFilter, includedLibraries);
           }
@@ -1789,6 +1786,7 @@ export async function setupAndExecuteLanguageModelChain(
         // (after geo/retrieval tool loops), not the initial tool-call response.
         timingMetrics.toolRounds = timingMetrics.toolRounds ?? 0;
         timingMetrics.retrievalToolMs = timingMetrics.retrievalToolMs ?? 0;
+        timingMetrics.completeListRequested = false;
       }
 
       // Handle tool calls with proper loop (OpenAI tool_calls + Anthropic tool_use / JSON fallback)
@@ -1822,8 +1820,12 @@ export async function setupAndExecuteLanguageModelChain(
         let retrievalToolContext: RetrievalToolContext | null = null;
         /** After a non-empty retrieval expansion, ignore further retrieval tool_calls (no second "Gathering..." flash). */
         let retrievalExpansionSucceeded = false;
+        /** True after any search_more_sources call sets complete_list. */
+        let completeListRequested = false;
         /** Prevent double answer-only recovery (buffer discard + end-of-loop safety net). */
         let retrievalAnswerForced = false;
+        let retrievalFetchFailed = false;
+        let retrievalRoundLimitHit = false;
         if (retrievalToolsEnabled) {
           const vectorStore = retriever.vectorStore as PineconeStore;
           const pineconeIndex = vectorStore?.pineconeIndex;
@@ -1844,6 +1846,30 @@ export async function setupAndExecuteLanguageModelChain(
             });
           }
         }
+
+        const emitGuardedRetrievalAnswer = (answerText: string) => {
+          const finalized = finalizeRetrievalUserAnswer({
+            answerText,
+            fetchFailed: retrievalFetchFailed,
+            roundLimitHit: retrievalRoundLimitHit,
+            afterRetrievalAttempt:
+              retrievalIterations > 0 || firstPassIsSearchNarration || retrievalAnswerForced,
+          });
+          if (!finalized.usedFallback) {
+            return finalized.text;
+          }
+          console.warn(
+            `⚠️ Replacing incomplete retrieval answer with user-facing fallback (${finalized.reason})`
+          );
+          sendData({ status: "retrieving_more_sources" });
+          fullResponse = finalized.text;
+          tokensStreamed = finalized.text.length;
+          firstTokenTime = firstTokenTime ?? Date.now();
+          firstByteTime = firstByteTime ?? Date.now();
+          streamingDeadline.touchStreamingActivity();
+          sendData({ token: finalized.text });
+          return finalized.text;
+        };
 
         /** Answer-only recovery so the client never stuck on "Gathering additional sources...". */
         const forceRetrievalAnswerOnly = async (reason: string) => {
@@ -1932,6 +1958,9 @@ export async function setupAndExecuteLanguageModelChain(
             const isRetrievalRound = pendingToolCalls.some((call) => isRetrievalToolName(call.name));
             if (isRetrievalRound) {
               if (!retrievalToolContext || retrievalIterations >= MAX_RETRIEVAL_TOOL_ITERATIONS) {
+                if (retrievalIterations >= MAX_RETRIEVAL_TOOL_ITERATIONS) {
+                  retrievalRoundLimitHit = true;
+                }
                 await forceRetrievalAnswerOnly(
                   !retrievalToolContext ? "missing retrieval tool context" : "max retrieval iterations"
                 );
@@ -1940,7 +1969,23 @@ export async function setupAndExecuteLanguageModelChain(
 
               // Model sometimes emits another tool_call after we already expanded and unbound tools.
               // Do not flash status or re-fetch (usually 0 new / all dupes) — answer only.
-              if (retrievalExpansionSucceeded) {
+              // complete_list may use the second round to fetch a full list source.
+              const roundRequestsCompleteList = pendingToolCalls.some(
+                (call) => call.name === "search_more_sources" && parseCompleteListFlag(call.args)
+              );
+              if (roundRequestsCompleteList) {
+                completeListRequested = true;
+                retrievalToolContext?.applyCompleteListBudget();
+                if (timingMetrics) {
+                  timingMetrics.completeListRequested = true;
+                }
+              }
+              if (
+                shouldSkipFurtherRetrievalAfterExpansion({
+                  expansionSucceeded: retrievalExpansionSucceeded,
+                  completeListRequested,
+                })
+              ) {
                 await forceRetrievalAnswerOnly("sources already expanded; ignoring further tool calls");
                 break;
               }
@@ -1974,6 +2019,9 @@ export async function setupAndExecuteLanguageModelChain(
                     toolCall.args,
                     retrievalToolContext
                   );
+                  if (retrievalResult.ok === false) {
+                    retrievalFetchFailed = true;
+                  }
                   newlyFetchedDocs.push(...retrievalResult.documents);
                   toolResults.push({
                     tool_call_id: toolCall.id,
@@ -1992,6 +2040,9 @@ export async function setupAndExecuteLanguageModelChain(
                 }
               } catch (error) {
                 console.error(`❌ Tool ${toolCall.name} failed:`, error);
+                if (isRetrievalToolName(toolCall.name)) {
+                  retrievalFetchFailed = true;
+                }
                 toolResults.push({
                   tool_call_id: toolCall.id,
                   content: JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
@@ -2033,14 +2084,18 @@ export async function setupAndExecuteLanguageModelChain(
             });
             answerModelUsed = finalAnswerModelName;
 
-            // Only allow another retrieval tool round when the last round returned nothing usable.
-            // If docs arrived, force an answer turn — otherwise models narrate "searching more" in plain text.
+            // Only allow another retrieval tool round when the last round returned nothing usable,
+            // or when complete_list still needs a full-list search.
+            // If docs arrived on a normal query, force an answer turn.
             const allowMoreRetrievalTools =
               isRetrievalRound &&
               retrievalToolsEnabled &&
-              newlyFetchedDocs.length === 0 &&
-              retrievalIterations < MAX_RETRIEVAL_TOOL_ITERATIONS &&
-              (retrievalToolContext?.remainingSourceBudget ?? 0) > 0;
+              shouldAllowAnotherRetrievalRound({
+                completeListRequested,
+                newlyFetchedCount: newlyFetchedDocs.length,
+                retrievalIterations,
+                remainingSourceBudget: retrievalToolContext?.remainingSourceBudget ?? 0,
+              });
 
             if (allowMoreRetrievalTools && typeof nextModel.bindTools === "function") {
               nextModel = nextModel.bindTools(RETRIEVAL_TOOL_DEFINITIONS) as typeof nextModel;
@@ -2199,6 +2254,8 @@ export async function setupAndExecuteLanguageModelChain(
             );
           }
 
+          emitGuardedRetrievalAnswer(fullResponse);
+
           result.answer = currentResponse;
           console.log(`✅ Tool execution loop completed after ${iteration} iterations`);
         });
@@ -2302,8 +2359,16 @@ export async function setupAndExecuteLanguageModelChain(
       // Use the streamed fullResponse as the authoritative answer since it's what was sent to the frontend
       // result.sourceDocuments are the correctly filtered documents from makeChain.
       // result.question is the restated question from the chain
+      // Do not fall back to first-pass tool narration after a retrieval attempt.
+      const fallbackAnswerContent =
+        result.answer && typeof result.answer.content === "string" ? result.answer.content : "";
+      const authoritativeAnswer = fullResponse.trim()
+        ? fullResponse
+        : fallbackAnswerContent && !isIncompleteRetrievalAnswer(fallbackAnswerContent)
+          ? fallbackAnswerContent
+          : fullResponse;
       return {
-        fullResponse: fullResponse || result.answer.content, // Prefer streamed content, fallback to result.answer.content
+        fullResponse: authoritativeAnswer,
         finalDocs: result.sourceDocuments,
         restatedQuestion: result.question,
         suggestionsPromise,

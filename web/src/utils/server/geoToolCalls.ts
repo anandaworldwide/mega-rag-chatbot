@@ -3,11 +3,244 @@
  * including a fallback when Claude leaks tool args as plain JSON text (common with streaming).
  */
 
+import { parseCompleteListFlag } from "@/utils/server/tools/retrievalTools";
+
 export type NormalizedToolCall = {
   id: string;
   name: string;
   args: Record<string, unknown>;
 };
+
+/** Keep complete_list as a boolean on search_more_sources calls, including text-form JSON. */
+function withParsedCompleteList(call: NormalizedToolCall): NormalizedToolCall {
+  if (call.name !== "search_more_sources" || !("complete_list" in call.args)) {
+    return call;
+  }
+  return {
+    ...call,
+    args: {
+      ...call.args,
+      complete_list: parseCompleteListFlag(call.args),
+    },
+  };
+}
+
+function parseJsonObject(text: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function isNonEmptyArgs(args: Record<string, unknown> | null): args is Record<string, unknown> {
+  return !!args && Object.keys(args).length > 0;
+}
+
+/** Extract a `{...}` span with nested objects. Ignore braces inside strings. */
+function extractBalancedObject(text: string, openBraceIndex: number): string | null {
+  if (text[openBraceIndex] !== "{") {
+    return null;
+  }
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = openBraceIndex; i < text.length; i++) {
+    const ch = text[i];
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") {
+      depth += 1;
+      continue;
+    }
+    if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return text.slice(openBraceIndex, i + 1);
+      }
+    }
+  }
+  return null;
+}
+
+function parseToolCallArgs(args: unknown, functionArguments?: unknown): Record<string, unknown> | null {
+  if (args && typeof args === "object" && !Array.isArray(args)) {
+    const record = args as Record<string, unknown>;
+    return isNonEmptyArgs(record) ? record : null;
+  }
+  const raw = typeof args === "string" ? args : typeof functionArguments === "string" ? functionArguments : null;
+  if (raw == null) {
+    return null;
+  }
+  if (!raw.trim()) {
+    return null;
+  }
+  const parsed = parseJsonObject(raw);
+  return isNonEmptyArgs(parsed) ? parsed : null;
+}
+
+function tryParseLeakedRetrievalToolJson(text: string): NormalizedToolCall | null {
+  const stripped = text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/```$/i, "")
+    .trim();
+  const nameMatch = stripped.match(
+    /\{\s*"name"\s*:\s*"(search_more_sources|get_adjacent_chunks)"\s*,\s*"parameters"\s*:\s*\{/
+  );
+  if (!nameMatch || nameMatch.index == null) {
+    return null;
+  }
+  const fullObject = extractBalancedObject(stripped, nameMatch.index);
+  if (!fullObject) {
+    return null;
+  }
+  const parsed = parseJsonObject(fullObject);
+  if (!parsed) {
+    return null;
+  }
+  const parameters = parsed.parameters;
+  if (!parameters || typeof parameters !== "object" || Array.isArray(parameters)) {
+    return null;
+  }
+  const args = parameters as Record<string, unknown>;
+  if (!isNonEmptyArgs(args)) {
+    return null;
+  }
+  return {
+    id: `fallback_${nameMatch[1]}_${Date.now()}`,
+    name: nameMatch[1],
+    args,
+  };
+}
+
+function callsFromToolCallChunks(chunks: unknown): NormalizedToolCall[] {
+  if (!Array.isArray(chunks) || chunks.length === 0) {
+    return [];
+  }
+
+  const byIndex = new Map<number, { id: string; name: string; argsText: string }>();
+  chunks.forEach((chunk, fallbackIndex) => {
+    if (!chunk || typeof chunk !== "object") {
+      return;
+    }
+    const typed = chunk as { id?: unknown; name?: unknown; args?: unknown; index?: unknown };
+    const index = typeof typed.index === "number" ? typed.index : fallbackIndex;
+    const existing = byIndex.get(index) ?? { id: "", name: "", argsText: "" };
+    if (typeof typed.id === "string" && typed.id) {
+      existing.id = typed.id;
+    }
+    if (typeof typed.name === "string" && typed.name) {
+      existing.name = typed.name;
+    }
+    if (typeof typed.args === "string") {
+      existing.argsText += typed.args;
+    }
+    byIndex.set(index, existing);
+  });
+
+  const calls: NormalizedToolCall[] = [];
+  for (const [index, assembled] of byIndex) {
+    if (!assembled.name) {
+      continue;
+    }
+    const parsedArgs = assembled.argsText ? parseJsonObject(assembled.argsText) : null;
+    calls.push({
+      id: assembled.id || `tool_call_chunk_${index}`,
+      name: assembled.name,
+      args: parsedArgs ?? {},
+    });
+  }
+  return calls;
+}
+
+function callsFromOpenAiStyleToolCalls(rawCalls: unknown): NormalizedToolCall[] {
+  if (!Array.isArray(rawCalls) || rawCalls.length === 0) {
+    return [];
+  }
+  return rawCalls
+    .map((call, index) => {
+      if (!call || typeof call !== "object") {
+        return null;
+      }
+      const typed = call as {
+        id?: unknown;
+        name?: unknown;
+        args?: unknown;
+        function?: { name?: unknown; arguments?: unknown };
+      };
+      const nameFromFunction = typeof typed.function?.name === "string" ? typed.function.name : "";
+      const name = typeof typed.name === "string" && typed.name ? typed.name : nameFromFunction;
+      if (!name) {
+        return null;
+      }
+      let args: Record<string, unknown> = {};
+      if (typed.args && typeof typed.args === "object" && !Array.isArray(typed.args)) {
+        args = typed.args as Record<string, unknown>;
+      } else if (typeof typed.function?.arguments === "string") {
+        args = parseJsonObject(typed.function.arguments) ?? {};
+      }
+      return {
+        id: typeof typed.id === "string" && typed.id ? typed.id : `tool_call_${index}`,
+        name,
+        args,
+      };
+    })
+    .filter((call): call is NormalizedToolCall => call !== null);
+}
+
+function callsFromInvalidToolCalls(rawCalls: unknown): NormalizedToolCall[] {
+  if (!Array.isArray(rawCalls) || rawCalls.length === 0) {
+    return [];
+  }
+  return rawCalls
+    .map((call, index) => {
+      if (!call || typeof call !== "object") {
+        return null;
+      }
+      const typed = call as {
+        id?: unknown;
+        name?: unknown;
+        args?: unknown;
+        function?: { name?: unknown; arguments?: unknown };
+      };
+      const nameFromFunction = typeof typed.function?.name === "string" ? typed.function.name : "";
+      const name = typeof typed.name === "string" && typed.name ? typed.name : nameFromFunction;
+      if (!name) {
+        return null;
+      }
+      const args = parseToolCallArgs(typed.args, typed.function?.arguments);
+      if (!args) {
+        return null;
+      }
+      return {
+        id: typeof typed.id === "string" && typed.id ? typed.id : `invalid_tool_call_${index}`,
+        name,
+        args,
+      };
+    })
+    .filter((call): call is NormalizedToolCall => call !== null);
+}
 
 function tryParseLeakedGeoToolJson(text: string): NormalizedToolCall | null {
   const trimmed = text.trim();
@@ -67,18 +300,31 @@ export function extractGeoToolCalls(answer: unknown): NormalizedToolCall[] {
   }
 
   const message = answer as {
-    tool_calls?: Array<{ id?: string; name?: string; args?: Record<string, unknown> }>;
+    tool_calls?: unknown;
+    tool_call_chunks?: unknown;
+    invalid_tool_calls?: unknown;
+    additional_kwargs?: { tool_calls?: unknown; function_call?: unknown };
     content?: unknown;
   };
 
-  if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) {
-    return message.tool_calls
-      .filter((call) => typeof call?.name === "string" && call.name.length > 0)
-      .map((call, index) => ({
-        id: typeof call.id === "string" && call.id ? call.id : `tool_call_${index}`,
-        name: call.name as string,
-        args: call.args && typeof call.args === "object" ? call.args : {},
-      }));
+  const fromNative = callsFromOpenAiStyleToolCalls(message.tool_calls);
+  if (fromNative.length > 0) {
+    return fromNative.map(withParsedCompleteList);
+  }
+
+  const fromKwargs = callsFromOpenAiStyleToolCalls(message.additional_kwargs?.tool_calls);
+  if (fromKwargs.length > 0) {
+    return fromKwargs.map(withParsedCompleteList);
+  }
+
+  const fromChunks = callsFromToolCallChunks(message.tool_call_chunks);
+  if (fromChunks.length > 0) {
+    return fromChunks.map(withParsedCompleteList);
+  }
+
+  const fromInvalid = callsFromInvalidToolCalls(message.invalid_tool_calls);
+  if (fromInvalid.length > 0) {
+    return fromInvalid.map(withParsedCompleteList);
   }
 
   if (Array.isArray(message.content)) {
@@ -97,12 +343,17 @@ export function extractGeoToolCalls(answer: unknown): NormalizedToolCall[] {
       .filter((call) => call.name.length > 0);
 
     if (fromBlocks.length > 0) {
-      return fromBlocks;
+      return fromBlocks.map(withParsedCompleteList);
     }
   }
 
-  const leaked = tryParseLeakedGeoToolJson(textFromContent(message.content));
-  return leaked ? [leaked] : [];
+  const contentText = textFromContent(message.content);
+  const leakedRetrieval = tryParseLeakedRetrievalToolJson(contentText);
+  if (leakedRetrieval) {
+    return [withParsedCompleteList(leakedRetrieval)];
+  }
+  const leakedGeo = tryParseLeakedGeoToolJson(contentText);
+  return leakedGeo ? [leakedGeo] : [];
 }
 
 /**

@@ -27,6 +27,10 @@ settings.
 - `help_text`: Text to display for the help link
 - `collectionConfig`: Configuration for different document collections
 - `libraryMappings`: Mappings for different library sources
+- `includedLibraries`: Libraries on the site. Each entry is a name string, or an object with `name`, optional
+  `weight`, and optional `accessEmailsEnv`. `accessEmailsEnv` names an env var that holds a comma-separated email
+  allow list. Emails stay out of git. A library without this field is open to every user. A missing or empty env
+  list hides that library.
 - `enableSuggestedQueries`: Boolean to enable/disable suggested queries
 - `enableMediaTypeSelection`: Boolean to enable/disable media type selection
 - `enableAuthorSelection`: Boolean to enable/disable author selection
