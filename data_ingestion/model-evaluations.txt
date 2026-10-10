@@ -2,10 +2,16 @@
 
 ## Historical model vs. Text embedding three large at 3072 dimensions
 
+# This file is a historical evaluation record. The index names below
+# are from that evaluation. They are not the current production index.
+# Read the live name from PINECONE_INDEX_NAME (set per site in Vercel).
+
+# Historical Ada-002 index used in this evaluation (not the current production index)
 PINECONE_INDEX_NAME=ananda-2025-06-17--ada-002
 OPENAI_EMBEDDINGS_MODEL=text-embedding-ada-002
 OPENAI_EMBEDDINGS_DIMENSION=1536
 
+# Historical ingest index used in this evaluation (not the current production index)
 PINECONE_INGEST_INDEX_NAME=ananda-2025-06-19--3-large
 OPENAI_INGEST_EMBEDDINGS_MODEL=text-embedding-3-large
 OPENAI_INGEST_EMBEDDINGS_DIMENSION=3072
