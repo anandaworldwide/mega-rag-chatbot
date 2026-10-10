@@ -7,6 +7,7 @@ import {
   documentsFromScoredResults,
   filterScoredDocuments,
   formatRelevanceCutoffLog,
+  getEffectiveMinRetrievalScore,
   getMinRetrievalScore,
   mergeRelevanceStats,
   resolveNoSourcesReason,
@@ -32,6 +33,13 @@ describe("retrievalRelevance", () => {
   it("treats zero (and values clamped to zero) as disabled", () => {
     expect(getMinRetrievalScore({ minRetrievalScore: 0 } as never)).toBeUndefined();
     expect(getMinRetrievalScore({ minRetrievalScore: -0.2 } as never)).toBeUndefined();
+  });
+
+  it("disables the corpus cutoff when a title scope is already selecting the document", () => {
+    const siteConfig = { minRetrievalScore: 0.5 } as never;
+    expect(getEffectiveMinRetrievalScore(siteConfig)).toBe(0.5);
+    expect(getEffectiveMinRetrievalScore(siteConfig, false)).toBe(0.5);
+    expect(getEffectiveMinRetrievalScore(siteConfig, true)).toBeUndefined();
   });
 
   it("filters scored documents below the floor", () => {

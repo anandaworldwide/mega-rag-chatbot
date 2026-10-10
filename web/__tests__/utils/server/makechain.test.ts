@@ -3049,6 +3049,45 @@ describe("makeChain", () => {
       expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("below minRetrievalScore"));
     });
 
+    it("keeps below-floor hits when a title scope already selects the document", async () => {
+      const scopedDoc = new Document({
+        pageContent: "Blessed are the meek: for they shall inherit the earth.",
+        metadata: { library: "library1", title: "The Bible:: New Testament:: Book of Matthew:: Chapter 5" },
+      });
+      mockRetriever.vectorStore = createScoredVectorStoreMock([scopedDoc], { scores: [0.47] }) as any;
+
+      const sendData = jest.fn();
+      const siteConfig = { ...mockSiteConfig, minRetrievalScore: 0.5, includedLibraries: [] };
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        sendData,
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        siteConfig,
+        undefined,
+        undefined,
+        undefined,
+        "The Bible:: New Testament:: Book of Matthew:: Chapter 5"
+      );
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      const result = await retrievalSequence.invoke({
+        question: "In this source, what is said about the meek?",
+        chat_history: "",
+      });
+
+      expect(result.documents).toHaveLength(1);
+      expect(result.documents[0]?.metadata?.retrievalScore).toBe(0.47);
+      expect(console.warn).not.toHaveBeenCalledWith(expect.stringContaining("below minRetrievalScore"));
+    });
+
     it("returns scored documents when hits pass minRetrievalScore", async () => {
       mockRetriever.vectorStore = createScoredVectorStoreMock(mockDocuments, { scores: [0.82, 0.71] }) as any;
       const sendData = jest.fn();

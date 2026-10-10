@@ -644,7 +644,9 @@ if (siteConfig?.requireLogin) {
     (`type||library||loc||title||author||`) then `fetch`es neighbors by exact ID; only accepts `sourceId`s already
     in context and re-checks access metadata.
   - `search_more_sources` reuses the request Pinecone filter / `minRetrievalScore` path and dedupes against known
-    source IDs.
+    source IDs. A resolved title scope disables `minRetrievalScore` because the title filter already selects the
+    document; deictic questions ("In this source...") can score below the corpus floor even when the top chunk is
+    the right chapter.
   - Geo tools and retrieval tools may both be bound; Anthropic A/B holdout arms skip retrieval tools (same
     streaming/tool constraints as geo).
 - **Data Ingestion (`data_ingestion/`):**

@@ -49,6 +49,21 @@ export function getMinRetrievalScore(siteConfig?: SiteConfig | null): number | u
   return clamped;
 }
 
+/**
+ * Corpus-wide cutoff rejects unrelated libraries. A resolved title scope already
+ * selects the document, so deictic questions ("In this source...") can score below
+ * the floor even when the top chunk is the right chapter.
+ */
+export function getEffectiveMinRetrievalScore(
+  siteConfig?: SiteConfig | null,
+  titleScopeActive = false
+): number | undefined {
+  if (titleScopeActive) {
+    return undefined;
+  }
+  return getMinRetrievalScore(siteConfig);
+}
+
 export function attachRetrievalScore(doc: Document, score: number): Document {
   return {
     ...doc,

@@ -99,7 +99,7 @@ import {
 import { getCondenseTemplateWithAuthorScope, invokeRephraseWithAuthorScope } from "./rephraseWithAuthorScope";
 import {
   formatRelevanceCutoffLog,
-  getMinRetrievalScore,
+  getEffectiveMinRetrievalScore,
   mergeRelevanceStats,
   resolveNoSourcesReason,
   similaritySearchWithRelevance,
@@ -864,7 +864,7 @@ Error details: ${errorString}`,
       }
 
       const allDocuments: Document[] = [];
-      const minRetrievalScore = getMinRetrievalScore(siteConfig);
+      const minRetrievalScore = getEffectiveMinRetrievalScore(siteConfig, Boolean(selectedTitleScopeLabel));
       let retrievalRelevance = emptyRelevanceStats();
       try {
         // Only treat "auto" as a blend trigger when the site has opted in. Otherwise a stray
@@ -1840,7 +1840,7 @@ export async function setupAndExecuteLanguageModelChain(
               knownSourceIds: knownIds,
               effectiveAccessLevel,
               siteConfig,
-              minRetrievalScore: getMinRetrievalScore(siteConfig),
+              minRetrievalScore: getEffectiveMinRetrievalScore(siteConfig, Boolean(selectedTitleScopeLabel)),
             });
           }
         }
