@@ -187,11 +187,22 @@ Recommendation: Deploy System B to production
 
 ## Environment Setup
 
+Set `PINECONE_INDEX_NAME` in each site environment file. Production sites set this variable in Vercel.
+Do not copy a dated index name from this document. Dated names become stale.
+
+The June 2025 Ada-002 vs 3-Large evaluation used these historical indexes:
+
+- System 1 (Ada-002): `corpus-2025-02-15`
+- System 2 (3-Large): `ananda-2025-06-19--3-large`
+
+Those names are historical. They are not the current production index.
+
 ### System 1 Configuration (`.env.ananda-ada002`)
 
 ```bash
 # Ada-002 system configuration
-PINECONE_INDEX_NAME=corpus-2025-02-15
+# Set PINECONE_INDEX_NAME to the index for this system (Vercel or local .env)
+PINECONE_INDEX_NAME=<your-index-name>
 OPENAI_EMBEDDINGS_MODEL=text-embedding-ada-002
 OPENAI_EMBEDDINGS_DIMENSIONS=1536
 SITE=ananda
@@ -199,9 +210,12 @@ SITE=ananda
 
 ### System 2 Configuration (`.env.ananda-current`)
 
+The filename `.env.ananda-current` is only a local label for the second system.
+Read the live index name from `PINECONE_INDEX_NAME` (set per site in Vercel).
+
 ```bash
 # 3-Large system configuration
-PINECONE_INDEX_NAME=ananda-2025-06-19--3-large
+PINECONE_INDEX_NAME=<your-index-name>
 OPENAI_EMBEDDINGS_MODEL=text-embedding-3-large
 OPENAI_EMBEDDINGS_DIMENSIONS=3072
 SITE=ananda

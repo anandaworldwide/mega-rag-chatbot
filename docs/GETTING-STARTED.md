@@ -85,8 +85,9 @@ Fill in the required values in your `.env.[site]` file:
 OPENAI_API_KEY=your_openai_api_key_here
 
 # Pinecone Configuration
+# Production sites set PINECONE_INDEX_NAME per site in Vercel.
 PINECONE_API_KEY=your_pinecone_api_key_here
-PINECONE_INDEX_NAME=your_pinecone_index_name
+PINECONE_INDEX_NAME=<your-index-name>
 
 # Firebase Configuration
 GOOGLE_APPLICATION_CREDENTIALS=path/to/your/firebase-credentials.json
