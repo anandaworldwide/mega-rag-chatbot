@@ -1,4 +1,10 @@
 import type { Document } from "@langchain/core/documents";
+import type { LibraryConfigEntry } from "@/types/siteConfig";
+import {
+  hasWeightedLibraries,
+  libraryEntryName,
+  normalizeLibraryEntries,
+} from "@/utils/libraryEntries";
 
 export interface WeightedLibrary {
   name: string;
@@ -18,19 +24,49 @@ export interface LibrarySourceAllocation {
  * with how `totalWeight` is computed (avoids the prior floor/round mismatch that could
  * drop or duplicate sources).
  */
+export type LibraryRetrievalPlan =
+  | { mode: "unfiltered"; sourceCount: number }
+  | { mode: "unweighted"; libraryNames: string[]; sourceCount: number }
+  | { mode: "weighted"; allocations: LibrarySourceAllocation[] };
+
+/**
+ * Choose one unweighted Pinecone query, or per-library weighted quotas.
+ * An object entry without `weight` is not a weighted library.
+ */
+export function planLibraryRetrieval(
+  includedLibraries: LibraryConfigEntry[] | null | undefined,
+  sourceCount: number
+): LibraryRetrievalPlan {
+  if (!includedLibraries || includedLibraries.length === 0) {
+    return { mode: "unfiltered", sourceCount };
+  }
+  if (hasWeightedLibraries(includedLibraries)) {
+    return {
+      mode: "weighted",
+      allocations: calculateSources(sourceCount, normalizeLibraryEntries(includedLibraries)),
+    };
+  }
+  return {
+    mode: "unweighted",
+    libraryNames: includedLibraries.map(libraryEntryName),
+    sourceCount,
+  };
+}
+
 export function calculateSources(
   totalSources: number,
-  libraries: WeightedLibrary[]
+  libraries: Array<string | WeightedLibrary>
 ): LibrarySourceAllocation[] {
   if (!libraries || libraries.length === 0) {
     return [];
   }
 
-  const weights = libraries.map((lib) => (lib.weight !== undefined ? lib.weight : 1));
+  const normalized = normalizeLibraryEntries(libraries);
+  const weights = normalized.map((lib) => (lib.weight !== undefined ? lib.weight : 1));
   const totalWeight = weights.reduce((sum, w) => sum + w, 0);
 
   if (totalWeight <= 0 || totalSources <= 0) {
-    return libraries.map((lib) => ({ name: lib.name, sources: 0 }));
+    return normalized.map((lib) => ({ name: lib.name, sources: 0 }));
   }
 
   const ideal = weights.map((w) => (totalSources * w) / totalWeight);
@@ -46,7 +82,7 @@ export function calculateSources(
     remaining -= 1;
   }
 
-  return libraries.map((lib, index) => ({ name: lib.name, sources: allocated[index] }));
+  return normalized.map((lib, index) => ({ name: lib.name, sources: allocated[index] }));
 }
 
 /** Serializes retrieved documents for LLM context (content, metadata, library). */

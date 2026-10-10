@@ -96,7 +96,7 @@ describe("Logout API", () => {
       })
     );
 
-    expect(setCookieMock.mock.calls[3][0]).toBe("wikiLibrary");
+    expect(setCookieMock.mock.calls[3][0]).toBe("libraryAccess");
     expect(setCookieMock.mock.calls[3][1]).toBe("");
     expect(setCookieMock.mock.calls[3][2]).toEqual(
       expect.objectContaining({
@@ -124,6 +124,6 @@ describe("Logout API", () => {
     expect(setCookieMock.mock.calls[0][0]).toBe("authToken");
     expect(setCookieMock.mock.calls[1][0]).toBe("uuid");
     expect(setCookieMock.mock.calls[2][0]).toBe("hasSession");
-    expect(setCookieMock.mock.calls[3][0]).toBe("wikiLibrary");
+    expect(setCookieMock.mock.calls[3][0]).toBe("libraryAccess");
   });
 });

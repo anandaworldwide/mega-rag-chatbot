@@ -105,7 +105,12 @@ def load_site_config(site: str) -> list[str]:
             config = json.load(f)
 
         site_config = config.get("sites", {}).get(site, {})
-        return site_config.get("includedLibraries", [])
+        raw = site_config.get("includedLibraries", [])
+        return [
+            lib if isinstance(lib, str) else lib.get("name", "")
+            for lib in raw
+            if isinstance(lib, str) or (isinstance(lib, dict) and lib.get("name"))
+        ]
     except Exception as e:
         print(f"Warning: Could not load site config: {e}")
         return []

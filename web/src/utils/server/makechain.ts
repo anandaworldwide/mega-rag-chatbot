@@ -60,7 +60,7 @@ import { TypedSuggestion } from "@/types/Suggestion";
 import { v4 as uuidv4 } from "uuid";
 
 import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
-import { SiteConfig as AppSiteConfig } from "@/types/siteConfig";
+import { SiteConfig as AppSiteConfig, LibraryConfigEntry } from "@/types/siteConfig";
 import { ChatMessage, convertChatHistory } from "@/utils/shared/chatHistory";
 import { NextRequest } from "next/server";
 import { extractGeoToolCalls, extractStreamedTextDelta } from "@/utils/server/geoToolCalls";
@@ -86,7 +86,8 @@ import {
   logAuthorScopeDebug,
   type ActiveFilterPromptData,
 } from "./activeFilterPrompt";
-import { calculateSources, combineDocumentsFn } from "./ragDocumentUtils";
+import { combineDocumentsFn, planLibraryRetrieval } from "./ragDocumentUtils";
+import { libraryEntryName } from "@/utils/libraryEntries";
 import { extractJsonArray } from "./suggestionParsing";
 import { filterSuggestionsForDiversity } from "./suggestionDiversity";
 import { AuthorScopeHint, AuthorScopeMode } from "./authorConstants";
@@ -464,35 +465,31 @@ function refreshActiveFilterPromptData(
   target.titleScopeLabel = refreshed.titleScopeLabel;
 }
 
-async function runStandardRetrieval(
+export async function runStandardRetrieval(
   retriever: VectorStoreRetriever,
   question: string,
   sourceCount: number,
   searchFilter: Record<string, unknown> | undefined,
-  includedLibraries: Array<string | { name: string; weight?: number }>,
+  includedLibraries: LibraryConfigEntry[],
   minRetrievalScore?: number
 ): Promise<{ documents: Document[]; relevance: RelevanceStats }> {
-  const allDocuments: Document[] = [];
-  let relevance = emptyRelevanceStats();
+  const plan = planLibraryRetrieval(includedLibraries, sourceCount);
 
-  if (!includedLibraries || includedLibraries.length === 0) {
+  if (plan.mode === "unfiltered") {
     const result = await similaritySearchWithRelevance(
       retriever.vectorStore,
       question,
-      sourceCount,
+      plan.sourceCount,
       searchFilter,
       minRetrievalScore
     );
     return { documents: result.documents, relevance: result };
   }
 
-  const hasWeights = includedLibraries.some((lib) => typeof lib === "object" && lib !== null);
-  if (hasWeights) {
-    const sourcesDistribution = calculateSources(
-      sourceCount,
-      includedLibraries as { name: string; weight?: number }[]
-    );
-    const retrievalPromises = sourcesDistribution
+  if (plan.mode === "weighted") {
+    const allDocuments: Document[] = [];
+    let relevance = emptyRelevanceStats();
+    const retrievalPromises = plan.allocations
       .filter(({ sources }) => sources > 0)
       .map(({ name, sources }) =>
         retrieveDocumentsByLibrary(retriever, name, sources, question, searchFilter, minRetrievalScore)
@@ -505,12 +502,11 @@ async function runStandardRetrieval(
     return { documents: allDocuments, relevance };
   }
 
-  const libraryNames = includedLibraries.map((lib) => (typeof lib === "string" ? lib : lib.name));
-  const finalFilter = buildLibraryFilter(libraryNames, searchFilter);
+  const finalFilter = buildLibraryFilter(plan.libraryNames, searchFilter);
   const result = await similaritySearchWithRelevance(
     retriever.vectorStore,
     question,
-    sourceCount,
+    plan.sourceCount,
     finalFilter,
     minRetrievalScore
   );
@@ -566,14 +562,11 @@ export const makeChain = async (
   }
 
   // Get included libraries from siteConfig if available
-  let includedLibraries: Array<string | { name: string; weight?: number }> = siteConfig?.includedLibraries || [];
+  let includedLibraries: LibraryConfigEntry[] = siteConfig?.includedLibraries || [];
 
   // Filter libraries based on user selection if provided
   if (selectedLibraries && selectedLibraries.length > 0) {
-    includedLibraries = includedLibraries.filter((lib) => {
-      const libName = typeof lib === "string" ? lib : lib.name;
-      return selectedLibraries.includes(libName);
-    });
+    includedLibraries = includedLibraries.filter((lib) => selectedLibraries.includes(libraryEntryName(lib)));
   }
 
   try {
@@ -934,9 +927,7 @@ Error details: ${errorString}`,
 
         if (scopeDescriptor.kind === "blend") {
           const libraryNames =
-            includedLibraries.length > 0
-              ? includedLibraries.map((lib) => (typeof lib === "string" ? lib : lib.name))
-              : undefined;
+            includedLibraries.length > 0 ? includedLibraries.map(libraryEntryName) : undefined;
           if (retrievalFilterCapture) {
             retrievalFilterCapture.filter = buildRetrievalToolFilter(baseFilter, includedLibraries);
           }

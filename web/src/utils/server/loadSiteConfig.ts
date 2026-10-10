@@ -1,16 +1,11 @@
 // This file contains utility functions for loading and parsing site configurations
 
 import { SiteConfig } from "@/types/siteConfig";
+import { hasWeightedLibraries } from "@/utils/libraryEntries";
 import bundledSiteConfigs from "../../../site-config/config.json";
 
-function siteHasWeightedLibraries(siteConfig: SiteConfig): boolean {
-  return (
-    siteConfig.includedLibraries?.some((entry) => typeof entry === "object" && entry.weight != null) ?? false
-  );
-}
-
 export function warnAutoAuthorScopeConfigConflict(siteConfig: SiteConfig): void {
-  if (siteConfig.enableAutoAuthorScope === true && siteHasWeightedLibraries(siteConfig)) {
+  if (siteConfig.enableAutoAuthorScope === true && hasWeightedLibraries(siteConfig.includedLibraries)) {
     console.warn(
       `[site-config] Site "${siteConfig.siteId}" has enableAutoAuthorScope=true AND weighted includedLibraries ` +
         "(one or more libraries define a numeric `weight`). These two retrieval strategies are mutually exclusive: " +

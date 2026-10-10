@@ -49,6 +49,16 @@ describe("calculateSources", () => {
       { name: "b", sources: 0 },
     ]);
   });
+
+  it("normalizes mixed string and object entries before allocation", () => {
+    const result = calculateSources(4, [
+      "Ananda Library",
+      { name: "Ananda Family Wiki", accessEmailsEnv: "WIKI_LIBRARY_EMAILS" },
+    ]);
+    expect(result.map((entry) => entry.name)).toEqual(["Ananda Library", "Ananda Family Wiki"]);
+    expect(result.every((entry) => typeof entry.name === "string")).toBe(true);
+    expect(result.reduce((sum, entry) => sum + entry.sources, 0)).toBe(4);
+  });
 });
 
 describe("combineDocumentsFn", () => {
