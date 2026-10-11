@@ -8,6 +8,12 @@ behavior and it does not add a runtime flag.
 Usage:
     uv run --package mega-rag-chatbot-reranking python \
         evaluation/evaluate_reranking_options.py --site ananda
+
+    uv run python evaluation/evaluate_reranking_options.py --site ananda \
+        --export-candidates
+
+    uv run python evaluation/evaluate_reranking_options.py --site ananda \
+        --jev-scores path/to/jev_scores.json
 """
 
 from __future__ import annotations
@@ -29,6 +35,12 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from evaluation.reranking_options.jev import (  # noqa: E402
+    CANDIDATE_TEXT_LIMIT,
+    candidate_to_export,
+    docs_from_export,
+    jev_kept_and_top_k,
+)
 from evaluation.reranking_options.metrics import (  # noqa: E402
     RetrievedDoc,
     check_expectations,
@@ -78,6 +90,22 @@ def parse_args() -> argparse.Namespace:
         "--skip-onnx",
         action="store_true",
         help="Run the current cutoff path only",
+    )
+    parser.add_argument(
+        "--export-candidates",
+        action="store_true",
+        help="Write candidates_for_jev.json and exit",
+    )
+    parser.add_argument(
+        "--jev-scores",
+        help="Path to jev_scores.json; compute jev metrics and exit",
+    )
+    parser.add_argument(
+        "--candidates",
+        default=str(
+            ROOT / "evaluation" / "reranking_options" / "candidates_for_jev.json"
+        ),
+        help="Candidate export path for Jev scoring",
     )
     return parser.parse_args()
 
@@ -262,6 +290,8 @@ def query_filter(
 def resolve_title(
     retriever: PineconeRetriever, spec: dict, library_filter: dict
 ) -> str | None:
+    if spec.get("resolved_title"):
+        return str(spec["resolved_title"])
     if not spec.get("skip_min_retrieval_score") and not spec.get("title_candidates"):
         return None
     for title in spec.get("title_candidates") or []:
@@ -797,8 +827,128 @@ def _suite_summaries(per_query: list[dict]) -> dict[str, dict]:
     return {name: _option_summary([item[name] for item in suite]) for name in names}
 
 
+def specs_from_results(results_path: Path, suite: list[dict]) -> list[dict]:
+    results = json.loads(results_path.read_text())
+    suite_by_id = {item["id"]: item for item in suite}
+    specs: list[dict] = []
+    for item in results.get("queries") or []:
+        if int(item.get("candidate_count") or 0) <= 0:
+            continue
+        spec = dict(
+            suite_by_id.get(
+                item["id"],
+                {
+                    "id": item["id"],
+                    "query": item["query"],
+                    "group": item.get("group") or "labeled",
+                    "source_count": DEFAULT_METRIC_K,
+                    "expect": {},
+                },
+            )
+        )
+        spec["id"] = item["id"]
+        spec["query"] = item["query"]
+        if item.get("resolved_title"):
+            spec["resolved_title"] = item["resolved_title"]
+        specs.append(spec)
+    return specs
+
+
+def export_candidates(args: argparse.Namespace) -> Path:
+    load_site_environment(args.site)
+    os.environ.setdefault("PINECONE_INDEX_NAME", "ananda-2026-09-26--3-large")
+    os.environ.setdefault("OPENAI_EMBEDDINGS_MODEL", "text-embedding-3-large")
+    index_name = require_env("PINECONE_INDEX_NAME")
+    embedding_model = require_env("OPENAI_EMBEDDINGS_MODEL")
+    site_config = load_site_config(args.site)
+    libraries = included_library_names(site_config)
+    library_filter = {"library": {"$in": libraries}} if libraries else {}
+    results_path = Path(args.output_dir) / "results.json"
+    specs = specs_from_results(results_path, load_suite(SUITE_PATH))
+    retriever = PineconeRetriever(index_name, embedding_model)
+    rows: list[dict] = []
+    for spec in specs:
+        title = resolve_title(retriever, spec, library_filter)
+        docs = retriever.retrieve(
+            spec["query"], args.candidate_k, query_filter(spec, library_filter, title)
+        )
+        if not docs:
+            continue
+        rows.append(
+            {
+                "query_id": spec["id"],
+                "query": spec["query"],
+                "candidates": [candidate_to_export(doc) for doc in docs],
+            }
+        )
+        print(f"Exported {len(docs):2d} docs for {spec['id']}")
+    output_path = Path(args.candidates)
+    output_path.write_text(json.dumps(rows, indent=2))
+    artifact = Path("/opt/cursor/artifacts/candidates_for_jev.json")
+    if artifact.parent.exists():
+        artifact.write_text(output_path.read_text())
+    print(f"Wrote {output_path} queries={len(rows)} text_limit={CANDIDATE_TEXT_LIMIT}")
+    return output_path
+
+
+def run_jev_scores(args: argparse.Namespace) -> dict:
+    candidates = json.loads(Path(args.candidates).read_text())
+    scores = json.loads(Path(args.jev_scores).read_text())
+    suite_by_id = {item["id"]: item for item in load_suite(SUITE_PATH)}
+    labels = merge_label_maps(
+        load_jsonl_labels(JSONL_LABELS_PATH),
+        load_evaluation_dir_labels(ROOT / "evaluation"),
+    )
+    option_rows = {"jev": [], "jev_top4": []}
+    per_query: list[dict] = []
+    for row in candidates:
+        query_id = row["query_id"]
+        spec = dict(
+            suite_by_id.get(query_id) or {"id": query_id, "query": row["query"]}
+        )
+        spec.setdefault("expect", {})
+        spec.setdefault("source_count", args.metric_k)
+        docs = docs_from_export(row.get("candidates") or [])
+        query_scores = scores.get(query_id) or {}
+        kept, top4 = jev_kept_and_top_k(docs, query_scores, args.metric_k)
+        query_labels = labels.get(row["query"])
+        jev = option_metrics(kept, kept, spec, query_labels, args.metric_k, 0.0)
+        jev4 = option_metrics(kept, top4, spec, query_labels, args.metric_k, 0.0)
+        option_rows["jev"].append(jev)
+        option_rows["jev_top4"].append(jev4)
+        per_query.append(
+            {
+                "id": query_id,
+                "query": row["query"],
+                "jev": jev,
+                "jev_top4": jev4,
+            }
+        )
+    payload = {
+        "options": [
+            {"name": name, "summary": _option_summary(rows)}
+            for name, rows in option_rows.items()
+        ],
+        "queries": per_query,
+    }
+    output_dir = Path(args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    out_path = output_dir / "jev_results.json"
+    out_path.write_text(json.dumps(payload, indent=2))
+    print(f"Wrote {out_path}")
+    for option in payload["options"]:
+        print(option["name"], option["summary"])
+    return payload
+
+
 def main() -> int:
     args = parse_args()
+    if args.jev_scores:
+        run_jev_scores(args)
+        return 0
+    if args.export_candidates:
+        export_candidates(args)
+        return 0
     payload = run_evaluation(args)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)

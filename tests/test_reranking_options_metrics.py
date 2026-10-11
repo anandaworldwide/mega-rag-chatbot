@@ -1,4 +1,9 @@
 from evaluation.evaluate_reranking_options import apply_current
+from evaluation.reranking_options.jev import (
+    jev_kept_and_top_k,
+    rank_with_jev_scores,
+    redact_secrets,
+)
 from evaluation.reranking_options.metrics import (
     RetrievedDoc,
     check_expectations,
@@ -75,6 +80,34 @@ def test_recall_and_mrr() -> None:
     relevant = ["b", "c"]
     assert recall_at_k(ranked, relevant, 3) == 0.5
     assert mrr_at_k(ranked, relevant, 3) == 1.0 / 3
+
+
+def test_redact_secrets_strips_configured_values() -> None:
+    assert (
+        redact_secrets(
+            "see https://secret.example/search",
+            [("https://secret.example", "[REDACTED]")],
+        )
+        == "see [REDACTED]/search"
+    )
+
+
+def test_jev_drops_not_relevant_and_ranks_by_confidence() -> None:
+    docs = [
+        _doc(doc_id="a", text="keep low"),
+        _doc(doc_id="b", text="drop"),
+        _doc(doc_id="c", text="keep high"),
+    ]
+    scores = {
+        "a": {"choice": "relevant", "confidence": 0.2},
+        "b": {"choice": "not_relevant", "confidence": 0.99},
+        "c": {"choice": "relevant", "confidence": 0.8},
+    }
+    kept = rank_with_jev_scores(docs, scores)
+    assert [doc.doc_id for doc in kept] == ["c", "a"]
+    kept_all, top4 = jev_kept_and_top_k(docs, scores, 1)
+    assert [doc.doc_id for doc in kept_all] == ["c", "a"]
+    assert [doc.doc_id for doc in top4] == ["c"]
 
 
 def test_rerank_cutoff_prefers_higher_f1() -> None:
