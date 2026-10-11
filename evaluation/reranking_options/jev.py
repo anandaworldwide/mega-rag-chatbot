@@ -15,6 +15,9 @@ NOT_RELEVANT_CHOICES = frozenset(
         "irrelevant",
     }
 )
+HIGHLY_RELEVANT_CHOICES = frozenset(
+    {"highly_relevant", "highly-relevant", "highly relevant"}
+)
 CANDIDATE_TEXT_LIMIT = 1500
 
 
@@ -24,6 +27,24 @@ def normalize_choice(choice: object) -> str:
 
 def is_not_relevant(choice: object) -> bool:
     return normalize_choice(choice) in NOT_RELEVANT_CHOICES
+
+
+def is_highly_relevant(choice: object) -> bool:
+    return normalize_choice(choice) in HIGHLY_RELEVANT_CHOICES
+
+
+def jev_rank_score(score: dict | None) -> float:
+    """P(highly_relevant) + 0.5 * P(somewhat_relevant)."""
+    payload = score or {}
+    probs = payload.get("probabilities") or {}
+    highly = float(probs.get("highly_relevant") or 0.0)
+    somewhat = float(probs.get("somewhat_relevant") or 0.0)
+    return highly + 0.5 * somewhat
+
+
+def library_from_doc_id(doc_id: str) -> str:
+    parts = str(doc_id or "").split("||")
+    return parts[1] if len(parts) >= 2 else ""
 
 
 def secret_replacements() -> list[tuple[str, str]]:
@@ -62,34 +83,44 @@ def candidate_to_export(doc: RetrievedDoc) -> dict:
 def docs_from_export(candidates: Sequence[dict]) -> list[RetrievedDoc]:
     docs: list[RetrievedDoc] = []
     for item in candidates:
+        doc_id = str(item.get("id") or "")
         docs.append(
             RetrievedDoc(
-                doc_id=str(item.get("id") or ""),
+                doc_id=doc_id,
                 score=float(item.get("cosine_score") or 0.0),
                 text=str(item.get("text") or ""),
                 title=str(item.get("title") or ""),
                 author=str(item.get("author") or ""),
-                library="",
+                library=str(item.get("library") or library_from_doc_id(doc_id)),
                 metadata={},
             )
         )
     return docs
 
 
+def score_for_doc(doc: RetrievedDoc, scores: dict[str, dict]) -> dict:
+    return scores.get(doc.doc_id) or scores.get(str(doc.doc_id)) or {}
+
+
 def rank_with_jev_scores(
     docs: Sequence[RetrievedDoc],
     scores: dict[str, dict],
+    highly_only: bool = False,
 ) -> list[RetrievedDoc]:
-    """Drop not_relevant choices. Rank the rest by confidence, high first."""
+    """Drop not_relevant, or keep highly_relevant only. Rank by Jev score."""
     kept: list[tuple[int, float, RetrievedDoc]] = []
     for index, doc in enumerate(docs):
-        score = scores.get(doc.doc_id) or scores.get(str(doc.doc_id)) or {}
-        if is_not_relevant(score.get("choice")):
+        score = score_for_doc(doc, scores)
+        choice = score.get("choice")
+        if highly_only:
+            if not is_highly_relevant(choice):
+                continue
+        elif is_not_relevant(choice):
             continue
-        confidence = float(score.get("confidence") or 0.0)
-        kept.append((index, confidence, doc))
+        rank = jev_rank_score(score)
+        kept.append((index, rank, doc))
     kept.sort(key=lambda item: (-item[1], item[0]))
-    return [doc for _index, _confidence, doc in kept]
+    return [doc for _index, _rank, doc in kept]
 
 
 def jev_kept_and_top_k(

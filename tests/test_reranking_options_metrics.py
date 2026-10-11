@@ -1,6 +1,8 @@
 from evaluation.evaluate_reranking_options import apply_current
 from evaluation.reranking_options.jev import (
     jev_kept_and_top_k,
+    jev_rank_score,
+    library_from_doc_id,
     rank_with_jev_scores,
     redact_secrets,
 )
@@ -92,21 +94,50 @@ def test_redact_secrets_strips_configured_values() -> None:
     )
 
 
-def test_jev_drops_not_relevant_and_ranks_by_confidence() -> None:
+def test_jev_rank_score_uses_probabilities() -> None:
+    assert (
+        jev_rank_score(
+            {"probabilities": {"highly_relevant": 0.8, "somewhat_relevant": 0.2}}
+        )
+        == 0.9
+    )
+
+
+def test_library_from_doc_id() -> None:
+    assert library_from_doc_id("text||ananda.org||web||Title||x||1") == "ananda.org"
+
+
+def test_jev_drops_not_relevant_and_ranks_by_score() -> None:
     docs = [
         _doc(doc_id="a", text="keep low"),
         _doc(doc_id="b", text="drop"),
         _doc(doc_id="c", text="keep high"),
+        _doc(doc_id="d", text="somewhat"),
     ]
     scores = {
-        "a": {"choice": "relevant", "confidence": 0.2},
-        "b": {"choice": "not_relevant", "confidence": 0.99},
-        "c": {"choice": "relevant", "confidence": 0.8},
+        "a": {
+            "choice": "somewhat_relevant",
+            "probabilities": {"highly_relevant": 0.1, "somewhat_relevant": 0.8},
+        },
+        "b": {
+            "choice": "not_relevant",
+            "probabilities": {"highly_relevant": 0.0, "somewhat_relevant": 0.0},
+        },
+        "c": {
+            "choice": "highly_relevant",
+            "probabilities": {"highly_relevant": 0.9, "somewhat_relevant": 0.1},
+        },
+        "d": {
+            "choice": "somewhat_relevant",
+            "probabilities": {"highly_relevant": 0.0, "somewhat_relevant": 0.6},
+        },
     }
     kept = rank_with_jev_scores(docs, scores)
-    assert [doc.doc_id for doc in kept] == ["c", "a"]
+    assert [doc.doc_id for doc in kept] == ["c", "a", "d"]
+    highly = rank_with_jev_scores(docs, scores, highly_only=True)
+    assert [doc.doc_id for doc in highly] == ["c"]
     kept_all, top4 = jev_kept_and_top_k(docs, scores, 1)
-    assert [doc.doc_id for doc in kept_all] == ["c", "a"]
+    assert [doc.doc_id for doc in kept_all] == ["c", "a", "d"]
     assert [doc.doc_id for doc in top4] == ["c"]
 
 

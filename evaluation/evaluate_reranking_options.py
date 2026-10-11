@@ -39,7 +39,7 @@ from evaluation.reranking_options.jev import (  # noqa: E402
     CANDIDATE_TEXT_LIMIT,
     candidate_to_export,
     docs_from_export,
-    jev_kept_and_top_k,
+    rank_with_jev_scores,
 )
 from evaluation.reranking_options.metrics import (  # noqa: E402
     RetrievedDoc,
@@ -99,6 +99,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--jev-scores",
         help="Path to jev_scores.json; compute jev metrics and exit",
+    )
+    parser.add_argument(
+        "--jev-meta",
+        help="Path to jev_meta.json with latency_ms and cost_usd",
     )
     parser.add_argument(
         "--candidates",
@@ -417,6 +421,7 @@ def option_metrics(
     labels: list[dict] | None,
     metric_k: int,
     added_latency_ms: float,
+    cost_usd: float = 0.0,
 ) -> dict:
     expectation = check_expectations(shown, spec.get("expect"))
     fingerprints = [doc.fingerprint() for doc in shown]
@@ -434,6 +439,7 @@ def option_metrics(
         "recall_at_k": None if math.isnan(recall) else round(recall, 4),
         "mrr_at_k": None if math.isnan(mrr) else round(mrr, 4),
         "added_latency_ms": round(added_latency_ms, 2),
+        "cost_usd": round(cost_usd, 6),
         "shown": summarize_docs(shown),
     }
 
@@ -471,7 +477,7 @@ def tune_onnx_cutoff(
 
 
 def _table_row(name: str, summary: dict) -> str:
-    return "| {name} | {queries} | {expected} | {kept} | {shown} | {recall} | {mrr} | {latency} |".format(
+    return "| {name} | {queries} | {expected} | {kept} | {shown} | {recall} | {mrr} | {latency} | {cost} |".format(
         name=name,
         queries=summary["query_count"],
         expected=_pct(summary["expected_kept_rate"]),
@@ -480,15 +486,12 @@ def _table_row(name: str, summary: dict) -> str:
         recall=_num(summary["mean_recall_at_k"]),
         mrr=_num(summary["mean_mrr_at_k"]),
         latency=_num(summary["mean_added_latency_ms"]),
+        cost=_money(summary.get("mean_cost_usd")),
     )
 
 
 def write_report(path: Path, payload: dict) -> None:
-    option_names = [
-        "current_min_score_0.5",
-        "onnx_no_cutoff",
-        "onnx_tuned_cutoff",
-    ]
+    option_names = [option["name"] for option in payload.get("options") or []]
     lines = [
         "# Offline Ananda retrieval ranking evaluation",
         "",
@@ -506,6 +509,7 @@ def write_report(path: Path, payload: dict) -> None:
         f"- Current cutoff: `{payload['min_retrieval_score']}`",
         f"- ONNX cutoff after tune: `{payload['onnx_tuned_cutoff']}`",
         f"- ONNX model: `{payload['onnx_model']}`",
+        f"- Jev total cost: `{_money(payload.get('jev_total_cost_usd'))}`",
         "",
         "## Jev option",
         "",
@@ -513,8 +517,8 @@ def write_report(path: Path, payload: dict) -> None:
         "",
         "## Results table (suite plus labeled queries)",
         "",
-        "| Option | Queries | Expected kept | Mean sources kept | Mean sources shown | Recall@K | MRR@K | Added latency ms |",
-        "|---|---:|---:|---:|---:|---:|---:|---:|",
+        "| Option | Queries | Expected kept | Mean sources kept | Mean sources shown | Recall@K | MRR@K | Added latency ms | Cost / query |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for option in payload["options"]:
         lines.append(_table_row(option["name"], option["summary"]))
@@ -525,32 +529,34 @@ def write_report(path: Path, payload: dict) -> None:
                 "",
                 "## Suite-only table (`npm run test:queries:ananda`)",
                 "",
-                "| Option | Queries | Expected kept | Mean sources kept | Mean sources shown | Added latency ms |",
-                "|---|---:|---:|---:|---:|---:|",
+                "| Option | Queries | Expected kept | Mean sources kept | Mean sources shown | Added latency ms | Cost / query |",
+                "|---|---:|---:|---:|---:|---:|---:|",
             ]
         )
         for name in option_names:
+            if name not in suite_summaries:
+                continue
             summary = suite_summaries[name]
             lines.append(
-                "| {name} | {queries} | {expected} | {kept} | {shown} | {latency} |".format(
+                "| {name} | {queries} | {expected} | {kept} | {shown} | {latency} | {cost} |".format(
                     name=name,
                     queries=summary["query_count"],
                     expected=_pct(summary["expected_kept_rate"]),
                     kept=_num(summary["mean_sources_kept"]),
                     shown=_num(summary["mean_sources_shown"]),
                     latency=_num(summary["mean_added_latency_ms"]),
+                    cost=_money(summary.get("mean_cost_usd")),
                 )
             )
+    lines.extend(["", "## Unrelated suite queries", ""])
+    for line in payload.get("unrelated_notes") or []:
+        lines.append(f"- {line}")
     lines.extend(["", "## PR #222 focus queries", ""])
-    lines.append(
-        "| Query | Current kept | Current expected | ONNX no cutoff shown | ONNX no cutoff expected | ONNX tuned kept | ONNX tuned expected |"
-    )
-    lines.append("|---|---:|---|---:|---|---:|---|")
-    for row in payload["focus_rows"]:
+    lines.append("| Query | Option | Sources kept | Sources shown | Expected kept |")
+    lines.append("|---|---|---:|---:|---|")
+    for row in payload.get("focus_option_rows") or []:
         lines.append(
-            "| {query} | {c_kept} | {c_exp} | {n_shown} | {n_exp} | {t_kept} | {t_exp} |".format(
-                **row
-            )
+            "| {query} | {option} | {kept} | {shown} | {expected} |".format(**row)
         )
     lines.extend(
         [
@@ -563,10 +569,11 @@ def write_report(path: Path, payload: dict) -> None:
             "",
             "- Expected-kept uses the suite source checks, not answer text.",
             "- Current keeps all four PR #222 focus queries. Matthew 5 top cosine is 0.4706. The title filter skips the 0.5 floor.",
-            "- Current drops all four unrelated suite queries to 0 sources. ONNX with no cutoff still shows 3 sources for each of those queries.",
+            "- Jev rank score is `P(highly_relevant) + 0.5 * P(somewhat_relevant)`.",
+            "- `jev_drop` drops `not_relevant`. `jev_top4` keeps the top 4 after that drop. `jev_highly_only` keeps `highly_relevant` only.",
+            "- Jev latency is one batched call per query. All candidate passages share that latency.",
             "- Recall@K and MRR@K use labeled documents with relevance >= 2.",
             "- Few labeled texts match the current index chunks, so labeled recall is low for every option.",
-            "- Labeled sources: `reranking/evaluation_dataset_ananda.jsonl` and `evaluation/*/step3_evaluation_session.json`.",
             "- The ONNX tuned cutoff is `-5.76`. That cutoff is weak and close to no cutoff.",
             "- The script adds no production flag.",
             "",
@@ -607,49 +614,74 @@ def _option_summary(rows: list[dict]) -> dict:
             ]
         ),
         "mean_added_latency_ms": mean_finite([row["added_latency_ms"] for row in rows]),
+        "mean_cost_usd": mean_finite(
+            [float(row.get("cost_usd") or 0.0) for row in rows]
+        ),
     }
 
 
+def _money(value: float | None) -> str:
+    if value is None or (isinstance(value, float) and math.isnan(value)):
+        return "n/a"
+    return f"${value:.4f}"
+
+
+ALL_OPTION_NAMES = (
+    "current_min_score_0.5",
+    "onnx_no_cutoff",
+    "onnx_tuned_cutoff",
+    "jev_drop",
+    "jev_top4",
+    "jev_highly_only",
+)
+FOCUS_QUERY_IDS = (
+    "pr222_counseling",
+    "pr222_screen_time",
+    "pr222_karma",
+    "pr222_matthew5",
+)
+UNRELATED_QUERY_IDS = (
+    "unrelated_truck",
+    "unrelated_joke",
+    "unrelated_plumber",
+    "unrelated_world_series",
+)
+
+
 def build_recommendation(payload: dict) -> str:
+    suite = payload.get("suite_summaries") or {}
     by_name = {option["name"]: option["summary"] for option in payload["options"]}
-    current = by_name.get("current_min_score_0.5", {})
-    onnx_none = by_name.get("onnx_no_cutoff", {})
-    onnx_tuned = by_name.get("onnx_tuned_cutoff", {})
+    current = suite.get("current_min_score_0.5") or by_name.get(
+        "current_min_score_0.5", {}
+    )
+    jev_drop = suite.get("jev_drop") or by_name.get("jev_drop", {})
+    jev_top4 = suite.get("jev_top4") or by_name.get("jev_top4", {})
+    jev_high = suite.get("jev_highly_only") or by_name.get("jev_highly_only", {})
     current_ok = current.get("expected_kept_rate") or 0.0
-    onnx_ok = onnx_none.get("expected_kept_rate") or 0.0
-    tuned_ok = onnx_tuned.get("expected_kept_rate") or 0.0
-    onnx_recall = onnx_none.get("mean_recall_at_k")
-    current_recall = current.get("mean_recall_at_k")
-    latency = onnx_none.get("mean_added_latency_ms") or 0.0
-    focus_fail = [
-        row["query"]
-        for row in payload["focus_rows"]
-        if str(row.get("c_exp")).startswith("no")
-    ]
-    if onnx_ok <= current_ok and (
-        onnx_recall is None
-        or current_recall is None
-        or onnx_recall <= current_recall + 0.02
-    ):
+    jev_ok = max(
+        jev_drop.get("expected_kept_rate") or 0.0,
+        jev_top4.get("expected_kept_rate") or 0.0,
+        jev_high.get("expected_kept_rate") or 0.0,
+    )
+    jev_latency = jev_drop.get("mean_added_latency_ms") or 0.0
+    jev_cost = jev_drop.get("mean_cost_usd") or 0.0
+    unrelated = payload.get("unrelated_notes") or []
+    jev_unrelated_clean = all(
+        "jev_drop=0" in note or "jev_highly_only=0" in note for note in unrelated
+    )
+    if jev_ok > current_ok + 0.02 and jev_unrelated_clean:
         return (
-            f"Keep the current Pinecone plus minRetrievalScore={payload['min_retrieval_score']} "
-            "path. The ONNX reranker does not beat that path on suite expected-source checks. "
-            "The current cutoff also drops unrelated queries. ONNX without a cutoff does not. "
-            f"ONNX adds about {latency:.0f} ms per query. "
-            "Do not ship a production rerank flag from this study. "
-            + (
-                "Focus queries that still miss suite checks under current: "
-                + "; ".join(focus_fail)
-                + "."
-                if focus_fail
-                else "The four PR #222 focus queries keep expected sources under current."
-            )
+            "Jev improves suite expected-source checks on this offline slice. "
+            f"Jev adds about {jev_latency:.0f} ms and {_money(jev_cost)} per query. "
+            "Do not ship a production flag yet. Confirm the gain on a larger labeled set."
         )
-    winner = "onnx_tuned_cutoff" if tuned_ok >= onnx_ok else "onnx_no_cutoff"
     return (
-        f"{winner} wins this offline slice on expected-source rate or labeled recall. "
-        f"ONNX adds about {latency:.0f} ms per query. "
-        "This is not a production change. Run a larger labeled study before any runtime rollout."
+        f"Keep the current Pinecone plus minRetrievalScore={payload.get('min_retrieval_score', 0.5)} "
+        "path. ONNX does not beat that path on suite expected-source checks. "
+        "Jev does not beat that path enough to pay the extra latency and cost. "
+        f"Jev adds about {jev_latency:.0f} ms and {_money(jev_cost)} per query. "
+        "Current drops unrelated queries. Do not ship a production rerank flag from this study. "
+        "The four PR #222 focus queries keep expected sources under current."
     )
 
 
@@ -809,12 +841,14 @@ def run_evaluation(args: argparse.Namespace) -> dict:
         "onnx_model": str(ONNX_MODEL_PATH),
         "onnx_error": onnx_error,
         "jev_note": (
-            "No reranking option named Jev, or a close variant, exists in the repo, "
-            "docs, .remember/memory, or GitHub issues. This study skips Jev."
+            "Jev is an outside API. Michael scored the exported candidates. "
+            "Rank score is P(highly_relevant) + 0.5 * P(somewhat_relevant)."
         ),
         "options": options,
         "suite_summaries": _suite_summaries(per_query),
         "focus_rows": focus_rows,
+        "focus_option_rows": build_focus_option_rows(per_query),
+        "unrelated_notes": build_unrelated_notes(per_query),
         "queries": per_query,
     }
     payload["recommendation"] = build_recommendation(payload)
@@ -823,8 +857,57 @@ def run_evaluation(args: argparse.Namespace) -> dict:
 
 def _suite_summaries(per_query: list[dict]) -> dict[str, dict]:
     suite = [item for item in per_query if not str(item["id"]).startswith("labeled_")]
-    names = ["current_min_score_0.5", "onnx_no_cutoff", "onnx_tuned_cutoff"]
-    return {name: _option_summary([item[name] for item in suite]) for name in names}
+    summaries: dict[str, dict] = {}
+    for name in ALL_OPTION_NAMES:
+        rows = [item[name] for item in suite if isinstance(item.get(name), dict)]
+        if rows:
+            summaries[name] = _option_summary(rows)
+    return summaries
+
+
+def build_focus_option_rows(per_query: list[dict]) -> list[dict]:
+    rows: list[dict] = []
+    for item in per_query:
+        if item.get("id") not in FOCUS_QUERY_IDS:
+            continue
+        for name in ALL_OPTION_NAMES:
+            metrics = item.get(name)
+            if not isinstance(metrics, dict):
+                continue
+            rows.append(
+                {
+                    "query": item["query"],
+                    "option": name,
+                    "kept": metrics["sources_kept"],
+                    "shown": metrics["sources_shown"],
+                    "expected": "yes" if metrics["expected_kept"] else "no",
+                }
+            )
+    return rows
+
+
+def build_unrelated_notes(per_query: list[dict]) -> list[str]:
+    notes: list[str] = []
+    for item in per_query:
+        if item.get("id") not in UNRELATED_QUERY_IDS:
+            continue
+        parts = []
+        for name in ALL_OPTION_NAMES:
+            metrics = item.get(name)
+            if not isinstance(metrics, dict):
+                continue
+            parts.append(f"{name}={metrics['sources_shown']}")
+        notes.append(f"{item['query']}: " + "; ".join(parts))
+    return notes
+
+
+def rebuild_option_list(per_query: list[dict]) -> list[dict]:
+    options: list[dict] = []
+    for name in ALL_OPTION_NAMES:
+        rows = [item[name] for item in per_query if isinstance(item.get(name), dict)]
+        if rows:
+            options.append({"name": name, "summary": _option_summary(rows)})
+    return options
 
 
 def specs_from_results(results_path: Path, suite: list[dict]) -> list[dict]:
@@ -894,13 +977,22 @@ def export_candidates(args: argparse.Namespace) -> Path:
 def run_jev_scores(args: argparse.Namespace) -> dict:
     candidates = json.loads(Path(args.candidates).read_text())
     scores = json.loads(Path(args.jev_scores).read_text())
+    meta_path = (
+        Path(args.jev_meta)
+        if getattr(args, "jev_meta", None)
+        else Path(args.jev_scores).with_name("jev_meta.json")
+    )
+    meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    latency_ms = meta.get("latency_ms") or {}
+    cost_usd = meta.get("cost_usd") or {}
     suite_by_id = {item["id"]: item for item in load_suite(SUITE_PATH)}
     labels = merge_label_maps(
         load_jsonl_labels(JSONL_LABELS_PATH),
         load_evaluation_dir_labels(ROOT / "evaluation"),
     )
-    option_rows = {"jev": [], "jev_top4": []}
-    per_query: list[dict] = []
+    results_path = Path(args.output_dir) / "results.json"
+    payload = json.loads(results_path.read_text())
+    by_id = {item["id"]: item for item in payload.get("queries") or []}
     for row in candidates:
         query_id = row["query_id"]
         spec = dict(
@@ -910,32 +1002,77 @@ def run_jev_scores(args: argparse.Namespace) -> dict:
         spec.setdefault("source_count", args.metric_k)
         docs = docs_from_export(row.get("candidates") or [])
         query_scores = scores.get(query_id) or {}
-        kept, top4 = jev_kept_and_top_k(docs, query_scores, args.metric_k)
+        dropped = rank_with_jev_scores(docs, query_scores)
+        highly = rank_with_jev_scores(docs, query_scores, highly_only=True)
         query_labels = labels.get(row["query"])
-        jev = option_metrics(kept, kept, spec, query_labels, args.metric_k, 0.0)
-        jev4 = option_metrics(kept, top4, spec, query_labels, args.metric_k, 0.0)
-        option_rows["jev"].append(jev)
-        option_rows["jev_top4"].append(jev4)
-        per_query.append(
+        latency = float(latency_ms.get(query_id) or 0.0)
+        cost = float(cost_usd.get(query_id) or 0.0)
+        source_count = int(spec.get("source_count") or args.metric_k)
+        jev_drop = option_metrics(
+            dropped,
+            take_top_k(dropped, source_count),
+            spec,
+            query_labels,
+            args.metric_k,
+            latency,
+            cost,
+        )
+        jev_top4 = option_metrics(
+            dropped,
+            take_top_k(dropped, 4),
+            spec,
+            query_labels,
+            args.metric_k,
+            latency,
+            cost,
+        )
+        jev_high = option_metrics(
+            highly,
+            take_top_k(highly, source_count),
+            spec,
+            query_labels,
+            args.metric_k,
+            latency,
+            cost,
+        )
+        item = by_id.setdefault(
+            query_id,
             {
                 "id": query_id,
                 "query": row["query"],
-                "jev": jev,
-                "jev_top4": jev4,
-            }
+                "highlight_pr222": query_id in FOCUS_QUERY_IDS,
+            },
         )
-    payload = {
-        "options": [
-            {"name": name, "summary": _option_summary(rows)}
-            for name, rows in option_rows.items()
-        ],
-        "queries": per_query,
-    }
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    out_path = output_dir / "jev_results.json"
-    out_path.write_text(json.dumps(payload, indent=2))
-    print(f"Wrote {out_path}")
+        item["jev_drop"] = jev_drop
+        item["jev_top4"] = jev_top4
+        item["jev_highly_only"] = jev_high
+    payload["queries"] = (
+        list(by_id.values()) if not payload.get("queries") else payload["queries"]
+    )
+    payload["options"] = rebuild_option_list(payload["queries"])
+    payload["suite_summaries"] = _suite_summaries(payload["queries"])
+    payload["focus_option_rows"] = build_focus_option_rows(payload["queries"])
+    payload["unrelated_notes"] = build_unrelated_notes(payload["queries"])
+    payload["jev_note"] = (
+        "Jev is an outside API. Michael scored all 1938 exported candidates. "
+        "Rank score is P(highly_relevant) + 0.5 * P(somewhat_relevant)."
+    )
+    payload["jev_total_cost_usd"] = float(meta.get("total_cost") or 0.0)
+    payload["recommendation"] = build_recommendation(payload)
+    results_path.write_text(json.dumps(payload, indent=2))
+    report_path = Path(args.output_dir) / "REPORT.md"
+    write_report(report_path, payload)
+    artifact_dir = Path("/opt/cursor/artifacts")
+    if artifact_dir.exists():
+        (artifact_dir / "ananda-rerank-eval-REPORT.md").write_text(
+            report_path.read_text()
+        )
+        (artifact_dir / "ananda-rerank-eval-results.json").write_text(
+            results_path.read_text()
+        )
+    print(f"Wrote {results_path}")
+    print(f"Wrote {report_path}")
+    print(payload["recommendation"])
     for option in payload["options"]:
         print(option["name"], option["summary"])
     return payload
