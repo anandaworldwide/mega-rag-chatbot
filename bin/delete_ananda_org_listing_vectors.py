@@ -35,13 +35,16 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+# Python puts bin/ on sys.path[0]. Add the repo root so data_ingestion imports.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 from pinecone import Pinecone
 
 from data_ingestion.crawler.listing_page import is_listing_page
 from data_ingestion.utils.author_ingest_guard import is_blank_author
 from pyutil.env_utils import load_env
-
-_REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _assert_project_python() -> None:

@@ -2,6 +2,7 @@
 
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -28,6 +29,21 @@ def load_script_module():
 
 
 SCRIPT = load_script_module()
+SCRIPT_PATH = (
+    Path(__file__).resolve().parents[1] / "bin" / "delete_ananda_org_listing_vectors.py"
+)
+
+
+def test_script_imports_when_run_from_bin_path():
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "--help"],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "Dry-run is the default" in result.stdout
 
 
 def _match(vector_id, url, title, author_state, metadata=None):
