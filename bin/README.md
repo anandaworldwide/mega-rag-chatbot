@@ -48,14 +48,29 @@ variants and a canonical name, then updates records in Pinecone to use the canon
 
 ### `strip_pinecone_byline_dates.py`
 
-Clears the author on live `ananda.org` listing, archive, and search vectors whose author still has a trailing
-`Month D, YYYY`. Article pages with that date keep the author, with the date removed and the canonical name applied.
-It reads `PINECONE_INDEX_NAME` and refuses to run when that name equals `PINECONE_INGEST_INDEX_NAME`. Dry-run by
-default.
+Cleans a trailing `Month D, YYYY` from author metadata on live `ananda.org` article vectors. Article pages keep the
+author with the date removed and the canonical name applied. Listing, archive, and search pages are not written. The
+script does not write an empty author. It reads `PINECONE_INDEX_NAME` and refuses to run when that name equals
+`PINECONE_INGEST_INDEX_NAME`. Dry-run by default.
 
 ```bash
 uv run python bin/strip_pinecone_byline_dates.py --site ananda-public
 uv run python bin/strip_pinecone_byline_dates.py --site ananda-public --apply
+```
+
+### `delete_ananda_org_listing_vectors.py`
+
+Finds `ananda.org` listing-page vectors with the shared `is_listing_page` rule. Author state does not matter. Dry-run
+is the default. Dry-run prints vector counts and distinct URL counts, split into blank, teaser, and missing author.
+`--backup-path` writes IDs and metadata to a file outside the repository. The file does not include chunk text.
+`--apply` deletes the matched vectors. `--apply` refuses to run when a completed backup file is missing.
+
+```bash
+uv run python bin/delete_ananda_org_listing_vectors.py --site ananda
+uv run python bin/delete_ananda_org_listing_vectors.py --site ananda \
+  --backup-path /path/outside/repo/listing-backup.json
+uv run python bin/delete_ananda_org_listing_vectors.py --site ananda \
+  --backup-path /path/outside/repo/listing-backup.json --apply
 ```
 
 ### `tag_access_level_vectors.py`
