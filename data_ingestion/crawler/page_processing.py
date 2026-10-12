@@ -15,11 +15,20 @@ except ImportError:
 # Import from crawler submodules (support both module and direct execution)
 try:
     from .config import ContentHash, PageContent, PineconeCleanupError
+    from .listing_page import is_listing_page
 except ImportError:
     from config import (  # type: ignore[import-not-found]
         ContentHash,
         PageContent,
         PineconeCleanupError,
+    )
+    from listing_page import is_listing_page  # type: ignore[import-not-found]
+
+try:
+    from data_ingestion.utils.author_ingest_guard import apply_author_guard_to_vectors
+except ImportError:
+    from utils.author_ingest_guard import (  # type: ignore[import-not-found]
+        apply_author_guard_to_vectors,
     )
 
 
@@ -57,6 +66,7 @@ def create_chunks_from_page(page_content: PageContent, text_splitter) -> list[st
 
 def upsert_to_pinecone(vectors: list[dict], index: Any, index_name: str):
     """Upsert vectors to Pinecone index."""
+    apply_author_guard_to_vectors(vectors)
     if vectors:
         batch_size = 100  # Pinecone recommends batches of 100 or less
         total_vectors = len(vectors)
@@ -189,6 +199,29 @@ def _handle_rate_limit_error(url: str, e: Exception, crawler) -> tuple[int, int,
     return 0, 0, True  # Return rate_limit_hit flag
 
 
+def _enqueue_new_links(crawler, new_links: list) -> None:
+    """Add new links that pass the crawler filters."""
+    for link in new_links:
+        if (
+            crawler.is_valid_url(link)
+            and not crawler.should_skip_url(link)
+            and not crawler.is_url_in_database(link)
+        ):
+            crawler.add_url_to_queue(link)
+
+
+def _skip_listing_page(
+    content, new_links: list, url: str, crawler
+) -> tuple[int, int, bool]:
+    """Mark a listing page visited. Do not write vectors."""
+    content_hash = hashlib.sha256((content.content or "").encode()).hexdigest()
+    logging.info("Skipping listing page. No vectors written: %s", url)
+    crawler.mark_url_status(url, "visited", content_hash=content_hash)
+    crawler.reset_timeout_count(url)
+    _enqueue_new_links(crawler, new_links)
+    return (1, 1, False)
+
+
 def _process_page_content(
     content,
     new_links: list,
@@ -218,14 +251,15 @@ def _process_page_content(
         )  # No pages processed, but increment restart counter to avoid browser restart
 
     try:
+        if is_listing_page(getattr(content, "title", "") or "", url):
+            return _skip_listing_page(content, new_links, url, crawler)
+
         chunks = create_chunks_from_page(content, crawler.text_splitter)
         if chunks:
             content_hash = hashlib.sha256(content.content.encode()).hexdigest()
 
             if crawler.should_process_content(url, content_hash):
-                author = (
-                    content.metadata.get("author") if content.metadata else None
-                )
+                author = content.metadata.get("author") if content.metadata else None
                 _update_pinecone_vectors(
                     crawler,
                     pinecone_index,
@@ -246,15 +280,7 @@ def _process_page_content(
             logging.warning(f"No content chunks created for {url}")
 
         crawler.reset_timeout_count(url)
-
-        # Add new links to queue
-        for link in new_links:
-            if (
-                crawler.is_valid_url(link)
-                and not crawler.should_skip_url(link)
-                and not crawler.is_url_in_database(link)
-            ):
-                crawler.add_url_to_queue(link)
+        _enqueue_new_links(crawler, new_links)
 
         return (
             1,

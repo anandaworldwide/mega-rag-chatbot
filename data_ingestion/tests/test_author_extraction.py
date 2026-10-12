@@ -311,6 +311,44 @@ class TestPageProcessingAuthorPropagation(unittest.TestCase):
             author="Tyagi Jayadev",
         )
 
+    def test_process_page_content_skips_listing_page_upsert(self):
+        from unittest.mock import MagicMock
+
+        from data_ingestion.crawler.config import PageContent
+        from data_ingestion.crawler.page_processing import _process_page_content
+
+        crawler = MagicMock()
+        crawler.text_splitter.split_text.return_value = ["chunk one"]
+        crawler.should_process_content.return_value = True
+        crawler.is_valid_url.return_value = False
+        crawler.should_skip_url.return_value = False
+        crawler.is_url_in_database.return_value = False
+
+        content = PageContent(
+            url="https://www.ananda.org/author/asha/",
+            title="Asha Nayaswami, Author at Ananda",
+            content="Archive body with enough words to chunk.",
+            metadata={
+                "type": "text",
+                "source": "https://www.ananda.org/author/asha/",
+                "author": "Asha Nayaswami",
+            },
+        )
+
+        pages_inc, _restart_inc, rate_limit = _process_page_content(
+            content,
+            [],
+            content.url,
+            crawler,
+            MagicMock(),
+            "test-index",
+        )
+
+        self.assertEqual(pages_inc, 1)
+        self.assertFalse(rate_limit)
+        crawler.create_embeddings.assert_not_called()
+        crawler.mark_url_status.assert_called()
+
 
 class TestDatedAuthorReplacement(unittest.TestCase):
     def test_strips_date_and_applies_canonical_mapping(self):

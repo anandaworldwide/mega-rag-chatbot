@@ -2185,6 +2185,55 @@ class TestRobotsTxtCompliance(BaseWebsiteCrawlerTest):
         crawler.close()
 
     @patch("crawler.website_crawler.RobotFileParser")
+    def test_should_skip_url_listing_patterns(self, mock_robot_parser_class):
+        """Listing paths and ?s= search URLs are skipped."""
+        mock_parser = Mock()
+        mock_parser.can_fetch.return_value = True
+        mock_robot_parser_class.return_value = mock_parser
+
+        site_config = {
+            "domain": "ananda.org",
+            "skip_patterns": [
+                "^/search/",
+                "(^|/)author(/|$)",
+                "/blog/page/[0-9]+(/|$)",
+                "/ask-category/.*/page/[0-9]+(/|$)",
+                "[?&]s=",
+            ],
+            "crawl_frequency_days": 14,
+            "crawl_delay_seconds": 1,
+        }
+        crawler = WebsiteCrawler(self.site_id, site_config)
+
+        self.assertTrue(
+            crawler.should_skip_url("https://www.ananda.org/author/asha/"),
+            "Should skip /author/ archives",
+        )
+        self.assertTrue(
+            crawler.should_skip_url(
+                "https://www.ananda.org/jyotish-and-devi/blog/page/10"
+            ),
+            "Should skip /blog/page/N",
+        )
+        self.assertTrue(
+            crawler.should_skip_url(
+                "https://www.ananda.org/ask-category/meditation/page/53"
+            ),
+            "Should skip /ask-category/.../page/N",
+        )
+        self.assertTrue(
+            crawler.should_skip_url("https://www.ananda.org/?s=kriyananda"),
+            "Should skip ?s= search",
+        )
+        self.assertFalse(
+            crawler.should_skip_url(
+                "https://www.ananda.org/blog/yoganandas-views-on-hatha-yoga/"
+            ),
+            "Should not skip a real article",
+        )
+        crawler.close()
+
+    @patch("crawler.website_crawler.RobotFileParser")
     def test_get_next_url_to_crawl_removes_skip_pattern_urls(
         self, mock_robot_parser_class
     ):

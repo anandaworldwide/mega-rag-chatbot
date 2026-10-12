@@ -5,6 +5,10 @@
   "csv_modified_days_threshold": 10,
   "skip_patterns": [
     "^/search/",
+    "(^|/)author(/|$)",
+    "/blog/page/[0-9]+(/|$)",
+    "/ask-category/.*/page/[0-9]+(/|$)",
+    "[?&]s=",
     "^/login/",
     "^/cart(/|$)",
     "^/account(/|$)",
