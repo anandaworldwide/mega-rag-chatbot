@@ -16,7 +16,7 @@ dependencies = [
     "firebase-admin==7.1.0",
     "fpdf==1.7.2",
     "frozenlist==1.7.0",
-    "fsspec==2024.6.1",
+    "fsspec==2026.6.0",
     "google-analytics-data",
     "google-api-core==2.25.2",
     "google-auth>=2.47.0",
