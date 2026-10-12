@@ -251,7 +251,9 @@ def _process_page_content(
         )  # No pages processed, but increment restart counter to avoid browser restart
 
     try:
-        if is_listing_page(getattr(content, "title", "") or "", url):
+        if getattr(crawler, "skip_listing_pages", False) and is_listing_page(
+            getattr(content, "title", "") or "", url
+        ):
             return _skip_listing_page(content, new_links, url, crawler)
 
         chunks = create_chunks_from_page(content, crawler.text_splitter)

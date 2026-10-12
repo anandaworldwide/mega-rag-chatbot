@@ -1,14 +1,26 @@
 """Shared rules for archive, search, and pagination pages.
 
 A visible byline on those pages belongs to one teaser, not to the page.
-The crawler, the byline cleanup script, and the listing delete script
-use the same rules.
+The crawler applies these rules only when site config sets
+skip_listing_pages to true. The flag is off by default. The byline
+cleanup script and the listing delete script use the same rules for
+ananda.org.
 """
 
 from __future__ import annotations
 
 import re
 from urllib.parse import parse_qs, urlparse
+
+SKIP_LISTING_PAGES_KEY = "skip_listing_pages"
+
+
+def listing_skips_enabled(config: dict | None) -> bool:
+    """Return True when the site config opts into listing-page skips."""
+    if not config:
+        return False
+    return bool(config.get(SKIP_LISTING_PAGES_KEY))
+
 
 _PAGE_OF_PAGES = re.compile(r"\bpage\s+\d+\s+of\s+\d+\b", re.IGNORECASE)
 _AUTHOR_AT = re.compile(r",\s*author at\b", re.IGNORECASE)

@@ -1,16 +1,22 @@
 """Tests for shared listing-page rules."""
 
 import json
-import re
 from pathlib import Path
 
-from data_ingestion.crawler.listing_page import is_listing_page, url_is_listing
+from data_ingestion.crawler.listing_page import (
+    is_listing_page,
+    listing_skips_enabled,
+    url_is_listing,
+)
 
-CONFIG_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "crawler"
-    / "crawler_config"
-    / "ananda-public-config.json"
+CONFIG_DIR = Path(__file__).resolve().parents[1] / "crawler" / "crawler_config"
+ANANDA_PUBLIC_CONFIG_PATH = CONFIG_DIR / "ananda-public-config.json"
+PHOTO_CONFIG_PATH = CONFIG_DIR / "photo-config.json"
+REDUNDANT_LISTING_SKIP_PATTERNS = (
+    "(^|/)author(/|$)",
+    "/blog/page/[0-9]+(/|$)",
+    "/ask-category/.*/page/[0-9]+(/|$)",
+    "[?&]s=",
 )
 
 
@@ -73,17 +79,18 @@ class TestUrlIsListing:
         )
 
 
-class TestAnandaPublicSkipPatterns:
-    def test_config_has_listing_skip_patterns(self):
-        config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-        patterns = config["skip_patterns"]
-        compiled = [re.compile(pattern) for pattern in patterns]
+class TestListingSkipOptIn:
+    def test_listing_skips_are_off_by_default(self):
+        assert listing_skips_enabled(None) is False
+        assert listing_skips_enabled({}) is False
+        assert listing_skips_enabled({"skip_listing_pages": False}) is False
 
-        def matches(text: str) -> bool:
-            return any(pattern.search(text) for pattern in compiled)
+    def test_ananda_public_opts_in(self):
+        config = json.loads(ANANDA_PUBLIC_CONFIG_PATH.read_text(encoding="utf-8"))
+        assert listing_skips_enabled(config) is True
+        for pattern in REDUNDANT_LISTING_SKIP_PATTERNS:
+            assert pattern not in config["skip_patterns"]
 
-        assert matches("/author/asha/")
-        assert matches("/jyotish-and-devi/blog/page/10")
-        assert matches("/ask-category/meditation/page/53")
-        assert matches("?s=kriyananda")
-        assert not matches("/blog/yoganandas-views-on-hatha-yoga/")
+    def test_other_site_config_does_not_opt_in(self):
+        config = json.loads(PHOTO_CONFIG_PATH.read_text(encoding="utf-8"))
+        assert listing_skips_enabled(config) is False

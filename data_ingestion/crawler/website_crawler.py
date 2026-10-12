@@ -81,7 +81,7 @@ try:
         requires_db,
     )
     from .health import HealthMonitor
-    from .listing_page import url_is_listing
+    from .listing_page import listing_skips_enabled, url_is_listing
     from .lock_manager import CrawlerLockManager
 except ImportError:
     # When running directly (python website_crawler.py)
@@ -96,7 +96,7 @@ except ImportError:
         requires_db,
     )
     from health import HealthMonitor  # type: ignore[import-not-found]
-    from listing_page import url_is_listing  # type: ignore[import-not-found]
+    from listing_page import listing_skips_enabled, url_is_listing  # type: ignore[import-not-found]
     from lock_manager import CrawlerLockManager  # type: ignore[import-not-found]
 
 # Import from page_processing module
@@ -143,6 +143,7 @@ class WebsiteCrawler:
         self.domain = self.config["domain"]
         self.start_url = ensure_scheme(self.domain)
         self.skip_patterns = self.config.get("skip_patterns", [])
+        self.skip_listing_pages = listing_skips_enabled(self.config)
         self.crawl_frequency_days = self.config.get("crawl_frequency_days", 14)
 
         # Initialize subsystems
@@ -1194,7 +1195,7 @@ class WebsiteCrawler:
             ):
                 return True
 
-        if url_is_listing(url):
+        if self.skip_listing_pages and url_is_listing(url):
             return True
 
         # Check for calendar/export URLs that serve non-HTML content
