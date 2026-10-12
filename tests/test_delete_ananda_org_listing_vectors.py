@@ -168,6 +168,42 @@ class TestFetchMetadataOnly:
         assert index.fetch.call_args_list[1].kwargs == {"ids": ["id-1"]}
 
 
+class TestResolveIndexName:
+    def test_requires_pinecone_index_name(self):
+        with pytest.raises(SystemExit, match="PINECONE_INDEX_NAME is not set"):
+            SCRIPT.resolve_index_name({})
+
+    def test_does_not_fall_back_to_ingest_index_name(self):
+        with pytest.raises(SystemExit, match="PINECONE_INDEX_NAME is not set"):
+            SCRIPT.resolve_index_name(
+                {"PINECONE_INGEST_INDEX_NAME": "ananda-2026-09-26--3-large"}
+            )
+
+    def test_uses_pinecone_index_name(self):
+        assert (
+            SCRIPT.resolve_index_name({"PINECONE_INDEX_NAME": "live-index"})
+            == "live-index"
+        )
+
+
+class TestMainApplyGuard:
+    def test_apply_without_backup_path_fails(self, monkeypatch, capsys):
+        monkeypatch.setattr(SCRIPT, "load_env", lambda _site: None)
+        monkeypatch.setenv("PINECONE_INDEX_NAME", "live-index")
+        monkeypatch.setenv("PINECONE_API_KEY", "test-key")
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["delete_ananda_org_listing_vectors.py", "--site", "ananda", "--apply"],
+        )
+
+        with pytest.raises(SystemExit, match="--backup-path"):
+            SCRIPT.main()
+
+        output = capsys.readouterr().out
+        assert "Index: live-index" in output
+
+
 class TestBackupPath:
     def test_refuses_path_inside_repo(self, tmp_path):
         inside = tmp_path / "repo" / "backup.json"

@@ -63,7 +63,7 @@ uv run python bin/strip_pinecone_byline_dates.py --site ananda-public --apply
 Finds `ananda.org` listing-page vectors with the shared `is_listing_page` rule. Author state does not matter. Dry-run
 is the default. Dry-run prints vector counts and distinct URL counts, split into blank, teaser, and missing author.
 `--backup-path` writes IDs and metadata to a file outside the repository. The file does not include chunk text.
-`--apply` deletes the matched vectors. `--apply` refuses to run when a completed backup file is missing.
+`--apply` deletes the matched vectors. `--apply` refuses to run when `--backup-path` is missing or the backup file is incomplete. The script requires `PINECONE_INDEX_NAME` and does not fall back to `PINECONE_INGEST_INDEX_NAME`. It prints the target index name before any `--apply` action.
 
 ```bash
 uv run python bin/delete_ananda_org_listing_vectors.py --site ananda

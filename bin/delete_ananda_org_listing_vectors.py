@@ -12,8 +12,12 @@ counts. The counts split into blank, teaser, and missing author.
 --backup-path writes matched IDs and metadata to a local file. The file
 must sit outside the repository. The file does not include chunk text.
 
---apply deletes the matched vectors. --apply refuses to run when a
-completed backup file is missing.
+--apply deletes the matched vectors. --apply refuses to run when
+--backup-path is missing or the backup file is incomplete.
+
+The script requires PINECONE_INDEX_NAME. It does not fall back to
+PINECONE_INGEST_INDEX_NAME. It prints the target index name before any
+--apply action.
 
 Usage (from repo root):
     uv run python bin/delete_ananda_org_listing_vectors.py --site ananda
@@ -281,11 +285,7 @@ def delete_matches(index, matches: list[ListingMatch]) -> int:
 def resolve_index_name(env: dict[str, str]) -> str:
     name = (env.get("PINECONE_INDEX_NAME") or "").strip()
     if not name:
-        name = (env.get("PINECONE_INGEST_INDEX_NAME") or "").strip()
-    if not name:
-        raise SystemExit(
-            "PINECONE_INDEX_NAME or PINECONE_INGEST_INDEX_NAME is not set."
-        )
+        raise SystemExit("PINECONE_INDEX_NAME is not set.")
     return name
 
 
@@ -329,13 +329,18 @@ def main() -> None:
     if not api_key:
         raise SystemExit("PINECONE_API_KEY is not set.")
 
-    backup_path = Path(args.backup_path).expanduser() if args.backup_path else None
-    if backup_path is not None:
-        assert_backup_path_outside_repo(backup_path)
-
     print(f"Index: {index_name}", flush=True)
     print(f"Library: {args.library}", flush=True)
     print(f"ID prefix: {args.prefix}", flush=True)
+
+    backup_path = Path(args.backup_path).expanduser() if args.backup_path else None
+    if args.apply and backup_path is None:
+        raise SystemExit(
+            "--apply refuses to run without --backup-path. "
+            "Run a dry-run with --backup-path first."
+        )
+    if backup_path is not None:
+        assert_backup_path_outside_repo(backup_path)
 
     index = Pinecone(api_key=api_key).Index(index_name)
     print("\nScanning for listing-page vectors...", flush=True)
@@ -352,11 +357,6 @@ def main() -> None:
         )
         return
 
-    if backup_path is None:
-        raise SystemExit(
-            "--apply refuses to run without --backup-path. "
-            "Run a dry-run with --backup-path first."
-        )
     if not backup_path.is_file():
         raise SystemExit(
             f"--apply refuses to run. Backup file does not exist: {backup_path}"
@@ -364,6 +364,7 @@ def main() -> None:
     payload = load_backup(backup_path)
     assert_backup_covers_matches(payload, scan.matches)
 
+    print(f"\nApplying deletes on index: {index_name}", flush=True)
     deleted = delete_matches(index, scan.matches)
     print(f"\nDeleted {deleted:,} listing-page vectors on {index_name}.")
 
