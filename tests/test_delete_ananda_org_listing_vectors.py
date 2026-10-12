@@ -139,6 +139,33 @@ class TestCollectListingVectors:
         assert scan.vector_count == 3
         assert states == {"blank", "teaser", "missing"}
         assert "text||ananda.org||web||article||0" not in ids
+        index.fetch.assert_called_with(
+            ids=[
+                "text||ananda.org||web||list-blank||0",
+                "text||ananda.org||web||list-teaser||0",
+                "text||ananda.org||web||list-missing||0",
+                "text||ananda.org||web||article||0",
+            ],
+            include_values=False,
+        )
+
+
+class TestFetchMetadataOnly:
+    def test_requests_metadata_without_values(self):
+        index = Mock()
+        index.fetch.return_value = SimpleNamespace(vectors={})
+        SCRIPT.fetch_metadata_only(index, ["id-1"])
+        index.fetch.assert_called_once_with(ids=["id-1"], include_values=False)
+
+    def test_falls_back_when_include_values_is_unsupported(self):
+        index = Mock()
+        index.fetch.side_effect = [
+            TypeError("include_values"),
+            SimpleNamespace(vectors={}),
+        ]
+        SCRIPT.fetch_metadata_only(index, ["id-1"])
+        assert index.fetch.call_count == 2
+        assert index.fetch.call_args_list[1].kwargs == {"ids": ["id-1"]}
 
 
 class TestBackupPath:

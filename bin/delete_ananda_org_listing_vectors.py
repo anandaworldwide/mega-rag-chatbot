@@ -40,11 +40,11 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from pinecone import Pinecone
+from pinecone import Pinecone  # noqa: E402
 
-from data_ingestion.crawler.listing_page import is_listing_page
-from data_ingestion.utils.author_ingest_guard import is_blank_author
-from pyutil.env_utils import load_env
+from data_ingestion.crawler.listing_page import is_listing_page  # noqa: E402
+from data_ingestion.utils.author_ingest_guard import is_blank_author  # noqa: E402
+from pyutil.env_utils import load_env  # noqa: E402
 
 
 def _assert_project_python() -> None:
@@ -193,7 +193,15 @@ def write_backup(path: Path, scan: ListingScan, index_name: str, library: str) -
         ],
     }
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    print(f"Wrote backup: {path} ({scan.vector_count:,} vectors)")
+    print(f"Wrote backup: {path} ({scan.vector_count:,} vectors)", flush=True)
+
+
+def fetch_metadata_only(index, ids: list[str]):
+    """Fetch metadata without vector values or a hard dependency on that flag."""
+    try:
+        return index.fetch(ids=ids, include_values=False)
+    except TypeError:
+        return index.fetch(ids=ids)
 
 
 def collect_listing_vectors(index, prefix: str, library: str) -> ListingScan:
@@ -204,11 +212,13 @@ def collect_listing_vectors(index, prefix: str, library: str) -> ListingScan:
     def consume(ids: list[str]) -> None:
         if not ids:
             return
-        response = index.fetch(ids=ids)
+        response = fetch_metadata_only(index, ids)
         vectors = getattr(response, "vectors", None) or {}
         scan.scanned += len(ids)
         for vector_id, vector in vectors.items():
-            metadata = dict(getattr(vector, "metadata", None) or {})
+            metadata = metadata_without_text(
+                dict(getattr(vector, "metadata", None) or {})
+            )
             if metadata.get("library") != library:
                 continue
             title = _metadata_text(metadata, "title")
@@ -224,10 +234,11 @@ def collect_listing_vectors(index, prefix: str, library: str) -> ListingScan:
                     metadata=metadata,
                 )
             )
-        if scan.scanned and scan.scanned % 2000 == 0:
+        if scan.scanned and scan.scanned % 500 == 0:
             print(
                 f"  scanned {scan.scanned:,} vectors, "
-                f"{scan.vector_count:,} listing matches"
+                f"{scan.vector_count:,} listing matches",
+                flush=True,
             )
 
     for id_batch in index.list(prefix=prefix):
@@ -244,15 +255,16 @@ def collect_listing_vectors(index, prefix: str, library: str) -> ListingScan:
 
 def print_scan_report(scan: ListingScan) -> None:
     breakdown = scan.counts_by_author_state()
-    print("\nListing-page vectors (is_listing_page, any author state):")
-    print(f"  scanned:         {scan.scanned:,}")
-    print(f"  matched vectors: {scan.vector_count:,}")
-    print(f"  distinct URLs:   {len(scan.urls):,}")
-    print("  by author state:")
+    print("\nListing-page vectors (is_listing_page, any author state):", flush=True)
+    print(f"  scanned:         {scan.scanned:,}", flush=True)
+    print(f"  matched vectors: {scan.vector_count:,}", flush=True)
+    print(f"  distinct URLs:   {len(scan.urls):,}", flush=True)
+    print("  by author state:", flush=True)
     for state in AUTHOR_STATES:
         print(
             f"    {state:<8} vectors={breakdown[state]['vectors']:,}  "
-            f"urls={breakdown[state]['urls']:,}"
+            f"urls={breakdown[state]['urls']:,}",
+            flush=True,
         )
 
 
@@ -309,7 +321,8 @@ def main() -> None:
         if not os.getenv("PINECONE_API_KEY"):
             raise
         print(
-            f"No .env.{args.site} file found. Using process environment variables."
+            f"No .env.{args.site} file found. Using process environment variables.",
+            flush=True,
         )
     index_name = resolve_index_name(dict(os.environ))
     api_key = os.getenv("PINECONE_API_KEY")
@@ -320,12 +333,12 @@ def main() -> None:
     if backup_path is not None:
         assert_backup_path_outside_repo(backup_path)
 
-    print(f"Index: {index_name}")
-    print(f"Library: {args.library}")
-    print(f"ID prefix: {args.prefix}")
+    print(f"Index: {index_name}", flush=True)
+    print(f"Library: {args.library}", flush=True)
+    print(f"ID prefix: {args.prefix}", flush=True)
 
     index = Pinecone(api_key=api_key).Index(index_name)
-    print("\nScanning for listing-page vectors...")
+    print("\nScanning for listing-page vectors...", flush=True)
     scan = collect_listing_vectors(index, args.prefix, args.library)
     print_scan_report(scan)
 
@@ -333,7 +346,10 @@ def main() -> None:
         write_backup(backup_path, scan, index_name, args.library)
 
     if not args.apply:
-        print("\nDry run. No vectors were deleted. Re-run with --apply to delete.")
+        print(
+            "\nDry run. No vectors were deleted. Re-run with --apply to delete.",
+            flush=True,
+        )
         return
 
     if backup_path is None:
