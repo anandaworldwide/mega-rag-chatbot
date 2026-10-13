@@ -657,6 +657,9 @@ if (siteConfig?.requireLogin) {
     questions ("In this source...") can score below the floor even when the top chunk is the right chapter.
   - Geo tools and retrieval tools may both be bound; Anthropic A/B holdout arms skip retrieval tools (same
     streaming/tool constraints as geo).
+  - Drafting and translation requests (`isDraftingOrTranslationQuery` in `draftingIntentDetector.ts`) skip the
+    library lecture: no named-author filter, no geo path, no retrieval tools, no Pinecone search, and no
+    empty-retrieval preamble. Teaching questions still retrieve as before.
 - **Data Ingestion (`data_ingestion/`):**
   - A collection of Python scripts responsible for populating the Pinecone vector database.
   - `transcribe_and_ingest_media.py`: Main script orchestrating the process for various media types.
@@ -741,6 +744,7 @@ embeddings.
 
 - **Initialization:** `initializeLocationIntentDetector(siteId)` called during chain setup
 - **Detection:** `hasLocationIntentAsync(query)` replaces regex-based detection
+- **Drafting suppression:** Write, rewrite, and translate requests return false so the geo path does not bind
 - **Tool Binding:** Geo-awareness tools conditionally bound to OpenAI model based on semantic detection
 - **Multilingual Support:** Works across English, Spanish, German, French, Italian, Portuguese, and Hindi
 

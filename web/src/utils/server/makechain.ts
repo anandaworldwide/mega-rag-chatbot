@@ -93,6 +93,7 @@ import { filterSuggestionsForDiversity } from "./suggestionDiversity";
 import { AuthorScopeHint, AuthorScopeMode } from "./authorConstants";
 import { getAuthorScopeIndex } from "./authorIndex";
 import { getAuthorMatchQuestion, resolveAuthorScope } from "./authorScopeResolver";
+import { isDraftingOrTranslationQuery } from "./draftingIntentDetector";
 import {
   buildLibraryFilter,
   buildMasterSwamiFilter,
@@ -545,6 +546,7 @@ export const makeChain = async (
   let answerModel: BaseLanguageModel; // Renamed for clarity
   let rephraseModel: BaseLanguageModel; // New model for rephrasing
   let isLocationQuery = false; // Flag to track if this is a location query
+  const isDraftingQuery = isDraftingOrTranslationQuery(originalQuestion);
   let capturedAuthorScopeHint: AuthorScopeHint = "default";
   // Current user utterance captured before rephrase, so named-author detection cannot
   // hard-filter on Master/Swami names the rewrite injected from prior turns.
@@ -584,7 +586,7 @@ export const makeChain = async (
     let shouldUseGeoTools = false;
     let locationIntentLatency = 0;
 
-    if (originalQuestion && siteConfig?.enableGeoAwareness && geoTools.length > 0) {
+    if (!isDraftingQuery && originalQuestion && siteConfig?.enableGeoAwareness && geoTools.length > 0) {
       const intentDetectionStart = Date.now();
       try {
         shouldUseGeoTools = await hasLocationIntentAsync(originalQuestion);
@@ -640,7 +642,7 @@ export const makeChain = async (
 
     // Retrieval tools: bound for non-Anthropic arms when enabled (Fable holdout keeps today's behavior).
     // Guidance is always answer-first; tools still bind for intentional expansion.
-    const bindRetrievalTools = shouldBindRetrievalTools(siteConfig, model, isAnthropicModel);
+    const bindRetrievalTools = !isDraftingQuery && shouldBindRetrievalTools(siteConfig, model, isAnthropicModel);
 
     const toolsToBind: any[] = [];
     if (shouldUseGeoTools && geoTools.length > 0 && request) {
@@ -793,7 +795,8 @@ Error details: ${errorString}`,
     /\${(context|chat_history|question|activeFiltersSummary)}/g,
     (match, key) => `{${key}}`
   );
-  const includeRetrievalToolGuidance = shouldBindRetrievalTools(siteConfig, model, isAnthropicModel);
+  const includeRetrievalToolGuidance =
+    !isDraftingQuery && shouldBindRetrievalTools(siteConfig, model, isAnthropicModel);
   const retrievalToolGuidance = includeRetrievalToolGuidance ? getRetrievalToolGuidance() : "";
 
   type PromptDataTypeLike = {
@@ -852,9 +855,9 @@ Error details: ${errorString}`,
       const retrievalStart = Date.now();
       retrievalReturnedNoDocuments = false;
       // Early return for location queries - skip Pinecone entirely for performance
-      if (isLocationQuery) {
+      if (isLocationQuery || isDraftingQuery) {
         if (sendData) {
-          sendData({ sourceDocs: [], isLocationQuery: true });
+          sendData(isLocationQuery ? { sourceDocs: [], isLocationQuery: true } : { sourceDocs: [] });
         }
         if (timingMetrics) {
           timingMetrics.retrievalMs = Date.now() - retrievalStart;
@@ -892,6 +895,7 @@ Error details: ${errorString}`,
           collectionMode,
           knownAuthors: authorScopeIndex.canonicalAuthors,
           generatedAliasIndex: authorScopeIndex.aliasIndex,
+          skipNamedAuthor: isDraftingQuery,
         });
 
         if (scopeDescriptor.kind === "named") {
@@ -1242,7 +1246,8 @@ Error details: ${errorString}`,
       question: input.originalInput.question,
       activeFiltersSummary: buildActiveFiltersSummaryForGeneration(
         activeFilterPromptData,
-        retrievalReturnedNoDocuments
+        retrievalReturnedNoDocuments,
+        { isDraftingQuery }
       ),
       documents: input.retrievalOutput.documents, // Pass documents along
     }),
@@ -1580,6 +1585,7 @@ export async function setupAndExecuteLanguageModelChain(
   const RETRY_DELAY_MS = process.env.NODE_ENV === "test" ? 10 : 1000;
   const MAX_RETRIES = 3;
   const streamingDeadline = createStreamingDeadlineGuard(CHAIN_STREAMING_IDLE_TIMEOUT_MS);
+  const isDraftingQuery = isDraftingOrTranslationQuery(sanitizedQuestion);
 
   let retryCount = 0;
   let lastError: Error | null = null;
@@ -1791,7 +1797,8 @@ export async function setupAndExecuteLanguageModelChain(
 
       // Handle tool calls with proper loop (OpenAI tool_calls + Anthropic tool_use / JSON fallback)
       let pendingToolCalls = extractGeoToolCalls(result.answer);
-      const retrievalToolsEnabled = shouldBindRetrievalTools(siteConfig, modelName, isAnthropicModel);
+      const retrievalToolsEnabled =
+        !isDraftingQuery && shouldBindRetrievalTools(siteConfig, modelName, isAnthropicModel);
       // Plain-text "I'll search…" with no tool_calls never entered this loop, so the leak became the answer.
       const firstPassIsSearchNarration =
         retrievalToolsEnabled && isIncompleteRetrievalAnswer(fullResponse);
@@ -1879,7 +1886,8 @@ export async function setupAndExecuteLanguageModelChain(
           const siteTemplate = await getFullTemplate(siteConfig?.siteId || "ananda-public");
           const activeFiltersSummary = buildActiveFiltersSummaryForGeneration(
             retrievalActiveFilterPromptData,
-            (result.sourceDocuments?.length ?? 0) === 0
+            (result.sourceDocuments?.length ?? 0) === 0,
+            { isDraftingQuery }
           );
           const reinvokeMessages = buildRetrievalReinvokeMessages({
             siteTemplate,
@@ -2107,7 +2115,8 @@ export async function setupAndExecuteLanguageModelChain(
             if (isRetrievalRound) {
               const activeFiltersSummary = buildActiveFiltersSummaryForGeneration(
                 retrievalActiveFilterPromptData,
-                (result.sourceDocuments?.length ?? 0) === 0
+                (result.sourceDocuments?.length ?? 0) === 0,
+                { isDraftingQuery }
               );
               const reinvoke = buildRetrievalReinvokeMessages({
                 siteTemplate,
