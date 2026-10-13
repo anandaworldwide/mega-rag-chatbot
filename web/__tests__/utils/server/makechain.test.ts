@@ -645,6 +645,35 @@ describe("makeChain", () => {
     );
   });
 
+  test("should keep quoted spans in CONDENSE_TEMPLATE instead of quote requests", async () => {
+    const sendData = jest.fn();
+    const resolveDocs = jest.fn();
+
+    await makeChain(
+      mockRetriever,
+      { model: "gpt-4o-mini", temperature: 0.7 },
+      2,
+      undefined,
+      sendData,
+      resolveDocs,
+      undefined,
+      false,
+      [],
+      undefined,
+      mockSiteConfig
+    );
+
+    expect(ChatPromptTemplate.fromTemplate).toHaveBeenCalledWith(
+      expect.stringContaining("SPECIAL HANDLING FOR QUOTED SPANS")
+    );
+    expect(ChatPromptTemplate.fromTemplate).toHaveBeenCalledWith(
+      expect.stringContaining("quoted text alone")
+    );
+    expect(ChatPromptTemplate.fromTemplate).toHaveBeenCalledWith(
+      expect.stringContaining("Do not replace the question with a generic request")
+    );
+  });
+
   test("should respect privacy mode and not log questions when temporarySession is true", async () => {
     // Test that the function accepts the temporarySession parameter and executes correctly
     const sendData = jest.fn();
