@@ -46,7 +46,7 @@ Default: answer from the given sources now. Do not call tools for simple definit
 
 Only call a tool when one of these is clearly true:
 - get_adjacent_chunks: a passage you need to quote cuts off mid-sentence/mid-thought; pass that source \`id\` and prefer ±1.
-- search_more_sources: sources are clearly off-topic, empty of needed quotes, or too thin for a multi-part deliverable the user asked for (class/talk outline, research survey, quote pack, etc.). Pass a better query (same author/library/media filters apply). If the user asked for a complete list of items, search for a source that lists them all (for example a table of contents, an index, or an overview) and set complete_list=true.
+- search_more_sources: sources are clearly off-topic, empty of needed quotes, or too thin for a multi-part deliverable the user asked for (class/talk outline, research survey, quote pack, etc.). Pass a better query (same author/library/media filters apply). If the user included a quoted phrase, pass that quoted phrase as the query — not a request such as "more direct quotes from [authors]". If the user asked for a complete list of items, search for a source that lists them all (for example a table of contents, an index, or an overview) and set complete_list=true.
 
 Do not call tools "just in case," to pad depth, or to explore neighboring numbered points that are off-topic.
 At most ${MAX_RETRIEVAL_TOOL_ITERATIONS} tool rounds and about ${MAX_ADDED_RETRIEVAL_SOURCES} added sources.`;
@@ -68,6 +68,7 @@ The JSON sources above already include every document returned by your retrieval
 Answer the user's request completely now from those sources:
 - If they asked for a class/talk outline or other multi-part deliverable, produce the full structured answer (all required sections), not a one-liner or partial draft.
 - When they ask for quotations, give exact lines with citations.
+- If they asked for an exact quoted phrase and it is not in the sources, say so in one sentence. Do not recite a neighboring story.
 - If sources are thin, briefly note what is missing, then still finish the best complete answer you can from what you have.
 - If they asked for a complete list and the sources lack a full list, list every item you can cite and say which ones may be missing.
 - Never end after only saying you will search or gather more.`;
@@ -405,7 +406,8 @@ export const RETRIEVAL_TOOL_DEFINITIONS = [
         properties: {
           query: {
             type: "string",
-            description: "Improved search query for retrieving additional sources.",
+            description:
+              "Improved search query for retrieving additional sources. If the user included a quoted phrase, pass that phrase alone — not a request for quotes.",
           },
           k: {
             type: "integer",
