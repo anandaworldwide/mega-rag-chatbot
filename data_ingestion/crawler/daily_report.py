@@ -25,9 +25,9 @@ from zoneinfo import ZoneInfo
 
 # Import from crawler submodules (support both module and direct execution)
 try:
-    from .config import _is_running_in_cloud
+    from .config import crawler_log_format
 except ImportError:
-    from config import _is_running_in_cloud  # type: ignore[import-not-found]
+    from config import crawler_log_format  # type: ignore[import-not-found]
 
 # Import email utilities
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -451,9 +451,7 @@ def main():
     log_level = logging.DEBUG if args.debug else logging.INFO
     logging.basicConfig(
         level=log_level,
-        format="%(asctime)s - %(levelname)s - %(message)s"
-        if not _is_running_in_cloud()
-        else "%(levelname)s - %(message)s",
+        format=crawler_log_format(),
         force=True,
     )
 
