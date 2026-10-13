@@ -559,9 +559,10 @@ except ImportError:
 - `Author ranking: Automatic` is a score boost, not a hard filter. Never describe it as a focused-author filter or tell
   the user to turn it off. Empty retrieval under Auto with no user-set filters: say nothing matched closely enough.
 - `Query-inferred author focus` is a hard `$eq` because the **current question** named an author — not a UI control.
-  Named-author detection must use the current user utterance, not the history-rewritten retrieval query. Empty retrieval:
-  say you searched that author's material because the question named them; they can name another author or ask to search
-  all authors. Do not tell them to turn off a focused-author filter.
+  Named-author detection must use the current user utterance, not the history-rewritten retrieval query. On zero usable
+  hits, search once more without that author `$eq`. Do not carry the author into `search_more_sources` or the next turn
+  unless the new question names them again. If the retry is also empty, do not tell the user to turn off a focused-author
+  filter.
 - Retrieval-tool search narration ("I'll pull richer sources…", "I don't yet have passages so I'm searching…",
   "Pulling nearby ceremony text…") is not an answer. Detect it, send `retrieving_more_sources` (clears streamed leak),
   and force an answer-only turn even when the model never emitted a tool_call. Adjacent-fetch phrasing counts even
