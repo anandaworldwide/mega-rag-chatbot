@@ -173,6 +173,10 @@ function hasHistoricalPlaceQuestionPatterns(query: string): boolean {
     /\bwhen did\b[\s\S]*\b(move(?:\s+to)?|settle(?:\s+in|\s+on)?|come(?:\s+to)?|go(?:\s+to)?|arrive(?:\s+in|\s+at)?|establish(?:\s+in)?|found(?:\s+in)?)\b/i,
     /\bwhat made\b[\s\S]*\b(choose|select|pick|decide(?:\s+on|\s+to)?)\b/i,
     /\bwhy\b[\s\S]*\b(choose|select|pick|decide(?:\s+on)?)\b[\s\S]*\b(as|for)\b/i,
+    // Story lookups about named places or wartime events are library searches, not center lookups.
+    /\b(atomic bomb|atomic bombing|hiroshima|nagasaki)\b/i,
+    /\b(monastery|cathedral|convent|friary)\b[\s\S]{0,80}\b(saved|survived|spared|protected)\b/i,
+    /\b(saved|survived|spared|protected)\b[\s\S]{0,80}\b(monastery|cathedral|convent|friary)\b/i,
   ];
 
   return historicalPatterns.some((pattern) => pattern.test(query));
