@@ -3378,7 +3378,10 @@ the client; end-of-loop safety net covers the same incomplete shapes. Treat geru
 search-narration openers (`Seeking`, `Expanding`, `Trying`, `Searching`, `Pulling`) the same as
 `I'll` / `I don't` — the model rotates verbs. Also catch adjacent-fetch objects
 (`nearby ceremony text`) that never say source/passage/chunk; do not use a bare `nearby`
-keyword (geo center narration).
+keyword (geo center narration). Treat any reply that names `search_more_sources` or
+`get_adjacent_chunks` as incomplete, including TypeScript calls, fenced tool payloads, and
+raw `{query, k}` JSON. Buffer the answer-only recovery stream so a second leak never
+reaches the client.
 
 ### Mistake: Parent-parser --apply rejected after a subcommand
 

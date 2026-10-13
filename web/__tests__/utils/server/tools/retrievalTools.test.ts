@@ -418,6 +418,51 @@ describe("retrievalTools", () => {
       expect(isIncompleteRetrievalAnswer(leaked)).toBe(true);
     });
 
+    it("treats a TypeScript search_more_sources call as incomplete", () => {
+      const leaked = `search_more_sources({
+  query: "discipleship vows commitment",
+  k: 8
+})`;
+      expect(isIncompleteRetrievalAnswer(leaked)).toBe(true);
+    });
+
+    it("treats raw search-tool argument JSON as incomplete", () => {
+      expect(
+        isIncompleteRetrievalAnswer('{"query": "Was hat Meister ueber Singen gesagt?", "k": 8}')
+      ).toBe(true);
+    });
+
+    it("treats a fenced TypeScript search_more_sources payload as incomplete", () => {
+      const leaked = `\`\`\`typescript
+search_more_sources({ query: "discipleship vows", k: 4 })
+\`\`\``;
+      expect(isIncompleteRetrievalAnswer(leaked)).toBe(true);
+    });
+
+    it("treats a long reply that still names search_more_sources as incomplete", () => {
+      const leaked = [
+        "Here is a draft outline for a 90-minute class on living with devotion.",
+        "I still need tighter quotes and a short story, so I will call",
+        'search_more_sources with query "discipleship vows" and k 8 before I finish.',
+        "After that I can add opening, teaching points, discussion, and closing.",
+      ].join(" ");
+      expect(leaked.length).toBeGreaterThan(80);
+      expect(isIncompleteRetrievalAnswer(leaked)).toBe(true);
+    });
+
+    it("treats a TypeScript get_adjacent_chunks call as incomplete", () => {
+      expect(
+        isIncompleteRetrievalAnswer('get_adjacent_chunks({ sourceId: "text||lib||pdf||title||author||hash||0" })')
+      ).toBe(true);
+    });
+
+    it("treats a fenced arguments-only tool payload as incomplete", () => {
+      const leaked = `\`\`\`json
+{"arguments": {"query": "Was hat Meister ueber Singen gesagt?", "k": 8}}
+\`\`\``;
+      expect(isIncompleteRetrievalAnswer(leaked)).toBe(true);
+    });
+
     it("treats short search-narration trail-offs as incomplete", () => {
       expect(
         isIncompleteRetrievalAnswer(
@@ -709,6 +754,18 @@ Short quotation and seated quiet. Sources include Crystal Clarity commentaries.
         afterRetrievalAttempt: false,
       });
       expect(result).toEqual({ text: answer, usedFallback: false });
+    });
+
+    it("replaces a leaked TypeScript tool call after a retrieval attempt", () => {
+      const result = finalizeRetrievalUserAnswer({
+        answerText: 'search_more_sources({ query: "discipleship vows", k: 8 })',
+        afterRetrievalAttempt: true,
+      });
+      expect(result).toEqual({
+        text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+        usedFallback: true,
+        reason: "incomplete",
+      });
     });
   });
 });

@@ -122,6 +122,7 @@ import {
   executeRetrievalTool,
   MAX_ADDED_RETRIEVAL_SOURCES,
   RETRIEVAL_FETCH_FAILED_USER_MESSAGE,
+  RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
 } from "@/utils/server/tools/retrievalTools";
 import type { SiteConfig } from "@/types/siteConfig";
 import type { StreamingResponseData } from "@/types/StreamingResponseData";
@@ -354,5 +355,78 @@ describe("makechain retrieval tool loop", () => {
       { query: "Autobiography of a Yogi stories", k: 8 },
       expect.objectContaining({ remainingSourceBudget: MAX_ADDED_RETRIEVAL_SOURCES })
     );
+  });
+
+  it("answers from existing sources when the first pass is a TypeScript tool call", async () => {
+    const leakedCall = `search_more_sources({
+  query: "discipleship vows",
+  k: 8
+})`;
+    const extraDocs = [1, 2, 3].map(
+      (index) =>
+        new Document({
+          pageContent: `Library source ${index} already retrieved for the vows question.`,
+          metadata: { title: "Discipleship notes", library: "Ananda Library" },
+          id: `text||Ananda Library||pdf||Discipleship||Author||hash1||${index}`,
+        })
+    );
+    mockFirstPassInvoke = jest.fn().mockImplementation(async (_input, options) => {
+      const onToken = options?.callbacks?.[0]?.handleLLMNewToken;
+      if (typeof onToken === "function") {
+        onToken(leakedCall);
+      }
+      return {
+        answer: { content: leakedCall },
+        sourceDocuments: [initialDoc, ...extraDocs],
+        question: "What are the discipleship vows?",
+      };
+    });
+
+    const { result, events } = await runLoop("What are the discipleship vows?");
+
+    expect(executeRetrievalTool).not.toHaveBeenCalled();
+    expect(events.some((event) => event.status === "retrieving_more_sources")).toBe(true);
+    expect(collectedAnswer(events)).toBe(FINAL_ANSWER);
+    expect(result.fullResponse).toBe(FINAL_ANSWER);
+    expect(collectedAnswer(events)).not.toContain("search_more_sources");
+  });
+
+  it("answers from existing sources when the first pass is raw tool-argument JSON", async () => {
+    const leakedJson = '{"query": "Was hat Meister ueber Singen gesagt?", "k": 8}';
+    mockFirstPassInvoke = jest.fn().mockImplementation(async (_input, options) => {
+      const onToken = options?.callbacks?.[0]?.handleLLMNewToken;
+      if (typeof onToken === "function") {
+        onToken(leakedJson);
+      }
+      return {
+        answer: { content: leakedJson },
+        sourceDocuments: [initialDoc],
+        question: "Was hat Meister ueber Singen gesagt?",
+      };
+    });
+
+    const { result, events } = await runLoop("Was hat Meister ueber Singen gesagt?");
+
+    expect(executeRetrievalTool).not.toHaveBeenCalled();
+    expect(collectedAnswer(events)).toBe(FINAL_ANSWER);
+    expect(result.fullResponse).toBe(FINAL_ANSWER);
+    expect(collectedAnswer(events)).not.toContain('"query"');
+  });
+
+  it("replaces a leaked recovery tool call with the fallback note", async () => {
+    mockFollowUpContent = 'search_more_sources({ query: "discipleship vows", k: 8 })';
+    (executeRetrievalTool as jest.Mock).mockResolvedValue({
+      ok: true,
+      documents: [fetchedDoc],
+      content: { documents: [{ content: fetchedDoc.pageContent }], message: "Retrieved 1 additional source(s)." },
+    });
+
+    const { result, events } = await runLoop();
+    const tokensAfterLastStatus = collectedAnswer(events);
+
+    expect(tokensAfterLastStatus).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(tokensAfterLastStatus).not.toContain("search_more_sources");
+    expect(events.filter((event) => event.token?.includes("search_more_sources"))).toHaveLength(0);
   });
 });
