@@ -205,6 +205,7 @@ function hasLocationKeywordPatterns(query: string): boolean {
     "us", // United States - "tell us", "for us"
     "co", // Colombia - "co-worker", "co-author", "co-founder" (hyphen is word boundary in regex)
     "la", // Laos - music note "la", Spanish article, "la la land"
+    "il", // Israel - Italian definite article "il" ("Che dice il Maestro...")
     "pa", // Panama - informal "pa" (father)
     "ma", // Morocco - informal "ma" (mother)
     "id", // Indonesia - "user id", "id card", Freudian "id"

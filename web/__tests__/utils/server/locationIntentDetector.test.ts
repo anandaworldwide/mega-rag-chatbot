@@ -268,6 +268,19 @@ describe("Location Intent Detector", () => {
       expect(await hasLocationIntentAsync("Find a meditation group near Los Angeles")).toBe(true);
       expect(await hasLocationIntentAsync("How do I get to the Los Angeles center")).toBe(true);
     });
+
+    it("should NOT treat Italian article 'il' as the Israel country code", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("Che dice il Maestro sugli angeli?")).toBe(false);
+      expect(await hasLocationIntentAsync("What does the Master say about angels?")).toBe(false);
+    });
+
+    it("should still match Israel center lookups without the IL country code", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("Is there an Ananda center in Israel?")).toBe(true);
+    });
   });
 
   describe("cache behavior", () => {

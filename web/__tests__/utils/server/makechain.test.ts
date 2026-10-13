@@ -249,7 +249,25 @@ describe("makeChain", () => {
     return matches[0][0][1] as (input: {
       retrievalOutput: { combinedContent: string; documents: Document[] };
       originalInput: { question: string; chat_history: string };
-    }) => { activeFiltersSummary: string };
+    }) => { activeFiltersSummary: string; question: string };
+  }
+
+  function getConversationalQuestionMapperFromMakeChain() {
+    const fromMock = jest.requireMock("@langchain/core/runnables").RunnableSequence.from as jest.Mock;
+    const matches = fromMock.mock.calls.filter(
+      (call) =>
+        Array.isArray(call[0]) &&
+        typeof call[0][0] === "object" &&
+        call[0][0] !== null &&
+        typeof call[0][0].question === "function"
+    );
+    if (matches.length === 0) {
+      throw new Error("conversational question mapper not found in RunnableSequence.from calls");
+    }
+    return matches[matches.length - 1][0][0].question as (input: {
+      question: string;
+      chat_history: unknown[];
+    }) => Promise<string>;
   }
 
   // Create mock retriever
@@ -1465,6 +1483,89 @@ describe("makeChain", () => {
     );
 
     expect(chain).toBeDefined();
+  });
+
+  test("restates non-English first questions in English for retrieval and keeps the original for the answer", async () => {
+    const italianQuestion = "Che dice il Maestro sugli angeli?";
+    const englishRestatement = "What does the Master say about angels?";
+
+    (ChatOpenAI as unknown as jest.Mock).mockReset();
+    (ChatOpenAI as unknown as jest.Mock).mockImplementation(() => ({
+      invoke: jest.fn().mockResolvedValue({ content: englishRestatement }),
+      stream: jest.fn().mockImplementation(async function* () {
+        yield { text: "token" };
+      }),
+      bind: jest.fn().mockReturnThis(),
+      bindTools: jest.fn().mockReturnThis(),
+    }));
+
+    const sendData = jest.fn();
+    const resolveDocs = jest.fn();
+    const geoEnabledSiteConfig = {
+      ...mockSiteConfig,
+      enableGeoAwareness: true,
+    };
+
+    await makeChain(
+      mockRetriever,
+      { model: "gpt-4o-mini", temperature: 0.7 },
+      2,
+      undefined,
+      sendData,
+      resolveDocs,
+      undefined,
+      false,
+      [{ name: "get_user_location", description: "Get user location", parameters: {} }],
+      { headers: new Map([["x-forwarded-for", "192.168.1.1"]]) } as any,
+      geoEnabledSiteConfig,
+      italianQuestion
+    );
+
+    const restated = await getConversationalQuestionMapperFromMakeChain()({
+      question: italianQuestion,
+      chat_history: [],
+    });
+    expect(restated).toBe(englishRestatement);
+
+    const mapped = getAnswerChainMappingFromMakeChain()({
+      retrievalOutput: { combinedContent: "", documents: [] },
+      originalInput: { question: englishRestatement, chat_history: "" },
+    });
+    expect(mapped.question).toBe(italianQuestion);
+    expect(sendData).not.toHaveBeenCalledWith(expect.objectContaining({ isLocationQuery: true }));
+  });
+
+  test("does not call the restatement model for an English first question", async () => {
+    const invoke = jest.fn().mockResolvedValue({ content: "unused" });
+    (ChatOpenAI as unknown as jest.Mock).mockReset();
+    (ChatOpenAI as unknown as jest.Mock).mockImplementation(() => ({
+      invoke,
+      stream: jest.fn(),
+      bind: jest.fn().mockReturnThis(),
+      bindTools: jest.fn().mockReturnThis(),
+    }));
+
+    await makeChain(
+      mockRetriever,
+      { model: "gpt-4o-mini", temperature: 0.7 },
+      2,
+      undefined,
+      jest.fn(),
+      jest.fn(),
+      undefined,
+      false,
+      [],
+      undefined,
+      mockSiteConfig,
+      "What is meditation?"
+    );
+
+    expect(invoke).not.toHaveBeenCalled();
+    const restated = await getConversationalQuestionMapperFromMakeChain()({
+      question: "What is meditation?",
+      chat_history: [],
+    });
+    expect(restated).toBe("What is meditation?");
   });
 
   test("should use fast OpenAI model with streaming for Anthropic geo tool path", async () => {
