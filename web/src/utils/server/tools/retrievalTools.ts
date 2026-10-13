@@ -67,13 +67,13 @@ The JSON sources above already include every document returned by your retrieval
 
 Answer the user's request completely now from those sources:
 - If they asked for a class/talk outline or other multi-part deliverable, produce the full structured answer (all required sections), not a one-liner or partial draft.
-- When they ask for quotations, give exact lines with citations.
+- When they ask for quotations, copy a span from retrieved chunk content or transcript text, name the work, and use quotation marks only for that span. Titles, subtitles, and series lines are not quotations.
 - If sources are thin, briefly note what is missing, then still finish the best complete answer you can from what you have.
 - If they asked for a complete list and the sources lack a full list, list every item you can cite and say which ones may be missing.
 - Never end after only saying you will search or gather more.`;
 
 export const RETRIEVAL_POST_TOOL_RETRY_GUIDANCE = `## After retrieval tools
-The JSON sources above include any documents returned so far. If they are clearly insufficient, you may call one retrieval tool once more. Otherwise answer the user now with exact quotations and citations. Do not narrate searching in plain text — either call a tool or answer.
+The JSON sources above include any documents returned so far. If they are clearly insufficient, you may call one retrieval tool once more. Otherwise answer the user now with quoted spans copied from chunk content plus citations. Do not narrate searching in plain text — either call a tool or answer.
 If the user asked for a complete list of items, search for a source that lists them all (for example a table of contents, an index, or an overview) before answering.`;
 
 export const RETRIEVAL_FETCH_FAILED_USER_MESSAGE =
