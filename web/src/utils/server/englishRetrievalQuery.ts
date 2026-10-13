@@ -192,12 +192,24 @@ export async function resolveEnglishLocationAndFirstRetrievalQuery(
 }
 
 function tokenizeWords(text: string): string[] {
+  // Avoid \\p{L}: Vercel/Jest babel-jest (NODE_ENV=development) cannot rewrite that property.
   return text
     .toLowerCase()
-    .split(/[^\p{L}]+/u)
+    .split(/[^A-Za-zÀ-ÖØ-öø-ÿ]+/)
     .filter(Boolean);
 }
 
 function hasNonAsciiLetter(text: string): boolean {
-  return /\p{L}/u.test(text.replace(/[A-Za-z]/g, ""));
+  for (const char of text) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code <= 127) {
+      continue;
+    }
+    // Skip punctuation that appears in English text (smart quotes, dashes, nbsp).
+    if ((code >= 0x2000 && code <= 0x206f) || code === 0x00a0 || code === 0x00ad) {
+      continue;
+    }
+    return true;
+  }
+  return false;
 }

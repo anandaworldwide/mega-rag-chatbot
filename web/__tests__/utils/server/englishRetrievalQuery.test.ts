@@ -27,6 +27,7 @@ describe("looksLikeNonEnglish", () => {
     expect(looksLikeNonEnglish("What did SK say about devotion?")).toBe(false);
     expect(looksLikeNonEnglish("Where is the nearest Ananda center?")).toBe(false);
     expect(looksLikeNonEnglish("How do I practice Hong-Sau?")).toBe(false);
+    expect(looksLikeNonEnglish("What did Yogananda say about “AUM”?")).toBe(false);
   });
 });
 
