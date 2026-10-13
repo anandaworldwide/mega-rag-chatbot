@@ -628,10 +628,10 @@ except ImportError:
   JSON). Proximity questions keep Haversine-ranked results. `executeTool` receives `originalQuestion` from makechain so
   scope works when the model omits `userProvidedLocation`.
 - Location intent keyword matcher in `web/src/utils/server/locationIntentDetector.ts` (`hasLocationKeywordPatterns`)
-  matches ISO alpha-2 country codes via `\b<code>\b` and is gated by an exclusion set (`commonEnglishWords`) for codes
-  that collide with English words or domain terms. Always exclude Ananda-specific initials/mantras here:
-  `om` (mantra), `sk` (Swami Kriyananda), `py` (Paramahansa Yogananda). Add new exclusions to that set when introducing
-  any short initials/abbreviations users will commonly type.
+  does **not** match two-letter ISO country codes. Those codes collide with function words in other languages
+  (`il` Italian article / Israel, `se` Italian if / Sweden, `de` German, `es` Spanish) and skip library search.
+  Keep only location phrases (`near me`, `closest`, `center in`) and the three-letter codes `usa` and `uae`.
+  Real nearest-center questions still match those phrases or the embedding check.
 - Biographical/historical place questions (e.g. “How did Yogananda choose Los Angeles?”) are suppressed before semantic
   matching via `hasHistoricalPlaceQuestionPatterns` in `locationIntentDetector.ts`; add negative seeds when regenerating
   embeddings for the same examples.
