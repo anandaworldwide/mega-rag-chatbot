@@ -59,10 +59,11 @@ When `enableAutoAuthorScope` is enabled:
 - **API clients** (WordPress plugin, direct API calls) that omit `collection` fall back to `"whole_library"` in
   [`web/src/app/api/chat/v1/route.ts`](../src/app/api/chat/v1/route.ts). They do **not** receive auto blend unless they
   explicitly send `"auto"`. This preserves backward compatibility for integrations that never sent a collection field.
-- **First message in a conversation** skips the rephrase/author-scope LLM call (no chat history yet). Scope uses
-  deterministic alias matching (manual `authorAliases` plus an auto-generated index from Firestore
+- **First message in a conversation** skips the history-aware rephrase/author-scope LLM call (no chat history yet).
+  Non-English first messages still get a short English restatement so library search and location checks run on
+  English. Scope uses deterministic alias matching (manual `authorAliases` plus an auto-generated index from Firestore
   `libraryStats/{site}.authors`) plus the default blend boost when no author is named. Follow-up messages piggyback
-  author-scope classification on the rephrase call.
+  author-scope classification on the rephrase call, which also emits the standalone question in English.
 - **Named-author detection uses the current user utterance**, not the history-rewritten standalone question. Rephrase
   often injects Master/Swami names from prior turns; matching on that rewrite would hard-filter authors the user never
   named in this question. The rewritten question is still used for the vector query.
