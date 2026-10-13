@@ -256,11 +256,12 @@ cookie via `initializeProfileUuidSync` in `_app` bootstrap and from JWT payload 
 ### Country-Code Regexes Must Avoid Contractions
 
 **Wrong**: Match two-letter country codes with only `\bXX\b` word boundaries. Apostrophes are non-word characters, so
-contractions can create false standalone tokens, e.g. `they've` can match `ve`.
+contractions can create false standalone tokens, e.g. `they've` can match `ve`. Matching ISO alpha-2 codes as location
+keywords also collides with function words in other languages (`il`, `se`, `de`, `es`).
 
-**Correct**: Add apostrophe guards such as `(?<!['’])\bXX\b(?!['’])`, or otherwise tokenize in a way that treats
-contractions as whole words before interpreting short country abbreviations. Remove low-value country abbreviations from
-keyword triggers when they are much more likely to appear as ordinary language fragments than intentional location input.
+**Correct**: Do not use two-letter ISO country codes as location keywords. Keep only unambiguous three-letter codes
+(`usa`, `uae`) and location phrases. If a short abbreviation remains, add apostrophe guards such as
+`(?<!['’])\bXX\b(?!['’])` so contractions are not treated as standalone tokens.
 
 ### Do Not Patch Classifiers With Test-Shaped Allowlists
 
