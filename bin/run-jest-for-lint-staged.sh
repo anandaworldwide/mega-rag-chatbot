@@ -35,7 +35,7 @@ needs_server_tests() {
         fi
         
         case "$normalized_file" in
-            pages/api/*|utils/server/*|services/*|__tests__/utils/server/*|__tests__/api/*)
+            *pages/api/*|*src/utils/server/*|*utils/server/*|*services/*|*__tests__/utils/server/*|*__tests__/api/*)
                 return 0
                 ;;
         esac
@@ -99,7 +99,7 @@ for file in "$@"; do
     fi
     
     case "$normalized_file" in
-        __tests__/utils/server/*|__tests__/api/*|utils/server/*|services/*|pages/api/*)
+        *__tests__/utils/server/*|*__tests__/api/*|*src/utils/server/*|*utils/server/*|*services/*|*pages/api/*)
             # Skip server tests and server source files for client test run
             echo "Excluding server file from client tests: $normalized_file"
             ;;
@@ -139,7 +139,7 @@ if [ "$run_server_tests" = true ]; then
         fi
         
         case "$normalized_file" in
-            pages/api/*|utils/server/*|services/*|__tests__/utils/server/*|__tests__/api/*)
+            *pages/api/*|*src/utils/server/*|*utils/server/*|*services/*|*__tests__/utils/server/*|*__tests__/api/*)
                 server_cmd="$server_cmd \"$normalized_file\""
                 echo "Including server file in server tests: $normalized_file"
                 ;;
