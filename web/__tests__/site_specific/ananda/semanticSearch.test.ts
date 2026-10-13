@@ -702,6 +702,73 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
     );
   });
 
+  describe("Product And Story Lookups", () => {
+    test.concurrent("should answer a follow-up box product question instead of refusing", async () => {
+      const query = "How do I get rid of the follow up box? It is in the middle of my phone display.";
+      const expectedResponseCanonical = [
+        "On a phone, scroll the answers to hide the follow-up box. There is no setting to turn it off. Please send feedback with the Feedback button on desktop or the feedback icon at the top right of the toolbar on mobile.",
+        "The follow-up box stays after the first answer so you can ask the next question. Scroll to hide it on a phone, or send feedback if it blocks the screen.",
+      ];
+
+      const actualResponse = await getLucaResponse(query);
+      if (!actualResponse) {
+        throw new Error(`Received empty response for query: ${query}`);
+      }
+      const actualEmbedding = await getEmbedding(actualResponse);
+      const expectedEmbeddings = await Promise.all(expectedResponseCanonical.map(getEmbedding));
+      const similarityToExpected = getMaxSimilarity(actualEmbedding, expectedEmbeddings);
+      const similarityToRejection = getMaxSimilarity(actualEmbedding, rejectionEmbeddings);
+
+      console.log(
+        `Query: "${query}"\nResponse: "${actualResponse}"\nSimilarity to Expected: ${similarityToExpected}\nSimilarity to Rejection: ${similarityToRejection}`
+      );
+
+      expect(actualResponse).not.toMatch(/I'm tuned to answer questions related to Ananda's teachings and resources\./i);
+      expect(similarityToExpected).toBeGreaterThan(0.55);
+      expect(similarityToRejection).toBeLessThan(0.6);
+    });
+
+    test.concurrent("should answer a most-recent-chat history question instead of refusing", async () => {
+      const query = "I'm looking for most recent chat.";
+      const expectedResponseCanonical = [
+        "Open the Chats list. The newest conversation is at the top. On a phone, tap the history icon.",
+        "Your most recent chat is at the top of the Chats sidebar.",
+      ];
+
+      const actualResponse = await getLucaResponse(query);
+      if (!actualResponse) {
+        throw new Error(`Received empty response for query: ${query}`);
+      }
+      const actualEmbedding = await getEmbedding(actualResponse);
+      const expectedEmbeddings = await Promise.all(expectedResponseCanonical.map(getEmbedding));
+      const similarityToExpected = getMaxSimilarity(actualEmbedding, expectedEmbeddings);
+      const similarityToRejection = getMaxSimilarity(actualEmbedding, rejectionEmbeddings);
+
+      console.log(
+        `Query: "${query}"\nResponse: "${actualResponse}"\nSimilarity to Expected: ${similarityToExpected}\nSimilarity to Rejection: ${similarityToRejection}`
+      );
+
+      expect(actualResponse).not.toMatch(/I'm tuned to answer questions related to Ananda's teachings and resources\./i);
+      expect(similarityToExpected).toBeGreaterThan(0.55);
+      expect(similarityToRejection).toBeLessThan(0.6);
+    });
+
+    test.concurrent("should search a story lookup instead of refusing as general history", async () => {
+      const query = "Which Franciscan monastery was saved during the atomic bombings in Japan?";
+      const actualResponse = await getLucaResponse(query);
+      if (!actualResponse) {
+        throw new Error(`Received empty response for query: ${query}`);
+      }
+      const actualEmbedding = await getEmbedding(actualResponse);
+      const similarityToRejection = getMaxSimilarity(actualEmbedding, rejectionEmbeddings);
+
+      console.log(`Query: "${query}"\nResponse: "${actualResponse}"\nSimilarity to Rejection: ${similarityToRejection}`);
+
+      expect(actualResponse).not.toMatch(/I'm tuned to answer questions related to Ananda's teachings and resources\./i);
+      expect(similarityToRejection).toBeLessThan(0.6);
+    });
+  });
+
   describe("Book-Specific Queries", () => {
     // Test that when sources DO contain the requested book, the chatbot answers normally
     // without falsely claiming the book wasn't found.
