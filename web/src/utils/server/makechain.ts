@@ -1909,28 +1909,13 @@ export async function setupAndExecuteLanguageModelChain(
             new HumanMessage(reinvokeMessages.human),
           ];
           let recoveryResponse: any = null;
+          let recoveryBuffered = "";
           const recoveryStream = await answerOnlyModel.stream(recoveryMessages);
           for await (const chunk of recoveryStream) {
             recoveryResponse = recoveryResponse ? recoveryResponse.concat(chunk) : chunk;
             const text = extractStreamedTextDelta(chunk);
             if (!text) continue;
-            if (!firstTokenTime) {
-              firstTokenTime = Date.now();
-              firstByteTime = Date.now();
-              streamingDeadline.touchStreamingActivity();
-              sendData({
-                token: text,
-                timing: {
-                  firstTokenGenerated: firstTokenTime,
-                  ttfb: firstByteTime && startTime ? firstByteTime - startTime : undefined,
-                },
-              });
-            } else {
-              streamingDeadline.touchStreamingActivity();
-              sendData({ token: text });
-            }
-            fullResponse += text;
-            tokensStreamed += text.length;
+            recoveryBuffered += text;
           }
           if (!recoveryResponse) {
             recoveryResponse = await answerOnlyModel.invoke(recoveryMessages);
@@ -1938,11 +1923,24 @@ export async function setupAndExecuteLanguageModelChain(
               typeof recoveryResponse?.content === "string"
                 ? recoveryResponse.content
                 : extractStreamedTextDelta(recoveryResponse);
-            if (fallbackText && !fullResponse) {
-              sendData({ token: fallbackText });
-              fullResponse += fallbackText;
-              tokensStreamed += fallbackText.length;
+            if (fallbackText && !recoveryBuffered) {
+              recoveryBuffered = fallbackText;
             }
+          }
+          // Never stream a leaked tool call. emitGuardedRetrievalAnswer replaces leftovers.
+          fullResponse = recoveryBuffered;
+          tokensStreamed = recoveryBuffered.length;
+          if (recoveryBuffered && !isIncompleteRetrievalAnswer(recoveryBuffered)) {
+            firstTokenTime = Date.now();
+            firstByteTime = Date.now();
+            streamingDeadline.touchStreamingActivity();
+            sendData({
+              token: recoveryBuffered,
+              timing: {
+                firstTokenGenerated: firstTokenTime,
+                ttfb: firstByteTime && startTime ? firstByteTime - startTime : undefined,
+              },
+            });
           }
           currentResponse = recoveryResponse;
           result.answer = recoveryResponse;
