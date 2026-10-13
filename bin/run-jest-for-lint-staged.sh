@@ -5,8 +5,11 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 # Change to the web directory
-cd "$(dirname "$0")/../web" || exit 1
+cd "$REPO_ROOT/web" || exit 1
 
 # Print debugging information
 echo "🧪 Running JavaScript/TypeScript tests for changed files..."
@@ -19,26 +22,43 @@ if [ $# -eq 0 ]; then
     exit 0
 fi
 
+# Path relative to web/ so Jest can open the file from this directory.
+web_relative_path() {
+    local file="$1"
+    local normalized="$file"
+    if [[ "$normalized" == /* ]]; then
+        normalized="${normalized#$REPO_ROOT/}"
+    fi
+    normalized="${normalized#./}"
+    normalized="${normalized#web/}"
+    printf '%s' "$normalized"
+}
+
+# Classification path: strip src/ so src/utils/server matches utils/server.
+classify_web_path() {
+    local web_rel
+    web_rel="$(web_relative_path "$1")"
+    printf '%s' "${web_rel#src/}"
+}
+
+is_server_file() {
+    local classified
+    classified="$(classify_web_path "$1")"
+    case "$classified" in
+        pages/api/*|utils/server/*|services/*|__tests__/utils/server/*|__tests__/api/*)
+            return 0
+            ;;
+    esac
+    return 1
+}
+
 # Function to determine if we need to run server tests
 needs_server_tests() {
-    local files=("$@")
-    for file in "${files[@]}"; do
-        # Normalize paths - handle both absolute and relative paths
-        if [[ "$file" == /* ]]; then
-            # Absolute path - strip workspace root and web/ prefix
-            workspace_root="/Users/Michael/Documents/development/mega-rag-chatbot"
-            normalized_file="${file#$workspace_root/}"
-            normalized_file="${normalized_file#web/}"
-        else
-            # Relative path - just strip web/ prefix if present
-            normalized_file="${file#web/}"
+    local file
+    for file in "$@"; do
+        if is_server_file "$file"; then
+            return 0
         fi
-        
-        case "$normalized_file" in
-            pages/api/*|utils/server/*|services/*|__tests__/utils/server/*|__tests__/api/*)
-                return 0
-                ;;
-        esac
     done
     return 1
 }
@@ -59,13 +79,18 @@ elif command -v gtimeout >/dev/null 2>&1; then
     timeout_cmd="gtimeout 25s"
 fi
 
-# Run client tests first (always run these)
+# Run client tests first (always run these when a client file is present)
 echo "Running client tests..."
 
-# Check if we have test files vs source files
+# Check if we have test files vs source files among client files only
 has_test_files=false
 has_source_files=false
+has_client_files=false
 for file in "$@"; do
+    if is_server_file "$file"; then
+        continue
+    fi
+    has_client_files=true
     case "$file" in
         */__tests__/*|*.test.*|*.spec.*)
             has_test_files=true
@@ -76,76 +101,57 @@ for file in "$@"; do
     esac
 done
 
-# Build client command based on file types
-if [ "$has_test_files" = true ] && [ "$has_source_files" = false ]; then
-    # Only test files - run them directly, but exclude server tests
-    client_cmd="npx jest --bail --passWithNoTests --no-coverage --config=src/config/jest.pre-commit.cjs"
+client_exit_code=0
+if [ "$has_client_files" = false ]; then
+    echo "No client files to test"
 else
-    # Source files or mixed - use findRelatedTests
-    client_cmd="npx jest --bail --passWithNoTests --no-coverage --config=src/config/jest.pre-commit.cjs --findRelatedTests"
-fi
-
-# Add files to client test command, but exclude server test files and server source files
-for file in "$@"; do
-    # Normalize paths - handle both absolute and relative paths
-    if [[ "$file" == /* ]]; then
-        # Absolute path - strip workspace root and web/ prefix
-        workspace_root="/Users/Michael/Documents/development/mega-rag-chatbot"
-        normalized_file="${file#$workspace_root/}"
-        normalized_file="${normalized_file#web/}"
+    # Build client command based on file types
+    if [ "$has_test_files" = true ] && [ "$has_source_files" = false ]; then
+        # Only test files - run them directly, but exclude server tests
+        client_cmd="npx jest --bail --passWithNoTests --no-coverage --config=src/config/jest.pre-commit.cjs"
     else
-        # Relative path - just strip web/ prefix if present
-        normalized_file="${file#web/}"
+        # Source files or mixed - use findRelatedTests
+        client_cmd="npx jest --bail --passWithNoTests --no-coverage --config=src/config/jest.pre-commit.cjs --findRelatedTests"
     fi
-    
-    case "$normalized_file" in
-        __tests__/utils/server/*|__tests__/api/*|utils/server/*|services/*|pages/api/*)
-            # Skip server tests and server source files for client test run
-            echo "Excluding server file from client tests: $normalized_file"
-            ;;
-        *)
-            client_cmd="$client_cmd \"$normalized_file\""
-            ;;
-    esac
-done
 
-# Run client tests (allow failures but capture exit code)
-set +e
-if [ -n "$timeout_cmd" ]; then
-    eval "$timeout_cmd $client_cmd"
-else
-    eval "$client_cmd"
+    # Add files to client test command, but exclude server test files and server source files
+    for file in "$@"; do
+        normalized_file="$(web_relative_path "$file")"
+
+        if is_server_file "$file"; then
+            echo "Excluding server file from client tests: $normalized_file"
+            continue
+        fi
+        client_cmd="$client_cmd \"$normalized_file\""
+    done
+
+    # Run client tests (allow failures but capture exit code)
+    set +e
+    if [ -n "$timeout_cmd" ]; then
+        eval "$timeout_cmd $client_cmd"
+    else
+        eval "$client_cmd"
+    fi
+    client_exit_code=$?
+    set -e
 fi
-client_exit_code=$?
-set -e
 
 # Run server tests if needed
 server_exit_code=0
 if [ "$run_server_tests" = true ]; then
     echo "Running server tests..."
     server_cmd="npx jest --selectProjects=server --bail --passWithNoTests --no-coverage --findRelatedTests"
-    
+
     # Add server-related files to server test command
     for file in "$@"; do
-        # Normalize paths - handle both absolute and relative paths
-        if [[ "$file" == /* ]]; then
-            # Absolute path - strip workspace root and web/ prefix
-            workspace_root="/Users/Michael/Documents/development/mega-rag-chatbot"
-            normalized_file="${file#$workspace_root/}"
-            normalized_file="${normalized_file#web/}"
-        else
-            # Relative path - just strip web/ prefix if present
-            normalized_file="${file#web/}"
+        normalized_file="$(web_relative_path "$file")"
+
+        if is_server_file "$file"; then
+            server_cmd="$server_cmd \"$normalized_file\""
+            echo "Including server file in server tests: $normalized_file"
         fi
-        
-        case "$normalized_file" in
-            pages/api/*|utils/server/*|services/*|__tests__/utils/server/*|__tests__/api/*)
-                server_cmd="$server_cmd \"$normalized_file\""
-                echo "Including server file in server tests: $normalized_file"
-                ;;
-        esac
     done
-    
+
     # Run server tests
     set +e
     if [ -n "$timeout_cmd" ]; then
