@@ -365,6 +365,27 @@ describe("resolveAuthorScope", () => {
     expect(result).toEqual({ kind: "hard", collection: "master_swami" });
   });
 
+  it("does not carry a prior focused author into a follow-up that does not name them", () => {
+    const userUtterance = "Yes, specific quotes would be good";
+    const retrievalQuery = "Yes, specific quotes from Radio Ananda would be good";
+    const generatedAliasIndex = {
+      "radio ananda": "Radio Ananda",
+    };
+
+    const result = resolveAuthorScope({
+      question: getAuthorMatchQuestion(userUtterance, retrievalQuery),
+      siteConfig: baseSiteConfig,
+      collectionMode: "auto",
+      knownAuthors: ["Radio Ananda"],
+      generatedAliasIndex,
+    });
+
+    expect(findExplicitAuthorMatch(retrievalQuery, baseSiteConfig, ["Radio Ananda"], [], generatedAliasIndex)).toBe(
+      "Radio Ananda"
+    );
+    expect(result).toEqual({ kind: "blend", masterSwamiBoost: 0.2 });
+  });
+
   it("does not hard-filter Master/Swami when only the retrieval rewrite names them", () => {
     const userUtterance = "How does Kundalini relate to music?";
     const retrievalQuery =

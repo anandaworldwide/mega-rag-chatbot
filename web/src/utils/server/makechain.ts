@@ -99,6 +99,7 @@ import {
   buildNamedAuthorFilter,
   buildRetrievalToolFilter,
   retrieveWithAuthorScopeBlend,
+  retrieveWithNamedAuthorFallback,
   type RetrievalFilterCapture,
 } from "./authorScopeRetrieval";
 import { getCondenseTemplateWithAuthorScope, invokeRephraseWithAuthorScope } from "./rephraseWithAuthorScope";
@@ -959,11 +960,51 @@ Error details: ${errorString}`,
             });
           }
           allDocuments.push(...blendedDocs);
+        } else if (scopeDescriptor.kind === "named") {
+          const namedFilter = buildNamedAuthorFilter(scopeDescriptor.author, baseFilter);
+          const {
+            documents: namedDocs,
+            relevance: namedRelevance,
+            droppedNamedAuthor,
+            searchFilter,
+          } = await retrieveWithNamedAuthorFallback(
+            (filter) =>
+              runStandardRetrieval(
+                retriever,
+                input.question,
+                sourceCount,
+                filter,
+                includedLibraries,
+                minRetrievalScore
+              ),
+            namedFilter
+          );
+          // Zero hits under query-inferred author `$eq`: one retry without that author.
+          // Do not carry the focus into later tool searches or the next turn.
+          if (droppedNamedAuthor) {
+            refreshActiveFilterPromptData(
+              activeFilterPromptData,
+              siteConfig,
+              baseFilter,
+              selectedCollectionKey,
+              selectedLibraries,
+              selectedTitleScopeLabel
+            );
+            if (retrievalFilterCapture) {
+              retrievalFilterCapture.inferredAuthor = undefined;
+            }
+            console.warn(
+              `[RAG] Named-author filter for "${scopeDescriptor.author}" returned no documents; retried without that author focus.`
+            );
+          }
+          if (retrievalFilterCapture) {
+            retrievalFilterCapture.filter = buildRetrievalToolFilter(searchFilter, includedLibraries);
+          }
+          retrievalRelevance = namedRelevance;
+          allDocuments.push(...namedDocs);
         } else {
           let searchFilter = baseFilter;
-          if (scopeDescriptor.kind === "named") {
-            searchFilter = buildNamedAuthorFilter(scopeDescriptor.author, baseFilter);
-          } else if (scopeDescriptor.kind === "hard" && scopeDescriptor.collection === "master_swami") {
+          if (scopeDescriptor.kind === "hard" && scopeDescriptor.collection === "master_swami") {
             searchFilter = buildMasterSwamiFilter(baseFilter);
           }
           if (retrievalFilterCapture) {
