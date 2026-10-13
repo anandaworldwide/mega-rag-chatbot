@@ -2,6 +2,7 @@ import type { SiteConfig as AppSiteConfig } from "@/types/siteConfig";
 import { libraryEntryName } from "@/utils/libraryEntries";
 import type { AuthorScopeDescriptor, AuthorScopeHint, AuthorScopeMode } from "@/utils/server/authorConstants";
 import type { AuthorScopeBlendRetrievalDebug } from "@/utils/server/authorScopeRetrieval";
+import { DRAFTING_GENERATION_HINT } from "@/utils/server/draftingIntentDetector";
 
 type ActiveMediaTypeFilter = { text?: boolean; audio?: boolean; youtube?: boolean };
 
@@ -193,8 +194,12 @@ export const EMPTY_RETRIEVAL_INFERRED_AUTHOR_HINT =
  */
 export function buildActiveFiltersSummaryForGeneration(
   data: ActiveFilterPromptData,
-  retrievalReturnedNoDocuments: boolean
+  retrievalReturnedNoDocuments: boolean,
+  options?: { isDraftingQuery?: boolean }
 ): string {
+  if (options?.isDraftingQuery) {
+    return `${data.activeFiltersSummary}\n- ${DRAFTING_GENERATION_HINT}`;
+  }
   if (retrievalReturnedNoDocuments && data.hasRestrictiveFilters) {
     return `${data.activeFiltersSummary}\n- ${EMPTY_RETRIEVAL_FILTER_HINT}`;
   }
