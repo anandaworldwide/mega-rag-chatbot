@@ -731,6 +731,10 @@ embeddings.
 
 - **Runtime Detection Module (`web/src/utils/server/locationIntentDetector.ts`):**
   - Loads site-specific embeddings into memory cache on initialization
+  - Keyword fast path matches location phrases (`near me`, `closest`, `center in`) and the
+    three-letter codes `usa` and `uae` only. Two-letter ISO country codes are not keywords;
+    they collide with function words in other languages (Italian `il`/`se`, German `de`,
+    Spanish `es`) and skip library search.
   - Implements contrastive scoring algorithm:
     - Positive similarity threshold: >= 0.44
     - Contrastive threshold: positive similarity must exceed negative by >= 0.1
