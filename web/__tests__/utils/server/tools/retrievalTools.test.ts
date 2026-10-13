@@ -358,6 +358,15 @@ describe("retrievalTools", () => {
       expect(shouldBindRetrievalTools.length).toBe(3);
     });
 
+    it("tells search_more_sources to embed a quoted phrase, not a quote request", () => {
+      expect(RETRIEVAL_TOOL_GUIDANCE).toContain("pass that quoted phrase as the query");
+      expect(RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE).toContain("say so in one sentence");
+      expect(RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE).toContain("Do not recite a neighboring story");
+      const searchMore = RETRIEVAL_TOOL_DEFINITIONS.find((tool) => tool.function.name === "search_more_sources");
+      const properties = searchMore?.function.parameters.properties as Record<string, { description?: string }>;
+      expect(properties.query.description).toContain("pass that phrase alone");
+    });
+
     it("uses answer-first retrieval guidance while keeping tools bound", () => {
       const isAnthropic = (name: string) => name.startsWith("claude");
       expect(

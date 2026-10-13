@@ -647,10 +647,12 @@ if (siteConfig?.requireLogin) {
   - Initializes Pinecone vector store connection for the relevant namespace.
   - Uses `ConversationalRetrievalQAChain` which:
     1. Optionally rephrases the question based on history.
-    2. Performs similarity search in Pinecone to find relevant document chunks.
-    3. Injects retrieved context and chat history into the LLM prompt.
-    4. Calls the LLM (e.g., OpenAI) to generate an answer.
-    5. Streams the answer back to the client.
+    2. If the current user message contains a usable quoted span, embeds that span alone
+       (`quotedSpanEmbedding.ts`) instead of the request wrapper or a condensed "provide quotes" rewrite.
+    3. Performs similarity search in Pinecone to find relevant document chunks.
+    4. Injects retrieved context and chat history into the LLM prompt.
+    5. Calls the LLM (e.g., OpenAI) to generate an answer.
+    6. Streams the answer back to the client.
   - Handles source document formatting and logging.
 - **Retrieval tool callbacks (`tools/retrievalTools.ts`, gated by `enableRetrievalTools`):**
   - When enabled (currently `ananda` / Luca and `jairam`) and the answer model is not Anthropic, the answer model is
