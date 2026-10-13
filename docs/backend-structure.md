@@ -646,7 +646,9 @@ if (siteConfig?.requireLogin) {
   - Selects appropriate prompt based on namespace (`site-config/prompts/`).
   - Initializes Pinecone vector store connection for the relevant namespace.
   - Uses `ConversationalRetrievalQAChain` which:
-    1. Optionally rephrases the question based on history.
+    1. Optionally rephrases the question based on history. Non-English questions are restated in
+       English for library search and location checks (`englishRetrievalQuery.ts`). The answer prompt
+       keeps the original utterance so the model can reply in the user language.
     2. Performs similarity search in Pinecone to find relevant document chunks.
     3. Injects retrieved context and chat history into the LLM prompt.
     4. Calls the LLM (e.g., OpenAI) to generate an answer.
