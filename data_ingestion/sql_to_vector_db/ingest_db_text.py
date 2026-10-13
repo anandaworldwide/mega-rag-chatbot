@@ -76,6 +76,7 @@ from reportlab.lib.pdfencrypt import StandardEncryption
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
+from data_ingestion.utils.author_ingest_guard import apply_author_guard_to_vectors
 from data_ingestion.utils.author_normalization import normalize_author
 from data_ingestion.utils.ingestion_run_logger import IngestionRunLogger
 from data_ingestion.utils.pinecone_utils import generate_vector_id
@@ -1974,6 +1975,7 @@ def _upsert_vectors_to_pinecone(
         max_upsert_batch_size = 100
         total_upserted = 0
 
+        apply_author_guard_to_vectors(vectors_to_upsert)
         for j in range(0, len(vectors_to_upsert), max_upsert_batch_size):
             upsert_batch = vectors_to_upsert[j : j + max_upsert_batch_size]
             upsert_response = pinecone_index.upsert(vectors=upsert_batch)

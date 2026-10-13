@@ -43,6 +43,7 @@ if TYPE_CHECKING:
 else:
     Index = Any
 
+from data_ingestion.utils.author_ingest_guard import apply_author_guard_to_metadata
 from data_ingestion.utils.author_normalization import normalize_author
 from data_ingestion.utils.checkpoint_utils import pdf_checkpoint_integration
 from data_ingestion.utils.credential_errors import abort_on_credential_error
@@ -1028,13 +1029,14 @@ async def _process_valid_chunk(
         "id": id,
         "library": library_name,
         "type": "text",
-        "author": doc.metadata.get("author", "Unknown"),
+        "author": author,
         "source": doc.metadata.get("source"),
         "title": doc.metadata.get("title"),
         "text": doc.page_content,
         "access_level": "public",
         "required_access_level": 0,
     }
+    apply_author_guard_to_metadata(minimal_metadata, vector_id=id)
     pdf_filename = doc.metadata.get("pdf_filename")
     if pdf_filename:
         minimal_metadata["pdf_filename"] = pdf_filename

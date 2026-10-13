@@ -136,13 +136,13 @@ class TestListingPage:
 
 
 class TestClassifyDatedAuthor:
-    def test_listing_page_clears_author(self):
+    def test_listing_page_omits_author(self):
         assert SCRIPT.classify_dated_author(
             "Nayaswami Devi March 10, 2023",
             "Blogs and Letters - Page 10 of 41 - Nayaswami Jyotish",
             "https://www.ananda.org/jyotish-and-devi/page/10/",
             "ananda-public",
-        ) == ("", "listing")
+        ) == (None, "listing")
 
     def test_article_keeps_canonical_author(self):
         assert SCRIPT.classify_dated_author(
@@ -211,7 +211,7 @@ class TestCollectDatedAuthors:
 
         by_author = {plan.author: plan for plan in plans}
         assert scanned == 4
-        assert by_author["Nayaswami Devi March 10, 2023"].replacement == ""
+        assert by_author["Nayaswami Devi March 10, 2023"].replacement is None
         assert by_author["Nayaswami Devi March 10, 2023"].reason == "listing"
         assert by_author["Nayaswami Gyandev September 20, 2010"].replacement == (
             "Nayaswami Gyandev McCord"
@@ -220,3 +220,36 @@ class TestCollectDatedAuthors:
         assert "Maitri Jones" not in by_author
         assert "Someone March 1, 2020" not in by_author
         index.list.assert_called_once_with(prefix="text||ananda.org||web||")
+
+
+class TestApplyPlanOmitsEmptyAuthor:
+    def test_does_not_write_empty_author(self, caplog):
+        import logging
+
+        caplog.set_level(logging.WARNING)
+        index = Mock()
+        limiter = SCRIPT.FilterUpdateRateLimiter(min_interval_sec=0)
+        plans = [
+            SCRIPT.DatedAuthorPlan(
+                author="Nayaswami Devi March 10, 2023",
+                replacement=None,
+                reason="listing",
+                vector_ids=["vec-1"],
+            ),
+            SCRIPT.DatedAuthorPlan(
+                author="Nayaswami Gyandev September 20, 2010",
+                replacement="Nayaswami Gyandev McCord",
+                reason="article",
+                vector_ids=["vec-2"],
+                use_filter=False,
+            ),
+        ]
+
+        updated = SCRIPT.apply_plan(index, plans, "ananda.org", limiter)
+
+        assert updated == 1
+        index.update.assert_called_once()
+        assert index.update.call_args.kwargs["set_metadata"] == {
+            "author": "Nayaswami Gyandev McCord"
+        }
+        assert "does not write an empty author" in caplog.text

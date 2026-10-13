@@ -26,6 +26,7 @@ from typing import Any
 from pinecone import Pinecone, ServerlessSpec
 from pinecone.exceptions import PineconeException
 
+from .author_ingest_guard import apply_author_guard_to_vectors
 from .credential_errors import abort_on_credential_error
 from .document_hash import generate_document_hash
 
@@ -548,6 +549,7 @@ def batch_upsert_vectors(
         Tuple[bool, int]: (success, number_of_vectors_upserted)
     """
     total_upserted = 0
+    apply_author_guard_to_vectors(vectors)
 
     try:
         for i in range(0, len(vectors), batch_size):

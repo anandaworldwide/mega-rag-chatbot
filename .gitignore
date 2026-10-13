@@ -26,6 +26,9 @@ node_modules/
 # Notion wiki resume files from a laptop ingest
 data_ingestion/notion/.progress/
 
+# Listing-vector backups must live outside the repo. Ignore a local folder if one is created.
+.listing-vector-backups/
+
 # next.js
 /.next/
 /out/

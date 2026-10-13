@@ -61,6 +61,7 @@ except ImportError:
 
 # Import shared utility
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from utils.author_ingest_guard import prepare_ingest_author
 from utils.pinecone_utils import (
     generate_vector_id,
 )
@@ -80,6 +81,7 @@ try:
         requires_db,
     )
     from .health import HealthMonitor
+    from .listing_page import listing_skips_enabled, url_is_listing
     from .lock_manager import CrawlerLockManager
 except ImportError:
     # When running directly (python website_crawler.py)
@@ -94,6 +96,7 @@ except ImportError:
         requires_db,
     )
     from health import HealthMonitor  # type: ignore[import-not-found]
+    from listing_page import listing_skips_enabled, url_is_listing  # type: ignore[import-not-found]
     from lock_manager import CrawlerLockManager  # type: ignore[import-not-found]
 
 # Import from page_processing module
@@ -140,6 +143,7 @@ class WebsiteCrawler:
         self.domain = self.config["domain"]
         self.start_url = ensure_scheme(self.domain)
         self.skip_patterns = self.config.get("skip_patterns", [])
+        self.skip_listing_pages = listing_skips_enabled(self.config)
         self.crawl_frequency_days = self.config.get("crawl_frequency_days", 14)
 
         # Initialize subsystems
@@ -1180,10 +1184,19 @@ class WebsiteCrawler:
         else:
             path = parsed.path
 
-        # Check standard skip patterns against the path
+        # Check skip patterns against the path and the query string.
+        query = parsed.query or ""
+        path_and_query = f"{path}?{query}" if query else path
         for pattern in self.skip_patterns:
             if re.search(pattern, path):
                 return True
+            if query and (
+                re.search(pattern, f"?{query}") or re.search(pattern, path_and_query)
+            ):
+                return True
+
+        if self.skip_listing_pages and url_is_listing(url):
+            return True
 
         # Check for calendar/export URLs that serve non-HTML content
         query_params = parsed.query.lower()
@@ -1789,8 +1802,9 @@ class WebsiteCrawler:
             return None, schemed_valid_links
 
         metadata: dict[str, str] = {"type": "text", "source": url}
-        if author:
-            metadata["author"] = author
+        guarded_author = prepare_ingest_author(author, library=self.domain, url=url)
+        if guarded_author:
+            metadata["author"] = guarded_author
 
         page_content = PageContent(
             url=url,
@@ -1988,6 +2002,10 @@ class WebsiteCrawler:
         """Create embeddings for text chunks using batch API for efficiency."""
         if not chunks:
             return []
+
+        author = prepare_ingest_author(
+            author, library=self.domain, document_id=page_title, url=url
+        )
 
         # Batch embed all chunks in a single API call (more efficient than N calls)
         # LangChain's OpenAIEmbeddings automatically handles batching internally

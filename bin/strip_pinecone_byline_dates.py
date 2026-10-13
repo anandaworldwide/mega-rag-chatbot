@@ -3,9 +3,10 @@
 """
 Clean a trailing "Month D, YYYY" from author metadata on live ananda.org vectors.
 
-Listing, archive, and search pages lose the author. The byline on those pages
-belongs to one teaser, not to the page. Article pages keep the author with the
-date removed and the site's canonical name applied.
+Listing, archive, and search pages keep their current author. The script does
+not write an empty author. The byline on those pages belongs to one teaser,
+not to the page. Article pages keep the author with the date removed and the
+site's canonical name applied.
 
 Uses PINECONE_INDEX_NAME. It does not read PINECONE_INGEST_INDEX_NAME except to
 refuse to run when the two names are the same.
@@ -20,20 +21,19 @@ Usage (from repo root):
 import argparse
 import logging
 import os
-import re
 import sys
 import time
 from collections import defaultdict
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
 
 from dotenv import load_dotenv
 from pinecone import Pinecone
 from pinecone.exceptions import PineconeApiException
 
 from data_ingestion.crawler.author_extraction import replacement_for_dated_author
+from data_ingestion.crawler.listing_page import is_listing_page
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -66,18 +66,7 @@ FETCH_BATCH_SIZE = 20
 DEFAULT_FILTER_UPDATE_INTERVAL_SEC = 0.21
 MAX_FILTER_UPDATE_RETRIES = 8
 OMITTED_AUTHOR_LABEL = "(omit)"
-_PAGE_OF_PAGES = re.compile(r"\bpage\s+\d+\s+of\s+\d+\b", re.IGNORECASE)
-_AUTHOR_AT = re.compile(r",\s*author at\b", re.IGNORECASE)
-_SEARCHED_FOR = re.compile(r"\byou searched for\b", re.IGNORECASE)
-_AUTHOR_PATH = re.compile(r"(^|/)author(/|$)")
-_PAGE_PATH = re.compile(r"(^|/)page/\d+(/|$)")
-_SEARCH_PATH = re.compile(r"(^|/)search(/|$)")
-# Page 1 of these archives has no "Page N of M" and no /page/ segment.
-_LISTING_TITLE_PREFIXES = (
-    "blogs and letters",
-    "healing prayers blog",
-    "questions and answers:",
-)
+OMIT_AUTHOR = None
 
 
 class FilterUpdateRateLimiter:
@@ -176,8 +165,8 @@ def author_library_filter(author: str, library: str) -> dict:
     }
 
 
-def display_author(author: str) -> str:
-    return OMITTED_AUTHOR_LABEL if author == "" else author
+def display_author(author: str | None) -> str:
+    return OMITTED_AUTHOR_LABEL if author in ("", None) else author
 
 
 def confirm_metadata_update(index_name: str, read_line=input) -> bool:
@@ -199,60 +188,29 @@ def _metadata_text(metadata: dict, key: str) -> str:
     return ""
 
 
-def is_listing_page(title: str, url: str) -> bool:
-    """Return True for archive, search, and pagination pages.
-
-    A visible byline on those pages belongs to one teaser, not to the page.
-    """
-    normalized_title = re.sub(r"\s+", " ", title or "").strip()
-    lowered = normalized_title.lower()
-    if (
-        _PAGE_OF_PAGES.search(lowered)
-        or _AUTHOR_AT.search(lowered)
-        or _SEARCHED_FOR.search(lowered)
-    ):
-        return True
-    if any(lowered.startswith(prefix) for prefix in _LISTING_TITLE_PREFIXES):
-        return True
-    return _url_is_listing(url)
-
-
-def _url_is_listing(url: str) -> bool:
-    if not url:
-        return False
-    parsed = urlparse(url)
-    path = parsed.path.lower()
-    if (
-        _AUTHOR_PATH.search(path)
-        or _PAGE_PATH.search(path)
-        or _SEARCH_PATH.search(path)
-    ):
-        return True
-    return "s" in parse_qs(parsed.query)
-
-
 def classify_dated_author(
     author: str, title: str, url: str, site_id: str
-) -> tuple[str, str] | None:
+) -> tuple[str | None, str] | None:
     """Return (replacement, reason) when author has a trailing Month D, YYYY.
 
-    Listing pages and site-wide bylines replace the author with "". Article
-    pages keep the canonical name. Returns None when there is no trailing date.
+    Listing pages and site-wide bylines omit the author. The script does not
+    write an empty author. Article pages keep the canonical name. Returns
+    None when there is no trailing date.
     """
     canonical = replacement_for_dated_author(author, site_id)
     if canonical is None:
         return None
     if canonical == "":
-        return "", "site-wide"
+        return OMIT_AUTHOR, "site-wide"
     if is_listing_page(title, url):
-        return "", "listing"
+        return OMIT_AUTHOR, "listing"
     return canonical, "article"
 
 
 @dataclass
 class DatedAuthorPlan:
     author: str
-    replacement: str
+    replacement: str | None
     reason: str
     vector_ids: list[str] = field(default_factory=list)
     sample_title: str = ""
@@ -429,6 +387,15 @@ def apply_plan(
 ) -> int:
     updated = 0
     for plan in plans:
+        if plan.replacement is None or plan.replacement == "":
+            logger.warning(
+                "Omit author for %s (%s). The script does not write an empty "
+                "author. Vectors stay as they are. count=%s",
+                plan.author,
+                plan.reason,
+                plan.count,
+            )
+            continue
         if plan.use_filter:
             updated += _bulk_replace_author(
                 index, plan.author, plan.replacement, library, rate_limiter
