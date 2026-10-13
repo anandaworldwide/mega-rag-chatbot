@@ -38,6 +38,83 @@ export function buildNamedAuthorFilter(
   });
 }
 
+/** True for a hard query-inferred author `$eq`. Master/Swami `$in` is not this clause. */
+export function isNamedAuthorEqClause(clause: unknown): boolean {
+  if (!clause || typeof clause !== "object" || Array.isArray(clause)) {
+    return false;
+  }
+  const author = (clause as Record<string, unknown>).author;
+  if (!author || typeof author !== "object" || Array.isArray(author)) {
+    return false;
+  }
+  return typeof (author as { $eq?: unknown }).$eq === "string";
+}
+
+/**
+ * Removes a query-inferred author `$eq` from a Pinecone filter.
+ * Keeps user-set clauses (type, library, title) and Master/Swami `$in`.
+ */
+export function dropNamedAuthorClause(
+  filter: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  if (!filter) {
+    return undefined;
+  }
+  if (isNamedAuthorEqClause(filter)) {
+    return undefined;
+  }
+  if (!("$and" in filter) || !Array.isArray(filter.$and)) {
+    return filter;
+  }
+
+  const remaining = (filter.$and as unknown[]).filter((clause) => !isNamedAuthorEqClause(clause));
+  if (remaining.length === filter.$and.length) {
+    return filter;
+  }
+  if (remaining.length === 0) {
+    const rest = { ...filter };
+    delete rest.$and;
+    return Object.keys(rest).length > 0 ? rest : undefined;
+  }
+  return { ...filter, $and: remaining };
+}
+
+export type NamedAuthorFallbackResult = {
+  documents: Document[];
+  relevance: RelevanceStats;
+  droppedNamedAuthor: boolean;
+  searchFilter: Record<string, unknown> | undefined;
+};
+
+/**
+ * Search with the named-author `$eq`. On zero usable hits, search once more without it.
+ */
+export async function retrieveWithNamedAuthorFallback(
+  retrieve: (
+    filter: Record<string, unknown> | undefined
+  ) => Promise<{ documents: Document[]; relevance: RelevanceStats }>,
+  namedAuthorFilter: Record<string, unknown>
+): Promise<NamedAuthorFallbackResult> {
+  const first = await retrieve(namedAuthorFilter);
+  if (first.documents.length > 0) {
+    return {
+      documents: first.documents,
+      relevance: first.relevance,
+      droppedNamedAuthor: false,
+      searchFilter: namedAuthorFilter,
+    };
+  }
+
+  const fallbackFilter = dropNamedAuthorClause(namedAuthorFilter);
+  const second = await retrieve(fallbackFilter);
+  return {
+    documents: second.documents,
+    relevance: second.relevance,
+    droppedNamedAuthor: true,
+    searchFilter: fallbackFilter,
+  };
+}
+
 export function buildLibraryFilter(
   libraryNames: string[],
   baseFilter?: Record<string, unknown>
