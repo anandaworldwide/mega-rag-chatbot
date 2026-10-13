@@ -3367,6 +3367,128 @@ describe("makeChain", () => {
       expect(mapped.activeFiltersSummary).not.toContain("No library sources matched your current user-set filters");
     });
   });
+
+  describe("drafting skips the library lecture", () => {
+    it("skips Pinecone retrieval for a translate request", async () => {
+      const sendData = jest.fn();
+      const searchMock = jest.fn();
+      mockRetriever.vectorStore = {
+        similaritySearch: searchMock,
+        similaritySearchWithScore: searchMock,
+      } as any;
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        sendData,
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        mockSiteConfig,
+        "Please translate this into Italian: Buona festa."
+      );
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      const result = await retrievalSequence.invoke({
+        question: "Please translate this into Italian: Buona festa.",
+        chat_history: "",
+      });
+
+      expect(searchMock).not.toHaveBeenCalled();
+      expect(result.documents).toEqual([]);
+      expect(sendData).toHaveBeenCalledWith({ sourceDocs: [] });
+      expect(sendData).not.toHaveBeenCalledWith(expect.objectContaining({ isLocationQuery: true }));
+    });
+
+    it("does not lead with the empty-retrieval lecture for an email rewrite", async () => {
+      const sendData = jest.fn();
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        sendData,
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        mockSiteConfig,
+        "Rewrite this email from Asha Nayaswami about the festival",
+        undefined,
+        undefined,
+        "Whispers from Eternity"
+      );
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      await retrievalSequence.invoke({
+        question: "Rewrite this email from Asha Nayaswami about the festival",
+        chat_history: "",
+      });
+
+      const mapping = getAnswerChainMappingFromMakeChain();
+      const mapped = mapping({
+        retrievalOutput: { combinedContent: "[]", documents: [] },
+        originalInput: {
+          question: "Rewrite this email from Asha Nayaswami about the festival",
+          chat_history: "",
+        },
+      });
+
+      expect(mapped.activeFiltersSummary).toContain("write, rewrite, or translate user-provided text");
+      expect(mapped.activeFiltersSummary).not.toContain("No library sources matched");
+      expect(mapped.activeFiltersSummary).not.toContain("Query-inferred author focus");
+    });
+
+    it("does not bind geo tools for an invitation draft that names a center", async () => {
+      const bindTools = jest.fn().mockReturnThis();
+      (getChatModel as unknown as jest.Mock).mockImplementation(() => ({
+        invoke: jest.fn().mockResolvedValue({ content: "Mock response" }),
+        stream: jest.fn().mockImplementation(() => mockChatOpenAIStream()),
+        bindTools,
+        bind: jest.fn().mockReturnThis(),
+      }));
+
+      const sendData = jest.fn();
+      const geoEnabledSiteConfig = {
+        ...mockSiteConfig,
+        enableGeoAwareness: true,
+        enableRetrievalTools: true,
+      };
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        2,
+        undefined,
+        sendData,
+        jest.fn(),
+        undefined,
+        false,
+        [{ name: "get_user_location", description: "Get user location", parameters: {} }],
+        { headers: new Map([["x-forwarded-for", "192.168.1.1"]]) } as any,
+        geoEnabledSiteConfig,
+        "Draft an invitation to the Portland center gathering"
+      );
+
+      expect(sendData).not.toHaveBeenCalledWith(
+        expect.objectContaining({ status: "searching_locations", isLocationQuery: true })
+      );
+      expect(bindTools).not.toHaveBeenCalled();
+
+      (getChatModel as unknown as jest.Mock).mockImplementation(() => ({
+        invoke: jest.fn().mockResolvedValue({ content: "Mock response" }),
+        stream: jest.fn().mockImplementation(() => mockChatOpenAIStream()),
+        bindTools: jest.fn().mockReturnThis(),
+        bind: jest.fn().mockReturnThis(),
+      }));
+    });
+  });
 });
 
 describe("createStreamingDeadlineGuard", () => {

@@ -12,6 +12,7 @@ import {
   formatAuthorScopeDebugLog,
   formatInferredAuthorFocusLine,
 } from "@/utils/server/activeFilterPrompt";
+import { DRAFTING_GENERATION_HINT } from "@/utils/server/draftingIntentDetector";
 
 const mockSiteConfig = {
   siteId: "ananda",
@@ -232,6 +233,23 @@ describe("buildActiveFiltersSummaryForGeneration", () => {
     expect(summary).toContain("- Collection: Bible");
     expect(summary).toContain(EMPTY_RETRIEVAL_FILTER_HINT);
     expect(summary).not.toContain(EMPTY_RETRIEVAL_INFERRED_AUTHOR_HINT);
+  });
+
+  it("skips the empty-retrieval lecture for drafting queries", () => {
+    const data = buildActiveFilterPromptData(
+      mockSiteConfig as any,
+      undefined,
+      "auto",
+      undefined,
+      undefined,
+      "Asha Nayaswami"
+    );
+
+    const summary = buildActiveFiltersSummaryForGeneration(data, true, { isDraftingQuery: true });
+
+    expect(summary).toContain(DRAFTING_GENERATION_HINT);
+    expect(summary).not.toContain(EMPTY_RETRIEVAL_INFERRED_AUTHOR_HINT);
+    expect(summary).not.toContain(EMPTY_RETRIEVAL_FILTER_HINT);
   });
 });
 
