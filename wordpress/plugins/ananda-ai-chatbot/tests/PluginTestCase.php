@@ -58,7 +58,6 @@ abstract class PluginTestCase extends TestCase {
         Functions\when('wp_enqueue_style')->justReturn(true);
         Functions\when('wp_enqueue_script')->justReturn(true);
         Functions\when('wp_script_add_data')->justReturn(true);
-        Functions\when('filemtime')->justReturn(123456);
         Functions\when('is_search')->justReturn(false);
         Functions\when('admin_url')->justReturn('http://example.com/wp-admin/admin-ajax.php');
         Functions\when('get_site_url')->justReturn('http://example.com');
@@ -146,10 +145,17 @@ abstract class PluginTestCase extends TestCase {
      * @return JsonResponseException
      */
     protected function captureJson(callable $handler) {
+        $bufferLevel = ob_get_level();
         try {
             $handler();
         } catch (JsonResponseException $exception) {
+            while (ob_get_level() > $bufferLevel) {
+                ob_end_clean();
+            }
             return $exception;
+        }
+        while (ob_get_level() > $bufferLevel) {
+            ob_end_clean();
         }
         $this->fail('Handler did not send a JSON response');
     }

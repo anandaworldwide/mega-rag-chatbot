@@ -3,7 +3,7 @@
 /**
  * Stands in for wp_send_json_* / check_ajax_referer die paths.
  */
-class JsonResponseException extends RuntimeException {
+class JsonResponseException extends Error {
     /** @var string */
     public $kind;
 
