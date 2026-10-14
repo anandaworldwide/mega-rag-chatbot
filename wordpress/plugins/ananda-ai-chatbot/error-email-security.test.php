@@ -30,6 +30,24 @@ expect_true(
     'different IPs get different keys'
 );
 
+$direct = aichatbot_error_email_client_ip(
+    array(
+        'REMOTE_ADDR' => '10.0.0.8',
+        'HTTP_X_FORWARDED_FOR' => '198.51.100.20',
+    ),
+    array()
+);
+expect_true($direct === '10.0.0.8', 'untrusted hop uses REMOTE_ADDR and ignores X-Forwarded-For');
+
+$via_proxy = aichatbot_error_email_client_ip(
+    array(
+        'REMOTE_ADDR' => '10.0.0.1',
+        'HTTP_X_FORWARDED_FOR' => '198.51.100.20, 10.0.0.1',
+    ),
+    array('10.0.0.1')
+);
+expect_true($via_proxy === '198.51.100.20', 'trusted proxy uses the left-most forwarded IP');
+
 if ($failures > 0) {
     fwrite(STDERR, "{$failures} assertion(s) failed\n");
     exit(1);

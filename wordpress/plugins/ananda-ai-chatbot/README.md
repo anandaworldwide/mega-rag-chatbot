@@ -109,6 +109,19 @@ To enable detailed debugging:
    - Use WordPress capabilities to control which users can configure the plugin
    - Restrict access to the secure API test page
 
+4. **Error-email rate limit and proxies**:
+   - Error reports are capped per client IP (transient, a few per hour)
+   - The limiter uses `REMOTE_ADDR` only
+   - `X-Forwarded-For` / `X-Real-IP` are read only when `REMOTE_ADDR` is a trusted proxy
+   - Set trusted proxies in wp-config.php when WordPress sits behind a known load balancer:
+
+   ```php
+   define('AICHATBOT_TRUSTED_PROXIES', array('203.0.113.10', '10.0.0.2'));
+   ```
+
+   - Or filter `aichatbot_trusted_proxy_ips`
+   - Do not trust forwarded headers from arbitrary clients; that bypasses the per-IP cap
+
 ### Integration Testing Checklist
 
 After setup, perform these tests to verify proper integration:

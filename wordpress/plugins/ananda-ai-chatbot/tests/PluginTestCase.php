@@ -52,6 +52,9 @@ abstract class PluginTestCase extends TestCase {
         Functions\when('plugin_dir_url')->justReturn('http://example.com/wp-content/plugins/ananda-ai-chatbot/');
         Functions\when('add_action')->justReturn(true);
         Functions\when('add_filter')->justReturn(true);
+        Functions\when('apply_filters')->alias(static function ($_hook, $value) {
+            return $value;
+        });
         Functions\when('add_options_page')->justReturn(true);
         Functions\when('add_submenu_page')->justReturn(true);
         Functions\when('register_setting')->justReturn(true);

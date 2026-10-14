@@ -60,4 +60,24 @@ class SendErrorEmailSecurityTest extends PluginTestCase {
         $this->assertLessThanOrEqual(500, strlen($capped['current_url']));
         $this->assertSame(80, strlen($capped['timestamp']));
     }
+
+    public function test_client_ip_uses_remote_addr_unless_remote_is_a_trusted_proxy() {
+        $spoofed = aichatbot_error_email_client_ip(
+            array(
+                'REMOTE_ADDR' => '203.0.113.10',
+                'HTTP_X_FORWARDED_FOR' => '198.51.100.20',
+            ),
+            array()
+        );
+        $this->assertSame('203.0.113.10', $spoofed);
+
+        $via_proxy = aichatbot_error_email_client_ip(
+            array(
+                'REMOTE_ADDR' => '10.0.0.1',
+                'HTTP_X_FORWARDED_FOR' => '198.51.100.20, 10.0.0.1',
+            ),
+            array('10.0.0.1')
+        );
+        $this->assertSame('198.51.100.20', $via_proxy);
+    }
 }
