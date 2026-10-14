@@ -649,6 +649,7 @@ if (siteConfig?.requireLogin) {
     1. Optionally rephrases the question based on history.
     2. If the current user message contains a usable quoted span, embeds that span alone
        (`quotedSpanEmbedding.ts`) instead of the request wrapper or a condensed "provide quotes" rewrite.
+       Site/library brand names such as "Ananda Libraries" are not quoted spans, authors, or title scopes.
     3. Performs similarity search in Pinecone to find relevant document chunks.
     4. Injects retrieved context and chat history into the LLM prompt.
     5. Calls the LLM (e.g., OpenAI) to generate an answer.

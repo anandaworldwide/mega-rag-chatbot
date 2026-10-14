@@ -61,6 +61,33 @@ describe("findExplicitAuthorMatch", () => {
     expect(findExplicitAuthorMatch("What is meditation?", baseSiteConfig)).toBeNull();
   });
 
+  it("does not treat Ananda Libraries as a named author or title scope", () => {
+    const generatedAliasIndex = {
+      ananda: "Radio Ananda",
+      "ananda libraries": "Radio Ananda",
+      "ananda library": "Radio Ananda",
+    };
+
+    expect(
+      findExplicitAuthorMatch(
+        'What is "the Ananda Libraries"?',
+        baseSiteConfig,
+        ["Ananda", "Radio Ananda"],
+        ["Ananda Libraries", "Ananda Library"],
+        generatedAliasIndex
+      )
+    ).toBeNull();
+    expect(
+      findExplicitAuthorMatch(
+        "What sources do you use from the Ananda Libraries?",
+        baseSiteConfig,
+        ["Ananda"],
+        ["Ananda Libraries"],
+        { ananda: "Radio Ananda" }
+      )
+    ).toBeNull();
+  });
+
   it("does not treat the site name Ananda as Radio Ananda", () => {
     const generatedAliasIndex = {
       "radio ananda": "Radio Ananda",
