@@ -165,12 +165,28 @@ async function fetchNewToken() {
       });
     });
 
+    const rawText = await response.text();
+
     if (!response.ok) {
+      let errorPayload = null;
+      try {
+        errorPayload = JSON.parse(rawText);
+      } catch (parseError) {
+        errorPayload = null;
+      }
+      const errorCode = errorPayload && errorPayload.data && errorPayload.data.code;
+      if (response.status === 403 || errorCode === 'invalid_nonce') {
+        const refreshError = new Error(
+          'Invalid security token. Please reload the page to continue.',
+        );
+        refreshError.name = 'ChatbotNonceError';
+        refreshError.code = 'invalid_nonce';
+        throw refreshError;
+      }
       throw new Error(`Failed to fetch token: HTTP ${response.status}`);
     }
 
     // Get the raw text first to check for issues
-    const rawText = await response.text();
 
     // Check for HTTP Basic Auth error
     if (
@@ -230,6 +246,10 @@ async function fetchNewToken() {
           'wordpress_token_configuration_error',
           `The WordPress chatbot plugin is missing or has invalid backend authentication configuration. WordPress response: ${errorMessage}. Details: ${errorDetails || 'No extra details provided.'}`,
         );
+      } else if (errorCode === 'invalid_nonce') {
+        throw new Error(
+          'Invalid security token. Please reload the page to continue.',
+        );
       } else if (errorCode === 'internal_error') {
         throw createChatbotConfigurationError(
           'wordpress_token_internal_error',
@@ -282,10 +302,13 @@ async function fetchNewToken() {
     // Provide user-friendly error messages based on common error patterns
     let userFriendlyError = error;
 
-    if (error.message.includes('HTTP 403')) {
-      userFriendlyError = createChatbotConfigurationError(
-        'wordpress_backend_token_rejected',
-        `The WordPress chatbot backend token request was rejected with HTTP 403 while trying to get a backend JWT. This usually means CHATBOT_BACKEND_SECURE_TOKEN or WP_API_SECRET in wp-config.php does not match the backend SECURE_TOKEN after key rotation. Token URL: ${tokenUrl}. Browser error: ${error.message}.`,
+    if (error.name === 'ChatbotNonceError' || error.message.includes('reload the page')) {
+      userFriendlyError = new Error(
+        'Invalid security token. Please reload the page to continue.',
+      );
+    } else if (error.message.includes('HTTP 403')) {
+      userFriendlyError = new Error(
+        'Invalid security token. Please reload the page to continue.',
       );
     } else if (error.message.includes('Failed to fetch')) {
       userFriendlyError = createChatbotConfigurationError(

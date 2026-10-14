@@ -488,8 +488,19 @@ function aichatbot_enqueue_assets() {
         return false;
     }
 
-    // Pass data to JavaScript - make sure it's available to BOTH scripts
-    $data_array = array(
+    $data_array = aichatbot_frontend_script_data($vercel_url, $font_size, $window_width, $window_height, $fullpage_url, $enable_intercom, $google_analytics_id);
+    
+    // Localize for both scripts to ensure data is available
+    wp_localize_script('aichatbot-auth', 'aichatbotData', $data_array);
+    wp_localize_script('aichatbot-js', 'aichatbotData', $data_array);
+}
+add_action('wp_enqueue_scripts', 'aichatbot_enqueue_assets');
+
+/**
+ * Localized frontend data, including the chat AJAX nonce.
+ */
+function aichatbot_frontend_script_data($vercel_url, $font_size, $window_width, $window_height, $fullpage_url, $enable_intercom, $google_analytics_id) {
+    return array(
         'vercelUrl' => $vercel_url,
         'fontSizePx' => $font_size,
         'windowWidthPx' => $window_width,
@@ -503,12 +514,7 @@ function aichatbot_enqueue_assets() {
         'isSearchPage' => aichatbot_is_search_page() ? '1' : '0',
         'version' => AICHATBOT_VERSION
     );
-    
-    // Localize for both scripts to ensure data is available
-    wp_localize_script('aichatbot-auth', 'aichatbotData', $data_array);
-    wp_localize_script('aichatbot-js', 'aichatbotData', $data_array);
 }
-add_action('wp_enqueue_scripts', 'aichatbot_enqueue_assets');
 
 // Add custom CSS to head for the chatbot appearance settings
 function aichatbot_add_custom_css() {

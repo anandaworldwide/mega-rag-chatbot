@@ -9,7 +9,7 @@ import { libraryAccessCookieHeader } from "./src/utils/server/libraryAccess";
 import { applyComputedLibraryAccessOverrides } from "./src/utils/server/libraryAccessMiddlewareGate";
 
 // Log suspicious activity with details
-const logSuspiciousActivity = (req: NextRequest, reason: string) => {
+export const logSuspiciousActivity = (req: NextRequest, reason: string) => {
   const clientIP = getClientIp(req);
   const userAgent = req.headers.get("user-agent") || "unknown";
   const method = req.method;
@@ -37,7 +37,12 @@ export const SENSITIVE_FILE_MARKERS: readonly string[] = [
   "secrets.json",
   "credentials.json",
   "private.key",
+  "package.json",
+  "firebase.prod.json",
 ];
+
+/** Exported alias for regression tests. */
+export const sensitiveFiles = SENSITIVE_FILE_MARKERS;
 
 export function isSensitiveFilePath(pathname: string): boolean {
   const lower = pathname.toLowerCase();
@@ -49,14 +54,24 @@ export function isStaticAssetPath(pathname: string): boolean {
   return /\.(png|jpg|jpeg|gif|ico|svg|css|js)$/i.test(pathname);
 }
 
+export function isStaticAsset(pathname: string): boolean {
+  return isStaticAssetPath(pathname);
+}
+
 export function createCspNonce(): string {
   return Buffer.from(crypto.randomBytes(16)).toString("base64");
 }
 
-export function buildContentSecurityPolicy(nonce: string): string {
+export function buildContentSecurityPolicy(
+  nonce: string,
+  isProduction: boolean = process.env.NODE_ENV === "production"
+): string {
+  const scriptSrc = isProduction
+    ? `script-src 'self' 'nonce-${nonce}' https://www.googletagmanager.com https://www.google-analytics.com`
+    : `script-src 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://www.google-analytics.com`;
   return [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://www.google-analytics.com`,
+    scriptSrc,
     "connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://*.google-analytics.com https://maps.googleapis.com https://www.googleapis.com",
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com data:",
