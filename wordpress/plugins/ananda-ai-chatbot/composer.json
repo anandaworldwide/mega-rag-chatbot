@@ -7,8 +7,13 @@
     "php": ">=7.4"
   },
   "require-dev": {
+    "brain/monkey": "^2.6",
+    "php-stubs/wordpress-globals": "^0.2.0",
     "php-stubs/wordpress-stubs": "^6.0",
-    "php-stubs/wordpress-globals": "^0.2.0"
+    "phpunit/phpunit": "^9.6"
+  },
+  "scripts": {
+    "test": "phpunit"
   },
   "config": {
     "optimize-autoloader": true,

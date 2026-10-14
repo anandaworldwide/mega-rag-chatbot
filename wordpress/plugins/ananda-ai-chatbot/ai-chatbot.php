@@ -30,6 +30,7 @@ function aichatbot_get_api_url() {
 
 // Include the secure API client
 require_once plugin_dir_path(__FILE__) . 'secure-api-client.php';
+require_once plugin_dir_path(__FILE__) . 'error-email-security.php';
 
 // Include the secure API test page
 require_once plugin_dir_path(__FILE__) . 'secure-api-test.php';
@@ -487,8 +488,19 @@ function aichatbot_enqueue_assets() {
         return false;
     }
 
-    // Pass data to JavaScript - make sure it's available to BOTH scripts
-    $data_array = array(
+    $data_array = aichatbot_frontend_script_data($vercel_url, $font_size, $window_width, $window_height, $fullpage_url, $enable_intercom, $google_analytics_id);
+    
+    // Localize for both scripts to ensure data is available
+    wp_localize_script('aichatbot-auth', 'aichatbotData', $data_array);
+    wp_localize_script('aichatbot-js', 'aichatbotData', $data_array);
+}
+add_action('wp_enqueue_scripts', 'aichatbot_enqueue_assets');
+
+/**
+ * Localized frontend data, including the chat AJAX nonce.
+ */
+function aichatbot_frontend_script_data($vercel_url, $font_size, $window_width, $window_height, $fullpage_url, $enable_intercom, $google_analytics_id) {
+    return array(
         'vercelUrl' => $vercel_url,
         'fontSizePx' => $font_size,
         'windowWidthPx' => $window_width,
@@ -498,15 +510,11 @@ function aichatbot_enqueue_assets() {
         'enableIntercom' => $enable_intercom ? '1' : '0',
         'googleAnalyticsId' => $google_analytics_id,
         'ajaxUrl' => admin_url('admin-ajax.php'),
+        'nonce' => wp_create_nonce(aichatbot_chat_nonce_action()),
         'isSearchPage' => aichatbot_is_search_page() ? '1' : '0',
         'version' => AICHATBOT_VERSION
     );
-    
-    // Localize for both scripts to ensure data is available
-    wp_localize_script('aichatbot-auth', 'aichatbotData', $data_array);
-    wp_localize_script('aichatbot-js', 'aichatbotData', $data_array);
 }
-add_action('wp_enqueue_scripts', 'aichatbot_enqueue_assets');
 
 // Add custom CSS to head for the chatbot appearance settings
 function aichatbot_add_custom_css() {
@@ -633,6 +641,68 @@ function aichatbot_add_chat_bubble() {
 }
 add_action('wp_footer', 'aichatbot_add_chat_bubble');
 
+/**
+ * WordPress nonce action for chatbot token (chat request) AJAX.
+ */
+function aichatbot_chat_nonce_action() {
+    return 'aichatbot_get_token';
+}
+
+/**
+ * Read the chatbot AJAX nonce from the request.
+ */
+function aichatbot_request_nonce_value() {
+    if (!isset($_REQUEST['nonce'])) {
+        return '';
+    }
+    return sanitize_text_field(wp_unslash($_REQUEST['nonce']));
+}
+
+/**
+ * Verify the chatbot chat-request nonce.
+ *
+ * @param string|null $nonce Nonce to verify. Null reads from the request.
+ * @return bool True when the nonce is valid.
+ */
+function aichatbot_verify_chat_request_nonce($nonce = null) {
+    $value = $nonce === null ? aichatbot_request_nonce_value() : $nonce;
+    if (!is_string($value) || $value === '') {
+        return false;
+    }
+    return wp_verify_nonce($value, aichatbot_chat_nonce_action()) !== false;
+}
+
+/**
+ * Transient rate limit: a few error-report emails per IP per hour.
+ *
+ * @return bool True when the request is allowed.
+ */
+function aichatbot_allow_error_email_send($ip = null) {
+    $ip = $ip === null ? aichatbot_error_email_client_ip() : $ip;
+    $key = aichatbot_error_email_rate_limit_key($ip);
+    $count = (int) get_transient($key);
+    if (aichatbot_should_rate_limit_error_email($count)) {
+        return false;
+    }
+    set_transient($key, $count + 1, aichatbot_error_email_rate_limit_window());
+    return true;
+}
+
+function aichatbot_sanitize_error_email_fields($post) {
+    $max = aichatbot_error_email_field_max_lengths();
+    $current_url = isset($post['current_url']) ? esc_url_raw($post['current_url']) : '';
+    return array(
+        'error_type' => aichatbot_cap_text(sanitize_text_field($post['error_type'] ?? 'Unknown Error'), $max['error_type']),
+        'error_message' => aichatbot_cap_text(sanitize_text_field($post['error_message'] ?? 'No error message provided'), $max['error_message']),
+        'error_stack' => aichatbot_cap_text(sanitize_textarea_field($post['error_stack'] ?? ''), $max['error_stack']),
+        'user_message' => aichatbot_cap_text(sanitize_text_field($post['user_message'] ?? 'No user message'), $max['user_message']),
+        'user_agent' => aichatbot_cap_text(sanitize_text_field($post['user_agent'] ?? 'Unknown'), $max['user_agent']),
+        'current_url' => aichatbot_cap_text($current_url !== '' ? $current_url : 'Unknown', $max['current_url']),
+        'timestamp' => aichatbot_cap_text(sanitize_text_field($post['timestamp'] ?? 'Unknown'), $max['timestamp']),
+        'chat_history_count' => intval($post['chat_history_count'] ?? 0),
+    );
+}
+
 // Add this function to handle token requests from the frontend
 function aichatbot_ajax_get_token() {
     // Prevent any output before our JSON response
@@ -642,7 +712,14 @@ function aichatbot_ajax_get_token() {
     // For debugging: Log that the AJAX handler was called
     error_log('aichatbot_ajax_get_token called');
     
-    // Security check with nonce would typically go here
+    if (!aichatbot_verify_chat_request_nonce()) {
+        ob_clean();
+        wp_send_json_error(array(
+            'message' => 'Invalid security token. Please reload the page.',
+            'code' => 'invalid_nonce'
+        ), 403);
+        return;
+    }
     
     try {
         // Get a token using the secure API client
@@ -817,15 +894,25 @@ add_action('wp_ajax_nopriv_aichatbot_send_error_email', 'aichatbot_ajax_send_err
  * AJAX handler for sending error emails to administrators
  */
 function aichatbot_ajax_send_error_email() {
-    // Get the error data from the request
-    $error_type = sanitize_text_field($_POST['error_type'] ?? 'Unknown Error');
-    $error_message = sanitize_text_field($_POST['error_message'] ?? 'No error message provided');
-    $error_stack = sanitize_textarea_field($_POST['error_stack'] ?? '');
-    $user_message = sanitize_text_field($_POST['user_message'] ?? 'No user message');
-    $user_agent = sanitize_text_field($_POST['user_agent'] ?? 'Unknown');
-    $current_url = esc_url_raw($_POST['current_url'] ?? 'Unknown');
-    $timestamp = sanitize_text_field($_POST['timestamp'] ?? 'Unknown');
-    $chat_history_count = intval($_POST['chat_history_count'] ?? 0);
+    check_ajax_referer(aichatbot_chat_nonce_action(), 'nonce');
+
+    if (!aichatbot_allow_error_email_send()) {
+        wp_send_json_error(array(
+            'message' => 'Too many error reports. Please try again later.',
+            'code' => 'rate_limited'
+        ), 429);
+        return;
+    }
+
+    $fields = aichatbot_sanitize_error_email_fields($_POST);
+    $error_type = $fields['error_type'];
+    $error_message = $fields['error_message'];
+    $error_stack = $fields['error_stack'];
+    $user_message = $fields['user_message'];
+    $user_agent = $fields['user_agent'];
+    $current_url = $fields['current_url'];
+    $timestamp = $fields['timestamp'];
+    $chat_history_count = $fields['chat_history_count'];
 
     // Prepare email content
     $subject = "Ananda AI Chatbot Error Report: " . $error_type;
@@ -845,6 +932,7 @@ function aichatbot_ajax_send_error_email() {
     
     $message_body .= "This is an automated error report from the Ananda AI Chatbot WordPress plugin.\n";
     $message_body .= "Please investigate and resolve the issue as soon as possible.\n";
+    $message_body = aichatbot_cap_text($message_body, aichatbot_error_email_body_max_length());
 
     // Email headers
     $headers = array(

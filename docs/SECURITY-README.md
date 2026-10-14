@@ -1301,7 +1301,9 @@ SSRF_ALLOWED_DOMAINS=api.example.com,cdn.example.com
 
 **Key Features**:
 
-- **Nonce Support**: Generated nonces for inline scripts (Next.js compatible)
+- **Nonce Support**: Middleware generates a per-request nonce, puts it on the
+  request `x-nonce` header (so Next.js / `_document` can apply it to `Head`
+  and `NextScript`), and includes the same value in `Content-Security-Policy`
 - **Tightened connect-src**: Only specific domains allowed for API calls
 - **Upgrade Insecure Requests**: Forces HTTPS for all resources
 - **Strict Default Policy**: `default-src 'self'` as baseline

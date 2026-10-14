@@ -31,7 +31,7 @@ interface TokenData {
 // We keep the token in memory to avoid exposing it in localStorage
 let tokenData: TokenData | null = null;
 // Dedupe concurrent token fetches across the app
-let inflightFetchPromise: Promise<string> | null = null;
+let inflightFetchPromise: Promise<string | null> | null = null;
 
 // Time buffer before expiration to refresh token (5 seconds)
 // Reduced from 30s to 5s to prevent false session expiration warnings
@@ -42,10 +42,14 @@ const MAX_RETRY_ATTEMPTS = 3;
 
 // Track initialization state
 let isInitializing = false;
-let initializationPromise: Promise<string> | null = null;
+let initializationPromise: Promise<string | null> | null = null;
+
+export function isPlaceholderToken(token: string | null | undefined): boolean {
+  return typeof token === "string" && token.includes("placeholder");
+}
 
 function syncUuidFromTokenPayload(token: string): void {
-  if (token.includes("placeholder")) {
+  if (isPlaceholderToken(token)) {
     return;
   }
 
@@ -82,6 +86,7 @@ function parseJwtExpiration(token: string): number {
  */
 function isTokenValid(): boolean {
   if (!tokenData) return false;
+  if (isPlaceholderToken(tokenData.token)) return false;
 
   // Consider token invalid if it's within the buffer period of expiration
   return tokenData.expiresAt > Date.now() + EXPIRATION_BUFFER;
@@ -125,7 +130,7 @@ export class TokenServiceUnavailableError extends Error {
  * AuthenticationError that the caller (AuthGuard) can handle. This allows
  * AuthGuard to implement retry logic before deciding to redirect.
  */
-async function fetchNewToken(): Promise<string> {
+async function fetchNewToken(): Promise<string | null> {
   // authToken is HttpOnly; hasSession is the client-readable session indicator.
   function hasAnyAuthCookie(): boolean {
     return document.cookie.includes("hasSession=");
@@ -142,32 +147,23 @@ async function fetchNewToken(): Promise<string> {
 
     if (!response.ok) {
       // On login or magic-login pages, a 401 is expected - don't treat it as an error
-      // BUT: After magic login succeeds, we should have valid cookies, so don't use placeholder
+      // Do not cache a fake token; AuthGuard retries must refetch a real JWT.
       if (
         response.status === 401 &&
         (window.location.pathname === "/login" || (window.location.pathname === "/magic-login" && !hasAnyAuthCookie()))
       ) {
         console.log("No authentication on login page - this is expected");
-        // Return an empty placeholder token for the login page
-        const placeholderToken = "login-page-placeholder";
-        tokenData = {
-          token: placeholderToken,
-          expiresAt: Date.now() + 15 * 60 * 1000, // 15 minutes
-        };
-        return placeholderToken;
+        tokenData = null;
+        return null;
       }
 
       if (response.status === 401 && window.location.pathname !== "/login") {
         const path = window.location.pathname;
-        // If this is a public page (e.g. /share/<docId> or /answers/<id>) don't redirect – just use placeholder token
+        // Public share/answer pages stay reachable; do not cache a fake token.
         if (path.startsWith("/share/") || path.startsWith("/answers/")) {
-          console.log("Public page 401 for web-token – using placeholder token");
-          const placeholderToken = "public-page-placeholder";
-          tokenData = {
-            token: placeholderToken,
-            expiresAt: Date.now() + 15 * 60 * 1000,
-          };
-          return placeholderToken;
+          console.log("Public page 401 for web-token – no token available");
+          tokenData = null;
+          return null;
         }
 
         // Throw AuthenticationError instead of redirecting - let AuthGuard handle retry/redirect logic
@@ -220,15 +216,11 @@ async function fetchNewToken(): Promise<string> {
     }
 
     // Special handling for the login or magic-login pages - don't throw errors
-    // BUT: After magic login succeeds, we should have valid cookies, so don't use placeholder
+    // After magic login succeeds we have cookies, so a real fetch is required.
     if (window.location.pathname === "/login" || (window.location.pathname === "/magic-login" && !hasAnyAuthCookie())) {
-      console.log("Token fetch failed on login page, using placeholder token");
-      const placeholderToken = "login-page-placeholder";
-      tokenData = {
-        token: placeholderToken,
-        expiresAt: Date.now() + 15 * 60 * 1000, // 15 minutes
-      };
-      return placeholderToken;
+      console.log("Token fetch failed on login page, no token available");
+      tokenData = null;
+      return null;
     }
 
     console.error("Error fetching token:", error);
@@ -240,7 +232,7 @@ async function fetchNewToken(): Promise<string> {
  * Initialize the token manager and fetch the first token
  * This should be called early in the app lifecycle
  */
-export async function initializeTokenManager(): Promise<string> {
+export async function initializeTokenManager(): Promise<string | null> {
   // If we're already initializing, return the existing promise
   if (isInitializing && initializationPromise) {
     return initializationPromise;
@@ -287,7 +279,7 @@ export async function initializeTokenManager(): Promise<string> {
  * @returns True if the user has a valid authentication token
  */
 export function isAuthenticated(): boolean {
-  if (tokenData && tokenData.token.includes("placeholder")) {
+  if (tokenData && isPlaceholderToken(tokenData.token)) {
     return false;
   }
 
@@ -324,7 +316,7 @@ export async function ensureAnonymousUuidSynced(): Promise<void> {
  * Get a valid token, fetching a new one if necessary
  * This will await the initialization if it's in progress
  */
-export async function getToken(): Promise<string> {
+export async function getToken(): Promise<string | null> {
   // If initialization is in progress, wait for it
   if (isInitializing && initializationPromise) {
     return initializationPromise;
@@ -351,15 +343,23 @@ export async function getToken(): Promise<string> {
  * @param options Optional fetch options to extend
  * @returns Fetch options with Authorization header
  */
+export function authorizationHeadersForToken(token: string | null | undefined): Record<string, string> {
+  if (!token || isPlaceholderToken(token)) {
+    return {};
+  }
+  return { Authorization: `Bearer ${token}` };
+}
+
 export async function withAuth(options?: RequestInit): Promise<RequestInit> {
   const token = await getToken();
+  const headers: Record<string, string> = {
+    ...((options?.headers || {}) as Record<string, string>),
+    ...authorizationHeadersForToken(token),
+  };
 
   return {
     ...options,
-    headers: {
-      ...(options?.headers || {}),
-      Authorization: `Bearer ${token}`,
-    },
+    headers,
   };
 }
 

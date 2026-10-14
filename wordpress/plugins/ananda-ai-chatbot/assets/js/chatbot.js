@@ -20,6 +20,34 @@
  * - AI suggestion chips for follow-up questions
  */
 
+/**
+ * Build the admin-ajax payload for an error-report email.
+ * Returns null when the WordPress nonce is missing so the request is not sent.
+ */
+function buildErrorEmailPayload(aichatbotData, error, errorType, userMessage, extras) {
+  if (!aichatbotData || !aichatbotData.ajaxUrl || !aichatbotData.nonce) {
+    return null;
+  }
+
+  extras = extras || {};
+  return {
+    action: "aichatbot_send_error_email",
+    nonce: aichatbotData.nonce,
+    error_type: errorType || "Unknown Error",
+    error_message: (error && (error.opsMessage || error.message)) || "",
+    error_stack: (error && error.stack) || "",
+    user_message: userMessage || "",
+    user_agent: extras.userAgent || "",
+    current_url: extras.currentUrl || "",
+    timestamp: extras.timestamp || new Date().toISOString(),
+    chat_history_count: String(extras.chatHistoryCount || 0),
+  };
+}
+
+if (typeof window !== "undefined") {
+  window.aichatbotBuildErrorEmailPayload = buildErrorEmailPayload;
+}
+
 function initChatbot() {
   // A JS-delay optimizer (e.g. FlyingPress) can replay this script; never
   // initialize twice or we'd build duplicate UI and event listeners.
@@ -2767,25 +2795,21 @@ function initChatbot() {
   async function sendErrorEmail(error, errorType, userMessage) {
     try {
       // Check if we have the AJAX URL available
-      if (!aichatbotData || !aichatbotData.ajaxUrl) {
-        console.error("AJAX URL not available for sending error email");
+      const errorData = buildErrorEmailPayload(aichatbotData, error, errorType, userMessage, {
+        userAgent: navigator.userAgent,
+        currentUrl: window.location.href,
+        timestamp: new Date().toISOString(),
+        chatHistoryCount: chatHistory.length,
+      });
+
+      if (!errorData) {
+        console.error("AJAX URL or WordPress nonce is not available for sending error email");
         return;
       }
 
-      const errorData = {
-        action: "aichatbot_send_error_email",
-        error_type: errorType,
-        error_message: error.opsMessage || error.message,
-        error_stack: error.stack || "",
-        user_message: userMessage,
-        user_agent: navigator.userAgent,
-        current_url: window.location.href,
-        timestamp: new Date().toISOString(),
-        chat_history_count: chatHistory.length,
-      };
-
       const response = await fetch(aichatbotData.ajaxUrl, {
         method: "POST",
+        credentials: "same-origin",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
         },

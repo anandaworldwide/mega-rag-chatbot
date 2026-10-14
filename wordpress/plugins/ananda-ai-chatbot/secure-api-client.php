@@ -30,6 +30,7 @@ if (!defined('ABSPATH')) {
  * 
  * @return string|WP_Error Token string on success, WP_Error object on failure
  */
+if (!function_exists('ananda_get_api_token')) {
 function ananda_get_api_token() {
     // Get the Vercel URL using the centralized function
     $vercel_url = aichatbot_get_api_url();
@@ -113,6 +114,7 @@ function ananda_get_api_token() {
     
     // Return the token
     return $data['token'];
+}
 }
 
 /**

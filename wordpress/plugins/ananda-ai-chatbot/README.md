@@ -109,6 +109,22 @@ To enable detailed debugging:
    - Use WordPress capabilities to control which users can configure the plugin
    - Restrict access to the secure API test page
 
+4. **Error-email rate limit and proxies**:
+   - Error reports are capped per client IP (transient, a few per hour)
+   - The limiter uses `REMOTE_ADDR` only
+   - `X-Forwarded-For` / `X-Real-IP` are read only when `REMOTE_ADDR` is a trusted proxy
+   - `X-Forwarded-For` is walked right-to-left; trusted hops are skipped
+   - The first non-trusted IP is the rate-limit key; if every hop is trusted, `REMOTE_ADDR` is used
+   - Left-most `X-Forwarded-For` values are client-controlled and are not used
+   - Set trusted proxies in wp-config.php when WordPress sits behind a known load balancer:
+
+   ```php
+   define('AICHATBOT_TRUSTED_PROXIES', array('203.0.113.10', '10.0.0.2'));
+   ```
+
+   - Or filter `aichatbot_trusted_proxy_ips`
+   - Do not trust forwarded headers from arbitrary clients; that bypasses the per-IP cap
+
 ### Integration Testing Checklist
 
 After setup, perform these tests to verify proper integration:
@@ -128,14 +144,31 @@ This plugin uses Composer for dependency management and IDE support.
 
 ### Prerequisites
 
-- PHP
+- PHP 7.4+ (8.2 in CI)
 - Composer
 
 ### Setup
 
 1. Clone this repository to your WordPress plugins directory
-2. Run `composer install` to install dependencies
+2. Run `composer update` in this plugin directory to install dependencies (including PHPUnit and Brain Monkey)
 3. Configure your IDE to use the WordPress stubs
+
+### PHPUnit (Brain Monkey)
+
+WordPress is not required. Tests stub WP APIs with Brain Monkey.
+
+```bash
+cd wordpress/plugins/ananda-ai-chatbot
+composer update
+vendor/bin/phpunit
+```
+
+CI runs the same commands in the WordPress Plugin PHPUnit job of `.github/workflows/comprehensive-tests.yml`.
+
+Covered handlers:
+
+- `aichatbot_ajax_get_token` — missing/wrong nonce returns 403 and does not call `ananda_get_api_token`; a nonce from `wp_create_nonce('aichatbot_get_token')` succeeds; `wp_localize_script` `aichatbotData` includes `nonce`
+- `aichatbot_ajax_send_error_email` — missing nonce returns 403; over the per-IP transient limit returns 429; neither case calls `wp_mail`; field length caps are enforced
 
 ### IDE Configuration (VS Code with Intelephense)
 
