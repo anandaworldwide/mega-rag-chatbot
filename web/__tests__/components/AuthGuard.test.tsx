@@ -180,7 +180,8 @@ describe("AuthGuard", () => {
 
   it("does not treat a placeholder token as authenticated", async () => {
     (initializeTokenManager as jest.Mock).mockResolvedValue("login-page-placeholder");
-    (isAuthenticated as jest.Mock).mockReturnValue(false);
+    // Even if isAuthenticated were true, a placeholder must still redirect.
+    (isAuthenticated as jest.Mock).mockReturnValue(true);
     mockRouter.asPath = "/protected-page";
 
     render(

@@ -148,7 +148,7 @@ describe("Token Manager", () => {
 
       const token = await tokenManager.initializeTokenManager();
 
-      expect(token).toBe("");
+      expect(token).toBeNull();
       expect(tokenManager.isPlaceholderToken(token)).toBe(false);
       expect(consoleSpy.log).toHaveBeenCalledWith("No authentication on login page - this is expected");
     });
@@ -163,7 +163,7 @@ describe("Token Manager", () => {
 
       const token = await tokenManager.initializeTokenManager();
 
-      expect(token).toBe("");
+      expect(token).toBeNull();
       expect(consoleSpy.log).toHaveBeenCalledWith("Token fetch failed on login page, no token available");
     });
 
@@ -177,7 +177,7 @@ describe("Token Manager", () => {
       fetchMock.mockResponseOnce("", { status: 401 }).mockResponseOnce(JSON.stringify({ token: validToken }));
 
       const first = await tokenManager.initializeTokenManager();
-      expect(first).toBe("");
+      expect(first).toBeNull();
 
       const second = await tokenManager.getToken();
       expect(second).toBe(validToken);
@@ -194,7 +194,7 @@ describe("Token Manager", () => {
 
       const token = await tokenManager.initializeTokenManager();
 
-      expect(token).toBe("");
+      expect(token).toBeNull();
       expect(consoleSpy.log).toHaveBeenCalledWith("Public page 401 for web-token – no token available");
     });
 
@@ -359,10 +359,24 @@ describe("Token Manager", () => {
       expect(tokenManager.isAuthenticated()).toBe(false);
     });
 
-    it("should treat leftover placeholder strings as unauthenticated", () => {
+    it("should treat leftover placeholder strings as unauthenticated", async () => {
       expect(tokenManager.isPlaceholderToken("login-page-placeholder")).toBe(true);
       expect(tokenManager.isPlaceholderToken("public-page-placeholder")).toBe(true);
       expect(tokenManager.isPlaceholderToken("header.payload.sig")).toBe(false);
+      expect(tokenManager.isPlaceholderToken(null)).toBe(false);
+
+      fetchMock.mockResponseOnce(JSON.stringify({ token: "login-page-placeholder" }));
+      await tokenManager.initializeTokenManager();
+      expect(tokenManager.isAuthenticated()).toBe(false);
+    });
+
+    it("never sends a Bearer placeholder header", () => {
+      expect(tokenManager.authorizationHeadersForToken("login-page-placeholder")).toEqual({});
+      expect(tokenManager.authorizationHeadersForToken("public-page-placeholder")).toEqual({});
+      expect(tokenManager.authorizationHeadersForToken(null)).toEqual({});
+      expect(tokenManager.authorizationHeadersForToken("")).toEqual({});
+      const headers = tokenManager.authorizationHeadersForToken("x-placeholder-x");
+      expect(JSON.stringify(headers)).not.toMatch(/Bearer /);
     });
 
     it("should return false when no token exists", () => {

@@ -2,9 +2,29 @@
 
 // Mock implementation for NextRequest and NextResponse used by Edge Runtime
 
+function createNextUrl(url) {
+  const parsed = new URL(url);
+  parsed.clone = function clone() {
+    return createNextUrl(this.href);
+  };
+  return parsed;
+}
+
 class MockHeaders {
   constructor(init) {
-    this.headers = init || {};
+    this.headers = {};
+    if (!init) {
+      return;
+    }
+    if (typeof init.forEach === "function") {
+      init.forEach((value, key) => {
+        this.headers[String(key).toLowerCase()] = value;
+      });
+      return;
+    }
+    Object.entries(init).forEach(([key, value]) => {
+      this.headers[key.toLowerCase()] = value;
+    });
   }
   get(name) {
     return this.headers[name.toLowerCase()] || null;
@@ -47,12 +67,19 @@ class MockHeaders {
 
 class MockNextRequest {
   constructor(input, init) {
-    this.url = typeof input === 'string' ? input : input.url;
-    this.method = init?.method || 'GET';
+    this.url = typeof input === "string" ? input : input.url;
+    this.method = init?.method || "GET";
     this.headers = new MockHeaders(init?.headers);
     this.geo = init?.geo || {};
-    this.ip = init?.ip || '';
-    // Add other properties as needed for tests
+    this.ip = init?.ip || "";
+    this.nextUrl = createNextUrl(this.url);
+    this.cookies = {
+      get: (name) => {
+        const raw = this.headers.get("cookie") || "";
+        const match = raw.match(new RegExp(`(?:^|;\\s*)${name}=([^;]*)`));
+        return match ? { name, value: decodeURIComponent(match[1]) } : undefined;
+      },
+    };
   }
 
   json() {
@@ -83,7 +110,7 @@ class MockNextResponse {
     this.bodyUsed = true;
     try {
       return JSON.parse(this.body);
-    } catch (e) {
+    } catch (_e) {
       throw new SyntaxError('Invalid JSON');
     }
   }
@@ -112,11 +139,30 @@ class MockNextResponse {
 
   static json(data, init) {
     const headers = new MockHeaders(init?.headers);
-    headers.set('content-type', 'application/json');
+    headers.set("content-type", "application/json");
     return new MockNextResponse(JSON.stringify(data), { ...init, headers });
   }
 
-  // Add other static methods like redirect, rewrite etc. if needed
+  static next(init) {
+    const res = new MockNextResponse(null, { status: 200 });
+    const requestHeaders = init?.request?.headers;
+    if (requestHeaders && typeof requestHeaders.forEach === "function") {
+      const overridden = [];
+      requestHeaders.forEach((value, key) => {
+        res.headers.set(`x-middleware-request-${key}`, value);
+        overridden.push(key);
+      });
+      res.headers.set("x-middleware-override-headers", overridden.join(","));
+    }
+    return res;
+  }
+
+  static redirect(url, statusOrInit) {
+    const status = typeof statusOrInit === "number" ? statusOrInit : statusOrInit?.status || 307;
+    const res = new MockNextResponse(null, { status });
+    res.headers.set("location", String(url));
+    return res;
+  }
 }
 
 module.exports = {

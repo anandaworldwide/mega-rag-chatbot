@@ -186,4 +186,27 @@ describe("chatbot-auth.js", () => {
     );
     expect(context.fetch).not.toHaveBeenCalled();
   });
+
+  it("sends aichatbotData.nonce and surfaces a refresh-page error on 403 without retrying", async () => {
+    const context = loadChatbotAuth();
+    context.fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      text: async () =>
+        JSON.stringify({
+          success: false,
+          data: {
+            code: "invalid_nonce",
+            message: "Invalid security token. Please reload the page.",
+          },
+        }),
+    });
+
+    await expect(context.window.aichatbotAuth.getToken()).rejects.toThrow(/reload the page|refresh/i);
+
+    expect(context.fetch).toHaveBeenCalledTimes(1);
+    const tokenRequest = context.fetch.mock.calls[0];
+    expect(String(tokenRequest[0])).toContain("nonce=test-nonce-abc");
+    expect(tokenRequest[1]).toEqual(expect.objectContaining({ credentials: "same-origin" }));
+  });
 });

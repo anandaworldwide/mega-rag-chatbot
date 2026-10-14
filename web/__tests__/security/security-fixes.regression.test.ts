@@ -4,7 +4,14 @@
  */
 import fs from "fs";
 import path from "path";
-import { isSensitiveFilePath, isStaticAssetPath, buildContentSecurityPolicy, SENSITIVE_FILE_MARKERS } from "../../middleware";
+import {
+  isSensitiveFilePath,
+  isStaticAsset,
+  isStaticAssetPath,
+  buildContentSecurityPolicy,
+  SENSITIVE_FILE_MARKERS,
+  sensitiveFiles,
+} from "../../middleware";
 import { getRequestNonce } from "@/utils/server/cspNonce";
 import { nonceFromDocumentContext } from "@/pages/_document";
 import { isPlaceholderToken } from "@/utils/client/tokenManager";
@@ -34,6 +41,7 @@ describe("security fix regression list", () => {
   describe("2. Middleware sensitive files and fail-closed config", () => {
     it("blocks secret paths and fails closed when site config is missing", () => {
       const source = fs.readFileSync(MIDDLEWARE, "utf8");
+      expect(sensitiveFiles.length).toBeGreaterThan(0);
       expect(SENSITIVE_FILE_MARKERS).toEqual(expect.arrayContaining([".env", ".git", "secrets.json"]));
       expect(isSensitiveFilePath("/.env.production")).toBe(true);
       expect(isSensitiveFilePath("/answers")).toBe(false);
@@ -57,7 +65,9 @@ describe("security fix regression list", () => {
 
   describe("4. Static-file regex", () => {
     it("matches a literal dot, not a backslash", () => {
+      expect(isStaticAsset("/logo.png")).toBe(true);
       expect(isStaticAssetPath("/logo.png")).toBe(true);
+      expect(isStaticAsset("/secret.png.html")).toBe(false);
       expect(isStaticAssetPath("/folder\\png")).toBe(false);
       expect(fs.readFileSync(MIDDLEWARE, "utf8")).not.toContain("/\\\\.(png|jpg");
     });
