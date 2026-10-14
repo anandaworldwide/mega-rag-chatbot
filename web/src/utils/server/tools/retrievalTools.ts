@@ -233,7 +233,16 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
 
   const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
   const startsLikeSearchNarration =
-    /^(i('ll| will)|i am|i'm|i don['’]t|let me(?: fetch| search| pull)?|gathering|pulling|searching|seeking|fetching|trying|expanding)\b/i.test(
+    /^(i('ll| will)|i am|i'm|i don['’]t|let me(?: fetch| search| pull)?|gathering|pulling|searching|seeking|fetching|trying|expanding|retrieving|scanning|checking)\b/i.test(
+      trimmed
+    );
+  // Short loop/tool status lines often omit "sources" ("Looking up the teachings…").
+  const startsLikeStatusVerb =
+    /^(fetching|gathering|pulling|searching|seeking|retrieving|expanding|scanning|checking)\b/i.test(
+      trimmed
+    ) || /^(looking (?:up|through|into|over))\b/i.test(trimmed);
+  const hasAnswerPredicate =
+    /\b(is|are|was|were|means|because|taught|teaches|said|wrote|writes|explained|according to|for example)\b/i.test(
       trimmed
     );
   // "Looking for" is common in real answers. Treat it as a status line only when
@@ -278,6 +287,11 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
       ((startsLikeSearchNarration || hasGluedSearchNarration || gluedStartsLikeSearchNarration) &&
         (mentionsRetrievalWork || hasAdjacentFetchNarration || gluedMentionsRetrievalWork)))
   ) {
+    return true;
+  }
+
+  // One-sentence loop/tool status with no teaching predicate, even without "sources".
+  if (wordCount < 40 && startsLikeStatusVerb && !hasAnswerPredicate) {
     return true;
   }
 

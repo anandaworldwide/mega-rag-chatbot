@@ -480,6 +480,14 @@ describe("retrievalTools", () => {
       ).toBe(false);
     });
 
+    it("treats a short looking-up or fetching status line as incomplete even without the word sources", () => {
+      expect(isIncompleteRetrievalAnswer("Looking up the teachings on this topic.")).toBe(true);
+      expect(isIncompleteRetrievalAnswer("Fetching the requested teachings from the library.")).toBe(
+        true
+      );
+      expect(isIncompleteRetrievalAnswer("Checking the library for this question.")).toBe(true);
+    });
+
     it("treats spaced and glued Fetching-more status lines as incomplete", () => {
       expect(
         isIncompleteRetrievalAnswer(
