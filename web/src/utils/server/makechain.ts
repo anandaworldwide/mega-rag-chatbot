@@ -110,7 +110,10 @@ import {
   type RetrievalFilterCapture,
 } from "./authorScopeRetrieval";
 import { getCondenseTemplateWithAuthorScope, invokeRephraseWithAuthorScope } from "./rephraseWithAuthorScope";
-import { resolveEnglishLocationAndFirstRetrievalQuery } from "./englishRetrievalQuery";
+import {
+  detectLocationIntentAfterEnglishRestatement,
+  resolveEnglishLocationAndFirstRetrievalQuery,
+} from "./englishRetrievalQuery";
 import {
   formatRelevanceCutoffLog,
   getEffectiveMinRetrievalScore,
@@ -621,7 +624,11 @@ export const makeChain = async (
     if (originalQuestion && siteConfig?.enableGeoAwareness && geoTools.length > 0) {
       const intentDetectionStart = Date.now();
       try {
-        shouldUseGeoTools = await hasLocationIntentAsync(englishRetrievalQuery || originalQuestion);
+        shouldUseGeoTools = await detectLocationIntentAfterEnglishRestatement(
+          hasLocationIntentAsync,
+          originalQuestion,
+          englishRetrievalQuery
+        );
         locationIntentLatency = Date.now() - intentDetectionStart;
         if (timingMetrics) {
           timingMetrics.geoIntentMs = locationIntentLatency;

@@ -1,11 +1,14 @@
 /** @jest-environment node */
 
 import {
+  detectLocationIntentAfterEnglishRestatement,
   extractModelText,
+  hasNonAsciiLetter,
   looksLikeNonEnglish,
   normalizeRestatedQuestion,
   resolveEnglishLocationAndFirstRetrievalQuery,
   restateQuestionInEnglish,
+  shouldAlsoCheckOriginalForLocationIntent,
 } from "@/utils/server/englishRetrievalQuery";
 import type { BaseLanguageModel } from "@langchain/core/language_models/base";
 
@@ -28,6 +31,58 @@ describe("looksLikeNonEnglish", () => {
     expect(looksLikeNonEnglish("Where is the nearest Ananda center?")).toBe(false);
     expect(looksLikeNonEnglish("How do I practice Hong-Sau?")).toBe(false);
     expect(looksLikeNonEnglish("What did Yogananda say about “AUM”?")).toBe(false);
+  });
+
+  it("detects the Hindi nearest-center query via Devanagari letters", () => {
+    const hindiNearestCenter = "सबसे नजदीकी केंद्र कहाँ है?";
+    expect(hasNonAsciiLetter(hindiNearestCenter)).toBe(true);
+    expect(looksLikeNonEnglish(hindiNearestCenter)).toBe(true);
+  });
+
+  it("does not treat ASCII Italian or curly-quoted English as non-ASCII letters", () => {
+    expect(hasNonAsciiLetter("Che dice il Maestro sugli angeli?")).toBe(false);
+    expect(hasNonAsciiLetter("What did Yogananda say about “AUM”?")).toBe(false);
+  });
+});
+
+describe("detectLocationIntentAfterEnglishRestatement", () => {
+  const hindiNearestCenter = "सबसे नजदीकी केंद्र कहाँ है?";
+
+  it("falls back to the Hindi original when the English restatement misses geo", async () => {
+    const hasLocationIntent = jest.fn(async (query: string) => query === hindiNearestCenter);
+
+    await expect(
+      detectLocationIntentAfterEnglishRestatement(
+        hasLocationIntent,
+        hindiNearestCenter,
+        "Please tell me about local Ananda groups"
+      )
+    ).resolves.toBe(true);
+    expect(hasLocationIntent).toHaveBeenCalledWith("Please tell me about local Ananda groups");
+    expect(hasLocationIntent).toHaveBeenCalledWith(hindiNearestCenter);
+    expect(shouldAlsoCheckOriginalForLocationIntent(hindiNearestCenter, "Please tell me about local Ananda groups")).toBe(
+      true
+    );
+  });
+
+  it("does not re-check ASCII Italian originals after an English restatement", async () => {
+    const hasLocationIntent = jest.fn(async () => false);
+
+    await expect(
+      detectLocationIntentAfterEnglishRestatement(
+        hasLocationIntent,
+        "Che dice il Maestro sugli angeli?",
+        "What does the Master say about angels?"
+      )
+    ).resolves.toBe(false);
+    expect(hasLocationIntent).toHaveBeenCalledTimes(1);
+    expect(hasLocationIntent).toHaveBeenCalledWith("What does the Master say about angels?");
+    expect(
+      shouldAlsoCheckOriginalForLocationIntent(
+        "Che dice il Maestro sugli angeli?",
+        "What does the Master say about angels?"
+      )
+    ).toBe(false);
   });
 });
 

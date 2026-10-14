@@ -93,6 +93,7 @@ const ENGLISH_RESTATE_PROMPT = `Restate the user question as a standalone Englis
 Rules:
 - Output only the English question. No quotes, labels, or preamble.
 - Keep names, places, and numbers.
+- Keep location-finding wording (nearest, closest, nearby, center, where) when the user asks for a local center.
 - Do not add information that is not in the question.
 - If the text is a social closer (thanks, thank you, gracias, merci, danke), return it unchanged.
 
@@ -111,6 +112,62 @@ export function looksLikeNonEnglish(question: string): boolean {
 
   const words = tokenizeWords(trimmed);
   return words.some((word) => HIGH_PRECISION_FOREIGN_WORDS.has(word));
+}
+
+/**
+ * True for Devanagari and other non-Latin letters. False for ASCII Italian
+ * ("il") so we do not re-run geo on the original and trip country-code matches.
+ * Babel-safe: no Unicode property escapes.
+ */
+export function hasNonAsciiLetter(text: string): boolean {
+  for (const char of text) {
+    const code = char.codePointAt(0) ?? 0;
+    if (code <= 127) {
+      continue;
+    }
+    // Skip punctuation that appears in English text (smart quotes, dashes, nbsp).
+    if ((code >= 0x2000 && code <= 0x206f) || code === 0x00a0 || code === 0x00ad) {
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Hindi and other non-Latin scripts have location-intent embedding seeds.
+ * After an English restatement, also check the original when it has those letters.
+ * Latin-script restatements (Italian "il") stay English-only.
+ */
+export function shouldAlsoCheckOriginalForLocationIntent(
+  originalQuestion: string,
+  englishRetrievalQuery: string
+): boolean {
+  const original = originalQuestion.trim();
+  const english = englishRetrievalQuery.trim();
+  if (!original || original === english) {
+    return false;
+  }
+  return hasNonAsciiLetter(original);
+}
+
+/**
+ * Geo on the English restatement first, then the original when Devanagari
+ * (or other non-ASCII letters) would otherwise lose the location path.
+ */
+export async function detectLocationIntentAfterEnglishRestatement(
+  hasLocationIntent: (query: string) => Promise<boolean>,
+  originalQuestion: string,
+  englishRetrievalQuery: string
+): Promise<boolean> {
+  const english = (englishRetrievalQuery || originalQuestion).trim();
+  if (english && (await hasLocationIntent(english))) {
+    return true;
+  }
+  if (shouldAlsoCheckOriginalForLocationIntent(originalQuestion, english)) {
+    return hasLocationIntent(originalQuestion);
+  }
+  return false;
 }
 
 export function extractModelText(response: unknown, fallback: string): string {
@@ -197,19 +254,4 @@ function tokenizeWords(text: string): string[] {
     .toLowerCase()
     .split(/[^A-Za-zÀ-ÖØ-öø-ÿ]+/)
     .filter(Boolean);
-}
-
-function hasNonAsciiLetter(text: string): boolean {
-  for (const char of text) {
-    const code = char.codePointAt(0) ?? 0;
-    if (code <= 127) {
-      continue;
-    }
-    // Skip punctuation that appears in English text (smart quotes, dashes, nbsp).
-    if ((code >= 0x2000 && code <= 0x206f) || code === 0x00a0 || code === 0x00ad) {
-      continue;
-    }
-    return true;
-  }
-  return false;
 }
