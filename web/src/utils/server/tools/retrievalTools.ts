@@ -233,7 +233,7 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
 
   const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
   const startsLikeSearchNarration =
-    /^(i('ll| will)|i am|i'm|i don['’]t|let me(?: fetch| search| pull)?|gathering|pulling|searching|seeking|fetching|trying|expanding|retrieving|scanning|checking)\b/i.test(
+    /^(i('ll| will)|i am|i'm|i don['’]t|i still need|let me(?: fetch| search| pull)?|gathering|pulling|searching|seeking|fetching|trying|expanding|retrieving|scanning|checking)\b/i.test(
       trimmed
     );
   // Short loop/tool status lines often omit "sources" ("Looking up the teachings…").
@@ -255,7 +255,13 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
       trimmed
     );
   const hasGluedSearchNarration =
-    /\b(expanding the strongest|trying a tighter search|searching the book material|i('ll| will) pull)\b/i.test(
+    /\b(expanding the strongest|trying a tighter search|a tighter search|searching the book material|i('ll| will) pull|pulling nearby)\b/i.test(
+      trimmed
+    );
+  // "I still need clearer quotes; pulling nearby passages…" is search-progress, not an answer.
+  const hasNeedMoreThenSearch =
+    /^i still need\b/i.test(trimmed) &&
+    /\b(quotes?|passages?|sources?|chunks?|tighter search|nearby passages|pulling nearby|story)\b/i.test(
       trimmed
     );
   // Adjacent-chunk intent without saying "source/passage/chunk" (e.g. "Pulling nearby ceremony text…").
@@ -284,6 +290,7 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
   if (
     wordCount < 80 &&
     (hasLookingForRetrievalStatus ||
+      hasNeedMoreThenSearch ||
       ((startsLikeSearchNarration || hasGluedSearchNarration || gluedStartsLikeSearchNarration) &&
         (mentionsRetrievalWork || hasAdjacentFetchNarration || gluedMentionsRetrievalWork)))
   ) {
