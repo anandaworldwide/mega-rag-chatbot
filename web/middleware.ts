@@ -44,9 +44,24 @@ export const SENSITIVE_FILE_MARKERS: readonly string[] = [
 /** Exported alias for regression tests. */
 export const sensitiveFiles = SENSITIVE_FILE_MARKERS;
 
+function segmentMatchesSensitiveMarker(segment: string, marker: string): boolean {
+  if (segment === marker) {
+    return true;
+  }
+  // .env.local / id_rsa.pub — not x.envelope for .env, not .github for .git
+  return segment.startsWith(`${marker}.`);
+}
+
+/** True when a path segment is a sensitive file or directory name. */
 export function isSensitiveFilePath(pathname: string): boolean {
-  const lower = pathname.toLowerCase();
-  return SENSITIVE_FILE_MARKERS.some((marker) => lower.includes(marker));
+  const segments = pathname
+    .toLowerCase()
+    .split("/")
+    .filter((segment) => segment.length > 0);
+  return SENSITIVE_FILE_MARKERS.some((marker) => {
+    const needle = marker.toLowerCase();
+    return segments.some((segment) => segmentMatchesSensitiveMarker(segment, needle));
+  });
 }
 
 /** True for common static file extensions (literal dot, not a backslash). */
@@ -55,6 +70,17 @@ export function isStaticAssetPath(pathname: string): boolean {
 }
 
 export function isStaticAsset(pathname: string): boolean {
+  return isStaticAssetPath(pathname);
+}
+
+/**
+ * Static files that may skip requireLogin.
+ * API routes and Next.js data routes stay authenticated even if they end in .js/.png.
+ */
+export function isLoginExemptStaticAsset(pathname: string): boolean {
+  if (pathname.startsWith("/api/") || pathname.startsWith("/_next/data/")) {
+    return false;
+  }
   return isStaticAssetPath(pathname);
 }
 
@@ -243,7 +269,7 @@ export function middleware(req: NextRequest) {
     !(url.pathname.startsWith("/answers/") && url.pathname !== "/answers/") && // Exclude specific answer pages
     !url.pathname.includes("/_next/") && // Explicitly allow Next.js internals
     !url.pathname.startsWith("/static/") && // Allow static assets if served from /public/static
-    !isStaticAssetPath(url.pathname); // Allow common static file types
+    !isLoginExemptStaticAsset(url.pathname); // Static files only; never /api/* or /_next/data/*
 
   if (pathname_is_private && requireLogin) {
     const jwtCookie = req.cookies.get("authToken");
@@ -306,10 +332,6 @@ export function middleware(req: NextRequest) {
     const optionsResponse = new NextResponse(null, { status: 204 });
     return withLibraryAccessCookie(addCorsHeaders(optionsResponse, req, siteConfig), allowedNames);
   }
-
-  // Forward the CSP nonce on the response so _document / Script can apply it.
-  // Next.js also copies x-nonce from the request headers set above.
-  response.headers.set("x-nonce", nonce);
 
   // Content Security Policy with nonce support
   // Note: 'unsafe-inline' is still needed for styles (Tailwind CSS, CSS-in-JS)

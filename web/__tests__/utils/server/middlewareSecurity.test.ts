@@ -55,6 +55,8 @@ describe("middleware security helpers", () => {
     expect(isSensitiveFilePath("/secrets.json")).toBe(true);
     expect(isSensitiveFilePath("/login")).toBe(false);
     expect(isSensitiveFilePath("/answers/123")).toBe(false);
+    expect(isSensitiveFilePath("/x.envelope")).toBe(false);
+    expect(isSensitiveFilePath("/.github")).toBe(false);
   });
 
   it("matches static files with a literal dot, not a backslash", () => {
@@ -113,13 +115,12 @@ describe("middleware security behavior", () => {
 
   it("forwards the same CSP nonce on the request and in Content-Security-Policy", () => {
     const response = middleware(makeRequest("/"));
-    const nonce = response.headers.get("x-nonce");
-    const csp = response.headers.get("content-security-policy") || "";
     const forwarded = response.headers.get("x-middleware-request-x-nonce");
+    const csp = response.headers.get("content-security-policy") || "";
 
-    expect(nonce).toBeTruthy();
-    expect(csp).toContain(`'nonce-${nonce}'`);
-    expect(forwarded === nonce || nonce).toBeTruthy();
+    expect(forwarded).toBeTruthy();
+    expect(response.headers.get("x-nonce")).toBeNull();
+    expect(csp).toContain(`'nonce-${forwarded}'`);
   });
 
   it("does not treat a path ending in .png as private when login is required", () => {

@@ -45,6 +45,8 @@ describe("security fix regression list", () => {
       expect(SENSITIVE_FILE_MARKERS).toEqual(expect.arrayContaining([".env", ".git", "secrets.json"]));
       expect(isSensitiveFilePath("/.env.production")).toBe(true);
       expect(isSensitiveFilePath("/answers")).toBe(false);
+      expect(isSensitiveFilePath("/x.envelope")).toBe(false);
+      expect(isSensitiveFilePath("/.github")).toBe(false);
       expect(source).toContain("status: 503");
       expect(source).toContain("Site configuration unavailable");
       expect(source).not.toMatch(/sensitiveFiles:\s*string\[\]\s*=\s*\[\]/);

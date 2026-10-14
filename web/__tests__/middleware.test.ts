@@ -10,6 +10,7 @@ import {
   sensitiveFiles,
   isStaticAsset,
   isSensitiveFilePath,
+  isLoginExemptStaticAsset,
   buildContentSecurityPolicy,
   createCspNonce,
   logSuspiciousActivity,
@@ -45,6 +46,10 @@ function makeRequest(path: string, init?: ConstructorParameters<typeof NextReque
   return new NextRequest(`http://localhost${path}`, init);
 }
 
+function requestNonce(response: { headers: { get(name: string): string | null } }): string | null {
+  return response.headers.get("x-middleware-request-x-nonce");
+}
+
 function loginRequiredConfig() {
   return {
     siteId: "ananda",
@@ -71,6 +76,23 @@ describe("middleware exports", () => {
     expect(isStaticAsset("/x.php")).toBe(false);
     expect(isStaticAsset("/secret.png.html")).toBe(false);
     expect(isStaticAsset("/folder\\png")).toBe(false);
+  });
+
+  it("does not treat API or Next data paths as login-exempt static assets", () => {
+    expect(isLoginExemptStaticAsset("/logo.png")).toBe(true);
+    expect(isLoginExemptStaticAsset("/foo/app.js")).toBe(true);
+    expect(isLoginExemptStaticAsset("/api/x.js")).toBe(false);
+    expect(isLoginExemptStaticAsset("/api/document/abc.png")).toBe(false);
+    expect(isLoginExemptStaticAsset("/_next/data/build/page.json")).toBe(false);
+  });
+
+  it("matches sensitive markers on path segments, not substrings", () => {
+    expect(isSensitiveFilePath("/.env")).toBe(true);
+    expect(isSensitiveFilePath("/.env.local")).toBe(true);
+    expect(isSensitiveFilePath("/.git/config")).toBe(true);
+    expect(isSensitiveFilePath("/x.envelope")).toBe(false);
+    expect(isSensitiveFilePath("/.github")).toBe(false);
+    expect(isSensitiveFilePath("/.github/workflows/ci.yml")).toBe(false);
   });
 });
 
@@ -119,6 +141,16 @@ describe("middleware fail-closed config and sensitive files", () => {
     }
   );
 
+  it("does not block benign paths that only contain a sensitive substring", () => {
+    const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+    for (const path of ["/x.envelope", "/.github"]) {
+      expect(isSensitiveFilePath(path)).toBe(false);
+      const response = middleware(makeRequest(path));
+      expect(response.status).not.toBe(403);
+    }
+    warn.mockRestore();
+  });
+
   it("logSuspiciousActivity is exported and writes a warning", () => {
     const warn = jest.spyOn(console, "warn").mockImplementation(() => undefined);
     logSuspiciousActivity(makeRequest("/admin"), "unit-test");
@@ -149,6 +181,14 @@ describe("middleware requireLogin static vs private paths", () => {
       expect(response.status === 401 || location.includes("/login")).toBe(true);
     }
   });
+
+  it("still requires login for API paths that end in a static extension", () => {
+    for (const path of ["/api/x.js", "/api/document/abc.png"]) {
+      const response = middleware(makeRequest(path));
+      expect(response.status).toBe(401);
+      expect(isLoginExemptStaticAsset(path)).toBe(false);
+    }
+  });
 });
 
 describe("middleware CSP nonce", () => {
@@ -162,11 +202,12 @@ describe("middleware CSP nonce", () => {
     process.env.SITE_ID = "ananda";
   });
 
-  it("puts script-src 'nonce-<x>' equal to the x-nonce header", () => {
+  it("puts script-src 'nonce-<x>' equal to the request x-nonce header", () => {
     const response = middleware(makeRequest("/"));
-    const nonce = response.headers.get("x-nonce");
+    const nonce = requestNonce(response);
     const csp = response.headers.get("content-security-policy") || "";
     expect(nonce).toBeTruthy();
+    expect(response.headers.get("x-nonce")).toBeNull();
     expect(csp).toContain(`script-src`);
     expect(csp).toContain(`'nonce-${nonce}'`);
   });
@@ -189,7 +230,9 @@ describe("middleware CSP nonce", () => {
 
     const a = middleware(makeRequest("/"));
     const b = middleware(makeRequest("/"));
-    expect(a.headers.get("x-nonce")).toBeTruthy();
-    expect(a.headers.get("x-nonce")).not.toBe(b.headers.get("x-nonce"));
+    expect(requestNonce(a)).toBeTruthy();
+    expect(requestNonce(a)).not.toBe(requestNonce(b));
+    expect(a.headers.get("x-nonce")).toBeNull();
+    expect(b.headers.get("x-nonce")).toBeNull();
   });
 });
