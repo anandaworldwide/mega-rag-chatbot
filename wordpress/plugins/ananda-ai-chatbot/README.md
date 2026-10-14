@@ -113,6 +113,9 @@ To enable detailed debugging:
    - Error reports are capped per client IP (transient, a few per hour)
    - The limiter uses `REMOTE_ADDR` only
    - `X-Forwarded-For` / `X-Real-IP` are read only when `REMOTE_ADDR` is a trusted proxy
+   - `X-Forwarded-For` is walked right-to-left; trusted hops are skipped
+   - The first non-trusted IP is the rate-limit key; if every hop is trusted, `REMOTE_ADDR` is used
+   - Left-most `X-Forwarded-For` values are client-controlled and are not used
    - Set trusted proxies in wp-config.php when WordPress sits behind a known load balancer:
 
    ```php

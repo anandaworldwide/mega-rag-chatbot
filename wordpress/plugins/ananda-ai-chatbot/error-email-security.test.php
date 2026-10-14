@@ -42,11 +42,20 @@ expect_true($direct === '10.0.0.8', 'untrusted hop uses REMOTE_ADDR and ignores 
 $via_proxy = aichatbot_error_email_client_ip(
     array(
         'REMOTE_ADDR' => '10.0.0.1',
-        'HTTP_X_FORWARDED_FOR' => '198.51.100.20, 10.0.0.1',
+        'HTTP_X_FORWARDED_FOR' => '198.51.100.20, 203.0.113.50',
     ),
     array('10.0.0.1')
 );
-expect_true($via_proxy === '198.51.100.20', 'trusted proxy uses the left-most forwarded IP');
+expect_true($via_proxy === '203.0.113.50', 'trusted proxy uses the right-most untrusted XFF hop');
+
+$all_trusted = aichatbot_error_email_client_ip(
+    array(
+        'REMOTE_ADDR' => '10.0.0.1',
+        'HTTP_X_FORWARDED_FOR' => '10.0.0.2, 10.0.0.1',
+    ),
+    array('10.0.0.1', '10.0.0.2')
+);
+expect_true($all_trusted === '10.0.0.1', 'all-trusted XFF falls back to REMOTE_ADDR');
 
 if ($failures > 0) {
     fwrite(STDERR, "{$failures} assertion(s) failed\n");

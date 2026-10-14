@@ -50,8 +50,9 @@ function aichatbot_should_rate_limit_error_email($count, $max = null) {
  * Trusted reverse-proxy IPs for error-email rate limiting.
  *
  * Default is REMOTE_ADDR only. X-Forwarded-For and X-Real-IP are read only
- * when REMOTE_ADDR is in this list. Otherwise a client can spoof those
- * headers and bypass the per-IP cap.
+ * when REMOTE_ADDR is in this list. X-Forwarded-For is then walked
+ * right-to-left; trusted hops are skipped. Otherwise a client can spoof
+ * those headers and bypass the per-IP cap.
  *
  * Configure in wp-config.php:
  *   define('AICHATBOT_TRUSTED_PROXIES', array('203.0.113.10'));
@@ -96,25 +97,47 @@ function aichatbot_is_trusted_proxy($ip, $trusted_proxies = null) {
 }
 
 /**
- * Left-most valid IP from X-Forwarded-For, else X-Real-IP.
+ * Valid IPs from an X-Forwarded-For style header, left to right.
+ *
+ * @param mixed $header Header value.
+ * @return string[]
+ */
+function aichatbot_parse_forwarded_ip_chain($header) {
+    $ips = array();
+    foreach (preg_split('/\s*,\s*/', (string) $header) as $part) {
+        $part = trim($part);
+        if (filter_var($part, FILTER_VALIDATE_IP)) {
+            $ips[] = $part;
+        }
+    }
+    return $ips;
+}
+
+/**
+ * Client IP from forwarded headers when REMOTE_ADDR is a trusted proxy.
+ *
+ * Walks X-Forwarded-For right-to-left and skips trusted proxy hops.
+ * The right-most untrusted IP is the connecting client as seen by the
+ * nearest trusted proxy. Left-most values are client-controlled and ignored.
+ * If every hop is trusted, returns empty so the caller uses REMOTE_ADDR.
+ * X-Real-IP is used only when X-Forwarded-For is absent.
  *
  * @param array $server Server vars.
- * @return string Empty when none is valid.
+ * @param array|string|null $trusted_proxies Trusted proxy list.
+ * @return string Empty when none is usable.
  */
-function aichatbot_first_valid_forwarded_ip($server) {
-    $headers = array();
+function aichatbot_untrusted_forwarded_ip($server, $trusted_proxies = null) {
+    $chain = array();
     if (!empty($server['HTTP_X_FORWARDED_FOR'])) {
-        $headers[] = $server['HTTP_X_FORWARDED_FOR'];
+        $chain = aichatbot_parse_forwarded_ip_chain($server['HTTP_X_FORWARDED_FOR']);
+    } elseif (!empty($server['HTTP_X_REAL_IP'])) {
+        $chain = aichatbot_parse_forwarded_ip_chain($server['HTTP_X_REAL_IP']);
     }
-    if (!empty($server['HTTP_X_REAL_IP'])) {
-        $headers[] = $server['HTTP_X_REAL_IP'];
-    }
-    foreach ($headers as $header) {
-        foreach (preg_split('/\s*,\s*/', (string) $header) as $part) {
-            $part = trim($part);
-            if (filter_var($part, FILTER_VALIDATE_IP)) {
-                return $part;
-            }
+
+    for ($i = count($chain) - 1; $i >= 0; $i--) {
+        $ip = $chain[$i];
+        if (!aichatbot_is_trusted_proxy($ip, $trusted_proxies)) {
+            return $ip;
         }
     }
     return '';
@@ -124,7 +147,7 @@ function aichatbot_first_valid_forwarded_ip($server) {
  * Client IP for the error-email rate-limit key.
  *
  * Uses REMOTE_ADDR unless that address is a configured trusted proxy.
- * Only then is a forwarded-IP header used.
+ * Only then are forwarded-IP headers walked right-to-left.
  *
  * @param array|null $server          Server vars. Null uses $_SERVER.
  * @param array|string|null $trusted_proxies Override proxy list. Null uses config.
@@ -133,8 +156,9 @@ function aichatbot_first_valid_forwarded_ip($server) {
 function aichatbot_error_email_client_ip($server = null, $trusted_proxies = null) {
     $server = is_array($server) ? $server : $_SERVER;
     $remote = isset($server['REMOTE_ADDR']) ? trim((string) $server['REMOTE_ADDR']) : '';
-    if (aichatbot_is_trusted_proxy($remote, $trusted_proxies)) {
-        $forwarded = aichatbot_first_valid_forwarded_ip($server);
+    $trusted = $trusted_proxies === null ? aichatbot_trusted_proxy_ips() : aichatbot_normalize_ip_list($trusted_proxies);
+    if (aichatbot_is_trusted_proxy($remote, $trusted)) {
+        $forwarded = aichatbot_untrusted_forwarded_ip($server, $trusted);
         if ($forwarded !== '') {
             return $forwarded;
         }
