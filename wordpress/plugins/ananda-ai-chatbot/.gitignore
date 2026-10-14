@@ -1,6 +1,7 @@
 # Composer
 /vendor/
 composer.lock
+.phpunit.result.cache
 
 # IDE stubs
 stubs.php
