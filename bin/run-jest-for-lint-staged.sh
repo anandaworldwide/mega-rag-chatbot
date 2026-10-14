@@ -86,6 +86,7 @@ else
 fi
 
 # Add files to client test command, but exclude server test files and server source files
+client_file_count=0
 for file in "$@"; do
     # Normalize paths - handle both absolute and relative paths
     if [[ "$file" == /* ]]; then
@@ -105,19 +106,26 @@ for file in "$@"; do
             ;;
         *)
             client_cmd="$client_cmd \"$normalized_file\""
+            client_file_count=$((client_file_count + 1))
             ;;
     esac
 done
 
 # Run client tests (allow failures but capture exit code)
-set +e
-if [ -n "$timeout_cmd" ]; then
-    eval "$timeout_cmd $client_cmd"
+# --findRelatedTests with zero files makes Jest print usage and exit 1.
+client_exit_code=0
+if [ "$client_file_count" -eq 0 ]; then
+    echo "Skipping client tests (no client files in this commit)"
 else
-    eval "$client_cmd"
+    set +e
+    if [ -n "$timeout_cmd" ]; then
+        eval "$timeout_cmd $client_cmd"
+    else
+        eval "$client_cmd"
+    fi
+    client_exit_code=$?
+    set -e
 fi
-client_exit_code=$?
-set -e
 
 # Run server tests if needed
 server_exit_code=0
