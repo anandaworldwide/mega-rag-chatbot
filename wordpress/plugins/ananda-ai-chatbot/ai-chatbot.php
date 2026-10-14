@@ -30,6 +30,7 @@ function aichatbot_get_api_url() {
 
 // Include the secure API client
 require_once plugin_dir_path(__FILE__) . 'secure-api-client.php';
+require_once plugin_dir_path(__FILE__) . 'error-email-security.php';
 
 // Include the secure API test page
 require_once plugin_dir_path(__FILE__) . 'secure-api-test.php';
@@ -665,6 +666,37 @@ function aichatbot_verify_chat_request_nonce($nonce = null) {
     return wp_verify_nonce($value, aichatbot_chat_nonce_action()) !== false;
 }
 
+/**
+ * Transient rate limit: a few error-report emails per IP per hour.
+ *
+ * @return bool True when the request is allowed.
+ */
+function aichatbot_allow_error_email_send($ip = null) {
+    $ip = $ip === null ? aichatbot_error_email_client_ip() : $ip;
+    $key = aichatbot_error_email_rate_limit_key($ip);
+    $count = (int) get_transient($key);
+    if (aichatbot_should_rate_limit_error_email($count)) {
+        return false;
+    }
+    set_transient($key, $count + 1, aichatbot_error_email_rate_limit_window());
+    return true;
+}
+
+function aichatbot_sanitize_error_email_fields($post) {
+    $max = aichatbot_error_email_field_max_lengths();
+    $current_url = isset($post['current_url']) ? esc_url_raw($post['current_url']) : '';
+    return array(
+        'error_type' => aichatbot_cap_text(sanitize_text_field($post['error_type'] ?? 'Unknown Error'), $max['error_type']),
+        'error_message' => aichatbot_cap_text(sanitize_text_field($post['error_message'] ?? 'No error message provided'), $max['error_message']),
+        'error_stack' => aichatbot_cap_text(sanitize_textarea_field($post['error_stack'] ?? ''), $max['error_stack']),
+        'user_message' => aichatbot_cap_text(sanitize_text_field($post['user_message'] ?? 'No user message'), $max['user_message']),
+        'user_agent' => aichatbot_cap_text(sanitize_text_field($post['user_agent'] ?? 'Unknown'), $max['user_agent']),
+        'current_url' => aichatbot_cap_text($current_url !== '' ? $current_url : 'Unknown', $max['current_url']),
+        'timestamp' => aichatbot_cap_text(sanitize_text_field($post['timestamp'] ?? 'Unknown'), $max['timestamp']),
+        'chat_history_count' => intval($post['chat_history_count'] ?? 0),
+    );
+}
+
 // Add this function to handle token requests from the frontend
 function aichatbot_ajax_get_token() {
     // Prevent any output before our JSON response
@@ -856,15 +888,25 @@ add_action('wp_ajax_nopriv_aichatbot_send_error_email', 'aichatbot_ajax_send_err
  * AJAX handler for sending error emails to administrators
  */
 function aichatbot_ajax_send_error_email() {
-    // Get the error data from the request
-    $error_type = sanitize_text_field($_POST['error_type'] ?? 'Unknown Error');
-    $error_message = sanitize_text_field($_POST['error_message'] ?? 'No error message provided');
-    $error_stack = sanitize_textarea_field($_POST['error_stack'] ?? '');
-    $user_message = sanitize_text_field($_POST['user_message'] ?? 'No user message');
-    $user_agent = sanitize_text_field($_POST['user_agent'] ?? 'Unknown');
-    $current_url = esc_url_raw($_POST['current_url'] ?? 'Unknown');
-    $timestamp = sanitize_text_field($_POST['timestamp'] ?? 'Unknown');
-    $chat_history_count = intval($_POST['chat_history_count'] ?? 0);
+    check_ajax_referer(aichatbot_chat_nonce_action(), 'nonce');
+
+    if (!aichatbot_allow_error_email_send()) {
+        wp_send_json_error(array(
+            'message' => 'Too many error reports. Please try again later.',
+            'code' => 'rate_limited'
+        ), 429);
+        return;
+    }
+
+    $fields = aichatbot_sanitize_error_email_fields($_POST);
+    $error_type = $fields['error_type'];
+    $error_message = $fields['error_message'];
+    $error_stack = $fields['error_stack'];
+    $user_message = $fields['user_message'];
+    $user_agent = $fields['user_agent'];
+    $current_url = $fields['current_url'];
+    $timestamp = $fields['timestamp'];
+    $chat_history_count = $fields['chat_history_count'];
 
     // Prepare email content
     $subject = "Ananda AI Chatbot Error Report: " . $error_type;
@@ -884,6 +926,7 @@ function aichatbot_ajax_send_error_email() {
     
     $message_body .= "This is an automated error report from the Ananda AI Chatbot WordPress plugin.\n";
     $message_body .= "Please investigate and resolve the issue as soon as possible.\n";
+    $message_body = aichatbot_cap_text($message_body, aichatbot_error_email_body_max_length());
 
     // Email headers
     $headers = array(
