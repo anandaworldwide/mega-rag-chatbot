@@ -19,8 +19,61 @@ const logSuspiciousActivity = (req: NextRequest, reason: string) => {
   );
 };
 
+/** Path markers that must never be served through this app. */
+export const SENSITIVE_FILE_MARKERS: readonly string[] = [
+  ".env",
+  ".git",
+  ".htaccess",
+  ".htpasswd",
+  "wp-config.php",
+  "id_rsa",
+  "id_dsa",
+  "id_ecdsa",
+  "id_ed25519",
+  ".aws",
+  ".ssh",
+  "firebase-adminsdk",
+  "serviceaccount",
+  "secrets.json",
+  "credentials.json",
+  "private.key",
+];
+
+export function isSensitiveFilePath(pathname: string): boolean {
+  const lower = pathname.toLowerCase();
+  return SENSITIVE_FILE_MARKERS.some((marker) => lower.includes(marker));
+}
+
+/** True for common static file extensions (literal dot, not a backslash). */
+export function isStaticAssetPath(pathname: string): boolean {
+  return /\.(png|jpg|jpeg|gif|ico|svg|css|js)$/i.test(pathname);
+}
+
+export function createCspNonce(): string {
+  return Buffer.from(crypto.randomBytes(16)).toString("base64");
+}
+
+export function buildContentSecurityPolicy(nonce: string): string {
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://www.google-analytics.com`,
+    "connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://*.google-analytics.com https://maps.googleapis.com https://www.googleapis.com",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com data:",
+    "img-src 'self' https://www.google-analytics.com https://fonts.gstatic.com data: blob:",
+    "media-src 'self' blob:",
+    "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com",
+    "worker-src 'self' blob:",
+    "manifest-src 'self'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "object-src 'none'",
+    "upgrade-insecure-requests",
+  ].join("; ");
+}
+
 // Perform various security checks on the incoming request (Copy from root middleware.ts)
-const performSecurityChecks = (req: NextRequest, url: URL) => {
+const performSecurityChecks = (req: NextRequest, url: URL): { block: boolean } => {
   if (url.pathname.includes("..") || url.pathname.includes("//")) {
     logSuspiciousActivity(req, "Potential path traversal attempt");
   }
@@ -47,10 +100,9 @@ const performSecurityChecks = (req: NextRequest, url: URL) => {
     logSuspiciousActivity(req, "Suspicious user agent detected");
   }
 
-  // Check for attempts to access sensitive files (adjust paths if needed for web context)
-  const sensitiveFiles: string[] = []; // Simplified definition, removed internal comments
-  if (sensitiveFiles.some((file) => url.pathname.toLowerCase().includes(file))) {
+  if (isSensitiveFilePath(url.pathname)) {
     logSuspiciousActivity(req, "Attempt to access potentially sensitive file");
+    return { block: true };
   }
 
   // Check for unusual HTTP methods
@@ -92,6 +144,8 @@ const performSecurityChecks = (req: NextRequest, url: URL) => {
   ) {
     logSuspiciousActivity(req, `Unusual content-type header: ${contentType}`);
   }
+
+  return { block: false };
 };
 
 function withLibraryAccessCookie(response: NextResponse, allowedNames: string[]): NextResponse {
@@ -101,9 +155,11 @@ function withLibraryAccessCookie(response: NextResponse, allowedNames: string[])
 
 function nextWithLibraryAccessGate(
   req: NextRequest,
-  siteConfig: Parameters<typeof applyComputedLibraryAccessOverrides>[1]
+  siteConfig: Parameters<typeof applyComputedLibraryAccessOverrides>[1],
+  nonce: string
 ): { response: NextResponse; allowedNames: string[] } {
   const requestHeaders = new Headers(req.headers);
+  requestHeaders.set("x-nonce", nonce);
   const allowedNames = applyComputedLibraryAccessOverrides(requestHeaders, siteConfig);
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   return { response: withLibraryAccessCookie(response, allowedNames), allowedNames };
@@ -126,13 +182,17 @@ export function pathMatchesAccessMiddleware(pathname: string): boolean {
 
 // Main middleware function for /web
 export function middleware(req: NextRequest) {
+  const nonce = createCspNonce();
   const siteId = process.env.SITE_ID || "default";
   const siteConfig = loadSiteConfigSync(siteId);
-  const { response, allowedNames } = nextWithLibraryAccessGate(req, siteConfig);
+  const { response, allowedNames } = nextWithLibraryAccessGate(req, siteConfig, nonce);
   const url = req.nextUrl.clone(); // Use nextUrl for reliable path info within middleware
 
   // Perform security checks
-  performSecurityChecks(req, url);
+  const securityResult = performSecurityChecks(req, url);
+  if (securityResult.block) {
+    return withLibraryAccessCookie(new NextResponse("Forbidden", { status: 403 }), allowedNames);
+  }
 
   // Redirect /all to /answers (relative to /web)
   if (url.pathname === "/all") {
@@ -144,9 +204,17 @@ export function middleware(req: NextRequest) {
 
   if (!siteConfig) {
     console.error(`[Web Middleware] Configuration not found for site ID: ${siteId}`);
-    // Decide appropriate action: return error, allow, or redirect?
-    // Allowing for now, but might need adjustment.
-    return response; // Allow request to proceed, might show error later
+    const configErrorResponse = new NextResponse(
+      JSON.stringify({
+        success: false,
+        message: "Site configuration unavailable",
+      }),
+      {
+        status: 503,
+        headers: { "content-type": "application/json" },
+      }
+    );
+    return withLibraryAccessCookie(configErrorResponse, allowedNames);
   }
 
   const { requireLogin } = siteConfig;
@@ -160,7 +228,7 @@ export function middleware(req: NextRequest) {
     !(url.pathname.startsWith("/answers/") && url.pathname !== "/answers/") && // Exclude specific answer pages
     !url.pathname.includes("/_next/") && // Explicitly allow Next.js internals
     !url.pathname.startsWith("/static/") && // Allow static assets if served from /public/static
-    !url.pathname.match(/\\.(png|jpg|jpeg|gif|ico|svg|css|js)$/); // Allow common static file types
+    !isStaticAssetPath(url.pathname); // Allow common static file types
 
   if (pathname_is_private && requireLogin) {
     const jwtCookie = req.cookies.get("authToken");
@@ -224,32 +292,15 @@ export function middleware(req: NextRequest) {
     return withLibraryAccessCookie(addCorsHeaders(optionsResponse, req, siteConfig), allowedNames);
   }
 
-  // Generate nonce for CSP (Next.js compatible)
-  // Next.js will automatically add this nonce to inline scripts if we set it in headers
-  const nonce = Buffer.from(crypto.randomBytes(16)).toString("base64");
+  // Forward the CSP nonce on the response so _document / Script can apply it.
+  // Next.js also copies x-nonce from the request headers set above.
   response.headers.set("x-nonce", nonce);
 
   // Content Security Policy with nonce support
   // Note: 'unsafe-inline' is still needed for styles (Tailwind CSS, CSS-in-JS)
   // 'unsafe-eval' is required for Next.js development mode and some React features
   // In production, Next.js minimizes this, but we keep it for compatibility
-  const cspDirectives = [
-    "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://www.google-analytics.com`,
-    // Tightened connect-src: Only allow specific domains for API calls
-    "connect-src 'self' https://www.google-analytics.com https://analytics.google.com https://*.google-analytics.com https://maps.googleapis.com https://www.googleapis.com",
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src 'self' https://fonts.gstatic.com data:",
-    "img-src 'self' https://www.google-analytics.com https://fonts.gstatic.com data: blob:",
-    "media-src 'self' blob:",
-    "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com",
-    "worker-src 'self' blob:",
-    "manifest-src 'self'",
-    "base-uri 'self'",
-    "form-action 'self'",
-    "object-src 'none'",
-    "upgrade-insecure-requests", // Force HTTPS for all resources
-  ].join("; ");
+  const cspDirectives = buildContentSecurityPolicy(nonce);
 
   // Add security headers
   const securityHeaders = {
