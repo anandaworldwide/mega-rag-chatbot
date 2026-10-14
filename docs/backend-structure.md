@@ -647,7 +647,10 @@ if (siteConfig?.requireLogin) {
   - Initializes Pinecone vector store connection for the relevant namespace.
   - Uses `ConversationalRetrievalQAChain` which:
     1. Optionally rephrases the question based on history. Non-English questions are restated in
-       English for library search and location checks (`englishRetrievalQuery.ts`). The answer prompt
+       English for library search and location checks (`englishRetrievalQuery.ts`). Geo intent runs
+       on that English restatement first. If the original has non-ASCII letters (Devanagari Hindi
+       nearest-center questions), the original is also checked so Hindi embedding seeds still bind
+       geo tools. Latin-script restatements (Italian "il") stay English-only. The answer prompt
        keeps the original utterance so the model can reply in the user language.
     2. Performs similarity search in Pinecone to find relevant document chunks.
     3. Injects retrieved context and chat history into the LLM prompt.
