@@ -33,4 +33,16 @@ describe("isDraftingOrTranslationQuery", () => {
     expect(isDraftingOrTranslationQuery("Write a class outline about kriya")).toBe(false);
     expect(isDraftingOrTranslationQuery("Where is the nearest Ananda center?")).toBe(false);
   });
+
+  it("does not treat a catalog translation lookup as drafting", () => {
+    expect(
+      isDraftingOrTranslationQuery("Is there an Italian translation of Autobiography of a Yogi?")
+    ).toBe(false);
+  });
+
+  it("does not treat answer-this-question teaching requests as drafting", () => {
+    expect(
+      isDraftingOrTranslationQuery("Please answer this question: what did Master say about fear?")
+    ).toBe(false);
+  });
 });
