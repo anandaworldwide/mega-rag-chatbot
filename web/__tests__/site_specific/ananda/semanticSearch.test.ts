@@ -337,11 +337,11 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
 
       expect(similarityToExpected).toBeGreaterThan(0.6);
       expect(similarityToUnexpected).toBeLessThan(0.65);
-      // Accept close branding variants; ban RAG jargon ("the context").
-      expect(actualResponse).toMatch(
-        /Ananda Libraries?|Ananda['’]s (teachings and )?resources|Ananda Library|Crystal Clarity|ananda\.org/i
+      // Required product name; ban RAG jargon and paraphrases such as "teaching collections".
+      expect(actualResponse).toMatch(/Ananda Libraries?/i);
+      expect(actualResponse).not.toMatch(
+        /the context|content provided in the context|teaching collections/i
       );
-      expect(actualResponse).not.toMatch(/the context|content provided in the context/i);
     });
 
     // Master/Swamiji Naming Test
