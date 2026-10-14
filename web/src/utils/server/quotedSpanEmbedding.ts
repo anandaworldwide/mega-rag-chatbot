@@ -3,6 +3,8 @@
  * phrase — not the surrounding request for a quotation.
  */
 
+import { isSiteLibraryName } from "./siteLibraryName";
+
 const MIN_QUOTED_SPAN_CHARS = 12;
 const MIN_QUOTED_SPAN_WORDS = 3;
 
@@ -39,7 +41,7 @@ export function extractQuotedSpanForEmbedding(text: string): string | null {
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(text)) !== null) {
       const candidate = match[1].trim();
-      if (!isUsableQuotedSpan(candidate)) {
+      if (!isUsableQuotedSpan(candidate) || isSiteLibraryName(candidate)) {
         continue;
       }
       if (!longest || candidate.length > longest.length) {

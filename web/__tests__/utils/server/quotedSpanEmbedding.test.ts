@@ -47,6 +47,15 @@ describe("extractQuotedSpanForEmbedding", () => {
       extractQuotedSpanForEmbedding("What is the teacher's advice about morning practice?")
     ).toBeNull();
   });
+
+  it("does not treat the site/library name as a quoted span", () => {
+    expect(extractQuotedSpanForEmbedding('What is "the Ananda Libraries"?')).toBeNull();
+    expect(extractQuotedSpanForEmbedding('What sources are in "Ananda Libraries"?')).toBeNull();
+    expect(extractQuotedSpanForEmbedding('What is “Ananda Library”?')).toBeNull();
+    expect(
+      extractQuotedSpanForEmbedding('Find this line: "Walk quietly toward the inner light when restlessness rises."')
+    ).toBe("Walk quietly toward the inner light when restlessness rises.");
+  });
 });
 
 describe("resolveEmbeddingQuery", () => {
@@ -73,6 +82,12 @@ describe("resolveEmbeddingQuery", () => {
     expect(resolveEmbeddingQuery("What is the exact first sentence?", fallback)).toBe(
       "Sit with a quiet mind before you act."
     );
+  });
+
+  it("keeps the fallback query when the only quoted span is the site/library name", () => {
+    const fallback = "What sources do you use for your answers?";
+
+    expect(resolveEmbeddingQuery('What is "the Ananda Libraries"?', fallback)).toBe(fallback);
   });
 });
 
