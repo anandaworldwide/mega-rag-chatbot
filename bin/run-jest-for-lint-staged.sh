@@ -86,6 +86,7 @@ else
 fi
 
 # Add files to client test command, but exclude server test files and server source files
+client_files=()
 for file in "$@"; do
     # Normalize paths - handle both absolute and relative paths
     if [[ "$file" == /* ]]; then
@@ -104,20 +105,27 @@ for file in "$@"; do
             echo "Excluding server file from client tests: $normalized_file"
             ;;
         *)
+            client_files+=("$normalized_file")
             client_cmd="$client_cmd \"$normalized_file\""
             ;;
     esac
 done
 
-# Run client tests (allow failures but capture exit code)
-set +e
-if [ -n "$timeout_cmd" ]; then
-    eval "$timeout_cmd $client_cmd"
+# Run client tests only when a client file remains. Jest exits 1 on
+# --findRelatedTests with no paths, even with --passWithNoTests.
+client_exit_code=0
+if [ ${#client_files[@]} -eq 0 ]; then
+    echo "No client files to test - skipping client Jest"
 else
-    eval "$client_cmd"
+    set +e
+    if [ -n "$timeout_cmd" ]; then
+        eval "$timeout_cmd $client_cmd"
+    else
+        eval "$client_cmd"
+    fi
+    client_exit_code=$?
+    set -e
 fi
-client_exit_code=$?
-set -e
 
 # Run server tests if needed
 server_exit_code=0
