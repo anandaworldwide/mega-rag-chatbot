@@ -642,7 +642,7 @@ export const makeChain = async (
 
     // Retrieval tools: bound for non-Anthropic arms when enabled (Fable holdout keeps today's behavior).
     // Guidance is always answer-first; tools still bind for intentional expansion.
-    const bindRetrievalTools = !isDraftingQuery && shouldBindRetrievalTools(siteConfig, model, isAnthropicModel);
+    const bindRetrievalTools = shouldBindRetrievalTools(siteConfig, model, isAnthropicModel);
 
     const toolsToBind: any[] = [];
     if (shouldUseGeoTools && geoTools.length > 0 && request) {
@@ -795,8 +795,7 @@ Error details: ${errorString}`,
     /\${(context|chat_history|question|activeFiltersSummary)}/g,
     (match, key) => `{${key}}`
   );
-  const includeRetrievalToolGuidance =
-    !isDraftingQuery && shouldBindRetrievalTools(siteConfig, model, isAnthropicModel);
+  const includeRetrievalToolGuidance = shouldBindRetrievalTools(siteConfig, model, isAnthropicModel);
   const retrievalToolGuidance = includeRetrievalToolGuidance ? getRetrievalToolGuidance() : "";
 
   type PromptDataTypeLike = {
@@ -854,10 +853,11 @@ Error details: ${errorString}`,
     async (input: AnswerChainInput) => {
       const retrievalStart = Date.now();
       retrievalReturnedNoDocuments = false;
-      // Early return for location queries - skip Pinecone entirely for performance
-      if (isLocationQuery || isDraftingQuery) {
+      // Early return for location queries - skip Pinecone entirely for performance.
+      // Drafting still retrieves; it only skips the empty-retrieval lecture and named-author / geo binds.
+      if (isLocationQuery) {
         if (sendData) {
-          sendData(isLocationQuery ? { sourceDocs: [], isLocationQuery: true } : { sourceDocs: [] });
+          sendData({ sourceDocs: [], isLocationQuery: true });
         }
         if (timingMetrics) {
           timingMetrics.retrievalMs = Date.now() - retrievalStart;
@@ -1797,8 +1797,7 @@ export async function setupAndExecuteLanguageModelChain(
 
       // Handle tool calls with proper loop (OpenAI tool_calls + Anthropic tool_use / JSON fallback)
       let pendingToolCalls = extractGeoToolCalls(result.answer);
-      const retrievalToolsEnabled =
-        !isDraftingQuery && shouldBindRetrievalTools(siteConfig, modelName, isAnthropicModel);
+      const retrievalToolsEnabled = shouldBindRetrievalTools(siteConfig, modelName, isAnthropicModel);
       // Plain-text "I'll search…" with no tool_calls never entered this loop, so the leak became the answer.
       const firstPassIsSearchNarration =
         retrievalToolsEnabled && isIncompleteRetrievalAnswer(fullResponse);
