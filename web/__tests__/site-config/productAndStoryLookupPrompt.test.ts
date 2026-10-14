@@ -6,7 +6,7 @@
  *    → short product answer, not the generic refusal.
  * 2. "I'm looking for most recent chat."
  *    → short history answer, not the generic refusal.
- * 3. "Which Franciscan monastery was saved during the atomic bombings in Japan?"
+ * 3. A story or quotation lookup (for example a monastery or historical event)
  *    → search first; do not refuse as general history.
  */
 
@@ -32,7 +32,7 @@ describe("product and story lookup prompt fragments", () => {
 
     expect(prompt).toContain("ALLOW — story or quotation lookups");
     expect(prompt).toContain("search the retrieved Ananda Library sources first");
-    expect(prompt).toContain("Which Franciscan monastery was saved during the atomic bombings in Japan?");
+    expect(prompt).toContain("Can you find the story about the monastery that was spared?");
     expect(prompt).toContain("Do not refuse it as general history");
   });
 
