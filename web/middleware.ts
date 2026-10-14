@@ -267,7 +267,7 @@ export function middleware(req: NextRequest) {
   const pathname_is_private =
     !allowed_paths_starts.some((path) => url.pathname.startsWith(path)) &&
     !(url.pathname.startsWith("/answers/") && url.pathname !== "/answers/") && // Exclude specific answer pages
-    !url.pathname.includes("/_next/") && // Explicitly allow Next.js internals
+    !url.pathname.startsWith("/_next/") && // Next.js internals only at the root prefix
     !url.pathname.startsWith("/static/") && // Allow static assets if served from /public/static
     !isLoginExemptStaticAsset(url.pathname); // Static files only; never /api/* or /_next/data/*
 

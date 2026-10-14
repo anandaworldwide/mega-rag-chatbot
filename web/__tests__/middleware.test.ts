@@ -189,6 +189,11 @@ describe("middleware requireLogin static vs private paths", () => {
       expect(isLoginExemptStaticAsset(path)).toBe(false);
     }
   });
+
+  it("still requires login when /_next/ appears after /api/", () => {
+    const response = middleware(makeRequest("/api/foo/_next/x"));
+    expect(response.status).toBe(401);
+  });
 });
 
 describe("middleware CSP nonce", () => {
