@@ -25,9 +25,9 @@ needs_server_tests() {
     for file in "${files[@]}"; do
         # Normalize paths - handle both absolute and relative paths
         if [[ "$file" == /* ]]; then
-            # Absolute path - strip workspace root and web/ prefix
-            workspace_root="/Users/Michael/Documents/development/mega-rag-chatbot"
-            normalized_file="${file#$workspace_root/}"
+            # Absolute path - strip known workspace roots and web/ prefix
+            normalized_file="${file#/Users/Michael/Documents/development/mega-rag-chatbot/}"
+            normalized_file="${normalized_file#/workspace/}"
             normalized_file="${normalized_file#web/}"
         else
             # Relative path - just strip web/ prefix if present
@@ -35,7 +35,7 @@ needs_server_tests() {
         fi
         
         case "$normalized_file" in
-            pages/api/*|utils/server/*|services/*|__tests__/utils/server/*|__tests__/api/*)
+            pages/api/*|src/pages/api/*|utils/server/*|src/utils/server/*|services/*|src/services/*|__tests__/utils/server/*|__tests__/api/*)
                 return 0
                 ;;
         esac
@@ -89,9 +89,9 @@ fi
 for file in "$@"; do
     # Normalize paths - handle both absolute and relative paths
     if [[ "$file" == /* ]]; then
-        # Absolute path - strip workspace root and web/ prefix
-        workspace_root="/Users/Michael/Documents/development/mega-rag-chatbot"
-        normalized_file="${file#$workspace_root/}"
+        # Absolute path - strip known workspace roots and web/ prefix
+        normalized_file="${file#/Users/Michael/Documents/development/mega-rag-chatbot/}"
+        normalized_file="${normalized_file#/workspace/}"
         normalized_file="${normalized_file#web/}"
     else
         # Relative path - just strip web/ prefix if present
@@ -99,7 +99,7 @@ for file in "$@"; do
     fi
     
     case "$normalized_file" in
-        __tests__/utils/server/*|__tests__/api/*|utils/server/*|services/*|pages/api/*)
+        __tests__/utils/server/*|__tests__/api/*|utils/server/*|src/utils/server/*|services/*|src/services/*|pages/api/*|src/pages/api/*)
             # Skip server tests and server source files for client test run
             echo "Excluding server file from client tests: $normalized_file"
             ;;
@@ -129,9 +129,9 @@ if [ "$run_server_tests" = true ]; then
     for file in "$@"; do
         # Normalize paths - handle both absolute and relative paths
         if [[ "$file" == /* ]]; then
-            # Absolute path - strip workspace root and web/ prefix
-            workspace_root="/Users/Michael/Documents/development/mega-rag-chatbot"
-            normalized_file="${file#$workspace_root/}"
+            # Absolute path - strip known workspace roots and web/ prefix
+            normalized_file="${file#/Users/Michael/Documents/development/mega-rag-chatbot/}"
+            normalized_file="${normalized_file#/workspace/}"
             normalized_file="${normalized_file#web/}"
         else
             # Relative path - just strip web/ prefix if present
@@ -139,7 +139,7 @@ if [ "$run_server_tests" = true ]; then
         fi
         
         case "$normalized_file" in
-            pages/api/*|utils/server/*|services/*|__tests__/utils/server/*|__tests__/api/*)
+            pages/api/*|src/pages/api/*|utils/server/*|src/utils/server/*|services/*|src/services/*|__tests__/utils/server/*|__tests__/api/*)
                 server_cmd="$server_cmd \"$normalized_file\""
                 echo "Including server file in server tests: $normalized_file"
                 ;;

@@ -31,7 +31,8 @@ describe("product and story lookup prompt fragments", () => {
     const prompt = fs.readFileSync(promptPath, "utf-8");
 
     expect(prompt).toContain("ALLOW — story or quotation lookups");
-    expect(prompt).toContain("search the retrieved Ananda Library sources first");
+    expect(prompt).toContain("Answer from the retrieved sources");
+    expect(prompt).toContain("Do not write that you are searching or gathering sources");
     expect(prompt).toContain("Can you find the story about the monastery that was spared?");
     expect(prompt).toContain("Do not refuse it as general history");
   });
