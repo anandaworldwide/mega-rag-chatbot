@@ -19,6 +19,9 @@ Tests are organized as follows:
    - `__tests__/api/` - API endpoint tests (JSDOM environment)
    - `__tests__/utils/` - Utility function tests (JSDOM environment)
    - `__tests__/utils/server/` - Server utility tests (Node.js environment)
+   - `__tests__/middleware.test.ts` - Next.js middleware security regressions
+
+WordPress plugin PHPUnit (Brain Monkey) lives in `wordpress/plugins/ananda-ai-chatbot/tests/`. CI runs it in the WordPress Plugin PHPUnit job. Locally: `cd wordpress/plugins/ananda-ai-chatbot && composer update && vendor/bin/phpunit`.
 
 ## Why Server Tests Are Separate
 
