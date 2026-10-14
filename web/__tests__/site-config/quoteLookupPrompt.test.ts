@@ -14,5 +14,6 @@ describe("quote lookup prompt fragments", () => {
     expect(prompt).toContain("say so in one sentence");
     expect(prompt).toContain("Do not recite a neighboring story");
     expect(prompt).toContain("do not put quotation marks around a title, subtitle");
+    expect(prompt).toContain("Ananda Libraries excerpts");
   });
 });
