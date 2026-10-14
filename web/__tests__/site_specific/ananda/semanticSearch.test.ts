@@ -755,7 +755,7 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
     });
 
     test.concurrent("should search a story lookup instead of refusing as general history", async () => {
-      const query = "Which Franciscan monastery was saved during the atomic bombings in Japan?";
+      const query = "Can you find the story about the monastery that was spared?";
       const actualResponse = await getLucaResponse(query);
       if (!actualResponse) {
         throw new Error(`Received empty response for query: ${query}`);

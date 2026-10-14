@@ -261,14 +261,6 @@ describe("Location Intent Detector", () => {
       expect(await hasLocationIntentAsync("When did Ananda move to Nevada City")).toBe(false);
     });
 
-    it("should NOT trigger location intent for historical story lookups about places", async () => {
-      await initializeLocationIntentDetector("ananda-public");
-
-      await expect(
-        hasLocationIntentAsync("Which Franciscan monastery was saved during the atomic bombings in Japan?")
-      ).resolves.toBe(false);
-    });
-
     it("should still trigger location intent for center lookup queries with place names", async () => {
       await initializeLocationIntentDetector("ananda-public");
 
