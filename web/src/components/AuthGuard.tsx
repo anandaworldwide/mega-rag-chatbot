@@ -5,6 +5,7 @@ import { isPublicPage } from "@/utils/client/authConfig";
 import {
   initializeTokenManager,
   isAuthenticated,
+  isPlaceholderToken,
   AuthenticationError,
   TokenServiceUnavailableError,
 } from "@/utils/client/tokenManager";
@@ -59,9 +60,10 @@ export default function AuthGuard({ children, siteConfig }: AuthGuardProps) {
 
       for (let attempt = 1; attempt <= MAX_AUTH_ATTEMPTS; attempt++) {
         try {
-          // Initialize token manager and check if user is authenticated
-          await initializeTokenManager();
-          const authenticated = isAuthenticated();
+          // Initialize token manager and check if user is authenticated.
+          // Never treat a placeholder string as a session.
+          const token = await initializeTokenManager();
+          const authenticated = !isPlaceholderToken(token) && isAuthenticated();
 
           if (authenticated) {
             // User is authenticated
@@ -161,8 +163,8 @@ export default function AuthGuard({ children, siteConfig }: AuthGuardProps) {
           console.log("Window focus detected with auth cookies - refreshing token");
           try {
             // Force fresh token fetch for browser restoration
-            await initializeTokenManager();
-            const authenticated = isAuthenticated();
+            const token = await initializeTokenManager();
+            const authenticated = !isPlaceholderToken(token) && isAuthenticated();
             if (authenticated) {
               console.log("Token refresh successful on window focus");
               setUserAuthenticated(true);

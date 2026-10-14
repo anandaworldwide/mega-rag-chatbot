@@ -24,6 +24,7 @@ jest.mock("@/utils/client/tokenManager", () => {
   return {
     initializeTokenManager: jest.fn(),
     isAuthenticated: jest.fn(),
+    isPlaceholderToken: actual.isPlaceholderToken,
     // Export the real error classes so instanceof checks work
     AuthenticationError: actual.AuthenticationError,
     TokenServiceUnavailableError: actual.TokenServiceUnavailableError,
@@ -175,6 +176,23 @@ describe("AuthGuard", () => {
 
     // Should not have called fetch for authentication
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it("does not treat a placeholder token as authenticated", async () => {
+    (initializeTokenManager as jest.Mock).mockResolvedValue("login-page-placeholder");
+    (isAuthenticated as jest.Mock).mockReturnValue(false);
+    mockRouter.asPath = "/protected-page";
+
+    render(
+      <AuthGuard siteConfig={mockSiteConfig}>
+        <TestComponent />
+      </AuthGuard>
+    );
+
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith("/login?redirect=%2Fprotected-page");
+    });
+    expect(screen.queryByText("Protected Content")).not.toBeInTheDocument();
   });
 
   it("renders children when authentication succeeds", async () => {
