@@ -306,7 +306,7 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
   // must not make a real teaching answer look like search narration.
   const statusWindow = firstSentenceOrAll(trimmed);
   const startsLikeSearchNarration =
-    /^(i('ll| will)|i am|i'm|i don['’]t|let me(?: fetch| search| pull)?|gathering|pulling|searching|seeking|fetching|trying|expanding|retrieving|scanning|checking)\b/i.test(
+    /^(i('ll| will)|i am|i'm|i don['’]t|i still need|let me(?: fetch| search| pull)?|gathering|pulling|searching|seeking|fetching|trying|expanding|retrieving|scanning|checking)\b/i.test(
       statusWindow
     );
   // Short loop/tool status lines often omit "sources" ("Looking up the teachings…").
@@ -336,8 +336,14 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
     /\b(fetch(?:ing)?|gather(?:ing)?|search(?:ing)?)\b/i.test(statusWindow) &&
     /\b(articles?|visualizations?)\b/i.test(statusWindow);
   const hasGluedSearchNarration =
-    /\b(expanding the strongest|trying a tighter search|searching the book material|i('ll| will) pull)\b/i.test(
+    /\b(expanding the strongest|trying a tighter search|a tighter search|searching the book material|i('ll| will) pull|pulling nearby)\b/i.test(
       statusWindow
+    );
+  // "I still need clearer quotes; pulling nearby passages…" is search-progress, not an answer.
+  const hasNeedMoreThenSearch =
+    /^i still need\b/i.test(trimmed) &&
+    /\b(quotes?|passages?|sources?|chunks?|tighter search|nearby passages|pulling nearby|story)\b/i.test(
+      trimmed
     );
   // Adjacent-chunk intent without saying "source/passage/chunk" (e.g. "Pulling nearby ceremony text…").
   // Keep the noun list tight so geo "I'll find nearby centers" is not treated as retrieval narration.
@@ -368,6 +374,7 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
     wordCount < 80 &&
     !iDontWithoutSearchVerb &&
     (hasLookingForRetrievalStatus ||
+      hasNeedMoreThenSearch ||
       ((startsLikeSearchNarration || hasGluedSearchNarration || gluedStartsLikeSearchNarration) &&
         (mentionsRetrievalWork ||
           hasArticleOrVisualizationFetch ||
