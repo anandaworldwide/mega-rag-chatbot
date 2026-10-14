@@ -306,8 +306,17 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
   // must not make a real teaching answer look like search narration.
   const statusWindow = firstSentenceOrAll(trimmed);
   const startsLikeSearchNarration =
-    /^(i('ll| will)|i am|i'm|i don['’]t|let me(?: fetch| search| pull)?|gathering|pulling|searching|seeking|fetching|trying|expanding)\b/i.test(
+    /^(i('ll| will)|i am|i'm|i don['’]t|let me(?: fetch| search| pull)?|gathering|pulling|searching|seeking|fetching|trying|expanding|retrieving|scanning|checking)\b/i.test(
       statusWindow
+    );
+  // Short loop/tool status lines often omit "sources" ("Looking up the teachings…").
+  const startsLikeStatusVerb =
+    /^(fetching|gathering|pulling|searching|seeking|retrieving|expanding|scanning|checking)\b/i.test(
+      trimmed
+    ) || /^(looking (?:up|through|into|over))\b/i.test(trimmed);
+  const hasAnswerPredicate =
+    /\b(is|are|was|were|means|because|taught|teaches|said|wrote|writes|explained|according to|for example)\b/i.test(
+      trimmed
     );
   const iDontWithoutSearchVerb =
     /^i don['’]t\b/i.test(statusWindow) &&
@@ -365,6 +374,11 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
           hasAdjacentFetchNarration ||
           gluedMentionsRetrievalWork)))
   ) {
+    return true;
+  }
+
+  // One-sentence loop/tool status with no teaching predicate, even without "sources".
+  if (wordCount < 40 && startsLikeStatusVerb && !hasAnswerPredicate) {
     return true;
   }
 
