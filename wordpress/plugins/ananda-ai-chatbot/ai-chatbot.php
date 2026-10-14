@@ -498,6 +498,7 @@ function aichatbot_enqueue_assets() {
         'enableIntercom' => $enable_intercom ? '1' : '0',
         'googleAnalyticsId' => $google_analytics_id,
         'ajaxUrl' => admin_url('admin-ajax.php'),
+        'nonce' => wp_create_nonce(aichatbot_chat_nonce_action()),
         'isSearchPage' => aichatbot_is_search_page() ? '1' : '0',
         'version' => AICHATBOT_VERSION
     );
@@ -633,6 +634,37 @@ function aichatbot_add_chat_bubble() {
 }
 add_action('wp_footer', 'aichatbot_add_chat_bubble');
 
+/**
+ * WordPress nonce action for chatbot token (chat request) AJAX.
+ */
+function aichatbot_chat_nonce_action() {
+    return 'aichatbot_get_token';
+}
+
+/**
+ * Read the chatbot AJAX nonce from the request.
+ */
+function aichatbot_request_nonce_value() {
+    if (!isset($_REQUEST['nonce'])) {
+        return '';
+    }
+    return sanitize_text_field(wp_unslash($_REQUEST['nonce']));
+}
+
+/**
+ * Verify the chatbot chat-request nonce.
+ *
+ * @param string|null $nonce Nonce to verify. Null reads from the request.
+ * @return bool True when the nonce is valid.
+ */
+function aichatbot_verify_chat_request_nonce($nonce = null) {
+    $value = $nonce === null ? aichatbot_request_nonce_value() : $nonce;
+    if (!is_string($value) || $value === '') {
+        return false;
+    }
+    return wp_verify_nonce($value, aichatbot_chat_nonce_action()) !== false;
+}
+
 // Add this function to handle token requests from the frontend
 function aichatbot_ajax_get_token() {
     // Prevent any output before our JSON response
@@ -642,7 +674,14 @@ function aichatbot_ajax_get_token() {
     // For debugging: Log that the AJAX handler was called
     error_log('aichatbot_ajax_get_token called');
     
-    // Security check with nonce would typically go here
+    if (!aichatbot_verify_chat_request_nonce()) {
+        ob_clean();
+        wp_send_json_error(array(
+            'message' => 'Invalid security token. Please reload the page.',
+            'code' => 'invalid_nonce'
+        ), 403);
+        return;
+    }
     
     try {
         // Get a token using the secure API client

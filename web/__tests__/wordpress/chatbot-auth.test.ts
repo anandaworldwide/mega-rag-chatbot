@@ -12,18 +12,20 @@ type ChatbotAuthTesting = {
   isRetryableNetworkError: (error: unknown) => boolean;
   isPostRetryAllowed: (method: string | undefined, idempotencyKey: unknown) => boolean;
   retryOnNetworkError: <T>(fn: () => Promise<T>, maxRetries?: number, baseDelay?: number) => Promise<T>;
+  buildChatTokenUrl: (ajaxUrl: string, nonce: string) => string;
 };
 
 type ChatbotAuthContext = {
   window: {
     location: { search: string };
     aichatbotAuth: {
+      getToken: () => Promise<string>;
       fetchWithAuth: (url: string, options?: Record<string, unknown>) => Promise<Response>;
       __testing__: ChatbotAuthTesting;
     };
   };
   fetch: jest.Mock;
-  aichatbotData: { ajaxUrl: string };
+  aichatbotData: { ajaxUrl: string; nonce?: string };
   document?: { body: { appendChild: jest.Mock } };
 };
 
@@ -40,7 +42,7 @@ function loadChatbotAuth(): ChatbotAuthContext {
       location: { search: "" },
     } as ChatbotAuthContext["window"],
     fetch,
-    aichatbotData: { ajaxUrl: "https://example.com/wp-admin/admin-ajax.php" },
+    aichatbotData: { ajaxUrl: "https://example.com/wp-admin/admin-ajax.php", nonce: "test-nonce-abc" },
     document: { body: { appendChild: jest.fn() } },
     setTimeout,
     clearTimeout,
@@ -149,5 +151,39 @@ describe("chatbot-auth.js", () => {
     ).rejects.toMatchObject({ name: "AbortError" });
 
     expect(context.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("builds the token URL with the WordPress nonce", () => {
+    const { window } = loadChatbotAuth();
+    const url = window.aichatbotAuth.__testing__.buildChatTokenUrl(
+      "https://example.com/wp-admin/admin-ajax.php",
+      "nonce-value"
+    );
+
+    expect(url).toBe(
+      "https://example.com/wp-admin/admin-ajax.php?action=aichatbot_get_token&nonce=nonce-value"
+    );
+  });
+
+  it("sends the localized nonce on the chat token request", async () => {
+    const context = loadChatbotAuth();
+    mockValidTokenFetch(context.fetch);
+    context.fetch.mockResolvedValueOnce({ ok: true, status: 200 });
+
+    await context.window.aichatbotAuth.fetchWithAuth("https://vivek.ananda.org/api/chat/v1");
+
+    const tokenRequestUrl = String(context.fetch.mock.calls[0][0]);
+    expect(tokenRequestUrl).toContain("action=aichatbot_get_token");
+    expect(tokenRequestUrl).toContain("nonce=test-nonce-abc");
+  });
+
+  it("rejects a token fetch when the WordPress nonce is missing", async () => {
+    const context = loadChatbotAuth();
+    context.aichatbotData.nonce = "";
+
+    await expect(context.window.aichatbotAuth.getToken()).rejects.toThrow(
+      "Configuration error: Missing WordPress nonce"
+    );
+    expect(context.fetch).not.toHaveBeenCalled();
   });
 });

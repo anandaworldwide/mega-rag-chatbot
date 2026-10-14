@@ -56,6 +56,24 @@ function isPostRetryAllowed(method, idempotencyKey) {
 }
 
 /**
+ * Build the WordPress admin-ajax URL for a chatbot token request.
+ * The nonce is required so WordPress can reject cross-site token fetches.
+ *
+ * @param {string} ajaxUrl - WordPress admin-ajax.php URL
+ * @param {string} nonce - WordPress nonce from wp_create_nonce
+ * @returns {string}
+ */
+function buildChatTokenUrl(ajaxUrl, nonce) {
+  const separator = ajaxUrl.includes('?') ? '&' : '?';
+  return (
+    ajaxUrl +
+    separator +
+    'action=aichatbot_get_token&nonce=' +
+    encodeURIComponent(nonce)
+  );
+}
+
+/**
  * Retry a function with exponential backoff for network errors
  * @param {Function} fn - Async function to retry
  * @param {number} maxRetries - Max retry attempts (default: 3)
@@ -131,8 +149,13 @@ async function fetchNewToken() {
     throw new Error('Configuration error: Missing WordPress data');
   }
 
+  if (!aichatbotData.nonce) {
+    console.error('Error: WordPress chat nonce is missing from aichatbotData.');
+    throw new Error('Configuration error: Missing WordPress nonce');
+  }
+
   // We'll use wp_ajax to get a token from the WordPress backend
-  const tokenUrl = aichatbotData.ajaxUrl + '?action=aichatbot_get_token';
+  const tokenUrl = buildChatTokenUrl(aichatbotData.ajaxUrl, aichatbotData.nonce);
 
   try {
     const response = await retryOnNetworkError(async () => {
@@ -346,6 +369,7 @@ window.aichatbotAuth = {
     isRetryableNetworkError,
     isPostRetryAllowed,
     retryOnNetworkError,
+    buildChatTokenUrl,
   },
   // For testing: Force session to expire
   forceSessionExpired: function () {
