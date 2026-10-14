@@ -3369,13 +3369,9 @@ describe("makeChain", () => {
   });
 
   describe("drafting skips the library lecture", () => {
-    it("skips Pinecone retrieval for a translate request", async () => {
+    it("still retrieves for a translate request", async () => {
       const sendData = jest.fn();
-      const searchMock = jest.fn();
-      mockRetriever.vectorStore = {
-        similaritySearch: searchMock,
-        similaritySearchWithScore: searchMock,
-      } as any;
+      mockRetriever.vectorStore = createScoredVectorStoreMock(mockDocuments, { scores: [0.82, 0.71] }) as any;
 
       await makeChain(
         mockRetriever,
@@ -3388,7 +3384,7 @@ describe("makeChain", () => {
         false,
         [],
         undefined,
-        mockSiteConfig,
+        { ...mockSiteConfig, includedLibraries: [] },
         "Please translate this into Italian: Buona festa."
       );
 
@@ -3398,10 +3394,85 @@ describe("makeChain", () => {
         chat_history: "",
       });
 
-      expect(searchMock).not.toHaveBeenCalled();
-      expect(result.documents).toEqual([]);
-      expect(sendData).toHaveBeenCalledWith({ sourceDocs: [] });
+      expect(mockRetriever.vectorStore.similaritySearchWithScore).toHaveBeenCalled();
+      expect(result.documents).toHaveLength(2);
       expect(sendData).not.toHaveBeenCalledWith(expect.objectContaining({ isLocationQuery: true }));
+    });
+
+    it("retrieves for an Italian translation catalog lookup", async () => {
+      const sendData = jest.fn();
+      mockRetriever.vectorStore = createScoredVectorStoreMock(mockDocuments, { scores: [0.82, 0.71] }) as any;
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        sendData,
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        { ...mockSiteConfig, includedLibraries: [] },
+        "Is there an Italian translation of Autobiography of a Yogi?"
+      );
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      const result = await retrievalSequence.invoke({
+        question: "Is there an Italian translation of Autobiography of a Yogi?",
+        chat_history: "",
+      });
+      const mapping = getAnswerChainMappingFromMakeChain();
+      const mapped = mapping({
+        retrievalOutput: { combinedContent: "docs", documents: result.documents },
+        originalInput: {
+          question: "Is there an Italian translation of Autobiography of a Yogi?",
+          chat_history: "",
+        },
+      });
+
+      expect(mockRetriever.vectorStore.similaritySearchWithScore).toHaveBeenCalled();
+      expect(result.documents).toHaveLength(2);
+      expect(mapped.activeFiltersSummary).not.toContain("write, rewrite, or translate user-provided text");
+    });
+
+    it("retrieves for answer-this-question teaching requests", async () => {
+      const sendData = jest.fn();
+      mockRetriever.vectorStore = createScoredVectorStoreMock(mockDocuments, { scores: [0.82, 0.71] }) as any;
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        sendData,
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        { ...mockSiteConfig, includedLibraries: [] },
+        "Please answer this question: what did Master say about fear?"
+      );
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      const result = await retrievalSequence.invoke({
+        question: "Please answer this question: what did Master say about fear?",
+        chat_history: "",
+      });
+      const mapping = getAnswerChainMappingFromMakeChain();
+      const mapped = mapping({
+        retrievalOutput: { combinedContent: "docs", documents: result.documents },
+        originalInput: {
+          question: "Please answer this question: what did Master say about fear?",
+          chat_history: "",
+        },
+      });
+
+      expect(mockRetriever.vectorStore.similaritySearchWithScore).toHaveBeenCalled();
+      expect(result.documents).toHaveLength(2);
+      expect(mapped.activeFiltersSummary).not.toContain("write, rewrite, or translate user-provided text");
     });
 
     it("does not lead with the empty-retrieval lecture for an email rewrite", async () => {
@@ -3458,7 +3529,7 @@ describe("makeChain", () => {
       const geoEnabledSiteConfig = {
         ...mockSiteConfig,
         enableGeoAwareness: true,
-        enableRetrievalTools: true,
+        enableRetrievalTools: false,
       };
 
       await makeChain(
