@@ -306,7 +306,7 @@ API endpoints are defined in `pages/api/` and `app/api/`. Most endpoints are pro
     (`site-config/location/${siteId}-locations.csv`), uploads if different. Sends ops alerts on updates or failures.
 - **`GET|POST /api/cron/remindLucaS3Backup`** (`pages/api/cron/remindLucaS3Backup.ts`)
   - **Purpose:** Quarterly email reminding the Luca ops list (`OPS_ALERT_EMAIL`) to back up Luca S3 locally.
-  - **Auth:** Requires Cron Secret or JWT authentication. The path is public at the middleware so the Luca cron can reach it; the handler still checks the secret.
+  - **Auth:** Requires Cron Secret or JWT authentication. The proxy lets vercel.json cron paths through only when Authorization Bearer matches CRON_SECRET (constant-time). The handler still verifies CRON_SECRET. A Bearer header on any other route does not skip login.
   - **Schedule:** 15:00 UTC on 1 January, 1 April, 1 July, and 1 October (`vercel.json`). Morning Pacific time.
   - **Logic:** Sends only when `SITE_ID` is `ananda`. Other deployments that share this cron return without emailing.
 - **`GET|POST /api/cron/nagPendingAccessRequests`** (`pages/api/cron/nagPendingAccessRequests.ts`)
@@ -320,8 +320,8 @@ API endpoints are defined in `pages/api/` and `app/api/`. Most endpoints are pro
 
 **Middleware:**
 
-- **Next.js Middleware (`middleware.ts`):** Intercepts requests globally or for specific paths. Handles JWT verification
-  for protected pages/routes and potentially redirects.
+- **Next.js request interceptor (`src/proxy.ts`):** Intercepts requests globally or for specific paths. Handles JWT
+  verification for protected pages/routes, cron Bearer checks for vercel.json paths, and public-path allowlisting.
 - **API Middleware:** Wrappers applied to API handlers to enforce authentication (JWT validation), CORS policies, rate
   limiting, and error handling.
 
