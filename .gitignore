@@ -84,3 +84,7 @@ next-env.d.ts
 .cache/
 queue/*.json
 data/processing_time_estimates.json
+
+# Local verification evidence. May contain routes and status codes only.
+# Never commit answers, sources, retrieval JSON, or secrets from this tree.
+.verify-mega-rag/
