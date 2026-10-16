@@ -7,6 +7,9 @@
  *
  * NOTE: web-token.ts no longer uses this - it always issues tokens (authenticated or anonymous)
  * and delegates authorization decisions to downstream endpoints.
+ *
+ * Cron paths are not listed here. The proxy allows a vercel.json cron path only when
+ * Authorization Bearer matches CRON_SECRET. The route still verifies CRON_SECRET.
  */
 
 export interface PublicPathsConfig {
@@ -48,6 +51,8 @@ export const PUBLIC_PATHS: PublicPathsConfig = {
     "/survey",
     "/answers/", // Public answer pages (trailing slash means startsWith)
     "/share/", // Public share pages
+    "/request-submitted",
+    "/verify-email-change",
   ],
 
   // API endpoints that are always accessible
@@ -60,7 +65,18 @@ export const PUBLIC_PATHS: PublicPathsConfig = {
     "/api/auth/resetPassword",
     "/api/auth/checkAuthMethod",
     "/api/auth/loginWithPassword",
-    "/api/cron/remindLucaS3Backup",
+    // Activation token check lives in the route (bcrypt invite hash).
+    "/api/verifyMagicLink",
+    // Open uses a signed token. Unsubscribe uses a JWT. Click uses rate limits and URL checks.
+    "/api/email/click",
+    "/api/email/open",
+    "/api/unsubscribe",
+    // Share and answer pages load this. The route returns only the public share fields.
+    "/api/document/",
+    // Redirect code lookup in site config. No cookie in mail or short links.
+    "/api/redirect/",
+    "/api/manifest.json",
+    "/api/apple-touch-icon",
   ],
 
   // Static assets that should always be accessible

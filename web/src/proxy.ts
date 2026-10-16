@@ -3,6 +3,8 @@ import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import { getClientIp } from "@/utils/server/ipUtils";
 import { createErrorCorsHeaders, handleCors, addCorsHeaders } from "@/utils/server/corsMiddleware";
 import { getAllPublicPaths } from "@/config/publicPaths";
+import { isVercelCronPath } from "@/config/cronPaths";
+import { bearerMatchesCronSecret } from "@/utils/server/cronBearer";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { libraryAccessCookieHeader } from "@/utils/server/libraryAccess";
@@ -88,13 +90,31 @@ export function createCspNonce(): string {
   return Buffer.from(crypto.randomBytes(16)).toString("base64");
 }
 
+/** S3 origins for signed audio URLs. Derived from env, not a hard-coded bucket. */
+export function s3MediaOrigins(
+  bucket: string | undefined = process.env.NEXT_PUBLIC_S3_BUCKET_NAME || process.env.S3_BUCKET_NAME,
+  region: string | undefined = process.env.AWS_REGION
+): string[] {
+  if (!bucket || !/^[a-z0-9.-]+$/i.test(bucket)) {
+    return [];
+  }
+  const origins = [`https://${bucket}.s3.amazonaws.com`];
+  if (region && /^[a-z0-9-]+$/i.test(region)) {
+    origins.push(`https://${bucket}.s3.${region}.amazonaws.com`);
+    origins.push(`https://s3.${region}.amazonaws.com`);
+  }
+  return origins;
+}
+
 export function buildContentSecurityPolicy(
   nonce: string,
-  isProduction: boolean = process.env.NODE_ENV === "production"
+  isProduction: boolean = process.env.NODE_ENV === "production",
+  mediaOrigins: string[] = s3MediaOrigins()
 ): string {
   const scriptSrc = isProduction
     ? `script-src 'self' 'nonce-${nonce}' https://www.googletagmanager.com https://www.google-analytics.com`
     : `script-src 'self' 'nonce-${nonce}' 'unsafe-inline' 'unsafe-eval' https://www.googletagmanager.com https://www.google-analytics.com`;
+  const mediaSrc = ["media-src 'self' blob:", ...mediaOrigins].join(" ");
   return [
     "default-src 'self'",
     scriptSrc,
@@ -102,7 +122,7 @@ export function buildContentSecurityPolicy(
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com data:",
     "img-src 'self' https://www.google-analytics.com https://fonts.gstatic.com data: blob:",
-    "media-src 'self' blob:",
+    mediaSrc,
     "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com",
     "worker-src 'self' blob:",
     "manifest-src 'self'",
@@ -271,34 +291,12 @@ export function proxy(req: NextRequest) {
     !url.pathname.startsWith("/static/") && // Allow static assets if served from /public/static
     !isLoginExemptStaticAsset(url.pathname); // Static files only; never /api/* or /_next/data/*
 
+  // Login sites: cron paths in vercel.json pass only with a matching CRON_SECRET Bearer.
+  // A Bearer header on any other route does not skip the cookie gate.
   if (pathname_is_private && requireLogin) {
-    const jwtCookie = req.cookies.get("authToken");
-    const jwtSecret = process.env.SECURE_TOKEN;
-
-    let authFailed = false;
-
-    if (!jwtCookie || !jwtSecret) {
-      authFailed = true;
-    } else {
-      try {
-        // Verify the JWT token with security options
-        jwt.verify(jwtCookie.value, jwtSecret, {
-          algorithms: ["HS256"],
-          issuer: "mega-rag-chatbot",
-          audience: "mega-rag-chatbot-users",
-        });
-        // JWT is valid, authentication succeeds
-        authFailed = false;
-      } catch {
-        // JWT verification failed
-        authFailed = true;
-      }
-    }
-
-    if (authFailed) {
-      // For API routes within /web/src/pages/api, return a 401
-      if (url.pathname.startsWith("/api")) {
-        const apiResponse = new NextResponse(
+    if (isVercelCronPath(url.pathname)) {
+      if (!bearerMatchesCronSecret(req.headers.get("authorization"), process.env.CRON_SECRET)) {
+        const cronDenied = new NextResponse(
           JSON.stringify({
             success: false,
             message: "Authentication required (Web Middleware)",
@@ -308,15 +306,55 @@ export function proxy(req: NextRequest) {
             headers: createErrorCorsHeaders(req),
           }
         );
-        return withLibraryAccessCookie(apiResponse, allowedNames);
+        return withLibraryAccessCookie(cronDenied, allowedNames);
+      }
+    } else {
+      const jwtCookie = req.cookies.get("authToken");
+      const jwtSecret = process.env.SECURE_TOKEN;
+
+      let authFailed = false;
+
+      if (!jwtCookie || !jwtSecret) {
+        authFailed = true;
+      } else {
+        try {
+          // Verify the JWT token with security options
+          jwt.verify(jwtCookie.value, jwtSecret, {
+            algorithms: ["HS256"],
+            issuer: "mega-rag-chatbot",
+            audience: "mega-rag-chatbot-users",
+          });
+          // JWT is valid, authentication succeeds
+          authFailed = false;
+        } catch {
+          // JWT verification failed
+          authFailed = true;
+        }
       }
 
-      // For page routes, redirect to /login (relative to /web)
-      const fullPath = `${url.pathname}${url.search}`;
-      const loginUrl = new URL("/login", req.url); // req.url should have correct base
-      loginUrl.searchParams.set("redirect", fullPath);
+      if (authFailed) {
+        // For API routes within /web/src/pages/api, return a 401
+        if (url.pathname.startsWith("/api")) {
+          const apiResponse = new NextResponse(
+            JSON.stringify({
+              success: false,
+              message: "Authentication required (Web Middleware)",
+            }),
+            {
+              status: 401,
+              headers: createErrorCorsHeaders(req),
+            }
+          );
+          return withLibraryAccessCookie(apiResponse, allowedNames);
+        }
 
-      return withLibraryAccessCookie(NextResponse.redirect(loginUrl), allowedNames);
+        // For page routes, redirect to /login (relative to /web)
+        const fullPath = `${url.pathname}${url.search}`;
+        const loginUrl = new URL("/login", req.url); // req.url should have correct base
+        loginUrl.searchParams.set("redirect", fullPath);
+
+        return withLibraryAccessCookie(NextResponse.redirect(loginUrl), allowedNames);
+      }
     }
   }
 

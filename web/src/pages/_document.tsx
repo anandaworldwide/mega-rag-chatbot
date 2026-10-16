@@ -30,6 +30,8 @@ export default function AppDocument({ nonce }: AppDocumentProps) {
         <link rel="apple-touch-icon" sizes="180x180" href="/api/apple-touch-icon" />
         {/* Favicon */}
         <link rel="icon" href="/favicon.ico" />
+        {/* Client scripts that inject after hydration (GA) read this nonce. */}
+        {nonce ? <meta name="csp-nonce" content={nonce} /> : null}
         {/* Include Material Icons font */}
         <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
         {/* Include Open Sans font */}

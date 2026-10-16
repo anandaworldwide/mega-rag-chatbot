@@ -35,7 +35,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(404).json({ message: "Document data not found" });
     }
 
-    // Return full document data for share functionality
+    // Public share payload only. Proxy lists /api/document/ as public; keep this allowlist tight.
     return res.status(200).json({
       id: docSnapshot.id,
       uuid: data.uuid,
