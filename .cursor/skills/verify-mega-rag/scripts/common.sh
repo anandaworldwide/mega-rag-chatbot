@@ -28,8 +28,6 @@ VERIFY_EVIDENCE_ROOT="${VERIFY_MEGA_RAG_EVIDENCE_ROOT:-$VERIFY_REPO_ROOT/.verify
 VERIFY_CURRENT_DIR="$VERIFY_EVIDENCE_ROOT/current"
 VERIFY_DEFAULT_PORT="${VERIFY_MEGA_RAG_PORT:-3000}"
 VERIFY_DEFAULT_SITE="${VERIFY_MEGA_RAG_SITE:-ananda}"
-VERIFY_LIVE_INDEX_NAME="ananda-2026-09-26--3-large"
-VERIFY_LIVE_EMBEDDINGS_MODEL="text-embedding-3-large"
 
 # Production hosts this skill must never target.
 VERIFY_PROD_HOST_RE='(luca\.ananda\.org|vivek\.ananda\.org|chat\.ananda\.org|www\.ananda\.org|ananda\.org|staging\.ananda\.org|vayudev\.ananda\.org)'

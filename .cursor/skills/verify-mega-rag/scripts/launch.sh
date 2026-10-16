@@ -16,11 +16,13 @@ usage() {
 Usage: launch.sh [--site ananda|ananda-public] [--port 3000]
 
 Loads .env.<site> from the repo root when that file exists.
-Then forces these live values:
+Then sets:
   SITE_ID=<site>
   NEXT_PUBLIC_BASE_URL=http://127.0.0.1:<port>
-  PINECONE_INDEX_NAME=ananda-2026-09-26--3-large
-  OPENAI_EMBEDDINGS_MODEL=text-embedding-3-large
+
+PINECONE_INDEX_NAME comes from .env.<site>.
+Set VERIFY_MEGA_RAG_INDEX to override it for one run.
+Do not hard-code an index name.
 
 The process binds 127.0.0.1 only. It does not use the repo 0.0.0.0 bind.
 EOF
@@ -110,8 +112,6 @@ export VERIFY_LAUNCH_SITE="$SITE"
 export VERIFY_LAUNCH_PORT="$PORT"
 export VERIFY_LAUNCH_REPO="$VERIFY_REPO_ROOT"
 export VERIFY_LAUNCH_RUN_DIR="$RUN_DIR"
-export VERIFY_LAUNCH_INDEX_NAME="$VERIFY_LIVE_INDEX_NAME"
-export VERIFY_LAUNCH_EMBEDDINGS_MODEL="$VERIFY_LIVE_EMBEDDINGS_MODEL"
 
 cd "$VERIFY_REPO_ROOT/web"
 node "$SCRIPT_DIR/launch.mjs"

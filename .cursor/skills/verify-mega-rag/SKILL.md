@@ -51,10 +51,9 @@ There is no Playwright suite for the chatbot UI.
   - `VERIFY_MEGA_RAG_LIVE_LOGIN=1` to submit a real login
   - `VERIFY_MEGA_RAG_SEND_EMAIL=1` to send email
   - `VERIFY_MEGA_RAG_WRITE_DB=1` to write Firestore
-- Cursor cloud index values can be stale. When you run live, set
-  `PINECONE_INDEX_NAME=ananda-2026-09-26--3-large` and
-  `OPENAI_EMBEDDINGS_MODEL=text-embedding-3-large`.
-  The launch helper sets both.
+- Read `PINECONE_INDEX_NAME` from `.env.<site>`. Set
+  `VERIFY_MEGA_RAG_INDEX` to override that name for one run.
+  Do not hard-code an index name.
 
 ## Environment names
 
@@ -90,6 +89,7 @@ Login, when you opt in:
 
 - `VERIFY_MEGA_RAG_LOGIN_EMAIL`
 - `VERIFY_MEGA_RAG_LOGIN_PASSWORD`
+- `VERIFY_MEGA_RAG_INDEX` (optional override of `PINECONE_INDEX_NAME`)
 
 Do not commit those values.
 
@@ -112,11 +112,11 @@ Use `--site ananda-public` for Vivek.
 The helper:
 
 1. Loads `.env.<site>` when the file exists.
-2. Sets `SITE_ID`, `NEXT_PUBLIC_BASE_URL=http://127.0.0.1:<port>`,
-   `PINECONE_INDEX_NAME=ananda-2026-09-26--3-large`, and
-   `OPENAI_EMBEDDINGS_MODEL=text-embedding-3-large`.
-3. Starts `next dev --webpack -H 127.0.0.1 -p <port>` from `web/`.
-4. Waits until the landing route returns HTTP 200.
+2. Sets `SITE_ID` and `NEXT_PUBLIC_BASE_URL=http://127.0.0.1:<port>`.
+3. Keeps `PINECONE_INDEX_NAME` from that file, or from
+   `VERIFY_MEGA_RAG_INDEX` when that override is set.
+4. Starts `next dev --webpack -H 127.0.0.1 -p <port>` from `web/`.
+5. Waits until the landing route returns HTTP 200.
 
 Ready means usable chrome, not only a TCP listen.
 
@@ -126,7 +126,7 @@ Ready means usable chrome, not only a TCP listen.
 
 The first HTML is a Next.js shell. `#email-input` and `#userInput` appear
 after the client bundle hydrates. `_app` uses `getInitialProps`.
-AuthGuard then sends a logged-out Luca user from `/` to `/login`.
+On Luca, middleware must send a logged-out `GET /` to `/login`.
 
 First compile can take several minutes.
 Need a `next` binary from `cd web && npm ci`.
@@ -159,6 +159,15 @@ The check is read-only. It confirms:
 - The site landing route returns the expected `__NEXT_DATA__` identity
 - The matching `/_next/static/chunks/pages/*.js` chunk returns 200
 - `GET /api/web-token` returns 200 (or 429)
+
+On Luca (`ananda`, `requireLogin=true`) the doctor FAILs and exits
+non-zero when:
+
+- `Content-Security-Policy` is missing on `/login` or `/`
+- A logged-out `GET /` does not redirect to `/login`
+
+Client AuthGuard is not enough. Production Luca has this bug today.
+The skill must catch it.
 
 Fail the doctor when any check fails.
 Do not drive a sick instance.
@@ -210,7 +219,23 @@ Other ids: `ask-sourced-answer`, `title-scope`, `content-filters`,
 `history-and-sharing`.
 
 Default drive is dry-run.
-It checks chrome and does not submit.
+It does not submit chat, login, email, or votes.
+
+`drive.sh` exit codes:
+
+- `0` PASS — the named feature was exercised
+- `1` FAIL — a required check failed
+- `2` BLOCKED — a precondition stopped the journey
+- `3` NOT VERIFIED — the helper did not exercise the feature
+
+A `PASS` line must exercise the feature.
+`title-scope`, `content-filters`, and Luca history only reach `/login`.
+Those journeys print `BLOCKED` and exit `2`.
+Vivek chat input and sharing chrome are not checked by this helper.
+Those journeys print `NOT VERIFIED` and exit `3`.
+
+The shipped HTTP helper can PASS only `login-logout`, and only as an
+HTTP identity check of `/login`. No browser runs.
 
 A live question uses the browser:
 

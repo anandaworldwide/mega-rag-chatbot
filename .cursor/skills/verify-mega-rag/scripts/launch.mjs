@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 /**
  * Start Next.js for verification.
- * Bind 127.0.0.1 only. Override stale cloud index settings.
- * Do not print secret values.
+ * Bind 127.0.0.1 only.
+ * Read PINECONE_INDEX_NAME from .env.<site>.
+ * VERIFY_MEGA_RAG_INDEX overrides that name.
+ * Do not print secret values or the index name.
  */
 import { spawn } from "child_process";
 import fs from "fs";
@@ -13,10 +15,8 @@ const site = process.env.VERIFY_LAUNCH_SITE;
 const port = process.env.VERIFY_LAUNCH_PORT;
 const repoRoot = process.env.VERIFY_LAUNCH_REPO;
 const runDir = process.env.VERIFY_LAUNCH_RUN_DIR;
-const indexName = process.env.VERIFY_LAUNCH_INDEX_NAME;
-const embeddingsModel = process.env.VERIFY_LAUNCH_EMBEDDINGS_MODEL;
 
-if (!site || !port || !repoRoot || !runDir || !indexName || !embeddingsModel) {
+if (!site || !port || !repoRoot || !runDir) {
   console.error("verify-mega-rag: launch.mjs missing VERIFY_LAUNCH_* values");
   process.exit(1);
 }
@@ -25,19 +25,31 @@ const require = createRequire(path.join(repoRoot, "package.json"));
 const dotenv = require("dotenv");
 
 const envFile = path.join(repoRoot, `.env.${site}`);
+let indexSource = "unset";
 if (fs.existsSync(envFile)) {
-  dotenv.config({ path: envFile });
+  const parsed = dotenv.parse(fs.readFileSync(envFile));
+  if (Object.prototype.hasOwnProperty.call(parsed, "PINECONE_INDEX_NAME")) {
+    indexSource = "env-file";
+  }
+  dotenv.config({ path: envFile, override: true });
+}
+
+if (process.env.VERIFY_MEGA_RAG_INDEX) {
+  process.env.PINECONE_INDEX_NAME = process.env.VERIFY_MEGA_RAG_INDEX;
+  indexSource = "VERIFY_MEGA_RAG_INDEX";
+} else if (indexSource === "unset" && process.env.PINECONE_INDEX_NAME) {
+  indexSource = "process-env";
 }
 
 const env = { ...process.env };
 env.SITE_ID = site;
 env.NODE_ENV = "development";
 env.NEXT_PUBLIC_BASE_URL = `http://127.0.0.1:${port}`;
-env.PINECONE_INDEX_NAME = indexName;
-env.OPENAI_EMBEDDINGS_MODEL = embeddingsModel;
 // Never inherit a production public URL from the parent environment.
 delete env.VERCEL;
 delete env.VERCEL_URL;
+
+fs.writeFileSync(path.join(runDir, "index_source"), `${indexSource}\n`);
 
 const nextCandidates = [
   path.join(repoRoot, "web", "node_modules", ".bin", "next"),
