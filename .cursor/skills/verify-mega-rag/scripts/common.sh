@@ -10,12 +10,20 @@ skill_dir() {
 }
 
 repo_root() {
-  cd "$(dirname "${BASH_SOURCE[0]}")/../../.."
+  # scripts/ -> skill -> skills -> .cursor -> repo root
+  cd "$(dirname "${BASH_SOURCE[0]}")/../../../.."
   pwd
+}
+
+die() {
+  echo "verify-mega-rag: $*" >&2
+  exit 1
 }
 
 VERIFY_SKILL_DIR="$(skill_dir)"
 VERIFY_REPO_ROOT="$(repo_root)"
+[[ -f "$VERIFY_REPO_ROOT/web/package.json" ]] || \
+  die "Repo root looks wrong: $VERIFY_REPO_ROOT"
 VERIFY_EVIDENCE_ROOT="${VERIFY_MEGA_RAG_EVIDENCE_ROOT:-$VERIFY_REPO_ROOT/.verify-mega-rag}"
 VERIFY_CURRENT_DIR="$VERIFY_EVIDENCE_ROOT/current"
 VERIFY_DEFAULT_PORT="${VERIFY_MEGA_RAG_PORT:-3000}"
@@ -25,11 +33,6 @@ VERIFY_LIVE_EMBEDDINGS_MODEL="text-embedding-3-large"
 
 # Production hosts this skill must never target.
 VERIFY_PROD_HOST_RE='(luca\.ananda\.org|vivek\.ananda\.org|chat\.ananda\.org|www\.ananda\.org|ananda\.org|staging\.ananda\.org|vayudev\.ananda\.org)'
-
-die() {
-  echo "verify-mega-rag: $*" >&2
-  exit 1
-}
 
 log() {
   echo "verify-mega-rag: $*"

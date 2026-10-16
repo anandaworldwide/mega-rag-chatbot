@@ -120,8 +120,13 @@ The helper:
 
 Ready means usable chrome, not only a TCP listen.
 
-- Luca: `GET /login` is 200 and shows `#email-input`.
-- Vivek: `GET /` is 200 and shows `#userInput`.
+- Luca: `GET /login` is 200. The payload page is `/login` and `siteId` is
+  `ananda`. The login.js chunk is 200.
+- Vivek: `GET /` is 200. The payload `siteId` is `ananda-public`.
+
+The first HTML is a Next.js shell. `#email-input` and `#userInput` appear
+after the client bundle hydrates. `_app` uses `getInitialProps`.
+AuthGuard then sends a logged-out Luca user from `/` to `/login`.
 
 First compile can take several minutes.
 Need a `next` binary from `cd web && npm ci`.
@@ -151,7 +156,8 @@ The check is read-only. It confirms:
 - The recorded PID is alive
 - `127.0.0.1:<port>` is the bind
 - `NEXT_PUBLIC_BASE_URL` is not a production host
-- The site landing route returns the expected chrome
+- The site landing route returns the expected `__NEXT_DATA__` identity
+- The matching `/_next/static/chunks/pages/*.js` chunk returns 200
 - `GET /api/web-token` returns 200 (or 429)
 
 Fail the doctor when any check fails.
@@ -280,6 +286,7 @@ All scripts are executable. Run them from any cwd.
 ```
 
 `scripts/launch.mjs` is the Node spawn helper. Do not call it directly.
+`scripts/page-probe.mjs` reads `__NEXT_DATA__` identity fields only.
 
 ## Feature map
 

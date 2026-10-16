@@ -54,35 +54,48 @@ fi
   fail "Unexpected site: ${VERIFY_SITE:-empty}"
 pass "site=$VERIFY_SITE"
 
+probe="$VERIFY_RUN_DIR/doctor.probe.json"
 if [[ "$VERIFY_SITE" == "ananda" ]]; then
-  home_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 -D "$VERIFY_RUN_DIR/doctor.home.headers" "$VERIFY_BASE_URL/")"
-  login_body="$(mktemp)"
-  login_code="$(curl -sS -o "$login_body" -w '%{http_code}' --max-time 10 "$VERIFY_BASE_URL/login")"
-  info "GET / -> $home_code"
-  info "GET /login -> $login_code"
-  [[ "$login_code" == "200" ]] || fail "Luca /login must return 200. Got $login_code."
-  if ! html_has_markers id=\"email-input\" "Email Address" "Continue" <"$login_body" >>"$REPORT"; then
-    rm -f "$login_body"
-    fail "Luca /login is missing the email form."
+  node "$SCRIPT_DIR/page-probe.mjs" "$VERIFY_BASE_URL/login" >"$probe"
+  login_page="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("page") or "")' "$probe")"
+  login_site="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("siteId") or "")' "$probe")"
+  login_req="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("requireLogin"))' "$probe")"
+  login_status="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("status"))' "$probe")"
+  login_chunk="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("loginChunk"))' "$probe")"
+  login_csp="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("middlewareCsp"))' "$probe")"
+  info "GET /login -> $login_status page=$login_page siteId=$login_site requireLogin=$login_req"
+  info "login.js -> $login_chunk middlewareCsp=$login_csp"
+  [[ "$login_status" == "200" ]] || fail "Luca /login must return 200. Got $login_status."
+  [[ "$login_page" == "/login" ]] || fail "Luca /login payload page is $login_page."
+  [[ "$login_site" == "ananda" ]] || fail "Luca /login siteId is $login_site."
+  [[ "$login_req" == "True" || "$login_req" == "true" ]] || fail "Luca requireLogin is $login_req."
+  [[ "$login_chunk" == "200" ]] || fail "Luca login.js chunk returned $login_chunk."
+  pass "luca-login-identity"
+  if [[ "$login_csp" == "True" || "$login_csp" == "true" ]]; then
+    pass "middleware-csp"
+  else
+    info "CSP header missing. Middleware may not be running. AuthGuard still gates the UI."
   fi
-  rm -f "$login_body"
-  pass "luca-login-chrome"
-  if [[ "$home_code" =~ ^30[1278]$ ]]; then
+  home_probe="$VERIFY_RUN_DIR/doctor.home.probe.json"
+  node "$SCRIPT_DIR/page-probe.mjs" "$VERIFY_BASE_URL/" >"$home_probe"
+  home_status="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("status"))' "$home_probe")"
+  home_loc="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("location") or "")' "$home_probe")"
+  info "GET / -> $home_status location=${home_loc:-none}"
+  if [[ "$home_status" =~ ^30[1278]$ ]]; then
     pass "luca-home-redirects-to-login"
   else
-    info "GET / returned $home_code (redirect to /login is expected when logged out)."
+    info "GET / did not redirect. Client AuthGuard sends logged-out users to /login."
   fi
 else
-  home_body="$(mktemp)"
-  home_code="$(curl -sS -o "$home_body" -w '%{http_code}' --max-time 10 "$VERIFY_BASE_URL/")"
-  info "GET / -> $home_code"
-  [[ "$home_code" == "200" ]] || fail "Vivek / must return 200. Got $home_code."
-  if ! html_has_markers id=\"userInput\" landing-chat-layout "Chat message" <"$home_body" >>"$REPORT"; then
-    rm -f "$home_body"
-    fail "Vivek / is missing the chat input chrome."
-  fi
-  rm -f "$home_body"
-  pass "vivek-chat-chrome"
+  probe_home="$VERIFY_RUN_DIR/doctor.probe.json"
+  node "$SCRIPT_DIR/page-probe.mjs" "$VERIFY_BASE_URL/" >"$probe_home"
+  home_status="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("status"))' "$probe_home")"
+  home_site="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("siteId") or "")' "$probe_home")"
+  home_page="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("page") or "")' "$probe_home")"
+  info "GET / -> $home_status page=$home_page siteId=$home_site"
+  [[ "$home_status" == "200" ]] || fail "Vivek / must return 200. Got $home_status."
+  [[ "$home_site" == "ananda-public" ]] || fail "Vivek siteId is $home_site."
+  pass "vivek-home-identity"
 fi
 
 token_code="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "$VERIFY_BASE_URL/api/web-token")"

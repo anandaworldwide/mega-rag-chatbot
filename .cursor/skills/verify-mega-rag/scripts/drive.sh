@@ -70,11 +70,26 @@ fail_drive() {
   exit 1
 }
 
-fetch_body() {
+probe_page() {
   local path="$1"
   local dest="$2"
-  curl -sS -o "$dest" -w '%{http_code}' --max-time 15 -D "${dest}.headers" \
-    "$VERIFY_BASE_URL$path"
+  node "$SCRIPT_DIR/page-probe.mjs" "$VERIFY_BASE_URL$path" >"$dest"
+}
+
+probe_field() {
+  python3 -c 'import json,sys; v=json.load(open(sys.argv[1])).get(sys.argv[2]); print("" if v is None else v)' "$1" "$2"
+}
+
+assert_luca_login_identity() {
+  local dest="$VERIFY_RUN_DIR/drive-${FEATURE}.probe.json"
+  probe_page /login "$dest"
+  local status page site_id
+  status="$(probe_field "$dest" status)"
+  page="$(probe_field "$dest" page)"
+  site_id="$(probe_field "$dest" siteId)"
+  note "GET /login -> $status page=$page siteId=$site_id"
+  [[ "$status" == "200" && "$page" == "/login" && "$site_id" == "ananda" ]] || \
+    fail_drive "Luca login identity failed. Login is the required gate."
 }
 
 LIVE_CHAT="${VERIFY_MEGA_RAG_LIVE_CHAT:-0}"
@@ -89,13 +104,12 @@ case "$FEATURE" in
   login-logout)
     [[ "$VERIFY_SITE" == "ananda" ]] || \
       fail_drive "login-logout is a Luca (ananda) feature. Current site is $VERIFY_SITE."
-    body="$(mktemp)"
-    code="$(fetch_body /login "$body")"
-    note "GET /login -> $code"
-    [[ "$code" == "200" ]] || fail_drive "/login returned $code"
-    html_has_markers id=\"email-input\" "Email Address" "Continue" "Welcome to" <"$body" \
-      >>"$RECORD" || fail_drive "Login form markers missing."
-    rm -f "$body"
+    assert_luca_login_identity
+    chunk="$(probe_field "$VERIFY_RUN_DIR/drive-${FEATURE}.probe.json" loginChunk)"
+    require_login="$(probe_field "$VERIFY_RUN_DIR/drive-${FEATURE}.probe.json" requireLogin)"
+    note "requireLogin=$require_login login.js=$chunk"
+    [[ "$chunk" == "200" ]] || fail_drive "login.js chunk returned $chunk."
+    note "SSR HTML is a Next shell. #email-input appears after client hydration."
     note "Dry-run did not submit email or password."
     note "That avoids Firestore reads/writes and magic-link email."
     if [[ "$LIVE_LOGIN" == "1" ]]; then
@@ -107,31 +121,25 @@ case "$FEATURE" in
     if [[ "$SEND_EMAIL" == "1" ]]; then
       fail_drive "Magic-link send is not shipped in this helper. Use the browser only when intended."
     fi
-    note "PASS login page chrome is present. Logout lives at /settings after a real login."
+    note "PASS Luca login page identity is present. Logout lives at /settings after a real login."
     ;;
 
   ask-sourced-answer)
     if [[ "$VERIFY_SITE" == "ananda" ]]; then
       note "Luca requires login. Dry-run checks /login, not the chat shell."
-      body="$(mktemp)"
-      code="$(fetch_body /login "$body")"
-      note "GET /login -> $code"
-      [[ "$code" == "200" ]] || fail_drive "/login returned $code"
-      html_has_markers id=\"email-input\" <"$body" >>"$RECORD" || \
-        fail_drive "Cannot reach chat until login works."
-      rm -f "$body"
-      note "PASS logged-out Luca correctly withholds the chat input."
+      assert_luca_login_identity
+      note "PASS logged-out Luca serves the login identity before chat."
       if [[ "$LIVE_CHAT" == "1" ]]; then
         fail_drive "LIVE_CHAT on Luca needs a logged-in browser session first."
       fi
     else
-      body="$(mktemp)"
-      code="$(fetch_body / "$body")"
-      note "GET / -> $code"
-      [[ "$code" == "200" ]] || fail_drive "/ returned $code"
-      html_has_markers id=\"userInput\" landing-chat-layout "Send message" <"$body" \
-        >>"$RECORD" || fail_drive "Chat input markers missing."
-      rm -f "$body"
+      dest="$VERIFY_RUN_DIR/drive-${FEATURE}.probe.json"
+      probe_page / "$dest"
+      status="$(probe_field "$dest" status)"
+      site_id="$(probe_field "$dest" siteId)"
+      note "GET / -> $status siteId=$site_id"
+      [[ "$status" == "200" && "$site_id" == "ananda-public" ]] || \
+        fail_drive "Vivek home identity failed."
       note "Dry-run did not POST /api/chat/v1."
       note "A live send calls a paid model and Pinecone."
       note "Vivek sets hideSources, so public UI may omit the Sources heading."
@@ -145,12 +153,7 @@ case "$FEATURE" in
   title-scope)
     [[ "$VERIFY_SITE" == "ananda" ]] || \
       fail_drive "Title scope is enabled on Luca only."
-    body="$(mktemp)"
-    code="$(fetch_body /login "$body")"
-    note "GET /login -> $code"
-    html_has_markers id=\"email-input\" <"$body" >>"$RECORD" || \
-      fail_drive "Need Luca login before the Focus on one source control."
-    rm -f "$body"
+    assert_luca_login_identity
     note "Dry-run did not call GET /api/titleScope/suggest."
     note "Suggest returns title strings. Do not save that JSON."
     note "PASS title-scope journey is blocked on login, as required."
@@ -159,32 +162,25 @@ case "$FEATURE" in
   content-filters)
     [[ "$VERIFY_SITE" == "ananda" ]] || \
       fail_drive "Author and media filters are Luca controls."
-    body="$(mktemp)"
-    code="$(fetch_body /login "$body")"
-    note "GET /login -> $code"
-    html_has_markers id=\"email-input\" <"$body" >>"$RECORD" || \
-      fail_drive "Need Luca login before Content filters."
-    rm -f "$body"
+    assert_luca_login_identity
     note "PASS content-filters journey is blocked on login, as required."
     ;;
 
   history-and-sharing)
-    body="$(mktemp)"
     if [[ "$VERIFY_SITE" == "ananda" ]]; then
-      code="$(fetch_body /login "$body")"
-      note "GET /login -> $code"
-      html_has_markers id=\"email-input\" <"$body" >>"$RECORD" || \
-        fail_drive "Need Luca login before Chats history."
+      assert_luca_login_identity
       note "PASS history journey is blocked on login, as required."
     else
-      code="$(fetch_body / "$body")"
-      note "GET / -> $code"
-      html_has_markers landing-chat-layout <"$body" >>"$RECORD" || \
-        fail_drive "Vivek home missing."
+      dest="$VERIFY_RUN_DIR/drive-${FEATURE}.probe.json"
+      probe_page / "$dest"
+      status="$(probe_field "$dest" status)"
+      site_id="$(probe_field "$dest" siteId)"
+      note "GET / -> $status siteId=$site_id"
+      [[ "$status" == "200" && "$site_id" == "ananda-public" ]] || \
+        fail_drive "Vivek home identity failed."
       note "History GET /api/chats reads Firestore. Dry-run did not call it."
       note "PASS sharing chrome is checked after an answer exists. None sent."
     fi
-    rm -f "$body"
     if [[ "$WRITE_DB" == "1" ]]; then
       fail_drive "WRITE_DB history mutations are not shipped in this helper."
     fi
