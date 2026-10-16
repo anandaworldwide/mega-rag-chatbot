@@ -47,6 +47,8 @@ Skill dry-run:
 .cursor/skills/verify-mega-rag/scripts/drive.sh --feature content-filters
 ```
 
+Logged-out Luca prints `BLOCKED` and exits `2`. No `PASS`.
+
 ## Gotchas
 
 - Do not uncheck the last library. The UI disables that checkbox.

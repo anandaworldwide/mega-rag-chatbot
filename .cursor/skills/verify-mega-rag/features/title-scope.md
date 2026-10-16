@@ -45,8 +45,8 @@ Skill dry-run:
 .cursor/skills/verify-mega-rag/scripts/drive.sh --feature title-scope
 ```
 
-On a logged-out Luca instance the helper must report that login is
-missing. Do not skip that gate.
+On a logged-out Luca instance the helper prints `BLOCKED` and exits `2`.
+It only checked `/login`. Do not print `PASS`.
 
 ## Gotchas
 

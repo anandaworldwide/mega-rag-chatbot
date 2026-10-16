@@ -49,6 +49,8 @@ Skill dry-run:
 .cursor/skills/verify-mega-rag/scripts/drive.sh --feature history-and-sharing
 ```
 
+Logged-out Luca prints `BLOCKED` and exits `2`.
+Vivek without a share page prints `NOT VERIFIED` and exits `3`.
 Do not call those write APIs unless `VERIFY_MEGA_RAG_WRITE_DB=1`.
 Do not open a share page that shows answer text in a saved screenshot.
 

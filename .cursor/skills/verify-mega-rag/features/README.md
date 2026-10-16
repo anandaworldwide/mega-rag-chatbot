@@ -17,8 +17,9 @@ Each file has four H2 sections:
 3. Driving it with the browser
 4. Gotchas
 
-If a seed or login precondition is missing, the journey reports failure.
-Do not weaken the journey to pass.
+If a seed or login precondition is missing, the journey prints `BLOCKED`
+and exits `2`. If the helper does not exercise the feature, it prints
+`NOT VERIFIED` and exits `3`. Do not print `PASS` for those cases.
 
 Drive helper:
 

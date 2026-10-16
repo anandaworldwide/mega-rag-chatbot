@@ -20,8 +20,14 @@ Feature ids:
   content-filters
   history-and-sharing
 
-Dry-run is the default. The helper checks the user-facing chrome and
-does not submit chat, login, email, or votes.
+Dry-run is the default. A PASS line is printed only when this script
+exercises the named feature.
+
+Exit codes:
+  0  PASS — the named feature was exercised
+  1  FAIL — a required check failed
+  2  BLOCKED — a precondition stopped the journey
+  3  NOT VERIFIED — the helper did not exercise the feature
 
 Live flags (set only when you intend the side effect):
   VERIFY_MEGA_RAG_LIVE_CHAT=1
@@ -70,6 +76,25 @@ fail_drive() {
   exit 1
 }
 
+finish_drive_note() {
+  date -u +"%Y-%m-%dT%H:%M:%SZ" >"$VERIFY_RUN_DIR/drove_at"
+  printf '%s\n' "$FEATURE" >"$VERIFY_RUN_DIR/drove_feature"
+  note "Evidence note: $RECORD"
+  note "Do not copy answers, sources, or retrieval JSON into this tree."
+}
+
+blocked() {
+  echo "BLOCKED $*" | tee -a "$RECORD" >&2
+  finish_drive_note
+  exit 2
+}
+
+not_verified() {
+  echo "NOT VERIFIED $*" | tee -a "$RECORD" >&2
+  finish_drive_note
+  exit 3
+}
+
 probe_page() {
   local path="$1"
   local dest="$2"
@@ -110,6 +135,7 @@ case "$FEATURE" in
     note "requireLogin=$require_login login.js=$chunk"
     [[ "$chunk" == "200" ]] || fail_drive "login.js chunk returned $chunk."
     note "SSR HTML is a Next shell. #email-input appears after client hydration."
+    note "This helper ran one HTTP check of /login. No browser ran."
     note "Dry-run did not submit email or password."
     note "That avoids Firestore reads/writes and magic-link email."
     if [[ "$LIVE_LOGIN" == "1" ]]; then
@@ -121,17 +147,17 @@ case "$FEATURE" in
     if [[ "$SEND_EMAIL" == "1" ]]; then
       fail_drive "Magic-link send is not shipped in this helper. Use the browser only when intended."
     fi
-    note "PASS Luca login page identity is present. Logout lives at /settings after a real login."
+    note "PASS login page HTTP identity. Logout was not exercised."
     ;;
 
   ask-sourced-answer)
     if [[ "$VERIFY_SITE" == "ananda" ]]; then
-      note "Luca requires login. Dry-run checks /login, not the chat shell."
+      note "Luca requires login. This helper only checked /login."
       assert_luca_login_identity
-      note "PASS logged-out Luca serves the login identity before chat."
       if [[ "$LIVE_CHAT" == "1" ]]; then
         fail_drive "LIVE_CHAT on Luca needs a logged-in browser session first."
       fi
+      blocked "ask-sourced-answer needs a Luca session and a browser. Chat input was not exercised."
     else
       dest="$VERIFY_RUN_DIR/drive-${FEATURE}.probe.json"
       probe_page / "$dest"
@@ -141,12 +167,11 @@ case "$FEATURE" in
       [[ "$status" == "200" && "$site_id" == "ananda-public" ]] || \
         fail_drive "Vivek home identity failed."
       note "Dry-run did not POST /api/chat/v1."
-      note "A live send calls a paid model and Pinecone."
-      note "Vivek sets hideSources, so public UI may omit the Sources heading."
+      note "No browser ran. #userInput and landing-chat-layout were not checked."
       if [[ "$LIVE_CHAT" == "1" ]]; then
         fail_drive "LIVE_CHAT send is not shipped here. Use the browser Send message control."
       fi
-      note "PASS Vivek chat input chrome is present."
+      not_verified "Vivek chat input chrome was not exercised."
     fi
     ;;
 
@@ -156,20 +181,23 @@ case "$FEATURE" in
     assert_luca_login_identity
     note "Dry-run did not call GET /api/titleScope/suggest."
     note "Suggest returns title strings. Do not save that JSON."
-    note "PASS title-scope journey is blocked on login, as required."
+    blocked "title-scope needs a Luca session and the Focus on one source control."
     ;;
 
   content-filters)
     [[ "$VERIFY_SITE" == "ananda" ]] || \
       fail_drive "Author and media filters are Luca controls."
     assert_luca_login_identity
-    note "PASS content-filters journey is blocked on login, as required."
+    blocked "content-filters needs a Luca session and the Content filters control."
     ;;
 
   history-and-sharing)
+    if [[ "$WRITE_DB" == "1" ]]; then
+      fail_drive "WRITE_DB history mutations are not shipped in this helper."
+    fi
     if [[ "$VERIFY_SITE" == "ananda" ]]; then
       assert_luca_login_identity
-      note "PASS history journey is blocked on login, as required."
+      blocked "history-and-sharing needs a Luca session. Chats sidebar was not opened."
     else
       dest="$VERIFY_RUN_DIR/drive-${FEATURE}.probe.json"
       probe_page / "$dest"
@@ -178,11 +206,8 @@ case "$FEATURE" in
       note "GET / -> $status siteId=$site_id"
       [[ "$status" == "200" && "$site_id" == "ananda-public" ]] || \
         fail_drive "Vivek home identity failed."
-      note "History GET /api/chats reads Firestore. Dry-run did not call it."
-      note "PASS sharing chrome is checked after an answer exists. None sent."
-    fi
-    if [[ "$WRITE_DB" == "1" ]]; then
-      fail_drive "WRITE_DB history mutations are not shipped in this helper."
+      note "History GET /api/chats was not called."
+      not_verified "Sharing chrome was not exercised. No share page was opened."
     fi
     ;;
 
@@ -191,7 +216,4 @@ case "$FEATURE" in
     ;;
 esac
 
-date -u +"%Y-%m-%dT%H:%M:%SZ" >"$VERIFY_RUN_DIR/drove_at"
-printf '%s\n' "$FEATURE" >"$VERIFY_RUN_DIR/drove_feature"
-note "Evidence note: $RECORD"
-note "Do not copy answers, sources, or retrieval JSON into this tree."
+finish_drive_note

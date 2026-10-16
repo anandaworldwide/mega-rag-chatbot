@@ -54,7 +54,9 @@ Skill dry-run:
 .cursor/skills/verify-mega-rag/scripts/drive.sh --feature ask-sourced-answer
 ```
 
-Do not click Send unless `VERIFY_MEGA_RAG_LIVE_CHAT=1`.
+Logged-out Luca prints `BLOCKED` and exits `2`.
+Vivek without a browser check of `#userInput` prints `NOT VERIFIED`
+and exits `3`. Do not click Send unless `VERIFY_MEGA_RAG_LIVE_CHAT=1`.
 
 ## Gotchas
 
@@ -65,8 +67,7 @@ Do not click Send unless `VERIFY_MEGA_RAG_LIVE_CHAT=1`.
 - Vivek does not show `Sources` to normal users. Do not fail Vivek for a
   missing Sources heading.
 - Do not save the answer body or source titles in evidence.
-- Cloud index values can be stale. Launch forces
-  `PINECONE_INDEX_NAME=ananda-2026-09-26--3-large` and
-  `OPENAI_EMBEDDINGS_MODEL=text-embedding-3-large`.
+- Read `PINECONE_INDEX_NAME` from `.env.<site>`.
+  Set `VERIFY_MEGA_RAG_INDEX` to override it. Do not hard-code the name.
 - Never run `test:queries:*` against `luca.ananda.org` or
   `vivek.ananda.org`.
