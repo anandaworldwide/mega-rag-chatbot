@@ -5,7 +5,7 @@ jest.unmock("next/server");
 import jwt from "jsonwebtoken";
 import { NextRequest, NextResponse } from "next/server";
 import bundledSiteConfigs from "../../../site-config/config.json";
-import { middleware } from "../../../middleware";
+import { middleware } from "../../../src/proxy";
 import { siteConfigForAppProps } from "@/utils/server/libraryAccessAppProps";
 import { LIBRARY_ACCESS_HEADER, encodeLibraryAccessValue, libraryAccessCookieNames } from "@/utils/server/libraryAccess";
 import { libraryEntryName } from "@/utils/libraryEntries";

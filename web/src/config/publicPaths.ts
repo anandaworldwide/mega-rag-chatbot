@@ -2,7 +2,7 @@
  * Centralized configuration for public paths (pages that don't require authentication)
  *
  * This single source of truth is used by:
- * - middleware.ts (server-side request interception and page access control)
+ * - src/proxy.ts (server-side request interception and page access control)
  * - authConfig.ts (client-side routing logic)
  *
  * NOTE: web-token.ts no longer uses this - it always issues tokens (authenticated or anonymous)

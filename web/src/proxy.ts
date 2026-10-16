@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { loadSiteConfigSync } from "./src/utils/server/loadSiteConfig"; // Adjusted path
-import { getClientIp } from "./src/utils/server/ipUtils"; // Adjusted path
-import { createErrorCorsHeaders, handleCors, addCorsHeaders } from "./src/utils/server/corsMiddleware";
-import { getAllPublicPaths } from "./src/config/publicPaths";
+import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
+import { getClientIp } from "@/utils/server/ipUtils";
+import { createErrorCorsHeaders, handleCors, addCorsHeaders } from "@/utils/server/corsMiddleware";
+import { getAllPublicPaths } from "@/config/publicPaths";
 import jwt from "jsonwebtoken";
 import crypto from "crypto";
-import { libraryAccessCookieHeader } from "./src/utils/server/libraryAccess";
-import { applyComputedLibraryAccessOverrides } from "./src/utils/server/libraryAccessMiddlewareGate";
+import { libraryAccessCookieHeader } from "@/utils/server/libraryAccess";
+import { applyComputedLibraryAccessOverrides } from "@/utils/server/libraryAccessMiddlewareGate";
 
 // Log suspicious activity with details
 export const logSuspiciousActivity = (req: NextRequest, reason: string) => {
@@ -221,8 +221,8 @@ export function pathMatchesAccessMiddleware(pathname: string): boolean {
   return !/^(?:api\/auth|_next\/static|_next\/image|favicon\.ico|robots\.txt|images\/|fonts\/)/.test(rest);
 }
 
-// Main middleware function for /web
-export function middleware(req: NextRequest) {
+// Main proxy function for /web (Next.js 16 request interceptor)
+export function proxy(req: NextRequest) {
   const nonce = createCspNonce();
   const siteId = process.env.SITE_ID || "default";
   const siteConfig = loadSiteConfigSync(siteId);
@@ -265,7 +265,7 @@ export function middleware(req: NextRequest) {
 
   // Check if the current path requires authentication (relative to /web)
   const pathname_is_private =
-    !allowed_paths_starts.some((path) => url.pathname.startsWith(path)) &&
+    !allowed_paths_starts.some((path: string) => url.pathname.startsWith(path)) &&
     !(url.pathname.startsWith("/answers/") && url.pathname !== "/answers/") && // Exclude specific answer pages
     !url.pathname.startsWith("/_next/") && // Next.js internals only at the root prefix
     !url.pathname.startsWith("/static/") && // Allow static assets if served from /public/static
@@ -359,7 +359,10 @@ export function middleware(req: NextRequest) {
   return addCorsHeaders(response, req, siteConfig);
 }
 
-// Matcher configuration for /web middleware
+/** Named alias so existing unit tests can keep calling the interceptor. */
+export { proxy as middleware };
+
+// Matcher configuration for /web proxy
 export const config = {
   matcher: [
     /*

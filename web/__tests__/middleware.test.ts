@@ -14,7 +14,7 @@ import {
   buildContentSecurityPolicy,
   createCspNonce,
   logSuspiciousActivity,
-} from "../middleware";
+} from "../src/proxy";
 
 jest.mock("@/utils/server/loadSiteConfig", () => ({
   loadSiteConfigSync: jest.fn(),
