@@ -17,6 +17,18 @@ const match = html.match(
   /<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/
 );
 
+function locationGoesToLogin(header, baseUrl) {
+  if (!header) {
+    return false;
+  }
+  try {
+    const parsed = header.startsWith("http") ? new URL(header) : new URL(header, baseUrl);
+    return parsed.pathname === "/login";
+  } catch {
+    return false;
+  }
+}
+
 const out = {
   status: response.status,
   hasNextData: Boolean(match),
@@ -26,6 +38,7 @@ const out = {
   shortname: null,
   middlewareCsp: Boolean(csp),
   location: location || null,
+  locationIsLogin: locationGoesToLogin(location, url),
   loginChunk: null,
 };
 

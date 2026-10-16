@@ -23,6 +23,10 @@ fail() {
   exit 1
 }
 
+fail_line() {
+  echo "FAIL $*" | tee -a "$REPORT" >&2
+}
+
 info() {
   echo "INFO $*" | tee -a "$REPORT"
 }
@@ -71,20 +75,34 @@ if [[ "$VERIFY_SITE" == "ananda" ]]; then
   [[ "$login_req" == "True" || "$login_req" == "true" ]] || fail "Luca requireLogin is $login_req."
   [[ "$login_chunk" == "200" ]] || fail "Luca login.js chunk returned $login_chunk."
   pass "luca-login-identity"
-  if [[ "$login_csp" == "True" || "$login_csp" == "true" ]]; then
-    pass "middleware-csp"
-  else
-    info "CSP header missing. Middleware may not be running. AuthGuard still gates the UI."
-  fi
   home_probe="$VERIFY_RUN_DIR/doctor.home.probe.json"
   node "$SCRIPT_DIR/page-probe.mjs" "$VERIFY_BASE_URL/" >"$home_probe"
   home_status="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("status"))' "$home_probe")"
   home_loc="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("location") or "")' "$home_probe")"
-  info "GET / -> $home_status location=${home_loc:-none}"
-  if [[ "$home_status" =~ ^30[1278]$ ]]; then
+  home_login="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("locationIsLogin"))' "$home_probe")"
+  home_csp="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("middlewareCsp"))' "$home_probe")"
+  info "GET / -> $home_status location=${home_loc:-none} locationIsLogin=$home_login"
+  luca_gate=0
+  if [[ "$login_csp" == "True" || "$login_csp" == "true" ]]; then
+    pass "middleware-csp /login"
+  else
+    fail_line "Luca /login missing Content-Security-Policy. Middleware is not applying."
+    luca_gate=1
+  fi
+  if [[ "$home_csp" == "True" || "$home_csp" == "true" ]]; then
+    pass "middleware-csp /"
+  else
+    fail_line "Luca / missing Content-Security-Policy. Middleware is not applying."
+    luca_gate=1
+  fi
+  if [[ "$home_status" =~ ^30[1278]$ && ( "$home_login" == "True" || "$home_login" == "true" ) ]]; then
     pass "luca-home-redirects-to-login"
   else
-    info "GET / did not redirect. Client AuthGuard sends logged-out users to /login."
+    fail_line "Luca logged-out / must redirect to /login. Got HTTP $home_status location=${home_loc:-none}."
+    luca_gate=1
+  fi
+  if [[ "$luca_gate" != "0" ]]; then
+    fail "Luca requireLogin gate failed. Doctor must not treat AuthGuard as enough."
   fi
 else
   probe_home="$VERIFY_RUN_DIR/doctor.probe.json"
