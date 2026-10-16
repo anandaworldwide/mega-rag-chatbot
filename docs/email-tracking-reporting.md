@@ -158,6 +158,19 @@ When adding a new email campaign type:
    const pixelUrl = generateOpenTrackingUrl(userEmail, "newsletter", newsletterId, baseUrl);
    ```
 
+   Click links include an HMAC (`sig`) over the recipient and target URL, using
+   `SECURE_TOKEN` (same helper and secret as open-tracking tokens). The click
+   route rejects a missing or bad signature: it does not redirect to the target
+   and it does not write a click record. It sends the user to the site home.
+
+   Links in emails sent before this change have no `sig`. Those clicks also go
+   to the site home and write no record.
+
+   The route also checks the target host against a site-config allowlist
+   (`allowedFrontEndDomains`, `accessControl.originUrl`, `parent_site_url`,
+   `help_url`, `redirectMappings`, and `NEXT_PUBLIC_BASE_URL`). Newsletter CTA
+   URLs must use one of those hosts.
+
 2. **Add UTM parameters:**
 
    ```typescript

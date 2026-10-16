@@ -5,6 +5,13 @@ import { firestoreSet } from "@/utils/server/firestoreRetryUtils";
 import firebase from "firebase-admin";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { sendOpsAlert } from "@/utils/server/emailOps";
+import { verifyClickRedirectSignature } from "@/utils/server/emailTokenUtils";
+import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
+import {
+  getClickRedirectSafeHomeUrl,
+  isAllowedClickRedirectHost,
+  resolveClickRedirectTarget,
+} from "@/utils/server/emailClickRedirectUtils";
 import crypto from "crypto";
 
 // Maximum lengths for query parameters to prevent memory exhaustion
@@ -12,34 +19,19 @@ const MAX_URL_LENGTH = 2048;
 const MAX_EMAIL_LENGTH = 254; // RFC 5321
 const MAX_CAMPAIGN_LENGTH = 100;
 const MAX_LINK_ID_LENGTH = 500;
+const MAX_SIG_LENGTH = 64;
 
 // TTL for email tracking documents
 const EMAIL_TRACKING_TTL_DAYS = 180;
 
-function getRequestHost(req: NextApiRequest): string | undefined {
-  const forwardedHost = req.headers["x-forwarded-host"];
-  const host = forwardedHost || req.headers.host;
-  return Array.isArray(host) ? host[0] : host;
-}
-
-function normalizeRedirectUrl(targetUrl: string, req: NextApiRequest): string {
-  const urlObj = new URL(targetUrl);
-
-  if (urlObj.protocol === "http:" && urlObj.hostname !== "localhost") {
-    const requestHost = getRequestHost(req);
-    const isSameHost = requestHost ? urlObj.host === requestHost : false;
-    if (isSameHost) {
-      urlObj.protocol = "https:";
-      return urlObj.toString();
-    }
-  }
-
-  return targetUrl;
+function redirectHome(res: NextApiResponse) {
+  return res.redirect(302, getClickRedirectSafeHomeUrl());
 }
 
 /**
  * Email click tracking endpoint
- * Logs email clicks to Firestore and redirects to the target URL
+ * Logs email clicks to Firestore and redirects to the target URL.
+ * Requires an HMAC over the recipient and target URL (same secret as open tracking).
  *
  * Query parameters:
  * - url: Target URL (encoded)
@@ -48,6 +40,7 @@ function normalizeRedirectUrl(targetUrl: string, req: NextApiRequest): string {
  * - campaignId: Campaign identifier (e.g., day number for onboarding, newsletterId for newsletters)
  * - type: Link type ("question", "cta", "unsubscribe", "link", "score")
  * - id: Optional link identifier (e.g., question text, score value)
+ * - sig: HMAC of email + target URL
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") {
@@ -63,7 +56,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (!allowed) return;
 
   try {
-    const { url, email, campaign, campaignId, type, id } = req.query;
+    const { url, email, campaign, campaignId, type, id, sig } = req.query;
 
     // Validate required parameters with length limits
     if (!url || typeof url !== "string") {
@@ -104,30 +97,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: "Invalid 'type' parameter" });
     }
 
-    // Decode URL and email
-    let targetUrl = decodeURIComponent(url);
-    const userEmail = decodeURIComponent(email).toLowerCase();
+    if (!sig || typeof sig !== "string" || sig.length > MAX_SIG_LENGTH) {
+      return redirectHome(res);
+    }
+
+    // Next.js already decodes query values once. Do not decode again.
+    const targetFromQuery = url;
+    const userEmail = email.toLowerCase();
     const campaignType = campaign as "onboarding" | "newsletter" | "reengagement" | "specialDay" | "nps";
     const linkType = type as "question" | "cta" | "unsubscribe" | "link" | "score";
-    const linkId = id ? decodeURIComponent(id as string).substring(0, MAX_LINK_ID_LENGTH) : undefined;
+    const linkId = id && typeof id === "string" ? id.substring(0, MAX_LINK_ID_LENGTH) : undefined;
 
-    // Validate URL is safe
-    // Newsletter CTAs can link to external URLs since content is admin-curated
-    try {
-      targetUrl = normalizeRedirectUrl(targetUrl, req);
-      const urlObj = new URL(targetUrl);
+    if (!verifyClickRedirectSignature(userEmail, targetFromQuery, sig)) {
+      return redirectHome(res);
+    }
 
-      // Only allow HTTPS URLs (or HTTP for localhost in development)
-      const isHttps = urlObj.protocol === "https:";
-      const isLocalDev = urlObj.protocol === "http:" && urlObj.hostname === "localhost";
+    const targetUrl = resolveClickRedirectTarget(targetFromQuery, req);
+    if (!targetUrl) {
+      return redirectHome(res);
+    }
 
-      if (!isHttps && !isLocalDev) {
-        return res.status(400).json({ error: "Invalid redirect URL: HTTPS required" });
-      }
-    } catch (_urlError) {
-      // Relative URLs are fine (will resolve against current origin)
-      if (!targetUrl.startsWith("/")) {
-        return res.status(400).json({ error: "Invalid redirect URL format" });
+    if (!targetUrl.startsWith("/")) {
+      const hostname = new URL(targetUrl).hostname;
+      const siteConfig = loadSiteConfigSync();
+      if (!isAllowedClickRedirectHost(hostname, siteConfig)) {
+        return redirectHome(res);
       }
     }
 
@@ -185,17 +179,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     res.redirect(302, targetUrl);
   } catch (error: any) {
     console.error("Error in email click tracking:", error);
-    // Still try to redirect if we have a URL
-    const { url } = req.query;
-    if (url && typeof url === "string") {
-      try {
-        const targetUrl = decodeURIComponent(url);
-        res.redirect(302, targetUrl);
-      } catch {
-        return res.status(500).json({ error: "Internal server error" });
-      }
-    } else {
-      return res.status(500).json({ error: "Internal server error" });
-    }
+    return redirectHome(res);
   }
 }
