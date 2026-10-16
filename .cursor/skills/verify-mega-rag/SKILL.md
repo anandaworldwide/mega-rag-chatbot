@@ -124,7 +124,8 @@ Ready means usable chrome, not only a TCP listen.
 - Vivek: `GET /` is 200 and shows `#userInput`.
 
 First compile can take several minutes.
-Need `web/node_modules` (`cd web && npm ci`).
+Need a `next` binary from `cd web && npm ci`.
+Workspaces may hoist it to repo-root `node_modules/.bin/next`.
 Node engine in `web/package.json` is `24.x`.
 
 Empty data dir: this app uses hosted Firestore and Pinecone.

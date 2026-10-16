@@ -55,7 +55,7 @@ require_cmd npm
 require_cmd curl
 require_cmd python3
 
-assert_not_production_url "${NEXT_PUBLIC_BASE_URL:-}"
+# Inherited NEXT_PUBLIC_BASE_URL may be stale or public. Launch overwrites it.
 ensure_evidence_root
 
 if [[ -f "$VERIFY_CURRENT_DIR/run_id" ]]; then
@@ -78,8 +78,10 @@ if command -v ss >/dev/null 2>&1; then
   fi
 fi
 
-[[ -d "$VERIFY_REPO_ROOT/web/node_modules" ]] || \
-  die "Missing web/node_modules. Run: cd web && npm ci"
+if [[ ! -x "$VERIFY_REPO_ROOT/web/node_modules/.bin/next" && \
+      ! -x "$VERIFY_REPO_ROOT/node_modules/.bin/next" ]]; then
+  die "Missing next binary. Run: cd web && npm ci"
+fi
 
 RUN_ID="$(new_run_id)"
 RUN_DIR="$(run_dir_for "$RUN_ID")"

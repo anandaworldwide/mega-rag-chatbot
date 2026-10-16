@@ -9,9 +9,6 @@ import fs from "fs";
 import path from "path";
 import { createRequire } from "module";
 
-const require = createRequire(path.join(process.cwd(), "package.json"));
-const dotenv = require("dotenv");
-
 const site = process.env.VERIFY_LAUNCH_SITE;
 const port = process.env.VERIFY_LAUNCH_PORT;
 const repoRoot = process.env.VERIFY_LAUNCH_REPO;
@@ -23,6 +20,9 @@ if (!site || !port || !repoRoot || !runDir || !indexName || !embeddingsModel) {
   console.error("verify-mega-rag: launch.mjs missing VERIFY_LAUNCH_* values");
   process.exit(1);
 }
+
+const require = createRequire(path.join(repoRoot, "package.json"));
+const dotenv = require("dotenv");
 
 const envFile = path.join(repoRoot, `.env.${site}`);
 if (fs.existsSync(envFile)) {
@@ -39,8 +39,12 @@ env.OPENAI_EMBEDDINGS_MODEL = embeddingsModel;
 delete env.VERCEL;
 delete env.VERCEL_URL;
 
-const nextBin = path.join(repoRoot, "web", "node_modules", ".bin", "next");
-if (!fs.existsSync(nextBin)) {
+const nextCandidates = [
+  path.join(repoRoot, "web", "node_modules", ".bin", "next"),
+  path.join(repoRoot, "node_modules", ".bin", "next"),
+];
+const nextBin = nextCandidates.find((candidate) => fs.existsSync(candidate));
+if (!nextBin) {
   console.error("verify-mega-rag: next binary is missing. Run cd web && npm ci");
   process.exit(1);
 }
