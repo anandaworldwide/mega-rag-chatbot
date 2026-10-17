@@ -171,5 +171,24 @@ describe("emailTemplates", () => {
       expect(params.Message.Body.Html?.Data).toContain("Test message content");
       expect(params.Message.Body.Text?.Data).toContain("Test message content");
     });
+
+    it("escapes apostrophes and HTML in the HTML body", () => {
+      const params = createEmailParams("from@example.com", "to@example.com", "Test Subject", {
+        greeting: "Hi O'Brien,",
+        message: `I didn't like the "search" (Kriya) [initiation] <script>alert(1)</script>`,
+      });
+
+      const text = params.Message.Body.Text?.Data || "";
+      const html = params.Message.Body.Html?.Data || "";
+
+      expect(text).toContain("didn't");
+      expect(text).not.toContain("didn''t");
+      expect(html).toContain("didn&#039;t");
+      expect(html).toContain("O&#039;Brien");
+      expect(html).toContain("&quot;search&quot;");
+      expect(html).toContain("(Kriya) [initiation]");
+      expect(html).toContain("&lt;script&gt;");
+      expect(html).not.toContain("<script>");
+    });
   });
 });

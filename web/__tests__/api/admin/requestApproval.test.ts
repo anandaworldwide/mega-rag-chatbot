@@ -87,20 +87,13 @@ jest.mock("@/utils/server/userInviteUtils", () => ({
   sendActivationEmail: jest.fn(() => Promise.resolve()),
 }));
 
-jest.mock("@/utils/server/emailTemplates", () => ({
-  createEmailParams: jest.fn().mockReturnValue({
-    Source: "noreply@ananda.org",
-    Destination: { ToAddresses: ["admin@example.com"] },
-    Message: {
-      Subject: { Data: "Test Subject" },
-      Body: {
-        Html: { Data: "<html>Test</html>" },
-        Text: { Data: "Test" },
-      },
-    },
-  }),
-  generateEmailContent: jest.fn(),
-}));
+jest.mock("@/utils/server/emailTemplates", () => {
+  const actual = jest.requireActual("@/utils/server/emailTemplates");
+  return {
+    ...actual,
+    createEmailParams: jest.fn((...args: any[]) => actual.createEmailParams(...args)),
+  };
+});
 
 jest.mock("@aws-sdk/client-ses", () => {
   const mockSend = jest.fn().mockResolvedValue({});
@@ -495,6 +488,83 @@ describe("/api/admin/requestApproval", () => {
       undefined,
       "create admin approval request"
     );
+  });
+
+  it("keeps apostrophes in approval fields and escapes them in the HTML email", async () => {
+    const mockGet = jest.fn().mockResolvedValue({ empty: true, docs: [] });
+    const mockWhere: any = jest.fn(() => ({
+      where: mockWhere,
+      limit: jest.fn(() => ({
+        get: mockGet,
+      })),
+    }));
+    const mockDoc = jest.fn(() => ({}));
+    const mockCollection = jest.fn(() => ({
+      doc: mockDoc,
+      where: mockWhere,
+    }));
+
+    genericRateLimiter.mockResolvedValue(true);
+    loadSiteConfig.loadSiteConfig.mockResolvedValue({ siteId: "ananda", requireLogin: true, shortname: "Luca" });
+    firestoreRetryUtils.firestoreSet.mockResolvedValue(undefined);
+    writeAuditLog.mockResolvedValue(undefined);
+
+    const { db } = jest.requireMock("@/services/firebase");
+    db.collection = mockCollection;
+
+    const { createEmailParams } = jest.requireMock("@/utils/server/emailTemplates");
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: {
+        requesterEmail: "requester@example.com",
+        requesterName: "Test Requester",
+        adminEmail: "admin@example.com",
+        adminName: "Test Admin",
+        adminLocation: "Ananda Village (CA)",
+        nearestCenter: "Ananda Village [California]",
+        referenceNote: `Ask O'Brien about "the path"`,
+        connectionHistory: `I didn't attend "Kriya" (Kriya) [initiation] <script>alert(1)</script>`,
+      },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(firestoreRetryUtils.firestoreSet).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        adminLocation: "Ananda Village (CA)",
+        nearestCenter: "Ananda Village [California]",
+        referenceNote: `Ask O'Brien about "the path"`,
+        connectionHistory: `I didn't attend "Kriya" (Kriya) [initiation]`,
+      }),
+      undefined,
+      "create admin approval request"
+    );
+
+    expect(createEmailParams).toHaveBeenCalled();
+    const htmlBodies = createEmailParams.mock.results
+      .map((result: { value?: { Message?: { Body?: { Html?: { Data?: string } } } } }) => result.value?.Message?.Body?.Html?.Data)
+      .filter(Boolean) as string[];
+    const textBodies = createEmailParams.mock.results
+      .map((result: { value?: { Message?: { Body?: { Text?: { Data?: string } } } } }) => result.value?.Message?.Body?.Text?.Data)
+      .filter(Boolean) as string[];
+
+    const combinedHtml = htmlBodies.join("\n");
+    const combinedText = textBodies.join("\n");
+
+    expect(combinedText).toContain("didn't");
+    expect(combinedText).not.toContain("didn''t");
+    expect(combinedText).toContain('"Kriya"');
+    expect(combinedText).toContain("(Kriya) [initiation]");
+    expect(combinedText).not.toMatch(/<script/i);
+
+    expect(combinedHtml).toContain("didn&#039;t");
+    expect(combinedHtml).not.toContain("didn''t");
+    expect(combinedHtml).toContain("&quot;Kriya&quot;");
+    expect(combinedHtml).toContain("(Kriya) [initiation]");
+    expect(combinedHtml).not.toContain("<script");
   });
 
   it("should handle errors gracefully", async () => {

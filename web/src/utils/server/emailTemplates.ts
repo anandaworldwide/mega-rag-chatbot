@@ -68,22 +68,31 @@ export function generateEmailContent(options: EmailTemplateOptions): {
     loginImageUrl = `${baseUrl}/${siteConfig.loginImage}`;
   }
 
-  // Format message content for HTML and text versions
+  // Format message content for HTML and text versions.
+  // Escape user text for HTML here. Do not escape it at input time.
   function formatMessageContent(
     message: string,
     actionUrl?: string,
     actionText?: string
   ): { html: string; text: string; hasButton: boolean } {
+    const htmlSafeMessage = escapeHtml(message);
+
     if (actionUrl && actionText) {
+      const htmlSafeActionText = escapeHtml(actionText);
+      const htmlSafeActionUrl = escapeHtml(actionUrl);
+
       // Remove the action text from message if it exists (we'll add it as a button)
-      let htmlMessage = message.replace(new RegExp(actionText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), "");
+      let htmlMessage = htmlSafeMessage.replace(
+        new RegExp(htmlSafeActionText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"),
+        ""
+      );
 
       // Create the left-justified blue button (matching admin approval email style)
-      const buttonHtml = `<div style="text-align: left; margin: 4px 0 2px 0;"><a href="${actionUrl}" style="display: inline-block; padding: 12px 24px; background-color: #3498db; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">${actionText}</a></div>`;
+      const buttonHtml = `<div style="text-align: left; margin: 4px 0 2px 0;"><a href="${htmlSafeActionUrl}" style="display: inline-block; padding: 12px 24px; background-color: #3498db; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">${htmlSafeActionText}</a></div>`;
 
       // Look for parenthetical URL patterns (both "visit" and "click" variations)
       // Also handle URL-encoded versions and different URL formats
-      const escapedUrl = actionUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const escapedUrl = htmlSafeActionUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const encodedUrl = encodeURIComponent(actionUrl).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
       // Try multiple patterns to find where the URL appears in the message
@@ -146,7 +155,7 @@ export function generateEmailContent(options: EmailTemplateOptions): {
     }
 
     return {
-      html: message,
+      html: htmlSafeMessage,
       text: message,
       hasButton: false,
     };
@@ -178,7 +187,7 @@ export function generateEmailContent(options: EmailTemplateOptions): {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${siteName}</title>
+  <title>${escapeHtml(siteName)}</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
@@ -246,7 +255,7 @@ export function generateEmailContent(options: EmailTemplateOptions): {
 </head>
 <body>
   <div class="email-container">
-    <div class="greeting">${emailGreeting}</div>
+    <div class="greeting">${escapeHtml(emailGreeting)}</div>
     
     <div class="message">${messageContent.html}</div>
 
@@ -254,7 +263,7 @@ export function generateEmailContent(options: EmailTemplateOptions): {
       loginImageUrl
         ? `
     <div class="login-image">
-      <img src="${loginImageUrl}" alt="${shortName}" />
+      <img src="${escapeHtml(loginImageUrl)}" alt="${escapeHtml(shortName)}" />
     </div>
     `
         : ""
@@ -263,9 +272,9 @@ export function generateEmailContent(options: EmailTemplateOptions): {
       options.unsubscribeUrl
         ? `
     <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #999; text-align: center;">
-      <p style="margin: 0 0 8px 0;">${subscriptionReason}</p>
-      <a href="${options.unsubscribeUrl}" style="color: #999; text-decoration: underline;">One-click unsubscribe</a>
-      <span style="color: #999;"> (or <a href="${settingsUrl}" style="color: #999; text-decoration: underline;">manage all email preferences</a>)</span>
+      <p style="margin: 0 0 8px 0;">${escapeHtml(subscriptionReason)}</p>
+      <a href="${escapeHtml(options.unsubscribeUrl)}" style="color: #999; text-decoration: underline;">One-click unsubscribe</a>
+      <span style="color: #999;"> (or <a href="${escapeHtml(settingsUrl)}" style="color: #999; text-decoration: underline;">manage all email preferences</a>)</span>
     </div>
     `
         : ""

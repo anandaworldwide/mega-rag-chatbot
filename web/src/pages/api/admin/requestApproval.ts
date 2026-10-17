@@ -17,7 +17,7 @@ import {
   getInviteExpiryDate,
   sendActivationEmail,
 } from "@/utils/server/userInviteUtils";
-import { sanitizeEmail, sanitizeTextInput, sanitizeName } from "@/utils/server/inputSanitization";
+import { sanitizeEmail, sanitizeUserText, sanitizeName } from "@/utils/server/inputSanitization";
 import { getSafeErrorMessage, sanitizeErrorForLogging } from "@/utils/server/errorSanitization";
 import { unescapeName } from "@/utils/shared/nameUtils";
 import { isEmailBlacklisted } from "@/utils/server/blacklist";
@@ -260,30 +260,26 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   try {
     sanitizedRequesterName = sanitizeName(requesterName, 100);
     sanitizedAdminName = sanitizeName(adminName, 100);
-    sanitizedAdminLocation = sanitizeTextInput(adminLocation, {
+    sanitizedAdminLocation = sanitizeUserText(adminLocation, {
       maxLength: 200,
       allowNewlines: false,
-      allowSpecialChars: false,
     });
     if (referenceNote) {
-      sanitizedReferenceNote = sanitizeTextInput(referenceNote, {
+      sanitizedReferenceNote = sanitizeUserText(referenceNote, {
         maxLength: 1000,
         allowNewlines: true,
-        allowSpecialChars: false,
       });
     }
     if (nearestCenter) {
-      sanitizedNearestCenter = sanitizeTextInput(nearestCenter, {
+      sanitizedNearestCenter = sanitizeUserText(nearestCenter, {
         maxLength: 200,
         allowNewlines: false,
-        allowSpecialChars: false,
       });
     }
     if (connectionHistory) {
-      sanitizedConnectionHistory = sanitizeTextInput(connectionHistory, {
+      sanitizedConnectionHistory = sanitizeUserText(connectionHistory, {
         maxLength: 1000,
         allowNewlines: true,
-        allowSpecialChars: false,
       });
     }
   } catch (error: any) {
