@@ -167,9 +167,12 @@ When adding a new email campaign type:
 
    Links in emails sent before this change have no `sig`. Those unsigned clicks
    follow the target only when the host is on the allowlist, or when the target
-   is a relative path that starts with a single `/` (not `//` or `/\`). They
-   never write a click record. Unsigned links to any other host go to the site
-   home.
+   is a relative path that starts with a single `/` (not `//` or `/\`). A
+   relative target is parsed with `new URL(raw, "https://x.invalid")`. The host
+   must stay `x.invalid`, and the redirect uses only `pathname + search + hash`.
+   Any target with a character `<= 0x20` or `0x7f`, or a `%HH` form of one, is
+   rejected. They never write a click record. Unsigned links to any other host
+   go to the site home.
 
    The allowlist is used only for unsigned links and for signed `http`. It
    comes from exact `allowedFrontEndDomains` (no `*` / `**` patterns),

@@ -220,6 +220,39 @@ describe("/api/email/click", () => {
     expect(mockFirestoreSet).not.toHaveBeenCalled();
   });
 
+  it("sends an unsigned /%09/evil.example relative target to the site home", async () => {
+    const { req, res } = createClickRequest("/%09/evil.example", { sig: null });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(302);
+    expect(redirectUrl(res)).toBe("/");
+    expect(redirectUrl(res)).not.toContain("evil.example");
+    expect(mockFirestoreSet).not.toHaveBeenCalled();
+  });
+
+  it("sends an unsigned /%0a/evil.example relative target to the site home", async () => {
+    const { req, res } = createClickRequest("/%0a/evil.example", { sig: null });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(302);
+    expect(redirectUrl(res)).toBe("/");
+    expect(redirectUrl(res)).not.toContain("evil.example");
+    expect(mockFirestoreSet).not.toHaveBeenCalled();
+  });
+
+  it("sends an unsigned /%0d/evil.example relative target to the site home", async () => {
+    const { req, res } = createClickRequest("/%0d/evil.example", { sig: null });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(302);
+    expect(redirectUrl(res)).toBe("/");
+    expect(redirectUrl(res)).not.toContain("evil.example");
+    expect(mockFirestoreSet).not.toHaveBeenCalled();
+  });
+
   it("does not follow a protocol-relative // target and writes no record", async () => {
     const { req, res } = createClickRequest("//evil.example");
 

@@ -105,15 +105,67 @@ export function isAllowedClickRedirectHost(hostname: string, siteConfig: SiteCon
 }
 
 /**
- * Reject protocol-relative, backslash, `/\\`, and non-http(s) targets.
+ * True when the string has a C0/DEL control, or a %HH form of one.
+ * Browsers strip tab/CR/LF from Location, so /%09/evil.example can become //evil.example.
+ */
+export function containsForbiddenControlChar(value: string): boolean {
+  for (let i = 0; i < value.length; i++) {
+    const code = value.charCodeAt(i);
+    if (code <= 0x20 || code === 0x7f) {
+      return true;
+    }
+  }
+
+  const encoded = /%([0-9a-fA-F]{2})/g;
+  let match = encoded.exec(value);
+  while (match) {
+    const code = parseInt(match[1], 16);
+    if (code <= 0x20 || code === 0x7f) {
+      return true;
+    }
+    match = encoded.exec(value);
+  }
+
+  return false;
+}
+
+const RELATIVE_PARSE_BASE = "https://x.invalid";
+
+/**
+ * Keep only a same-origin path. `/%09/evil.example` must not become //evil.example.
+ */
+function resolveRelativeClickTarget(rawTarget: string): string | null {
+  try {
+    const parsed = new URL(rawTarget, RELATIVE_PARSE_BASE);
+    if (parsed.host !== "x.invalid") {
+      return null;
+    }
+    const dest = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    if (!dest.startsWith("/") || dest.startsWith("//") || containsForbiddenControlChar(dest)) {
+      return null;
+    }
+    return dest;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Reject protocol-relative, backslash, `/\\`, control chars, and non-http(s) targets.
  */
 export function isSafeClickRedirectTarget(rawTarget: string): boolean {
-  if (!rawTarget || rawTarget.includes("\\") || rawTarget.startsWith("//") || rawTarget.startsWith("/\\")) {
+  if (
+    !rawTarget ||
+    containsForbiddenControlChar(rawTarget) ||
+    rawTarget.includes("\\") ||
+    rawTarget.startsWith("//") ||
+    rawTarget.startsWith("/\\")
+  ) {
     return false;
   }
 
   if (rawTarget.startsWith("/")) {
-    return true;
+    return resolveRelativeClickTarget(rawTarget) !== null;
   }
 
   try {
@@ -173,7 +225,11 @@ export function resolveClickRedirectTarget(rawTarget: string, req: NextApiReques
   }
 
   if (rawTarget.startsWith("/")) {
-    return { ok: true, target: rawTarget, hostname: null, protocol: "relative" };
+    const dest = resolveRelativeClickTarget(rawTarget);
+    if (!dest) {
+      return { ok: false };
+    }
+    return { ok: true, target: dest, hostname: null, protocol: "relative" };
   }
 
   const normalized = normalizeClickRedirectUrl(rawTarget, req);
