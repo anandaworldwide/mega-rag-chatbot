@@ -146,6 +146,45 @@ describe("proxy login-site public access (real ananda/jairam config)", () => {
       );
       expect(response.status).toBe(401);
     });
+
+    it("lets logged-out share and answer pages through, and still sends / and /settings to login", () => {
+      const shareId = "OHXIZPKK5XAyj9f1vEXx";
+      const shareAndAnswerRequests: Array<{ path: string; method?: string }> = [
+        { path: `/share/${shareId}` },
+        { path: `/api/document/${shareId}` },
+        { path: "/api/web-token" },
+        { path: `/data/${siteId}/whats-new.json`, method: "HEAD" },
+        { path: `/data/${siteId}/whats-new.json` },
+        { path: `/_next/data/test-build/share/${shareId}.json` },
+        { path: "/api/manifest.json" },
+        { path: "/api/apple-touch-icon" },
+        { path: `/answers/${shareId}` },
+        { path: `/_next/data/test-build/answers/${shareId}.json` },
+        { path: `/api/answers?answerIds=${shareId}` },
+      ];
+
+      for (const { path, method } of shareAndAnswerRequests) {
+        const response = proxy(makeRequest(path, method ? { method } : undefined));
+        expect({ path, status: response.status, denied: isDenied(response) }).toEqual({
+          path,
+          status: response.status,
+          denied: false,
+        });
+      }
+
+      // Share loads /api/document only. These stay cookie-gated.
+      expect(proxy(makeRequest("/api/chats")).status).toBe(401);
+      expect(proxy(makeRequest("/api/profile")).status).toBe(401);
+      expect(proxy(makeRequest("/api/relatedQuestions")).status).toBe(401);
+      expect(proxy(makeRequest("/api/getAudioSignedUrl", { method: "POST" })).status).toBe(401);
+      expect(proxy(makeRequest("/api/getPdfSignedUrl", { method: "POST" })).status).toBe(401);
+
+      for (const path of ["/", "/settings"]) {
+        const response = proxy(makeRequest(path));
+        expect(response.status).toBe(307);
+        expect(response.headers.get("location") || "").toContain("/login");
+      }
+    });
   });
 });
 

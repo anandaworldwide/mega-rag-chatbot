@@ -2,6 +2,18 @@
 
 ## Critical Lessons Learned
 
+### Mistake: Login-site share pages must not call cookie-gated /api/chats
+
+**Wrong**:
+Load a public `/share/[id]` page, then call `loadConversationByDocId` → `fetchWithAuth("/api/chats")`.
+The page path is public, but `/api/chats` is cookie-gated. A restored proxy 401 plus
+`fetchWithAuth` sends a logged-out viewer to `/login`.
+
+**Correct**:
+Load share (and `/answers/[id]` redirects) from `GET /api/document/:id` only. That route
+returns the public share allowlist. Keep `/api/chats` private. Skip client login redirects
+on `/share/` and `/answers/` if some other call still 401s.
+
 ### Mistake: Incomplete lockfile omits juice transitive deps (mensch)
 
 **Wrong**:

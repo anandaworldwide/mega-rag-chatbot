@@ -44,6 +44,9 @@ const SingleAnswer = ({ siteConfig }: SingleAnswerProps) => {
   useEffect(() => {
     const checkAdminStatus = async () => {
       if (!siteConfig?.requireLogin) return;
+      if (typeof document !== "undefined" && !document.cookie.includes("hasSession=")) {
+        return;
+      }
 
       // Check sessionStorage cache first
       const cachedRole = sessionStorage.getItem("userRole");
@@ -136,10 +139,15 @@ const SingleAnswer = ({ siteConfig }: SingleAnswerProps) => {
       }
     };
 
+    // This route always redirects to /share/[id]. Do not call /api/answers here.
+    if (router.isReady && typeof answerId === "string") {
+      return;
+    }
+
     if (answerId) {
       fetchAnswer();
     }
-  }, [answerId]);
+  }, [answerId, router.isReady]);
 
   // Scroll the main answer item into view only on initial load
   useEffect(() => {

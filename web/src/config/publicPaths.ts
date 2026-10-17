@@ -88,6 +88,9 @@ export const PUBLIC_PATHS: PublicPathsConfig = {
     "/static/", // Custom static assets
     "/images/",
     "/fonts/",
+    // Files already in web/public/data (whats-new.json, suggested-query lists).
+    // Header HEAD/GET on share pages. No secrets. Not an API.
+    "/data/",
   ],
 };
 
