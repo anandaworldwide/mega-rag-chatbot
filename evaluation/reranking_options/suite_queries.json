@@ -1,0 +1,331 @@
+{
+  "site": "ananda",
+  "source": "web/__tests__/site_specific/ananda/semanticSearch.test.ts",
+  "npm_script": "npm run test:queries:ananda",
+  "notes": [
+    "Queries come from the Luca Ananda semantic suite.",
+    "PR #222 focus cases are marked highlight_pr222=true.",
+    "Title-scope cases skip minRetrievalScore when a live title filter is present."
+  ],
+  "queries": [
+    {
+      "id": "name",
+      "query": "What is your name?",
+      "group": "prompt_only",
+      "collection": "whole_library",
+      "source_count": 3,
+      "expect": { "min_sources": 0 }
+    },
+    {
+      "id": "sources_used",
+      "query": "What sources do you use for your answers?",
+      "group": "prompt_only",
+      "collection": "whole_library",
+      "source_count": 3,
+      "expect": { "min_sources": 0 }
+    },
+    {
+      "id": "master_swamiji_meditation",
+      "query": "What did Master and Swamiji teach about meditation?",
+      "group": "related",
+      "collection": "whole_library",
+      "source_count": 3,
+      "expect": { "min_sources": 1 }
+    },
+    {
+      "id": "srf_lessons",
+      "query": "What advanced techniques are available in the Self-Realization Fellowship?",
+      "group": "related",
+      "collection": "whole_library",
+      "source_count": 3,
+      "expect": { "min_sources": 1, "title_regex": "lesson|srf|self-realization|kriya" }
+    },
+    {
+      "id": "ananda_wiki",
+      "query": "What is the Ananda Wiki?",
+      "group": "prompt_only",
+      "collection": "whole_library",
+      "source_count": 3,
+      "expect": { "min_sources": 0 }
+    },
+    {
+      "id": "music_library",
+      "query": "How do I access the Ananda Music Library?",
+      "group": "prompt_only",
+      "collection": "whole_library",
+      "source_count": 3,
+      "expect": { "min_sources": 0 }
+    },
+    {
+      "id": "greeting_hi",
+      "query": "Hi",
+      "group": "prompt_only",
+      "collection": "whole_library",
+      "source_count": 3,
+      "expect": { "min_sources": 0 }
+    },
+    {
+      "id": "london_center",
+      "query": "Is there an Ananda center in London?",
+      "group": "location",
+      "collection": "whole_library",
+      "source_count": 3,
+      "expect": { "min_sources": 0 }
+    },
+    {
+      "id": "hong_sau",
+      "query": "How do I practice Hong-Sau?",
+      "group": "related",
+      "collection": "whole_library",
+      "source_count": 3,
+      "expect": { "min_sources": 1 }
+    },
+    {
+      "id": "maha_mudra",
+      "query": "How do I do Maha Mudra?",
+      "group": "related",
+      "collection": "whole_library",
+      "source_count": 3,
+      "expect": { "min_sources": 1 }
+    },
+    {
+      "id": "unrelated_truck",
+      "query": "What is the best way to wash a truck?",
+      "group": "unrelated",
+      "collection": "whole_library",
+      "source_count": 3,
+      "expect": { "max_sources": 0 }
+    },
+    {
+      "id": "unrelated_joke",
+      "query": "Tell me a joke.",
+      "group": "unrelated",
+      "collection": "whole_library",
+      "source_count": 3,
+      "expect": { "max_sources": 0 }
+    },
+    {
+      "id": "unrelated_plumber",
+      "query": "Recommend a good plumber.",
+      "group": "unrelated",
+      "collection": "whole_library",
+      "source_count": 3,
+      "expect": { "max_sources": 0 }
+    },
+    {
+      "id": "unrelated_world_series",
+      "query": "Who won the world series last year?",
+      "group": "unrelated",
+      "collection": "whole_library",
+      "source_count": 3,
+      "expect": { "max_sources": 0 }
+    },
+    {
+      "id": "book_fight_for_religious_freedom",
+      "query": "Tell me something about the settlement talks from A Fight for Religious Freedom by Jon Parsons",
+      "group": "book",
+      "collection": "whole_library",
+      "source_count": 4,
+      "expect": {
+        "min_sources": 1,
+        "title_regex": "Fight for Religious Freedom"
+      }
+    },
+    {
+      "id": "book_nonexistent",
+      "query": "Tell me a story from the book 'The Fictional Nonexistent Book by Nobody'",
+      "group": "book",
+      "collection": "whole_library",
+      "source_count": 3,
+      "expect": { "min_sources": 0 }
+    },
+    {
+      "id": "learn_kriya",
+      "query": "How do I learn Kriya Yoga?",
+      "group": "related",
+      "collection": "whole_library",
+      "source_count": 3,
+      "expect": { "min_sources": 1 }
+    },
+    {
+      "id": "master_meditation",
+      "query": "What did Master teach about meditation?",
+      "group": "related",
+      "collection": "whole_library",
+      "source_count": 3,
+      "expect": { "min_sources": 1 }
+    },
+    {
+      "id": "ananda_village",
+      "query": "Tell me about Ananda Village",
+      "group": "related",
+      "collection": "whole_library",
+      "source_count": 3,
+      "expect": { "min_sources": 1, "title_regex": "village|ananda" }
+    },
+    {
+      "id": "pr222_counseling",
+      "query": "What is the Ananda Spiritual Counseling training program, and who teaches it?",
+      "group": "auto_author_scope",
+      "collection": "auto",
+      "source_count": 4,
+      "highlight_pr222": true,
+      "expect": {
+        "min_sources": 1,
+        "library_min": { "ananda.org": 2 }
+      }
+    },
+    {
+      "id": "inner_renewal",
+      "query": "What is the Inner Renewal Retreat and can I attend it online for free?",
+      "group": "auto_author_scope",
+      "collection": "auto",
+      "source_count": 4,
+      "expect": {
+        "min_sources": 1,
+        "library_title_regex": { "ananda.org": "inner renewal" }
+      }
+    },
+    {
+      "id": "pr222_screen_time",
+      "query": "What does Ananda say about screen time and television for children?",
+      "group": "auto_author_scope",
+      "collection": "auto",
+      "source_count": 4,
+      "highlight_pr222": true,
+      "expect": {
+        "min_sources": 1,
+        "library_min": { "ananda.org": 2 }
+      }
+    },
+    {
+      "id": "pr222_karma",
+      "query": "How do different Ananda teachers explain karma?",
+      "group": "auto_author_scope",
+      "collection": "auto",
+      "source_count": 4,
+      "highlight_pr222": true,
+      "expect": {
+        "min_sources": 2,
+        "diverse_teachers": true,
+        "exclude_authors_must_not_cover_all": [
+          "Paramhansa Yogananda",
+          "Swami Kriyananda"
+        ]
+      }
+    },
+    {
+      "id": "asha_marriage",
+      "query": "What has Asha taught about marriage and spiritual partnership?",
+      "group": "auto_author_scope",
+      "collection": "auto",
+      "source_count": 4,
+      "extra_filter": { "author": { "$eq": "Asha Nayaswami" } },
+      "expect": {
+        "min_sources": 1,
+        "author_all": "Asha Nayaswami"
+      }
+    },
+    {
+      "id": "pr222_matthew5",
+      "query": "In this source, what is said about the meek?",
+      "group": "title_scope",
+      "collection": "whole_library",
+      "source_count": 3,
+      "highlight_pr222": true,
+      "skip_min_retrieval_score": true,
+      "title_scope_user_input": "Bible Matthew 5",
+      "title_candidates": [
+        "The Bible:: New Testament:: Book of Matthew:: Chapter 5",
+        "The Bible: New Testament: Book of Matthew: Chapter 5"
+      ],
+      "expect": {
+        "min_sources": 1,
+        "title_regex": "Matthew|Chapter 5|Beatitude|meek"
+      }
+    },
+    {
+      "id": "matthew5_lahiri_miss",
+      "query": "What direct teachings does Lahiri Mahasaya give in this source about destiny?",
+      "group": "title_scope",
+      "collection": "whole_library",
+      "source_count": 3,
+      "skip_min_retrieval_score": true,
+      "title_scope_user_input": "Bible Matthew 5",
+      "title_candidates": [
+        "The Bible:: New Testament:: Book of Matthew:: Chapter 5",
+        "The Bible: New Testament: Book of Matthew: Chapter 5"
+      ],
+      "expect": {
+        "min_sources": 1,
+        "title_regex": "Matthew|Chapter 5"
+      }
+    },
+    {
+      "id": "jyotish_attunement",
+      "query": "What does Jyotish teach about attunement?",
+      "group": "author_filter",
+      "collection": "auto",
+      "source_count": 4,
+      "extra_filter": { "author": { "$eq": "Nayaswami Jyotish Novak" } },
+      "expect": {
+        "min_sources": 1,
+        "author_all": "Nayaswami Jyotish Novak"
+      }
+    },
+    {
+      "id": "swami_loyalty_master_swami",
+      "query": "What did Swami teach about loyalty?",
+      "group": "author_filter",
+      "collection": "master_swami",
+      "source_count": 4,
+      "extra_filter": {
+        "author": { "$in": ["Paramhansa Yogananda", "Swami Kriyananda"] }
+      },
+      "expect": {
+        "min_sources": 1,
+        "author_in": ["Paramhansa Yogananda", "Swami Kriyananda"]
+      }
+    },
+    {
+      "id": "class_planning",
+      "query": "I need help planning a class on the Bhagavad Gita",
+      "group": "planning",
+      "collection": "whole_library",
+      "source_count": 3,
+      "expect": { "min_sources": 0 }
+    },
+    {
+      "id": "swami_loyalty_whole",
+      "query": "What did Swami say about loyalty?",
+      "group": "related",
+      "collection": "whole_library",
+      "source_count": 3,
+      "expect": { "min_sources": 1 }
+    },
+    {
+      "id": "class_outline",
+      "query": "Bhagavad Gita class, 90 minutes, brand-new Ananda students, classroom setting. Include quotes (Master or Swamiji) and one short story. Just decide anything else and give me the full timed class outline.",
+      "group": "planning",
+      "collection": "whole_library",
+      "source_count": 8,
+      "expect": { "min_sources": 1, "title_regex": "gita|bhagavad" }
+    },
+    {
+      "id": "vivek",
+      "query": "What is Vivek?",
+      "group": "prompt_only",
+      "collection": "whole_library",
+      "source_count": 3,
+      "expect": { "min_sources": 0 }
+    },
+    {
+      "id": "name_and_role",
+      "query": "What is your name and what can you do?",
+      "group": "prompt_only",
+      "collection": "whole_library",
+      "source_count": 3,
+      "expect": { "min_sources": 0 }
+    }
+  ]
+}
