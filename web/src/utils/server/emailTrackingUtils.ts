@@ -9,7 +9,7 @@
  * - specialDay: Special occasion emails (future)
  */
 
-import { generateSignedOpenToken } from "./emailTokenUtils";
+import { generateClickRedirectSignature, generateSignedOpenToken } from "./emailTokenUtils";
 
 /**
  * Adds UTM parameters to a URL for email campaign tracking
@@ -101,8 +101,10 @@ export function generateClickTrackingUrl(
   const trackingBase = normalizeEmailUrl(baseUrl || process.env.NEXT_PUBLIC_BASE_URL || "");
   const trackingUrl = new URL("/api/email/click", trackingBase);
 
+  const normalizedTarget = normalizeEmailUrl(targetUrl);
+
   // URLSearchParams.set() automatically encodes values, so don't double-encode
-  trackingUrl.searchParams.set("url", normalizeEmailUrl(targetUrl));
+  trackingUrl.searchParams.set("url", normalizedTarget);
   trackingUrl.searchParams.set("email", email);
   trackingUrl.searchParams.set("campaign", campaignType);
   trackingUrl.searchParams.set("campaignId", campaignId.toString());
@@ -110,6 +112,7 @@ export function generateClickTrackingUrl(
   if (linkId) {
     trackingUrl.searchParams.set("id", linkId);
   }
+  trackingUrl.searchParams.set("sig", generateClickRedirectSignature(email, normalizedTarget));
 
   return trackingUrl.toString();
 }

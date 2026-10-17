@@ -1,14 +1,19 @@
 import { generateClickTrackingUrl, generateOpenTrackingUrl } from "@/utils/server/emailTrackingUtils";
+import { generateClickRedirectSignature } from "@/utils/server/emailTokenUtils";
 
-jest.mock("@/utils/server/emailTokenUtils", () => ({
-  generateSignedOpenToken: jest.fn(() => "signed-token"),
-}));
+jest.mock("@/utils/server/emailTokenUtils", () => {
+  const actual = jest.requireActual("@/utils/server/emailTokenUtils");
+  return {
+    ...actual,
+    generateSignedOpenToken: jest.fn(() => "signed-token"),
+  };
+});
 
 describe("emailTrackingUtils", () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
-    process.env = { ...originalEnv };
+    process.env = { ...originalEnv, SECURE_TOKEN: "test-secret" };
   });
 
   afterEach(() => {
@@ -29,6 +34,9 @@ describe("emailTrackingUtils", () => {
     const url = new URL(trackingUrl);
     expect(url.origin).toBe("https://luca.ananda.org");
     expect(url.searchParams.get("url")).toBe("https://luca.ananda.org/?q=test");
+    expect(url.searchParams.get("sig")).toBe(
+      generateClickRedirectSignature("test@example.com", "https://luca.ananda.org/?q=test")
+    );
   });
 
   it("keeps localhost HTTP tracking URLs for development", () => {
@@ -45,6 +53,9 @@ describe("emailTrackingUtils", () => {
     const url = new URL(trackingUrl);
     expect(url.origin).toBe("http://localhost:3000");
     expect(url.searchParams.get("url")).toBe("http://localhost:3000/?q=test");
+    expect(url.searchParams.get("sig")).toBe(
+      generateClickRedirectSignature("test@example.com", "http://localhost:3000/?q=test")
+    );
   });
 
   it("upgrades open tracking base URLs to HTTPS", () => {
