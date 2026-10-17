@@ -30,7 +30,6 @@ const PUBLIC_APIS: Array<{ path: string; method: string }> = [
   { path: "/api/email/click", method: "GET" },
   { path: "/api/email/open", method: "GET" },
   { path: "/api/unsubscribe", method: "GET" },
-  { path: "/api/document/share-doc-id", method: "GET" },
   { path: "/api/share/share-doc-id", method: "GET" },
   { path: "/api/redirect/mg", method: "GET" },
   { path: "/api/manifest.json", method: "GET" },
@@ -148,12 +147,19 @@ describe("proxy login-site public access (real ananda/jairam config)", () => {
       expect(response.status).toBe(401);
     });
 
+    it("returns 401 for logged-out GET /api/document/{id} and 200 for /api/share/{id}", () => {
+      const shareId = "OHXIZPKK5XAyj9f1vEXx";
+      expect(proxy(makeRequest(`/api/document/${shareId}`)).status).toBe(401);
+      const shareResponse = proxy(makeRequest(`/api/share/${shareId}`));
+      expect(shareResponse.status).toBe(200);
+      expect(isDenied(shareResponse)).toBe(false);
+    });
+
     it("lets logged-out share and answer pages through, and still sends / and /settings to login", () => {
       const shareId = "OHXIZPKK5XAyj9f1vEXx";
       const shareAndAnswerRequests: Array<{ path: string; method?: string }> = [
         { path: `/share/${shareId}` },
         { path: `/api/share/${shareId}` },
-        { path: `/api/document/${shareId}` },
         { path: "/api/web-token" },
         { path: `/data/${siteId}/whats-new.json`, method: "HEAD" },
         { path: `/data/${siteId}/whats-new.json` },
@@ -174,7 +180,7 @@ describe("proxy login-site public access (real ananda/jairam config)", () => {
         });
       }
 
-      // Share loads /api/document only. These stay cookie-gated.
+      // Share loads /api/share only. These stay cookie-gated.
       expect(proxy(makeRequest("/api/chats")).status).toBe(401);
       expect(proxy(makeRequest("/api/profile")).status).toBe(401);
       expect(proxy(makeRequest("/api/relatedQuestions")).status).toBe(401);
@@ -187,6 +193,32 @@ describe("proxy login-site public access (real ananda/jairam config)", () => {
         expect(response.headers.get("location") || "").toContain("/login");
       }
     });
+  });
+});
+
+describe("proxy no-login site public share (real ananda-public config)", () => {
+  const originalSiteId = process.env.SITE_ID;
+
+  afterEach(() => {
+    if (originalSiteId === undefined) {
+      delete process.env.SITE_ID;
+    } else {
+      process.env.SITE_ID = originalSiteId;
+    }
+  });
+
+  it("lets logged-out /share/{id} and /api/share/{id} through when requireLogin is false", () => {
+    const config = loadSiteConfigSync("ananda-public");
+    expect(config).not.toBeNull();
+    expect(config?.requireLogin).toBe(false);
+
+    process.env.SITE_ID = "ananda-public";
+    const shareId = "OHXIZPKK5XAyj9f1vEXx";
+    const page = proxy(makeRequest(`/share/${shareId}`));
+    const shareApi = proxy(makeRequest(`/api/share/${shareId}`));
+    expect(isDenied(page)).toBe(false);
+    expect(shareApi.status).toBe(200);
+    expect(isDenied(shareApi)).toBe(false);
   });
 });
 

@@ -139,3 +139,71 @@ describe("ShareConversation logged-out on requireLogin site", () => {
     expect(String(window.location.href)).not.toMatch(/\/login/);
   });
 });
+
+describe("ShareConversation logged-out on requireLogin false site", () => {
+  const mockFetchWithAuth = fetchWithAuth as jest.MockedFunction<typeof fetchWithAuth>;
+  const mockIsAuthenticated = isAuthenticated as jest.MockedFunction<typeof isAuthenticated>;
+  const mockLoadConversationByDocId = loadConversationByDocId as jest.MockedFunction<typeof loadConversationByDocId>;
+
+  const noLoginSiteConfig = {
+    ...mockSiteConfig,
+    siteId: "ananda-public",
+    shortname: "Vivek",
+    name: "Vivek",
+    greeting: "Hello from Vivek",
+    requireLogin: false,
+  } as SiteConfig;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockIsAuthenticated.mockReturnValue(false);
+    mockReplace.mockReset();
+    mockPush.mockReset();
+    (useRouter as jest.Mock).mockReturnValue(mockRouter);
+
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        pathname: `/share/${SHARE_ID}`,
+        search: "",
+        hash: "",
+        href: `http://localhost/share/${SHARE_ID}`,
+        origin: "http://localhost",
+      },
+    });
+
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        id: SHARE_ID,
+        title: "Meditation",
+        turns: [
+          {
+            id: SHARE_ID,
+            question: "What is meditation?",
+            answer: "A practice of inner stillness.",
+            sources: [],
+            timestamp: { seconds: 1 },
+            title: "Meditation",
+            collection: "whole_library",
+            suggestions: [],
+            model: null,
+          },
+        ],
+      }),
+    }) as jest.Mock;
+  });
+
+  it("loads /api/share/{id} and does not call /api/document", async () => {
+    render(<ShareConversation siteConfig={noLoginSiteConfig} />);
+
+    expect(await screen.findByText("What is meditation?")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(`/api/share/${SHARE_ID}`);
+    });
+    expect(global.fetch).not.toHaveBeenCalledWith(`/api/document/${SHARE_ID}`);
+    expect(mockLoadConversationByDocId).not.toHaveBeenCalled();
+    expect(mockFetchWithAuth).not.toHaveBeenCalled();
+  });
+});

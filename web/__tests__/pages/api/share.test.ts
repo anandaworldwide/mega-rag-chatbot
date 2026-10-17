@@ -53,7 +53,7 @@ describe("GET /api/share/{docId}", () => {
     expect(mockFirestoreQueryGet).not.toHaveBeenCalled();
   });
 
-  it("returns display turns and omits uuid and other user fields", async () => {
+  it("returns display turns with exact allowlist keys and no uuid, email, or ip", async () => {
     mockFirestoreGet.mockResolvedValue({
       exists: true,
       id: "share-doc",
@@ -104,9 +104,21 @@ describe("GET /api/share/{docId}", () => {
 
     expect(res.statusCode).toBe(200);
     const body = res._getJSONData();
+    expect(Object.keys(body).sort()).toEqual(["id", "title", "turns"]);
     expect(body.id).toBe("share-doc");
     expect(body.title).toBe("Meditation");
     expect(body.turns).toHaveLength(1);
+    expect(Object.keys(body.turns[0]).sort()).toEqual([
+      "answer",
+      "collection",
+      "id",
+      "model",
+      "question",
+      "sources",
+      "suggestions",
+      "timestamp",
+      "title",
+    ]);
     expect(body.turns[0]).toEqual({
       id: "share-doc",
       question: "What is meditation?",
@@ -126,6 +138,7 @@ describe("GET /api/share/{docId}", () => {
     expect(serialized).not.toMatch(/secret-agent/);
     expect(body).not.toHaveProperty("uuid");
     expect(body).not.toHaveProperty("email");
+    expect(body).not.toHaveProperty("ip");
     expect(body.turns[0]).not.toHaveProperty("uuid");
     expect(body.turns[0]).not.toHaveProperty("email");
     expect(body.turns[0]).not.toHaveProperty("ip");

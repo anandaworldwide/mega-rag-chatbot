@@ -286,7 +286,8 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
           return;
         }
 
-        // Logged-out: public share route only. Do not call /api/chats.
+        // Logged-out on every site, including requireLogin: false. Do not call /api/chats
+        // or /api/document (document stays cookie-gated on login sites).
         const shareResponse = await fetch(`/api/share/${docId}`);
         if (!shareResponse.ok) {
           if (shareResponse.status === 404) {

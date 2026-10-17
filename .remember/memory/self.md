@@ -12,8 +12,10 @@ expose any user's chat list by uuid (the route has no auth check of its own).
 
 **Correct**:
 Logged-out share uses `GET /api/share/{docId}` (public, rate-limited, display fields
-only, 404 for unknown ids). Keep `/api/chats` private. Logged-in viewers can still use
-`loadConversationByDocId`. Skip client login redirects on `/share/` and `/answers/`
+only, 404 for unknown ids) on every site, including `requireLogin: false`. Keep
+`/api/chats` and `/api/document/` private on login sites. Logged-in `conversationLoader`
+still reads `/api/document` (uuid stays on that response for the owner check) because
+those callers have a cookie. Skip client login redirects on `/share/` and `/answers/`
 if some other call still 401s.
 
 ### Mistake: Incomplete lockfile omits juice transitive deps (mensch)
