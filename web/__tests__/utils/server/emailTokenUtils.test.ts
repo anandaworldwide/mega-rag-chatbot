@@ -7,6 +7,8 @@ import {
   verifyOpenToken,
   generateSignedClickToken,
   verifyClickToken,
+  generateClickRedirectSignature,
+  verifyClickRedirectSignature,
 } from "@/utils/server/emailTokenUtils";
 
 const ORIGINAL_SECRET = process.env.SECURE_TOKEN;
@@ -142,5 +144,46 @@ describe("click tracking tokens", () => {
       "base64"
     );
     expect(verifyClickToken(injected)).toBeNull();
+  });
+});
+
+describe("click redirect signatures", () => {
+  it("round-trips a signature over email and target URL", () => {
+    process.env.SECURE_TOKEN = "test-secret";
+    const target = "https://luca.ananda.org/?q=hello";
+    const sig = generateClickRedirectSignature("User@Example.com", target);
+    expect(verifyClickRedirectSignature("user@example.com", target, sig)).toBe(true);
+  });
+
+  it("rejects a tampered target URL", () => {
+    process.env.SECURE_TOKEN = "test-secret";
+    const sig = generateClickRedirectSignature("a@b.com", "https://luca.ananda.org/ok");
+    expect(verifyClickRedirectSignature("a@b.com", "https://evil.example/phish", sig)).toBe(false);
+  });
+
+  it("rejects a tampered recipient email", () => {
+    process.env.SECURE_TOKEN = "test-secret";
+    const target = "https://luca.ananda.org/ok";
+    const sig = generateClickRedirectSignature("a@b.com", target);
+    expect(verifyClickRedirectSignature("other@b.com", target, sig)).toBe(false);
+  });
+
+  it("rejects a missing signature", () => {
+    process.env.SECURE_TOKEN = "test-secret";
+    expect(verifyClickRedirectSignature("a@b.com", "https://luca.ananda.org/ok", "")).toBe(false);
+  });
+
+  it("throws when generating without SECURE_TOKEN", () => {
+    delete process.env.SECURE_TOKEN;
+    expect(() => generateClickRedirectSignature("a@b.com", "https://luca.ananda.org/ok")).toThrow(
+      "SECURE_TOKEN not configured"
+    );
+  });
+
+  it("returns false when verifying without SECURE_TOKEN", () => {
+    process.env.SECURE_TOKEN = "test-secret";
+    const sig = generateClickRedirectSignature("a@b.com", "https://luca.ananda.org/ok");
+    delete process.env.SECURE_TOKEN;
+    expect(verifyClickRedirectSignature("a@b.com", "https://luca.ananda.org/ok", sig)).toBe(false);
   });
 });

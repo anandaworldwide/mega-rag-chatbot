@@ -49,6 +49,55 @@ function timingSafeEqualHex(a: string, b: string): boolean {
 }
 
 /**
+ * HMAC-SHA256 over a payload using SECURE_TOKEN.
+ * Uses the same 16-hex-char form as open-tracking tokens.
+ */
+function signWithSecureToken(payload: string): string | null {
+  const secret = process.env.SECURE_TOKEN;
+  if (!secret) {
+    return null;
+  }
+  const hmac = crypto.createHmac("sha256", secret);
+  hmac.update(payload);
+  return hmac.digest("hex").substring(0, 16);
+}
+
+function clickRedirectPayload(email: string, targetUrl: string): string {
+  return `${email.toLowerCase()}\n${targetUrl}`;
+}
+
+/**
+ * Signs a click redirect (recipient + target URL) with the open-tracking HMAC.
+ *
+ * @param email - Recipient email
+ * @param targetUrl - Redirect target that will appear in the click URL
+ * @returns 16-char hex HMAC
+ * @throws Error if SECURE_TOKEN is not configured
+ */
+export function generateClickRedirectSignature(email: string, targetUrl: string): string {
+  const signature = signWithSecureToken(clickRedirectPayload(email, targetUrl));
+  if (!signature) {
+    throw new Error("SECURE_TOKEN not configured");
+  }
+  return signature;
+}
+
+/**
+ * Verifies a click redirect HMAC. Missing or bad signatures are invalid.
+ * Unsigned legacy click links are not accepted.
+ */
+export function verifyClickRedirectSignature(email: string, targetUrl: string, signature: string): boolean {
+  if (!signature) {
+    return false;
+  }
+  const expected = signWithSecureToken(clickRedirectPayload(email, targetUrl));
+  if (!expected) {
+    return false;
+  }
+  return timingSafeEqualHex(signature, expected);
+}
+
+/**
  * Generates a signed open tracking token using HMAC
  * This prevents token forgery for analytics manipulation
  *
