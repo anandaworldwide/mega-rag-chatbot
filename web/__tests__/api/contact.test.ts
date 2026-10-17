@@ -63,6 +63,7 @@ describe("Contact API", () => {
     jest.clearAllMocks();
     process.env = { ...originalEnv };
     process.env.CONTACT_EMAIL = "contact@example.com";
+    process.env.NEXT_PUBLIC_BASE_URL = "https://test.example.com";
     process.env.AWS_ACCESS_KEY_ID = "test-key-id";
     process.env.AWS_SECRET_ACCESS_KEY = "test-secret-key";
     process.env.AWS_REGION = "us-east-1";
@@ -316,13 +317,17 @@ describe("Contact API", () => {
     expect(text).not.toContain("didn''t");
     expect(text).toContain('"search"');
     expect(text).toContain("(Kriya) [initiation]");
-    expect(text).not.toMatch(/<script/i);
+    expect(text).toContain("<script>alert(1)</script>");
 
     expect(html).toContain("didn&#039;t");
     expect(html).not.toContain("didn''t");
+    expect(html).not.toContain("O&amp;#039;Brien");
     expect(html).toContain("&quot;search&quot;");
     expect(html).toContain("(Kriya) [initiation]");
-    expect(html).not.toContain("<script");
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).not.toContain("<script>");
+    expect(html).toContain('<a href="mailto:obrien@example.com">');
+    expect(html).not.toContain("&lt;a");
     expect(html).toContain("O&#039;Brien");
   });
 });

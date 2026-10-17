@@ -157,6 +157,18 @@ describe("emailTemplates", () => {
       expect(result.html).toContain("subscribed to TestSite updates");
       expect(result.text).toContain("subscribed to TestSite updates");
     });
+
+    it("keeps trusted HTML in the message and greeting slots", () => {
+      const result = generateEmailContent({
+        greeting: "Hi O&#039;Brien,",
+        message: `Click <a href="https://example.com/start">here</a>`,
+      });
+
+      expect(result.html).toContain('<a href="https://example.com/start">');
+      expect(result.html).not.toContain("&lt;a");
+      expect(result.html).toContain("O&#039;Brien");
+      expect(result.html).not.toContain("O&amp;#039;Brien");
+    });
   });
 
   describe("createEmailParams", () => {
@@ -176,6 +188,8 @@ describe("emailTemplates", () => {
       const params = createEmailParams("from@example.com", "to@example.com", "Test Subject", {
         greeting: "Hi O'Brien,",
         message: `I didn't like the "search" (Kriya) [initiation] <script>alert(1)</script>`,
+        actionUrl: "https://example.com/review",
+        actionText: "Review Request",
       });
 
       const text = params.Message.Body.Text?.Data || "";
@@ -189,6 +203,9 @@ describe("emailTemplates", () => {
       expect(html).toContain("(Kriya) [initiation]");
       expect(html).toContain("&lt;script&gt;");
       expect(html).not.toContain("<script>");
+      expect(html).toContain('<a href="https://example.com/review"');
+      expect(html).not.toContain("&lt;a");
+      expect(html).not.toContain("O&amp;#039;Brien");
     });
   });
 });

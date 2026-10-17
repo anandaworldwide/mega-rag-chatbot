@@ -68,31 +68,26 @@ export function generateEmailContent(options: EmailTemplateOptions): {
     loginImageUrl = `${baseUrl}/${siteConfig.loginImage}`;
   }
 
-  // Format message content for HTML and text versions.
-  // Escape user text for HTML here. Do not escape it at input time.
+  // message and greeting are HTML slots. Callers that pass user text must
+  // escape that text first. Campaign callers pass trusted HTML in message.
   function formatMessageContent(
     message: string,
     actionUrl?: string,
     actionText?: string
   ): { html: string; text: string; hasButton: boolean } {
-    const htmlSafeMessage = escapeHtml(message);
-
     if (actionUrl && actionText) {
       const htmlSafeActionText = escapeHtml(actionText);
       const htmlSafeActionUrl = escapeHtml(actionUrl);
 
       // Remove the action text from message if it exists (we'll add it as a button)
-      let htmlMessage = htmlSafeMessage.replace(
-        new RegExp(htmlSafeActionText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"),
-        ""
-      );
+      let htmlMessage = message.replace(new RegExp(actionText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), "");
 
       // Create the left-justified blue button (matching admin approval email style)
       const buttonHtml = `<div style="text-align: left; margin: 4px 0 2px 0;"><a href="${htmlSafeActionUrl}" style="display: inline-block; padding: 12px 24px; background-color: #3498db; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">${htmlSafeActionText}</a></div>`;
 
       // Look for parenthetical URL patterns (both "visit" and "click" variations)
       // Also handle URL-encoded versions and different URL formats
-      const escapedUrl = htmlSafeActionUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const escapedUrl = actionUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const encodedUrl = encodeURIComponent(actionUrl).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
       // Try multiple patterns to find where the URL appears in the message
@@ -155,7 +150,7 @@ export function generateEmailContent(options: EmailTemplateOptions): {
     }
 
     return {
-      html: htmlSafeMessage,
+      html: message,
       text: message,
       hasButton: false,
     };
@@ -255,7 +250,7 @@ export function generateEmailContent(options: EmailTemplateOptions): {
 </head>
 <body>
   <div class="email-container">
-    <div class="greeting">${escapeHtml(emailGreeting)}</div>
+    <div class="greeting">${emailGreeting}</div>
     
     <div class="message">${messageContent.html}</div>
 
@@ -320,7 +315,13 @@ export function createEmailParams(
   subject: string,
   templateOptions: EmailTemplateOptions
 ) {
-  const { html, text } = generateEmailContent(templateOptions);
+  // These callers pass plain text. Escape only the HTML copy.
+  const { text } = generateEmailContent(templateOptions);
+  const { html } = generateEmailContent({
+    ...templateOptions,
+    message: escapeHtml(templateOptions.message),
+    ...(templateOptions.greeting !== undefined ? { greeting: escapeHtml(templateOptions.greeting) } : {}),
+  });
 
   return {
     Source: fromEmail,

@@ -166,6 +166,11 @@ describe("sanitizeUserText", () => {
     expect(result).not.toContain("didn''t");
     expect(result).not.toMatch(/<script/i);
   });
+
+  it("keeps markup when the caller will escape HTML later", () => {
+    const result = sanitizeUserText("I didn't see <script>alert(1)</script>", { keepMarkup: true });
+    expect(result).toBe("I didn't see <script>alert(1)</script>");
+  });
 });
 
 describe("sanitizeSpreadsheetText", () => {

@@ -263,23 +263,27 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     sanitizedAdminLocation = sanitizeUserText(adminLocation, {
       maxLength: 200,
       allowNewlines: false,
+      keepMarkup: true,
     });
     if (referenceNote) {
       sanitizedReferenceNote = sanitizeUserText(referenceNote, {
         maxLength: 1000,
         allowNewlines: true,
+        keepMarkup: true,
       });
     }
     if (nearestCenter) {
       sanitizedNearestCenter = sanitizeUserText(nearestCenter, {
         maxLength: 200,
         allowNewlines: false,
+        keepMarkup: true,
       });
     }
     if (connectionHistory) {
       sanitizedConnectionHistory = sanitizeUserText(connectionHistory, {
         maxLength: 1000,
         allowNewlines: true,
+        keepMarkup: true,
       });
     }
   } catch (error: any) {

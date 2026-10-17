@@ -218,6 +218,28 @@ Point it at the loopback URL only.
 Match `SITE_ID` to the suite.
 Use `temporarySession: true` (the suite already does) to skip history writes.
 
+## Retrieval question text
+
+Any change to text that goes to retrieval (the chat question path or
+`validateAndSanitizeQuestion`) needs live query runs:
+
+1. `cd web && npm run test:queries:ananda` at the PR head
+2. `cd web && npm run test:queries:ananda-public` at the PR head
+3. The same two suites on `main` with the same env
+4. Counts and scores only in the PR body
+
+Do not invent numbers. If credentials or env files are missing, say so.
+Do not commit eval output, answers, or retrieval JSON.
+
+Helper:
+
+```bash
+.cursor/skills/verify-mega-rag/scripts/check-retrieval-eval.sh
+```
+
+The helper does not run the suites. It reports whether question-path
+files changed and whether `.env.ananda` and `.env.ananda-public` exist.
+
 Skill helper:
 
 ```bash
@@ -321,6 +343,7 @@ All scripts are executable. Run them from any cwd.
 .cursor/skills/verify-mega-rag/scripts/doctor.sh
 .cursor/skills/verify-mega-rag/scripts/drive.sh --feature login-logout
 .cursor/skills/verify-mega-rag/scripts/cleanup.sh
+.cursor/skills/verify-mega-rag/scripts/check-retrieval-eval.sh
 ```
 
 `scripts/launch.mjs` is the Node spawn helper. Do not call it directly.

@@ -27,6 +27,7 @@ export function sanitizeTextInput(
     allowNewlines?: boolean;
     allowSpecialChars?: boolean;
     preserveUserPunctuation?: boolean;
+    stripXssPatterns?: boolean;
   } = {}
 ): string {
   const {
@@ -34,6 +35,7 @@ export function sanitizeTextInput(
     allowNewlines = false,
     allowSpecialChars = false,
     preserveUserPunctuation = false,
+    stripXssPatterns = true,
   } = options;
 
   if (typeof input !== "string") {
@@ -60,12 +62,14 @@ export function sanitizeTextInput(
     sanitized = sanitized.replace(/[\x00-\x1F\x7F]/g, "");
   }
 
-  // Remove potentially dangerous patterns
-  // Script tags and event handlers
-  sanitized = sanitized.replace(/<script[^>]*>.*?<\/script>/gi, "");
-  sanitized = sanitized.replace(/on\w+\s*=/gi, ""); // onclick=, onload=, etc.
-  sanitized = sanitized.replace(/javascript:/gi, "");
-  sanitized = sanitized.replace(/data:text\/html/gi, "");
+  // Remove script tags and event handlers unless the caller keeps markup
+  // and escapes HTML later (email HTML bodies).
+  if (stripXssPatterns) {
+    sanitized = sanitized.replace(/<script[^>]*>.*?<\/script>/gi, "");
+    sanitized = sanitized.replace(/on\w+\s*=/gi, ""); // onclick=, onload=, etc.
+    sanitized = sanitized.replace(/javascript:/gi, "");
+    sanitized = sanitized.replace(/data:text\/html/gi, "");
+  }
 
   // SQL-style quote escaping is defense-in-depth for parameterized stores.
   // Skip it when allowSpecialChars is true so apostrophes and quotes stay as typed
@@ -133,18 +137,21 @@ export function sanitizeSpreadsheetText(
 /**
  * Sanitizes free-text for chat questions and email bodies.
  * Keeps apostrophes, quotes, and common punctuation as typed.
- * Still checks length, UTF-8, control characters, and XSS patterns.
- * Still strips HTML tags. Does not change stored data.
+ * Still checks length, UTF-8, and control characters.
+ * By default strips HTML tags and XSS patterns. Email callers can keep markup
+ * and escape it when the HTML is built.
  */
 export function sanitizeUserText(
   input: string,
-  options: { maxLength?: number; allowNewlines?: boolean } = {}
+  options: { maxLength?: number; allowNewlines?: boolean; keepMarkup?: boolean } = {}
 ): string {
+  const keepMarkup = options.keepMarkup === true;
   return sanitizeTextInput(input, {
     maxLength: options.maxLength,
     allowNewlines: options.allowNewlines ?? false,
-    allowSpecialChars: false,
+    allowSpecialChars: keepMarkup,
     preserveUserPunctuation: true,
+    stripXssPatterns: !keepMarkup,
   }).trim();
 }
 

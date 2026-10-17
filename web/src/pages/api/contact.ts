@@ -9,6 +9,7 @@ import validator from "validator";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { sanitizeEmail, sanitizeUserText, sanitizeName } from "@/utils/server/inputSanitization";
 import { escapeHtml } from "@/utils/server/templateUtils";
+import { generateEmailContent } from "@/utils/server/emailTemplates";
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 
@@ -91,7 +92,7 @@ const handleRequest = async (req: NextApiRequest, res: NextApiResponse): Promise
     let sanitizedMessage: string;
     try {
       sanitizedName = sanitizeName(name, 100);
-      sanitizedMessage = sanitizeUserText(message, { maxLength: 1000, allowNewlines: true });
+      sanitizedMessage = sanitizeUserText(message, { maxLength: 1000, allowNewlines: true, keepMarkup: true });
     } catch (error: any) {
       return res.status(400).json({ message: `Invalid input: ${error.message || "Input validation failed"}` });
     }
@@ -112,7 +113,14 @@ const handleRequest = async (req: NextApiRequest, res: NextApiResponse): Promise
 
     const typeLabel = isFeedbackMode ? "Feedback" : "Contact";
     const textBody = `Type: ${typeLabel}\nFrom: ${sanitizedName} <${sanitizedEmail}>\n\nMessage:\n\n${sanitizedMessage}`;
-    const htmlBody = `<!DOCTYPE html><html lang="en"><body><p>Type: ${escapeHtml(typeLabel)}</p><p>From: ${escapeHtml(sanitizedName)} &lt;${escapeHtml(sanitizedEmail)}&gt;</p><p>Message:</p><p>${escapeHtml(sanitizedMessage)}</p></body></html>`;
+    const htmlMessage = `Type: ${escapeHtml(typeLabel)}\nFrom: ${escapeHtml(sanitizedName)} &lt;<a href="mailto:${escapeHtml(sanitizedEmail)}">${escapeHtml(sanitizedEmail)}</a>&gt;\n\nMessage:\n\n${escapeHtml(sanitizedMessage)}`;
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://127.0.0.1";
+    const { html: htmlBody } = generateEmailContent({
+      greeting: escapeHtml(`Contact from ${sanitizedName}`),
+      message: htmlMessage,
+      baseUrl,
+      siteId: process.env.SITE_ID,
+    });
 
     const params = {
       Source: sourceEmail,

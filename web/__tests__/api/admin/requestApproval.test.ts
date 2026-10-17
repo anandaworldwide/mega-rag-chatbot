@@ -520,7 +520,7 @@ describe("/api/admin/requestApproval", () => {
         requesterEmail: "requester@example.com",
         requesterName: "Test Requester",
         adminEmail: "admin@example.com",
-        adminName: "Test Admin",
+        adminName: "O'Brien",
         adminLocation: "Ananda Village (CA)",
         nearestCenter: "Ananda Village [California]",
         referenceNote: `Ask O'Brien about "the path"`,
@@ -537,7 +537,7 @@ describe("/api/admin/requestApproval", () => {
         adminLocation: "Ananda Village (CA)",
         nearestCenter: "Ananda Village [California]",
         referenceNote: `Ask O'Brien about "the path"`,
-        connectionHistory: `I didn't attend "Kriya" (Kriya) [initiation]`,
+        connectionHistory: `I didn't attend "Kriya" (Kriya) [initiation] <script>alert(1)</script>`,
       }),
       undefined,
       "create admin approval request"
@@ -558,13 +558,18 @@ describe("/api/admin/requestApproval", () => {
     expect(combinedText).not.toContain("didn''t");
     expect(combinedText).toContain('"Kriya"');
     expect(combinedText).toContain("(Kriya) [initiation]");
-    expect(combinedText).not.toMatch(/<script/i);
+    expect(combinedText).toContain("<script>alert(1)</script>");
 
     expect(combinedHtml).toContain("didn&#039;t");
     expect(combinedHtml).not.toContain("didn''t");
+    expect(combinedHtml).toContain("O&#039;Brien");
+    expect(combinedHtml).not.toContain("O&amp;#039;Brien");
     expect(combinedHtml).toContain("&quot;Kriya&quot;");
     expect(combinedHtml).toContain("(Kriya) [initiation]");
-    expect(combinedHtml).not.toContain("<script");
+    expect(combinedHtml).toContain("&lt;script&gt;");
+    expect(combinedHtml).not.toContain("<script>");
+    expect(combinedHtml).toContain("<a href=");
+    expect(combinedHtml).not.toContain("&lt;a");
   });
 
   it("should handle errors gracefully", async () => {
