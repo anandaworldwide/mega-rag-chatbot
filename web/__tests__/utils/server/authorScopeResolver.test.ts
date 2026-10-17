@@ -264,6 +264,17 @@ describe("resolveAuthorScope", () => {
     expect(result).toEqual({ kind: "named", author: "Asha Nayaswami" });
   });
 
+  it("does not bind a named author when skipNamedAuthor is set", () => {
+    const result = resolveAuthorScope({
+      question: "Rewrite this email from Asha about the festival",
+      siteConfig: baseSiteConfig,
+      collectionMode: "auto",
+      skipNamedAuthor: true,
+    });
+
+    expect(result).toEqual({ kind: "blend", masterSwamiBoost: 0.2 });
+  });
+
   it("returns named scope for Gyandev via generated alias index", () => {
     const result = resolveAuthorScope({
       question: "what did Nayaswami Gyandev say about mantras?",
