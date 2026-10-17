@@ -10,7 +10,7 @@ import {
   SENSITIVE_FILE_MARKERS,
   buildContentSecurityPolicy,
   createCspNonce,
-} from "../../../middleware";
+} from "../../../src/proxy";
 import { getRequestNonce } from "@/utils/server/cspNonce";
 
 jest.mock("@/utils/server/loadSiteConfig", () => ({

@@ -17,5 +17,6 @@ describe("Document CSP nonce wiring", () => {
     const source = fs.readFileSync(path.resolve(__dirname, "../../src/pages/_document.tsx"), "utf8");
     expect(source).toContain("<Head nonce={nonce}>");
     expect(source).toContain("<NextScript nonce={nonce} />");
+    expect(source).toContain('meta name="csp-nonce"');
   });
 });

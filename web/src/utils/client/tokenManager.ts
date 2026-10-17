@@ -48,6 +48,11 @@ export function isPlaceholderToken(token: string | null | undefined): boolean {
   return typeof token === "string" && token.includes("placeholder");
 }
 
+/** Logged-out share/answer viewers must not be bounced to /login on a 401. */
+export function isPublicShareOrAnswerPath(pathname: string): boolean {
+  return pathname.startsWith("/share/") || pathname.startsWith("/answers/");
+}
+
 function syncUuidFromTokenPayload(token: string): void {
   if (isPlaceholderToken(token)) {
     return;
@@ -160,7 +165,7 @@ async function fetchNewToken(): Promise<string | null> {
       if (response.status === 401 && window.location.pathname !== "/login") {
         const path = window.location.pathname;
         // Public share/answer pages stay reachable; do not cache a fake token.
-        if (path.startsWith("/share/") || path.startsWith("/answers/")) {
+        if (isPublicShareOrAnswerPath(path)) {
           console.log("Public page 401 for web-token – no token available");
           tokenData = null;
           return null;
@@ -432,6 +437,9 @@ async function fetchWithRetry(url: string, options?: RequestInit, retryCount = 0
     }
 
     if (response.status === 401 && window.location.pathname !== "/login") {
+      if (isPublicShareOrAnswerPath(window.location.pathname)) {
+        return response;
+      }
       // Save current full path (path + search) for redirect after login
       const fullPath = window.location.pathname + (window.location.search || "");
       window.location.href = `/login?redirect=${encodeURIComponent(fullPath)}`;
@@ -442,7 +450,7 @@ async function fetchWithRetry(url: string, options?: RequestInit, retryCount = 0
   } catch (error) {
     // Handle AuthenticationError from token refresh - redirect to login
     if (error instanceof AuthenticationError && error.shouldRedirect) {
-      if (window.location.pathname !== "/login") {
+      if (window.location.pathname !== "/login" && !isPublicShareOrAnswerPath(window.location.pathname)) {
         const fullPath = window.location.pathname + (window.location.search || "");
         window.location.href = `/login?redirect=${encodeURIComponent(fullPath)}`;
       }

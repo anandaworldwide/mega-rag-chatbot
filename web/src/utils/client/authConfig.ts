@@ -24,9 +24,6 @@ export const isPublicPage = (path: string, siteConfig: SiteConfig | null): boole
     return true;
   }
 
-  // Request submitted page is always public (shown after access request)
-  if (path === "/request-submitted") return true;
-
   // If no site config is available, default to requiring authentication
   if (!siteConfig) return false;
 
