@@ -1021,6 +1021,9 @@ try {
 - Do not apply SQL-style apostrophe doubling (`'` → `''`) to Google Sheets free text.
   Use `sanitizeSpreadsheetText` so apostrophes and quotes stay as typed, and prefix
   `=` `+` `-` `@` to stop formula injection on `USER_ENTERED` appends.
+- Do not apply SQL-style apostrophe doubling or shell-character stripping to chat
+  questions or email body text. Use `sanitizeUserText`. Escape HTML when the email
+  HTML is built, not at input time.
 
 ### Subprocess Execution Best Practices
 

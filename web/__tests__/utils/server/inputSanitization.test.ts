@@ -9,6 +9,7 @@ import {
   sanitizeName,
   sanitizeSpreadsheetText,
   sanitizeTextInput,
+  sanitizeUserText,
   validateAndSanitizeQuestion,
 } from "@/utils/server/inputSanitization";
 
@@ -106,6 +107,26 @@ describe("validateAndSanitizeQuestion", () => {
     expect(result).toContain("Hello");
     expect(result).toContain("world");
   });
+
+  it("keeps apostrophes as typed", () => {
+    expect(validateAndSanitizeQuestion("didn't")).toBe("didn't");
+  });
+
+  it("keeps a quoted phrase as typed", () => {
+    expect(validateAndSanitizeQuestion('What is "Kriya Yoga"?')).toBe('What is "Kriya Yoga"?');
+  });
+
+  it("keeps parentheses and brackets as typed", () => {
+    expect(validateAndSanitizeQuestion("(Kriya) [initiation]")).toBe("(Kriya) [initiation]");
+  });
+
+  it("strips a script tag and keeps the apostrophe", () => {
+    const result = validateAndSanitizeQuestion("I didn't see <script>alert(1)</script> this");
+    expect(result).toContain("didn't");
+    expect(result).not.toContain("didn''t");
+    expect(result).not.toMatch(/<script/i);
+    expect(result).not.toMatch(/alert/);
+  });
 });
 
 describe("sanitizeTextInput / sanitizeForLogging", () => {
@@ -129,6 +150,26 @@ describe("sanitizeTextInput / sanitizeForLogging", () => {
   it("preserves apostrophes and double quotes when allowSpecialChars is true", () => {
     expect(sanitizeTextInput("didn't", { allowSpecialChars: true })).toBe("didn't");
     expect(sanitizeTextInput('He said "thanks"', { allowSpecialChars: true })).toBe('He said "thanks"');
+  });
+});
+
+describe("sanitizeUserText", () => {
+  it("keeps apostrophes, quotes, and grouping marks as typed", () => {
+    expect(sanitizeUserText("didn't")).toBe("didn't");
+    expect(sanitizeUserText('He said "thanks"')).toBe('He said "thanks"');
+    expect(sanitizeUserText("(Kriya) [initiation]")).toBe("(Kriya) [initiation]");
+  });
+
+  it("strips script tags and keeps the apostrophe", () => {
+    const result = sanitizeUserText("I didn't see <script>alert(1)</script> this");
+    expect(result).toContain("didn't");
+    expect(result).not.toContain("didn''t");
+    expect(result).not.toMatch(/<script/i);
+  });
+
+  it("keeps markup when the caller will escape HTML later", () => {
+    const result = sanitizeUserText("I didn't see <script>alert(1)</script>", { keepMarkup: true });
+    expect(result).toBe("I didn't see <script>alert(1)</script>");
   });
 });
 
