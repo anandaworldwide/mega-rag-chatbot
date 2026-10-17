@@ -31,6 +31,7 @@ const PUBLIC_APIS: Array<{ path: string; method: string }> = [
   { path: "/api/email/open", method: "GET" },
   { path: "/api/unsubscribe", method: "GET" },
   { path: "/api/document/share-doc-id", method: "GET" },
+  { path: "/api/share/share-doc-id", method: "GET" },
   { path: "/api/redirect/mg", method: "GET" },
   { path: "/api/manifest.json", method: "GET" },
   { path: "/api/apple-touch-icon", method: "GET" },
@@ -151,6 +152,7 @@ describe("proxy login-site public access (real ananda/jairam config)", () => {
       const shareId = "OHXIZPKK5XAyj9f1vEXx";
       const shareAndAnswerRequests: Array<{ path: string; method?: string }> = [
         { path: `/share/${shareId}` },
+        { path: `/api/share/${shareId}` },
         { path: `/api/document/${shareId}` },
         { path: "/api/web-token" },
         { path: `/data/${siteId}/whats-new.json`, method: "HEAD" },

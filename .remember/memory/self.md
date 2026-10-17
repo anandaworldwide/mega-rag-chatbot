@@ -7,12 +7,14 @@
 **Wrong**:
 Load a public `/share/[id]` page, then call `loadConversationByDocId` → `fetchWithAuth("/api/chats")`.
 The page path is public, but `/api/chats` is cookie-gated. A restored proxy 401 plus
-`fetchWithAuth` sends a logged-out viewer to `/login`.
+`fetchWithAuth` sends a logged-out viewer to `/login`. Making `/api/chats` public would
+expose any user's chat list by uuid (the route has no auth check of its own).
 
 **Correct**:
-Load share (and `/answers/[id]` redirects) from `GET /api/document/:id` only. That route
-returns the public share allowlist. Keep `/api/chats` private. Skip client login redirects
-on `/share/` and `/answers/` if some other call still 401s.
+Logged-out share uses `GET /api/share/{docId}` (public, rate-limited, display fields
+only, 404 for unknown ids). Keep `/api/chats` private. Logged-in viewers can still use
+`loadConversationByDocId`. Skip client login redirects on `/share/` and `/answers/`
+if some other call still 401s.
 
 ### Mistake: Incomplete lockfile omits juice transitive deps (mensch)
 

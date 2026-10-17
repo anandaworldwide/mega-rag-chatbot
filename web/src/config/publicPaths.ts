@@ -73,6 +73,8 @@ export const PUBLIC_PATHS: PublicPathsConfig = {
     "/api/unsubscribe",
     // Share and answer pages load this. The route returns only the public share fields.
     "/api/document/",
+    // Logged-out share page. Exact prefix /api/share/{docId}. Display fields only.
+    "/api/share/",
     // Redirect code lookup in site config. No cookie in mail or short links.
     "/api/redirect/",
     "/api/manifest.json",

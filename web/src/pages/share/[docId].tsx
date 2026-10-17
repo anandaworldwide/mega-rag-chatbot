@@ -11,7 +11,7 @@ import Layout from "@/components/layout";
 import MessageItem from "@/components/MessageItem";
 import { SiteConfig } from "@/types/siteConfig";
 import { getCommonSiteConfigProps } from "@/utils/server/getCommonSiteConfigProps";
-import { ConversationNotFoundError } from "@/utils/client/conversationLoader";
+import { ConversationNotFoundError, loadConversationByDocId } from "@/utils/client/conversationLoader";
 import { logEvent } from "@/utils/client/analytics";
 import { getGreeting, getSiteName } from "@/utils/client/siteConfig";
 import { ExtendedAIMessage } from "@/types/ExtendedAIMessage";
@@ -20,6 +20,18 @@ import { Document } from "@langchain/core/documents";
 import { fetchWithAuth, isAuthenticated, initializeTokenManager } from "@/utils/client/tokenManager";
 import { getOrCreateUUID } from "@/utils/client/uuid";
 import { generateSourceId } from "@/utils/client/sourceUtils";
+
+type PublicShareTurn = {
+  id: string;
+  question: string;
+  answer: string;
+  sources?: unknown;
+  timestamp?: unknown;
+  title?: string | null;
+  collection?: string | null;
+  suggestions?: unknown;
+  model?: string | null;
+};
 
 interface ShareConversationProps {
   siteConfig: SiteConfig | null;
@@ -39,6 +51,7 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
   const [isCloning, setIsCloning] = useState(false);
   const [cloneError, setCloneError] = useState<string | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const lastMessageRef = useRef<HTMLDivElement>(null);
   const sourceExpandedRef = useRef<Set<number>>(new Set());
   const handledHashRef = useRef<string | null>(null);
@@ -136,6 +149,7 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
       const authStatus = isAuthenticated();
 
       setIsLoggedIn(authStatus);
+      setAuthChecked(true);
     };
     checkAuth();
   }, []);
@@ -172,71 +186,41 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
   }, [router.isReady, viewOnlyMode, isLoggedIn, handleCloneConversation]);
 
   useEffect(() => {
-    if (!router.isReady || !docId || typeof docId !== "string") {
+    if (!router.isReady || !docId || typeof docId !== "string" || !authChecked) {
       return;
     }
 
-    const loadSharedConversation = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-
-        // Public share payload only. Do not call /api/chats — that route is cookie-gated
-        // and fetchWithAuth 401 would send a logged-out viewer to /login.
-        const docResponse = await fetch(`/api/document/${docId}`);
-        if (!docResponse.ok) {
-          if (docResponse.status === 404) {
-            throw new ConversationNotFoundError("Document not found");
+    const scrollToLastUnlessSourceHash = () => {
+      const hash = window.location.hash;
+      if (!hash || !hash.startsWith("#source-")) {
+        setTimeout(() => {
+          if (lastMessageRef.current) {
+            lastMessageRef.current.scrollIntoView({ behavior: "smooth" });
           }
-          throw new Error(`Failed to fetch document: ${docResponse.statusText}`);
+        }, 100);
+      }
+    };
+
+    const messagesFromShareTurns = (turns: PublicShareTurn[]): ExtendedAIMessage[] => {
+      const messages: ExtendedAIMessage[] = [
+        {
+          type: "apiMessage",
+          message: getGreeting(siteConfig),
+        },
+      ];
+
+      for (const turn of turns) {
+        if (turn.question) {
+          messages.push({
+            type: "userMessage",
+            message: turn.question,
+          });
         }
-
-        const docData = await docResponse.json();
-
-        // Logged-in owner: open the live chat. Logged-out viewers stay on /share.
-        if (isLoggedIn && docData.uuid && docData.convId && docData.uuid === getOrCreateUUID()) {
-          const hash = window.location.hash;
-          const targetPath = hash ? `/chat/${docData.convId}${hash}` : `/chat/${docData.convId}`;
-          router.replace("/", targetPath, { shallow: false });
-          return;
-        }
-
-        setConversationTitle(docData.title || null);
-        if (docData.question) {
-          setFirstQuestion(docData.question);
-        }
-
-        const history = docData.history || [];
-        const messages: ExtendedAIMessage[] = [
-          {
-            type: "apiMessage",
-            message: getGreeting(siteConfig),
-          },
-        ];
-
-        for (const historyItem of history) {
-          if (historyItem.role === "user") {
-            messages.push({
-              type: "userMessage",
-              message: historyItem.content,
-            });
-          } else if (historyItem.role === "assistant") {
-            messages.push({
-              type: "apiMessage",
-              message: historyItem.content,
-            });
-          }
-        }
-
-        messages.push({
-          type: "userMessage",
-          message: docData.question,
-        });
 
         let parsedSources: Document<DocMetadata>[] = [];
-        if (docData.sources) {
+        if (turn.sources) {
           try {
-            parsedSources = typeof docData.sources === "string" ? JSON.parse(docData.sources) : docData.sources;
+            parsedSources = typeof turn.sources === "string" ? JSON.parse(turn.sources) : turn.sources;
           } catch (e) {
             console.error("Error parsing sources:", e);
           }
@@ -244,26 +228,86 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
 
         messages.push({
           type: "apiMessage",
-          message: docData.answer,
+          message: turn.answer,
           sourceDocs: parsedSources,
-          docId: docData.id,
-          collection: docData.collection,
-          suggestions: docData.suggestions || [],
-          model: docData.model || undefined,
+          docId: turn.id,
+          collection: turn.collection || undefined,
+          suggestions: Array.isArray(turn.suggestions) ? turn.suggestions : [],
+          model: turn.model || undefined,
         });
+      }
 
+      return messages;
+    };
+
+    const loadSharedConversation = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        if (isLoggedIn) {
+          const loadedConversation = await loadConversationByDocId(docId);
+
+          setConversationTitle(loadedConversation.title || null);
+          const firstUserMessage = loadedConversation.messages.find((msg) => msg.type === "userMessage");
+          if (firstUserMessage) {
+            setFirstQuestion(firstUserMessage.message);
+          }
+
+          if (loadedConversation.isOwner && loadedConversation.convId) {
+            const hash = window.location.hash;
+            const targetPath = hash
+              ? `/chat/${loadedConversation.convId}${hash}`
+              : `/chat/${loadedConversation.convId}`;
+            router.replace("/", targetPath, { shallow: false });
+            return;
+          }
+
+          const convertedMessages: ExtendedAIMessage[] = [
+            {
+              message: getGreeting(siteConfig),
+              type: "apiMessage",
+            },
+            ...loadedConversation.messages.map(
+              (msg): ExtendedAIMessage => ({
+                type: msg.type,
+                message: msg.message,
+                sourceDocs: msg.sourceDocs?.filter((doc): doc is Document<DocMetadata> => doc !== null) || undefined,
+                docId: msg.docId,
+                collection: msg.collection,
+                model: msg.model,
+              })
+            ),
+          ];
+          setMessages(convertedMessages);
+          setViewOnlyMode(loadedConversation.viewOnly);
+          logEvent("shared_conversation_loaded", "Sharing", docId, loadedConversation.messages.length);
+          scrollToLastUnlessSourceHash();
+          return;
+        }
+
+        // Logged-out: public share route only. Do not call /api/chats.
+        const shareResponse = await fetch(`/api/share/${docId}`);
+        if (!shareResponse.ok) {
+          if (shareResponse.status === 404) {
+            throw new ConversationNotFoundError("Document not found");
+          }
+          throw new Error(`Failed to fetch shared conversation: ${shareResponse.statusText}`);
+        }
+
+        const shareData = await shareResponse.json();
+        const turns: PublicShareTurn[] = Array.isArray(shareData.turns) ? shareData.turns : [];
+        setConversationTitle(shareData.title || null);
+        const firstQuestionTurn = turns.find((turn) => turn.question);
+        if (firstQuestionTurn) {
+          setFirstQuestion(firstQuestionTurn.question);
+        }
+
+        const messages = messagesFromShareTurns(turns);
         setMessages(messages);
         setViewOnlyMode(true);
         logEvent("shared_conversation_loaded", "Sharing", docId, messages.length);
-
-        const hash = window.location.hash;
-        if (!hash || !hash.startsWith("#source-")) {
-          setTimeout(() => {
-            if (lastMessageRef.current) {
-              lastMessageRef.current.scrollIntoView({ behavior: "smooth" });
-            }
-          }, 100);
-        }
+        scrollToLastUnlessSourceHash();
       } catch (error) {
         if (!(error instanceof ConversationNotFoundError)) {
           console.error("Error loading shared conversation:", error);
@@ -275,7 +319,7 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
     };
 
     loadSharedConversation();
-  }, [router.isReady, docId, router, siteConfig, isLoggedIn]);
+  }, [router.isReady, docId, router, siteConfig, isLoggedIn, authChecked]);
 
   // Handle hash changes (e.g., browser back/forward navigation)
   // This handles both initial page load with hash and subsequent hash changes
