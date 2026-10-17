@@ -8,7 +8,7 @@ import {
   libraryAccessCookieHeader,
 } from "@/utils/server/libraryAccess";
 import { applyComputedLibraryAccessOverrides } from "@/utils/server/libraryAccessMiddlewareGate";
-import { pathMatchesAccessMiddleware, config as middlewareConfig } from "../../../middleware";
+import { pathMatchesAccessMiddleware, config as middlewareConfig } from "../../../src/proxy";
 
 const wikiSiteConfig = {
   includedLibraries: ["Ananda Library", { name: "Ananda Family Wiki", accessEmailsEnv: "WIKI_LIBRARY_EMAILS" }],

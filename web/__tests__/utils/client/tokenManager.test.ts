@@ -523,6 +523,58 @@ describe("Token Manager", () => {
       expect(mockLocationAssign).toHaveBeenCalledWith("/login?redirect=%2Fdashboard");
     });
 
+    it("does not redirect to login on 401 from a public answer page", async () => {
+      const mockLocationAssign = jest.fn();
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: {
+          pathname: "/answers/OHXIZPKK5XAyj9f1vEXx",
+          search: "",
+          get href() {
+            return "[REDACTED]/answers/OHXIZPKK5XAyj9f1vEXx";
+          },
+          set href(url) {
+            mockLocationAssign(url);
+          },
+        },
+      });
+
+      const validToken = createJwtToken(900);
+      fetchMock.mockResponseOnce(JSON.stringify({ token: validToken })).mockResponse("", { status: 401 });
+
+      await tokenManager.initializeTokenManager();
+      const response = await tokenManager.fetchWithAuth("/api/profile");
+
+      expect(response.status).toBe(401);
+      expect(mockLocationAssign).not.toHaveBeenCalled();
+    });
+
+    it("does not redirect to login on 401 from a public share page", async () => {
+      const mockLocationAssign = jest.fn();
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: {
+          pathname: "/share/OHXIZPKK5XAyj9f1vEXx",
+          search: "",
+          get href() {
+            return "[REDACTED]/share/OHXIZPKK5XAyj9f1vEXx";
+          },
+          set href(url) {
+            mockLocationAssign(url);
+          },
+        },
+      });
+
+      const validToken = createJwtToken(900);
+      fetchMock.mockResponseOnce(JSON.stringify({ token: validToken })).mockResponse("", { status: 401 });
+
+      await tokenManager.initializeTokenManager();
+      const response = await tokenManager.fetchWithAuth("/api/chats?convId=abc");
+
+      expect(response.status).toBe(401);
+      expect(mockLocationAssign).not.toHaveBeenCalled();
+    });
+
     it("should retry on network errors with exponential backoff", async () => {
       // Set test environment for shorter delays
       const originalEnv = process.env.NODE_ENV;

@@ -21,6 +21,7 @@ import SessionExpiredModal from "@/components/SessionExpiredModal";
 import AuthGuard from "@/components/AuthGuard";
 import SalesforceAccessNoticeGate from "@/components/SalesforceAccessNoticeGate";
 import { isPublicEndpoint, isPublicPage } from "@/utils/client/authConfig";
+import { getRequestNonce, readBrowserCspNonce } from "@/utils/server/cspNonce";
 
 // Configure Inter font
 const inter = Inter({
@@ -33,6 +34,7 @@ interface CustomAppProps extends AppProps {
   pageProps: {
     siteConfig: SiteConfig | null;
     contactEmail?: string | null;
+    nonce?: string;
   };
 }
 
@@ -41,6 +43,7 @@ function MyApp({ Component, pageProps }: CustomAppProps) {
   const isDevelopment = process.env.NODE_ENV === "development";
   const [authInitialized, setAuthInitialized] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const [gaNonce] = useState(() => pageProps.nonce || readBrowserCspNonce());
   const { siteConfig } = pageProps;
 
   // Initialize token manager for background features (such as error handling)
@@ -151,7 +154,7 @@ function MyApp({ Component, pageProps }: CustomAppProps) {
           <AudioProvider>
             <main className={inter.className}>
               {/* Only include Google Analytics in production */}
-              {!isDevelopment && <GoogleAnalytics trackPageViews />}
+              {!isDevelopment && <GoogleAnalytics trackPageViews nonce={gaNonce} />}
               <AuthGuard siteConfig={siteConfig}>
                 <Component {...pageProps} />
                 <SalesforceAccessNoticeGate siteConfig={siteConfig} />
@@ -181,6 +184,7 @@ MyApp.getInitialProps = async (appContext: AppContext) => {
     pageProps: {
       ...result.props,
       siteConfig: await siteConfigForAppProps(result.props.siteConfig, req, req ? undefined : documentCookie),
+      nonce: getRequestNonce(req?.headers),
     },
   };
 };

@@ -9,6 +9,7 @@ import MyApp, { reportWebVitals } from "@/pages/_app";
 import { initializeTokenManager } from "@/utils/client/tokenManager";
 import { toast } from "react-toastify";
 import { NextWebVitalsMetric } from "next/app";
+import { GoogleAnalytics } from "nextjs-google-analytics";
 
 // Mock dependencies
 jest.mock("next/font/google", () => ({
@@ -139,6 +140,34 @@ describe("MyApp component", () => {
 
     // Error toast should NOT be called
     expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("passes the page CSP nonce to GoogleAnalytics", () => {
+    render(
+      <MyApp
+        Component={mockComponent}
+        pageProps={{ ...pageProps, nonce: "ga-nonce-1" }}
+        router={{ pathname: "/" } as any}
+      />
+    );
+    expect((GoogleAnalytics as jest.Mock).mock.calls[0][0]).toEqual(
+      expect.objectContaining({ nonce: "ga-nonce-1", trackPageViews: true })
+    );
+  });
+
+  it("reads the csp-nonce meta tag when pageProps have no nonce", () => {
+    const meta = document.createElement("meta");
+    meta.setAttribute("name", "csp-nonce");
+    meta.setAttribute("content", "from-meta");
+    document.head.appendChild(meta);
+    try {
+      render(<MyApp Component={mockComponent} pageProps={pageProps} router={{ pathname: "/" } as any} />);
+      expect((GoogleAnalytics as jest.Mock).mock.calls[0][0]).toEqual(
+        expect.objectContaining({ nonce: "from-meta", trackPageViews: true })
+      );
+    } finally {
+      meta.remove();
+    }
   });
 
   it("handles web vitals reporting", () => {

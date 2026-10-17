@@ -1,6 +1,13 @@
 /**
  * Read the CSP nonce forwarded by middleware on x-nonce.
  */
+export function readBrowserCspNonce(): string | undefined {
+  if (typeof document === "undefined") {
+    return undefined;
+  }
+  return document.querySelector('meta[name="csp-nonce"]')?.getAttribute("content") || undefined;
+}
+
 export function getRequestNonce(
   headers: { get?(name: string): string | null } | Record<string, string | string[] | undefined> | undefined
 ): string | undefined {
