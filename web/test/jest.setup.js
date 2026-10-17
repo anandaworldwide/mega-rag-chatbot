@@ -171,6 +171,15 @@ global.console = {
 // Use a fixed "now" for tests that rely on timing
 global.Date.now = jest.fn(() => 1613753920000); // Fix date to a specific timestamp
 
+// Web streams are missing in jsdom / older Node. LangChain imports them at load time.
+if (typeof global.ReadableStream === "undefined") {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- CJS Jest setup cannot use ESM import
+  const { ReadableStream, TransformStream, WritableStream } = require("stream/web");
+  global.ReadableStream = ReadableStream;
+  global.TransformStream = TransformStream;
+  global.WritableStream = WritableStream;
+}
+
 // Ensure TextEncoder/TextDecoder are available
 if (typeof global.TextEncoder === "undefined") {
   global.TextEncoder = class {

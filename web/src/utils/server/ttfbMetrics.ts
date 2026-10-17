@@ -87,6 +87,22 @@ export function isCurbRetrievalToolsEnabled(): boolean {
   return true;
 }
 
+const EVAL_QUESTION_REPEAT_TRUE = new Set(["1", "true", "on", "yes"]);
+
+/**
+ * Eval-only switch: repeat the user question after the retrieved sources block.
+ * On only when NODE_ENV is development or test AND EVAL_QUESTION_REPEAT is 1/true/on/yes.
+ * Production is always off, even if the env var is set.
+ */
+export function isEvalQuestionRepeatEnabled(): boolean {
+  const nodeEnv = process.env.NODE_ENV;
+  if (nodeEnv !== "development" && nodeEnv !== "test") {
+    return false;
+  }
+  const raw = process.env.EVAL_QUESTION_REPEAT?.trim().toLowerCase();
+  return Boolean(raw && EVAL_QUESTION_REPEAT_TRUE.has(raw));
+}
+
 /**
  * Strip per-request placeholders from the site template so the system message
  * stays stable for xAI prompt caching.
@@ -121,9 +137,11 @@ export function buildVariableHumanMessage(params: {
     "# Context",
     params.context || "(no retrieved sources)",
     "",
-    `Question: ${params.question}`,
-    "Helpful answer:",
   ];
+  if (isEvalQuestionRepeatEnabled()) {
+    parts.push(`Question (repeated): ${params.question}`, "");
+  }
+  parts.push(`Question: ${params.question}`, "Helpful answer:");
   return parts.join("\n");
 }
 

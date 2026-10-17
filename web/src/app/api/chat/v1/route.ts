@@ -84,7 +84,12 @@ import { generateTitle } from "@/utils/server/titleGeneration";
 import { firestoreUpdate } from "@/utils/server/firestoreRetryUtils";
 import { updateUserActivity } from "@/utils/server/userActivityUtils";
 import { ModelPerformanceRecordContext, ModelPerformanceTracker } from "@/utils/server/modelPerformanceUtils";
-import { buildTtfbMetricsPayload, logTtfbMetrics, resolveTtfbExperiment } from "@/utils/server/ttfbMetrics";
+import {
+  buildTtfbMetricsPayload,
+  isEvalQuestionRepeatEnabled,
+  logTtfbMetrics,
+  resolveTtfbExperiment,
+} from "@/utils/server/ttfbMetrics";
 import {
   getTitleScopeFilterConflict,
   resolveTitleScopeSelection,
@@ -869,6 +874,7 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
       let performanceLogged = false;
       let titleGenerationPromise: Promise<string | null> | undefined;
       let requestStatus: "success" | "error" = "success";
+      let evalSourceLabels: string[] = [];
 
       const sendData = (data: StreamingResponseData) => {
         if (!isControllerClosed) {
@@ -1046,6 +1052,9 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
             promptCacheKey
           );
         // --- End of Encapsulated Call ---
+        evalSourceLabels = (finalDocs || [])
+          .map((doc) => String(doc.metadata?.title || doc.metadata?.library || doc.id || "unknown"))
+          .slice(0, 8);
         timingMetrics.answerStreamingComplete = Date.now();
 
         // SAVE DOCUMENT AFTER RESPONSE IS READY
@@ -1210,6 +1219,24 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
 
         // Log comprehensive performance metrics
         await logPerformanceMetrics(timingMetrics, performanceContext);
+
+        if (process.env.NODE_ENV === "development" || process.env.NODE_ENV === "test") {
+          console.log(
+            `[EVAL_COMPARE] ${JSON.stringify({
+              question: sanitizedInput.question.slice(0, 240),
+              evalQuestionRepeat: isEvalQuestionRepeatEnabled(),
+              promptTokens: timingMetrics.promptTokens ?? 0,
+              systemPromptTokens: timingMetrics.systemPromptTokens ?? 0,
+              contextTokens: timingMetrics.contextTokens ?? 0,
+              requestedSourceCount: sourceCount,
+              sourceLabels: evalSourceLabels,
+              ttfbMs: timingMetrics.firstByteTime
+                ? timingMetrics.firstByteTime - timingMetrics.startTime
+                : 0,
+              totalMs: timingMetrics.totalTime ?? 0,
+            })}`
+          );
+        }
 
         if (chatRequestLock === "acquired") {
           await releaseChatRequestLock(siteConfig.siteId || "unknown", clientRequestId);
