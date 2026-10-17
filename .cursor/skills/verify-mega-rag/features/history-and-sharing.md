@@ -22,7 +22,11 @@ Any site can expose a public share URL after an answer exists.
 5. Open `/share/<docId>` in a new session to see the public view.
 
 Vivek history uses a visitor UUID cookie.
-The share route is public on both sites.
+The share page is public on both sites.
+
+On Luca (`requireLogin: true`) the request proxy cookie-gates history
+APIs. A logged-out `GET /api/chats` or `GET /api/document/{id}` must
+return 401. Use `logged-out-share` to open `/share/{id}` after logout.
 
 ## Driving it with the browser
 
@@ -38,7 +42,9 @@ Handles:
 
 APIs:
 
-- `GET /api/chats`
+- `GET /api/chats` — cookie-gated on Luca. Expect 401 logged out.
+- `GET /api/document/{id}` — cookie-gated on Luca. Expect 401 logged out.
+- `GET /api/share/{id}` — public. Display fields only.
 - `GET /api/conversations/<convId>`
 - `POST /api/conversations/star`
 - `POST /api/clone-conversation`
@@ -49,10 +55,12 @@ Skill dry-run:
 .cursor/skills/verify-mega-rag/scripts/drive.sh --feature history-and-sharing
 ```
 
-Logged-out Luca prints `BLOCKED` and exits `2`.
+Logged-out Luca prints `BLOCKED` and exits `2` after it checks that
+`GET /api/chats` and `GET /api/document/{id}` return 401.
 Vivek without a share page prints `NOT VERIFIED` and exits `3`.
 Do not call those write APIs unless `VERIFY_MEGA_RAG_WRITE_DB=1`.
 Do not open a share page that shows answer text in a saved screenshot.
+For the logged-out share URL, use `logged-out-share`.
 
 ## Gotchas
 
@@ -63,5 +71,7 @@ Do not open a share page that shows answer text in a saved screenshot.
   That is a real fail if the journey required a prior chat.
 - Share pages contain answers. They are public.
   Record the HTTP status only.
+- Do not treat a logged-out 401 from `/api/chats` or `/api/document/`
+  as a sick instance on Luca. That is the proxy cookie gate.
 - `dev_chatLogs` is real local history. Do not wipe it during cleanup.
 - Clone creates a new conversation. That is a database write.

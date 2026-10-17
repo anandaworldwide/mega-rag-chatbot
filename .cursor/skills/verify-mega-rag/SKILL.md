@@ -90,6 +90,8 @@ Login, when you opt in:
 - `VERIFY_MEGA_RAG_LOGIN_EMAIL`
 - `VERIFY_MEGA_RAG_LOGIN_PASSWORD`
 - `VERIFY_MEGA_RAG_INDEX` (optional override of `PINECONE_INDEX_NAME`)
+- `VERIFY_MEGA_RAG_SHARE_ID` (optional existing share id for
+  `logged-out-share`)
 
 Do not commit those values.
 
@@ -126,7 +128,8 @@ Ready means usable chrome, not only a TCP listen.
 
 The first HTML is a Next.js shell. `#email-input` and `#userInput` appear
 after the client bundle hydrates. `_app` uses `getInitialProps`.
-On Luca, middleware must send a logged-out `GET /` to `/login`.
+On Luca, the request proxy (`web/src/proxy.ts`) must send a logged-out
+`GET /` to `/login`.
 
 First compile can take several minutes.
 Need a `next` binary from `cd web && npm ci`.
@@ -165,9 +168,15 @@ non-zero when:
 
 - `Content-Security-Policy` is missing on `/login` or `/`
 - A logged-out `GET /` does not redirect to `/login`
+- A logged-out `GET /api/chats` is not 401
+- A logged-out `GET /api/document/{id}` is not 401
+- A logged-out `GET /share/{id}` redirects to `/login`
+- A logged-out `GET /api/share/{id}` is 401
 
-Client AuthGuard is not enough. Production Luca has this bug today.
-The skill must catch it.
+The request proxy at `web/src/proxy.ts` must apply those checks.
+`/api/share/` is public. `/api/chats` and `/api/document/` stay
+cookie-gated. Client AuthGuard is not enough.
+The skill must catch a missing proxy.
 
 Fail the doctor when any check fails.
 Do not drive a sick instance.
@@ -216,7 +225,7 @@ Skill helper:
 ```
 
 Other ids: `ask-sourced-answer`, `title-scope`, `content-filters`,
-`history-and-sharing`.
+`history-and-sharing`, `logged-out-share`.
 
 Default drive is dry-run.
 It does not submit chat, login, email, or votes.
@@ -231,11 +240,15 @@ It does not submit chat, login, email, or votes.
 A `PASS` line must exercise the feature.
 `title-scope`, `content-filters`, and Luca history only reach `/login`.
 Those journeys print `BLOCKED` and exit `2`.
+Luca history also checks that logged-out `GET /api/chats` and
+`GET /api/document/{id}` return 401 before it prints `BLOCKED`.
 Vivek chat input and sharing chrome are not checked by this helper.
 Those journeys print `NOT VERIFIED` and exit `3`.
 
-The shipped HTTP helper can PASS only `login-logout`, and only as an
-HTTP identity check of `/login`. No browser runs.
+The shipped HTTP helper can PASS `login-logout` and `logged-out-share`.
+`login-logout` is an HTTP identity check of `/login`.
+`logged-out-share` is an HTTP check of the Luca cookie gate and the
+public share path. No browser runs.
 
 A live question uses the browser:
 
@@ -312,6 +325,9 @@ All scripts are executable. Run them from any cwd.
 
 `scripts/launch.mjs` is the Node spawn helper. Do not call it directly.
 `scripts/page-probe.mjs` reads `__NEXT_DATA__` identity fields only.
+`scripts/summarize-share-json.py` prints share JSON key names only.
+`scripts/selftest.sh` runs doctor and drive against a local mock proxy.
+Do not call `scripts/mock-luca-proxy.py` except from the self-test.
 
 ## Feature map
 
@@ -323,6 +339,7 @@ Seeded features:
 3. Content filters
 4. Login and logout
 5. History and sharing
+6. Logged-out share link (Luca)
 
 ## Maintenance
 

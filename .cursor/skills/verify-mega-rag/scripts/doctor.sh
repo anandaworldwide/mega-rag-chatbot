@@ -86,13 +86,13 @@ if [[ "$VERIFY_SITE" == "ananda" ]]; then
   if [[ "$login_csp" == "True" || "$login_csp" == "true" ]]; then
     pass "middleware-csp /login"
   else
-    fail_line "Luca /login missing Content-Security-Policy. Middleware is not applying."
+    fail_line "Luca /login missing Content-Security-Policy. Request proxy is not applying."
     luca_gate=1
   fi
   if [[ "$home_csp" == "True" || "$home_csp" == "true" ]]; then
     pass "middleware-csp /"
   else
-    fail_line "Luca / missing Content-Security-Policy. Middleware is not applying."
+    fail_line "Luca / missing Content-Security-Policy. Request proxy is not applying."
     luca_gate=1
   fi
   if [[ "$home_status" =~ ^30[1278]$ && ( "$home_login" == "True" || "$home_login" == "true" ) ]]; then
@@ -104,6 +104,32 @@ if [[ "$VERIFY_SITE" == "ananda" ]]; then
   if [[ "$luca_gate" != "0" ]]; then
     fail "Luca requireLogin gate failed. Doctor must not treat AuthGuard as enough."
   fi
+  # Request proxy (web/src/proxy.ts) is the cookie gate. Public /api/share/.
+  # Cookie-gated /api/chats and /api/document/ on requireLogin sites.
+  probe_luca_logged_out_apis "$VERIFY_BASE_URL" "$VERIFY_SHARE_PROBE_ID"
+  info "GET /api/chats -> $LUCA_CHATS_CODE"
+  info "GET /api/document/$VERIFY_SHARE_PROBE_ID -> $LUCA_DOCUMENT_CODE"
+  info "GET /api/share/$VERIFY_SHARE_PROBE_ID -> $LUCA_SHARE_API_CODE"
+  [[ "$LUCA_CHATS_CODE" == "401" ]] || \
+    fail "Logged-out GET /api/chats must be 401 on Luca. Got $LUCA_CHATS_CODE."
+  pass "luca-logged-out-chats-401"
+  [[ "$LUCA_DOCUMENT_CODE" == "401" ]] || \
+    fail "Logged-out GET /api/document/ must be 401 on Luca. Got $LUCA_DOCUMENT_CODE."
+  pass "luca-logged-out-document-401"
+  if [[ "$LUCA_SHARE_API_CODE" == "401" || "$LUCA_SHARE_API_CODE" == "307" || "$LUCA_SHARE_API_CODE" == "308" ]]; then
+    fail "Logged-out GET /api/share/ must not be cookie-gated. Got $LUCA_SHARE_API_CODE."
+  fi
+  pass "luca-logged-out-share-api-public"
+  share_probe="$VERIFY_RUN_DIR/doctor.share.probe.json"
+  node "$SCRIPT_DIR/page-probe.mjs" "$VERIFY_BASE_URL/share/$VERIFY_SHARE_PROBE_ID" >"$share_probe"
+  share_status="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("status"))' "$share_probe")"
+  share_loc="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("location") or "")' "$share_probe")"
+  share_login="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("locationIsLogin"))' "$share_probe")"
+  info "GET /share/$VERIFY_SHARE_PROBE_ID -> $share_status location=${share_loc:-none} locationIsLogin=$share_login"
+  if [[ "$share_status" == "401" || "$share_login" == "True" || "$share_login" == "true" ]]; then
+    fail "Logged-out GET /share/{id} must not go to /login. Got HTTP $share_status location=${share_loc:-none}."
+  fi
+  pass "luca-logged-out-share-page-public"
 else
   probe_home="$VERIFY_RUN_DIR/doctor.probe.json"
   node "$SCRIPT_DIR/page-probe.mjs" "$VERIFY_BASE_URL/" >"$probe_home"

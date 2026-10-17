@@ -95,3 +95,35 @@ html_has_markers() {
   echo "ok"
   return 0
 }
+
+# Synthetic id for logged-out gate probes. Not a real Firestore document.
+VERIFY_SHARE_PROBE_ID="logged-out-share-probe"
+
+# HTTP status only. Do not follow redirects. Do not save the body.
+http_status() {
+  local url="${1:-}"
+  [[ -n "$url" ]] || {
+    echo "000"
+    return 1
+  }
+  assert_not_production_url "$url"
+  curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "$url" || echo "000"
+}
+
+# Probe Luca cookie-gated APIs and the public share API. No response bodies.
+# Sets LUCA_CHATS_CODE, LUCA_DOCUMENT_CODE, LUCA_SHARE_API_CODE.
+probe_luca_logged_out_apis() {
+  local base="${1:-}"
+  local doc_id="${2:-$VERIFY_SHARE_PROBE_ID}"
+  [[ -n "$base" ]] || die "probe_luca_logged_out_apis needs a base URL."
+  assert_not_production_url "$base"
+  LUCA_CHATS_CODE="$(http_status "$base/api/chats")"
+  LUCA_DOCUMENT_CODE="$(http_status "$base/api/document/${doc_id}")"
+  LUCA_SHARE_API_CODE="$(http_status "$base/api/share/${doc_id}")"
+}
+
+# Read share JSON from stdin. Print key names only. Exit 0 when the
+# top-level keys are exactly id, title, turns and no uuid/email/ip keys exist.
+summarize_share_json() {
+  python3 "$VERIFY_SKILL_DIR/scripts/summarize-share-json.py"
+}

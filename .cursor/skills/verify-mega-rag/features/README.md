@@ -9,6 +9,7 @@ Seeded user-facing features for the Mega RAG Chatbot web UI.
 | `content-filters` | Author, media, and library filters | Luca (`ananda`) |
 | `login-logout` | Sign in and sign out | Luca (`ananda`) |
 | `history-and-sharing` | Chat history and share links | Luca; share is public |
+| `logged-out-share` | Open a share link after logout | Luca (`ananda`) |
 
 Each file has four H2 sections:
 

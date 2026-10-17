@@ -63,8 +63,9 @@ Do not send a magic link unless `VERIFY_MEGA_RAG_SEND_EMAIL=1`.
   That path writes Firestore and can email admins.
 - Password login writes audit logs.
 - `/settings` is `notFound` on Vivek.
-- Middleware must add `Content-Security-Policy` and redirect logged-out
-  `/` to `/login`. Doctor FAILs when either check is missing.
+- The request proxy (`web/src/proxy.ts`) must add
+  `Content-Security-Policy` and redirect logged-out `/` to `/login`.
+  Doctor FAILs when either check is missing.
   Client AuthGuard is not enough.
 - Do not store the password in evidence or screenshots.
 - A missing `SECURE_TOKEN` breaks cookies and `/api/web-token`.

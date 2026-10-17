@@ -19,6 +19,7 @@ Feature ids:
   title-scope
   content-filters
   history-and-sharing
+  logged-out-share
 
 Dry-run is the default. A PASS line is printed only when this script
 exercises the named feature.
@@ -39,6 +40,10 @@ Login credentials, when used, must come from the environment:
   VERIFY_MEGA_RAG_LOGIN_EMAIL
   VERIFY_MEGA_RAG_LOGIN_PASSWORD
 Do not hard-code passwords. Do not invent defaults.
+
+Optional share id for logged-out-share:
+  VERIFY_MEGA_RAG_SHARE_ID
+Do not commit that id. Do not save share JSON.
 EOF
 }
 
@@ -197,6 +202,13 @@ case "$FEATURE" in
     fi
     if [[ "$VERIFY_SITE" == "ananda" ]]; then
       assert_luca_login_identity
+      probe_luca_logged_out_apis "$VERIFY_BASE_URL" "$VERIFY_SHARE_PROBE_ID"
+      note "GET /api/chats -> $LUCA_CHATS_CODE"
+      note "GET /api/document/$VERIFY_SHARE_PROBE_ID -> $LUCA_DOCUMENT_CODE"
+      [[ "$LUCA_CHATS_CODE" == "401" ]] || \
+        fail_drive "Logged-out GET /api/chats must be 401 on Luca. Got $LUCA_CHATS_CODE."
+      [[ "$LUCA_DOCUMENT_CODE" == "401" ]] || \
+        fail_drive "Logged-out GET /api/document/ must be 401 on Luca. Got $LUCA_DOCUMENT_CODE."
       blocked "history-and-sharing needs a Luca session. Chats sidebar was not opened."
     else
       dest="$VERIFY_RUN_DIR/drive-${FEATURE}.probe.json"
@@ -206,9 +218,59 @@ case "$FEATURE" in
       note "GET / -> $status siteId=$site_id"
       [[ "$status" == "200" && "$site_id" == "ananda-public" ]] || \
         fail_drive "Vivek home identity failed."
-      note "History GET /api/chats was not called."
+      note "History GET /api/chats was not called. Vivek is requireLogin false."
       not_verified "Sharing chrome was not exercised. No share page was opened."
     fi
+    ;;
+
+  logged-out-share)
+    [[ "$VERIFY_SITE" == "ananda" ]] || \
+      fail_drive "logged-out-share is a Luca (ananda) feature. Current site is $VERIFY_SITE."
+    SHARE_ID="${VERIFY_MEGA_RAG_SHARE_ID:-}"
+    PROBE_ID="$VERIFY_SHARE_PROBE_ID"
+    if [[ -n "$SHARE_ID" ]]; then
+      PROBE_ID="$SHARE_ID"
+      note "Using VERIFY_MEGA_RAG_SHARE_ID for the share id. Value not written."
+    else
+      note "No VERIFY_MEGA_RAG_SHARE_ID. Gate checks use probe id $PROBE_ID."
+    fi
+    probe_luca_logged_out_apis "$VERIFY_BASE_URL" "$PROBE_ID"
+    note "GET /api/chats -> $LUCA_CHATS_CODE"
+    note "GET /api/document/{id} -> $LUCA_DOCUMENT_CODE"
+    note "GET /api/share/{id} -> $LUCA_SHARE_API_CODE"
+    [[ "$LUCA_CHATS_CODE" == "401" ]] || \
+      fail_drive "Logged-out GET /api/chats must be 401 on Luca. Got $LUCA_CHATS_CODE."
+    [[ "$LUCA_DOCUMENT_CODE" == "401" ]] || \
+      fail_drive "Logged-out GET /api/document/{id} must be 401 on Luca. Got $LUCA_DOCUMENT_CODE."
+    if [[ "$LUCA_SHARE_API_CODE" == "401" || "$LUCA_SHARE_API_CODE" == "307" || "$LUCA_SHARE_API_CODE" == "308" ]]; then
+      fail_drive "Logged-out GET /api/share/{id} must not be cookie-gated. Got $LUCA_SHARE_API_CODE."
+    fi
+    dest="$VERIFY_RUN_DIR/drive-${FEATURE}.probe.json"
+    probe_page "/share/${PROBE_ID}" "$dest"
+    share_status="$(probe_field "$dest" status)"
+    share_page="$(probe_field "$dest" page)"
+    share_login="$(probe_field "$dest" locationIsLogin)"
+    share_loc="$(probe_field "$dest" location)"
+    note "GET /share/{id} -> $share_status page=$share_page location=${share_loc:-none} locationIsLogin=$share_login"
+    if [[ "$share_status" == "401" || "$share_login" == "True" || "$share_login" == "true" ]]; then
+      fail_drive "Logged-out GET /share/{id} must not go to /login. Got HTTP $share_status location=${share_loc:-none}."
+    fi
+    if [[ -n "$SHARE_ID" ]]; then
+      [[ "$LUCA_SHARE_API_CODE" == "200" ]] || \
+        fail_drive "VERIFY_MEGA_RAG_SHARE_ID set. GET /api/share/{id} must be 200. Got $LUCA_SHARE_API_CODE."
+      [[ "$share_status" == "200" ]] || \
+        fail_drive "VERIFY_MEGA_RAG_SHARE_ID set. GET /share/{id} must be 200. Got $share_status."
+      share_summary="$(curl -sS --max-time 30 "$VERIFY_BASE_URL/api/share/${PROBE_ID}" | summarize_share_json || true)"
+      note "share payload $share_summary"
+      echo "$share_summary" | grep -Fq "allowlist=ok" || \
+        fail_drive "GET /api/share/{id} must return only id, title, turns. $share_summary"
+      note "Do not save share JSON. Key names only."
+    else
+      note "Share API 200 key check skipped. Set VERIFY_MEGA_RAG_SHARE_ID after you create a share."
+    fi
+    note "This helper ran logged-out HTTP checks. No browser ran."
+    note "Browser path: sign in, create a share, log out, open /share/{id}."
+    note "PASS logged-out Luca share path. Cookie-gated APIs returned 401."
     ;;
 
   *)
