@@ -103,6 +103,10 @@ import {
 } from "./authorScopeRetrieval";
 import { getCondenseTemplateWithAuthorScope, invokeRephraseWithAuthorScope } from "./rephraseWithAuthorScope";
 import {
+  detectLocationIntentAfterEnglishRestatement,
+  resolveEnglishLocationAndFirstRetrievalQuery,
+} from "./englishRetrievalQuery";
+import {
   formatRelevanceCutoffLog,
   getEffectiveMinRetrievalScore,
   mergeRelevanceStats,
@@ -337,6 +341,8 @@ const getFullTemplate = async (siteId: string) => {
 // This helps maintain context while allowing effective vector store querying
 const CONDENSE_TEMPLATE = `Given the following conversation and a follow up question, rephrase the follow up question to be a standalone question.
 
+LANGUAGE: Always write the standalone question in English. If the follow up is in another language, translate the meaning to English. Keep names, places, and numbers.
+
 IMPORTANT: NEVER reformulate social messages or conversation closers. If the follow up input includes ANY
 of the following:
 1. Expressions of gratitude: "thanks", "thank you", "gracias", "merci", "danke", etc.
@@ -549,6 +555,10 @@ export const makeChain = async (
   // Current user utterance captured before rephrase, so named-author detection cannot
   // hard-filter on Master/Swami names the rewrite injected from prior turns.
   let capturedUserUtterance = "";
+  // English restatement used for location checks and first-message library search.
+  // The answer prompt keeps the original utterance so the model can reply in the user language.
+  let englishRetrievalQuery = originalQuestion || "";
+  let usedEnglishRestatement = false;
   // Set inside the retrieval step so the generation prompt can soften its answer when
   // restrictive filters yield no documents (see buildActiveFiltersSummaryForGeneration).
   let retrievalReturnedNoDocuments = false;
@@ -580,6 +590,22 @@ export const makeChain = async (
       }
     }
 
+    // Rephrase model first so non-English questions can be restated in English
+    // before location checks bind geo tools and skip library search.
+    rephraseModel = new ChatOpenAI({
+      temperature: rephraseModelConfig.temperature,
+      model: rephraseModelConfig.model,
+      streaming: false, // No need for streaming here
+    }) as BaseLanguageModel;
+
+    if (originalQuestion) {
+      englishRetrievalQuery = await resolveEnglishLocationAndFirstRetrievalQuery(
+        rephraseModel,
+        originalQuestion
+      );
+      usedEnglishRestatement = englishRetrievalQuery !== originalQuestion;
+    }
+
     // ✅ CONDITIONAL TOOL BINDING: Only bind geo tools if location intent is detected
     let shouldUseGeoTools = false;
     let locationIntentLatency = 0;
@@ -587,7 +613,11 @@ export const makeChain = async (
     if (originalQuestion && siteConfig?.enableGeoAwareness && geoTools.length > 0) {
       const intentDetectionStart = Date.now();
       try {
-        shouldUseGeoTools = await hasLocationIntentAsync(originalQuestion);
+        shouldUseGeoTools = await detectLocationIntentAfterEnglishRestatement(
+          hasLocationIntentAsync,
+          originalQuestion,
+          englishRetrievalQuery
+        );
         locationIntentLatency = Date.now() - intentDetectionStart;
         if (timingMetrics) {
           timingMetrics.geoIntentMs = locationIntentLatency;
@@ -597,7 +627,7 @@ export const makeChain = async (
           // 📊 COMPREHENSIVE GEO-AWARENESS LOGGING
           console.log(`🌍 GEO-AWARENESS METRICS:`, {
             siteId,
-            query: originalQuestion?.substring(0, 100),
+            query: (englishRetrievalQuery || originalQuestion)?.substring(0, 100),
             locationIntentDetected: shouldUseGeoTools,
             detectionLatency: `${locationIntentLatency}ms`,
             toolsAvailable: geoTools.length,
@@ -615,7 +645,7 @@ export const makeChain = async (
         // 🚨 ERROR LOGGING FOR GEO-AWARENESS
         console.error(`🌍 GEO-AWARENESS ERROR:`, {
           siteId,
-          query: originalQuestion?.substring(0, 100),
+          query: (englishRetrievalQuery || originalQuestion)?.substring(0, 100),
           error: error instanceof Error ? error.message : String(error),
           detectionLatency: `${locationIntentLatency}ms`,
           timestamp: new Date().toISOString(),
@@ -680,13 +710,6 @@ export const makeChain = async (
 
     // Capture shouldUseGeoTools for use in retrieval sequence
     isLocationQuery = shouldUseGeoTools;
-
-    // Initialize the rephrasing model (faster, lighter)
-    rephraseModel = new ChatOpenAI({
-      temperature: rephraseModelConfig.temperature,
-      model: rephraseModelConfig.model,
-      streaming: false, // No need for streaming here
-    }) as BaseLanguageModel;
   } catch (error) {
     const errorMsg = `Failed to initialize models: ${error}`;
     console.error(errorMsg, error);
@@ -1239,7 +1262,10 @@ Error details: ${errorString}`,
     }) => ({
       context: input.retrievalOutput.combinedContent,
       chat_history: input.originalInput.chat_history,
-      question: input.originalInput.question,
+      question:
+        usedEnglishRestatement && originalQuestion
+          ? originalQuestion
+          : input.originalInput.question,
       activeFiltersSummary: buildActiveFiltersSummaryForGeneration(
         activeFilterPromptData,
         retrievalReturnedNoDocuments
@@ -1274,9 +1300,10 @@ Error details: ${errorString}`,
         }
 
         if (input.chat_history.length === 0) {
-          // Skip reformulation for first question (no history to incorporate)
-          capturedRestatedQuestion = input.question; // Store for later
-          return input.question;
+          // First question: skip history rewrite (TTFB). Use the English restatement
+          // when the user asked in another language so library search hits English embeddings.
+          capturedRestatedQuestion = englishRetrievalQuery || input.question;
+          return capturedRestatedQuestion;
         }
 
         // Get the reformulated standalone question
