@@ -60,7 +60,7 @@ export function getRetrievalToolGuidance(): string {
 
 export const RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE = `## CRITICAL OVERRIDE — Retrieval finished
 Retrieval tools are no longer available. Do not call \`search_more_sources\` or \`get_adjacent_chunks\`.
-Do not emit JSON tool calls, fenced \`\`\`json tool payloads, or "Gathering…" / "I'll pull richer sources…" / "Pulling nearby…" narration.
+Do not emit JSON tool calls, TypeScript tool calls, fenced \`\`\`json / \`\`\`typescript tool payloads, or "Gathering…" / "I'll pull richer sources…" / "Pulling nearby…" narration.
 
 Earlier prompt sections that say to use retrieval tools before answering are overridden for this turn.
 The JSON sources above already include every document returned by your retrieval tools (and the original retrieval).
@@ -189,6 +189,92 @@ export function finalizeRetrievalUserAnswer(
  * not a usable user-facing response (common when tools are unbound but the site prompt
  * still urges search_more_sources).
  */
+const RETRIEVAL_TOOL_NAME_PATTERN = /\b(?:search_more_sources|get_adjacent_chunks)\b/;
+const BARE_SEARCH_MORE_ARG_KEYS = new Set(["query", "k", "complete_list", "filters"]);
+const BARE_ADJACENT_ARG_KEYS = new Set(["source_id", "sourceId", "vector_id", "before", "after", "k"]);
+
+function stripCodeFences(text: string): string {
+  return text
+    .replace(/```(?:json|typescript|ts|javascript|js)?\s*/gi, "")
+    .replace(/```/g, "")
+    .trim();
+}
+
+function looksLikeBareRetrievalToolArgs(value: Record<string, unknown>): boolean {
+  const keys = Object.keys(value);
+  if (keys.length === 0) {
+    return false;
+  }
+  if (typeof value.query === "string" && keys.every((key) => BARE_SEARCH_MORE_ARG_KEYS.has(key))) {
+    return true;
+  }
+  const hasSourceId =
+    typeof value.source_id === "string" ||
+    typeof value.sourceId === "string" ||
+    typeof value.vector_id === "string";
+  return hasSourceId && keys.every((key) => BARE_ADJACENT_ARG_KEYS.has(key));
+}
+
+function isRetrievalToolPayloadObject(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  const named =
+    (typeof record.name === "string" && record.name) ||
+    (typeof record.tool === "string" && record.tool) ||
+    "";
+  if (RETRIEVAL_TOOL_NAMES.has(named)) {
+    return true;
+  }
+  const args = record.parameters ?? record.arguments ?? record.args;
+  if (args && typeof args === "object" && !Array.isArray(args)) {
+    if (looksLikeBareRetrievalToolArgs(args as Record<string, unknown>)) {
+      return true;
+    }
+  }
+  return looksLikeBareRetrievalToolArgs(record);
+}
+
+function isRawOrFencedToolPayload(text: string): boolean {
+  const withoutFences = stripCodeFences(text);
+  if (withoutFences.startsWith("{") && withoutFences.endsWith("}")) {
+    try {
+      if (isRetrievalToolPayloadObject(JSON.parse(withoutFences))) {
+        return true;
+      }
+    } catch {
+      if (/\bname\s*:\s*['"]?(?:search_more_sources|get_adjacent_chunks)['"]?/.test(withoutFences)) {
+        return true;
+      }
+    }
+  }
+
+  const fencedBlocks = text.matchAll(/```(?:json|typescript|ts|javascript|js)?\s*([\s\S]*?)```/gi);
+  for (const match of fencedBlocks) {
+    const body = (match[1] ?? "").trim();
+    if (!body) {
+      continue;
+    }
+    if (RETRIEVAL_TOOL_NAME_PATTERN.test(body)) {
+      return true;
+    }
+    if (body.startsWith("{") && body.endsWith("}")) {
+      try {
+        if (isRetrievalToolPayloadObject(JSON.parse(body))) {
+          return true;
+        }
+      } catch {
+        if (/\bname\s*:\s*['"]?(?:search_more_sources|get_adjacent_chunks)['"]?/.test(body)) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
 /** True when Grok (or similar) emitted a status line with almost no spaces. */
 export function isRunTogetherNarrationText(text: string): boolean {
   const compact = text.replace(/[\s.,…]+/g, "");
@@ -211,10 +297,17 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
     return true;
   }
 
-  const withoutFences = trimmed
-    .replace(/```(?:json)?\s*/gi, "")
-    .replace(/```/g, "")
-    .trim();
+  // Any reply that names a retrieval tool is a leak, including TypeScript calls
+  // and JSON mixed with leftover prose.
+  if (RETRIEVAL_TOOL_NAME_PATTERN.test(trimmed)) {
+    return true;
+  }
+
+  if (isRawOrFencedToolPayload(trimmed)) {
+    return true;
+  }
+
+  const withoutFences = stripCodeFences(trimmed);
 
   // Leaked tool-call JSON (single or repeated), with or without markdown fences.
   const toolPayloadPattern =
