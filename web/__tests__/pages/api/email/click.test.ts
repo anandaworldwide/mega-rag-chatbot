@@ -5,6 +5,7 @@ import { createMocks } from "node-mocks-http";
 import handler from "@/pages/api/email/click";
 import { firestoreSet } from "@/utils/server/firestoreRetryUtils";
 import { generateClickRedirectSignature } from "@/utils/server/emailTokenUtils";
+import { generateClickTrackingUrl } from "@/utils/server/emailTrackingUtils";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 
@@ -220,8 +221,8 @@ describe("/api/email/click", () => {
     expect(mockFirestoreSet).not.toHaveBeenCalled();
   });
 
-  it("sends an unsigned /%09/evil.example relative target to the site home", async () => {
-    const { req, res } = createClickRequest("/%09/evil.example", { sig: null });
+  it("sends an unsigned /\\t/evil.example relative target to the site home", async () => {
+    const { req, res } = createClickRequest("/\t/evil.example", { sig: null });
 
     await handler(req, res);
 
@@ -231,8 +232,8 @@ describe("/api/email/click", () => {
     expect(mockFirestoreSet).not.toHaveBeenCalled();
   });
 
-  it("sends an unsigned /%0a/evil.example relative target to the site home", async () => {
-    const { req, res } = createClickRequest("/%0a/evil.example", { sig: null });
+  it("sends an unsigned /\\n/evil.example relative target to the site home", async () => {
+    const { req, res } = createClickRequest("/\n/evil.example", { sig: null });
 
     await handler(req, res);
 
@@ -242,8 +243,8 @@ describe("/api/email/click", () => {
     expect(mockFirestoreSet).not.toHaveBeenCalled();
   });
 
-  it("sends an unsigned /%0d/evil.example relative target to the site home", async () => {
-    const { req, res } = createClickRequest("/%0d/evil.example", { sig: null });
+  it("sends an unsigned /\\r/evil.example relative target to the site home", async () => {
+    const { req, res } = createClickRequest("/\r/evil.example", { sig: null });
 
     await handler(req, res);
 
@@ -251,6 +252,42 @@ describe("/api/email/click", () => {
     expect(redirectUrl(res)).toBe("/");
     expect(redirectUrl(res)).not.toContain("evil.example");
     expect(mockFirestoreSet).not.toHaveBeenCalled();
+  });
+
+  it("redirects a signed onboarding question link with encoded spaces and writes a click record", async () => {
+    const question = "How do I meditate?";
+    const targetUrl = `https://luca.ananda.org/?q=${encodeURIComponent(question)}&submit=true`;
+    expect(targetUrl).toBe("https://luca.ananda.org/?q=How%20do%20I%20meditate%3F&submit=true");
+
+    const trackingUrl = generateClickTrackingUrl(
+      targetUrl,
+      "test@example.com",
+      "onboarding",
+      0,
+      "question",
+      question,
+      "https://luca.ananda.org"
+    );
+    const parsed = new URL(trackingUrl);
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "GET",
+      headers: { host: "luca.ananda.org" },
+      query: Object.fromEntries(parsed.searchParams.entries()),
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(302);
+    expect(redirectUrl(res)).toBe(targetUrl);
+    expect(redirectUrl(res)).toContain("How%20do%20I%20meditate%3F");
+    expect(mockFirestoreSet).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        targetUrl,
+      }),
+      {},
+      "log email click for test@example.com"
+    );
   });
 
   it("does not follow a protocol-relative // target and writes no record", async () => {

@@ -105,8 +105,9 @@ export function isAllowedClickRedirectHost(hostname: string, siteConfig: SiteCon
 }
 
 /**
- * True when the string has a C0/DEL control, or a %HH form of one.
- * Browsers strip tab/CR/LF from Location, so /%09/evil.example can become //evil.example.
+ * True when the string has a literal C0 or DEL character.
+ * Next decodes the query once, so an attack arrives as a real control char.
+ * Do not treat `%20` as a control: onboarding question links use it.
  */
 export function containsForbiddenControlChar(value: string): boolean {
   for (let i = 0; i < value.length; i++) {
@@ -115,24 +116,13 @@ export function containsForbiddenControlChar(value: string): boolean {
       return true;
     }
   }
-
-  const encoded = /%([0-9a-fA-F]{2})/g;
-  let match = encoded.exec(value);
-  while (match) {
-    const code = parseInt(match[1], 16);
-    if (code <= 0x20 || code === 0x7f) {
-      return true;
-    }
-    match = encoded.exec(value);
-  }
-
   return false;
 }
 
 const RELATIVE_PARSE_BASE = "https://x.invalid";
 
 /**
- * Keep only a same-origin path. `/%09/evil.example` must not become //evil.example.
+ * Keep only a same-origin path. `/\t/evil.example` must not become //evil.example.
  */
 function resolveRelativeClickTarget(rawTarget: string): string | null {
   try {
