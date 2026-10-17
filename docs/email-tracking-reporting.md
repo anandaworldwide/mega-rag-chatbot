@@ -159,17 +159,25 @@ When adding a new email campaign type:
    ```
 
    Click links include an HMAC (`sig`) over the recipient and target URL, using
-   `SECURE_TOKEN` (same helper and secret as open-tracking tokens). The click
-   route rejects a missing or bad signature: it does not redirect to the target
-   and it does not write a click record. It sends the user to the site home.
+   `SECURE_TOKEN` (same helper and secret as open-tracking tokens). A valid
+   signature may redirect to any `https` host and writes a click record. A
+   signed `http` link is allowed only when the host is on the allowlist
+   (localhost may stay on `http`). Other signed `http` links go to the site
+   home.
 
-   Links in emails sent before this change have no `sig`. Those clicks also go
-   to the site home and write no record.
+   Links in emails sent before this change have no `sig`. Those unsigned clicks
+   follow the target only when the host is on the allowlist, or when the target
+   is a relative path that starts with a single `/` (not `//` or `/\`). They
+   never write a click record. Unsigned links to any other host go to the site
+   home.
 
-   The route also checks the target host against a site-config allowlist
-   (`allowedFrontEndDomains`, `accessControl.originUrl`, `parent_site_url`,
-   `help_url`, `redirectMappings`, and `NEXT_PUBLIC_BASE_URL`). Newsletter CTA
-   URLs must use one of those hosts.
+   The allowlist is used only for unsigned links and for signed `http`. It
+   comes from exact `allowedFrontEndDomains` (no `*` / `**` patterns),
+   `accessControl.originUrl`, `parent_site_url`, `help_url`,
+   `redirectMappings`, `NEXT_PUBLIC_BASE_URL`, plus `localhost` and
+   `127.0.0.1`. Vercel wildcard hosts such as
+   `**-ananda-web-services-projects.vercel.app` are not used, so
+   `evil-ananda-web-services-projects.vercel.app` is not treated as allowed.
 
 2. **Add UTM parameters:**
 

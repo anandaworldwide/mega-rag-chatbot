@@ -1,10 +1,20 @@
 /**
  * Safe-redirect helpers for email click tracking.
  * Host allowlist is derived from the current site config.
+ * Vercel `**` wildcard hosts are not used here.
  */
 
 import { NextApiRequest } from "next";
 import { SiteConfig } from "@/types/siteConfig";
+
+export type ResolvedClickRedirect =
+  | { ok: false }
+  | {
+      ok: true;
+      target: string;
+      hostname: string | null;
+      protocol: "relative" | "http:" | "https:";
+    };
 
 function getRequestHost(req: NextApiRequest): string | undefined {
   const forwardedHost = req.headers["x-forwarded-host"];
@@ -56,11 +66,15 @@ function hostnameFromAllowedDomain(domain: string): string {
 }
 
 /**
- * Allowlist for click redirects, derived from site config:
- * - exact allowedFrontEndDomains (port stripped; `**` suffix wildcards kept)
- * - accessControl.originUrl, parent_site_url, help_url
+ * Allowlist for unsigned click redirects (and signed http), from site config:
+ * - exact allowedFrontEndDomains (port stripped)
+ * - accessControl.originUrl, parent_site_url, help_url, redirectMappings
  * - NEXT_PUBLIC_BASE_URL
- * - localhost and 127.0.0.1 for local HTTP
+ * - localhost and 127.0.0.1
+ *
+ * Wildcard entries such as `**-ananda-web-services-projects.vercel.app` are
+ * ignored. A suffix match would also allow
+ * `evil-ananda-web-services-projects.vercel.app`.
  */
 export function isAllowedClickRedirectHost(hostname: string, siteConfig: SiteConfig | null): boolean {
   const normalized = hostname.toLowerCase();
@@ -69,15 +83,13 @@ export function isAllowedClickRedirectHost(hostname: string, siteConfig: SiteCon
   }
 
   const exactHosts = new Set<string>();
-  const wildcardSuffixes: string[] = [];
 
   for (const domain of siteConfig?.allowedFrontEndDomains ?? []) {
     const pattern = hostnameFromAllowedDomain(domain);
-    if (pattern.startsWith("**")) {
-      wildcardSuffixes.push(pattern.substring(2));
-    } else if (!pattern.includes("*")) {
-      exactHosts.add(pattern);
+    if (pattern.includes("*")) {
+      continue;
     }
+    exactHosts.add(pattern);
   }
 
   addHostFromUrl(exactHosts, siteConfig?.parent_site_url);
@@ -89,18 +101,14 @@ export function isAllowedClickRedirectHost(hostname: string, siteConfig: SiteCon
     addHostFromUrl(exactHosts, mapping.url);
   }
 
-  if (exactHosts.has(normalized)) {
-    return true;
-  }
-
-  return wildcardSuffixes.some((suffix) => suffix.length > 0 && normalized.endsWith(suffix));
+  return exactHosts.has(normalized);
 }
 
 /**
- * Reject protocol-relative, backslash, and non-http(s) targets.
+ * Reject protocol-relative, backslash, `/\\`, and non-http(s) targets.
  */
 export function isSafeClickRedirectTarget(rawTarget: string): boolean {
-  if (!rawTarget || rawTarget.includes("\\") || rawTarget.startsWith("//")) {
+  if (!rawTarget || rawTarget.includes("\\") || rawTarget.startsWith("//") || rawTarget.startsWith("/\\")) {
     return false;
   }
 
@@ -139,15 +147,33 @@ export function normalizeClickRedirectUrl(targetUrl: string, req: NextApiRequest
 }
 
 /**
- * Return a safe redirect target, or null when the URL must not be used.
+ * Upgrade remaining HTTP targets to HTTPS, except localhost.
  */
-export function resolveClickRedirectTarget(rawTarget: string, req: NextApiRequest): string | null {
+export function upgradeInsecureClickRedirect(targetUrl: string): string {
+  try {
+    const urlObj = new URL(targetUrl);
+    if (urlObj.protocol === "http:" && urlObj.hostname !== "localhost") {
+      urlObj.protocol = "https:";
+      return urlObj.toString();
+    }
+  } catch {
+    return targetUrl;
+  }
+
+  return targetUrl;
+}
+
+/**
+ * Parse a click target. HTTP to a non-local, non-same-host URL is kept so
+ * the caller can apply the unsigned allowlist or reject signed off-list HTTP.
+ */
+export function resolveClickRedirectTarget(rawTarget: string, req: NextApiRequest): ResolvedClickRedirect {
   if (!isSafeClickRedirectTarget(rawTarget)) {
-    return null;
+    return { ok: false };
   }
 
   if (rawTarget.startsWith("/")) {
-    return rawTarget;
+    return { ok: true, target: rawTarget, hostname: null, protocol: "relative" };
   }
 
   const normalized = normalizeClickRedirectUrl(rawTarget, req);
@@ -155,13 +181,16 @@ export function resolveClickRedirectTarget(rawTarget: string, req: NextApiReques
   try {
     const urlObj = new URL(normalized);
     const protocol = urlObj.protocol.toLowerCase();
-    const isHttps = protocol === "https:";
-    const isLocalHttp = protocol === "http:" && urlObj.hostname === "localhost";
-    if (!isHttps && !isLocalHttp) {
-      return null;
+    if (protocol !== "https:" && protocol !== "http:") {
+      return { ok: false };
     }
-    return normalized;
+    return {
+      ok: true,
+      target: normalized,
+      hostname: urlObj.hostname,
+      protocol,
+    };
   } catch {
-    return null;
+    return { ok: false };
   }
 }

@@ -53,7 +53,11 @@ const mockLoadSiteConfigSync = loadSiteConfigSync as jest.MockedFunction<typeof 
 const mockGetUsersCollectionName = getUsersCollectionName as jest.MockedFunction<typeof getUsersCollectionName>;
 
 const SITE_CONFIG = {
-  allowedFrontEndDomains: ["luca.ananda.org", "localhost:3000"],
+  allowedFrontEndDomains: [
+    "luca.ananda.org",
+    "localhost:3000",
+    "**-ananda-web-services-projects.vercel.app",
+  ],
   accessControl: { originUrl: "https://luca.ananda.org" },
   parent_site_url: "https://www.ananda.org",
   help_url: "https://anandafamily.notion.site/luca-help",
@@ -179,17 +183,40 @@ describe("/api/email/click", () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(302);
-    expect(redirectUrl(res)).toBe("/");
+    expect(redirectUrl(res)).toBe(targetUrl);
     expect(mockFirestoreSet).not.toHaveBeenCalled();
   });
 
-  it("does not follow a link with a missing signature and writes no record", async () => {
-    const { req, res } = createClickRequest("https://luca.ananda.org/ok", { sig: null });
+  it("redirects an unsigned relative path and writes no click record", async () => {
+    const targetUrl = "/api/unsubscribe?token=abc";
+    const { req, res } = createClickRequest(targetUrl, { sig: null });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(302);
+    expect(redirectUrl(res)).toBe(targetUrl);
+    expect(mockFirestoreSet).not.toHaveBeenCalled();
+  });
+
+  it("redirects an unsigned allowlisted host and writes no click record", async () => {
+    const targetUrl = "https://luca.ananda.org/ok";
+    const { req, res } = createClickRequest(targetUrl, { sig: null });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(302);
+    expect(redirectUrl(res)).toBe(targetUrl);
+    expect(mockFirestoreSet).not.toHaveBeenCalled();
+  });
+
+  it("sends an unsigned host that is not allowlisted to the site home", async () => {
+    const { req, res } = createClickRequest("https://evil.example/phish", { sig: null });
 
     await handler(req, res);
 
     expect(res.statusCode).toBe(302);
     expect(redirectUrl(res)).toBe("/");
+    expect(redirectUrl(res)).not.toContain("evil.example");
     expect(mockFirestoreSet).not.toHaveBeenCalled();
   });
 
@@ -225,8 +252,8 @@ describe("/api/email/click", () => {
   });
 
   it("does not follow the raw url when the handler throws", async () => {
-    mockLoadSiteConfigSync.mockImplementation(() => {
-      throw new Error("config boom");
+    mockGetUsersCollectionName.mockImplementation(() => {
+      throw new Error("db boom");
     });
     const targetUrl = "https://evil.example/phish";
     const { req, res } = createClickRequest(targetUrl);
@@ -239,15 +266,45 @@ describe("/api/email/click", () => {
     expect(mockFirestoreSet).not.toHaveBeenCalled();
   });
 
-  it("does not follow a signed URL whose host is outside the allowlist", async () => {
-    const targetUrl = "https://evil.example/phish";
+  it("redirects a signed https host outside the allowlist and writes a click record", async () => {
+    const targetUrl = "https://newsletter.example/cta";
     const { req, res } = createClickRequest(targetUrl);
 
     await handler(req, res);
 
     expect(res.statusCode).toBe(302);
+    expect(redirectUrl(res)).toBe(targetUrl);
+    expect(mockFirestoreSet).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        targetUrl,
+      }),
+      {},
+      "log email click for test@example.com"
+    );
+  });
+
+  it("sends a signed http link to a host that is not allowlisted to the site home", async () => {
+    const { req, res } = createClickRequest("http://example.com/phishing");
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(302);
     expect(redirectUrl(res)).toBe("/");
-    expect(redirectUrl(res)).not.toContain("evil.example");
+    expect(redirectUrl(res)).not.toContain("example.com");
+    expect(mockFirestoreSet).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unsigned evil-ananda-web-services-projects.vercel.app host", async () => {
+    const { req, res } = createClickRequest("https://evil-ananda-web-services-projects.vercel.app/", {
+      sig: null,
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(302);
+    expect(redirectUrl(res)).toBe("/");
+    expect(redirectUrl(res)).not.toContain("vercel.app");
     expect(mockFirestoreSet).not.toHaveBeenCalled();
   });
 

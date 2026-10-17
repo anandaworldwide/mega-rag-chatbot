@@ -11,6 +11,8 @@ import {
   getClickRedirectSafeHomeUrl,
   isAllowedClickRedirectHost,
   resolveClickRedirectTarget,
+  upgradeInsecureClickRedirect,
+  type ResolvedClickRedirect,
 } from "@/utils/server/emailClickRedirectUtils";
 import crypto from "crypto";
 
@@ -28,10 +30,79 @@ function redirectHome(res: NextApiResponse) {
   return res.redirect(302, getClickRedirectSafeHomeUrl());
 }
 
+function isHostAllowlisted(hostname: string | null): boolean {
+  if (!hostname) {
+    return true;
+  }
+  return isAllowedClickRedirectHost(hostname, loadSiteConfigSync());
+}
+
+function destinationForAllowedHttp(resolved: Extract<ResolvedClickRedirect, { ok: true }>): string {
+  if (resolved.protocol === "http:") {
+    return upgradeInsecureClickRedirect(resolved.target);
+  }
+  return resolved.target;
+}
+
+async function logClickRecord(params: {
+  userEmail: string;
+  campaignType: "onboarding" | "newsletter" | "reengagement" | "specialDay" | "nps";
+  campaignId: string;
+  linkType: "question" | "cta" | "unsubscribe" | "link" | "score";
+  linkId: string | undefined;
+  targetUrl: string;
+  req: NextApiRequest;
+}): Promise<void> {
+  if (!db) {
+    return;
+  }
+
+  const usersCol = getUsersCollectionName();
+  const userRef = db.collection(usersCol).doc(params.userEmail);
+  const clicksRef = userRef.collection("email_clicks").doc();
+
+  const expireAt = new Date();
+  expireAt.setDate(expireAt.getDate() + EMAIL_TRACKING_TTL_DAYS);
+
+  const ipRaw = params.req.headers["x-forwarded-for"] || params.req.socket.remoteAddress || "";
+  const ipStr = Array.isArray(ipRaw) ? ipRaw[0] : ipRaw;
+  const ipHash = ipStr ? crypto.createHash("sha256").update(ipStr).digest("hex").substring(0, 16) : null;
+
+  try {
+    await firestoreSet(
+      clicksRef,
+      {
+        campaign: params.campaignType,
+        campaignId: params.campaignId,
+        type: params.linkType,
+        linkId: params.linkId || null,
+        targetUrl: params.targetUrl,
+        timestamp: firebase.firestore.Timestamp.now(),
+        ipHash: ipHash,
+        expireAt: firebase.firestore.Timestamp.fromDate(expireAt),
+      },
+      {},
+      `log email click for ${params.userEmail}`
+    );
+  } catch (error: any) {
+    console.error("Failed to log email click:", error);
+    sendOpsAlert(
+      "Email Click Tracking Failure",
+      `Failed to log email click for ${params.userEmail}: ${error.message}`,
+      {
+        context: { campaign: params.campaignType, campaignId: params.campaignId, linkType: params.linkType },
+      }
+    ).catch((alertError) => {
+      console.error("Failed to send ops alert:", alertError);
+    });
+  }
+}
+
 /**
  * Email click tracking endpoint
- * Logs email clicks to Firestore and redirects to the target URL.
- * Requires an HMAC over the recipient and target URL (same secret as open tracking).
+ * Logs signed clicks to Firestore and redirects to the target URL.
+ * Unsigned links (old emails) may follow an allowlisted host or a same-site
+ * relative path, but they never write a click record.
  *
  * Query parameters:
  * - url: Target URL (encoded)
@@ -97,10 +168,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: "Invalid 'type' parameter" });
     }
 
-    if (!sig || typeof sig !== "string" || sig.length > MAX_SIG_LENGTH) {
-      return redirectHome(res);
-    }
-
     // Next.js already decodes query values once. Do not decode again.
     const targetFromQuery = url;
     const userEmail = email.toLowerCase();
@@ -108,74 +175,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const linkType = type as "question" | "cta" | "unsubscribe" | "link" | "score";
     const linkId = id && typeof id === "string" ? id.substring(0, MAX_LINK_ID_LENGTH) : undefined;
 
-    if (!verifyClickRedirectSignature(userEmail, targetFromQuery, sig)) {
+    const resolved = resolveClickRedirectTarget(targetFromQuery, req);
+    if (!resolved.ok) {
       return redirectHome(res);
     }
 
-    const targetUrl = resolveClickRedirectTarget(targetFromQuery, req);
-    if (!targetUrl) {
+    const hasSig = typeof sig === "string" && sig.length > 0 && sig.length <= MAX_SIG_LENGTH;
+    const isSigned = hasSig && verifyClickRedirectSignature(userEmail, targetFromQuery, sig);
+
+    if (!isSigned) {
+      if (resolved.protocol === "relative" || isHostAllowlisted(resolved.hostname)) {
+        return res.redirect(302, destinationForAllowedHttp(resolved));
+      }
       return redirectHome(res);
     }
 
-    if (!targetUrl.startsWith("/")) {
-      const hostname = new URL(targetUrl).hostname;
-      const siteConfig = loadSiteConfigSync();
-      if (!isAllowedClickRedirectHost(hostname, siteConfig)) {
-        return redirectHome(res);
-      }
+    if (resolved.protocol === "http:" && resolved.hostname !== "localhost" && !isHostAllowlisted(resolved.hostname)) {
+      return redirectHome(res);
     }
 
-    // Log click to Firestore with TTL and anonymized IP
-    if (db) {
-      const usersCol = getUsersCollectionName();
-      const userRef = db.collection(usersCol).doc(userEmail);
+    const targetUrl = destinationForAllowedHttp(resolved);
 
-      // Create click event document in a subcollection
-      const clicksRef = userRef.collection("email_clicks").doc();
+    await logClickRecord({
+      userEmail,
+      campaignType,
+      campaignId,
+      linkType,
+      linkId,
+      targetUrl,
+      req,
+    });
 
-      // Calculate expiration date for automatic cleanup
-      const expireAt = new Date();
-      expireAt.setDate(expireAt.getDate() + EMAIL_TRACKING_TTL_DAYS);
-
-      // Hash IP for privacy
-      const ipRaw = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "";
-      const ipStr = Array.isArray(ipRaw) ? ipRaw[0] : ipRaw;
-      const ipHash = ipStr ? crypto.createHash("sha256").update(ipStr).digest("hex").substring(0, 16) : null;
-
-      // Use await to ensure logging completes before redirect
-      // This prevents data loss when Vercel terminates the function
-      try {
-        await firestoreSet(
-          clicksRef,
-          {
-            campaign: campaignType,
-            campaignId: campaignId,
-            type: linkType,
-            linkId: linkId || null,
-            targetUrl: targetUrl,
-            timestamp: firebase.firestore.Timestamp.now(),
-            // Anonymize IP by hashing (privacy protection)
-            ipHash: ipHash,
-            // TTL field for Firestore TTL policy
-            expireAt: firebase.firestore.Timestamp.fromDate(expireAt),
-          },
-          {},
-          `log email click for ${userEmail}`
-        );
-      } catch (error: any) {
-        // Log error but don't fail the redirect
-        console.error("Failed to log email click:", error);
-
-        // Alert ops on failures (fire-and-forget with proper error handling)
-        sendOpsAlert("Email Click Tracking Failure", `Failed to log email click for ${userEmail}: ${error.message}`, {
-          context: { campaign: campaignType, campaignId, linkType },
-        }).catch((alertError) => {
-          console.error("Failed to send ops alert:", alertError);
-        });
-      }
-    }
-
-    // Redirect to target URL
     res.redirect(302, targetUrl);
   } catch (error: any) {
     console.error("Error in email click tracking:", error);
