@@ -156,10 +156,14 @@ testRunner("Vivek Response Semantic Validation (ananda-public)", () => {
     return maxSimilarity;
   };
 
-  const assertSeparateRedirectGuard = (actualResponse: string, actualEmbedding: number[]): number => {
+  const assertSeparateRedirectGuard = (
+    query: string,
+    actualResponse: string,
+    actualEmbedding: number[]
+  ): number => {
     const similarityToRedirectResponses = getMaxSimilarity(actualEmbedding, redirectResponseEmbeddings);
     console.log(`Similarity to Redirect Responses: ${similarityToRedirectResponses}`);
-    expect(isGenericRedirectOnly(actualResponse)).toBe(false);
+    expect(isGenericRedirectOnly(actualResponse, query)).toBe(false);
     expect(similarityToRedirectResponses).toBeLessThan(GENERIC_REDIRECT_SIMILARITY_LIMIT);
     return similarityToRedirectResponses;
   };
@@ -339,7 +343,7 @@ testRunner("Vivek Response Semantic Validation (ananda-public)", () => {
       expect(similarityToUnexpected).toBeLessThan(0.75);
       // anandauk.org, Devizes/Wiltshire, or a named London group. Center+London or UK alone fail.
       expect(hasLondonSpecificCenter(actualResponse)).toBe(true);
-      assertSeparateRedirectGuard(actualResponse, actualEmbedding);
+      assertSeparateRedirectGuard(query, actualResponse, actualEmbedding);
       // Note: Find Ananda link is optional when specific centers are provided via geo-awareness
     });
 
@@ -1212,7 +1216,7 @@ testRunner("Vivek Response Semantic Validation (ananda-public)", () => {
       expect(similarityToUnexpected).toBeLessThan(0.7);
       // Should contain the Find Ananda link as fallback
       expect(actualResponse).toContain("https://www.ananda.org/find-ananda/");
-      assertSeparateRedirectGuard(actualResponse, actualEmbedding);
+      assertSeparateRedirectGuard(query, actualResponse, actualEmbedding);
     });
 
     test.concurrent("should handle 'near me' queries with IP-based location detection", async () => {
@@ -1335,7 +1339,7 @@ testRunner("Vivek Response Semantic Validation (ananda-public)", () => {
       expect(similarityToUnexpected).toBeLessThan(0.6);
       // anandauk.org, Devizes/Wiltshire, or a named London group. UK name alone fails.
       expect(hasLondonSpecificCenter(actualResponse)).toBe(true);
-      assertSeparateRedirectGuard(actualResponse, actualEmbedding);
+      assertSeparateRedirectGuard(query, actualResponse, actualEmbedding);
     });
 
     test.concurrent("should handle meditation group queries as location-based", async () => {

@@ -198,10 +198,14 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
 
   // Separate from the rejection non-location set. A redirect-only answer
   // (no specific center, city, or domain) must fail.
-  const assertSeparateRedirectGuard = (actualResponse: string, actualEmbedding: number[]): number => {
+  const assertSeparateRedirectGuard = (
+    query: string,
+    actualResponse: string,
+    actualEmbedding: number[]
+  ): number => {
     const similarityToRedirectResponses = getMaxSimilarity(actualEmbedding, redirectResponseEmbeddings);
     console.log(`Similarity to Redirect Responses: ${similarityToRedirectResponses}`);
-    expect(isGenericRedirectOnly(actualResponse)).toBe(false);
+    expect(isGenericRedirectOnly(actualResponse, query)).toBe(false);
     expect(similarityToRedirectResponses).toBeLessThan(GENERIC_REDIRECT_SIMILARITY_LIMIT);
     return similarityToRedirectResponses;
   };
@@ -225,7 +229,7 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
       expect(similarityToLocationResponses).toBeGreaterThan(0.55);
       // Non-location canonical set includes some generic location guidance; allow higher similarity
       expect(similarityToNonLocationResponses).toBeLessThan(0.75);
-      assertSeparateRedirectGuard(actualResponse, actualEmbedding);
+      assertSeparateRedirectGuard(query, actualResponse, actualEmbedding);
     });
 
     test.concurrent('should recognize "Find a center near me" as a location query', async () => {
@@ -244,7 +248,7 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
 
       expect(similarityToLocationResponses).toBeGreaterThan(0.55);
       expect(similarityToNonLocationResponses).toBeLessThan(0.75);
-      assertSeparateRedirectGuard(actualResponse, actualEmbedding);
+      assertSeparateRedirectGuard(query, actualResponse, actualEmbedding);
     });
 
     test.concurrent('should recognize city names like "Paris" as location queries', async () => {
@@ -263,7 +267,7 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
 
       expect(similarityToLocationResponses).toBeGreaterThan(0.55);
       expect(similarityToNonLocationResponses).toBeLessThan(0.75);
-      assertSeparateRedirectGuard(actualResponse, actualEmbedding);
+      assertSeparateRedirectGuard(query, actualResponse, actualEmbedding);
     });
 
     // TODO(known-flaky): a bare ZIP often is not treated as a location query
@@ -286,7 +290,7 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
 
       expect(similarityToLocationResponses).toBeGreaterThan(0.55);
       expect(similarityToNonLocationResponses).toBeLessThan(0.75);
-      assertSeparateRedirectGuard(actualResponse, actualEmbedding);
+      assertSeparateRedirectGuard(query, actualResponse, actualEmbedding);
     });
   });
 
@@ -324,7 +328,7 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
 
       expect(similarityToLocationResponses).toBeGreaterThan(0.6);
       expect(actualResponse.toLowerCase()).toMatch(/ananda|center|group/);
-      assertSeparateRedirectGuard(actualResponse, actualEmbedding);
+      assertSeparateRedirectGuard(query, actualResponse, actualEmbedding);
     });
 
     test.concurrent('should handle "New York City" with appropriate responses', async () => {
@@ -388,7 +392,7 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
       expect(similarityToLocationResponses).toBeGreaterThan(0.5);
       expect(actualResponse.toLowerCase()).toMatch(/ananda|center|group/);
       expect(hasLondonSpecificCenter(actualResponse)).toBe(true);
-      assertSeparateRedirectGuard(actualResponse, actualEmbedding);
+      assertSeparateRedirectGuard(query, actualResponse, actualEmbedding);
     });
 
     test.concurrent('should handle "Berlin, Germany" appropriately', async () => {
@@ -445,7 +449,7 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
       expect(lower).toMatch(/ananda|center|centre|group/);
       // One listed India city or an Ananda center domain. Country alone fails.
       expect(hasIndiaSpecificCenter(actualResponse)).toBe(true);
-      assertSeparateRedirectGuard(actualResponse, actualEmbedding);
+      assertSeparateRedirectGuard(query, actualResponse, actualEmbedding);
     });
 
     test.concurrent('should mention NZ centers for New Zealand country query', async () => {
@@ -487,7 +491,7 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
       expect(lower).toMatch(/ananda|center|centre|group|europa|nocera|umbria/);
       // One listed Italy city/center or an Ananda center domain. Country alone fails.
       expect(hasItalySpecificCenter(actualResponse)).toBe(true);
-      assertSeparateRedirectGuard(actualResponse, actualEmbedding);
+      assertSeparateRedirectGuard(query, actualResponse, actualEmbedding);
     });
   });
 
@@ -508,7 +512,7 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
 
       expect(similarityToLocationResponses).toBeGreaterThan(0.55);
       expect(similarityToNonLocationResponses).toBeLessThan(0.75);
-      assertSeparateRedirectGuard(actualResponse, actualEmbedding);
+      assertSeparateRedirectGuard(query, actualResponse, actualEmbedding);
     });
 
     test.concurrent('should handle "Are there any centers anywhere near Kamano Island, Washington?"', async () => {
@@ -527,7 +531,7 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
 
       expect(similarityToLocationResponses).toBeGreaterThan(0.55);
       expect(similarityToNonLocationResponses).toBeLessThan(0.75);
-      assertSeparateRedirectGuard(actualResponse, actualEmbedding);
+      assertSeparateRedirectGuard(query, actualResponse, actualEmbedding);
     });
 
     test.concurrent('should handle "Find meditation groups within 50 miles of Austin, Texas"', async () => {
@@ -546,7 +550,7 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
 
       expect(similarityToLocationResponses).toBeGreaterThan(0.55);
       expect(similarityToNonLocationResponses).toBeLessThan(0.75);
-      assertSeparateRedirectGuard(actualResponse, actualEmbedding);
+      assertSeparateRedirectGuard(query, actualResponse, actualEmbedding);
     });
   });
 
@@ -567,7 +571,7 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
 
       expect(similarityToLocationResponses).toBeGreaterThan(0.55);
       expect(similarityToNonLocationResponses).toBeLessThan(0.75);
-      assertSeparateRedirectGuard(actualResponse, actualEmbedding);
+      assertSeparateRedirectGuard(query, actualResponse, actualEmbedding);
     });
 
     test.concurrent('should handle German location query "Wo ist das nächste Zentrum?"', async () => {
@@ -586,7 +590,7 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
 
       expect(similarityToLocationResponses).toBeGreaterThan(0.55);
       expect(similarityToNonLocationResponses).toBeLessThan(0.75);
-      assertSeparateRedirectGuard(actualResponse, actualEmbedding);
+      assertSeparateRedirectGuard(query, actualResponse, actualEmbedding);
     });
 
     // TODO(known-flaky): Hindi location intent is unstable. On 10 main runs,
@@ -609,7 +613,7 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
 
       expect(similarityToLocationResponses).toBeGreaterThan(0.55);
       expect(similarityToNonLocationResponses).toBeLessThan(0.75);
-      assertSeparateRedirectGuard(actualResponse, actualEmbedding);
+      assertSeparateRedirectGuard(query, actualResponse, actualEmbedding);
     });
   });
 

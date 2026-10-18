@@ -29,6 +29,25 @@ describe("semanticAnswerGuards", () => {
     expect(passesItalyLocationGuard(genericRedirect)).toBe(false);
   });
 
+  it("treats a Paris echo plus visit-our-website as redirect-only", () => {
+    const query = "Paris";
+    const answer = "To find centers near Paris, visit our website.";
+    expect(isGenericRedirectOnly(answer, query)).toBe(true);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(false);
+  });
+
+  it("does not treat Ananda is present worldwide as a named center", () => {
+    const answer = "Ananda is present worldwide. Please visit our website.";
+    expect(isGenericRedirectOnly(answer)).toBe(true);
+    expect(passesLocationRedirectGuard(answer)).toBe(false);
+  });
+
+  it("does not treat Ananda in your area as a named center", () => {
+    const answer = "Ananda in your area ... visit our website.";
+    expect(isGenericRedirectOnly(answer)).toBe(true);
+    expect(passesLocationRedirectGuard(answer)).toBe(false);
+  });
+
   it("fails a London answer that only says centers in London and visit Find Ananda", () => {
     const londonRedirect = "There are Ananda centers in London, visit Find Ananda Near You.";
     expect(passesLondonLocationGuard(londonRedirect)).toBe(false);
@@ -62,6 +81,23 @@ describe("semanticAnswerGuards", () => {
     expect(isGenericRedirectOnly(good)).toBe(false);
     expect(passesLocationRedirectGuard(good)).toBe(true);
     expect(passesPortlandLocationGuard(good)).toBe(true);
+  });
+
+  it("passes a near-me answer that names a real center and includes the Find Ananda link", () => {
+    const query = "Where is Ananda near me?";
+    const good =
+      "Here are Ananda centers near you: Ananda Palo Alto. You can also visit Find Ananda Near You at https://www.ananda.org/find-ananda/";
+    expect(isGenericRedirectOnly(good, query)).toBe(false);
+    expect(passesLocationRedirectGuard(good, query)).toBe(true);
+  });
+
+  it("passes a Portland answer that names a real center and includes the Find Ananda link", () => {
+    const query = "Are there any Ananda centers in Portland, Oregon?";
+    const good =
+      "Here are Ananda centers near Portland: Ananda Portland at a local address. See also https://www.ananda.org/find-ananda/";
+    expect(isGenericRedirectOnly(good, query)).toBe(false);
+    expect(passesLocationRedirectGuard(good, query)).toBe(true);
+    expect(passesPortlandLocationGuard(good, query)).toBe(true);
   });
 
   it("passes London answers with anandauk.org, Devizes, or a named London group", () => {

@@ -33,13 +33,85 @@ export const LONDON_SPECIFIC_REGEX =
 /** Regional Ananda host, not bare ananda.org. */
 export const ANANDA_CENTER_DOMAIN_REGEX = /\bananda[a-z0-9-]+\.(?:org|in|com|net|uk|it|eu)\b/i;
 
-const GENERIC_ANANDA_FOLLOWER = /near you|has\b|centers?\b|centres?\b|locations?\b|website\b|directory\b|sangha\b/;
+/** Center pages. The generic find-ananda directory does not count. */
+export const CENTER_URL_PATH_REGEX =
+  /ananda\.org\/(?:about-ananda-sangha\/ananda-village|expanding-light-retreat)/i;
 
-const NAMED_CENTER_OR_CITY_REGEX =
-  /\b(?:portland|palo alto|san francisco|san jose|nevada city|expanding light|sacramento|hamilton|waikato|berkeley|austin|paris|berlin)\b/i;
+/**
+ * Cities a question can echo. A city that appears only because the
+ * question named it does not count as a specific center.
+ */
+export const ECHOABLE_CITY_NAMES = [
+  "portland",
+  "palo alto",
+  "san francisco",
+  "san jose",
+  "nevada city",
+  "sacramento",
+  "hamilton",
+  "waikato",
+  "berkeley",
+  "austin",
+  "paris",
+  "berlin",
+  "delhi",
+  "gurgaon",
+  "gurugram",
+  "mumbai",
+  "pune",
+  "nocera",
+  "umbria",
+  "assisi",
+] as const;
+
+/**
+ * Real center and retreat names from canonicals and fixtures.
+ * "Ananda is present" / "Ananda in your area" do not match.
+ */
+export const NAMED_ANANDA_CENTERS = [
+  "ananda village",
+  "ananda palo alto",
+  "ananda portland",
+  "ananda sacramento",
+  "ananda berkeley",
+  "ananda san francisco",
+  "ananda san jose",
+  "ananda seattle",
+  "ananda los angeles",
+  "ananda new york",
+  "ananda nevada city",
+  "ananda austin",
+  "ananda delhi",
+  "ananda gurgaon",
+  "ananda gurugram",
+  "ananda mumbai",
+  "ananda pune",
+  "ananda assisi",
+  "ananda nocera",
+  "ananda europa",
+  "ananda united kingdom",
+  "ananda hamilton",
+  "ananda waikato",
+  "ananda meditation retreat",
+  "the expanding light",
+  "expanding light retreat",
+  "seclusion retreat",
+] as const;
+
+/** Ananda Sangha plus a city. Bare "Ananda Sangha" and "Worldwide" do not count. */
+const ANANDA_SANGHA_CITY_REGEX =
+  /\bananda\s+sangha\s+(?!worldwide\b|has\b|centers?\b|centres?\b|locations?\b)[a-z][a-z '-]{1,40}/i;
 
 const SCOPED_MISS_NEGATION =
   /does not (?:contain|include|have|attribute|mention|discuss|cover)|not (?:found|present|included)|no (?:direct )?.{0,20}teachings|cannot find/i;
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function phrasePattern(phrase: string): RegExp {
+  return new RegExp(`\\b${escapeRegExp(phrase).replace(/ /g, "\\s+")}\\b`, "i");
+}
 
 export function looksLikeGenericRedirect(text: string): boolean {
   return GENERIC_REDIRECT_REGEX.test(text);
@@ -49,32 +121,37 @@ export function hasAnandaCenterDomain(text: string): boolean {
   return ANANDA_CENTER_DOMAIN_REGEX.test(text);
 }
 
-export function hasNamedAnandaCenter(text: string): boolean {
-  const named = /\bananda\s+([a-z][a-z '-]{2,})/gi;
-  let match: RegExpExecArray | null;
-  while ((match = named.exec(text)) !== null) {
-    const follower = match[1].trim().toLowerCase();
-    if (!GENERIC_ANANDA_FOLLOWER.test(follower)) {
-      return true;
-    }
-  }
-  return false;
+export function hasCenterUrlPath(text: string): boolean {
+  return CENTER_URL_PATH_REGEX.test(text);
 }
 
-export function hasSpecificCenterCityOrDomain(text: string): boolean {
+export function hasNamedAnandaCenter(text: string): boolean {
+  if (ANANDA_SANGHA_CITY_REGEX.test(text)) {
+    return true;
+  }
+  return NAMED_ANANDA_CENTERS.some((name) => phrasePattern(name).test(text));
+}
+
+export function hasCityNotEchoedFromQuery(text: string, query = ""): boolean {
+  return ECHOABLE_CITY_NAMES.some((city) => {
+    const pattern = phrasePattern(city);
+    return pattern.test(text) && !pattern.test(query);
+  });
+}
+
+export function hasSpecificCenterCityOrDomain(text: string, query = ""): boolean {
   return (
     hasAnandaCenterDomain(text) ||
     hasNamedAnandaCenter(text) ||
-    INDIA_CENTER_NAME_REGEX.test(text) ||
-    ITALY_CENTER_NAME_REGEX.test(text) ||
+    hasCenterUrlPath(text) ||
     LONDON_SPECIFIC_REGEX.test(text) ||
-    NAMED_CENTER_OR_CITY_REGEX.test(text)
+    hasCityNotEchoedFromQuery(text, query)
   );
 }
 
 /** True when the answer is only a generic redirect (no center, city, or domain). */
-export function isGenericRedirectOnly(text: string): boolean {
-  return looksLikeGenericRedirect(text) && !hasSpecificCenterCityOrDomain(text);
+export function isGenericRedirectOnly(text: string, query = ""): boolean {
+  return looksLikeGenericRedirect(text) && !hasSpecificCenterCityOrDomain(text, query);
 }
 
 export function hasIndiaSpecificCenter(text: string): boolean {
@@ -89,24 +166,24 @@ export function hasLondonSpecificCenter(text: string): boolean {
   return LONDON_SPECIFIC_REGEX.test(text);
 }
 
-export function passesLocationRedirectGuard(text: string): boolean {
-  return !isGenericRedirectOnly(text);
+export function passesLocationRedirectGuard(text: string, query = ""): boolean {
+  return !isGenericRedirectOnly(text, query);
 }
 
-export function passesLondonLocationGuard(text: string): boolean {
-  return hasLondonSpecificCenter(text) && !isGenericRedirectOnly(text);
+export function passesLondonLocationGuard(text: string, query = ""): boolean {
+  return hasLondonSpecificCenter(text) && !isGenericRedirectOnly(text, query);
 }
 
-export function passesPortlandLocationGuard(text: string): boolean {
-  return !isGenericRedirectOnly(text);
+export function passesPortlandLocationGuard(text: string, query = ""): boolean {
+  return !isGenericRedirectOnly(text, query);
 }
 
-export function passesIndiaLocationGuard(text: string): boolean {
-  return hasIndiaSpecificCenter(text) && !isGenericRedirectOnly(text);
+export function passesIndiaLocationGuard(text: string, query = ""): boolean {
+  return hasIndiaSpecificCenter(text) && !isGenericRedirectOnly(text, query);
 }
 
-export function passesItalyLocationGuard(text: string): boolean {
-  return hasItalySpecificCenter(text) && !isGenericRedirectOnly(text);
+export function passesItalyLocationGuard(text: string, query = ""): boolean {
+  return hasItalySpecificCenter(text) && !isGenericRedirectOnly(text, query);
 }
 
 /**
