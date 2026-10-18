@@ -84,6 +84,8 @@ describe("semanticAnswerGuards", () => {
       )
     ).toBe(true);
     expect(hasLahiriScopedNegation("Lahiri Mahasaya is not found in Matthew chapter 5.")).toBe(true);
+    expect(hasLahiriScopedNegation("This chapter has no direct quotes or teachings from Lahiri Mahasaya.")).toBe(true);
+    expect(hasLahiriScopedNegation("Matthew 5 does not attribute material to Lahiri Mahasaya.")).toBe(true);
     expect(
       hasLahiriScopedNegation(
         "This source does not contain that theme. " +

@@ -39,7 +39,7 @@ const NAMED_CENTER_OR_CITY_REGEX =
   /\b(?:portland|palo alto|san francisco|san jose|nevada city|expanding light|sacramento|hamilton|waikato|berkeley|austin|paris|berlin)\b/i;
 
 const SCOPED_MISS_NEGATION =
-  /does not (?:contain|include|have)|not (?:found|present|included)|no (?:direct )?teachings|cannot find/i;
+  /does not (?:contain|include|have|attribute|mention|discuss|cover)|not (?:found|present|included)|no (?:direct )?.{0,20}teachings|cannot find/i;
 
 export function looksLikeGenericRedirect(text: string): boolean {
   return GENERIC_REDIRECT_REGEX.test(text);
