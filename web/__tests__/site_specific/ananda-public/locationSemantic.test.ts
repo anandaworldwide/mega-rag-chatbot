@@ -269,7 +269,7 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
     // TODO(known-flaky): a bare ZIP often is not treated as a location query
     // (location score ~0.51 on 4 of 10 main runs). When it is treated as
     // location, the old non-location set still overlapped. Do not only lower 0.55.
-    // tracked: CARD_PENDING
+    // tracked: https://app.notion.com/p/3fd7781078bc81e58d63eb478b289d21
     test.skip('should recognize zip codes like "94002" as location queries', async () => {
       console.log(`Running test: should recognize zip codes like "94002" as location queries`);
       const query = "94002";
@@ -592,7 +592,7 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
     // TODO(known-flaky): Hindi location intent is unstable. On 10 main runs,
     // location score was 0.480 once (need > 0.55). After the non-location
     // set cleanup, one head run was 0.440. Do not lower 0.55.
-    // tracked: CARD_PENDING
+    // tracked: https://app.notion.com/p/3fd7781078bc81ff8ba6c9d1e93caa1a
     test.skip('should handle Hindi location query "सबसे नजदीकी केंद्र कहाँ है?"', async () => {
       console.log(`Running test: should handle Hindi location query "सबसे नजदीकी केंद्र कहाँ है?"`);
       const query = "सबसे नजदीकी केंद्र कहाँ है?";

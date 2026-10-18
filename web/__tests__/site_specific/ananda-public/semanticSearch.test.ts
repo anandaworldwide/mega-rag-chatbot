@@ -419,7 +419,7 @@ testRunner("Vivek Response Semantic Validation (ananda-public)", () => {
     // TODO(known-failure): Vivek often invents an answer here. Real hallucination bug.
     // On 10 main runs, unexpected (made-up) was 0.71-0.76 vs a 0.60 cap on 8 runs.
     // Do not loosen.
-    // tracked: CARD_PENDING
+    // tracked: https://app.notion.com/p/3fd7781078bc813da146ca211b3b7db0
     test.skip('should respond with "I don\'t know" or redirect for obscure/unknowable info', async () => {
       console.log(`Running test: ${expect.getState().currentTestName}`);
       // Query designed to be Ananda-related but likely unanswerable
