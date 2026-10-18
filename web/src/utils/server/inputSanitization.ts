@@ -28,6 +28,7 @@ export function sanitizeTextInput(
     allowSpecialChars?: boolean;
     preserveUserPunctuation?: boolean;
     stripXssPatterns?: boolean;
+    escapeQuotes?: boolean;
   } = {}
 ): string {
   const {
@@ -36,6 +37,7 @@ export function sanitizeTextInput(
     allowSpecialChars = false,
     preserveUserPunctuation = false,
     stripXssPatterns = true,
+    escapeQuotes = true,
   } = options;
 
   if (typeof input !== "string") {
@@ -76,7 +78,9 @@ export function sanitizeTextInput(
   // (Google Sheets and other free-text sinks must not store didn't as didn''t).
   // Skip it when preserveUserPunctuation is true. This app does not send that
   // text to SQL or a shell.
-  if (!allowSpecialChars && !preserveUserPunctuation) {
+  // Skip it when escapeQuotes is false. The chat model path keeps ' and " as typed
+  // and still strips command-injection characters.
+  if (!allowSpecialChars && !preserveUserPunctuation && escapeQuotes) {
     sanitized = sanitized.replace(/['";\\]/g, (match) => {
       if (match === "'") return "''";
       if (match === '"') return '\\"';
@@ -308,16 +312,25 @@ export function sanitizeForLogging(input: string, maxLength: number = 500): stri
   return sanitized.trim();
 }
 
+export type SanitizedQuestionPair = {
+  display: string;
+  model: string;
+};
+
 /**
- * Validates and sanitizes a question input for chat API
- * Combines multiple validation checks for security
+ * Validates a chat question and returns two sanitized values.
+ * display: keep user punctuation for storage and the UI.
+ * model: same strip rules as main, except apostrophes and quotes stay as typed.
  *
  * @param question - Question string to validate
  * @param maxLength - Maximum question length (default: 4000)
- * @returns Sanitized question
+ * @returns Display value and model-path value
  * @throws Error if validation fails
  */
-export function validateAndSanitizeQuestion(question: string, maxLength: number = 4000): string {
+export function validateAndSanitizeQuestion(
+  question: string,
+  maxLength: number = 4000
+): SanitizedQuestionPair {
   if (typeof question !== "string") {
     throw new Error("Question must be a string");
   }
@@ -336,16 +349,26 @@ export function validateAndSanitizeQuestion(question: string, maxLength: number 
     throw new Error(`Question exceeds maximum length of ${maxLength} characters`);
   }
 
-  // Keep punctuation as typed. Strip control characters, HTML tags, and XSS patterns.
-  const sanitized = sanitizeUserText(question, {
+  const display = sanitizeUserText(question, {
     maxLength,
     allowNewlines: true,
-  });
+  })
+    .replace(/\n+/g, " ")
+    .trim();
 
-  // Normalize newlines to spaces for AI processing (as done in current implementation)
-  const normalized = sanitized.replace(/\n+/g, " ").trim();
-  if (normalized.length === 0) {
+  // Model path matches main sanitizeTextInput, except ' and " stay as typed.
+  const model = sanitizeTextInput(question, {
+    maxLength,
+    allowNewlines: true,
+    allowSpecialChars: false,
+    preserveUserPunctuation: false,
+    escapeQuotes: false,
+  })
+    .replace(/\n+/g, " ")
+    .trim();
+
+  if (display.length === 0 || model.length === 0) {
     throw new Error("Question cannot be empty");
   }
-  return normalized;
+  return { display, model };
 }
