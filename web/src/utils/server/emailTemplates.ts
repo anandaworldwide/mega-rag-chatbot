@@ -68,18 +68,22 @@ export function generateEmailContent(options: EmailTemplateOptions): {
     loginImageUrl = `${baseUrl}/${siteConfig.loginImage}`;
   }
 
-  // Format message content for HTML and text versions
+  // message and greeting are HTML slots. Callers that pass user text must
+  // escape that text first. Campaign callers pass trusted HTML in message.
   function formatMessageContent(
     message: string,
     actionUrl?: string,
     actionText?: string
   ): { html: string; text: string; hasButton: boolean } {
     if (actionUrl && actionText) {
+      const htmlSafeActionText = escapeHtml(actionText);
+      const htmlSafeActionUrl = escapeHtml(actionUrl);
+
       // Remove the action text from message if it exists (we'll add it as a button)
       let htmlMessage = message.replace(new RegExp(actionText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), "");
 
       // Create the left-justified blue button (matching admin approval email style)
-      const buttonHtml = `<div style="text-align: left; margin: 4px 0 2px 0;"><a href="${actionUrl}" style="display: inline-block; padding: 12px 24px; background-color: #3498db; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">${actionText}</a></div>`;
+      const buttonHtml = `<div style="text-align: left; margin: 4px 0 2px 0;"><a href="${htmlSafeActionUrl}" style="display: inline-block; padding: 12px 24px; background-color: #3498db; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 16px;">${htmlSafeActionText}</a></div>`;
 
       // Look for parenthetical URL patterns (both "visit" and "click" variations)
       // Also handle URL-encoded versions and different URL formats
@@ -178,7 +182,7 @@ export function generateEmailContent(options: EmailTemplateOptions): {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${siteName}</title>
+  <title>${escapeHtml(siteName)}</title>
   <style>
     body {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
@@ -254,7 +258,7 @@ export function generateEmailContent(options: EmailTemplateOptions): {
       loginImageUrl
         ? `
     <div class="login-image">
-      <img src="${loginImageUrl}" alt="${shortName}" />
+      <img src="${escapeHtml(loginImageUrl)}" alt="${escapeHtml(shortName)}" />
     </div>
     `
         : ""
@@ -263,9 +267,9 @@ export function generateEmailContent(options: EmailTemplateOptions): {
       options.unsubscribeUrl
         ? `
     <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; font-size: 12px; color: #999; text-align: center;">
-      <p style="margin: 0 0 8px 0;">${subscriptionReason}</p>
-      <a href="${options.unsubscribeUrl}" style="color: #999; text-decoration: underline;">One-click unsubscribe</a>
-      <span style="color: #999;"> (or <a href="${settingsUrl}" style="color: #999; text-decoration: underline;">manage all email preferences</a>)</span>
+      <p style="margin: 0 0 8px 0;">${escapeHtml(subscriptionReason)}</p>
+      <a href="${escapeHtml(options.unsubscribeUrl)}" style="color: #999; text-decoration: underline;">One-click unsubscribe</a>
+      <span style="color: #999;"> (or <a href="${escapeHtml(settingsUrl)}" style="color: #999; text-decoration: underline;">manage all email preferences</a>)</span>
     </div>
     `
         : ""
@@ -311,7 +315,13 @@ export function createEmailParams(
   subject: string,
   templateOptions: EmailTemplateOptions
 ) {
-  const { html, text } = generateEmailContent(templateOptions);
+  // These callers pass plain text. Escape only the HTML copy.
+  const { text } = generateEmailContent(templateOptions);
+  const { html } = generateEmailContent({
+    ...templateOptions,
+    message: escapeHtml(templateOptions.message),
+    ...(templateOptions.greeting !== undefined ? { greeting: escapeHtml(templateOptions.greeting) } : {}),
+  });
 
   return {
     Source: fromEmail,

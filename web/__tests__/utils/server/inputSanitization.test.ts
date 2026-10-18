@@ -9,6 +9,7 @@ import {
   sanitizeName,
   sanitizeSpreadsheetText,
   sanitizeTextInput,
+  sanitizeUserText,
   validateAndSanitizeQuestion,
 } from "@/utils/server/inputSanitization";
 
@@ -88,8 +89,10 @@ describe("sanitizeEmail", () => {
 });
 
 describe("validateAndSanitizeQuestion", () => {
-  it("accepts a normal question and collapses newlines", () => {
-    expect(validateAndSanitizeQuestion("What is\n\nKriya?")).toBe("What is Kriya?");
+  it("accepts a normal question and collapses newlines on both paths", () => {
+    const result = validateAndSanitizeQuestion("What is\n\nKriya?");
+    expect(result.display).toBe("What is Kriya?");
+    expect(result.model).toBe("What is Kriya?");
   });
 
   it("rejects empty, whitespace-only, oversized, and non-string input", () => {
@@ -102,9 +105,66 @@ describe("validateAndSanitizeQuestion", () => {
 
   it("strips script tags and nested tag smuggling attempts", () => {
     const result = validateAndSanitizeQuestion('Hello <scr<script>ipt>alert(1)</script> world');
-    expect(result).not.toMatch(/script/i);
-    expect(result).toContain("Hello");
-    expect(result).toContain("world");
+    expect(result.display).not.toMatch(/script/i);
+    expect(result.model).not.toMatch(/script/i);
+    expect(result.display).toContain("Hello");
+    expect(result.display).toContain("world");
+  });
+
+  it("keeps apostrophes as typed on both paths", () => {
+    const result = validateAndSanitizeQuestion("didn't");
+    expect(result.display).toBe("didn't");
+    expect(result.model).toBe("didn't");
+    expect(result.model).not.toBe("didn''t");
+  });
+
+  it("keeps a quoted phrase as typed on both paths", () => {
+    const result = validateAndSanitizeQuestion('What is "Kriya Yoga"?');
+    expect(result.display).toBe('What is "Kriya Yoga"?');
+    expect(result.model).toBe('What is "Kriya Yoga"?');
+    expect(result.model).not.toBe('What is \\"Kriya Yoga\\"?');
+  });
+
+  it("keeps grouping marks on display and strips them on the model path", () => {
+    const result = validateAndSanitizeQuestion("(Kriya) [initiation]");
+    expect(result.display).toBe("(Kriya) [initiation]");
+    expect(result.model).toBe("Kriya initiation");
+  });
+
+  it("strips a script tag and keeps the apostrophe", () => {
+    const result = validateAndSanitizeQuestion("I didn't see <script>alert(1)</script> this");
+    expect(result.display).toContain("didn't");
+    expect(result.model).toContain("didn't");
+    expect(result.display).not.toContain("didn''t");
+    expect(result.model).not.toContain("didn''t");
+    expect(result.display).not.toMatch(/<script/i);
+    expect(result.model).not.toMatch(/<script/i);
+    expect(result.display).not.toMatch(/alert/);
+    expect(result.model).not.toMatch(/alert/);
+  });
+
+  it("splits display punctuation from the main-equivalent model path", () => {
+    const input = "What's (Kriya) {path} [book] | & ; $";
+    const result = validateAndSanitizeQuestion(input);
+
+    expect(result.display).toBe(input);
+    expect(result.display).toContain("(");
+    expect(result.display).toContain(")");
+    expect(result.display).toContain("{");
+    expect(result.display).toContain("}");
+    expect(result.display).toContain("[");
+    expect(result.display).toContain("]");
+    expect(result.display).toContain("|");
+    expect(result.display).toContain("&");
+    expect(result.display).toContain(";");
+    expect(result.display).toContain("$");
+    expect(result.display).toContain("'");
+
+    // Main sanitizeTextInput would yield What''s Kriya path book.
+    // This PR keeps the apostrophe as typed and still strips the rest.
+    expect(result.model).toBe("What's Kriya path book");
+    expect(result.model).not.toBe("What''s Kriya path book");
+    expect(result.model).not.toMatch(/[(){}[\]|&;$]/);
   });
 });
 
@@ -126,9 +186,34 @@ describe("sanitizeTextInput / sanitizeForLogging", () => {
     expect(sanitizeTextInput("didn't")).toBe("didn''t");
   });
 
+  it("keeps apostrophes and quotes when escapeQuotes is false", () => {
+    expect(sanitizeTextInput("didn't", { escapeQuotes: false })).toBe("didn't");
+    expect(sanitizeTextInput('He said "thanks"', { escapeQuotes: false })).toBe('He said "thanks"');
+  });
+
   it("preserves apostrophes and double quotes when allowSpecialChars is true", () => {
     expect(sanitizeTextInput("didn't", { allowSpecialChars: true })).toBe("didn't");
     expect(sanitizeTextInput('He said "thanks"', { allowSpecialChars: true })).toBe('He said "thanks"');
+  });
+});
+
+describe("sanitizeUserText", () => {
+  it("keeps apostrophes, quotes, and grouping marks as typed", () => {
+    expect(sanitizeUserText("didn't")).toBe("didn't");
+    expect(sanitizeUserText('He said "thanks"')).toBe('He said "thanks"');
+    expect(sanitizeUserText("(Kriya) [initiation]")).toBe("(Kriya) [initiation]");
+  });
+
+  it("strips script tags and keeps the apostrophe", () => {
+    const result = sanitizeUserText("I didn't see <script>alert(1)</script> this");
+    expect(result).toContain("didn't");
+    expect(result).not.toContain("didn''t");
+    expect(result).not.toMatch(/<script/i);
+  });
+
+  it("keeps markup when the caller will escape HTML later", () => {
+    const result = sanitizeUserText("I didn't see <script>alert(1)</script>", { keepMarkup: true });
+    expect(result).toBe("I didn't see <script>alert(1)</script>");
   });
 });
 

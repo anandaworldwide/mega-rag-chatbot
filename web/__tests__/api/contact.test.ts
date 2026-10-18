@@ -63,6 +63,7 @@ describe("Contact API", () => {
     jest.clearAllMocks();
     process.env = { ...originalEnv };
     process.env.CONTACT_EMAIL = "contact@example.com";
+    process.env.NEXT_PUBLIC_BASE_URL = "https://test.example.com";
     process.env.AWS_ACCESS_KEY_ID = "test-key-id";
     process.env.AWS_SECRET_ACCESS_KEY = "test-secret-key";
     process.env.AWS_REGION = "us-east-1";
@@ -205,6 +206,9 @@ describe("Contact API", () => {
           Text: {
             Data: "Type: Feedback\nFrom: Feedback User <feedback@example.com>\n\nMessage:\n\nThis is feedback about the site",
           },
+          Html: {
+            Data: expect.stringContaining("This is feedback about the site"),
+          },
         },
       },
     });
@@ -242,6 +246,9 @@ describe("Contact API", () => {
           Text: {
             Data: "Type: Contact\nFrom: Contact User <contact@example.com>\n\nMessage:\n\nThis is a contact message",
           },
+          Html: {
+            Data: expect.stringContaining("This is a contact message"),
+          },
         },
       },
     });
@@ -278,8 +285,49 @@ describe("Contact API", () => {
           Text: {
             Data: "Type: Contact\nFrom: Default User <default@example.com>\n\nMessage:\n\nThis is a default message",
           },
+          Html: {
+            Data: expect.stringContaining("This is a default message"),
+          },
         },
       },
     });
+  });
+
+  it("keeps apostrophes and quotes in the email and escapes HTML", async () => {
+    const message = `I didn't like the "search" (Kriya) [initiation] <script>alert(1)</script>`;
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: {
+        name: "O'Brien",
+        email: "obrien@example.com",
+        message,
+      },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(SendEmailCommand).toHaveBeenCalledTimes(1);
+    const emailParams = (SendEmailCommand as unknown as jest.Mock).mock.calls[0][0];
+    const text = emailParams.Message.Body.Text.Data as string;
+    const html = emailParams.Message.Body.Html.Data as string;
+
+    expect(text).toContain("didn't");
+    expect(text).not.toContain("didn''t");
+    expect(text).toContain('"search"');
+    expect(text).toContain("(Kriya) [initiation]");
+    expect(text).toContain("<script>alert(1)</script>");
+
+    expect(html).toContain("didn&#039;t");
+    expect(html).not.toContain("didn''t");
+    expect(html).not.toContain("O&amp;#039;Brien");
+    expect(html).toContain("&quot;search&quot;");
+    expect(html).toContain("(Kriya) [initiation]");
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).not.toContain("<script>");
+    expect(html).toContain('<a href="mailto:obrien@example.com">');
+    expect(html).not.toContain("&lt;a");
+    expect(html).toContain("O&#039;Brien");
   });
 });
