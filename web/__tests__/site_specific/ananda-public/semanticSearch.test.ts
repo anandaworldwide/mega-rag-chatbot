@@ -24,6 +24,12 @@ import fetch from "node-fetch";
 import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
 import { getEmbedding, cosineSimilarity } from "../../utils/embeddingUtils";
+import {
+  GENERIC_REDIRECT_RESPONSES,
+  GENERIC_REDIRECT_SIMILARITY_LIMIT,
+  hasLondonSpecificCenter,
+  isGenericRedirectOnly,
+} from "../../utils/semanticAnswerGuards";
 
 // Skip all tests unless running with explicit flag
 const runSemanticTests = process.env.RUN_SEMANTIC_TESTS === "true";
@@ -46,11 +52,13 @@ const CANONICAL_REJECTIONS = [
 
 // Precompute rejection embeddings (optional optimization, could be done once)
 let rejectionEmbeddings: number[][] = [];
+let redirectResponseEmbeddings: number[][] = [];
 
 testRunner("Vivek Response Semantic Validation (ananda-public)", () => {
   // Fetch embeddings for canonical rejections once before tests run
   beforeAll(async () => {
     rejectionEmbeddings = await Promise.all(CANONICAL_REJECTIONS.map((text) => getEmbedding(text)));
+    redirectResponseEmbeddings = await Promise.all(GENERIC_REDIRECT_RESPONSES.map((text) => getEmbedding(text)));
   });
 
   const getVivekResponse = async (query: string): Promise<string> => {
@@ -146,6 +154,14 @@ testRunner("Vivek Response Semantic Validation (ananda-public)", () => {
       }
     }
     return maxSimilarity;
+  };
+
+  const assertSeparateRedirectGuard = (actualResponse: string, actualEmbedding: number[]): number => {
+    const similarityToRedirectResponses = getMaxSimilarity(actualEmbedding, redirectResponseEmbeddings);
+    console.log(`Similarity to Redirect Responses: ${similarityToRedirectResponses}`);
+    expect(isGenericRedirectOnly(actualResponse)).toBe(false);
+    expect(similarityToRedirectResponses).toBeLessThan(GENERIC_REDIRECT_SIMILARITY_LIMIT);
+    return similarityToRedirectResponses;
   };
 
   describe("Prompt Compliance Tests", () => {
@@ -321,10 +337,9 @@ testRunner("Vivek Response Semantic Validation (ananda-public)", () => {
       expect(similarityToExpected).toBeGreaterThan(0.7);
       // Dissimilar to a rejection, not to Find-Ananda guidance (that overlaps a good answer).
       expect(similarityToUnexpected).toBeLessThan(0.75);
-      // Accept a UK Ananda name, domain, or city-plus-center form.
-      expect(actualResponse).toMatch(
-        /anandauk\.org|united kingdom|devizes|wiltshire|(?:london|uk).{0,40}(?:center|centre|group)|(?:center|centre|group).{0,40}(?:london|uk)/i
-      );
+      // anandauk.org, Devizes/Wiltshire, or a named London group. Center+London or UK alone fail.
+      expect(hasLondonSpecificCenter(actualResponse)).toBe(true);
+      assertSeparateRedirectGuard(actualResponse, actualEmbedding);
       // Note: Find Ananda link is optional when specific centers are provided via geo-awareness
     });
 
@@ -401,8 +416,10 @@ testRunner("Vivek Response Semantic Validation (ananda-public)", () => {
       expect(similarityToUnexpected).toBeLessThan(0.7);
     });
 
-    // TODO(known-failure): Vivek often invents an answer here. On 10 main runs,
-    // unexpected (made-up) was 0.71-0.76 vs a 0.60 cap on 8 runs. Do not loosen.
+    // TODO(known-failure): Vivek often invents an answer here. Real hallucination bug.
+    // On 10 main runs, unexpected (made-up) was 0.71-0.76 vs a 0.60 cap on 8 runs.
+    // Do not loosen.
+    // tracked: CARD_PENDING
     test.skip('should respond with "I don\'t know" or redirect for obscure/unknowable info', async () => {
       console.log(`Running test: ${expect.getState().currentTestName}`);
       // Query designed to be Ananda-related but likely unanswerable
@@ -1195,6 +1212,7 @@ testRunner("Vivek Response Semantic Validation (ananda-public)", () => {
       expect(similarityToUnexpected).toBeLessThan(0.7);
       // Should contain the Find Ananda link as fallback
       expect(actualResponse).toContain("https://www.ananda.org/find-ananda/");
+      assertSeparateRedirectGuard(actualResponse, actualEmbedding);
     });
 
     test.concurrent("should handle 'near me' queries with IP-based location detection", async () => {
@@ -1315,8 +1333,9 @@ testRunner("Vivek Response Semantic Validation (ananda-public)", () => {
 
       expect(similarityToExpected).toBeGreaterThan(0.65);
       expect(similarityToUnexpected).toBeLessThan(0.6);
-      // Should contain reference to UK or international center
-      expect(actualResponse).toMatch(/United Kingdom|UK|Devizes|Wiltshire|anandauk\.org/i);
+      // anandauk.org, Devizes/Wiltshire, or a named London group. UK name alone fails.
+      expect(hasLondonSpecificCenter(actualResponse)).toBe(true);
+      assertSeparateRedirectGuard(actualResponse, actualEmbedding);
     });
 
     test.concurrent("should handle meditation group queries as location-based", async () => {

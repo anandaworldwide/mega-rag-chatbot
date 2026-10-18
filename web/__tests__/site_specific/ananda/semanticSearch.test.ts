@@ -31,6 +31,7 @@ import fetch from "node-fetch";
 import jwt from "jsonwebtoken";
 import { v4 as uuidv4 } from "uuid";
 import { getEmbedding, cosineSimilarity } from "../../utils/embeddingUtils";
+import { hasLahiriScopedNegation } from "../../utils/semanticAnswerGuards";
 import { TitleScopeFilterConflictPayload, TitleScopeSuggestion } from "@/types/titleScope";
 
 // Skip all tests unless running with explicit flag
@@ -1045,12 +1046,9 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
       expect(similarityToExpected).toBeGreaterThanOrEqual(0.72);
       expect(similarityToUnexpected).toBeLessThan(0.8);
       expect(actualResponse).toMatch(/Matthew|Chapter 5|Bible:\s*New Testament/i);
-      // Require a scoped-miss negation, the scoped source, and the requested author.
-      // Do not require one exact phrase such as "does not contain".
-      expect(actualResponse).toMatch(
-        /does not (contain|include|have)|not (found|present|included)|no (direct )?teachings|cannot find/i
-      );
-      expect(actualResponse).toMatch(/Lahiri/i);
+      // Wider scoped-miss negation words, but only within about 120 characters
+      // of "Lahiri", in either order.
+      expect(hasLahiriScopedNegation(actualResponse)).toBe(true);
       expect(actualResponse).not.toMatch(/broader teachings|related spiritual texts/i);
     });
 
