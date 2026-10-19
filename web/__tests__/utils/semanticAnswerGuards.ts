@@ -220,8 +220,7 @@ export function hasSpecificCenterSignal(text: string, query = ""): boolean {
     hasPhoneNumber(text) ||
     hasNamedGroupOrCenter(text) ||
     hasCityNotEchoedFromQuery(text, query) ||
-    (acceptLocationSearchMiss() &&
-      (hasLocationSearchOutcome(text) || looksLikeGenericRedirect(text)))
+    (acceptLocationSearchMiss() && hasLocationSearchOutcome(text))
   );
 }
 
@@ -240,12 +239,16 @@ const QUERY_COUNTRY_OR_REGION_REGEX =
 
 const QUERY_POSTAL_CODE_REGEX = /\b\d{5}(?:-\d{4})?\b|\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b/i;
 
-/** "Portland, Oregon" / "London, UK" — structure, not a new city allow-list. */
-const QUERY_COMMA_PLACE_REGEX = /\b[a-z][a-z .'-]{1,40},\s*[a-z]{2,}\b/i;
+/** After a comma: a known region/country, not "Hi, where". */
+const QUERY_COMMA_REGION_OR_COUNTRY_REGEX =
+  /\b[a-z][a-z .'-]{1,40},\s*(?:india|italy|germany|france|spain|canada|mexico|australia|japan|china|brazil|ireland|scotland|wales|england|europe|asia|california|oregon|texas|washington|united\s+kingdom|united\s+states|new\s+zealand|america|uk|usa)\b/i;
 
-/** "in London" / "near Paris", but not "near me". */
+/** After a comma: an uppercase 2-letter code, e.g. "Austin, TX". */
+const QUERY_COMMA_TWO_LETTER_CODE_REGEX = /\b[A-Za-z][A-Za-z .'-]{1,40},\s*[A-Z]{2}\b/;
+
+/** "in London" / "near Paris", but not "near me", "in my area", or "near the". */
 const QUERY_PREPOSITION_PLACE_REGEX =
-  /\b(?:in|near|around|at|from)\s+(?!me\b|you\b|here\b|there\b|this\b|that\b|ananda\b)[a-z]{2,}/i;
+  /\b(?:in|near|around|at|from)\s+(?!me\b|you\b|here\b|there\b|this\b|that\b|ananda\b|my\b|our\b|your\b|the\b|a\b|an\b)[a-z]{2,}/i;
 
 /**
  * General place check on the query: city, region, country, or postal code.
@@ -261,7 +264,11 @@ export function queryHasNamedPlace(query: string): boolean {
   if (QUERY_COUNTRY_OR_REGION_REGEX.test(query) || QUERY_POSTAL_CODE_REGEX.test(query)) {
     return true;
   }
-  if (QUERY_COMMA_PLACE_REGEX.test(query) || QUERY_PREPOSITION_PLACE_REGEX.test(query)) {
+  if (
+    QUERY_COMMA_REGION_OR_COUNTRY_REGEX.test(query) ||
+    QUERY_COMMA_TWO_LETTER_CODE_REGEX.test(query) ||
+    QUERY_PREPOSITION_PLACE_REGEX.test(query)
+  ) {
     return true;
   }
   return false;
@@ -315,6 +322,8 @@ function hasHardSpecificCenterSignal(text: string, query = ""): boolean {
  * ask/unknown path is accepted only under the no-geo flag. With geo data
  * present, a near-me answer must name a center. A plain Find Ananda
  * answer with neither ask nor unknown still fails.
+ * Place-named queries accept a real search miss under the no-geo flag,
+ * never a plain redirect.
  */
 export function isGenericRedirectOnly(text: string, query = ""): boolean {
   if (queryNamesNoPlace(query)) {
@@ -332,10 +341,10 @@ export function isGenericRedirectOnly(text: string, query = ""): boolean {
       hasFindAnandaPhrase(text)
     );
   }
-  if (geoMissAcceptance.accept === true) {
-    return false;
-  }
-  return looksLikeGenericRedirect(text) && !hasSpecificCenterCityOrDomain(text, query);
+  return (
+    (looksLikeGenericRedirect(text) || isWorldwideOrInYourAreaPresence(text)) &&
+    !hasSpecificCenterCityOrDomain(text, query)
+  );
 }
 
 /**

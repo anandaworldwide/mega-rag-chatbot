@@ -122,12 +122,12 @@ describe("semanticAnswerGuards", () => {
     expect(passesItalyLocationGuard("No Ananda centers found close to Italy. Visit Find Ananda Near You.")).toBe(false);
   });
 
-  it("passes a Find Ananda redirect without miss phrasing when geo-miss acceptance is on", () => {
+  it("fails a Find Ananda redirect without miss phrasing even when geo-miss acceptance is on", () => {
     const query = "Paris";
     const answer = "Please visit our Find Ananda Near You page.";
     setAcceptLocationSearchMiss(true);
-    expect(isGenericRedirectOnly(answer, query)).toBe(false);
-    expect(passesLocationRedirectGuard(answer, query)).toBe(true);
+    expect(isGenericRedirectOnly(answer, query)).toBe(true);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(false);
     expect(passesRedirectSimilarityGuard(answer, query, 0.82)).toBe(false);
     expect(passesLondonLocationGuard(answer, query)).toBe(false);
   });
@@ -258,6 +258,42 @@ describe("semanticAnswerGuards", () => {
     setAcceptLocationSearchMiss(true);
     expect(isGenericRedirectOnly(answer, query)).toBe(true);
     expect(passesLocationRedirectGuard(answer, query)).toBe(false);
+  });
+
+  it("fails a Paris echo plus visit-our-website for a place query when the no-geo flag is on", () => {
+    const query = "Paris";
+    const answer = "To find centers near Paris, visit our website.";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query)).toBe(true);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(false);
+  });
+
+  it("fails Ananda is present worldwide for a place query when the no-geo flag is on", () => {
+    const query = "Paris";
+    const answer = "Ananda is present worldwide";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query)).toBe(true);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(false);
+  });
+
+  it("fails Ananda in your area for a place query when the no-geo flag is on", () => {
+    const query = "Paris";
+    const answer = "Ananda in your area";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query)).toBe(true);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(false);
+  });
+
+  it("treats greeting-comma and pronoun-area queries as naming no place", () => {
+    expect(queryNamesNoPlace("Hi, where is Ananda near me?")).toBe(true);
+    expect(queryNamesNoPlace("Is there a center in my area?")).toBe(true);
+    expect(queryNamesNoPlace("Any groups near my home?")).toBe(true);
+    expect(queryNamesNoPlace("Portland, Oregon")).toBe(false);
+    expect(queryNamesNoPlace("Austin, TX")).toBe(false);
+    expect(queryNamesNoPlace("Paris")).toBe(false);
+    expect(queryNamesNoPlace("in London")).toBe(false);
+    expect(queryNamesNoPlace("Italy")).toBe(false);
+    expect(queryNamesNoPlace("94002")).toBe(false);
   });
 
   it("passes a Lahiri scoped miss when a negation is within about 120 characters either way", () => {
