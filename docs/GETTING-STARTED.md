@@ -108,6 +108,19 @@ SITE=your_site_name
   index name from the dashboard. **Important**: Use 1,536 dimensions when setting up your Pinecone index.
 - **Upstash**: Visit [Upstash](https://upstash.com/) to create a Redis instance for caching keywords and rate limiting
 
+### Local query rate limit
+
+The chat API limits queries per user per day. The site config field `queriesPerUserPerDay` sets the production limit.
+
+In local development the default limit is `queriesPerUserPerDay` times 10. The time window is 24 hours.
+
+You can set `QUERY_RATE_LIMIT_DEV_MAX` in `.env.[site]` to replace that default. The value must be a positive integer.
+
+The process reads this variable only when `NODE_ENV` is `development` and `VERCEL` is not set. The process ignores this
+variable in production, in test, and on Vercel.
+
+If the value is not valid, the process keeps the default limit and writes one warning.
+
 ## Site Configuration
 
 ### Create Your Site Config

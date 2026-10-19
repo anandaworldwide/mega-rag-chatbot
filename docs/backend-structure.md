@@ -26,7 +26,7 @@ facilitate understanding and future development.
                           │      API GATEWAY        │
                           │                         │
                           │ • JWT Authentication    │
-                          │ • Rate Limiting (Redis) │
+                          │ • Rate Limiting         │
                           │ • CORS & Security       │
                           └─────────────────────────┘
                                        │
@@ -49,7 +49,7 @@ facilitate understanding and future development.
 │ ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────────────────┐  │
 │ │ Pinecone Vector │    │   Firestore     │    │        Redis Cache          │  │
 │ │   Database      │    │   NoSQL DB      │    │                             │  │
-│ │                 │    │                 │    │ • Rate Limiting             │  │
+│ │                 │    │ • Rate Limits   │    │ • Caching                   │  │
 │ │ • Embeddings    │    │ • Chat History  │    │ • Session Storage           │  │
 │ │ • Semantic      │    │ • User Data     │    │ • Temporary Data            │  │
 │ │   Search        │    │ • Feedback      │    │                             │  │
@@ -74,9 +74,11 @@ facilitate understanding and future development.
   - **OpenAI:** Used for Large Language Model (LLM) inference and text embeddings (via LangChain).
   - **Pinecone:** Vector database used for storing and retrieving document embeddings for the Retrieval-Augmented
     Generation (RAG) process (`pinecone-client.ts`, `config/pinecone.ts`).
-  - **Firestore:** NoSQL database used for storing chat logs, user data, votes, cached related questions, and
-    potentially ingestion queue state (`firestoreUtils.ts`, `services/firebase.ts`).
-  - **Redis:** In-memory data store used primarily for API rate limiting (`redisUtils.ts`, `genericRateLimiter.ts`).
+  - **Firestore:** NoSQL database used for storing chat logs, user data, votes, cached related questions, rate-limit
+    counters, and potentially ingestion queue state (`firestoreUtils.ts`, `services/firebase.ts`,
+    `genericRateLimiter.ts`).
+  - **Redis:** In-memory data store used for caching and request locks (`redisUtils.ts`). API rate limiting uses
+    Firestore (`genericRateLimiter.ts`).
   - **AWS S3:** Object storage used for hosting source audio files and prompt templates with environment separation
     (`awsConfig.ts`, `data_ingestion/utils/s3_utils.py`).
   - **AssemblyAI / Whisper:** Likely used for audio transcription within the Python ingestion scripts.
@@ -275,7 +277,7 @@ API endpoints are defined in `pages/api/` and `app/api/`. Most endpoints are pro
   - **Purpose:** Scheduled task endpoint for Firestore maintenance (e.g., data cleanup, aggregation).
   - **Auth:** Requires Cron Secret (`cronAuthUtils.ts`).
 - **`POST /api/pruneRateLimits`** (`pages/api/pruneRateLimits.ts`)
-  - **Purpose:** Scheduled task endpoint to clean up expired rate limit entries in Redis.
+  - **Purpose:** Scheduled task endpoint to delete old rate-limit documents in Firestore.
   - **Auth:** Requires Cron Secret.
 - **`POST /api/admin/digestSelfProvision`** (`pages/api/admin/digestSelfProvision.ts`)
   - **Purpose:** Daily digest of user activation attempts and completions, including whether each activated user came through an admin invite, admin approval, or a pre-approved domain match.
@@ -390,8 +392,11 @@ Data is stored across multiple services:
     - `access_level`: Legacy string access classification retained for compatibility (e.g., `"public"`, `"kriyaban"`).
 
 - **Redis:**
-  - Stores key-value pairs for rate limiting, typically mapping an IP address or user ID to a request count within a
-    time window. Keys might look like `rateLimit:<ip_address>`.
+  - Stores cache values and short-lived locks, such as related-question results and chat request idempotency keys
+    (`redisUtils.ts`).
+
+- **Firestore rate-limit documents:**
+  - The API rate limiter stores counters in `{dev|prod}_rateLimits`. The document ID is `{ip}_{name}`.
 
 - **AWS S3:**
   - Stores raw media files (primarily audio `.mp3`, `.wav`) processed during data ingestion. File paths are stored in
@@ -686,11 +691,15 @@ if (siteConfig?.requireLogin) {
   - Use Firestore transactions or atomic increments to update vote counts.
   - Record individual votes in separate collections to prevent duplicate actions.
 - **Rate Limiting:**
-  - Implemented as API middleware.
-  - Uses Redis to store counters keyed by IP address (or potentially user ID).
-  - For each request, increments the counter and checks if it exceeds the defined limit.
-  - If the limit is exceeded, returns a 429 Too Many Requests error.
-  - Expired keys are periodically pruned via the `/api/pruneRateLimits` cron job.
+  - Implemented as API middleware (`genericRateLimiter.ts`).
+  - Uses Firestore to store counters. The document ID is `{ip}_{name}` in the `{dev|prod}_rateLimits` collection.
+  - For each request, the limiter increases the counter and checks the limit.
+  - If the count is above the limit, the API returns HTTP 429 Too Many Requests.
+  - The `/api/pruneRateLimits` cron job deletes old Firestore rate-limit documents.
+  - The chat query limit is `queriesPerUserPerDay` in production. In local development the default limit is that value
+    times 10.
+  - Local development can set `QUERY_RATE_LIMIT_DEV_MAX` to a positive integer to replace the times-10 default. The
+    process ignores this variable in production, in test, and on Vercel.
 - **Email System (`userInviteUtils.ts`, `emailTemplates.ts`):**
   - **AWS SES Integration:** Uses AWS SES for reliable email delivery with proper credentials management.
   - **Activation Emails:** `sendActivationEmail()` sends branded activation links with 14-day expiry.
