@@ -1,0 +1,497 @@
+import {
+  GENERIC_REDIRECT_RESPONSES,
+  GENERIC_REDIRECT_SIMILARITY_LIMIT,
+  hasLahiriScopedNegation,
+  hasNamedGroupOrCenter,
+  isGenericRedirectOnly,
+  LOCATION_ASK_REDIRECT_MARGIN,
+  LOCATION_ASK_RESPONSES,
+  LOCATION_ASK_SIMILARITY_THRESHOLD,
+  passesLocationAskVsRedirectMargin,
+  passesRedirectSimilarityGuard,
+  passesIndiaLocationGuard,
+  passesItalyLocationGuard,
+  passesLocationRedirectGuard,
+  passesLondonLocationGuard,
+  passesPortlandLocationGuard,
+  queryNamesNoPlace,
+  setAcceptLocationSearchMiss,
+} from "./semanticAnswerGuards";
+
+/**
+ * Recorded sim(ask) / sim(redirect) against LOCATION_ASK_RESPONSES[0] and
+ * GENERIC_REDIRECT_RESPONSES. Live suites embed those texts. These units
+ * pass the recorded scalars so CI does not need the embedding API.
+ */
+const RECORDED_ASK_REDIRECT = {
+  es0806r1: { simAsk: 0.751295, simRedirect: 0.674997 },
+  es0806r2: { simAsk: 0.792601, simRedirect: 0.679799 },
+  es0806r3: { simAsk: 0.780252, simRedirect: 0.679008 },
+  nearme0806r3: { simAsk: 0.970677, simRedirect: 0.818208 },
+  nearme632r1: { simAsk: 0.977484, simRedirect: 0.829823 },
+  nearme632r2: { simAsk: 0.923648, simRedirect: 0.835027 },
+  nearme632r3: { simAsk: 0.915749, simRedirect: 0.834491 },
+  findAnandaOnly: { simAsk: 0.750264, simRedirect: 1 },
+  worldwide: { simAsk: 0.586687, simRedirect: 0.797233 },
+  inYourArea: { simAsk: 0.625035, simRedirect: 0.744571 },
+  parisEcho: { simAsk: 0.349618, simRedirect: 0.44804 },
+  redirectSet0: { simAsk: 0.809657, simRedirect: 1 },
+};
+
+describe("semanticAnswerGuards", () => {
+  afterEach(() => {
+    setAcceptLocationSearchMiss(false);
+  });
+
+  it("keeps the generic redirect set and its own similarity limit", () => {
+    expect(GENERIC_REDIRECT_RESPONSES.length).toBeGreaterThanOrEqual(3);
+    expect(GENERIC_REDIRECT_RESPONSES.join(" ")).toMatch(/Find Ananda Near You/i);
+    expect(GENERIC_REDIRECT_RESPONSES.join(" ")).toMatch(/locations worldwide/i);
+    expect(GENERIC_REDIRECT_SIMILARITY_LIMIT).toBe(0.81);
+    expect(LOCATION_ASK_RESPONSES).toHaveLength(1);
+    expect(LOCATION_ASK_RESPONSES[0]).toMatch(/specify a city or location/i);
+    expect(LOCATION_ASK_RESPONSES[0]).toMatch(/unable to determine your location/i);
+    expect(LOCATION_ASK_SIMILARITY_THRESHOLD).toBe(0.72);
+    expect(LOCATION_ASK_REDIRECT_MARGIN).toBe(0.04);
+  });
+
+  it("fails a generic redirect-only answer for location, London, Portland, India, and Italy", () => {
+    const genericRedirect =
+      "Ananda has locations worldwide. To find information, please visit our Find Ananda Near You page.";
+    expect(isGenericRedirectOnly(genericRedirect)).toBe(true);
+    expect(passesLocationRedirectGuard(genericRedirect)).toBe(false);
+    expect(passesLondonLocationGuard(genericRedirect)).toBe(false);
+    expect(passesPortlandLocationGuard(genericRedirect)).toBe(false);
+    expect(passesIndiaLocationGuard(genericRedirect)).toBe(false);
+    expect(passesItalyLocationGuard(genericRedirect)).toBe(false);
+  });
+
+  it("treats a Paris echo plus visit-our-website as redirect-only", () => {
+    const query = "Paris";
+    const answer = "To find centers near Paris, visit our website.";
+    expect(isGenericRedirectOnly(answer, query)).toBe(true);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(false);
+  });
+
+  it("does not treat Ananda is present worldwide as a named center", () => {
+    const answer = "Ananda is present worldwide. Please visit our website.";
+    expect(isGenericRedirectOnly(answer)).toBe(true);
+    expect(passesLocationRedirectGuard(answer)).toBe(false);
+  });
+
+  it("does not treat Ananda in your area as a named center", () => {
+    const answer = "Ananda in your area ... visit our website.";
+    expect(isGenericRedirectOnly(answer)).toBe(true);
+    expect(passesLocationRedirectGuard(answer)).toBe(false);
+    expect(passesRedirectSimilarityGuard(answer, "", 0.82)).toBe(false);
+  });
+
+  it("keeps the 0.81 embedding backstop for a location-search miss", () => {
+    const query = "Find a center near me";
+    const answer = "Searching locations... Unable to determine your location. Visit Find Ananda Near You.";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query)).toBe(false);
+    expect(passesRedirectSimilarityGuard(answer, query, 0.82)).toBe(false);
+  });
+
+  it("skips the 0.81 embedding limit for an address, phone, named center, or regional domain", () => {
+    expect(passesRedirectSimilarityGuard("Ananda Portland, 123 Main Street.", "Portland", 0.82)).toBe(true);
+    expect(passesRedirectSimilarityGuard("Ananda Berkeley. Phone: (510) 555-0100.", "Berkeley", 0.82)).toBe(true);
+    expect(passesRedirectSimilarityGuard("Ananda Meditation Group of Paris.", "Paris", 0.82)).toBe(true);
+    expect(passesRedirectSimilarityGuard("See anandaindia.org for local groups.", "India", 0.82)).toBe(true);
+  });
+
+  it("passes a Find Ananda answer that also gives a street address", () => {
+    const query = "Portland, Oregon";
+    const answer = "Ananda Portland, 123 Main Street. Visit Find Ananda Near You.";
+    expect(isGenericRedirectOnly(answer, query)).toBe(false);
+    expect(passesPortlandLocationGuard(answer, query)).toBe(true);
+  });
+
+  it("passes a Find Ananda answer that also gives a phone number", () => {
+    const query = "What Ananda centers are near Berkeley, California?";
+    const answer = "Ananda Berkeley. Phone: (510) 555-0100. Visit Find Ananda Near You.";
+    expect(isGenericRedirectOnly(answer, query)).toBe(false);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(true);
+  });
+
+  it("passes a named group that is more than the echoed city", () => {
+    const query = "Paris";
+    const answer = "Ananda Meditation Group of Paris. Visit Find Ananda Near You.";
+    expect(isGenericRedirectOnly(answer, query)).toBe(false);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(true);
+  });
+
+  it("does not treat Ananda offers a meditation group as a named group", () => {
+    expect(hasNamedGroupOrCenter("Ananda offers a meditation group")).toBe(false);
+    expect(isGenericRedirectOnly("Ananda offers a meditation group. Visit Find Ananda Near You.")).toBe(true);
+  });
+
+  it("does not treat Ananda near you has a center as a named group", () => {
+    expect(hasNamedGroupOrCenter("Ananda near you has a center")).toBe(false);
+    expect(isGenericRedirectOnly("Ananda near you has a center. Visit Find Ananda Near You.")).toBe(true);
+  });
+
+  it("fails a miss plus Find Ananda when geo-miss acceptance is off", () => {
+    const query = "Paris";
+    const answer = "Couldn't find Ananda centers near Paris. Visit Find Ananda Near You.";
+    setAcceptLocationSearchMiss(false);
+    expect(isGenericRedirectOnly(answer, query)).toBe(true);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(false);
+  });
+
+  it("passes a miss plus Find Ananda when geo-miss acceptance is on", () => {
+    const query = "Paris";
+    const answer = "Couldn't find Ananda centers near Paris. Visit Find Ananda Near You.";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query)).toBe(false);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(true);
+    expect(passesLondonLocationGuard(answer, query)).toBe(false);
+    expect(passesIndiaLocationGuard("No Ananda centers listed in India. Visit Find Ananda Near You.")).toBe(false);
+    expect(passesItalyLocationGuard("No Ananda centers found close to Italy. Visit Find Ananda Near You.")).toBe(false);
+  });
+
+  it("fails a Find Ananda redirect without miss phrasing even when geo-miss acceptance is on", () => {
+    const query = "Paris";
+    const answer = "Please visit our Find Ananda Near You page.";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query)).toBe(true);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(false);
+    expect(passesRedirectSimilarityGuard(answer, query, 0.82)).toBe(false);
+    expect(passesLondonLocationGuard(answer, query)).toBe(false);
+  });
+
+  it("fails a London answer that only says centers in London and visit Find Ananda", () => {
+    const londonRedirect = "There are Ananda centers in London, visit Find Ananda Near You.";
+    expect(passesLondonLocationGuard(londonRedirect)).toBe(false);
+  });
+
+  it("fails an India answer that only names the country", () => {
+    expect(passesIndiaLocationGuard("Yes, there are Ananda centers in India.")).toBe(false);
+  });
+
+  it("fails an Italy answer that only names the country", () => {
+    expect(passesItalyLocationGuard("Yes, there are Ananda centers in Italy.")).toBe(false);
+  });
+
+  it("fails London phrasing that only says center in London or United Kingdom", () => {
+    expect(passesLondonLocationGuard("There is a center in London, UK.")).toBe(false);
+    expect(passesLondonLocationGuard("Ananda has a center in the United Kingdom.")).toBe(false);
+  });
+
+  it("fails a Lahiri mention with no scoped negation nearby", () => {
+    expect(hasLahiriScopedNegation("Broader teachings discuss Lahiri Mahasaya's view even if this source does not.")).toBe(
+      false
+    );
+    expect(hasLahiriScopedNegation("Related spiritual texts say Lahiri Mahasaya taught about destiny in other places.")).toBe(
+      false
+    );
+  });
+
+  it("passes a location answer that names a center and may also mention Find Ananda", () => {
+    const good =
+      "Here are Ananda centers near you: Ananda Portland at a local address. You can also visit Find Ananda Near You.";
+    expect(isGenericRedirectOnly(good)).toBe(false);
+    expect(passesLocationRedirectGuard(good)).toBe(true);
+    expect(passesPortlandLocationGuard(good)).toBe(true);
+  });
+
+  it("passes a near-me answer that names a real center and includes the Find Ananda link", () => {
+    const query = "Where is Ananda near me?";
+    const good =
+      "Here are Ananda centers near you: Ananda Palo Alto. You can also visit Find Ananda Near You at https://www.ananda.org/find-ananda/";
+    expect(isGenericRedirectOnly(good, query)).toBe(false);
+    expect(passesLocationRedirectGuard(good, query)).toBe(true);
+  });
+
+  it("passes a Portland answer that names a real center and includes the Find Ananda link", () => {
+    const query = "Are there any Ananda centers in Portland, Oregon?";
+    const good =
+      "Here are Ananda centers near Portland: Ananda Portland at a local address. See also https://www.ananda.org/find-ananda/";
+    expect(isGenericRedirectOnly(good, query)).toBe(false);
+    expect(passesLocationRedirectGuard(good, query)).toBe(true);
+    expect(passesPortlandLocationGuard(good, query)).toBe(true);
+  });
+
+  it("passes London answers with anandauk.org, Devizes, or a named London group", () => {
+    expect(passesLondonLocationGuard("The nearest center is listed at anandauk.org.")).toBe(true);
+    expect(passesLondonLocationGuard("Ananda United Kingdom in Devizes, Wiltshire has contact details.")).toBe(true);
+    expect(passesLondonLocationGuard("There is a London meditation group that meets weekly.")).toBe(true);
+  });
+
+  it("passes India and Italy answers that name one listed center or a center domain", () => {
+    expect(passesIndiaLocationGuard("Yes. Ananda has a center in Delhi.")).toBe(true);
+    expect(passesIndiaLocationGuard("See anandaindia.org for local groups.")).toBe(true);
+    expect(passesItalyLocationGuard("Ananda Europa is in Assisi.")).toBe(true);
+    expect(passesItalyLocationGuard("The community is near Nocera Umbra.")).toBe(true);
+  });
+
+  it("detects no place in the query with a general city, region, country, or postal check", () => {
+    expect(queryNamesNoPlace("Where is Ananda near me?")).toBe(true);
+    expect(queryNamesNoPlace("Find a center near me")).toBe(true);
+    expect(queryNamesNoPlace("Find a center")).toBe(true);
+    expect(queryNamesNoPlace("Paris")).toBe(false);
+    expect(queryNamesNoPlace("Ananda centers in Italy")).toBe(false);
+    expect(queryNamesNoPlace("94002")).toBe(false);
+    expect(queryNamesNoPlace("in London")).toBe(false);
+    expect(queryNamesNoPlace("Portland, Oregon")).toBe(false);
+  });
+
+  it("accepts a no-place answer that asks for the location or says it does not know, only when the no-geo flag is on", () => {
+    const query = "Where is Ananda near me?";
+    const asks = "Please specify a city or location to find nearby Ananda centers.";
+    const unknown = "Unable to determine your location.";
+    const both =
+      "Unable to determine your location. Please specify a city or location to find nearby Ananda centers.";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(asks, query)).toBe(false);
+    expect(isGenericRedirectOnly(unknown, query)).toBe(false);
+    expect(isGenericRedirectOnly(both, query)).toBe(false);
+    expect(passesLocationRedirectGuard(both, query)).toBe(true);
+  });
+
+  it("requires a named center for a no-place answer when geo data is present", () => {
+    const query = "Find a center near me";
+    const asks = "Please specify a city or location to find nearby Ananda centers.";
+    const unknown = "Unable to determine your location.";
+    const findAnanda = "Please visit our Find Ananda Near You page.";
+    const named = "Here are Ananda centers near you: Ananda Palo Alto.";
+    setAcceptLocationSearchMiss(false);
+    expect(isGenericRedirectOnly(asks, query)).toBe(true);
+    expect(isGenericRedirectOnly(unknown, query)).toBe(true);
+    expect(isGenericRedirectOnly(findAnanda, query)).toBe(true);
+    expect(passesLocationRedirectGuard(asks, query)).toBe(false);
+    expect(isGenericRedirectOnly(named, query)).toBe(false);
+    expect(passesLocationRedirectGuard(named, query)).toBe(true);
+  });
+
+  it("fails Ananda is present worldwide for a near-me query even when the no-geo flag is on", () => {
+    const query = "Where is Ananda near me?";
+    const answer = "Ananda is present worldwide.";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query)).toBe(true);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(false);
+  });
+
+  it("fails Ananda in your area for a near-me query even when the no-geo flag is on", () => {
+    const query = "Find a center near me";
+    const answer = "Ananda in your area has groups you can visit.";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query)).toBe(true);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(false);
+  });
+
+  it("fails a plain Find Ananda answer for a no-place query even when the no-geo flag is on", () => {
+    const query = "Where is Ananda near me?";
+    const answer = "Please visit our Find Ananda Near You page.";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query)).toBe(true);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(false);
+  });
+
+  it("fails a Paris echo plus visit-our-website for a place query when the no-geo flag is on", () => {
+    const query = "Paris";
+    const answer = "To find centers near Paris, visit our website.";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query)).toBe(true);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(false);
+  });
+
+  it("fails Ananda is present worldwide for a place query when the no-geo flag is on", () => {
+    const query = "Paris";
+    const answer = "Ananda is present worldwide";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query)).toBe(true);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(false);
+  });
+
+  it("fails Ananda in your area for a place query when the no-geo flag is on", () => {
+    const query = "Paris";
+    const answer = "Ananda in your area";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query)).toBe(true);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(false);
+  });
+
+  it("treats greeting-comma and pronoun-area queries as naming no place", () => {
+    expect(queryNamesNoPlace("Hi, where is Ananda near me?")).toBe(true);
+    expect(queryNamesNoPlace("Is there a center in my area?")).toBe(true);
+    expect(queryNamesNoPlace("Any groups near my home?")).toBe(true);
+    expect(queryNamesNoPlace("Portland, Oregon")).toBe(false);
+    expect(queryNamesNoPlace("Austin, TX")).toBe(false);
+    expect(queryNamesNoPlace("Paris")).toBe(false);
+    expect(queryNamesNoPlace("in London")).toBe(false);
+    expect(queryNamesNoPlace("Italy")).toBe(false);
+    expect(queryNamesNoPlace("94002")).toBe(false);
+  });
+
+  it("treats a Spanish nearest-center query and its no-accent form as naming no place", () => {
+    expect(queryNamesNoPlace("¿Dónde está el centro más cercano?")).toBe(true);
+    expect(queryNamesNoPlace("Donde esta el centro mas cercano")).toBe(true);
+  });
+
+  it("accepts the run-1 Spanish no-place miss under the no-geo flag", () => {
+    const query = "¿Dónde está el centro más cercano?";
+    const answer =
+      "Searching locations...\n" +
+      "No he podido determinar tu ubicación. Por favor, indícame una ciudad o lugar específico para ayudarte a encontrar el centro de Ananda más cercano.\n\n" +
+      "Mientras tanto, puedes explorar la lista completa de centros en todo el mundo en la página [Find Ananda Near You](https://www.ananda.org/find-ananda/). \n\n" +
+      "Si tienes más preguntas sobre las enseñanzas o recursos de Ananda, estaré encantado de ayudarte.";
+    const scores = RECORDED_ASK_REDIRECT.es0806r1;
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query, scores)).toBe(false);
+    expect(passesLocationRedirectGuard(answer, query, scores)).toBe(true);
+    expect(passesRedirectSimilarityGuard(answer, query, scores.simRedirect, scores.simAsk)).toBe(true);
+  });
+
+  it("accepts the run-2 Spanish no-place miss under the no-geo flag", () => {
+    const query = "¿Dónde está el centro más cercano?";
+    const answer =
+      "Searching locations...\n" +
+      "No puedo determinar tu ubicación actual. Por favor, indícame una ciudad o lugar específico para ayudarte a encontrar el centro de Ananda más cercano.\n\n" +
+      "También puedes explorar todos los centros disponibles en el directorio en línea en [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
+    const scores = RECORDED_ASK_REDIRECT.es0806r2;
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query, scores)).toBe(false);
+    expect(passesLocationRedirectGuard(answer, query, scores)).toBe(true);
+    expect(passesRedirectSimilarityGuard(answer, query, scores.simRedirect, scores.simAsk)).toBe(true);
+  });
+
+  it("accepts the run-3 Spanish no-place miss under the no-geo flag", () => {
+    const query = "¿Dónde está el centro más cercano?";
+    const answer =
+      "Searching locations...\n" +
+      "No puedo determinar tu ubicación actual. Por favor, indícame una ciudad o lugar específico para ayudarte a encontrar el centro de Ananda más cercano.\n\n" +
+      "Mientras tanto, puedes explorar todas las ubicaciones en el directorio de Ananda aquí:\n" +
+      "* [Find Ananda Near You](https://www.ananda.org/find-ananda/)";
+    const scores = RECORDED_ASK_REDIRECT.es0806r3;
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query, scores)).toBe(false);
+    expect(passesLocationRedirectGuard(answer, query, scores)).toBe(true);
+    expect(passesRedirectSimilarityGuard(answer, query, scores.simRedirect, scores.simAsk)).toBe(true);
+  });
+
+  it("accepts the run-3 0806d42a near-me miss via the ask-vs-redirect margin", () => {
+    const query = "Find a center near me";
+    const answer =
+      "Searching locations...\n" +
+      "I'm currently unable to determine your location. Please specify a city or location so I can help you find nearby Ananda centers. You can also explore all locations at the [Find Ananda Near You](https://www.ananda.org/find-ananda/) page.";
+    const scores = RECORDED_ASK_REDIRECT.nearme0806r3;
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query, scores)).toBe(false);
+    expect(passesLocationRedirectGuard(answer, query, scores)).toBe(true);
+    expect(passesRedirectSimilarityGuard(answer, query, scores.simRedirect, scores.simAsk)).toBe(true);
+  });
+
+  it("accepts a no-accent nearest-center query with the recorded ask-vs-redirect margin", () => {
+    const query = "Donde esta el centro mas cercano";
+    const answer =
+      "Searching locations...\n" +
+      "No puedo determinar tu ubicación actual. Por favor, indícame una ciudad o lugar específico para ayudarte a encontrar el centro de Ananda más cercano.\n\n" +
+      "También puedes explorar todos los centros disponibles en el directorio en línea en [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
+    const scores = RECORDED_ASK_REDIRECT.es0806r2;
+    setAcceptLocationSearchMiss(true);
+    expect(queryNamesNoPlace(query)).toBe(true);
+    expect(isGenericRedirectOnly(answer, query, scores)).toBe(false);
+    expect(passesLocationRedirectGuard(answer, query, scores)).toBe(true);
+  });
+
+  it("accepts the 632da621 run-1 near-me miss via the ask-vs-redirect margin", () => {
+    const query = "Where is Ananda near me?";
+    const answer =
+      "Searching locations...\n" +
+      "Unable to determine your location. Please specify a city or location to find nearby Ananda centers. You can also explore all locations on the [Find Ananda Near You](https://www.ananda.org/find-ananda/) page to locate centers worldwide.";
+    const scores = RECORDED_ASK_REDIRECT.nearme632r1;
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query, scores)).toBe(false);
+    expect(passesLocationRedirectGuard(answer, query, scores)).toBe(true);
+    expect(passesRedirectSimilarityGuard(answer, query, scores.simRedirect, scores.simAsk)).toBe(true);
+  });
+
+  it("accepts the 632da621 run-2 near-me miss via the ask-vs-redirect margin", () => {
+    const query = "Where is Ananda near me?";
+    const answer =
+      "Searching locations...\n" +
+      "Unable to determine your location. Please specify a city or location to find nearby Ananda centers. You can also explore all Ananda locations worldwide at the [Find Ananda Near You](https://www.ananda.org/find-ananda/) page. For private guidance, please [click here to contact our support team](GETHUMAN). For public questions, you can visit the [Ask the Experts page](https://www.ananda.org/ask/).";
+    const scores = RECORDED_ASK_REDIRECT.nearme632r2;
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query, scores)).toBe(false);
+    expect(passesLocationRedirectGuard(answer, query, scores)).toBe(true);
+    expect(passesRedirectSimilarityGuard(answer, query, scores.simRedirect, scores.simAsk)).toBe(true);
+  });
+
+  it("accepts the 632da621 run-3 near-me miss via the ask-vs-redirect margin", () => {
+    const query = "Where is Ananda near me?";
+    const answer =
+      "Searching locations...\n" +
+      "Unable to determine your location. Please specify a city or location to find nearby Ananda centers. You can also browse all Ananda locations at [Find Ananda Near You](https://www.ananda.org/find-ananda/). For private guidance, please [click here to contact our support team](GETHUMAN). For public questions, you can visit the [Ask the Experts page](https://www.ananda.org/ask/).";
+    const scores = RECORDED_ASK_REDIRECT.nearme632r3;
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query, scores)).toBe(false);
+    expect(passesLocationRedirectGuard(answer, query, scores)).toBe(true);
+    expect(passesRedirectSimilarityGuard(answer, query, scores.simRedirect, scores.simAsk)).toBe(true);
+  });
+
+  it("fails flag-on bypass negatives on the recorded ask-vs-redirect margin", () => {
+    setAcceptLocationSearchMiss(true);
+    expect(passesLocationAskVsRedirectMargin(RECORDED_ASK_REDIRECT.parisEcho.simAsk, RECORDED_ASK_REDIRECT.parisEcho.simRedirect)).toBe(false);
+    expect(passesLocationAskVsRedirectMargin(RECORDED_ASK_REDIRECT.worldwide.simAsk, RECORDED_ASK_REDIRECT.worldwide.simRedirect)).toBe(false);
+    expect(passesLocationAskVsRedirectMargin(RECORDED_ASK_REDIRECT.inYourArea.simAsk, RECORDED_ASK_REDIRECT.inYourArea.simRedirect)).toBe(false);
+    expect(passesLocationAskVsRedirectMargin(RECORDED_ASK_REDIRECT.findAnandaOnly.simAsk, RECORDED_ASK_REDIRECT.findAnandaOnly.simRedirect)).toBe(false);
+    expect(passesLocationAskVsRedirectMargin(RECORDED_ASK_REDIRECT.redirectSet0.simAsk, RECORDED_ASK_REDIRECT.redirectSet0.simRedirect)).toBe(false);
+    expect(isGenericRedirectOnly("To find centers near Paris, visit our website.", "Paris", RECORDED_ASK_REDIRECT.parisEcho)).toBe(true);
+    expect(isGenericRedirectOnly("Ananda is present worldwide.", "Paris", RECORDED_ASK_REDIRECT.worldwide)).toBe(true);
+    expect(isGenericRedirectOnly("Ananda in your area", "Paris", RECORDED_ASK_REDIRECT.inYourArea)).toBe(true);
+    expect(isGenericRedirectOnly("Please visit our Find Ananda Near You page.", "Find a center near me", RECORDED_ASK_REDIRECT.findAnandaOnly)).toBe(true);
+  });
+
+  it("keeps the 0.81 backstop for a place query even when the ask-vs-redirect margin would pass", () => {
+    const query = "Is there an Ananda center in India?";
+    const answer =
+      "Searching locations... Unable to determine your location. Please specify a city or location to find nearby Ananda centers. You can also explore all locations at the Find Ananda Near You page.";
+    const scores = RECORDED_ASK_REDIRECT.nearme632r1;
+    setAcceptLocationSearchMiss(true);
+    expect(queryNamesNoPlace(query)).toBe(false);
+    expect(passesLocationAskVsRedirectMargin(scores.simAsk, scores.simRedirect)).toBe(true);
+    expect(passesRedirectSimilarityGuard(answer, query, 0.812, scores.simAsk)).toBe(false);
+  });
+
+  it("keeps the 0.81 backstop for a no-place answer when the no-geo flag is off", () => {
+    const query = "Where is Ananda near me?";
+    const answer =
+      "Searching locations... Unable to determine your location. Please specify a city or location to find nearby Ananda centers. You can also explore all locations at the Find Ananda Near You page.";
+    const scores = RECORDED_ASK_REDIRECT.nearme632r1;
+    setAcceptLocationSearchMiss(false);
+    expect(passesLocationAskVsRedirectMargin(scores.simAsk, scores.simRedirect)).toBe(true);
+    expect(isGenericRedirectOnly(answer, query, scores)).toBe(true);
+    expect(passesRedirectSimilarityGuard(answer, query, scores.simRedirect, scores.simAsk)).toBe(false);
+  });
+
+  it("fails a redirect-only no-place answer on the ask-vs-redirect margin test", () => {
+    const scores = RECORDED_ASK_REDIRECT.findAnandaOnly;
+    expect(passesLocationAskVsRedirectMargin(scores.simAsk, scores.simRedirect)).toBe(false);
+    const query = "Find a center near me";
+    const answer = "Please visit our Find Ananda Near You page.";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query, scores)).toBe(true);
+    expect(passesRedirectSimilarityGuard(answer, query, scores.simRedirect, scores.simAsk)).toBe(false);
+  });
+
+  it("passes a Lahiri scoped miss when a negation is within about 120 characters either way", () => {
+    expect(
+      hasLahiriScopedNegation(
+        "The Bible: New Testament: Book of Matthew: Chapter 5 does not contain direct teachings from Lahiri Mahasaya on this point."
+      )
+    ).toBe(true);
+    expect(hasLahiriScopedNegation("Lahiri Mahasaya is not found in Matthew chapter 5.")).toBe(true);
+    expect(hasLahiriScopedNegation("This chapter has no direct quotes or teachings from Lahiri Mahasaya.")).toBe(true);
+    expect(hasLahiriScopedNegation("Matthew 5 does not attribute material to Lahiri Mahasaya.")).toBe(true);
+    expect(
+      hasLahiriScopedNegation(
+        "This source does not contain that theme. " +
+          "A long unrelated aside follows here so the later author name sits far from the negation phrase. " +
+          "Still later the text names Lahiri Mahasaya without a nearby miss clause."
+      )
+    ).toBe(false);
+  });
+});
