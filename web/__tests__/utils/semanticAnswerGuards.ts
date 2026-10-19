@@ -132,6 +132,49 @@ export function hasNamedAnandaCenter(text: string): boolean {
   return NAMED_ANANDA_CENTERS.some((name) => phrasePattern(name).test(text));
 }
 
+export function hasStreetAddress(text: string): boolean {
+  return (
+    /\baddress:\s*\S/i.test(text) ||
+    /\b\d{1,5}\s+[a-z][a-z .'-]{1,40}\s+(?:street|st\.?|avenue|ave\.?|road|rd\.?|blvd\.?|boulevard|drive|dr\.?|lane|ln\.?|way|via|rue|platz|strasse)\b/i.test(
+      text
+    )
+  );
+}
+
+export function hasPhoneNumber(text: string): boolean {
+  return (
+    /\bphone:\s*\+?\d/i.test(text) ||
+    /\b\+\d{1,3}[\s.-]?\d{2,4}[\s.-]?\d{3,4}[\s.-]?\d{3,4}\b/.test(text) ||
+    /\b\(\d{3}\)\s*\d{3}[-.\s]?\d{4}\b/.test(text)
+  );
+}
+
+/**
+ * A named group or center line, not "Ananda centers" or "Ananda in your area".
+ * "Ananda Meditation Group of Paris" counts even when the query names Paris.
+ */
+export function hasNamedGroupOrCenter(text: string): boolean {
+  if (hasNamedAnandaCenter(text)) {
+    return true;
+  }
+  return (
+    /\bananda\s+meditation\s+group\b/i.test(text) ||
+    /\bananda\s+(?!has\b|is\b|in\b|a\b|the\b|and\b|for\b)[a-z][a-z '.&-]{1,40}\s+(?:meditation\s+)?(?:group|center|centre|sangha|village)\b/i.test(
+      text
+    )
+  );
+}
+
+/**
+ * The answer ran a location search: a miss, or it could not resolve a place.
+ * That is not a bare "visit our website" redirect.
+ */
+export function hasLocationSearchOutcome(text: string): boolean {
+  return /(?:could(?: not|n't) find|no ananda (?:centers?|centres?|groups?)(?: found| listed)?|there are (?:currently )?no ananda (?:centers?|centres?)|unable to determine your location|could(?: not|n't) determine (?:your )?location)/i.test(
+    text
+  );
+}
+
 export function hasCityNotEchoedFromQuery(text: string, query = ""): boolean {
   return ECHOABLE_CITY_NAMES.some((city) => {
     const pattern = phrasePattern(city);
@@ -139,13 +182,22 @@ export function hasCityNotEchoedFromQuery(text: string, query = ""): boolean {
   });
 }
 
+export function hasSpecificCenterSignal(text: string, query = ""): boolean {
+  return (
+    hasStreetAddress(text) ||
+    hasPhoneNumber(text) ||
+    hasNamedGroupOrCenter(text) ||
+    hasLocationSearchOutcome(text) ||
+    hasCityNotEchoedFromQuery(text, query)
+  );
+}
+
 export function hasSpecificCenterCityOrDomain(text: string, query = ""): boolean {
   return (
     hasAnandaCenterDomain(text) ||
-    hasNamedAnandaCenter(text) ||
     hasCenterUrlPath(text) ||
     LONDON_SPECIFIC_REGEX.test(text) ||
-    hasCityNotEchoedFromQuery(text, query)
+    hasSpecificCenterSignal(text, query)
   );
 }
 
@@ -155,15 +207,35 @@ export function isGenericRedirectOnly(text: string, query = ""): boolean {
 }
 
 export function hasIndiaSpecificCenter(text: string): boolean {
-  return INDIA_CENTER_NAME_REGEX.test(text) || hasAnandaCenterDomain(text);
+  return (
+    INDIA_CENTER_NAME_REGEX.test(text) ||
+    hasAnandaCenterDomain(text) ||
+    hasStreetAddress(text) ||
+    hasPhoneNumber(text) ||
+    hasNamedGroupOrCenter(text) ||
+    hasLocationSearchOutcome(text)
+  );
 }
 
 export function hasItalySpecificCenter(text: string): boolean {
-  return ITALY_CENTER_NAME_REGEX.test(text) || hasAnandaCenterDomain(text);
+  return (
+    ITALY_CENTER_NAME_REGEX.test(text) ||
+    hasAnandaCenterDomain(text) ||
+    hasStreetAddress(text) ||
+    hasPhoneNumber(text) ||
+    hasNamedGroupOrCenter(text) ||
+    hasLocationSearchOutcome(text)
+  );
 }
 
 export function hasLondonSpecificCenter(text: string): boolean {
-  return LONDON_SPECIFIC_REGEX.test(text);
+  return (
+    LONDON_SPECIFIC_REGEX.test(text) ||
+    hasStreetAddress(text) ||
+    hasPhoneNumber(text) ||
+    hasNamedGroupOrCenter(text) ||
+    hasLocationSearchOutcome(text)
+  );
 }
 
 export function passesLocationRedirectGuard(text: string, query = ""): boolean {

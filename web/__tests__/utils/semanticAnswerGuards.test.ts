@@ -48,6 +48,121 @@ describe("semanticAnswerGuards", () => {
     expect(passesLocationRedirectGuard(answer)).toBe(false);
   });
 
+  it("passes a Find Ananda answer that also gives a street address", () => {
+    const query = "Portland, Oregon";
+    const answer = "Ananda Portland, 123 Main Street. Visit Find Ananda Near You.";
+    expect(isGenericRedirectOnly(answer, query)).toBe(false);
+    expect(passesPortlandLocationGuard(answer, query)).toBe(true);
+  });
+
+  it("passes a Find Ananda answer that also gives a phone number", () => {
+    const query = "What Ananda centers are near Berkeley, California?";
+    const answer = "Ananda Berkeley. Phone: (510) 555-0100. Visit Find Ananda Near You.";
+    expect(isGenericRedirectOnly(answer, query)).toBe(false);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(true);
+  });
+
+  it("passes a named group that is more than the echoed city", () => {
+    const query = "Paris";
+    const answer = "Ananda Meditation Group of Paris. Visit Find Ananda Near You.";
+    expect(isGenericRedirectOnly(answer, query)).toBe(false);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(true);
+  });
+
+  describe("real location-search misses still count as specific", () => {
+    const cases: Array<{
+      name: string;
+      query: string;
+      answer: string;
+      check?: "london" | "india" | "italy" | "portland";
+    }> = [
+      {
+        name: "near me",
+        query: "Where is Ananda near me?",
+        answer: "Unable to determine your location. Visit Find Ananda Near You.",
+      },
+      {
+        name: "Paris",
+        query: "Paris",
+        answer: "Couldn't find Ananda centers near Paris. Visit Find Ananda Near You.",
+      },
+      {
+        name: "Portland",
+        query: "Portland, Oregon",
+        answer: "No Ananda centers found in Portland. Visit Find Ananda Near You.",
+        check: "portland",
+      },
+      {
+        name: "London, UK",
+        query: "London, UK",
+        answer: "Couldn't find Ananda centers near London, UK. Visit Find Ananda Near You.",
+        check: "london",
+      },
+      {
+        name: "India",
+        query: "Is there an Ananda center in India?",
+        answer: "No Ananda centers listed in India. Visit Find Ananda Near You.",
+        check: "india",
+      },
+      {
+        name: "Italy",
+        query: "Ananda centers in Italy",
+        answer: "No Ananda centers found close to Italy. Visit Find Ananda Near You.",
+        check: "italy",
+      },
+      {
+        name: "Berkeley",
+        query: "What Ananda centers are near Berkeley, California?",
+        answer: "No Ananda centers found close to Berkeley. Visit Find Ananda Near You.",
+      },
+      {
+        name: "Kamano Island",
+        query: "Are there any centers anywhere near Kamano Island, Washington?",
+        answer: "Couldn't find Ananda centers near Kamano Island. Visit Find Ananda Near You.",
+      },
+      {
+        name: "Austin",
+        query: "Find meditation groups within 50 miles of Austin, Texas",
+        answer: "Couldn't find Ananda meditation groups within 50 miles of Austin. Visit Find Ananda Near You.",
+      },
+      {
+        name: "city queries",
+        query: "Is there an Ananda center in London?",
+        answer: "Couldn't find Ananda centers near London. Visit Find Ananda Near You.",
+        check: "london",
+      },
+      {
+        name: "Portland geo",
+        query: "Are there any Ananda centers in Portland, Oregon?",
+        answer: "No Ananda centers found close to Portland. Visit Find Ananda Near You.",
+        check: "portland",
+      },
+      {
+        name: "international location support",
+        query: "Is there an Ananda center in London, UK?",
+        answer: "No Ananda centers found close to London, UK. Visit Find Ananda Near You.",
+        check: "london",
+      },
+    ];
+
+    it.each(cases)("passes the $name miss plus Find Ananda", ({ query, answer, check }) => {
+      expect(isGenericRedirectOnly(answer, query)).toBe(false);
+      expect(passesLocationRedirectGuard(answer, query)).toBe(true);
+      if (check === "london") {
+        expect(passesLondonLocationGuard(answer, query)).toBe(true);
+      }
+      if (check === "india") {
+        expect(passesIndiaLocationGuard(answer, query)).toBe(true);
+      }
+      if (check === "italy") {
+        expect(passesItalyLocationGuard(answer, query)).toBe(true);
+      }
+      if (check === "portland") {
+        expect(passesPortlandLocationGuard(answer, query)).toBe(true);
+      }
+    });
+  });
+
   it("fails a London answer that only says centers in London and visit Find Ananda", () => {
     const londonRedirect = "There are Ananda centers in London, visit Find Ananda Near You.";
     expect(passesLondonLocationGuard(londonRedirect)).toBe(false);
