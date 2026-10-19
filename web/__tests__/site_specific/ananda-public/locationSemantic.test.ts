@@ -47,6 +47,7 @@ import { getEmbedding, cosineSimilarity } from "../../utils/embeddingUtils";
 import {
   acceptLocationSearchMiss,
   GENERIC_REDIRECT_RESPONSES,
+  geoMissAcceptance,
   hasIndiaSpecificCenter,
   hasItalySpecificCenter,
   hasLondonSpecificCenter,
@@ -55,6 +56,8 @@ import {
   setAcceptLocationSearchMiss,
 } from "../../utils/semanticAnswerGuards";
 import { detectUsableGeoWithOptionalProbe, logEnvLimitedSpecificCenterAssert } from "../../utils/detectEmptyGeoData";
+
+geoMissAcceptance.accept = true;
 
 // Skip all tests unless running with explicit flag
 const runLocationTests = process.env.RUN_LOCATION_TESTS === "true";
@@ -87,14 +90,9 @@ let nonLocationResponseEmbeddings: number[][] = [];
 let redirectResponseEmbeddings: number[][] = [];
 
 testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => {
-  // Fetch embeddings for canonical responses once before tests run
-  beforeAll(async () => {
-    locationResponseEmbeddings = await Promise.all(CANONICAL_LOCATION_RESPONSES.map((text) => getEmbedding(text)));
-    nonLocationResponseEmbeddings = await Promise.all(
-      CANONICAL_NON_LOCATION_RESPONSES.map((text) => getEmbedding(text))
-    );
-    redirectResponseEmbeddings = await Promise.all(GENERIC_REDIRECT_RESPONSES.map((text) => getEmbedding(text)));
-  });
+  // test.concurrent can run before beforeAll. Default to miss-acceptance;
+  // the probe below turns it off if geo data is usable.
+  setAcceptLocationSearchMiss(true);
 
   const getVivekLocationResponse = async (query: string, mockHeaders?: Record<string, string>): Promise<string> => {
     const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000";
@@ -190,6 +188,13 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
   beforeAll(async () => {
     // TODO(known-flaky): geo data for the Vivek test env
     // tracked: https://app.notion.com/p/3fe7781078bc818ba576f4d4de252826
+    // test.concurrent can start mid-beforeAll. Set the flag and embeddings first.
+    setAcceptLocationSearchMiss(true);
+    locationResponseEmbeddings = await Promise.all(CANONICAL_LOCATION_RESPONSES.map((text) => getEmbedding(text)));
+    nonLocationResponseEmbeddings = await Promise.all(
+      CANONICAL_NON_LOCATION_RESPONSES.map((text) => getEmbedding(text))
+    );
+    redirectResponseEmbeddings = await Promise.all(GENERIC_REDIRECT_RESPONSES.map((text) => getEmbedding(text)));
     const emptyGeo = await detectUsableGeoWithOptionalProbe(() =>
       getVivekLocationResponse("Are there any Ananda centers in Berlin, Germany?")
     );

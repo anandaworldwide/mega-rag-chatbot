@@ -68,12 +68,14 @@ export async function detectAndApplyEmptyGeoDataFlag(): Promise<boolean> {
     return acceptLocationSearchMiss();
   }
   const empty = await geoDataIsEmpty();
-  setAcceptLocationSearchMiss(empty);
   if (empty) {
+    setAcceptLocationSearchMiss(true);
     logGeoDataEmptyMissAcceptanceOnce();
     markGeoCheckDone();
+    return true;
   }
-  return empty;
+  // File has rows. Do not clear a default-on flag here; the probe decides.
+  return false;
 }
 
 export function applyEmptyGeoFlagFromProbe(answer: string): boolean {
