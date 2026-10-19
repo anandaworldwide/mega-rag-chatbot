@@ -234,8 +234,104 @@ export function hasSpecificCenterCityOrDomain(text: string, query = ""): boolean
   );
 }
 
-/** True when the answer is only a generic redirect (no center, city, or domain). */
+/** Country and region words for query-place detection only. Not answer-center names. */
+const QUERY_COUNTRY_OR_REGION_REGEX =
+  /\b(?:india|italy|germany|france|spain|canada|mexico|australia|japan|china|brazil|ireland|scotland|wales|england|europe|asia|california|oregon|texas|washington|united\s+kingdom|united\s+states|new\s+zealand|america|\buk\b|\busa\b)\b/i;
+
+const QUERY_POSTAL_CODE_REGEX = /\b\d{5}(?:-\d{4})?\b|\b[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}\b/i;
+
+/** "Portland, Oregon" / "London, UK" — structure, not a new city allow-list. */
+const QUERY_COMMA_PLACE_REGEX = /\b[a-z][a-z .'-]{1,40},\s*[a-z]{2,}\b/i;
+
+/** "in London" / "near Paris", but not "near me". */
+const QUERY_PREPOSITION_PLACE_REGEX =
+  /\b(?:in|near|around|at|from)\s+(?!me\b|you\b|here\b|there\b|this\b|that\b|ananda\b)[a-z]{2,}/i;
+
+/**
+ * General place check on the query: city, region, country, or postal code.
+ * Does not match the string "near me".
+ */
+export function queryHasNamedPlace(query: string): boolean {
+  if (!query.trim()) {
+    return false;
+  }
+  if (ECHOABLE_CITY_NAMES.some((city) => phrasePattern(city).test(query))) {
+    return true;
+  }
+  if (QUERY_COUNTRY_OR_REGION_REGEX.test(query) || QUERY_POSTAL_CODE_REGEX.test(query)) {
+    return true;
+  }
+  if (QUERY_COMMA_PLACE_REGEX.test(query) || QUERY_PREPOSITION_PLACE_REGEX.test(query)) {
+    return true;
+  }
+  return false;
+}
+
+export function queryNamesNoPlace(query: string): boolean {
+  return !queryHasNamedPlace(query);
+}
+
+export function asksForUserLocation(text: string): boolean {
+  return /(?:please\s+)?(?:provide|specify|share|tell|send|give)\s+(?:me\s+)?(?:a\s+|your\s+|the\s+)?(?:city|location|region|town)|(?:what|which)\s+(?:city|location|region|town)\b|where\s+are\s+you\b/i.test(
+    text
+  );
+}
+
+export function doesNotKnowUserLocation(text: string): boolean {
+  return /(?:was(?: not|n't)|is(?: not|n't)|am not|'m not|unable|not able|could(?: not|n't)|cannot|can'?t|do(?: not|n't)|does(?: not|n't))\s+(?:able\s+to\s+)?(?:to\s+)?(?:determine|know|find|have|detect)\s+.{0,24}(?:your\s+)?location|(?:don'?t|do not)\s+know\s+your\s+location|(?:need|needs|needed)\s+your\s+location|without\s+(?:knowing\s+)?your\s+location/i.test(
+    text
+  );
+}
+
+export function hasFindAnandaPhrase(text: string): boolean {
+  return /find ananda(?: near you)?|ananda\.org\/find-ananda/i.test(text);
+}
+
+function isWorldwideOrInYourAreaPresence(text: string): boolean {
+  return /ananda is present worldwide|ananda in your area|locations worldwide/i.test(text);
+}
+
+/** Address, phone, named center, or domain — not a search miss and not the no-geo flag. */
+function hasHardSpecificCenterSignal(text: string, query = ""): boolean {
+  return (
+    hasStreetAddress(text) ||
+    hasPhoneNumber(text) ||
+    hasNamedGroupOrCenter(text) ||
+    hasAnandaCenterDomain(text) ||
+    hasCenterUrlPath(text) ||
+    hasCityNotEchoedFromQuery(text, query)
+  );
+}
+
+/**
+ * True when the answer is only a generic redirect (no center, city, or domain).
+ *
+ * No-place queries (no city, region, country, or postal code — not a
+ * "near me" string match) may ask for the user's location or say the
+ * location is unknown. The app can resolve IP geo when headers are
+ * present: extractIPGeolocationData (x-vercel-ip-city/country/lat/lon),
+ * VercelIPGeolocationService.getLocationFromIP, LocationService.resolveLocation,
+ * LocationToolService.getUserLocation, determineLocationStrategy. So this
+ * ask/unknown path is accepted only under the no-geo flag. With geo data
+ * present, a near-me answer must name a center. A plain Find Ananda
+ * answer with neither ask nor unknown still fails.
+ */
 export function isGenericRedirectOnly(text: string, query = ""): boolean {
+  if (queryNamesNoPlace(query)) {
+    if (hasHardSpecificCenterSignal(text, query)) {
+      return false;
+    }
+    if (acceptLocationSearchMiss() && (asksForUserLocation(text) || doesNotKnowUserLocation(text))) {
+      return false;
+    }
+    return (
+      looksLikeGenericRedirect(text) ||
+      isWorldwideOrInYourAreaPresence(text) ||
+      asksForUserLocation(text) ||
+      doesNotKnowUserLocation(text) ||
+      hasFindAnandaPhrase(text)
+    );
+  }
   if (geoMissAcceptance.accept === true) {
     return false;
   }

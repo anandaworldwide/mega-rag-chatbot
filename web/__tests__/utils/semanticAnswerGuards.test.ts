@@ -10,6 +10,7 @@ import {
   passesLocationRedirectGuard,
   passesLondonLocationGuard,
   passesPortlandLocationGuard,
+  queryNamesNoPlace,
   setAcceptLocationSearchMiss,
 } from "./semanticAnswerGuards";
 
@@ -194,6 +195,69 @@ describe("semanticAnswerGuards", () => {
     expect(passesIndiaLocationGuard("See anandaindia.org for local groups.")).toBe(true);
     expect(passesItalyLocationGuard("Ananda Europa is in Assisi.")).toBe(true);
     expect(passesItalyLocationGuard("The community is near Nocera Umbra.")).toBe(true);
+  });
+
+  it("detects no place in the query with a general city, region, country, or postal check", () => {
+    expect(queryNamesNoPlace("Where is Ananda near me?")).toBe(true);
+    expect(queryNamesNoPlace("Find a center near me")).toBe(true);
+    expect(queryNamesNoPlace("Find a center")).toBe(true);
+    expect(queryNamesNoPlace("Paris")).toBe(false);
+    expect(queryNamesNoPlace("Ananda centers in Italy")).toBe(false);
+    expect(queryNamesNoPlace("94002")).toBe(false);
+    expect(queryNamesNoPlace("in London")).toBe(false);
+    expect(queryNamesNoPlace("Portland, Oregon")).toBe(false);
+  });
+
+  it("accepts a no-place answer that asks for the location or says it does not know, only when the no-geo flag is on", () => {
+    const query = "Where is Ananda near me?";
+    const asks = "Please specify a city or location to find nearby Ananda centers.";
+    const unknown = "Unable to determine your location.";
+    const both =
+      "Unable to determine your location. Please specify a city or location to find nearby Ananda centers.";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(asks, query)).toBe(false);
+    expect(isGenericRedirectOnly(unknown, query)).toBe(false);
+    expect(isGenericRedirectOnly(both, query)).toBe(false);
+    expect(passesLocationRedirectGuard(both, query)).toBe(true);
+  });
+
+  it("requires a named center for a no-place answer when geo data is present", () => {
+    const query = "Find a center near me";
+    const asks = "Please specify a city or location to find nearby Ananda centers.";
+    const unknown = "Unable to determine your location.";
+    const findAnanda = "Please visit our Find Ananda Near You page.";
+    const named = "Here are Ananda centers near you: Ananda Palo Alto.";
+    setAcceptLocationSearchMiss(false);
+    expect(isGenericRedirectOnly(asks, query)).toBe(true);
+    expect(isGenericRedirectOnly(unknown, query)).toBe(true);
+    expect(isGenericRedirectOnly(findAnanda, query)).toBe(true);
+    expect(passesLocationRedirectGuard(asks, query)).toBe(false);
+    expect(isGenericRedirectOnly(named, query)).toBe(false);
+    expect(passesLocationRedirectGuard(named, query)).toBe(true);
+  });
+
+  it("fails Ananda is present worldwide for a near-me query even when the no-geo flag is on", () => {
+    const query = "Where is Ananda near me?";
+    const answer = "Ananda is present worldwide.";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query)).toBe(true);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(false);
+  });
+
+  it("fails Ananda in your area for a near-me query even when the no-geo flag is on", () => {
+    const query = "Find a center near me";
+    const answer = "Ananda in your area has groups you can visit.";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query)).toBe(true);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(false);
+  });
+
+  it("fails a plain Find Ananda answer for a no-place query even when the no-geo flag is on", () => {
+    const query = "Where is Ananda near me?";
+    const answer = "Please visit our Find Ananda Near You page.";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query)).toBe(true);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(false);
   });
 
   it("passes a Lahiri scoped miss when a negation is within about 120 characters either way", () => {
