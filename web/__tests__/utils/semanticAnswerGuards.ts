@@ -170,7 +170,7 @@ export function hasNamedGroupOrCenter(text: string): boolean {
  * That is not a bare "visit our website" redirect.
  */
 export function hasLocationSearchOutcome(text: string): boolean {
-  return /(?:could(?: not|n't) find|no ananda (?:centers?|centres?|groups?)(?: found| listed)?|there are (?:currently )?no ananda (?:centers?|centres?)|unable to determine your location|could(?: not|n't) determine (?:your )?location)/i.test(
+  return /(?:could(?: not|n't) find|no ananda (?:centers?|centres?|groups?)(?: found| listed)?|there are (?:currently )?no ananda (?:centers?|centres?)|(?:unable|not able|was(?: not|n't) able|could(?: not|n't)|cannot|can'?t) (?:to )?determine (?:your )?location)/i.test(
     text
   );
 }

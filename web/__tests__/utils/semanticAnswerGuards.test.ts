@@ -82,6 +82,11 @@ describe("semanticAnswerGuards", () => {
         answer: "Unable to determine your location. Visit Find Ananda Near You.",
       },
       {
+        name: "near me wasn't able",
+        query: "Where is Ananda near me?",
+        answer: "I wasn't able to determine your location automatically. Visit Find Ananda Near You.",
+      },
+      {
         name: "Paris",
         query: "Paris",
         answer: "Couldn't find Ananda centers near Paris. Visit Find Ananda Near You.",
