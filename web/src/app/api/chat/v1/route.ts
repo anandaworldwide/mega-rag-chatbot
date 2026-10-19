@@ -68,7 +68,7 @@ import {
 import { SiteConfig } from "@/types/siteConfig";
 import { StreamingResponseData } from "@/types/StreamingResponseData";
 import { getClientIp } from "@/utils/server/ipUtils";
-import { isDevelopment } from "@/utils/env";
+import { resolveQueryRateLimitMax } from "@/utils/server/queryRateLimit";
 import { resolvePersistUuidForRequest } from "@/utils/server/uuidUtils";
 import { withAppRouterJwtAuth } from "@/utils/server/appRouterJwtUtils";
 import type { JwtPayload } from "@/utils/server/jwtUtils";
@@ -348,7 +348,7 @@ async function applyRateLimiting(req: NextRequest, siteConfig: SiteConfig): Prom
     null,
     {
       windowMs: 24 * 60 * 60 * 1000, // 24 hours
-      max: isDevelopment() ? siteConfig.queriesPerUserPerDay * 10 : siteConfig.queriesPerUserPerDay,
+      max: resolveQueryRateLimitMax(siteConfig.queriesPerUserPerDay),
       name: "query",
     },
     getClientIp(req)
