@@ -21,6 +21,18 @@ import { fetchWithAuth, isAuthenticated, initializeTokenManager } from "@/utils/
 import { getOrCreateUUID } from "@/utils/client/uuid";
 import { generateSourceId } from "@/utils/client/sourceUtils";
 
+type PublicShareTurn = {
+  id: string;
+  question: string;
+  answer: string;
+  sources?: unknown;
+  timestamp?: unknown;
+  title?: string | null;
+  collection?: string | null;
+  suggestions?: unknown;
+  model?: string | null;
+};
+
 interface ShareConversationProps {
   siteConfig: SiteConfig | null;
 }
@@ -39,6 +51,7 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
   const [isCloning, setIsCloning] = useState(false);
   const [cloneError, setCloneError] = useState<string | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const lastMessageRef = useRef<HTMLDivElement>(null);
   const sourceExpandedRef = useRef<Set<number>>(new Set());
   const handledHashRef = useRef<string | null>(null);
@@ -136,6 +149,7 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
       const authStatus = isAuthenticated();
 
       setIsLoggedIn(authStatus);
+      setAuthChecked(true);
     };
     checkAuth();
   }, []);
@@ -172,156 +186,129 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
   }, [router.isReady, viewOnlyMode, isLoggedIn, handleCloneConversation]);
 
   useEffect(() => {
-    if (!router.isReady || !docId || typeof docId !== "string") {
+    if (!router.isReady || !docId || typeof docId !== "string" || !authChecked) {
       return;
     }
+
+    const scrollToLastUnlessSourceHash = () => {
+      const hash = window.location.hash;
+      if (!hash || !hash.startsWith("#source-")) {
+        setTimeout(() => {
+          if (lastMessageRef.current) {
+            lastMessageRef.current.scrollIntoView({ behavior: "smooth" });
+          }
+        }, 100);
+      }
+    };
+
+    const messagesFromShareTurns = (turns: PublicShareTurn[]): ExtendedAIMessage[] => {
+      const messages: ExtendedAIMessage[] = [
+        {
+          type: "apiMessage",
+          message: getGreeting(siteConfig),
+        },
+      ];
+
+      for (const turn of turns) {
+        if (turn.question) {
+          messages.push({
+            type: "userMessage",
+            message: turn.question,
+          });
+        }
+
+        let parsedSources: Document<DocMetadata>[] = [];
+        if (turn.sources) {
+          try {
+            parsedSources = typeof turn.sources === "string" ? JSON.parse(turn.sources) : turn.sources;
+          } catch (e) {
+            console.error("Error parsing sources:", e);
+          }
+        }
+
+        messages.push({
+          type: "apiMessage",
+          message: turn.answer,
+          sourceDocs: parsedSources,
+          docId: turn.id,
+          collection: turn.collection || undefined,
+          suggestions: Array.isArray(turn.suggestions) ? turn.suggestions : [],
+          model: turn.model || undefined,
+        });
+      }
+
+      return messages;
+    };
 
     const loadSharedConversation = async () => {
       try {
         setLoading(true);
         setError(null);
 
-        // For sites without conversation history support, load document directly
-        if (!siteConfig?.requireLogin) {
-          // Get document data directly without using conversation loading
-          const docResponse = await fetch(`/api/document/${docId}`);
-          if (!docResponse.ok) {
-            if (docResponse.status === 404) {
-              throw new Error("Document not found");
-            }
-            throw new Error(`Failed to fetch document: ${docResponse.statusText}`);
+        if (isLoggedIn) {
+          const loadedConversation = await loadConversationByDocId(docId);
+
+          setConversationTitle(loadedConversation.title || null);
+          const firstUserMessage = loadedConversation.messages.find((msg) => msg.type === "userMessage");
+          if (firstUserMessage) {
+            setFirstQuestion(firstUserMessage.message);
           }
 
-          const docData = await docResponse.json();
-
-          // Set title and first question for HTML title
-          setConversationTitle(docData.title || null);
-          if (docData.question) {
-            setFirstQuestion(docData.question);
+          if (loadedConversation.isOwner && loadedConversation.convId) {
+            const hash = window.location.hash;
+            const targetPath = hash
+              ? `/chat/${loadedConversation.convId}${hash}`
+              : `/chat/${loadedConversation.convId}`;
+            router.replace("/", targetPath, { shallow: false });
+            return;
           }
 
-          // Create conversation from document history
-          const history = docData.history || [];
-          const messages = [];
-
-          // Add greeting message
-          messages.push({
-            type: "apiMessage" as const,
-            message: getGreeting(siteConfig),
-          });
-
-          // Convert history to messages format
-          for (const historyItem of history) {
-            if (historyItem.role === "user") {
-              messages.push({
-                type: "userMessage" as const,
-                message: historyItem.content,
-              });
-            } else if (historyItem.role === "assistant") {
-              messages.push({
-                type: "apiMessage" as const,
-                message: historyItem.content,
-              });
-            }
-          }
-
-          // Add the final question and answer
-          messages.push({
-            type: "userMessage" as const,
-            message: docData.question,
-          });
-
-          // Parse sources if they exist
-          let parsedSources: Document<DocMetadata>[] = [];
-          if (docData.sources) {
-            try {
-              parsedSources = JSON.parse(docData.sources);
-            } catch (e) {
-              console.error("Error parsing sources:", e);
-            }
-          }
-
-          messages.push({
-            type: "apiMessage" as const,
-            message: docData.answer,
-            sourceDocs: parsedSources,
-            docId: docData.id,
-            collection: docData.collection,
-            suggestions: docData.suggestions || [],
-            model: docData.model || undefined,
-          });
-
-          // Set the messages for display
-          setMessages(messages);
-          // Set view-only mode so clone button appears
-          setViewOnlyMode(true);
-          setLoading(false);
-
-          // Log analytics event
-          logEvent("shared_conversation_loaded", "Sharing", docId, messages.length);
-
+          const convertedMessages: ExtendedAIMessage[] = [
+            {
+              message: getGreeting(siteConfig),
+              type: "apiMessage",
+            },
+            ...loadedConversation.messages.map(
+              (msg): ExtendedAIMessage => ({
+                type: msg.type,
+                message: msg.message,
+                sourceDocs: msg.sourceDocs?.filter((doc): doc is Document<DocMetadata> => doc !== null) || undefined,
+                docId: msg.docId,
+                collection: msg.collection,
+                model: msg.model,
+              })
+            ),
+          ];
+          setMessages(convertedMessages);
+          setViewOnlyMode(loadedConversation.viewOnly);
+          logEvent("shared_conversation_loaded", "Sharing", docId, loadedConversation.messages.length);
+          scrollToLastUnlessSourceHash();
           return;
         }
 
-        const loadedConversation = await loadConversationByDocId(docId);
-
-        // Set title and first question for HTML title
-        setConversationTitle(loadedConversation.title || null);
-
-        // Get first user message for fallback title
-        const firstUserMessage = loadedConversation.messages.find((msg) => msg.type === "userMessage");
-        if (firstUserMessage) {
-          setFirstQuestion(firstUserMessage.message);
-        }
-
-        // If owner, redirect to the full conversation URL (preserve hash fragment)
-        if (loadedConversation.isOwner && loadedConversation.convId) {
-          // Preserve hash fragment if present (for source deep linking)
-          const hash = window.location.hash;
-          const targetPath = hash ? `/chat/${loadedConversation.convId}${hash}` : `/chat/${loadedConversation.convId}`;
-
-          // Navigate to home page, preserving the /chat/[convId] path and hash in the URL
-          // The home page will detect this path and load the conversation
-          router.replace("/", targetPath, { shallow: false });
-          return;
-        }
-
-        // For non-owners, show the shared conversation in read-only mode
-        const convertedMessages: ExtendedAIMessage[] = [
-          {
-            message: getGreeting(siteConfig),
-            type: "apiMessage",
-          },
-          ...loadedConversation.messages.map(
-            (msg): ExtendedAIMessage => ({
-              type: msg.type,
-              message: msg.message,
-              sourceDocs: msg.sourceDocs?.filter((doc): doc is Document<DocMetadata> => doc !== null) || undefined,
-              docId: msg.docId,
-              collection: msg.collection,
-              model: msg.model,
-            })
-          ),
-        ];
-        setMessages(convertedMessages);
-
-        setViewOnlyMode(loadedConversation.viewOnly);
-
-        // Log analytics event
-        logEvent("shared_conversation_loaded", "Sharing", docId, loadedConversation.messages.length);
-
-        // Scroll to last message or to source if hash fragment is present
-        // Note: Hash fragment handling is done in the separate useEffect below
-        // to avoid conflicts with browser's native scrolling
-          const hash = window.location.hash;
-        if (!hash || !hash.startsWith("#source-")) {
-          // Default: scroll to last message if no source hash
-                setTimeout(() => {
-          if (lastMessageRef.current) {
-            lastMessageRef.current.scrollIntoView({ behavior: "smooth" });
+        // Logged-out on every site, including requireLogin: false. Do not call /api/chats
+        // or /api/document (document stays cookie-gated on login sites).
+        const shareResponse = await fetch(`/api/share/${docId}`);
+        if (!shareResponse.ok) {
+          if (shareResponse.status === 404) {
+            throw new ConversationNotFoundError("Document not found");
           }
-        }, 100);
+          throw new Error(`Failed to fetch shared conversation: ${shareResponse.statusText}`);
         }
+
+        const shareData = await shareResponse.json();
+        const turns: PublicShareTurn[] = Array.isArray(shareData.turns) ? shareData.turns : [];
+        setConversationTitle(shareData.title || null);
+        const firstQuestionTurn = turns.find((turn) => turn.question);
+        if (firstQuestionTurn) {
+          setFirstQuestion(firstQuestionTurn.question);
+        }
+
+        const messages = messagesFromShareTurns(turns);
+        setMessages(messages);
+        setViewOnlyMode(true);
+        logEvent("shared_conversation_loaded", "Sharing", docId, messages.length);
+        scrollToLastUnlessSourceHash();
       } catch (error) {
         if (!(error instanceof ConversationNotFoundError)) {
           console.error("Error loading shared conversation:", error);
@@ -333,7 +320,7 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
     };
 
     loadSharedConversation();
-  }, [router.isReady, docId, router, siteConfig, handleSourceExpanded]);
+  }, [router.isReady, docId, router, siteConfig, isLoggedIn, authChecked]);
 
   // Handle hash changes (e.g., browser back/forward navigation)
   // This handles both initial page load with hash and subsequent hash changes

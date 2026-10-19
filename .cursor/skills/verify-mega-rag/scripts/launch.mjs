@@ -1,0 +1,87 @@
+#!/usr/bin/env node
+/**
+ * Start Next.js for verification.
+ * Bind 127.0.0.1 only.
+ * Read PINECONE_INDEX_NAME from .env.<site>.
+ * VERIFY_MEGA_RAG_INDEX overrides that name.
+ * Do not print secret values or the index name.
+ */
+import { spawn } from "child_process";
+import fs from "fs";
+import path from "path";
+import { createRequire } from "module";
+
+const site = process.env.VERIFY_LAUNCH_SITE;
+const port = process.env.VERIFY_LAUNCH_PORT;
+const repoRoot = process.env.VERIFY_LAUNCH_REPO;
+const runDir = process.env.VERIFY_LAUNCH_RUN_DIR;
+
+if (!site || !port || !repoRoot || !runDir) {
+  console.error("verify-mega-rag: launch.mjs missing VERIFY_LAUNCH_* values");
+  process.exit(1);
+}
+
+const require = createRequire(path.join(repoRoot, "package.json"));
+const dotenv = require("dotenv");
+
+const envFile = path.join(repoRoot, `.env.${site}`);
+let indexSource = "unset";
+if (fs.existsSync(envFile)) {
+  const parsed = dotenv.parse(fs.readFileSync(envFile));
+  if (Object.prototype.hasOwnProperty.call(parsed, "PINECONE_INDEX_NAME")) {
+    indexSource = "env-file";
+  }
+  dotenv.config({ path: envFile, override: true });
+}
+
+if (process.env.VERIFY_MEGA_RAG_INDEX) {
+  process.env.PINECONE_INDEX_NAME = process.env.VERIFY_MEGA_RAG_INDEX;
+  indexSource = "VERIFY_MEGA_RAG_INDEX";
+} else if (indexSource === "unset" && process.env.PINECONE_INDEX_NAME) {
+  indexSource = "process-env";
+}
+
+const env = { ...process.env };
+env.SITE_ID = site;
+env.NODE_ENV = "development";
+env.NEXT_PUBLIC_BASE_URL = `http://127.0.0.1:${port}`;
+// Never inherit a production public URL from the parent environment.
+delete env.VERCEL;
+delete env.VERCEL_URL;
+
+fs.writeFileSync(path.join(runDir, "index_source"), `${indexSource}\n`);
+
+const nextCandidates = [
+  path.join(repoRoot, "web", "node_modules", ".bin", "next"),
+  path.join(repoRoot, "node_modules", ".bin", "next"),
+];
+const nextBin = nextCandidates.find((candidate) => fs.existsSync(candidate));
+if (!nextBin) {
+  console.error("verify-mega-rag: next binary is missing. Run cd web && npm ci");
+  process.exit(1);
+}
+
+const stdoutPath = path.join(runDir, "launch.stdout.log");
+const stderrPath = path.join(runDir, "launch.stderr.log");
+const stdoutFd = fs.openSync(stdoutPath, "w");
+const stderrFd = fs.openSync(stderrPath, "w");
+
+const child = spawn(
+  nextBin,
+  ["dev", "--webpack", "-H", "127.0.0.1", "-p", String(port)],
+  {
+    cwd: path.join(repoRoot, "web"),
+    env,
+    stdio: ["ignore", stdoutFd, stderrFd],
+    detached: true,
+  }
+);
+
+if (!child.pid) {
+  console.error("verify-mega-rag: failed to spawn Next.js");
+  process.exit(1);
+}
+
+fs.writeFileSync(path.join(runDir, "server.pid"), `${child.pid}\n`);
+child.unref();
+process.exit(0);

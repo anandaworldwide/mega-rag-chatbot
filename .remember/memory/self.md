@@ -2,6 +2,22 @@
 
 ## Critical Lessons Learned
 
+### Mistake: Login-site share pages must not call cookie-gated /api/chats
+
+**Wrong**:
+Load a public `/share/[id]` page, then call `loadConversationByDocId` → `fetchWithAuth("/api/chats")`.
+The page path is public, but `/api/chats` is cookie-gated. A restored proxy 401 plus
+`fetchWithAuth` sends a logged-out viewer to `/login`. Making `/api/chats` public would
+expose any user's chat list by uuid (the route has no auth check of its own).
+
+**Correct**:
+Logged-out share uses `GET /api/share/{docId}` (public, rate-limited, display fields
+only, 404 for unknown ids) on every site, including `requireLogin: false`. Keep
+`/api/chats` and `/api/document/` private on login sites. Logged-in `conversationLoader`
+still reads `/api/document` (uuid stays on that response for the owner check) because
+those callers have a cookie. Skip client login redirects on `/share/` and `/answers/`
+if some other call still 401s.
+
 ### Mistake: Incomplete lockfile omits juice transitive deps (mensch)
 
 **Wrong**:

@@ -791,6 +791,10 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 Cron-invoked endpoints use a hybrid authentication pattern that supports both Vercel cron requests (with CRON_SECRET)
 and manual admin access (with JWT tokens). This provides flexibility while maintaining security.
 
+The Next.js interceptor (`web/src/proxy.ts`) is a separate gate. On login-required sites it allows a
+`vercel.json` cron path only when `Authorization: Bearer` matches `CRON_SECRET` (constant-time compare). It does
+not treat a Bearer header as authentication on any other route. Cron paths are not listed in `publicPaths.ts`.
+
 ### Hybrid Authentication Pattern
 
 The `withJwtOrCronAuth` middleware provides dual authentication support:
@@ -1017,6 +1021,9 @@ try {
 - Do not apply SQL-style apostrophe doubling (`'` → `''`) to Google Sheets free text.
   Use `sanitizeSpreadsheetText` so apostrophes and quotes stay as typed, and prefix
   `=` `+` `-` `@` to stop formula injection on `USER_ENTERED` appends.
+- Do not apply SQL-style apostrophe doubling or shell-character stripping to chat
+  questions or email body text. Use `sanitizeUserText`. Escape HTML when the email
+  HTML is built, not at input time.
 
 ### Subprocess Execution Best Practices
 
@@ -1301,7 +1308,9 @@ SSRF_ALLOWED_DOMAINS=api.example.com,cdn.example.com
 
 **Key Features**:
 
-- **Nonce Support**: Generated nonces for inline scripts (Next.js compatible)
+- **Nonce Support**: Middleware generates a per-request nonce, puts it on the
+  request `x-nonce` header (so Next.js / `_document` can apply it to `Head`
+  and `NextScript`), and includes the same value in `Content-Security-Policy`
 - **Tightened connect-src**: Only specific domains allowed for API calls
 - **Upgrade Insecure Requests**: Forces HTTPS for all resources
 - **Strict Default Policy**: `default-src 'self'` as baseline

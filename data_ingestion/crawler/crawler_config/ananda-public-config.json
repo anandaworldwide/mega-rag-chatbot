@@ -3,6 +3,7 @@
   "csv_export_url": "http://www.ananda.org/?export_modified_posts=1",
   "csv_timezone": "America/Los_Angeles",
   "csv_modified_days_threshold": 10,
+  "skip_listing_pages": true,
   "skip_patterns": [
     "^/search/",
     "^/login/",

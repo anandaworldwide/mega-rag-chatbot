@@ -215,6 +215,7 @@ python bin/delete_by_skip_pattern.py --site ananda-public
 | ----------------------------- | -------------------------------------------- | -------- |
 | `domain`                      | Target domain to crawl                       | Required |
 | `skip_patterns`               | Regex patterns for URLs to skip              | `[]`     |
+| `skip_listing_pages`          | Skip author, search, and pagination listings | `false`  |
 | `crawl_frequency_days`        | Days between re-crawling visited pages       | `14`     |
 | `crawl_delay_seconds`         | Delay between requests (rate limiting)       | `1`      |
 | `csv_export_url`              | URL for CSV export (optional)                | `null`   |

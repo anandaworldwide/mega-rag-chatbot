@@ -158,6 +158,30 @@ When adding a new email campaign type:
    const pixelUrl = generateOpenTrackingUrl(userEmail, "newsletter", newsletterId, baseUrl);
    ```
 
+   Click links include an HMAC (`sig`) over the recipient and target URL, using
+   `SECURE_TOKEN` (same helper and secret as open-tracking tokens). A valid
+   signature may redirect to any `https` host and writes a click record. A
+   signed `http` link is allowed only when the host is on the allowlist
+   (localhost may stay on `http`). Other signed `http` links go to the site
+   home.
+
+   Links in emails sent before this change have no `sig`. Those unsigned clicks
+   follow the target only when the host is on the allowlist, or when the target
+   is a relative path that starts with a single `/` (not `//` or `/\`). A
+   relative target is parsed with `new URL(raw, "https://x.invalid")`. The host
+   must stay `x.invalid`, and the redirect uses only `pathname + search + hash`.
+   Any target with a literal character `<= 0x20` or `0x7f` is rejected.
+   Encoded spaces such as `%20` are allowed. They never write a click record.
+   Unsigned links to any other host go to the site home.
+
+   The allowlist is used only for unsigned links and for signed `http`. It
+   comes from exact `allowedFrontEndDomains` (no `*` / `**` patterns),
+   `accessControl.originUrl`, `parent_site_url`, `help_url`,
+   `redirectMappings`, `NEXT_PUBLIC_BASE_URL`, plus `localhost` and
+   `127.0.0.1`. Vercel wildcard hosts such as
+   `**-ananda-web-services-projects.vercel.app` are not used, so
+   `evil-ananda-web-services-projects.vercel.app` is not treated as allowed.
+
 2. **Add UTM parameters:**
 
    ```typescript

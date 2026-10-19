@@ -125,7 +125,7 @@ frozenlist==1.7.0
     #   aiohttp
     #   aiosignal
     #   mega-rag-chatbot
-fsspec==2024.6.1
+fsspec==2026.6.0
     # via
     #   huggingface-hub
     #   mega-rag-chatbot

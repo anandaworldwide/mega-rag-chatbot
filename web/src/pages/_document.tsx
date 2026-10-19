@@ -1,14 +1,23 @@
 // Custom Document component for Next.js
-import { Html, Head, Main, NextScript } from "next/document";
+import Document, { Html, Head, Main, NextScript } from "next/document";
+import type { DocumentContext, DocumentInitialProps } from "next/document";
+import { getRequestNonce } from "@/utils/server/cspNonce";
 
-export default function Document() {
+type AppDocumentProps = DocumentInitialProps & {
+  nonce?: string;
+};
+
+export function nonceFromDocumentContext(ctx: { req?: { headers?: Record<string, string | string[] | undefined> } }): string | undefined {
+  return getRequestNonce(ctx.req?.headers);
+}
+
+export default function AppDocument({ nonce }: AppDocumentProps) {
   // Use a generic app title - the manifest.json will have the site-specific name
-  // This avoids needing getInitialProps which can cause issues in production
   const appTitle = "Chatbot";
 
   return (
     <Html lang="en">
-      <Head>
+      <Head nonce={nonce}>
         {/* PWA Manifest - dynamically generated based on site config */}
         <link rel="manifest" href="/api/manifest.json" />
         {/* Theme Color */}
@@ -21,6 +30,8 @@ export default function Document() {
         <link rel="apple-touch-icon" sizes="180x180" href="/api/apple-touch-icon" />
         {/* Favicon */}
         <link rel="icon" href="/favicon.ico" />
+        {/* Client scripts that inject after hydration (GA) read this nonce. */}
+        {nonce ? <meta name="csp-nonce" content={nonce} /> : null}
         {/* Include Material Icons font */}
         <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet" />
         {/* Include Open Sans font */}
@@ -32,9 +43,15 @@ export default function Document() {
       <body>
         {/* Main content will be injected here */}
         <Main />
-        {/* Next.js scripts */}
-        <NextScript />
+        {/* Next.js scripts receive the CSP nonce from middleware */}
+        <NextScript nonce={nonce} />
       </body>
     </Html>
   );
 }
+
+AppDocument.getInitialProps = async (ctx: DocumentContext): Promise<AppDocumentProps> => {
+  const initialProps = await Document.getInitialProps(ctx);
+  const nonce = nonceFromDocumentContext(ctx);
+  return { ...initialProps, nonce };
+};

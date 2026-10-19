@@ -68,7 +68,7 @@ import {
 import { SiteConfig } from "@/types/siteConfig";
 import { StreamingResponseData } from "@/types/StreamingResponseData";
 import { getClientIp } from "@/utils/server/ipUtils";
-import { isDevelopment } from "@/utils/env";
+import { resolveQueryRateLimitMax } from "@/utils/server/queryRateLimit";
 import { resolvePersistUuidForRequest } from "@/utils/server/uuidUtils";
 import { withAppRouterJwtAuth } from "@/utils/server/appRouterJwtUtils";
 import type { JwtPayload } from "@/utils/server/jwtUtils";
@@ -205,7 +205,7 @@ async function validateAndPreprocessInput(
 ): Promise<
   | {
       sanitizedInput: ChatRequestBody;
-      originalQuestion: string;
+      displayQuestion: string;
     }
   | NextResponse
 > {
@@ -242,13 +242,13 @@ async function validateAndPreprocessInput(
     return corsMiddleware.addCorsHeaders(response, req, siteConfig);
   }
 
-  // Validate and sanitize question with comprehensive security checks
-  let sanitizedQuestion: string;
-  let originalQuestion: string;
+  // Split the question: display keeps punctuation; model path strips injection characters.
+  let modelQuestion: string;
+  let displayQuestion: string;
   try {
-    // Deep sanitization: removes XSS patterns, injection attempts, validates UTF-8, checks length
-    sanitizedQuestion = validateAndSanitizeQuestion(question, 4000);
-    originalQuestion = question; // Keep original for display, sanitized for processing/storage
+    const sanitizedQuestion = validateAndSanitizeQuestion(question, 4000);
+    modelQuestion = sanitizedQuestion.model;
+    displayQuestion = sanitizedQuestion.display;
   } catch (error: any) {
     const errorMessage = error.message || "Invalid question format";
     const response = NextResponse.json({ error: `Invalid question: ${errorMessage}` }, { status: 400 });
@@ -333,12 +333,12 @@ async function validateAndPreprocessInput(
   return {
     sanitizedInput: {
       ...requestBody,
-      question: sanitizedQuestion,
+      question: modelQuestion,
       uuid: sanitizedUuid,
       clientRequestId: sanitizedClientRequestId,
       filterExplicitness,
     },
-    originalQuestion,
+    displayQuestion,
   };
 }
 
@@ -348,7 +348,7 @@ async function applyRateLimiting(req: NextRequest, siteConfig: SiteConfig): Prom
     null,
     {
       windowMs: 24 * 60 * 60 * 1000, // 24 hours
-      max: isDevelopment() ? siteConfig.queriesPerUserPerDay * 10 : siteConfig.queriesPerUserPerDay,
+      max: resolveQueryRateLimitMax(siteConfig.queriesPerUserPerDay),
       name: "query",
     },
     getClientIp(req)
@@ -471,7 +471,7 @@ async function setupVectorStoreAndRetriever(
 // Updated function to handle both creation (if docId is missing) and update
 async function saveOrUpdateDocument(
   docId: string | undefined | null, // Make docId optional
-  originalQuestion: string,
+  displayQuestion: string,
   fullResponse: string,
   finalDocuments: Document[], // Use the final documents
   collection: string,
@@ -497,16 +497,13 @@ async function saveOrUpdateDocument(
   // Use provided convId or generate new one for first message
   const finalConvId = convId || uuidv4();
 
-  // Create data object to save
-  // Sanitize originalQuestion before saving to prevent XSS/injection in stored data
-  // Note: We keep originalQuestion for display, but sanitize before storage
-  const sanitizedOriginalQuestion = sanitizeForLogging(originalQuestion, 4000);
+  // Save the display question. It already passed XSS checks and keeps user punctuation.
 
   // Sanitize suggestions: remove undefined values (Firestore doesn't accept undefined)
   const sanitizedSuggestions = suggestions ? sanitizeSuggestionsForFirestore(suggestions) : [];
 
   const dataToSave: Record<string, any> = {
-    question: sanitizedOriginalQuestion,
+    question: displayQuestion,
     answer: fullResponse,
     collection: collection,
     mediaTypes: mediaTypes || null,
@@ -557,7 +554,7 @@ async function saveOrUpdateDocument(
           dataToSave,
           { merge: true },
           "chat document update",
-          `docId: ${docId}, question: ${sanitizeForLogging(originalQuestion, 50)}`
+          `docId: ${docId}, question: ${sanitizeForLogging(displayQuestion, 50)}`
         );
         return docId;
       } catch (_updateError) {
@@ -573,7 +570,7 @@ async function saveOrUpdateDocument(
           answerRef,
           dataToSave,
           "chat document creation",
-          `question: ${sanitizeForLogging(originalQuestion, 50)}`
+          `question: ${sanitizeForLogging(displayQuestion, 50)}`
         );
         return newDocRef.id;
       } catch (_createError) {
@@ -799,7 +796,7 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
     return corsMiddleware.addCorsHeaders(validationResult, req, siteConfig);
   }
 
-  const { sanitizedInput, originalQuestion } = validationResult;
+  const { sanitizedInput, displayQuestion } = validationResult;
   // Access comes from the Bearer JWT email (issued from the auth cookie by
   // /api/web-token). Do not read x-library-access here: middleware may not
   // forward that request header to this App Router streaming route.
@@ -988,7 +985,7 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
             // This runs concurrently with LLM chain execution for better performance
             titleGenerationPromise = (async () => {
               try {
-                const title = await generateTitle(originalQuestion);
+                const title = await generateTitle(sanitizedInput.question);
                 if (title) {
                   sendData({ convId: conversationId, title });
                   // Store the generated title for later database update
@@ -1028,7 +1025,7 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
         const { fullResponse, finalDocs, restatedQuestion, suggestionsPromise, model, temperature, isLocationQuery } =
           await setupAndExecuteLanguageModelChain(
             retriever,
-            sanitizedInput.question, // Use sanitized question (whitespace normalized) for AI processing
+            sanitizedInput.question, // Model-path question for rephrase, retrieval, and answer
             sanitizedInput.history || [],
             sendData,
             sourceCount,
@@ -1069,7 +1066,7 @@ async function handleChatRequest(req: NextRequest, token: JwtPayload) {
             // Save answer immediately; suggestions are generated in parallel and patched afterward.
             const savePromise = saveOrUpdateDocument(
               null, // Force creation path
-              originalQuestion,
+              displayQuestion,
               fullResponse,
               finalDocs,
               sanitizedInput.collection || "whole_library",

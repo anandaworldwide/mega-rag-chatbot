@@ -4,6 +4,7 @@ import sys
 
 from pinecone import NotFoundException, Pinecone, PineconeException, ServerlessSpec
 
+from data_ingestion.utils.author_ingest_guard import apply_author_guard_to_vectors
 from data_ingestion.utils.credential_errors import abort_on_credential_error
 from data_ingestion.utils.pinecone_utils import generate_vector_id
 
@@ -297,6 +298,8 @@ def store_in_pinecone(
             metadata["filename"] = filename
 
         vectors.append({"id": chunk_id, "values": embedding, "metadata": metadata})
+
+    apply_author_guard_to_vectors(vectors)
 
     # Batch processing with interrupt support
     for i in range(0, len(vectors), 100):

@@ -138,7 +138,7 @@ describe("Token Manager", () => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
-    it("should return placeholder token on login page with 401 error", async () => {
+    it("should return an empty token on login page with 401 error", async () => {
       Object.defineProperty(window, "location", {
         configurable: true,
         value: { pathname: "/login", href: "http://localhost:3000/login" },
@@ -148,11 +148,12 @@ describe("Token Manager", () => {
 
       const token = await tokenManager.initializeTokenManager();
 
-      expect(token).toBe("login-page-placeholder");
+      expect(token).toBeNull();
+      expect(tokenManager.isPlaceholderToken(token)).toBe(false);
       expect(consoleSpy.log).toHaveBeenCalledWith("No authentication on login page - this is expected");
     });
 
-    it("should return placeholder token on login page with network error", async () => {
+    it("should return an empty token on login page with network error", async () => {
       Object.defineProperty(window, "location", {
         configurable: true,
         value: { pathname: "/login", href: "http://localhost:3000/login" },
@@ -162,8 +163,39 @@ describe("Token Manager", () => {
 
       const token = await tokenManager.initializeTokenManager();
 
-      expect(token).toBe("login-page-placeholder");
-      expect(consoleSpy.log).toHaveBeenCalledWith("Token fetch failed on login page, using placeholder token");
+      expect(token).toBeNull();
+      expect(consoleSpy.log).toHaveBeenCalledWith("Token fetch failed on login page, no token available");
+    });
+
+    it("should refetch after a login-page 401 instead of caching a placeholder", async () => {
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: { pathname: "/login", href: "/login" },
+      });
+
+      const validToken = createJwtToken(900);
+      fetchMock.mockResponseOnce("", { status: 401 }).mockResponseOnce(JSON.stringify({ token: validToken }));
+
+      const first = await tokenManager.initializeTokenManager();
+      expect(first).toBeNull();
+
+      const second = await tokenManager.getToken();
+      expect(second).toBe(validToken);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("should return an empty token on public share pages with 401", async () => {
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: { pathname: "/share/abc123", href: "/share/abc123" },
+      });
+
+      fetchMock.mockResponseOnce("", { status: 401 });
+
+      const token = await tokenManager.initializeTokenManager();
+
+      expect(token).toBeNull();
+      expect(consoleSpy.log).toHaveBeenCalledWith("Public page 401 for web-token – no token available");
     });
 
     it("should throw AuthenticationError on 401 error when not on login page", async () => {
@@ -315,7 +347,7 @@ describe("Token Manager", () => {
       expect(tokenManager.isAuthenticated()).toBe(false);
     });
 
-    it("should return false for placeholder token", async () => {
+    it("should return false when login page has no token", async () => {
       Object.defineProperty(window, "location", {
         configurable: true,
         value: { pathname: "/login", href: "http://localhost:3000/login" },
@@ -325,6 +357,26 @@ describe("Token Manager", () => {
       await tokenManager.initializeTokenManager();
 
       expect(tokenManager.isAuthenticated()).toBe(false);
+    });
+
+    it("should treat leftover placeholder strings as unauthenticated", async () => {
+      expect(tokenManager.isPlaceholderToken("login-page-placeholder")).toBe(true);
+      expect(tokenManager.isPlaceholderToken("public-page-placeholder")).toBe(true);
+      expect(tokenManager.isPlaceholderToken("header.payload.sig")).toBe(false);
+      expect(tokenManager.isPlaceholderToken(null)).toBe(false);
+
+      fetchMock.mockResponseOnce(JSON.stringify({ token: "login-page-placeholder" }));
+      await tokenManager.initializeTokenManager();
+      expect(tokenManager.isAuthenticated()).toBe(false);
+    });
+
+    it("never sends a Bearer placeholder header", () => {
+      expect(tokenManager.authorizationHeadersForToken("login-page-placeholder")).toEqual({});
+      expect(tokenManager.authorizationHeadersForToken("public-page-placeholder")).toEqual({});
+      expect(tokenManager.authorizationHeadersForToken(null)).toEqual({});
+      expect(tokenManager.authorizationHeadersForToken("")).toEqual({});
+      const headers = tokenManager.authorizationHeadersForToken("x-placeholder-x");
+      expect(JSON.stringify(headers)).not.toMatch(/Bearer /);
     });
 
     it("should return false when no token exists", () => {
@@ -372,6 +424,20 @@ describe("Token Manager", () => {
         "Content-Type": "application/json",
         Authorization: `Bearer ${validToken}`,
       });
+    });
+
+    it("should omit Authorization when no real token is available", async () => {
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: { pathname: "/login", href: "/login" },
+      });
+
+      fetchMock.mockResponseOnce("", { status: 401 });
+
+      const options = await tokenManager.withAuth({ method: "GET" });
+
+      expect(options.headers).toEqual({});
+      expect((options.headers as Record<string, string>).Authorization).toBeUndefined();
     });
 
     it("should work with no initial options", async () => {
@@ -455,6 +521,58 @@ describe("Token Manager", () => {
 
       expect(response.status).toBe(401);
       expect(mockLocationAssign).toHaveBeenCalledWith("/login?redirect=%2Fdashboard");
+    });
+
+    it("does not redirect to login on 401 from a public answer page", async () => {
+      const mockLocationAssign = jest.fn();
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: {
+          pathname: "/answers/OHXIZPKK5XAyj9f1vEXx",
+          search: "",
+          get href() {
+            return "[REDACTED]/answers/OHXIZPKK5XAyj9f1vEXx";
+          },
+          set href(url) {
+            mockLocationAssign(url);
+          },
+        },
+      });
+
+      const validToken = createJwtToken(900);
+      fetchMock.mockResponseOnce(JSON.stringify({ token: validToken })).mockResponse("", { status: 401 });
+
+      await tokenManager.initializeTokenManager();
+      const response = await tokenManager.fetchWithAuth("/api/profile");
+
+      expect(response.status).toBe(401);
+      expect(mockLocationAssign).not.toHaveBeenCalled();
+    });
+
+    it("does not redirect to login on 401 from a public share page", async () => {
+      const mockLocationAssign = jest.fn();
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: {
+          pathname: "/share/OHXIZPKK5XAyj9f1vEXx",
+          search: "",
+          get href() {
+            return "[REDACTED]/share/OHXIZPKK5XAyj9f1vEXx";
+          },
+          set href(url) {
+            mockLocationAssign(url);
+          },
+        },
+      });
+
+      const validToken = createJwtToken(900);
+      fetchMock.mockResponseOnce(JSON.stringify({ token: validToken })).mockResponse("", { status: 401 });
+
+      await tokenManager.initializeTokenManager();
+      const response = await tokenManager.fetchWithAuth("/api/chats?convId=abc");
+
+      expect(response.status).toBe(401);
+      expect(mockLocationAssign).not.toHaveBeenCalled();
     });
 
     it("should retry on network errors with exponential backoff", async () => {

@@ -37,4 +37,18 @@ nextBuild.on("error", (err) => {
 
 nextBuild.on("close", (code) => {
   console.log(`Next.js build exited with code ${code}`);
+  if (code !== 0) {
+    process.exit(code ?? 1);
+  }
+  const proxyCheck = spawn(process.execPath, [path.join(__dirname, "check-proxy-in-build.mjs")], {
+    stdio: "inherit",
+    env: process.env,
+  });
+  proxyCheck.on("error", (err) => {
+    console.error("Failed to start proxy build check:", err);
+    process.exit(1);
+  });
+  proxyCheck.on("close", (checkCode) => {
+    process.exit(checkCode ?? 1);
+  });
 });

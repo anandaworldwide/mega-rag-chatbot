@@ -25,11 +25,7 @@ HEALTH_WEDGE_TIMEOUT = (
 
 
 def _is_running_in_cloud() -> bool:
-    """
-    Heuristic: treat common AWS container environments as "cloud" for log formatting.
-
-    When logs are shipped to a system that already prefixes timestamps (for example CloudWatch), omit %(asctime)s.
-    """
+    """Return True in an ECS container. CloudWatch writes a time before each line."""
     return bool(
         os.getenv("ECS_CONTAINER_METADATA_URI_V4")
         or os.getenv("ECS_CONTAINER_METADATA_URI")
@@ -39,19 +35,25 @@ def _is_running_in_cloud() -> bool:
     )
 
 
+def _collector_writes_timestamp() -> bool:
+    """Return True when the log collector writes a time before each line."""
+    if _is_running_in_cloud():
+        return True
+    # Docker on the VM sends stdout to the journal. The journal writes the host time.
+    return Path("/.dockerenv").is_file()
+
+
+def crawler_log_format() -> str:
+    """Return the log format. Omit the Python time when the collector writes one."""
+    if _collector_writes_timestamp():
+        return "%(levelname)s - %(message)s"
+    return "%(asctime)s - %(levelname)s - %(message)s"
+
+
 def _configure_logging(*, debug: bool) -> None:
-    is_cloud = _is_running_in_cloud()
     log_level = logging.DEBUG if debug else logging.INFO
-
-    # CloudWatch already adds a timestamp prefix, so omit %(asctime)s in cloud.
-    log_format = (
-        "%(levelname)s - %(message)s"
-        if is_cloud
-        else "%(asctime)s - %(levelname)s - %(message)s"
-    )
-
-    # Ensure we override the module-level default handler.
-    logging.basicConfig(level=log_level, format=log_format, force=True)
+    # Override the module-level default handler.
+    logging.basicConfig(level=log_level, format=crawler_log_format(), force=True)
 
 
 def load_config(site_id: str) -> dict | None:
