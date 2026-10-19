@@ -206,6 +206,21 @@ export function isGenericRedirectOnly(text: string, query = ""): boolean {
   return looksLikeGenericRedirect(text) && !hasSpecificCenterCityOrDomain(text, query);
 }
 
+/**
+ * The 0.81 embedding check is a backstop for regex-missed redirects.
+ * A specific center signal already escaped the regex; miss + Find Ananda
+ * answers can sit above 0.81 without being redirect-only.
+ */
+export function passesRedirectSimilarityGuard(
+  text: string,
+  query: string,
+  similarityToRedirect: number
+): boolean {
+  return (
+    hasSpecificCenterCityOrDomain(text, query) || similarityToRedirect < GENERIC_REDIRECT_SIMILARITY_LIMIT
+  );
+}
+
 export function hasIndiaSpecificCenter(text: string): boolean {
   return (
     INDIA_CENTER_NAME_REGEX.test(text) ||

@@ -3,6 +3,7 @@ import {
   GENERIC_REDIRECT_SIMILARITY_LIMIT,
   hasLahiriScopedNegation,
   isGenericRedirectOnly,
+  passesRedirectSimilarityGuard,
   passesIndiaLocationGuard,
   passesItalyLocationGuard,
   passesLocationRedirectGuard,
@@ -46,6 +47,14 @@ describe("semanticAnswerGuards", () => {
     const answer = "Ananda in your area ... visit our website.";
     expect(isGenericRedirectOnly(answer)).toBe(true);
     expect(passesLocationRedirectGuard(answer)).toBe(false);
+    expect(passesRedirectSimilarityGuard(answer, "", 0.82)).toBe(false);
+  });
+
+  it("skips the 0.81 embedding limit when a location search ran", () => {
+    const query = "Find a center near me";
+    const answer = "Searching locations... Unable to determine your location. Visit Find Ananda Near You.";
+    expect(isGenericRedirectOnly(answer, query)).toBe(false);
+    expect(passesRedirectSimilarityGuard(answer, query, 0.82)).toBe(true);
   });
 
   it("passes a Find Ananda answer that also gives a street address", () => {

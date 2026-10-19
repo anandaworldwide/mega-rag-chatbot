@@ -26,9 +26,9 @@ import { v4 as uuidv4 } from "uuid";
 import { getEmbedding, cosineSimilarity } from "../../utils/embeddingUtils";
 import {
   GENERIC_REDIRECT_RESPONSES,
-  GENERIC_REDIRECT_SIMILARITY_LIMIT,
   hasLondonSpecificCenter,
   isGenericRedirectOnly,
+  passesRedirectSimilarityGuard,
 } from "../../utils/semanticAnswerGuards";
 
 // Skip all tests unless running with explicit flag
@@ -164,7 +164,7 @@ testRunner("Vivek Response Semantic Validation (ananda-public)", () => {
     const similarityToRedirectResponses = getMaxSimilarity(actualEmbedding, redirectResponseEmbeddings);
     console.log(`Similarity to Redirect Responses: ${similarityToRedirectResponses}`);
     expect(isGenericRedirectOnly(actualResponse, query)).toBe(false);
-    expect(similarityToRedirectResponses).toBeLessThan(GENERIC_REDIRECT_SIMILARITY_LIMIT);
+    expect(passesRedirectSimilarityGuard(actualResponse, query, similarityToRedirectResponses)).toBe(true);
     return similarityToRedirectResponses;
   };
 
