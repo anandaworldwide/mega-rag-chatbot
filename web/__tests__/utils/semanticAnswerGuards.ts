@@ -20,6 +20,44 @@ export const GENERIC_REDIRECT_RESPONSES = [
  */
 export const GENERIC_REDIRECT_SIMILARITY_LIMIT = 0.81;
 
+/**
+ * One English ask / unknown-location reference. Compare the answer
+ * embedding with this text and with GENERIC_REDIRECT_RESPONSES.
+ * No language word list. Not a question mark alone.
+ *
+ * THRESHOLD and MARGIN come from real 0806d42a Spanish + near-me answers
+ * and the three 632da621 near-me answers (redirect sim 0.830 / 0.835 /
+ * 0.834) against this reference. Lowest passing ask was 0.751; lowest
+ * passing margin was 0.076. Floor is 0.72 / 0.04 so those pass and
+ * Find-Ananda-only, worldwide, in-your-area, and Paris-echo fail.
+ */
+export const LOCATION_ASK_RESPONSES = [
+  "Unable to determine your location. Please specify a city or location to find nearby Ananda centers. You can also explore all locations at the Find Ananda Near You page.",
+];
+
+export const LOCATION_ASK_SIMILARITY_THRESHOLD = 0.72;
+export const LOCATION_ASK_REDIRECT_MARGIN = 0.04;
+
+export type LocationAskRedirectScores = {
+  simAsk: number;
+  simRedirect: number;
+};
+
+export function locationAskRedirectMargin(simAsk: number, simRedirect: number): number {
+  return simAsk - simRedirect;
+}
+
+export function passesLocationAskVsRedirectMargin(simAsk: number, simRedirect: number): boolean {
+  return (
+    simAsk >= LOCATION_ASK_SIMILARITY_THRESHOLD &&
+    locationAskRedirectMargin(simAsk, simRedirect) >= LOCATION_ASK_REDIRECT_MARGIN
+  );
+}
+
+export function formatLocationAskRedirectLog(simAsk: number, simRedirect: number): string {
+  return `sim(ask)=${simAsk} sim(redirect)=${simRedirect} margin=${simAsk - simRedirect}`;
+}
+
 export const GENERIC_REDIRECT_REGEX =
   /visit (?:our )?website|find ananda near you|locations worldwide|please visit our find ananda|ananda website for center locations|find ananda directory/i;
 
@@ -298,37 +336,8 @@ function isWorldwideOrInYourAreaPresence(text: string): boolean {
   return /ananda is present worldwide|ananda in your area|locations worldwide/i.test(text);
 }
 
-/**
- * Remove redirect boilerplate so leftover clarification can be language-neutral.
- * Does not match Spanish or other language phrase lists.
- */
-function stripRedirectBoilerplate(text: string): string {
-  return text
-    .replace(/searching locations\.?/gi, " ")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, " ")
-    .replace(/https?:\/\/\S+/gi, " ")
-    .replace(GENERIC_REDIRECT_REGEX, " ")
-    .replace(/find ananda(?: near you)?/gi, " ")
-    .replace(/ananda\.org\/find-ananda/gi, " ")
-    .replace(/ananda is present worldwide/gi, " ")
-    .replace(/ananda in your area/gi, " ")
-    .replace(/locations worldwide/gi, " ");
-}
-
-/** Letters left after stripping Find Ananda / website / worldwide boilerplate. */
-function leftoverClarificationLetterCount(text: string): number {
-  const leftover = stripRedirectBoilerplate(text);
-  const letters = leftover.match(/\p{L}/gu);
-  return letters ? letters.length : 0;
-}
-
-/**
- * No-place + no-geo: leftover text after redirect boilerplate is a
- * location ask or unknown-location note in any language. A plain Find
- * Ananda / worldwide / in-your-area answer leaves too few letters.
- */
-function hasLanguageNeutralLocationClarification(text: string): boolean {
-  return leftoverClarificationLetterCount(text) >= 32;
+function hasRecordedAskRedirectScores(scores?: LocationAskRedirectScores): scores is LocationAskRedirectScores {
+  return Boolean(scores && Number.isFinite(scores.simAsk) && Number.isFinite(scores.simRedirect));
 }
 
 /** Address, phone, named center, or domain — not a search miss and not the no-geo flag. */
@@ -355,10 +364,17 @@ function hasHardSpecificCenterSignal(text: string, query = ""): boolean {
  * ask/unknown path is accepted only under the no-geo flag. With geo data
  * present, a near-me answer must name a center. A plain Find Ananda
  * answer with neither ask nor unknown still fails.
+ * Non-English ask/unknown answers use sim(ask) vs sim(redirect), not a
+ * language word list and not leftover-letter counting. Accept only when
+ * sim(ask) >= THRESHOLD and sim(ask) - sim(redirect) >= MARGIN.
  * Place-named queries accept a real search miss under the no-geo flag,
  * never a plain redirect.
  */
-export function isGenericRedirectOnly(text: string, query = ""): boolean {
+export function isGenericRedirectOnly(
+  text: string,
+  query = "",
+  scores?: LocationAskRedirectScores
+): boolean {
   if (queryNamesNoPlace(query)) {
     if (hasHardSpecificCenterSignal(text, query)) {
       return false;
@@ -367,7 +383,8 @@ export function isGenericRedirectOnly(text: string, query = ""): boolean {
       acceptLocationSearchMiss() &&
       (asksForUserLocation(text) ||
         doesNotKnowUserLocation(text) ||
-        hasLanguageNeutralLocationClarification(text))
+        (hasRecordedAskRedirectScores(scores) &&
+          passesLocationAskVsRedirectMargin(scores.simAsk, scores.simRedirect)))
     ) {
       return false;
     }
@@ -387,8 +404,10 @@ export function isGenericRedirectOnly(text: string, query = ""): boolean {
 
 /**
  * The 0.81 embedding check is a backstop for regex-missed redirects.
- * Only an address, a phone number, a named center, or a regional domain
- * may skip it. A location-search miss may not.
+ * An address, a phone number, a named center, or a regional domain
+ * may skip it. A no-place ask/unknown may skip it only when the no-geo
+ * flag is on AND the ask-vs-redirect margin test passes. Place queries
+ * and flag-off answers keep the 0.81 backstop.
  */
 export function hasRedirectSimilaritySkipSignal(text: string): boolean {
   return (
@@ -401,10 +420,22 @@ export function hasRedirectSimilaritySkipSignal(text: string): boolean {
 
 export function passesRedirectSimilarityGuard(
   text: string,
-  _query: string,
-  similarityToRedirect: number
+  query: string,
+  similarityToRedirect: number,
+  simAsk?: number
 ): boolean {
-  return hasRedirectSimilaritySkipSignal(text) || similarityToRedirect < GENERIC_REDIRECT_SIMILARITY_LIMIT;
+  if (hasRedirectSimilaritySkipSignal(text)) {
+    return true;
+  }
+  if (
+    acceptLocationSearchMiss() &&
+    queryNamesNoPlace(query) &&
+    Number.isFinite(simAsk) &&
+    passesLocationAskVsRedirectMargin(simAsk as number, similarityToRedirect)
+  ) {
+    return true;
+  }
+  return similarityToRedirect < GENERIC_REDIRECT_SIMILARITY_LIMIT;
 }
 
 export function hasIndiaSpecificCenter(text: string): boolean {
@@ -431,8 +462,12 @@ export function hasLondonSpecificCenter(text: string): boolean {
   return LONDON_SPECIFIC_REGEX.test(text) || hasStreetAddress(text) || hasPhoneNumber(text) || hasNamedGroupOrCenter(text);
 }
 
-export function passesLocationRedirectGuard(text: string, query = ""): boolean {
-  return !isGenericRedirectOnly(text, query);
+export function passesLocationRedirectGuard(
+  text: string,
+  query = "",
+  scores?: LocationAskRedirectScores
+): boolean {
+  return !isGenericRedirectOnly(text, query, scores);
 }
 
 export function passesLondonLocationGuard(text: string, query = ""): boolean {

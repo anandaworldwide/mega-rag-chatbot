@@ -29,7 +29,9 @@ import {
   GENERIC_REDIRECT_RESPONSES,
   geoMissAcceptance,
   hasLondonSpecificCenter,
+  formatLocationAskRedirectLog,
   isGenericRedirectOnly,
+  LOCATION_ASK_RESPONSES,
   passesRedirectSimilarityGuard,
   setAcceptLocationSearchMiss,
 } from "../../utils/semanticAnswerGuards";
@@ -59,6 +61,7 @@ const CANONICAL_REJECTIONS = [
 // Precompute rejection embeddings (optional optimization, could be done once)
 let rejectionEmbeddings: number[][] = [];
 let redirectResponseEmbeddings: number[][] = [];
+let askResponseEmbeddings: number[][] = [];
 
 testRunner("Vivek Response Semantic Validation (ananda-public)", () => {
   // test.concurrent can run before beforeAll. Default to miss-acceptance;
@@ -155,6 +158,7 @@ testRunner("Vivek Response Semantic Validation (ananda-public)", () => {
     setAcceptLocationSearchMiss(true);
     rejectionEmbeddings = await Promise.all(CANONICAL_REJECTIONS.map((text) => getEmbedding(text)));
     redirectResponseEmbeddings = await Promise.all(GENERIC_REDIRECT_RESPONSES.map((text) => getEmbedding(text)));
+    askResponseEmbeddings = await Promise.all(LOCATION_ASK_RESPONSES.map((text) => getEmbedding(text)));
     const emptyGeo = await detectUsableGeoWithOptionalProbe(() =>
       getVivekResponse("Are there any Ananda centers in Berlin, Germany?")
     );
@@ -179,9 +183,18 @@ testRunner("Vivek Response Semantic Validation (ananda-public)", () => {
     actualEmbedding: number[]
   ): number => {
     const similarityToRedirectResponses = getMaxSimilarity(actualEmbedding, redirectResponseEmbeddings);
+    const similarityToAskResponses = getMaxSimilarity(actualEmbedding, askResponseEmbeddings);
+    console.log(formatLocationAskRedirectLog(similarityToAskResponses, similarityToRedirectResponses));
     console.log(`Similarity to Redirect Responses: ${similarityToRedirectResponses}`);
-    expect(isGenericRedirectOnly(actualResponse, query)).toBe(false);
-    expect(passesRedirectSimilarityGuard(actualResponse, query, similarityToRedirectResponses)).toBe(true);
+    expect(
+      isGenericRedirectOnly(actualResponse, query, {
+        simAsk: similarityToAskResponses,
+        simRedirect: similarityToRedirectResponses,
+      })
+    ).toBe(false);
+    expect(
+      passesRedirectSimilarityGuard(actualResponse, query, similarityToRedirectResponses, similarityToAskResponses)
+    ).toBe(true);
     return similarityToRedirectResponses;
   };
 
