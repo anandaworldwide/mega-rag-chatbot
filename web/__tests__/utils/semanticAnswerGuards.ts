@@ -152,17 +152,23 @@ export function hasPhoneNumber(text: string): boolean {
 /**
  * A named group or center line, not "Ananda centers" or "Ananda in your area".
  * "Ananda Meditation Group of Paris" counts even when the query names Paris.
+ * "Ananda offers a meditation group" and "Ananda near you has a center" do not.
  */
+const NAMED_GROUP_FILLER_LOOKAHEAD =
+  "(?!has\\b|is\\b|in\\b|a\\b|the\\b|and\\b|for\\b|offers?\\b|near\\b|you\\b|our\\b|your\\b|also\\b|with\\b|from\\b|to\\b)";
+
 export function hasNamedGroupOrCenter(text: string): boolean {
   if (hasNamedAnandaCenter(text)) {
     return true;
   }
-  return (
-    /\bananda\s+meditation\s+group\b/i.test(text) ||
-    /\bananda\s+(?!has\b|is\b|in\b|a\b|the\b|and\b|for\b)[a-z][a-z '.&-]{1,40}\s+(?:meditation\s+)?(?:group|center|centre|sangha|village)\b/i.test(
-      text
-    )
+  if (/\bananda\s+meditation\s+group\b/i.test(text)) {
+    return true;
+  }
+  const named = new RegExp(
+    String.raw`\bananda\s+((?:${NAMED_GROUP_FILLER_LOOKAHEAD}[a-z][a-z'-]*)(?:\s+${NAMED_GROUP_FILLER_LOOKAHEAD}[a-z][a-z'-]*){0,4})\s+(?:meditation\s+)?(?:group|center|centre|sangha|village)\b`,
+    "i"
   );
+  return named.test(text);
 }
 
 /**
@@ -182,13 +188,36 @@ export function hasCityNotEchoedFromQuery(text: string, query = ""): boolean {
   });
 }
 
+// TODO(known-flaky): geo data for the Vivek test env
+// tracked: https://app.notion.com/p/3fe7781078bc818ba576f4d4de252826
+export const ACCEPT_LOCATION_SEARCH_MISS_ENV = "ACCEPT_LOCATION_SEARCH_MISS";
+
+export function acceptLocationSearchMiss(): boolean {
+  return process.env[ACCEPT_LOCATION_SEARCH_MISS_ENV] === "true";
+}
+
+export function setAcceptLocationSearchMiss(enabled: boolean): void {
+  process.env[ACCEPT_LOCATION_SEARCH_MISS_ENV] = enabled ? "true" : "false";
+}
+
+let loggedEmptyGeoMissAcceptance = false;
+
+/** Log once when the live suite accepts misses because geo data is empty. */
+export function logGeoDataEmptyMissAcceptanceOnce(): void {
+  if (loggedEmptyGeoMissAcceptance) {
+    return;
+  }
+  loggedEmptyGeoMissAcceptance = true;
+  console.log("geo data empty: miss answers accepted");
+}
+
 export function hasSpecificCenterSignal(text: string, query = ""): boolean {
   return (
     hasStreetAddress(text) ||
     hasPhoneNumber(text) ||
     hasNamedGroupOrCenter(text) ||
-    hasLocationSearchOutcome(text) ||
-    hasCityNotEchoedFromQuery(text, query)
+    hasCityNotEchoedFromQuery(text, query) ||
+    (acceptLocationSearchMiss() && hasLocationSearchOutcome(text))
   );
 }
 
@@ -208,17 +237,24 @@ export function isGenericRedirectOnly(text: string, query = ""): boolean {
 
 /**
  * The 0.81 embedding check is a backstop for regex-missed redirects.
- * A specific center signal already escaped the regex; miss + Find Ananda
- * answers can sit above 0.81 without being redirect-only.
+ * Only an address, a phone number, a named center, or a regional domain
+ * may skip it. A location-search miss may not.
  */
+export function hasRedirectSimilaritySkipSignal(text: string): boolean {
+  return (
+    hasStreetAddress(text) ||
+    hasPhoneNumber(text) ||
+    hasNamedGroupOrCenter(text) ||
+    hasAnandaCenterDomain(text)
+  );
+}
+
 export function passesRedirectSimilarityGuard(
   text: string,
-  query: string,
+  _query: string,
   similarityToRedirect: number
 ): boolean {
-  return (
-    hasSpecificCenterCityOrDomain(text, query) || similarityToRedirect < GENERIC_REDIRECT_SIMILARITY_LIMIT
-  );
+  return hasRedirectSimilaritySkipSignal(text) || similarityToRedirect < GENERIC_REDIRECT_SIMILARITY_LIMIT;
 }
 
 export function hasIndiaSpecificCenter(text: string): boolean {
@@ -227,8 +263,7 @@ export function hasIndiaSpecificCenter(text: string): boolean {
     hasAnandaCenterDomain(text) ||
     hasStreetAddress(text) ||
     hasPhoneNumber(text) ||
-    hasNamedGroupOrCenter(text) ||
-    hasLocationSearchOutcome(text)
+    hasNamedGroupOrCenter(text)
   );
 }
 
@@ -238,19 +273,12 @@ export function hasItalySpecificCenter(text: string): boolean {
     hasAnandaCenterDomain(text) ||
     hasStreetAddress(text) ||
     hasPhoneNumber(text) ||
-    hasNamedGroupOrCenter(text) ||
-    hasLocationSearchOutcome(text)
+    hasNamedGroupOrCenter(text)
   );
 }
 
 export function hasLondonSpecificCenter(text: string): boolean {
-  return (
-    LONDON_SPECIFIC_REGEX.test(text) ||
-    hasStreetAddress(text) ||
-    hasPhoneNumber(text) ||
-    hasNamedGroupOrCenter(text) ||
-    hasLocationSearchOutcome(text)
-  );
+  return LONDON_SPECIFIC_REGEX.test(text) || hasStreetAddress(text) || hasPhoneNumber(text) || hasNamedGroupOrCenter(text);
 }
 
 export function passesLocationRedirectGuard(text: string, query = ""): boolean {

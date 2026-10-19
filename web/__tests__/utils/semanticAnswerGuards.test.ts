@@ -2,6 +2,7 @@ import {
   GENERIC_REDIRECT_RESPONSES,
   GENERIC_REDIRECT_SIMILARITY_LIMIT,
   hasLahiriScopedNegation,
+  hasNamedGroupOrCenter,
   isGenericRedirectOnly,
   passesRedirectSimilarityGuard,
   passesIndiaLocationGuard,
@@ -9,9 +10,14 @@ import {
   passesLocationRedirectGuard,
   passesLondonLocationGuard,
   passesPortlandLocationGuard,
+  setAcceptLocationSearchMiss,
 } from "./semanticAnswerGuards";
 
 describe("semanticAnswerGuards", () => {
+  afterEach(() => {
+    setAcceptLocationSearchMiss(false);
+  });
+
   it("keeps the generic redirect set and its own similarity limit", () => {
     expect(GENERIC_REDIRECT_RESPONSES.length).toBeGreaterThanOrEqual(3);
     expect(GENERIC_REDIRECT_RESPONSES.join(" ")).toMatch(/Find Ananda Near You/i);
@@ -50,11 +56,19 @@ describe("semanticAnswerGuards", () => {
     expect(passesRedirectSimilarityGuard(answer, "", 0.82)).toBe(false);
   });
 
-  it("skips the 0.81 embedding limit when a location search ran", () => {
+  it("keeps the 0.81 embedding backstop for a location-search miss", () => {
     const query = "Find a center near me";
     const answer = "Searching locations... Unable to determine your location. Visit Find Ananda Near You.";
+    setAcceptLocationSearchMiss(true);
     expect(isGenericRedirectOnly(answer, query)).toBe(false);
-    expect(passesRedirectSimilarityGuard(answer, query, 0.82)).toBe(true);
+    expect(passesRedirectSimilarityGuard(answer, query, 0.82)).toBe(false);
+  });
+
+  it("skips the 0.81 embedding limit for an address, phone, named center, or regional domain", () => {
+    expect(passesRedirectSimilarityGuard("Ananda Portland, 123 Main Street.", "Portland", 0.82)).toBe(true);
+    expect(passesRedirectSimilarityGuard("Ananda Berkeley. Phone: (510) 555-0100.", "Berkeley", 0.82)).toBe(true);
+    expect(passesRedirectSimilarityGuard("Ananda Meditation Group of Paris.", "Paris", 0.82)).toBe(true);
+    expect(passesRedirectSimilarityGuard("See anandaindia.org for local groups.", "India", 0.82)).toBe(true);
   });
 
   it("passes a Find Ananda answer that also gives a street address", () => {
@@ -78,118 +92,33 @@ describe("semanticAnswerGuards", () => {
     expect(passesLocationRedirectGuard(answer, query)).toBe(true);
   });
 
-  describe("real location-search misses still count as specific", () => {
-    const cases: Array<{
-      name: string;
-      query: string;
-      answer: string;
-      check?: "london" | "india" | "italy" | "portland";
-    }> = [
-      {
-        name: "near me",
-        query: "Where is Ananda near me?",
-        answer: "Unable to determine your location. Visit Find Ananda Near You.",
-      },
-      {
-        name: "near me wasn't able",
-        query: "Where is Ananda near me?",
-        answer: "I wasn't able to determine your location automatically. Visit Find Ananda Near You.",
-      },
-      {
-        name: "Paris",
-        query: "Paris",
-        answer: "Couldn't find Ananda centers near Paris. Visit Find Ananda Near You.",
-      },
-      {
-        name: "Paris exact location",
-        query: "Paris",
-        answer: "I wasn't able to determine your exact location for Paris. Visit Find Ananda Near You.",
-      },
-      {
-        name: "Spanish near me",
-        query: "¿Dónde está el centro más cercano?",
-        answer: "Searching locations... No pude determinar tu ubicación. Visit Find Ananda Near You.",
-      },
-      {
-        name: "German near me",
-        query: "Wo ist das nächste Zentrum?",
-        answer: "Searching locations... Standort nicht automatisch bestimmen. Visit Find Ananda Near You.",
-      },
-      {
-        name: "Portland",
-        query: "Portland, Oregon",
-        answer: "No Ananda centers found in Portland. Visit Find Ananda Near You.",
-        check: "portland",
-      },
-      {
-        name: "London, UK",
-        query: "London, UK",
-        answer: "Couldn't find Ananda centers near London, UK. Visit Find Ananda Near You.",
-        check: "london",
-      },
-      {
-        name: "India",
-        query: "Is there an Ananda center in India?",
-        answer: "No Ananda centers listed in India. Visit Find Ananda Near You.",
-        check: "india",
-      },
-      {
-        name: "Italy",
-        query: "Ananda centers in Italy",
-        answer: "No Ananda centers found close to Italy. Visit Find Ananda Near You.",
-        check: "italy",
-      },
-      {
-        name: "Berkeley",
-        query: "What Ananda centers are near Berkeley, California?",
-        answer: "No Ananda centers found close to Berkeley. Visit Find Ananda Near You.",
-      },
-      {
-        name: "Kamano Island",
-        query: "Are there any centers anywhere near Kamano Island, Washington?",
-        answer: "Couldn't find Ananda centers near Kamano Island. Visit Find Ananda Near You.",
-      },
-      {
-        name: "Austin",
-        query: "Find meditation groups within 50 miles of Austin, Texas",
-        answer: "Couldn't find Ananda meditation groups within 50 miles of Austin. Visit Find Ananda Near You.",
-      },
-      {
-        name: "city queries",
-        query: "Is there an Ananda center in London?",
-        answer: "Couldn't find Ananda centers near London. Visit Find Ananda Near You.",
-        check: "london",
-      },
-      {
-        name: "Portland geo",
-        query: "Are there any Ananda centers in Portland, Oregon?",
-        answer: "No Ananda centers found close to Portland. Visit Find Ananda Near You.",
-        check: "portland",
-      },
-      {
-        name: "international location support",
-        query: "Is there an Ananda center in London, UK?",
-        answer: "No Ananda centers found close to London, UK. Visit Find Ananda Near You.",
-        check: "london",
-      },
-    ];
+  it("does not treat Ananda offers a meditation group as a named group", () => {
+    expect(hasNamedGroupOrCenter("Ananda offers a meditation group")).toBe(false);
+    expect(isGenericRedirectOnly("Ananda offers a meditation group. Visit Find Ananda Near You.")).toBe(true);
+  });
 
-    it.each(cases)("passes the $name miss plus Find Ananda", ({ query, answer, check }) => {
-      expect(isGenericRedirectOnly(answer, query)).toBe(false);
-      expect(passesLocationRedirectGuard(answer, query)).toBe(true);
-      if (check === "london") {
-        expect(passesLondonLocationGuard(answer, query)).toBe(true);
-      }
-      if (check === "india") {
-        expect(passesIndiaLocationGuard(answer, query)).toBe(true);
-      }
-      if (check === "italy") {
-        expect(passesItalyLocationGuard(answer, query)).toBe(true);
-      }
-      if (check === "portland") {
-        expect(passesPortlandLocationGuard(answer, query)).toBe(true);
-      }
-    });
+  it("does not treat Ananda near you has a center as a named group", () => {
+    expect(hasNamedGroupOrCenter("Ananda near you has a center")).toBe(false);
+    expect(isGenericRedirectOnly("Ananda near you has a center. Visit Find Ananda Near You.")).toBe(true);
+  });
+
+  it("fails a miss plus Find Ananda when geo-miss acceptance is off", () => {
+    const query = "Paris";
+    const answer = "Couldn't find Ananda centers near Paris. Visit Find Ananda Near You.";
+    setAcceptLocationSearchMiss(false);
+    expect(isGenericRedirectOnly(answer, query)).toBe(true);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(false);
+  });
+
+  it("passes a miss plus Find Ananda when geo-miss acceptance is on", () => {
+    const query = "Paris";
+    const answer = "Couldn't find Ananda centers near Paris. Visit Find Ananda Near You.";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query)).toBe(false);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(true);
+    expect(passesLondonLocationGuard(answer, query)).toBe(false);
+    expect(passesIndiaLocationGuard("No Ananda centers listed in India. Visit Find Ananda Near You.")).toBe(false);
+    expect(passesItalyLocationGuard("No Ananda centers found close to Italy. Visit Find Ananda Near You.")).toBe(false);
   });
 
   it("fails a London answer that only says centers in London and visit Find Ananda", () => {
