@@ -92,6 +92,21 @@ describe("semanticAnswerGuards", () => {
         answer: "Couldn't find Ananda centers near Paris. Visit Find Ananda Near You.",
       },
       {
+        name: "Paris exact location",
+        query: "Paris",
+        answer: "I wasn't able to determine your exact location for Paris. Visit Find Ananda Near You.",
+      },
+      {
+        name: "Spanish near me",
+        query: "¿Dónde está el centro más cercano?",
+        answer: "Searching locations... No pude determinar tu ubicación. Visit Find Ananda Near You.",
+      },
+      {
+        name: "German near me",
+        query: "Wo ist das nächste Zentrum?",
+        answer: "Searching locations... Standort nicht automatisch bestimmen. Visit Find Ananda Near You.",
+      },
+      {
         name: "Portland",
         query: "Portland, Oregon",
         answer: "No Ananda centers found in Portland. Visit Find Ananda Near You.",
