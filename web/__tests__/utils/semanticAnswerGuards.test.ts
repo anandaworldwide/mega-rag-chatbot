@@ -121,6 +121,16 @@ describe("semanticAnswerGuards", () => {
     expect(passesItalyLocationGuard("No Ananda centers found close to Italy. Visit Find Ananda Near You.")).toBe(false);
   });
 
+  it("passes a Find Ananda redirect without miss phrasing when geo-miss acceptance is on", () => {
+    const query = "Paris";
+    const answer = "Please visit our Find Ananda Near You page.";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query)).toBe(false);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(true);
+    expect(passesRedirectSimilarityGuard(answer, query, 0.82)).toBe(false);
+    expect(passesLondonLocationGuard(answer, query)).toBe(false);
+  });
+
   it("fails a London answer that only says centers in London and visit Find Ananda", () => {
     const londonRedirect = "There are Ananda centers in London, visit Find Ananda Near You.";
     expect(passesLondonLocationGuard(londonRedirect)).toBe(false);

@@ -217,7 +217,8 @@ export function hasSpecificCenterSignal(text: string, query = ""): boolean {
     hasPhoneNumber(text) ||
     hasNamedGroupOrCenter(text) ||
     hasCityNotEchoedFromQuery(text, query) ||
-    (acceptLocationSearchMiss() && hasLocationSearchOutcome(text))
+    (acceptLocationSearchMiss() &&
+      (hasLocationSearchOutcome(text) || looksLikeGenericRedirect(text)))
   );
 }
 
