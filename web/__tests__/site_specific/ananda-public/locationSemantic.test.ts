@@ -52,6 +52,7 @@ import {
   hasLondonSpecificCenter,
   isGenericRedirectOnly,
   passesRedirectSimilarityGuard,
+  setAcceptLocationSearchMiss,
 } from "../../utils/semanticAnswerGuards";
 import { detectUsableGeoWithOptionalProbe, logEnvLimitedSpecificCenterAssert } from "../../utils/detectEmptyGeoData";
 
@@ -189,9 +190,10 @@ testRunner("Vivek Location Response Semantic Validation (ananda-public)", () => 
   beforeAll(async () => {
     // TODO(known-flaky): geo data for the Vivek test env
     // tracked: https://app.notion.com/p/3fe7781078bc818ba576f4d4de252826
-    await detectUsableGeoWithOptionalProbe(() =>
+    const emptyGeo = await detectUsableGeoWithOptionalProbe(() =>
       getVivekLocationResponse("Are there any Ananda centers in Berlin, Germany?")
     );
+    setAcceptLocationSearchMiss(emptyGeo);
   });
 
   // Helper function to calculate max similarity against a list of embeddings

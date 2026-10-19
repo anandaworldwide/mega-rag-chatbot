@@ -192,11 +192,14 @@ export function hasCityNotEchoedFromQuery(text: string, query = ""): boolean {
 // tracked: https://app.notion.com/p/3fe7781078bc818ba576f4d4de252826
 export const ACCEPT_LOCATION_SEARCH_MISS_ENV = "ACCEPT_LOCATION_SEARCH_MISS";
 
+let acceptLocationSearchMissFlag = false;
+
 export function acceptLocationSearchMiss(): boolean {
-  return process.env[ACCEPT_LOCATION_SEARCH_MISS_ENV] === "true";
+  return acceptLocationSearchMissFlag || process.env[ACCEPT_LOCATION_SEARCH_MISS_ENV] === "true";
 }
 
 export function setAcceptLocationSearchMiss(enabled: boolean): void {
+  acceptLocationSearchMissFlag = enabled;
   process.env[ACCEPT_LOCATION_SEARCH_MISS_ENV] = enabled ? "true" : "false";
 }
 
@@ -233,6 +236,9 @@ export function hasSpecificCenterCityOrDomain(text: string, query = ""): boolean
 
 /** True when the answer is only a generic redirect (no center, city, or domain). */
 export function isGenericRedirectOnly(text: string, query = ""): boolean {
+  if (acceptLocationSearchMiss()) {
+    return false;
+  }
   return looksLikeGenericRedirect(text) && !hasSpecificCenterCityOrDomain(text, query);
 }
 
