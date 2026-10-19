@@ -150,7 +150,7 @@ testRunner("Vivek Response Semantic Validation (ananda-public)", () => {
     // TODO(known-flaky): geo data for the Vivek test env
     // tracked: https://app.notion.com/p/3fe7781078bc818ba576f4d4de252826
     await detectUsableGeoWithOptionalProbe(() =>
-      getVivekResponse("Are there any Ananda centers in Nevada City, California?")
+      getVivekResponse("Are there any Ananda centers in Berlin, Germany?")
     );
   });
 

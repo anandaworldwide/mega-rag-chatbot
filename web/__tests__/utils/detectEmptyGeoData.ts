@@ -80,22 +80,26 @@ export function applyEmptyGeoFlagFromProbe(answer: string): boolean {
   if (hasRedirectSimilaritySkipSignal(answer)) {
     setAcceptLocationSearchMiss(false);
     markGeoCheckDone();
+    console.log("geo probe: specific-signal");
     return false;
   }
   if (hasLocationSearchOutcome(answer)) {
     setAcceptLocationSearchMiss(true);
     logGeoDataEmptyMissAcceptanceOnce();
     markGeoCheckDone();
+    console.log("geo probe: miss");
     return true;
   }
   setAcceptLocationSearchMiss(false);
   markGeoCheckDone();
+  console.log("geo probe: no-miss");
   return false;
 }
 
 /**
  * File/S3 count first. If that file has centers, one live probe decides
- * whether the runtime geo path can actually return a center.
+ * whether the runtime geo path can return a real center. Do not probe a
+ * well-known name such as Ananda Village; RAG can answer that without geo.
  */
 export async function detectUsableGeoWithOptionalProbe(probe: () => Promise<string>): Promise<boolean> {
   if (geoCheckDone()) {
