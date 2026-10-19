@@ -298,6 +298,39 @@ function isWorldwideOrInYourAreaPresence(text: string): boolean {
   return /ananda is present worldwide|ananda in your area|locations worldwide/i.test(text);
 }
 
+/**
+ * Remove redirect boilerplate so leftover clarification can be language-neutral.
+ * Does not match Spanish or other language phrase lists.
+ */
+function stripRedirectBoilerplate(text: string): string {
+  return text
+    .replace(/searching locations\.?/gi, " ")
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, " ")
+    .replace(/https?:\/\/\S+/gi, " ")
+    .replace(GENERIC_REDIRECT_REGEX, " ")
+    .replace(/find ananda(?: near you)?/gi, " ")
+    .replace(/ananda\.org\/find-ananda/gi, " ")
+    .replace(/ananda is present worldwide/gi, " ")
+    .replace(/ananda in your area/gi, " ")
+    .replace(/locations worldwide/gi, " ");
+}
+
+/** Letters left after stripping Find Ananda / website / worldwide boilerplate. */
+function leftoverClarificationLetterCount(text: string): number {
+  const leftover = stripRedirectBoilerplate(text);
+  const letters = leftover.match(/\p{L}/gu);
+  return letters ? letters.length : 0;
+}
+
+/**
+ * No-place + no-geo: leftover text after redirect boilerplate is a
+ * location ask or unknown-location note in any language. A plain Find
+ * Ananda / worldwide / in-your-area answer leaves too few letters.
+ */
+function hasLanguageNeutralLocationClarification(text: string): boolean {
+  return leftoverClarificationLetterCount(text) >= 32;
+}
+
 /** Address, phone, named center, or domain — not a search miss and not the no-geo flag. */
 function hasHardSpecificCenterSignal(text: string, query = ""): boolean {
   return (
@@ -330,7 +363,12 @@ export function isGenericRedirectOnly(text: string, query = ""): boolean {
     if (hasHardSpecificCenterSignal(text, query)) {
       return false;
     }
-    if (acceptLocationSearchMiss() && (asksForUserLocation(text) || doesNotKnowUserLocation(text))) {
+    if (
+      acceptLocationSearchMiss() &&
+      (asksForUserLocation(text) ||
+        doesNotKnowUserLocation(text) ||
+        hasLanguageNeutralLocationClarification(text))
+    ) {
       return false;
     }
     return (

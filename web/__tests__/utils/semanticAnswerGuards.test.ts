@@ -296,6 +296,72 @@ describe("semanticAnswerGuards", () => {
     expect(queryNamesNoPlace("94002")).toBe(false);
   });
 
+  it("treats a Spanish nearest-center query and its no-accent form as naming no place", () => {
+    expect(queryNamesNoPlace("¿Dónde está el centro más cercano?")).toBe(true);
+    expect(queryNamesNoPlace("Donde esta el centro mas cercano")).toBe(true);
+  });
+
+  it("accepts the run-1 Spanish no-place miss under the no-geo flag", () => {
+    const query = "¿Dónde está el centro más cercano?";
+    const answer =
+      "Searching locations...\n" +
+      "No he podido determinar tu ubicación. Por favor, indícame una ciudad o lugar específico para ayudarte a encontrar el centro de Ananda más cercano.\n\n" +
+      "Mientras tanto, puedes explorar la lista completa de centros en todo el mundo en la página [Find Ananda Near You](https://www.ananda.org/find-ananda/). \n\n" +
+      "Si tienes más preguntas sobre las enseñanzas o recursos de Ananda, estaré encantado de ayudarte.";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query)).toBe(false);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(true);
+    expect(passesRedirectSimilarityGuard(answer, query, 0.82)).toBe(false);
+  });
+
+  it("accepts the run-2 Spanish no-place miss under the no-geo flag", () => {
+    const query = "¿Dónde está el centro más cercano?";
+    const answer =
+      "Searching locations...\n" +
+      "No puedo determinar tu ubicación actual. Por favor, indícame una ciudad o lugar específico para ayudarte a encontrar el centro de Ananda más cercano.\n\n" +
+      "También puedes explorar todos los centros disponibles en el directorio en línea en [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query)).toBe(false);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(true);
+    expect(passesRedirectSimilarityGuard(answer, query, 0.82)).toBe(false);
+  });
+
+  it("accepts the run-3 Spanish no-place miss under the no-geo flag", () => {
+    const query = "¿Dónde está el centro más cercano?";
+    const answer =
+      "Searching locations...\n" +
+      "No puedo determinar tu ubicación actual. Por favor, indícame una ciudad o lugar específico para ayudarte a encontrar el centro de Ananda más cercano.\n\n" +
+      "Mientras tanto, puedes explorar todas las ubicaciones en el directorio de Ananda aquí:\n" +
+      "* [Find Ananda Near You](https://www.ananda.org/find-ananda/)";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query)).toBe(false);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(true);
+    expect(passesRedirectSimilarityGuard(answer, query, 0.82)).toBe(false);
+  });
+
+  it("accepts the run-3 near-me miss in isGenericRedirectOnly and keeps the 0.81 backstop", () => {
+    const query = "Find a center near me";
+    const answer =
+      "Searching locations...\n" +
+      "I'm currently unable to determine your location. Please specify a city or location so I can help you find nearby Ananda centers. You can also explore all locations at the [Find Ananda Near You](https://www.ananda.org/find-ananda/) page.";
+    setAcceptLocationSearchMiss(true);
+    expect(isGenericRedirectOnly(answer, query)).toBe(false);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(true);
+    expect(passesRedirectSimilarityGuard(answer, query, 0.8182084046010103)).toBe(false);
+  });
+
+  it("accepts a no-accent nearest-center query with leftover clarification under the no-geo flag", () => {
+    const query = "Donde esta el centro mas cercano";
+    const answer =
+      "Searching locations...\n" +
+      "No puedo determinar tu ubicación actual. Por favor, indícame una ciudad o lugar específico para ayudarte a encontrar el centro de Ananda más cercano.\n\n" +
+      "También puedes explorar todos los centros disponibles en el directorio en línea en [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
+    setAcceptLocationSearchMiss(true);
+    expect(queryNamesNoPlace(query)).toBe(true);
+    expect(isGenericRedirectOnly(answer, query)).toBe(false);
+    expect(passesLocationRedirectGuard(answer, query)).toBe(true);
+  });
+
   it("passes a Lahiri scoped miss when a negation is within about 120 characters either way", () => {
     expect(
       hasLahiriScopedNegation(
