@@ -35,6 +35,17 @@ Server tests require a specific environment setup:
 We intentionally run server tests with a separate Jest configuration to prevent environment conflicts and ensure
 reliable testing.
 
+## Local query rate limit
+
+`QUERY_RATE_LIMIT_DEV_MAX` can replace the local development chat query limit. The process reads this variable only when
+`NODE_ENV` is `development` and `VERCEL` is not set.
+
+Unit tests for this override are in `__tests__/utils/server/queryRateLimit.test.ts`. Those tests set `NODE_ENV` and
+`VERCEL` for each case. They do not change Vercel or production environment values.
+
+The override does not apply when `NODE_ENV` is `test`. Jest keeps the production per-day limit unless a test sets
+`NODE_ENV` to `development`.
+
 ## Semantic LLM Response Testing (Using Embeddings)
 
 Validating responses from Large Language Models (LLMs) poses a challenge because identical semantic meaning can be
