@@ -10,7 +10,7 @@ import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { isDevelopment } from "@/utils/env";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreGet } from "@/utils/server/firestoreRetryUtils";
-import { createSignedUUIDCookie } from "@/utils/server/uuidUtils";
+import { createSignedUUIDCookie, getVerifiedUuidFromSignedCookie } from "@/utils/server/uuidUtils";
 import { isEmailBlacklisted } from "@/utils/server/blacklist";
 import { writeAuditLog } from "@/utils/server/auditLog";
 
@@ -49,10 +49,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Use proper HTTPS detection for secure cookies (same pattern as login.ts)
     const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
 
-    // Determine UUID: if account has none, adopt legacy cookie if valid, else generate new
+    // If the account has no uuid, adopt the visitor cookie only when its signature is valid.
     const cookies = new Cookies(req, res, { secure: isSecure });
-    const cookieUuid = cookies.get("uuid");
-    const hasCookieUuid = typeof cookieUuid === "string" && cookieUuid.length === 36;
+    const verifiedCookieUuid = getVerifiedUuidFromSignedCookie(cookies.get("uuid"));
     const accountUuid =
       typeof (data as any)?.uuid === "string" && (data as any).uuid.length === 36 ? (data as any).uuid : undefined;
     const nowTs = firebase.firestore.Timestamp.now();
@@ -61,7 +60,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
     let attempts = 0;
     const maxAttempts = 3;
-    let candidate = finalUuid || (hasCookieUuid ? (cookieUuid as string) : uuidv4());
+    let candidate = finalUuid || verifiedCookieUuid || uuidv4();
 
     while (attempts < maxAttempts) {
       try {
