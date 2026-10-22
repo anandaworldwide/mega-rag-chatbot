@@ -7,6 +7,10 @@ import { fetchWithAuth, isAuthenticated } from "@/utils/client/tokenManager";
 import { loadConversationByDocId } from "@/utils/client/conversationLoader";
 import { useRouter } from "next/router";
 
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = jest.fn();
+}
+
 const mockReplace = jest.fn();
 const mockPush = jest.fn();
 const SHARE_ID = "OHXIZPKK5XAyj9f1vEXx";
