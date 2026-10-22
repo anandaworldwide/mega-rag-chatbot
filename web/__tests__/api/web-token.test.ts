@@ -317,6 +317,25 @@ describe("/api/web-token", () => {
     expect(setCookieMock).toHaveBeenCalledWith("hasSession", "", expect.objectContaining({ expires: expect.any(Date) }));
   });
 
+  it("does not return a signed cookie for an unsigned existing uuid", async () => {
+    (loadSiteConfigSync as jest.Mock).mockReturnValue({
+      requireLogin: false,
+    });
+
+    const existingUuid = "123e4567-e89b-12d3-a456-426614174000";
+    req.cookies = { uuid: existingUuid };
+    setCookieMock.mockClear();
+
+    await handler(req as NextApiRequest, res as NextApiResponse);
+
+    expect(statusMock).toHaveBeenCalledWith(200);
+    const uuidSetCalls = setCookieMock.mock.calls.filter((call) => call[0] === "uuid" && call[1] !== "");
+    expect(uuidSetCalls).toHaveLength(1);
+    const signedValue = uuidSetCalls[0][1] as string;
+    expect(signedValue).toMatch(/^[0-9a-f-]{36}--[0-9a-f]{64}$/i);
+    expect(signedValue.startsWith(`${existingUuid}--`)).toBe(false);
+  });
+
   it("should set signed uuid cookie for anonymous visitors on public sites", async () => {
     (loadSiteConfigSync as jest.Mock).mockReturnValue({
       requireLogin: false,

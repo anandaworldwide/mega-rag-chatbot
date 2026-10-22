@@ -72,8 +72,7 @@ export const PUBLIC_PATHS: PublicPathsConfig = {
     "/api/email/open",
     "/api/unsubscribe",
     // Logged-out share page. Exact prefix /api/share/{docId}. Display fields only.
-    // /api/document/ stays cookie-gated on login sites. conversationLoader uses it
-    // when the user is logged in. uuid stays on that response for the owner check.
+    // /api/document/ requires a session. The caller must own the document.
     "/api/share/",
     // Redirect code lookup in site config. No cookie in mail or short links.
     "/api/redirect/",
