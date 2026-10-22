@@ -1,6 +1,15 @@
+import crypto from "crypto";
 import { createMocks } from "node-mocks-http";
 import type { NextApiRequest, NextApiResponse } from "next";
 import handler from "@/pages/api/auth/magicLogin";
+
+const FRESH_UUID = "00000000-0000-4000-8000-000000000000";
+const VISITOR_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+
+function signUuidCookie(uuid: string): string {
+  const secretKey = crypto.createHash("sha256").update(process.env.SECRET_KEY as string).digest();
+  return `${uuid}--${crypto.createHmac("sha256", secretKey).update(uuid).digest("hex")}`;
+}
 
 jest.mock("@/services/firebase", () => ({
   db: {
@@ -40,9 +49,13 @@ jest.mock("@/utils/server/auditLog", () => ({
   writeAuditLog: jest.fn().mockResolvedValue(undefined),
 }));
 
-jest.mock("@/utils/server/uuidUtils", () => ({
-  createSignedUUIDCookie: jest.fn((uuid: string) => `signed:${uuid}`),
-}));
+jest.mock("@/utils/server/uuidUtils", () => {
+  const actual = jest.requireActual("@/utils/server/uuidUtils");
+  return {
+    ...actual,
+    createSignedUUIDCookie: jest.fn((uuid: string) => `signed:${uuid}`),
+  };
+});
 
 jest.mock("@/utils/env", () => ({
   isDevelopment: jest.fn().mockReturnValue(true),
@@ -57,10 +70,11 @@ jest.mock("jsonwebtoken", () => ({
 }));
 
 const setCookieMock = jest.fn();
+const getCookieMock = jest.fn();
 jest.mock("cookies", () => {
   return jest.fn().mockImplementation(() => ({
     set: setCookieMock,
-    get: jest.fn(),
+    get: getCookieMock,
   }));
 });
 
@@ -80,6 +94,7 @@ const mockFirestoreGet = firestoreGet as jest.MockedFunction<typeof firestoreGet
 describe("/api/auth/magicLogin", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    getCookieMock.mockReset();
     process.env.SECURE_TOKEN = "test-secret";
   });
 
@@ -197,5 +212,83 @@ describe("/api/auth/magicLogin", () => {
     expect(res.statusCode).toBe(200);
     expect(res._getJSONData()).toEqual({ message: "ok" });
     expect(setCookieMock).toHaveBeenCalledWith("authToken", "mock-jwt-token", expect.any(Object));
+  });
+
+  describe("visitor uuid adoption for new accounts", () => {
+    const { db } = jest.requireMock("@/services/firebase") as {
+      db: { runTransaction: jest.Mock };
+    };
+
+    function mockTransactionWithoutAccountUuid() {
+      db.runTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<void>) => {
+        let isUserSnap = true;
+        const tx = {
+          get: jest.fn().mockImplementation(async () => {
+            if (isUserSnap) {
+              isUserSnap = false;
+              return {
+                exists: true,
+                data: () => ({}),
+              };
+            }
+            return { exists: false, get: () => undefined };
+          }),
+          set: jest.fn(),
+        };
+        await fn(tx);
+      });
+    }
+
+    async function magicLoginWithoutAccountUuid() {
+      mockFirestoreGet.mockResolvedValueOnce({
+        exists: true,
+        data: () => ({
+          inviteStatus: "accepted",
+          loginTokenExpiresAt: { toMillis: () => Date.now() + 3600000 },
+          loginTokenHash: "hash",
+          role: "user",
+        }),
+      } as any);
+      jest.mocked(bcrypt.compare).mockResolvedValueOnce(true as never);
+      mockTransactionWithoutAccountUuid();
+
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "POST",
+        body: { token: "valid-token", email: "user@example.com" },
+      });
+      await handler(req, res);
+      return res;
+    }
+
+    it("assigns a fresh id when the visitor cookie is unsigned", async () => {
+      getCookieMock.mockImplementation((name: string) => (name === "uuid" ? VISITOR_UUID : undefined));
+
+      const res = await magicLoginWithoutAccountUuid();
+
+      expect(res.statusCode).toBe(200);
+      expect(setCookieMock).toHaveBeenCalledWith("uuid", `signed:${FRESH_UUID}`, expect.any(Object));
+    });
+
+    it("assigns a fresh id when the visitor cookie signature is invalid", async () => {
+      getCookieMock.mockImplementation((name: string) =>
+        name === "uuid" ? `${VISITOR_UUID}--${"a".repeat(64)}` : undefined
+      );
+
+      const res = await magicLoginWithoutAccountUuid();
+
+      expect(res.statusCode).toBe(200);
+      expect(setCookieMock).toHaveBeenCalledWith("uuid", `signed:${FRESH_UUID}`, expect.any(Object));
+    });
+
+    it("adopts the visitor id when the signed cookie is valid", async () => {
+      getCookieMock.mockImplementation((name: string) =>
+        name === "uuid" ? signUuidCookie(VISITOR_UUID) : undefined
+      );
+
+      const res = await magicLoginWithoutAccountUuid();
+
+      expect(res.statusCode).toBe(200);
+      expect(setCookieMock).toHaveBeenCalledWith("uuid", `signed:${VISITOR_UUID}`, expect.any(Object));
+    });
   });
 });

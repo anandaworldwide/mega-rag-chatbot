@@ -20,6 +20,7 @@ import {
   getSecureUUID,
   createSignedUUIDCookie,
   ensureAnonymousVisitorUuidCookie,
+  getVerifiedUuidFromSignedCookie,
   resolveSecureUuidFromAppRequest,
 } from "@/utils/server/uuidUtils";
 import { NextRequest } from "next/server";
@@ -411,6 +412,22 @@ describe("uuidUtils", () => {
         error: "Invalid UUID cookie signature",
         statusCode: 400,
       });
+    });
+  });
+
+  describe("getVerifiedUuidFromSignedCookie", () => {
+    const visitorUuid = "123e4567-e89b-12d3-a456-426614174000";
+
+    it("returns null for an unsigned cookie", () => {
+      expect(getVerifiedUuidFromSignedCookie(visitorUuid)).toBeNull();
+    });
+
+    it("returns null for a cookie with a bad signature", () => {
+      expect(getVerifiedUuidFromSignedCookie(`${visitorUuid}--${"a".repeat(64)}`)).toBeNull();
+    });
+
+    it("returns the uuid when the signed cookie is valid", () => {
+      expect(getVerifiedUuidFromSignedCookie(createSignedUUIDCookie(visitorUuid))).toBe(visitorUuid);
     });
   });
 });

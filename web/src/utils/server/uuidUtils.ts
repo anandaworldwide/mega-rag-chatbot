@@ -132,6 +132,23 @@ function parseUUIDCookie(cookieValue: string): { uuid: string; isValidSignature:
 }
 
 /**
+ * Returns the visitor UUID from a signed cookie only when the HMAC signature
+ * is valid and the value is a UUID. Unsigned or invalid cookies return null.
+ */
+export function getVerifiedUuidFromSignedCookie(cookieValue: string | undefined): string | null {
+  if (!cookieValue) {
+    return null;
+  }
+
+  const parsed = parseUUIDCookie(cookieValue);
+  if (!parsed?.isValidSignature || !isValidUUID(parsed.uuid)) {
+    return null;
+  }
+
+  return parsed.uuid;
+}
+
+/**
  * Securely retrieves UUID based on site configuration and authentication status
  *
  * For authenticated sites (requireLogin: true):
