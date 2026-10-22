@@ -141,6 +141,40 @@ python:
     review_by: "2027-01-05"
     mitigation: "Dormant reranking subgraph; not deployed in production."
 
+  - id: PYSEC-2026-3929
+    package: transformers
+    reason: >-
+      save_pretrained path traversal via chat-template keys
+      (GHSA-xrqw-3rrv-vx5w / CVE-2026-9856). Fix is in transformers 5.10.0,
+      but 5.x adoption is blocked by optimum-onnx 0.1.0 (pins
+      transformers<4.58.0), huggingface-hub 0.33.0 (transformers 5.x needs
+      >=1.5), and tokenizers==0.21.1 (transformers 5.x needs >=0.22).
+      Reranking is dormant; no untrusted models are loaded.
+    review_by: "2027-01-05"
+    mitigation: "Dormant reranking subgraph; no user-controlled model loading."
+
+  - id: PYSEC-2026-4174
+    package: transformers
+    reason: >-
+      load_custom_generate writes remote code before trust_remote_code
+      (GHSA-x9r9-c232-4q39 / CVE-2026-80047). No patched release reported by
+      pip-audit. Same adoption constraints as PYSEC-2026-3929 / CVE-2026-1839:
+      optimum-onnx 0.1.0, huggingface-hub 0.33.0, and tokenizers==0.21.1
+      block transformers 5.x. Reranking is dormant; no untrusted models
+      are loaded.
+    review_by: "2027-01-05"
+    mitigation: "Dormant reranking subgraph; not reachable in production."
+
+  - id: PYSEC-2026-3740
+    package: nltk
+    reason: >-
+      pathsec sandbox bypass on model load/save (GHSA-8mgp-746c-j5xp /
+      CVE-2026-81726). No patched PyPI release; nltk 3.10.3 is latest.
+      We do not use pathsec enforcement or untrusted model paths. Ingestion
+      and evaluation load trusted local corpora only.
+    review_by: "2027-01-05"
+    mitigation: "No pathsec enforcement; trusted local NLTK data only."
+
 node:
   - id: "1117038"
     package: showdown
