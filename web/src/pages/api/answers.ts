@@ -93,7 +93,7 @@ async function apiHandler(req: NextApiRequest, res: NextApiResponse) {
   return res.status(405).json({ error: "Method not allowed" });
 }
 
-// GET stays skipAuth so no-login public reads can reach the handler check
+// GET stays skipAuth so privileged callers and viewer cookies can reach the handler check
 const getHandler = withApiMiddleware(apiHandler, { skipAuth: true });
 
 // For DELETE requests, require authentication
@@ -232,7 +232,7 @@ async function handleDeleteRequest(req: NextApiRequest, res: NextApiResponse) {
       return res.status(400).json({ message: "answerId parameter is required." });
     }
 
-    // Authorization by site type
+    // Writes stay privileged-only. A viewer cookie never grants DELETE.
     const siteConfig = loadSiteConfigSync();
     const loginRequired = !!siteConfig?.requireLogin;
     if (loginRequired) {

@@ -24,15 +24,6 @@ export const isPublicPage = (path: string, siteConfig: SiteConfig | null): boole
     return true;
   }
 
-  // Answers list page is public only on no-login sites
-  if (
-    siteConfig &&
-    !siteConfig.requireLogin &&
-    PUBLIC_PATHS.noLoginPublicPages.some((publicPath) => path === publicPath || path.startsWith(`${publicPath}/`))
-  ) {
-    return true;
-  }
-
   // If no site config is available, default to requiring authentication
   if (!siteConfig) return false;
 
@@ -52,20 +43,19 @@ export const isPublicPage = (path: string, siteConfig: SiteConfig | null): boole
 export const isPublicEndpoint = (
   url: string,
   method: string,
-  siteConfig?: SiteConfig | null
+  _siteConfig?: SiteConfig | null
 ): boolean => {
-  // Check against centralized public API paths
-  if (PUBLIC_PATHS.alwaysPublicApis.some((apiPath) => url.includes(apiPath))) {
+  if (url.includes("/api/answers/viewer")) {
     return true;
   }
 
-  // GET /api/answers is public only on no-login sites
-  if (
-    siteConfig &&
-    !siteConfig.requireLogin &&
-    method === "GET" &&
-    PUBLIC_PATHS.noLoginPublicApis.some((apiPath) => url.includes(apiPath))
-  ) {
+  const isAnswersListApi = url.includes("/api/answers") && !url.includes("/api/answers/");
+  if (isAnswersListApi) {
+    return method.toUpperCase() === "GET";
+  }
+
+  // Check against centralized public API paths
+  if (PUBLIC_PATHS.alwaysPublicApis.some((apiPath) => url.includes(apiPath))) {
     return true;
   }
 
@@ -74,7 +64,7 @@ export const isPublicEndpoint = (
     return false;
   }
 
-  // /api/document stays cookie-gated. /api/answers is not always public.
+  // /api/document stays cookie-gated.
 
   if (url.includes("/api/getAudioSignedUrl") || url.includes("/api/getPdfSignedUrl")) {
     return true;

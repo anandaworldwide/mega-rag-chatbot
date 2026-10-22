@@ -180,14 +180,20 @@ describe("proxy login-site public access (real ananda/jairam config)", () => {
       }
 
       // Share loads /api/share only. These stay cookie-gated.
-      expect(proxy(makeRequest(`/api/answers?answerIds=${shareId}`)).status).toBe(401);
       expect(proxy(makeRequest("/api/chats")).status).toBe(401);
       expect(proxy(makeRequest("/api/profile")).status).toBe(401);
       expect(proxy(makeRequest("/api/relatedQuestions")).status).toBe(401);
       expect(proxy(makeRequest("/api/getAudioSignedUrl", { method: "POST" })).status).toBe(401);
       expect(proxy(makeRequest("/api/getPdfSignedUrl", { method: "POST" })).status).toBe(401);
 
-      for (const path of ["/", "/settings", "/answers"]) {
+      const answersPage = proxy(makeRequest("/answers"));
+      const answersApi = proxy(makeRequest(`/api/answers?answerIds=${shareId}`));
+      const viewerApi = proxy(makeRequest("/api/answers/viewer", { method: "POST" }));
+      expect(isDenied(answersPage)).toBe(false);
+      expect(isDenied(answersApi)).toBe(false);
+      expect(isDenied(viewerApi)).toBe(false);
+
+      for (const path of ["/", "/settings"]) {
         const response = proxy(makeRequest(path));
         expect(response.status).toBe(307);
         expect(response.headers.get("location") || "").toContain("/login");

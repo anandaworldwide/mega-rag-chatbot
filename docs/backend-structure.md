@@ -142,10 +142,15 @@ API endpoints are defined in `pages/api/` and `app/api/`. Most endpoints are pro
 
 - **Answers Page Authorization (`answersPageAuth.ts`):**
   - Controls access to the answers list page and `GET /api/answers`.
-  - **Login-required sites:** Only admins and superusers can access.
-  - **No-login sites:** Anyone can access (not advertised).
+  - **All sites:** Only privileged callers (valid sudo cookie, or admin/superuser role) or a valid answers
+    viewer cookie can access the list.
+  - **Viewer password:** `ANSWERS_VIEWER_PASSWORD` is server-only. When unset, viewer access is off. POST
+    `/api/answers/viewer` accepts the password in the body only, uses a constant-time compare, rate-limits
+    tries, and never logs the password. A match sets a signed `answersViewer` cookie (`httpOnly`, `Secure`,
+    `SameSite=strict`, 30-day expiry). Changing the password invalidates old cookies.
   - **Response fields:** Returns visitor fields (`ip`, `uuid`, `history`) only to privileged callers (valid sudo
-    cookie, or admin/superuser role). Other callers do not receive those fields.
+    cookie, or admin/superuser role). Viewers do not receive those fields.
+  - **Writes:** Viewers are read-only. DELETE and other writes stay privileged-only.
   - **Discrete link visibility:** Only shown to highest privilege users (superusers on login sites, sudo users on
     no-login sites).
   - Functions: `isAnswersPageAllowed()`, `shouldShowAnswersPageLink()`, `getAnswersPageErrorMessage()`,
@@ -172,9 +177,12 @@ API endpoints are defined in `pages/api/` and `app/api/`. Most endpoints are pro
   - **Logic:** Updates vote counts in Firestore (`firestoreUtils.ts`).
 - **`GET /api/answers`** (`pages/api/answers.ts`)
   - **Purpose:** Retrieves answers for the answers list page.
-  - **Auth:** Public GET on no-login sites. Admin or superuser only on login-required sites.
+  - **Auth:** Privileged callers or a valid answers viewer cookie. Other callers receive 403.
   - **Logic:** Fetches data from Firestore (`answersUtils.ts`), validates access via `answersPageAuth.ts`. Returns
     visitor fields (`ip`, `uuid`, `history`) only when the handler passes `includeVisitorFields`.
+- **`POST /api/answers/viewer`** (`pages/api/answers/viewer.ts`)
+  - **Purpose:** Checks the shared viewer password and sets the answers viewer cookie.
+  - **Auth:** Open at the proxy. Handler rate-limits tries and refuses query-string passwords.
 
 **Answers Page Authorization:**
 

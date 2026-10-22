@@ -1,7 +1,7 @@
 /**
  * Authorization tests for GET /api/answers.
- * Anonymous callers are allowed on no-login sites.
- * Anonymous and non-admin callers are refused on login-required sites.
+ * Anonymous callers are refused on login and no-login sites.
+ * Privileged callers receive visitor fields.
  */
 
 global.Request = class MockRequest {
@@ -141,6 +141,7 @@ function answersByIdsWithOption(
 describe("Answers API authorization", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    delete process.env.ANSWERS_VIEWER_PASSWORD;
     mockGetSudoCookie.mockReturnValue({
       sudoCookieValue: "",
       message: "No sudo cookie",
@@ -148,31 +149,10 @@ describe("Answers API authorization", () => {
     mockGetRequesterRole.mockReturnValue("user");
   });
 
-  it("allows anonymous callers on no-login sites", async () => {
+  it("refuses anonymous callers on no-login sites", async () => {
     mockLoadSiteConfigSync.mockReturnValue({
       requireLogin: false,
     });
-
-    const mockSnapshot = {
-      docs: [
-        {
-          id: "answer1",
-          data: () => ({
-            question: "Test question",
-            answer: "Test answer",
-            timestamp: { _seconds: 1234567890, _nanoseconds: 0 },
-            sources: "[]",
-            ip: "203.0.113.10",
-            uuid: "secret-visitor-uuid",
-            history: [{ role: "user", content: "prior turn" }],
-          }),
-        },
-      ],
-    };
-
-    mockDb.get.mockResolvedValueOnce(mockSnapshot);
-    mockGetTotalDocuments.mockResolvedValueOnce(1);
-    mockMapAnswerDocToAnswer.mockImplementation(mapAnswerWithOption);
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "GET",
@@ -184,20 +164,17 @@ describe("Answers API authorization", () => {
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(200);
-    expect(mockGetTotalDocuments).toHaveBeenCalled();
-    expect(mockMapAnswerDocToAnswer).toHaveBeenCalledWith(expect.anything(), { includeVisitorFields: false });
-    const body = res._getJSONData();
-    expect(JSON.stringify(body)).not.toMatch(/secret-visitor-uuid/);
-    expect(JSON.stringify(body)).not.toMatch(/203\.0\.113\.10/);
-    expect(JSON.stringify(body)).not.toMatch(/"history"/);
+    expect(res.statusCode).toBe(403);
+    expect(res._getJSONData()).toEqual({
+      error: "Access denied. You don't have permission to access this resource.",
+    });
+    expect(mockGetTotalDocuments).not.toHaveBeenCalled();
   });
 
-  it("omits visitor fields for an anonymous caller on a no-login site", async () => {
+  it("refuses an anonymous caller who requests an answer by id on a no-login site", async () => {
     mockLoadSiteConfigSync.mockReturnValue({
       requireLogin: false,
     });
-    mockGetAnswersByIds.mockImplementation(answersByIdsWithOption);
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "GET",
@@ -208,12 +185,8 @@ describe("Answers API authorization", () => {
 
     await handler(req, res);
 
-    expect(res.statusCode).toBe(200);
-    expect(mockGetAnswersByIds).toHaveBeenCalledWith(["public-answer"], { includeVisitorFields: false });
-    const body = res._getJSONData();
-    expect(JSON.stringify(body)).not.toMatch(/secret-visitor-uuid/);
-    expect(JSON.stringify(body)).not.toMatch(/203\.0\.113\.10/);
-    expect(JSON.stringify(body)).not.toMatch(/"history"/);
+    expect(res.statusCode).toBe(403);
+    expect(mockGetAnswersByIds).not.toHaveBeenCalled();
   });
 
   it("refuses anonymous callers on login-required sites", async () => {
@@ -262,29 +235,6 @@ describe("Answers API authorization", () => {
       error: "Access denied. You don't have permission to access this resource.",
     });
     expect(mockGetAnswersByIds).not.toHaveBeenCalled();
-  });
-
-  it("allows an anonymous caller to request an answer by id on a no-login site", async () => {
-    mockLoadSiteConfigSync.mockReturnValue({
-      requireLogin: false,
-    });
-    mockGetAnswersByIds.mockImplementation(answersByIdsWithOption);
-
-    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
-      method: "GET",
-      query: {
-        answerIds: "other-visitor-answer",
-      },
-    });
-
-    await handler(req, res);
-
-    expect(res.statusCode).toBe(200);
-    expect(mockGetAnswersByIds).toHaveBeenCalledWith(["other-visitor-answer"], { includeVisitorFields: false });
-    const body = res._getJSONData();
-    expect(JSON.stringify(body)).not.toMatch(/"ip"/);
-    expect(JSON.stringify(body)).not.toMatch(/"uuid"/);
-    expect(JSON.stringify(body)).not.toMatch(/"history"/);
   });
 
   it("allows an admin on a login-required site", async () => {

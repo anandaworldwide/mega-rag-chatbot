@@ -280,7 +280,7 @@ export function proxy(req: NextRequest) {
 
   const { requireLogin } = siteConfig;
 
-  // Get centralized list of public paths. No-login sites also allow the answers list.
+  // Get centralized list of public paths. No-login sites also add noLogin paths.
   const allowed_paths_starts = requireLogin
     ? getAllPublicPaths()
     : [...getAllPublicPaths(), ...PUBLIC_PATHS.noLoginPublicPages, ...PUBLIC_PATHS.noLoginPublicApis];

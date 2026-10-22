@@ -31,9 +31,15 @@ interface AllAnswersProps {
   siteConfig: SiteConfig | null;
   authorizationError?: boolean;
   errorMessage?: string;
+  needsViewerPassword?: boolean;
 }
 
-const AllAnswers = ({ siteConfig, authorizationError, errorMessage }: AllAnswersProps) => {
+const AllAnswers = ({
+  siteConfig,
+  authorizationError,
+  errorMessage,
+  needsViewerPassword,
+}: AllAnswersProps) => {
   const router = useRouter();
   const { isSudoUser, checkSudoStatus } = useSudo();
   const [isAdmin, setIsAdmin] = useState(false);
@@ -63,6 +69,9 @@ const AllAnswers = ({ siteConfig, authorizationError, errorMessage }: AllAnswers
   const [isChangingPage, setIsChangingPage] = useState(false);
   const [initialLoadComplete, setInitialLoadComplete] = useState(false);
   const [linkCopied, setLinkCopied] = useState<string | null>(null);
+  const [viewerPassword, setViewerPassword] = useState("");
+  const [viewerError, setViewerError] = useState<string | null>(null);
+  const [isSubmittingViewerPassword, setIsSubmittingViewerPassword] = useState(false);
 
   // Refs
   const hasInitiallyFetched = useRef(false);
@@ -98,7 +107,7 @@ const AllAnswers = ({ siteConfig, authorizationError, errorMessage }: AllAnswers
 
   // Use React Query for data fetching with JWT authentication
   const { data, isLoading, error } = useAnswers(currentPage, activeSearch, {
-    enabled: isPageInitialized && router.isReady,
+    enabled: isPageInitialized && router.isReady && !authorizationError && !needsViewerPassword,
   });
 
   // Show delayed spinner for long-running loads
@@ -302,10 +311,69 @@ const AllAnswers = ({ siteConfig, authorizationError, errorMessage }: AllAnswers
     router.push("/");
   };
 
+  const handleViewerPasswordSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setViewerError(null);
+    setIsSubmittingViewerPassword(true);
+
+    try {
+      const response = await fetch("/api/answers/viewer", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "same-origin",
+        body: JSON.stringify({ password: viewerPassword }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setViewerError(typeof data.error === "string" ? data.error : "Invalid password");
+        return;
+      }
+      window.location.reload();
+    } catch {
+      setViewerError("Unable to check the password. Try again.");
+    } finally {
+      setIsSubmittingViewerPassword(false);
+    }
+  };
+
   return (
     <SudoProvider disableChecks={!!siteConfig && !!siteConfig.requireLogin}>
       <Layout siteConfig={siteConfig} onNewChat={handleNewChat}>
         {/* Authorization error display */}
+        {needsViewerPassword && (
+          <div className="mx-auto max-w-full sm:max-w-4xl px-2 sm:px-6 lg:px-8">
+            <div className="flex flex-col justify-center items-center min-h-screen">
+              <div className="text-center w-full max-w-md">
+                <h1 className="text-2xl font-semibold text-gray-800 mb-4">Answers access</h1>
+                <p className="text-gray-600 mb-6">Enter the viewer password to read the answers list.</p>
+                <form method="post" action="/api/answers/viewer" onSubmit={handleViewerPasswordSubmit} className="space-y-4">
+                  <label className="block text-left text-sm text-gray-700">
+                    <span className="mb-1 block font-medium">Password</span>
+                    <input
+                      type="password"
+                      name="password"
+                      autoComplete="current-password"
+                      value={viewerPassword}
+                      onChange={(event) => setViewerPassword(event.target.value)}
+                      className="w-full rounded border border-gray-300 px-3 py-2"
+                    />
+                  </label>
+                  {viewerError && <p className="text-red-500 text-sm">{viewerError}</p>}
+                  <button
+                    type="submit"
+                    disabled={isSubmittingViewerPassword || viewerPassword.length === 0}
+                    className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-300"
+                  >
+                    {isSubmittingViewerPassword ? "Checking..." : "Continue"}
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+        )}
+
         {authorizationError && (
           <div className="mx-auto max-w-full sm:max-w-4xl px-2 sm:px-6 lg:px-8">
             <div className="flex flex-col justify-center items-center min-h-screen">
@@ -327,7 +395,7 @@ const AllAnswers = ({ siteConfig, authorizationError, errorMessage }: AllAnswers
         )}
 
         {/* Main content - only show if no authorization error */}
-        {!authorizationError && (
+        {!authorizationError && !needsViewerPassword && (
           <>
             <div className="mx-auto max-w-full sm:max-w-4xl px-2 sm:px-6 lg:px-8">
               {/* Loading spinner */}
@@ -531,6 +599,16 @@ export const getServerSideProps: GetServerSideProps = async (context) => {
   const isAllowed = await isAnswersPageAllowed(req, res, siteConfig);
 
   if (!isAllowed) {
+    const { isAnswersViewerPasswordConfigured } = await import("@/utils/server/answersViewerAuth");
+    if (isAnswersViewerPasswordConfigured()) {
+      return {
+        props: {
+          siteConfig,
+          needsViewerPassword: true,
+        },
+      };
+    }
+
     const errorMessage = getAnswersPageErrorMessage(siteConfig);
     return {
       props: {

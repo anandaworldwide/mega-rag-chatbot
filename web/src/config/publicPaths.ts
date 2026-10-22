@@ -61,6 +61,9 @@ export const PUBLIC_PATHS: PublicPathsConfig = {
     "/share/", // Public share pages
     "/request-submitted",
     "/verify-email-change",
+    // List page is public at the proxy so the password form can render.
+    // Handler and getServerSideProps still gate access.
+    "/answers",
   ],
 
   // API endpoints that are always accessible
@@ -85,13 +88,18 @@ export const PUBLIC_PATHS: PublicPathsConfig = {
     "/api/redirect/",
     "/api/manifest.json",
     "/api/apple-touch-icon",
+    // Viewer password POST. Handler still rate-limits and checks the password.
+    "/api/answers/viewer",
+    // GET list is public at the proxy so a viewer cookie can reach the handler.
+    // DELETE still requires JWT plus privileged checks in the handler.
+    "/api/answers",
   ],
 
-  // Public only on no-login sites. Login sites keep the list page cookie-gated.
-  noLoginPublicPages: ["/answers"],
+  // Reserved for paths that are public only on no-login sites.
+  noLoginPublicPages: [],
 
-  // Public GET list on no-login sites. Login sites refuse this at the proxy.
-  noLoginPublicApis: ["/api/answers"],
+  // Reserved for APIs that are public only on no-login sites.
+  noLoginPublicApis: [],
 
   // Static assets that should always be accessible
   staticAssets: [
