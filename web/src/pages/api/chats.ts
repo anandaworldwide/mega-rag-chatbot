@@ -1,4 +1,4 @@
-// Lists chats (question/answer pairs) for a given UUID in reverse chronological order
+// Lists chats (question/answer pairs) for the caller in reverse chronological order
 import type { NextApiRequest, NextApiResponse } from "next";
 import { db } from "@/services/firebase";
 import { getAnswersCollectionName } from "@/utils/server/firestoreUtils";
@@ -7,6 +7,8 @@ import { createIndexErrorResponse } from "@/utils/server/firestoreIndexErrorHand
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { createNetworkErrorResponse } from "@/utils/server/networkErrorUtils";
 import { updateUserActivity } from "@/utils/server/userActivityUtils";
+import { verifyToken } from "@/utils/server/jwtUtils";
+import { getSecureUUID } from "@/utils/server/uuidUtils";
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") {
@@ -21,35 +23,45 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     name: "chats-api",
   });
   if (!allowed) return;
-  const { uuid, limit, convId, startAfter, starred } = req.query;
 
-  // UUID is required unless convId is provided (for legacy document support)
-  if (!uuid || typeof uuid !== "string") {
-    if (!convId || typeof convId !== "string") {
-      return res.status(400).json({ error: "uuid query parameter is required when convId is not provided" });
-    }
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Authorization header required" });
   }
+
+  const token = authHeader.substring(7);
+  let userPayload: ReturnType<typeof verifyToken>;
+  try {
+    userPayload = verifyToken(token);
+    if (!userPayload || token.includes("placeholder")) {
+      throw new Error("Invalid token");
+    }
+  } catch {
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
+
+  const uuidResult = getSecureUUID(req, res, userPayload);
+  if (!uuidResult.success) {
+    const status = uuidResult.statusCode === 503 ? 503 : 401;
+    return res.status(status).json({ error: uuidResult.error });
+  }
+  const uuid = uuidResult.uuid;
+
+  const { limit, convId, startAfter, starred } = req.query;
 
   const limitNum = Math.min(Math.max(parseInt(String(limit || 10), 10) || 10, 1), 200);
 
   try {
     if (!db) return res.status(503).json({ error: "Database not available" });
 
-    // Build query based on available parameters
+    // Always bind the list to the signed session uuid. Ignore query uuid.
     let query: FirebaseFirestore.Query | FirebaseFirestore.CollectionReference =
       db.collection(getAnswersCollectionName());
 
-    // For legacy document support: if only convId is provided, query by convId only
+    query = query.where("uuid", "==", uuid);
+
     if (convId && typeof convId === "string") {
       query = query.where("convId", "==", convId);
-
-      // Add UUID filter only if UUID is also provided
-      if (uuid && typeof uuid === "string") {
-        query = query.where("uuid", "==", uuid);
-      }
-    } else if (uuid && typeof uuid === "string") {
-      // Standard case: query by UUID only
-      query = query.where("uuid", "==", uuid);
     }
 
     // Add starred filter if requested
@@ -69,8 +81,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     query = query.limit(limitNum);
 
     const contextString = convId
-      ? `uuid: ${uuid || "none"}, convId: ${convId}, limit: ${limitNum}, startAfter: ${startAfter || "none"}, starred: ${starred || "false"}`
-      : `uuid: ${uuid || "none"}, limit: ${limitNum}, startAfter: ${startAfter || "none"}, starred: ${starred || "false"}`;
+      ? `uuid: ${uuid}, convId: ${convId}, limit: ${limitNum}, startAfter: ${startAfter || "none"}, starred: ${starred || "false"}`
+      : `uuid: ${uuid}, limit: ${limitNum}, startAfter: ${startAfter || "none"}, starred: ${starred || "false"}`;
 
     const snapshot = await firestoreQueryGet(query, "user chats list", contextString);
 
@@ -98,16 +110,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // Track user activity when loading conversations (especially saved conversations via convId)
     // MUST await to prevent Vercel from terminating before completion
-    if (uuid && typeof uuid === "string") {
-      try {
-        // Await with 3s timeout to prevent Vercel from killing the operation
-        await Promise.race([
-          updateUserActivity(uuid, "chats-api"),
-          new Promise((resolve) => setTimeout(resolve, 3000)),
-        ]);
-      } catch {
-        // Silently handle errors - activity tracking is non-critical
-      }
+    try {
+      // Await with 3s timeout to prevent Vercel from killing the operation
+      await Promise.race([
+        updateUserActivity(uuid, "chats-api"),
+        new Promise((resolve) => setTimeout(resolve, 3000)),
+      ]);
+    } catch {
+      // Silently handle errors - activity tracking is non-critical
     }
 
     return res.status(200).json(chats);
@@ -122,13 +132,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const fields = [];
     let queryDesc = "";
 
-    if (convId && uuid) {
+    if (convId && typeof convId === "string") {
       fields.push("uuid", "convId", "timestamp");
       queryDesc = `uuid=${uuid}, convId=${convId}, orderBy timestamp desc`;
-    } else if (convId) {
-      fields.push("convId", "timestamp");
-      queryDesc = `convId=${convId}, orderBy timestamp desc`;
-    } else if (uuid) {
+    } else {
       fields.push("uuid", "timestamp");
       queryDesc = `uuid=${uuid}, orderBy timestamp desc`;
     }

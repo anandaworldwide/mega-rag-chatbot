@@ -210,44 +210,36 @@ export async function loadConversationByConvId(
 }
 
 /**
- * Loads conversation by document ID with ownership and timestamp logic
+ * Loads a conversation by document ID for the signed-in owner.
+ * Share viewers must use /api/share. This path does not read other users' chats.
  */
 export async function loadConversationByDocId(
   docId: string
 ): Promise<LoadedConversation & { isOwner: boolean; viewOnly: boolean }> {
   try {
-    // First fetch the document to get convId and ownership info
-    const docResponse = await fetch(`/api/document/${docId}`);
+    const docResponse = await fetchWithAuth(`/api/document/${docId}`);
 
     if (!docResponse.ok) {
-      if (docResponse.status === 404) {
-        throw new Error("Document not found");
+      if (docResponse.status === 404 || docResponse.status === 401 || docResponse.status === 403) {
+        throw new ConversationNotFoundError("Document not found");
       }
       throw new Error(`Failed to fetch document: ${docResponse.statusText}`);
     }
 
     const docData = await docResponse.json();
-    const { convId, uuid: docUuid, timestamp } = docData;
+    const { convId } = docData;
 
-    const currentUuid = getOrCreateUUID();
+    if (!convId || typeof convId !== "string") {
+      throw new ConversationNotFoundError("Document not found");
+    }
 
-    // For legacy documents without UUID, treat as publicly viewable (not owned)
-    // For documents with UUID, check ownership
-    const isOwner = docUuid ? currentUuid === docUuid : false;
-
-    // Load conversation - full if owner, up to timestamp if not
-    // For legacy documents without UUID, pass null to indicate no UUID filtering
-    const conversation = await loadConversationByConvId(
-      convId,
-      isOwner ? undefined : timestamp,
-      docUuid ? (isOwner ? undefined : docUuid) : null
-    );
+    const conversation = await loadConversationByConvId(convId);
 
     return {
       ...conversation,
-      convId, // Include the convId from the document data
-      isOwner,
-      viewOnly: !isOwner,
+      convId,
+      isOwner: true,
+      viewOnly: false,
     };
   } catch (error) {
     if (!(error instanceof ConversationNotFoundError)) {

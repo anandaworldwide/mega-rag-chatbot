@@ -207,3 +207,82 @@ describe("ShareConversation logged-out on requireLogin false site", () => {
     expect(mockFetchWithAuth).not.toHaveBeenCalled();
   });
 });
+
+describe("ShareConversation logged-in owner and non-owner", () => {
+  const mockIsAuthenticated = isAuthenticated as jest.MockedFunction<typeof isAuthenticated>;
+  const mockLoadConversationByDocId = loadConversationByDocId as jest.MockedFunction<typeof loadConversationByDocId>;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockIsAuthenticated.mockReturnValue(true);
+    mockReplace.mockReset();
+    mockPush.mockReset();
+    (useRouter as jest.Mock).mockReturnValue(mockRouter);
+
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        pathname: `/share/${SHARE_ID}`,
+        search: "",
+        hash: "",
+        href: `http://localhost/share/${SHARE_ID}`,
+        origin: "http://localhost",
+      },
+    });
+
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        id: SHARE_ID,
+        title: "Meditation",
+        turns: [
+          {
+            id: SHARE_ID,
+            question: "What is meditation?",
+            answer: "A practice of inner stillness.",
+            sources: [],
+            timestamp: { seconds: 1 },
+            title: "Meditation",
+            collection: "whole_library",
+            suggestions: [],
+            model: null,
+          },
+        ],
+      }),
+    }) as jest.Mock;
+  });
+
+  it("redirects the owner to the owned conversation", async () => {
+    mockLoadConversationByDocId.mockResolvedValue({
+      messages: [],
+      history: [],
+      title: "Owner chat",
+      convId: "conv-owned",
+      isOwner: true,
+      viewOnly: false,
+    });
+
+    render(<ShareConversation siteConfig={mockSiteConfig} />);
+
+    await waitFor(() => {
+      expect(mockLoadConversationByDocId).toHaveBeenCalledWith(SHARE_ID);
+    });
+    await waitFor(() => {
+      expect(mockReplace).toHaveBeenCalledWith("/", "/chat/conv-owned", { shallow: false });
+    });
+    expect(global.fetch).not.toHaveBeenCalledWith(`/api/share/${SHARE_ID}`);
+  });
+
+  it("loads public share data when the caller does not own the document", async () => {
+    mockLoadConversationByDocId.mockRejectedValue(new Error("Document not found"));
+
+    render(<ShareConversation siteConfig={mockSiteConfig} />);
+
+    expect(await screen.findByText("What is meditation?")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(`/api/share/${SHARE_ID}`);
+    });
+    expect(mockReplace).not.toHaveBeenCalled();
+  });
+});

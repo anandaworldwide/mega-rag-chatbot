@@ -56,11 +56,6 @@ export const isPublicEndpoint = (url: string, method: string): boolean => {
     return true;
   }
 
-  // Document endpoints are public
-  if (url.includes("/api/document")) {
-    return true;
-  }
-
   if (url.includes("/api/getAudioSignedUrl") || url.includes("/api/getPdfSignedUrl")) {
     return true;
   }

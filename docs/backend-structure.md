@@ -182,21 +182,27 @@ API endpoints are defined in `pages/api/` and `app/api/`. Most endpoints are pro
 **Conversation History & Management:**
 
 - **`GET /api/chats`** (`pages/api/chats.ts`)
-  - **Purpose:** Retrieves user's conversation history with AI-generated titles.
-  - **Auth:** Requires JWT authentication.
-  - **Logic:** Fetches conversations grouped by `convId` from Firestore, returns last 20 conversations with lazy-loading
-    support.
-  - **Response:** Array of conversations with `convId`, `title`, `lastMessage`, `timestamp`, and `messageCount`.
+  - **Purpose:** Retrieves the caller's conversation history with AI-generated titles.
+  - **Auth:** Requires a valid JWT. The uuid comes from the signed session (JWT on
+    login sites, signed uuid cookie on no-login sites). Query `uuid` is ignored.
+  - **Logic:** Fetches conversations for that session uuid from Firestore. Optional
+    `convId` filter still requires the same session uuid.
+  - **Response:** Array of chats with `convId`, `title`, `question`, `answer`, and
+    related display fields. Returns 401 when the caller has no session.
 - **`GET /api/conversation/[convId]`** (`pages/api/conversation/[convId].ts`)
   - **Purpose:** Retrieves full conversation history for a specific conversation ID.
   - **Auth:** Requires JWT authentication (owner verification).
   - **Logic:** Fetches all messages in a conversation grouped by `convId`, supports timestamp filtering for sharing.
   - **Response:** Complete conversation thread with all messages and metadata.
 - **`GET /api/document/[docId]`** (`pages/api/document/[docId].ts`)
-  - **Purpose:** Retrieves single document for ownership verification and conversation lookup.
-  - **Auth:** Optional JWT authentication (supports anonymous sharing).
-  - **Logic:** Fetches document metadata including `convId` and ownership information.
-  - **Response:** Document metadata with `convId`, `uuid`, and basic conversation info.
+  - **Purpose:** Retrieves a single document so the owner can open the conversation.
+  - **Auth:** Requires a valid JWT and a matching session uuid. Anonymous callers
+    receive 401. Other users receive 404.
+  - **Logic:** Loads the document and returns it only when `uuid` matches the
+    session. Public share reads use `/api/share/[docId]`.
+  - **Response:** Owner document fields (`convId`, `timestamp`, `question`,
+    `answer`, and related display fields). The response does not include `uuid`
+    or `history`.
 
 **Star Functionality:**
 
