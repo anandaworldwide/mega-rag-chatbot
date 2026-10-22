@@ -170,7 +170,7 @@ describe("answersUtils", () => {
       await expect(getAnswersByIds(["answer1"])).rejects.toThrow("Database error");
     });
 
-    it("should omit visitor fields from answers fetched by ID", async () => {
+    it("should omit visitor fields from answers fetched by ID by default", async () => {
       const mockSnapshot = {
         forEach: jest.fn((callback) => {
           callback({
@@ -198,6 +198,34 @@ describe("answersUtils", () => {
       expect(result[0]).not.toHaveProperty("history");
       expect(JSON.stringify(result)).not.toMatch(/secret-visitor-uuid/);
       expect(JSON.stringify(result)).not.toMatch(/203\.0\.113\.10/);
+    });
+
+    it("should include visitor fields when includeVisitorFields is true", async () => {
+      const mockSnapshot = {
+        forEach: jest.fn((callback) => {
+          callback({
+            id: "answer1",
+            data: () => ({
+              question: "Test question 1?",
+              answer: "Test answer 1",
+              sources: "[]",
+              timestamp: { _seconds: 1234567890, _nanoseconds: 0 },
+              ip: "203.0.113.10",
+              uuid: "secret-visitor-uuid",
+              history: [{ role: "user", content: "prior turn" }],
+            }),
+          });
+        }),
+      };
+
+      mockFirestoreQueryGet.mockResolvedValue(mockSnapshot);
+
+      const result = await getAnswersByIds(["answer1"], { includeVisitorFields: true });
+
+      expect(result).toHaveLength(1);
+      expect(result[0].ip).toBe("203.0.113.10");
+      expect(result[0].uuid).toBe("secret-visitor-uuid");
+      expect(result[0].history).toEqual([{ role: "user", content: "prior turn" }]);
     });
 
     it("should process IDs in batches", async () => {
@@ -319,19 +347,21 @@ describe("answersUtils", () => {
   });
 
   describe("mapAnswerDocToAnswer", () => {
-    it("should omit visitor fields from mapped answers", () => {
-      const mapped = mapAnswerDocToAnswer({
-        id: "answer1",
-        data: () => ({
-          question: "What is meditation?",
-          answer: "A practice.",
-          timestamp: { _seconds: 1234567890, _nanoseconds: 0 },
-          sources: "[]",
-          ip: "203.0.113.10",
-          uuid: "secret-visitor-uuid",
-          history: [{ role: "user", content: "prior turn" }],
-        }),
-      } as any);
+    const visitorDoc = {
+      id: "answer1",
+      data: () => ({
+        question: "What is meditation?",
+        answer: "A practice.",
+        timestamp: { _seconds: 1234567890, _nanoseconds: 0 },
+        sources: "[]",
+        ip: "203.0.113.10",
+        uuid: "secret-visitor-uuid",
+        history: [{ role: "user", content: "prior turn" }],
+      }),
+    } as any;
+
+    it("should omit visitor fields from mapped answers by default", () => {
+      const mapped = mapAnswerDocToAnswer(visitorDoc);
 
       expect(mapped.id).toBe("answer1");
       expect(mapped.question).toBe("What is meditation?");
@@ -340,6 +370,14 @@ describe("answersUtils", () => {
       expect(mapped).not.toHaveProperty("history");
       expect(JSON.stringify(mapped)).not.toMatch(/secret-visitor-uuid/);
       expect(JSON.stringify(mapped)).not.toMatch(/203\.0\.113\.10/);
+    });
+
+    it("should include visitor fields when includeVisitorFields is true", () => {
+      const mapped = mapAnswerDocToAnswer(visitorDoc, { includeVisitorFields: true });
+
+      expect(mapped.ip).toBe("203.0.113.10");
+      expect(mapped.uuid).toBe("secret-visitor-uuid");
+      expect(mapped.history).toEqual([{ role: "user", content: "prior turn" }]);
     });
   });
 
@@ -382,6 +420,51 @@ describe("answersUtils", () => {
       expect(result.q).toBe("centennial");
       expect(result.daysBack).toBe(30);
       expect(result.truncated).toBe(false);
+    });
+
+    it("should include visitor fields in search results when requested", async () => {
+      mockFirestoreQueryGet.mockResolvedValueOnce({
+        empty: false,
+        docs: [
+          {
+            id: "recent-match",
+            data: () => ({
+              question: "What is the centennial schedule?",
+              answer: "Answer",
+              timestamp: new Date(),
+              sources: "[]",
+              ip: "203.0.113.10",
+              uuid: "secret-visitor-uuid",
+              history: [{ role: "user", content: "prior turn" }],
+            }),
+          },
+        ],
+      });
+
+      const omitted = await searchAnswersByQuestion("centennial", 30, 1, 10);
+      expect(omitted.answers[0]).not.toHaveProperty("ip");
+
+      mockFirestoreQueryGet.mockResolvedValueOnce({
+        empty: false,
+        docs: [
+          {
+            id: "recent-match",
+            data: () => ({
+              question: "What is the centennial schedule?",
+              answer: "Answer",
+              timestamp: new Date(),
+              sources: "[]",
+              ip: "203.0.113.10",
+              uuid: "secret-visitor-uuid",
+              history: [{ role: "user", content: "prior turn" }],
+            }),
+          },
+        ],
+      });
+
+      const included = await searchAnswersByQuestion("centennial", 30, 1, 10, { includeVisitorFields: true });
+      expect(included.answers[0].ip).toBe("203.0.113.10");
+      expect(included.answers[0].uuid).toBe("secret-visitor-uuid");
     });
   });
 

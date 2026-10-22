@@ -142,8 +142,10 @@ Some endpoints require JWT authentication but not siteAuth cookies, such as:
 - `/api/contact`: Allows contact form submissions from non-logged-in users
 - `/api/share/[id]`: Allows access to publicly shared answers
 - `/api/answers`: Public GET on sites with `requireLogin: false`. On sites with
-  `requireLogin: true`, only admins and superusers can read the list. The
-  response omits visitor fields (`ip`, `uuid`, `history`).
+  `requireLogin: true`, only admins and superusers can read the list. Visitor
+  fields (`ip`, `uuid`, `history`) are returned only when the caller is
+  privileged (valid sudo cookie, or admin/superuser role). Other callers do not
+  receive those fields.
 - `/api/login`: Handles user authentication (still requires JWT for frontend verification)
 - `/api/logout`: Handles user logout (still requires JWT for frontend verification)
 

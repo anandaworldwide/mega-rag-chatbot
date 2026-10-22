@@ -94,9 +94,49 @@ import handler from "@/pages/api/answers";
 const mockGetSudoCookie = jest.requireMock("@/utils/server/sudoCookieUtils").getSudoCookie;
 const mockGetTotalDocuments = jest.requireMock("@/utils/server/answersUtils").getTotalDocuments;
 const mockGetAnswersByIds = jest.requireMock("@/utils/server/answersUtils").getAnswersByIds;
+const mockMapAnswerDocToAnswer = jest.requireMock("@/utils/server/answersUtils").mapAnswerDocToAnswer;
 const mockLoadSiteConfigSync = jest.requireMock("@/utils/server/loadSiteConfig").loadSiteConfigSync;
 const mockGetRequesterRole = jest.requireMock("@/utils/server/authz").getRequesterRole;
 const mockDb = jest.requireMock("@/services/firebase").db;
+
+const VISITOR_FIELDS = {
+  ip: "203.0.113.10",
+  uuid: "secret-visitor-uuid",
+  history: [{ role: "user", content: "prior turn" }],
+};
+
+function mapAnswerWithOption(
+  doc: { id: string; data: () => Record<string, unknown> },
+  options: { includeVisitorFields?: boolean } = {}
+) {
+  const data = doc.data();
+  const mapped: Record<string, unknown> = {
+    id: doc.id,
+    question: data.question,
+    answer: data.answer,
+  };
+  if (options.includeVisitorFields) {
+    mapped.ip = data.ip;
+    mapped.uuid = data.uuid;
+    mapped.history = data.history;
+  }
+  return mapped;
+}
+
+function answersByIdsWithOption(
+  ids: string[],
+  options: { includeVisitorFields?: boolean } = {}
+) {
+  const mapped: Record<string, unknown> = {
+    id: ids[0],
+    question: "Test question",
+    answer: "Test answer",
+  };
+  if (options.includeVisitorFields) {
+    Object.assign(mapped, VISITOR_FIELDS);
+  }
+  return [mapped];
+}
 
 describe("Answers API authorization", () => {
   beforeEach(() => {
@@ -132,16 +172,7 @@ describe("Answers API authorization", () => {
 
     mockDb.get.mockResolvedValueOnce(mockSnapshot);
     mockGetTotalDocuments.mockResolvedValueOnce(1);
-    jest.requireMock("@/utils/server/answersUtils").mapAnswerDocToAnswer.mockImplementation(
-      (doc: { id: string; data: () => Record<string, unknown> }) => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          question: data.question,
-          answer: data.answer,
-        };
-      }
-    );
+    mockMapAnswerDocToAnswer.mockImplementation(mapAnswerWithOption);
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "GET",
@@ -155,6 +186,30 @@ describe("Answers API authorization", () => {
 
     expect(res.statusCode).toBe(200);
     expect(mockGetTotalDocuments).toHaveBeenCalled();
+    expect(mockMapAnswerDocToAnswer).toHaveBeenCalledWith(expect.anything(), { includeVisitorFields: false });
+    const body = res._getJSONData();
+    expect(JSON.stringify(body)).not.toMatch(/secret-visitor-uuid/);
+    expect(JSON.stringify(body)).not.toMatch(/203\.0\.113\.10/);
+    expect(JSON.stringify(body)).not.toMatch(/"history"/);
+  });
+
+  it("omits visitor fields for an anonymous caller on a no-login site", async () => {
+    mockLoadSiteConfigSync.mockReturnValue({
+      requireLogin: false,
+    });
+    mockGetAnswersByIds.mockImplementation(answersByIdsWithOption);
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "GET",
+      query: {
+        answerIds: "public-answer",
+      },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(mockGetAnswersByIds).toHaveBeenCalledWith(["public-answer"], { includeVisitorFields: false });
     const body = res._getJSONData();
     expect(JSON.stringify(body)).not.toMatch(/secret-visitor-uuid/);
     expect(JSON.stringify(body)).not.toMatch(/203\.0\.113\.10/);
@@ -213,13 +268,7 @@ describe("Answers API authorization", () => {
     mockLoadSiteConfigSync.mockReturnValue({
       requireLogin: false,
     });
-    mockGetAnswersByIds.mockResolvedValueOnce([
-      {
-        id: "other-visitor-answer",
-        question: "Test question",
-        answer: "Test answer",
-      },
-    ]);
+    mockGetAnswersByIds.mockImplementation(answersByIdsWithOption);
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "GET",
@@ -231,7 +280,7 @@ describe("Answers API authorization", () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(mockGetAnswersByIds).toHaveBeenCalledWith(["other-visitor-answer"]);
+    expect(mockGetAnswersByIds).toHaveBeenCalledWith(["other-visitor-answer"], { includeVisitorFields: false });
     const body = res._getJSONData();
     expect(JSON.stringify(body)).not.toMatch(/"ip"/);
     expect(JSON.stringify(body)).not.toMatch(/"uuid"/);
@@ -243,13 +292,7 @@ describe("Answers API authorization", () => {
       requireLogin: true,
     });
     mockGetRequesterRole.mockReturnValue("admin");
-    mockGetAnswersByIds.mockResolvedValueOnce([
-      {
-        id: "answer1",
-        question: "Test question",
-        answer: "Test answer",
-      },
-    ]);
+    mockGetAnswersByIds.mockImplementation(answersByIdsWithOption);
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "GET",
@@ -261,7 +304,34 @@ describe("Answers API authorization", () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(mockGetAnswersByIds).toHaveBeenCalledWith(["answer1"]);
+    expect(mockGetAnswersByIds).toHaveBeenCalledWith(["answer1"], { includeVisitorFields: true });
+    expect(res._getJSONData()[0]).toMatchObject(VISITOR_FIELDS);
+  });
+
+  it("returns visitor fields for an admin on a login-required site", async () => {
+    mockLoadSiteConfigSync.mockReturnValue({
+      requireLogin: true,
+    });
+    mockGetRequesterRole.mockReturnValue("admin");
+    mockGetAnswersByIds.mockImplementation(answersByIdsWithOption);
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "GET",
+      query: {
+        answerIds: "admin-answer",
+      },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(mockGetAnswersByIds).toHaveBeenCalledWith(["admin-answer"], { includeVisitorFields: true });
+    expect(res._getJSONData()[0]).toEqual({
+      id: "admin-answer",
+      question: "Test question",
+      answer: "Test answer",
+      ...VISITOR_FIELDS,
+    });
   });
 
   it("allows a sudo caller on a no-login site", async () => {
@@ -282,6 +352,7 @@ describe("Answers API authorization", () => {
             answer: "Test answer",
             timestamp: { _seconds: 1234567890, _nanoseconds: 0 },
             sources: "[]",
+            ...VISITOR_FIELDS,
           }),
         },
       ],
@@ -289,13 +360,7 @@ describe("Answers API authorization", () => {
 
     mockDb.get.mockResolvedValueOnce(mockSnapshot);
     mockGetTotalDocuments.mockResolvedValueOnce(1);
-    jest.requireMock("@/utils/server/answersUtils").mapAnswerDocToAnswer.mockImplementation(
-      (doc: { id: string; data: () => Record<string, unknown> }) => ({
-        id: doc.id,
-        question: doc.data().question,
-        answer: doc.data().answer,
-      })
-    );
+    mockMapAnswerDocToAnswer.mockImplementation(mapAnswerWithOption);
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "GET",
@@ -309,5 +374,36 @@ describe("Answers API authorization", () => {
 
     expect(res.statusCode).toBe(200);
     expect(mockGetTotalDocuments).toHaveBeenCalled();
+    expect(mockMapAnswerDocToAnswer).toHaveBeenCalledWith(expect.anything(), { includeVisitorFields: true });
+    expect(res._getJSONData().answers[0]).toMatchObject(VISITOR_FIELDS);
+  });
+
+  it("returns visitor fields for a sudo caller on a no-login site", async () => {
+    mockLoadSiteConfigSync.mockReturnValue({
+      requireLogin: false,
+    });
+    mockGetSudoCookie.mockReturnValue({
+      sudoCookieValue: "valid-sudo-cookie",
+      message: "",
+    });
+    mockGetAnswersByIds.mockImplementation(answersByIdsWithOption);
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "GET",
+      query: {
+        answerIds: "sudo-answer",
+      },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(mockGetAnswersByIds).toHaveBeenCalledWith(["sudo-answer"], { includeVisitorFields: true });
+    expect(res._getJSONData()[0]).toEqual({
+      id: "sudo-answer",
+      question: "Test question",
+      answer: "Test answer",
+      ...VISITOR_FIELDS,
+    });
   });
 });

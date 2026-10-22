@@ -36,6 +36,23 @@ export async function isAnswersPageAllowed(
 }
 
 /**
+ * Returns whether the caller may see visitor fields on answers.
+ * Privileged callers have a valid sudo cookie or an admin/superuser role.
+ */
+export function canReadAnswerVisitorFields(
+  req: NextApiRequest,
+  res: NextApiResponse | undefined
+): boolean {
+  const sudo = getSudoCookie(req, res);
+  if (sudo.sudoCookieValue) {
+    return true;
+  }
+
+  const role = getRequesterRole(req);
+  return role === "admin" || role === "superuser";
+}
+
+/**
  * Determines if the discrete answers page link should be shown in the footer.
  * Only shown to highest privilege users as a form of obfuscation.
  *

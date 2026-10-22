@@ -90,6 +90,7 @@ jest.mock("@/utils/server/loadSiteConfig", () => ({
 // Mock authorization utilities
 jest.mock("@/utils/server/answersPageAuth", () => ({
   isAnswersPageAllowed: jest.fn(),
+  canReadAnswerVisitorFields: jest.fn().mockReturnValue(false),
 }));
 
 // Mock API middleware
@@ -228,7 +229,9 @@ describe("Answers API", () => {
       await handler(req, res);
 
       expect(res.statusCode).toBe(200);
-      expect(mockSearchAnswersByQuestion).toHaveBeenCalledWith("centennial", 30, 1, 10);
+      expect(mockSearchAnswersByQuestion).toHaveBeenCalledWith("centennial", 30, 1, 10, {
+        includeVisitorFields: false,
+      });
       expect(res._getJSONData()).toMatchObject({
         totalMatches: 1,
         q: "centennial",
@@ -303,7 +306,7 @@ describe("Answers API", () => {
       await handler(req, res);
 
       expect(res.statusCode).toBe(200);
-      expect(mockGetAnswersByIds).toHaveBeenCalledWith(["answer1"]);
+      expect(mockGetAnswersByIds).toHaveBeenCalledWith(["answer1"], { includeVisitorFields: false });
       expect(res._getJSONData()).toEqual(mockAnswers);
     });
 

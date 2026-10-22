@@ -6,7 +6,13 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { db } from "@/services/firebase";
 import { getSudoCookie } from "@/utils/server/sudoCookieUtils";
 import { getAnswersCollectionName } from "@/utils/server/firestoreUtils";
-import { getTotalDocuments, getAnswersByIds, searchAnswersByQuestion, mapAnswerDocToAnswer } from "@/utils/server/answersUtils";
+import {
+  getTotalDocuments,
+  getAnswersByIds,
+  searchAnswersByQuestion,
+  mapAnswerDocToAnswer,
+  AnswerMapOptions,
+} from "@/utils/server/answersUtils";
 import { Answer } from "@/types/answer";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { withJwtAuth } from "@/utils/server/jwtUtils";
@@ -16,11 +22,15 @@ import { createIndexErrorResponse } from "@/utils/server/firestoreIndexErrorHand
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import { requireAdminRole } from "@/utils/server/authz";
 import { writeAuditLog } from "@/utils/server/auditLog";
-import { isAnswersPageAllowed } from "@/utils/server/answersPageAuth";
+import { canReadAnswerVisitorFields, isAnswersPageAllowed } from "@/utils/server/answersPageAuth";
 
 // Retrieves answers based on specified criteria (page, limit)
 // Returns an array of answers and the total number of pages, sorted by most recent
-async function getAnswers(page: number, limit: number): Promise<{ answers: Answer[]; totalPages: number }> {
+async function getAnswers(
+  page: number,
+  limit: number,
+  options: AnswerMapOptions = {}
+): Promise<{ answers: Answer[]; totalPages: number }> {
   // Check if db is available
   if (!db) {
     throw new Error("Database not available");
@@ -44,7 +54,7 @@ async function getAnswers(page: number, limit: number): Promise<{ answers: Answe
     `offset: ${offset}, limit: ${limit}`
   );
 
-  const answers = answersSnapshot.docs.map((doc: any) => mapAnswerDocToAnswer(doc));
+  const answers = answersSnapshot.docs.map((doc: any) => mapAnswerDocToAnswer(doc, options));
 
   return { answers, totalPages };
 }
@@ -131,6 +141,9 @@ async function handleGetRequest(req: NextApiRequest, res: NextApiResponse) {
     return; // Response is already sent by the rate limiter
   }
 
+  const includeVisitorFields = canReadAnswerVisitorFields(req, res);
+  const mapOptions: AnswerMapOptions = { includeVisitorFields };
+
   try {
     const { answerIds } = req.query;
 
@@ -143,7 +156,7 @@ async function handleGetRequest(req: NextApiRequest, res: NextApiResponse) {
       }
       const idsArray = answerIds.split(",");
 
-      const answers = await getAnswersByIds(idsArray);
+      const answers = await getAnswersByIds(idsArray, mapOptions);
 
       if (answers.length === 0) {
         return res.status(404).json({ message: "Answer not found." });
@@ -165,12 +178,18 @@ async function handleGetRequest(req: NextApiRequest, res: NextApiResponse) {
         }
 
         const daysBackNumber = parseInt(daysBack as string) || 30;
-        const searchResult = await searchAnswersByQuestion(searchTerm, daysBackNumber, pageNumber, limitNumber);
+        const searchResult = await searchAnswersByQuestion(
+          searchTerm,
+          daysBackNumber,
+          pageNumber,
+          limitNumber,
+          mapOptions
+        );
 
         return res.status(200).json(searchResult);
       }
 
-      const { answers, totalPages } = await getAnswers(pageNumber, limitNumber);
+      const { answers, totalPages } = await getAnswers(pageNumber, limitNumber, mapOptions);
 
       res.status(200).json({ answers, totalPages, currentPage: pageNumber });
     }

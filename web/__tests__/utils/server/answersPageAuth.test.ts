@@ -8,6 +8,7 @@ import {
   isAnswersPageAllowed,
   shouldShowAnswersPageLink,
   getAnswersPageErrorMessage,
+  canReadAnswerVisitorFields,
 } from "@/utils/server/answersPageAuth";
 import { SiteConfig } from "@/types/siteConfig";
 
@@ -200,6 +201,52 @@ describe("answersPageAuth", () => {
       const result = getAnswersPageErrorMessage(siteConfig);
 
       expect(result).toBe("Access Restricted - Admin Only");
+    });
+  });
+
+  describe("canReadAnswerVisitorFields", () => {
+    it("returns true for a sudo caller", () => {
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>();
+      mockGetSudoCookie.mockReturnValue({
+        sudoCookieValue: "valid-sudo-cookie",
+        message: "",
+      });
+      mockGetRequesterRole.mockReturnValue("user");
+
+      expect(canReadAnswerVisitorFields(req, res)).toBe(true);
+    });
+
+    it("returns true for an admin caller", () => {
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>();
+      mockGetSudoCookie.mockReturnValue({
+        sudoCookieValue: "",
+        message: "No sudo cookie",
+      });
+      mockGetRequesterRole.mockReturnValue("admin");
+
+      expect(canReadAnswerVisitorFields(req, res)).toBe(true);
+    });
+
+    it("returns true for a superuser caller", () => {
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>();
+      mockGetSudoCookie.mockReturnValue({
+        sudoCookieValue: "",
+        message: "No sudo cookie",
+      });
+      mockGetRequesterRole.mockReturnValue("superuser");
+
+      expect(canReadAnswerVisitorFields(req, res)).toBe(true);
+    });
+
+    it("returns false for an anonymous caller", () => {
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>();
+      mockGetSudoCookie.mockReturnValue({
+        sudoCookieValue: "",
+        message: "No sudo cookie",
+      });
+      mockGetRequesterRole.mockReturnValue("user");
+
+      expect(canReadAnswerVisitorFields(req, res)).toBe(false);
     });
   });
 });
