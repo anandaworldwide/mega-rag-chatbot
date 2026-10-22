@@ -304,18 +304,36 @@ describe("uuidUtils", () => {
       expect(mockSetCookie.mock.calls[0][1]).toMatch(/^[0-9a-f-]{36}--[0-9a-f]{64}$/i);
     });
 
-    it("re-signs legacy unsigned uuid cookies", () => {
-      const legacyUuid = "123e4567-e89b-12d3-a456-426614174000";
+    it("does not sign a client-supplied unsigned uuid", () => {
+      const clientUuid = "123e4567-e89b-12d3-a456-426614174000";
       const { req, res } = createMocks({
         method: "GET",
-        cookies: { uuid: legacyUuid },
+        cookies: { uuid: clientUuid },
         headers: { "x-forwarded-proto": "http" },
       });
 
       ensureAnonymousVisitorUuidCookie(req as any, res as any);
 
       expect(mockSetCookie).toHaveBeenCalledTimes(1);
-      expect(mockSetCookie.mock.calls[0][1]).toBe(createSignedUUIDCookie(legacyUuid));
+      const signedValue = mockSetCookie.mock.calls[0][1] as string;
+      expect(signedValue).toMatch(/^[0-9a-f-]{36}--[0-9a-f]{64}$/i);
+      expect(signedValue.startsWith(`${clientUuid}--`)).toBe(false);
+    });
+
+    it("does not sign a uuid cookie with a bad signature", () => {
+      const clientUuid = "123e4567-e89b-12d3-a456-426614174000";
+      const { req, res } = createMocks({
+        method: "GET",
+        cookies: { uuid: `${clientUuid}--${"a".repeat(64)}` },
+        headers: { "x-forwarded-proto": "http" },
+      });
+
+      ensureAnonymousVisitorUuidCookie(req as any, res as any);
+
+      expect(mockSetCookie).toHaveBeenCalledTimes(1);
+      const signedValue = mockSetCookie.mock.calls[0][1] as string;
+      expect(signedValue).toMatch(/^[0-9a-f-]{36}--[0-9a-f]{64}$/i);
+      expect(signedValue.startsWith(`${clientUuid}--`)).toBe(false);
     });
 
     it("does not overwrite a valid signed uuid cookie", () => {

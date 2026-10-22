@@ -5,7 +5,6 @@
  */
 
 import { fetchWithAuth } from "@/utils/client/tokenManager";
-import { getOrCreateUUID } from "@/utils/client/uuid";
 import { Message } from "@/types/chat";
 import { ChatMessage, createChatMessages } from "@/utils/shared/chatHistory";
 import { ChatHistoryItem } from "@/hooks/useChatHistory";
@@ -42,18 +41,10 @@ export interface LoadedConversation {
  */
 export async function loadConversationByConvId(
   convId: string,
-  upToTimestamp?: any,
-  uuidOverride?: string | null
+  upToTimestamp?: any
 ): Promise<LoadedConversation> {
   try {
-    // For legacy documents, uuidOverride can be null to indicate no UUID filtering
-    const uuid = uuidOverride === null ? null : uuidOverride || getOrCreateUUID();
-
-    // Build API URL - for legacy documents, we may not have a UUID
-    let apiUrl = `/api/chats?convId=${convId}&limit=200`;
-    if (uuid) {
-      apiUrl += `&uuid=${encodeURIComponent(uuid)}`;
-    }
+    const apiUrl = `/api/chats?convId=${convId}&limit=200`;
 
     // Fetch all messages in the conversation
     const response = await fetchWithAuth(apiUrl, {

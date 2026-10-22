@@ -88,14 +88,8 @@ export function ensureAnonymousVisitorUuidCookie(req: NextApiRequest, res: NextA
     return;
   }
 
-  let uuid: string;
-  if (rawCookie && isValidUUID(rawCookie)) {
-    uuid = rawCookie;
-  } else if (parsed && isValidUUID(parsed.uuid)) {
-    uuid = parsed.uuid;
-  } else {
-    uuid = crypto.randomUUID();
-  }
+  // Sign only ids that this server makes. Do not sign a client-supplied value.
+  const uuid = crypto.randomUUID();
 
   try {
     const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();

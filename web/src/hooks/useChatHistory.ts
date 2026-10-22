@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { fetchWithAuth } from "@/utils/client/tokenManager";
-import { getOrCreateUUID } from "@/utils/client/uuid";
 import { ensureAnonymousUuidSynced } from "@/utils/client/tokenManager";
 import { ensureProfileUuidSynced } from "@/utils/client/profileUuidSync";
 import { TitleScopeSelection } from "@/types/titleScope";
@@ -61,12 +60,11 @@ export function useChatHistory(limit: number = 20, enabled: boolean = true) {
       try {
         await ensureAnonymousUuidSynced();
         await ensureProfileUuidSynced();
-        const uuid = getOrCreateUUID();
 
         // Build URL with pagination cursor for "load more"
         // Use a higher limit to ensure we get enough messages to group into the desired number of conversations
         const messageLimit = limit * 2; // Fetch 2x the conversation limit to account for grouping
-        let url = `/api/chats?uuid=${uuid}&limit=${messageLimit}`;
+        let url = `/api/chats?limit=${messageLimit}`;
         if (loadMore && lastTimestampRef.current) {
           url += `&startAfter=${encodeURIComponent(lastTimestampRef.current)}`;
         }
@@ -290,11 +288,9 @@ export function useChatHistory(limit: number = 20, enabled: boolean = true) {
 
         await ensureAnonymousUuidSynced();
         await ensureProfileUuidSynced();
-        const uuid = getOrCreateUUID();
         // Use same limit calculation as regular conversations for consistency
         const messageLimit = limit * 2;
         const params = new URLSearchParams({
-          uuid: uuid,
           limit: messageLimit.toString(),
           starred: "true", // Use existing /api/chats endpoint with starred filter
         });

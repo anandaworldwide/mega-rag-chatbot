@@ -31,9 +31,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   let userPayload: ReturnType<typeof verifyToken>;
   try {
     userPayload = verifyToken(token);
-    if (!userPayload || token.includes("placeholder")) {
-      throw new Error("Invalid token");
-    }
   } catch {
     return res.status(401).json({ message: "Invalid or expired token" });
   }
