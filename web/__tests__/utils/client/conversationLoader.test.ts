@@ -4,7 +4,7 @@
  * Tests loading conversations and handling both legacy string[] and new TypedSuggestion[] formats.
  */
 
-import { loadConversationByConvId } from "@/utils/client/conversationLoader";
+import { ConversationNotFoundError, loadConversationByConvId, loadConversationByDocId } from "@/utils/client/conversationLoader";
 import { ChatHistoryItem } from "@/hooks/useChatHistory";
 import { TypedSuggestion } from "@/types/Suggestion";
 
@@ -406,5 +406,57 @@ describe("conversationLoader", () => {
     const suggestions = result.messages.find((m) => m.type === "apiMessage")!.suggestions;
 
     expect(suggestions).toEqual([{ id: "restored-0", text: "Practice daily?", type: "apply" }]);
+  });
+
+  it("loads the owner conversation through authenticated document and chats calls", async () => {
+    const mockChats: ChatHistoryItem[] = [
+      {
+        id: "doc1",
+        question: "What is meditation?",
+        answer: "Meditation is...",
+        timestamp: { seconds: Date.now() / 1000 },
+        collection: "test",
+        convId: "conv-owned",
+        title: "Owner chat",
+      },
+    ];
+
+    (fetchWithAuth as jest.Mock)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: "doc1",
+          convId: "conv-owned",
+          timestamp: { seconds: 1 },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockChats,
+      });
+
+    const result = await loadConversationByDocId("doc1");
+
+    expect(fetchWithAuth).toHaveBeenNthCalledWith(1, "/api/document/doc1");
+    expect(fetchWithAuth).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("/api/chats?convId=conv-owned"),
+      expect.objectContaining({ method: "GET" })
+    );
+    expect(result.isOwner).toBe(true);
+    expect(result.viewOnly).toBe(false);
+    expect(result.convId).toBe("conv-owned");
+    expect(result.title).toBe("Owner chat");
+  });
+
+  it("throws ConversationNotFoundError when the document endpoint refuses the caller", async () => {
+    (fetchWithAuth as jest.Mock).mockResolvedValueOnce({
+      ok: false,
+      status: 401,
+      statusText: "Unauthorized",
+    });
+
+    await expect(loadConversationByDocId("doc1")).rejects.toBeInstanceOf(ConversationNotFoundError);
+    expect(fetchWithAuth).toHaveBeenCalledTimes(1);
   });
 });

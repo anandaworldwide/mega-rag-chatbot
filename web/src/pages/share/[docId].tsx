@@ -246,48 +246,23 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
         setError(null);
 
         if (isLoggedIn) {
-          const loadedConversation = await loadConversationByDocId(docId);
+          try {
+            const loadedConversation = await loadConversationByDocId(docId);
 
-          setConversationTitle(loadedConversation.title || null);
-          const firstUserMessage = loadedConversation.messages.find((msg) => msg.type === "userMessage");
-          if (firstUserMessage) {
-            setFirstQuestion(firstUserMessage.message);
+            if (loadedConversation.convId) {
+              const hash = window.location.hash;
+              const targetPath = hash
+                ? `/chat/${loadedConversation.convId}${hash}`
+                : `/chat/${loadedConversation.convId}`;
+              router.replace("/", targetPath, { shallow: false });
+              return;
+            }
+          } catch {
+            // Caller does not own this document. Use the public share payload.
           }
-
-          if (loadedConversation.isOwner && loadedConversation.convId) {
-            const hash = window.location.hash;
-            const targetPath = hash
-              ? `/chat/${loadedConversation.convId}${hash}`
-              : `/chat/${loadedConversation.convId}`;
-            router.replace("/", targetPath, { shallow: false });
-            return;
-          }
-
-          const convertedMessages: ExtendedAIMessage[] = [
-            {
-              message: getGreeting(siteConfig),
-              type: "apiMessage",
-            },
-            ...loadedConversation.messages.map(
-              (msg): ExtendedAIMessage => ({
-                type: msg.type,
-                message: msg.message,
-                sourceDocs: msg.sourceDocs?.filter((doc): doc is Document<DocMetadata> => doc !== null) || undefined,
-                docId: msg.docId,
-                collection: msg.collection,
-                model: msg.model,
-              })
-            ),
-          ];
-          setMessages(convertedMessages);
-          setViewOnlyMode(loadedConversation.viewOnly);
-          logEvent("shared_conversation_loaded", "Sharing", docId, loadedConversation.messages.length);
-          scrollToLastUnlessSourceHash();
-          return;
         }
 
-        // Logged-out on every site, including requireLogin: false. Do not call /api/chats
-        // or /api/document (document stays cookie-gated on login sites).
+        // Logged-out viewers and non-owners use /api/share only.
         const shareResponse = await fetch(`/api/share/${docId}`);
         if (!shareResponse.ok) {
           if (shareResponse.status === 404) {
