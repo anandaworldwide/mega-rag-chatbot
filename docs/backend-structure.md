@@ -141,9 +141,10 @@ API endpoints are defined in `pages/api/` and `app/api/`. Most endpoints are pro
 **Authorization Utilities:**
 
 - **Answers Page Authorization (`answersPageAuth.ts`):**
-  - Implements admin-only access control for the answers page.
+  - Controls access to the answers list page and `GET /api/answers`.
   - **Login-required sites:** Only admins and superusers can access.
-  - **No-login sites:** Only sudo users can access.
+  - **No-login sites:** Anyone can access (not advertised).
+  - **Response fields:** Omits visitor fields (`ip`, `uuid`, `history`).
   - **Discrete link visibility:** Only shown to highest privilege users (superusers on login sites, sudo users on
     no-login sites).
   - Functions: `isAnswersPageAllowed()`, `shouldShowAnswersPageLink()`, `getAnswersPageErrorMessage()`.
@@ -168,9 +169,10 @@ API endpoints are defined in `pages/api/` and `app/api/`. Most endpoints are pro
   - **Auth:** Requires JWT authentication (`apiMiddleware.ts` / `jwtUtils.ts`).
   - **Logic:** Updates vote counts in Firestore (`firestoreUtils.ts`).
 - **`GET /api/answers`** (`pages/api/answers.ts`)
-  - **Purpose:** Retrieves specific answers or question details for admin users.
-  - **Auth:** Requires admin-level authorization (superuser for login-required sites, sudo for no-login sites).
-  - **Logic:** Fetches data from Firestore (`answersUtils.ts`), validates access via `answersPageAuth.ts`.
+  - **Purpose:** Retrieves answers for the answers list page.
+  - **Auth:** Public GET on no-login sites. Admin or superuser only on login-required sites.
+  - **Logic:** Fetches data from Firestore (`answersUtils.ts`), validates access via `answersPageAuth.ts`. Omits
+    visitor fields (`ip`, `uuid`, `history`).
 
 **Answers Page Authorization:**
 

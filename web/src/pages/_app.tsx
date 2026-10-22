@@ -97,7 +97,7 @@ function MyApp({ Component, pageProps }: CustomAppProps) {
         console.log("401 error detected in _app.tsx:", event.detail);
 
         // Don't show errors for public endpoints
-        if (isPublicEndpoint(event.detail.url, event.detail.method)) {
+        if (isPublicEndpoint(event.detail.url, event.detail.method, siteConfig)) {
           console.log("Ignoring expected 401 for public endpoint:", event.detail.url);
           return;
         }

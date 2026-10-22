@@ -24,6 +24,15 @@ export const isPublicPage = (path: string, siteConfig: SiteConfig | null): boole
     return true;
   }
 
+  // Answers list page is public only on no-login sites
+  if (
+    siteConfig &&
+    !siteConfig.requireLogin &&
+    PUBLIC_PATHS.noLoginPublicPages.some((publicPath) => path === publicPath || path.startsWith(`${publicPath}/`))
+  ) {
+    return true;
+  }
+
   // If no site config is available, default to requiring authentication
   if (!siteConfig) return false;
 
@@ -40,9 +49,23 @@ export const isPublicPage = (path: string, siteConfig: SiteConfig | null): boole
  * @param siteConfig The site configuration object
  * @returns True if the endpoint is public, false if it requires authentication
  */
-export const isPublicEndpoint = (url: string, _method: string): boolean => {
+export const isPublicEndpoint = (
+  url: string,
+  method: string,
+  siteConfig?: SiteConfig | null
+): boolean => {
   // Check against centralized public API paths
   if (PUBLIC_PATHS.alwaysPublicApis.some((apiPath) => url.includes(apiPath))) {
+    return true;
+  }
+
+  // GET /api/answers is public only on no-login sites
+  if (
+    siteConfig &&
+    !siteConfig.requireLogin &&
+    method === "GET" &&
+    PUBLIC_PATHS.noLoginPublicApis.some((apiPath) => url.includes(apiPath))
+  ) {
     return true;
   }
 

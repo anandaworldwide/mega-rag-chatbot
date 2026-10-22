@@ -27,6 +27,18 @@ export interface PublicPathsConfig {
   alwaysPublicApis: string[];
 
   /**
+   * Pages that are public only when siteConfig.requireLogin is false.
+   * Login-required sites keep these paths cookie-gated at the proxy.
+   */
+  noLoginPublicPages: string[];
+
+  /**
+   * API endpoints that are public only when siteConfig.requireLogin is false.
+   * Login-required sites refuse these paths at the proxy.
+   */
+  noLoginPublicApis: string[];
+
+  /**
    * Static asset paths that should always be accessible
    */
   staticAssets: string[];
@@ -74,6 +86,12 @@ export const PUBLIC_PATHS: PublicPathsConfig = {
     "/api/manifest.json",
     "/api/apple-touch-icon",
   ],
+
+  // Public only on no-login sites. Login sites keep the list page cookie-gated.
+  noLoginPublicPages: ["/answers"],
+
+  // Public GET list on no-login sites. Login sites refuse this at the proxy.
+  noLoginPublicApis: ["/api/answers"],
 
   // Static assets that should always be accessible
   staticAssets: [

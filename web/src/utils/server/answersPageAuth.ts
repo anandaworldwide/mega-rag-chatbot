@@ -9,7 +9,7 @@ import { getSudoCookie } from "@/utils/server/sudoCookieUtils";
  *
  * Access Rules:
  * 1. Login-required sites: Only admins and superusers can access
- * 2. No-login sites: Only sudo users can access
+ * 2. No-login sites: Anyone can access (not advertised)
  *
  * @param req - The Next.js API request object
  * @param res - The Next.js API response object (optional, used for sudo cookie)
@@ -31,9 +31,8 @@ export async function isAnswersPageAllowed(
     return role === "admin" || role === "superuser";
   }
 
-  // No-login sites: only sudo users can access
-  const sudo = getSudoCookie(req, res);
-  return !!sudo.sudoCookieValue;
+  // No-login sites: anyone can access (not advertised, but accessible)
+  return true;
 }
 
 /**

@@ -26,6 +26,10 @@ jest.mock("@/utils/server/libraryAccessMiddlewareGate", () => ({
 
 jest.mock("@/config/publicPaths", () => ({
   getAllPublicPaths: jest.fn(() => ["/login", "/share/", "/answers/"]),
+  PUBLIC_PATHS: {
+    noLoginPublicPages: ["/answers"],
+    noLoginPublicApis: ["/api/answers"],
+  },
 }));
 
 jest.mock("@/utils/server/corsMiddleware", () => ({
