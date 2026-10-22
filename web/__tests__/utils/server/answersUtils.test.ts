@@ -69,6 +69,7 @@ import {
   questionMatchesSearch,
   paginateSearchResults,
   searchAnswersByQuestion,
+  mapAnswerDocToAnswer,
 } from "@/utils/server/answersUtils";
 
 // Get the mocked modules after import
@@ -167,6 +168,36 @@ describe("answersUtils", () => {
       mockFirestoreQueryGet.mockRejectedValue(new Error("Database error"));
 
       await expect(getAnswersByIds(["answer1"])).rejects.toThrow("Database error");
+    });
+
+    it("should omit visitor fields from answers fetched by ID", async () => {
+      const mockSnapshot = {
+        forEach: jest.fn((callback) => {
+          callback({
+            id: "answer1",
+            data: () => ({
+              question: "Test question 1?",
+              answer: "Test answer 1",
+              sources: "[]",
+              timestamp: { _seconds: 1234567890, _nanoseconds: 0 },
+              ip: "203.0.113.10",
+              uuid: "secret-visitor-uuid",
+              history: [{ role: "user", content: "prior turn" }],
+            }),
+          });
+        }),
+      };
+
+      mockFirestoreQueryGet.mockResolvedValue(mockSnapshot);
+
+      const result = await getAnswersByIds(["answer1"]);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]).not.toHaveProperty("ip");
+      expect(result[0]).not.toHaveProperty("uuid");
+      expect(result[0]).not.toHaveProperty("history");
+      expect(JSON.stringify(result)).not.toMatch(/secret-visitor-uuid/);
+      expect(JSON.stringify(result)).not.toMatch(/203\.0\.113\.10/);
     });
 
     it("should process IDs in batches", async () => {
@@ -284,6 +315,31 @@ describe("answersUtils", () => {
 
       const page2 = paginateSearchResults(items, 2, 2);
       expect(page2.items).toEqual(["c", "d"]);
+    });
+  });
+
+  describe("mapAnswerDocToAnswer", () => {
+    it("should omit visitor fields from mapped answers", () => {
+      const mapped = mapAnswerDocToAnswer({
+        id: "answer1",
+        data: () => ({
+          question: "What is meditation?",
+          answer: "A practice.",
+          timestamp: { _seconds: 1234567890, _nanoseconds: 0 },
+          sources: "[]",
+          ip: "203.0.113.10",
+          uuid: "secret-visitor-uuid",
+          history: [{ role: "user", content: "prior turn" }],
+        }),
+      } as any);
+
+      expect(mapped.id).toBe("answer1");
+      expect(mapped.question).toBe("What is meditation?");
+      expect(mapped).not.toHaveProperty("ip");
+      expect(mapped).not.toHaveProperty("uuid");
+      expect(mapped).not.toHaveProperty("history");
+      expect(JSON.stringify(mapped)).not.toMatch(/secret-visitor-uuid/);
+      expect(JSON.stringify(mapped)).not.toMatch(/203\.0\.113\.10/);
     });
   });
 

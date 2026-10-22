@@ -68,7 +68,7 @@ async function deleteAnswerById(id: string): Promise<void> {
 async function apiHandler(req: NextApiRequest, res: NextApiResponse) {
   const { method } = req;
 
-  // For GET requests, no authentication is required
+  // GET uses handler-level admin or sudo checks, not JWT middleware
   if (method === "GET") {
     return await handleGetRequest(req, res);
   }
@@ -83,7 +83,7 @@ async function apiHandler(req: NextApiRequest, res: NextApiResponse) {
   return res.status(405).json({ error: "Method not allowed" });
 }
 
-// For GET requests, don't require authentication
+// GET stays skipAuth so no-login sudo cookies can reach the handler check
 const getHandler = withApiMiddleware(apiHandler, { skipAuth: true });
 
 // For DELETE requests, require authentication

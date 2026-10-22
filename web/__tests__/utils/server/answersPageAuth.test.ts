@@ -78,15 +78,67 @@ describe("answersPageAuth", () => {
       expect(mockGetRequesterRole).toHaveBeenCalledWith(req);
     });
 
-    it("should allow anyone on no-login sites", async () => {
+    it("should deny anonymous callers on no-login sites", async () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>();
       const siteConfig: SiteConfig = {
         requireLogin: false,
       } as SiteConfig;
 
+      mockGetSudoCookie.mockReturnValue({
+        sudoCookieValue: "",
+        message: "No sudo cookie",
+      });
+
+      const result = await isAnswersPageAllowed(req, res, siteConfig);
+
+      expect(result).toBe(false);
+      expect(mockGetSudoCookie).toHaveBeenCalledWith(req, res);
+    });
+
+    it("should deny non-sudo callers on no-login sites", async () => {
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>();
+      const siteConfig: SiteConfig = {
+        requireLogin: false,
+      } as SiteConfig;
+
+      mockGetSudoCookie.mockReturnValue({
+        sudoCookieValue: false,
+        message: "No sudo cookie",
+      });
+
+      const result = await isAnswersPageAllowed(req, res, siteConfig);
+
+      expect(result).toBe(false);
+    });
+
+    it("should allow sudo users on no-login sites", async () => {
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>();
+      const siteConfig: SiteConfig = {
+        requireLogin: false,
+      } as SiteConfig;
+
+      mockGetSudoCookie.mockReturnValue({
+        sudoCookieValue: "valid-sudo-cookie",
+        message: "",
+      });
+
       const result = await isAnswersPageAllowed(req, res, siteConfig);
 
       expect(result).toBe(true);
+      expect(mockGetSudoCookie).toHaveBeenCalledWith(req, res);
+    });
+
+    it("should deny anonymous callers on login-required sites", async () => {
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>();
+      const siteConfig: SiteConfig = {
+        requireLogin: true,
+      } as SiteConfig;
+
+      mockGetRequesterRole.mockReturnValue("user");
+
+      const result = await isAnswersPageAllowed(req, res, siteConfig);
+
+      expect(result).toBe(false);
     });
   });
 

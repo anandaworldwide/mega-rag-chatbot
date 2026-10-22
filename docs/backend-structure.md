@@ -142,8 +142,8 @@ API endpoints are defined in `pages/api/` and `app/api/`. Most endpoints are pro
 
 - **Answers Page Authorization (`answersPageAuth.ts`):**
   - Implements admin-only access control for the answers page.
-  - **Login-required sites:** Only superusers can access.
-  - **No-login sites:** Anyone can access (not advertised).
+  - **Login-required sites:** Only admins and superusers can access.
+  - **No-login sites:** Only sudo users can access.
   - **Discrete link visibility:** Only shown to highest privilege users (superusers on login sites, sudo users on
     no-login sites).
   - Functions: `isAnswersPageAllowed()`, `shouldShowAnswersPageLink()`, `getAnswersPageErrorMessage()`.

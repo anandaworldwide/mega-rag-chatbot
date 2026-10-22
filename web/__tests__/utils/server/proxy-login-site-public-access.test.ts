@@ -168,7 +168,6 @@ describe("proxy login-site public access (real ananda/jairam config)", () => {
         { path: "/api/apple-touch-icon" },
         { path: `/answers/${shareId}` },
         { path: `/_next/data/test-build/answers/${shareId}.json` },
-        { path: `/api/answers?answerIds=${shareId}` },
       ];
 
       for (const { path, method } of shareAndAnswerRequests) {
@@ -181,6 +180,7 @@ describe("proxy login-site public access (real ananda/jairam config)", () => {
       }
 
       // Share loads /api/share only. These stay cookie-gated.
+      expect(proxy(makeRequest(`/api/answers?answerIds=${shareId}`)).status).toBe(401);
       expect(proxy(makeRequest("/api/chats")).status).toBe(401);
       expect(proxy(makeRequest("/api/profile")).status).toBe(401);
       expect(proxy(makeRequest("/api/relatedQuestions")).status).toBe(401);

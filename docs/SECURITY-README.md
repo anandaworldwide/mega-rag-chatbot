@@ -140,7 +140,8 @@ The system supports two types of authentication which can be used independently 
 Some endpoints require JWT authentication but not siteAuth cookies, such as:
 
 - `/api/contact`: Allows contact form submissions from non-logged-in users
-- `/api/answers/[id]`: Allows access to publicly shared answers
+- `/api/share/[id]`: Allows access to publicly shared answers
+- `/api/answers`: Admin or sudo only. Returns display fields only.
 - `/api/login`: Handles user authentication (still requires JWT for frontend verification)
 - `/api/logout`: Handles user logout (still requires JWT for frontend verification)
 

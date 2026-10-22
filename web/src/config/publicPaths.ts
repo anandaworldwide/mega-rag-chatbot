@@ -21,12 +21,8 @@ export interface PublicPathsConfig {
   /**
    * API endpoints that bypass middleware authentication.
    *
-   * These endpoints are accessible without authentication at the middleware level,
-   * but may enforce their own role-based authorization internally.
-   *
-   * For example, /api/answers:
-   * - On no-login sites: Endpoint allows public access
-   * - On login-required sites: Endpoint restricts to superuser role
+   * These endpoints are accessible without a session cookie at the middleware
+   * level. Handlers may still enforce their own authorization.
    */
   alwaysPublicApis: string[];
 
@@ -59,7 +55,6 @@ export const PUBLIC_PATHS: PublicPathsConfig = {
   alwaysPublicApis: [
     "/api/get-token",
     "/api/web-token",
-    "/api/answers",
     "/api/contact",
     "/api/auth/requestPasswordReset",
     "/api/auth/resetPassword",

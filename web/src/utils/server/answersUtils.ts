@@ -52,6 +52,16 @@ export function paginateSearchResults<T>(
   };
 }
 
+const VISITOR_ANSWER_FIELDS = ["ip", "uuid", "history"] as const;
+
+function omitVisitorFields<T extends Record<string, unknown>>(data: T): T {
+  const sanitized = { ...data };
+  for (const field of VISITOR_ANSWER_FIELDS) {
+    delete sanitized[field];
+  }
+  return sanitized;
+}
+
 export function mapAnswerDocToAnswer(doc: firebase.firestore.QueryDocumentSnapshot): Answer {
   const data = doc.data();
   let sources: Document[] = [];
@@ -64,7 +74,7 @@ export function mapAnswerDocToAnswer(doc: firebase.firestore.QueryDocumentSnapsh
     }
   }
 
-  return {
+  return omitVisitorFields({
     id: doc.id,
     question: data.question,
     answer: data.answer,
@@ -72,17 +82,15 @@ export function mapAnswerDocToAnswer(doc: firebase.firestore.QueryDocumentSnapsh
     sources: sources as Document<Record<string, unknown>>[],
     vote: data.vote,
     collection: data.collection,
-    ip: data.ip,
     relatedQuestionsV2: data.relatedQuestionsV2 || [],
     related_questions: data.related_questions,
     adminAction: data.adminAction,
     adminActionTimestamp: data.adminActionTimestamp,
-    history: data.history || undefined,
     feedbackReason: data.feedbackReason,
     feedbackComment: data.feedbackComment,
     feedbackTimestamp: data.feedbackTimestamp,
     isStarred: data.isStarred || false,
-  } as Answer;
+  } as Answer & Record<string, unknown>) as Answer;
 }
 
 export async function searchAnswersByQuestion(
@@ -184,7 +192,7 @@ export async function getAnswersByIds(ids: string[]): Promise<Answer[]> {
     );
 
     snapshot.forEach((doc: any) => {
-      const data = doc.data() as Omit<Answer, "id">;
+      const data = omitVisitorFields(doc.data() as Omit<Answer, "id"> & Record<string, unknown>);
       // Parse and clean up sources data
       data.sources = parseAndRemoveWordsFromSources(data.sources as string | Document<DocMetadata>[] | undefined);
 
@@ -198,11 +206,11 @@ export async function getAnswersByIds(ids: string[]): Promise<Answer[]> {
 
       answers.push({
         id: doc.id,
-        ...data,
+        ...(data as Omit<Answer, "id">),
         // Explicitly include feedback fields from data if they exist
-        feedbackReason: data.feedbackReason,
-        feedbackComment: data.feedbackComment,
-        feedbackTimestamp: data.feedbackTimestamp,
+        feedbackReason: data.feedbackReason as Answer["feedbackReason"],
+        feedbackComment: data.feedbackComment as Answer["feedbackComment"],
+        feedbackTimestamp: data.feedbackTimestamp as Answer["feedbackTimestamp"],
       });
     });
   }
