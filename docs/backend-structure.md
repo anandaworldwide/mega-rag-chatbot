@@ -144,10 +144,12 @@ API endpoints are defined in `pages/api/` and `app/api/`. Most endpoints are pro
   - Controls access to the answers list page and `GET /api/answers`.
   - **Login-required sites:** Only admins and superusers can access.
   - **No-login sites:** Anyone can access (not advertised).
-  - **Response fields:** Omits visitor fields (`ip`, `uuid`, `history`).
+  - **Response fields:** Returns visitor fields (`ip`, `uuid`, `history`) only to privileged callers (valid sudo
+    cookie, or admin/superuser role). Other callers do not receive those fields.
   - **Discrete link visibility:** Only shown to highest privilege users (superusers on login sites, sudo users on
     no-login sites).
-  - Functions: `isAnswersPageAllowed()`, `shouldShowAnswersPageLink()`, `getAnswersPageErrorMessage()`.
+  - Functions: `isAnswersPageAllowed()`, `shouldShowAnswersPageLink()`, `getAnswersPageErrorMessage()`,
+    `canReadAnswerVisitorFields()`.
 - **`POST /api/logout`** (`pages/api/logout.ts`)
   - **Purpose:** Logs out the user.
   - **Auth:** Requires valid JWT.
@@ -171,8 +173,8 @@ API endpoints are defined in `pages/api/` and `app/api/`. Most endpoints are pro
 - **`GET /api/answers`** (`pages/api/answers.ts`)
   - **Purpose:** Retrieves answers for the answers list page.
   - **Auth:** Public GET on no-login sites. Admin or superuser only on login-required sites.
-  - **Logic:** Fetches data from Firestore (`answersUtils.ts`), validates access via `answersPageAuth.ts`. Omits
-    visitor fields (`ip`, `uuid`, `history`).
+  - **Logic:** Fetches data from Firestore (`answersUtils.ts`), validates access via `answersPageAuth.ts`. Returns
+    visitor fields (`ip`, `uuid`, `history`) only when the handler passes `includeVisitorFields`.
 
 **Answers Page Authorization:**
 
