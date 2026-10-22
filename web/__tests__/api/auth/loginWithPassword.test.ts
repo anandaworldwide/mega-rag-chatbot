@@ -9,6 +9,7 @@ import handler from "@/pages/api/auth/loginWithPassword";
 
 const FRESH_UUID = "00000000-0000-4000-8000-000000000000";
 const VISITOR_UUID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+const ACCOUNT_UUID = "11111111-1111-1111-1111-111111111111";
 
 function signUuidCookie(uuid: string): string {
   const secretKey = crypto.createHash("sha256").update(process.env.SECRET_KEY as string).digest();
@@ -318,5 +319,37 @@ describe("Password Login API", () => {
       expect(res._getStatusCode()).toBe(200);
       expect(setCookieMock).toHaveBeenCalledWith("uuid", `signed:${VISITOR_UUID}`, expect.any(Object));
     });
+
+    it("assigns a fresh id when the visitor cookie is missing", async () => {
+      const res = await loginWithoutAccountUuid();
+
+      expect(res._getStatusCode()).toBe(200);
+      expect(setCookieMock).toHaveBeenCalledWith("uuid", `signed:${FRESH_UUID}`, expect.any(Object));
+    });
+  });
+
+  it("keeps the stored account uuid when a different signed visitor cookie is present", async () => {
+    mockFirestoreGet.mockResolvedValueOnce({
+      exists: true,
+      data: () => ({
+        inviteStatus: "accepted",
+        passwordHash: "hash",
+        role: "user",
+        uuid: ACCOUNT_UUID,
+      }),
+    } as any);
+    mockComparePassword.mockResolvedValueOnce(true);
+    getCookieMock.mockImplementation((name: string) =>
+      name === "uuid" ? signUuidCookie(VISITOR_UUID) : undefined
+    );
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: { email: "user@example.com", password: "Password1" },
+    });
+    await handler(req, res);
+
+    expect(res._getStatusCode()).toBe(200);
+    expect(setCookieMock).toHaveBeenCalledWith("uuid", `signed:${ACCOUNT_UUID}`, expect.any(Object));
   });
 });

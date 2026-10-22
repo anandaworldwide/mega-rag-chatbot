@@ -429,5 +429,13 @@ describe("uuidUtils", () => {
     it("returns the uuid when the signed cookie is valid", () => {
       expect(getVerifiedUuidFromSignedCookie(createSignedUUIDCookie(visitorUuid))).toBe(visitorUuid);
     });
+
+    it("returns null when the cookie is undefined", () => {
+      expect(getVerifiedUuidFromSignedCookie(undefined)).toBeNull();
+    });
+
+    it("returns null when the cookie is an empty string", () => {
+      expect(getVerifiedUuidFromSignedCookie("")).toBeNull();
+    });
   });
 });
