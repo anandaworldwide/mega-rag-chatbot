@@ -261,6 +261,15 @@ describe("Location Intent Detector", () => {
       expect(await hasLocationIntentAsync("When did Ananda move to Nevada City")).toBe(false);
     });
 
+    it("should NOT trigger location intent for drafting or translation requests", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("Draft an invitation to the Portland center gathering")).toBe(false);
+      expect(await hasLocationIntentAsync("Translate this note about the Los Angeles center into Italian")).toBe(
+        false
+      );
+    });
+
     it("should still trigger location intent for center lookup queries with place names", async () => {
       await initializeLocationIntentDetector("ananda-public");
 
