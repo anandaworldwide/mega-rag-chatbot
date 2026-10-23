@@ -651,6 +651,20 @@ Short quotation and seated quiet. Sources include Crystal Clarity commentaries.
         "If the user asked for a complete list of items, search for a source that lists them all"
       );
     });
+
+    it("tells the model to quote only copied chunk spans, not titles", () => {
+      expect(RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE).toContain(
+        "copy a span from retrieved chunk content or transcript text, name the work, and use quotation marks only for that span"
+      );
+      expect(RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE).toContain(
+        "Titles, subtitles, and series lines are not quotations."
+      );
+      expect(RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE).not.toContain("give exact lines with citations");
+      expect(RETRIEVAL_POST_TOOL_RETRY_GUIDANCE).toContain(
+        "quoted spans copied from chunk content plus citations"
+      );
+      expect(RETRIEVAL_POST_TOOL_RETRY_GUIDANCE).not.toContain("exact quotations and citations");
+    });
   });
 
   describe("finalizeRetrievalUserAnswer", () => {
