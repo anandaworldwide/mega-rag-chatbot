@@ -10,6 +10,79 @@ import crypto from "crypto";
 import { libraryAccessCookieHeader } from "@/utils/server/libraryAccess";
 import { applyComputedLibraryAccessOverrides } from "@/utils/server/libraryAccessMiddlewareGate";
 
+/** Cookie-header tokens that are attributes, not cookie names. */
+const COOKIE_ATTRIBUTE_NAMES = new Set([
+  "path",
+  "domain",
+  "expires",
+  "max-age",
+  "secure",
+  "httponly",
+  "samesite",
+  "partitioned",
+  "priority",
+]);
+
+/** Log when a request carries more than this many real cookies. */
+export const EXCESSIVE_COOKIE_COUNT = 30;
+
+/**
+ * Count cookies in a Cookie header.
+ * Ignores empty parts and RFC 6265 attribute tokens so a reconstructed
+ * header like `a=1; Path=/; HttpOnly; b=2` counts as 2, not 4.
+ */
+export function countCookiesInHeader(cookieHeader: string | null | undefined): number {
+  if (!cookieHeader) {
+    return 0;
+  }
+
+  let count = 0;
+  for (const part of cookieHeader.split(";")) {
+    const trimmed = part.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const separator = trimmed.indexOf("=");
+    if (separator <= 0) {
+      continue;
+    }
+    const name = trimmed.slice(0, separator).trim().toLowerCase();
+    if (!name || COOKIE_ATTRIBUTE_NAMES.has(name)) {
+      continue;
+    }
+    count += 1;
+  }
+  return count;
+}
+
+function originFromAbsoluteUrl(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True when Referer or Origin matches NEXT_PUBLIC_BASE_URL's origin.
+ * An unset base URL cannot be judged, so the check stays quiet.
+ */
+export function requestHasTrustedNavigationOrigin(
+  req: NextRequest,
+  baseUrl: string | undefined = process.env.NEXT_PUBLIC_BASE_URL
+): boolean {
+  const trustedOrigin = originFromAbsoluteUrl(baseUrl);
+  if (!trustedOrigin) {
+    return true;
+  }
+
+  const candidates = [req.headers.get("referer"), req.headers.get("referrer"), req.headers.get("origin")];
+  return candidates.some((value) => originFromAbsoluteUrl(value) === trustedOrigin);
+}
+
 // Log suspicious activity with details
 export const logSuspiciousActivity = (req: NextRequest, reason: string) => {
   const clientIP = getClientIp(req);
@@ -172,20 +245,16 @@ const performSecurityChecks = (req: NextRequest, url: URL): { block: boolean } =
     logSuspiciousActivity(req, `Unusual HTTP method: ${req.method}`);
   }
 
-  // Check for missing or suspicious referer header for POST requests
-  if (req.method === "POST") {
-    const referer = req.headers.get("referer");
-    if (
-      !referer ||
-      !referer.startsWith(process.env.NEXT_PUBLIC_BASE_URL || "") // Assumes BASE_URL is correct for /web context
-    ) {
-      logSuspiciousActivity(req, "Missing or suspicious referer for POST request");
-    }
+    // POST referer/origin must match the site origin. Fetch often sends Origin
+  // and omits Referer. This check only logs; it does not block.
+  if (req.method === "POST" && !requestHasTrustedNavigationOrigin(req)) {
+    logSuspiciousActivity(req, "Missing or suspicious referer for POST request");
   }
 
-  // Check for excessive number of cookies
-  const cookieHeader = req.headers.get("cookie");
-  if (cookieHeader && cookieHeader.split(";").length > 30) {
+  // Count name=value cookies, not Cookie-header attribute tokens (Path, HttpOnly).
+  // Next.js 16.4+ may serialize attributes into headers.get("cookie").
+  // This check only logs; it does not block.
+  if (countCookiesInHeader(req.headers.get("cookie")) > EXCESSIVE_COOKIE_COUNT) {
     logSuspiciousActivity(req, "Excessive number of cookies");
   }
 

@@ -39,6 +39,7 @@ jest.mock("@/utils/server/loadSiteConfig", () => ({
 // Mock UUID utils
 jest.mock("@/utils/server/uuidUtils", () => ({
   getSecureUUID: jest.fn().mockReturnValue({ success: true, uuid: "test-uuid" }),
+  ensureAnonymousVisitorUuidCookie: jest.fn().mockReturnValue("created-uuid"),
 }));
 
 // Mock index error handler
@@ -47,6 +48,8 @@ jest.mock("@/utils/server/firestoreIndexErrorHandler", () => ({
 }));
 
 import { getTokenFromRequest } from "@/utils/server/jwtUtils";
+import { ensureAnonymousVisitorUuidCookie, getSecureUUID } from "@/utils/server/uuidUtils";
+import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 
 const mockGetTokenFromRequest = getTokenFromRequest as jest.MockedFunction<typeof getTokenFromRequest>;
 
@@ -111,6 +114,7 @@ describe("/api/clone-conversation", () => {
     expect(jsonMock).toHaveBeenCalledWith({
       error: "Authentication required. Please log in to continue.",
     });
+    expect(ensureAnonymousVisitorUuidCookie).not.toHaveBeenCalled();
   });
 
   it("should reject requests without email in token", async () => {
@@ -312,5 +316,76 @@ describe("/api/clone-conversation", () => {
     // Verify batch operations
     expect(mockBatch.set).toHaveBeenCalledTimes(2);
     expect(mockBatch.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it("creates a signed visitor uuid and clones when the cookie is missing on a no-login site", async () => {
+    const mockLoadSiteConfigSync = loadSiteConfigSync as jest.MockedFunction<typeof loadSiteConfigSync>;
+    const mockGetSecureUUID = getSecureUUID as jest.MockedFunction<typeof getSecureUUID>;
+    const mockEnsureAnonymousVisitorUuidCookie = ensureAnonymousVisitorUuidCookie as jest.MockedFunction<
+      typeof ensureAnonymousVisitorUuidCookie
+    >;
+
+    mockLoadSiteConfigSync.mockReturnValue({ requireLogin: false } as ReturnType<typeof loadSiteConfigSync>);
+    mockGetSecureUUID.mockReturnValue({
+      success: false,
+      error: "UUID not found in cookies",
+      statusCode: 400,
+    });
+    mockEnsureAnonymousVisitorUuidCookie.mockReturnValue("created-visitor-uuid");
+
+    req.body = { docId: "test-doc-id" };
+
+    const mockTimestamp = { toDate: () => new Date("2024-01-01") };
+    const mockSourceData = {
+      convId: "original-conv-id",
+      question: "Test question",
+      answer: "Test answer",
+      uuid: "original-uuid",
+      timestamp: mockTimestamp,
+    };
+    const mockBatch = {
+      set: jest.fn(),
+      commit: jest.fn().mockResolvedValue(undefined),
+    };
+    const mockQueryGet = jest.fn().mockResolvedValue({
+      empty: false,
+      docs: [{ id: "msg-1", data: () => mockSourceData }],
+    });
+    const mockOrderBy = jest.fn().mockReturnValue({ get: mockQueryGet });
+    const mockWhereTimestamp = jest.fn().mockReturnValue({ orderBy: mockOrderBy });
+    const mockWhereConvId = jest.fn().mockReturnValue({ where: mockWhereTimestamp });
+    const mockGet = jest.fn().mockResolvedValue({
+      exists: true,
+      data: () => mockSourceData,
+    });
+    const mockDoc = jest.fn((id?: string) => {
+      if (id) {
+        return { get: mockGet };
+      }
+      return { id: "new-doc-1" };
+    });
+    const mockCollection = jest.fn().mockReturnValue({
+      doc: mockDoc,
+      where: mockWhereConvId,
+    });
+    mockFirebase.db = {
+      collection: mockCollection,
+      batch: jest.fn(() => mockBatch),
+    };
+
+    await handler(req as NextApiRequest, res as NextApiResponse);
+
+    expect(mockEnsureAnonymousVisitorUuidCookie).toHaveBeenCalled();
+    expect(statusMock).toHaveBeenCalledWith(200);
+    expect(jsonMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: true,
+        messageCount: 1,
+      })
+    );
+    expect(mockBatch.set).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ uuid: "created-visitor-uuid" })
+    );
   });
 });

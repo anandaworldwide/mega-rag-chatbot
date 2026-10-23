@@ -71,21 +71,24 @@ export function createSignedUUIDCookie(uuid: string): string {
  * Ensures anonymous visitors on public sites have a signed uuid cookie.
  * Called from /api/web-token during app bootstrap so cookie-based endpoints work
  * without client-side unsigned cookie writes.
+ *
+ * Returns the visitor uuid when this site can issue or reuse one.
+ * Returns null on login-required sites.
  */
-export function ensureAnonymousVisitorUuidCookie(req: NextApiRequest, res: NextApiResponse): void {
+export function ensureAnonymousVisitorUuidCookie(req: NextApiRequest, res: NextApiResponse): string | null {
   const siteConfig = loadSiteConfigSync();
   if (siteConfig?.requireLogin) {
-    return;
+    return null;
   }
 
   if (req.cookies?.["authToken"]) {
-    return;
+    return getVerifiedUuidFromSignedCookie(req.cookies?.["uuid"]);
   }
 
   const rawCookie = req.cookies?.["uuid"];
   const parsed = rawCookie ? parseUUIDCookie(rawCookie) : null;
   if (parsed?.isValidSignature && isValidUUID(parsed.uuid)) {
-    return;
+    return parsed.uuid;
   }
 
   // Sign only ids that this server makes. Do not sign a client-supplied value.
@@ -104,6 +107,8 @@ export function ensureAnonymousVisitorUuidCookie(req: NextApiRequest, res: NextA
   } catch (error) {
     console.warn("Failed to set signed uuid cookie for anonymous visitor:", error);
   }
+
+  return uuid;
 }
 
 /**

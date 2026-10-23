@@ -806,6 +806,10 @@ The Next.js interceptor (`web/src/proxy.ts`) is a separate gate. On login-requir
 `vercel.json` cron path only when `Authorization: Bearer` matches `CRON_SECRET` (constant-time compare). It does
 not treat a Bearer header as authentication on any other route. Cron paths are not listed in `publicPaths.ts`.
 
+The interceptor also logs suspicious Cookie and Referer values. Cookie counts use `name=value` pairs and ignore
+attribute tokens such as `Path` or `HttpOnly`. A POST is trusted when `Referer` or `Origin` matches the origin of
+`NEXT_PUBLIC_BASE_URL`. Both checks write a warning only. They do not return 403.
+
 ### Hybrid Authentication Pattern
 
 The `withJwtOrCronAuth` middleware provides dual authentication support:
