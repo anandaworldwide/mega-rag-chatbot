@@ -8,6 +8,7 @@ import { firestoreGet } from "@/utils/server/firestoreRetryUtils";
 import crypto from "crypto";
 import Cookies from "cookies";
 import { isDevelopment } from "@/utils/env";
+import { cookieHeaderFromPagesRequest, cookieValuesNamed } from "@/utils/server/cookieHeader";
 
 const UUID_COOKIE_MAX_AGE_MS = 180 * 24 * 60 * 60 * 1000;
 
@@ -67,6 +68,20 @@ export function createSignedUUIDCookie(uuid: string): string {
   return `${uuid}--${signature}`;
 }
 
+function pickVerifiedUuidFromPagesRequest(req: NextApiRequest): string | null {
+  const values = cookieValuesNamed(cookieHeaderFromPagesRequest(req), "uuid");
+  if (req.cookies?.["uuid"]) {
+    values.push(req.cookies["uuid"]);
+  }
+  for (const value of values) {
+    const verified = getVerifiedUuidFromSignedCookie(value);
+    if (verified) {
+      return verified;
+    }
+  }
+  return null;
+}
+
 /**
  * Ensures anonymous visitors on public sites have a signed uuid cookie.
  * Called from /api/web-token during app bootstrap so cookie-based endpoints work
@@ -81,14 +96,9 @@ export function ensureAnonymousVisitorUuidCookie(req: NextApiRequest, res: NextA
     return null;
   }
 
-  if (req.cookies?.["authToken"]) {
-    return getVerifiedUuidFromSignedCookie(req.cookies?.["uuid"]);
-  }
-
-  const rawCookie = req.cookies?.["uuid"];
-  const parsed = rawCookie ? parseUUIDCookie(rawCookie) : null;
-  if (parsed?.isValidSignature && isValidUUID(parsed.uuid)) {
-    return parsed.uuid;
+  const existing = pickVerifiedUuidFromPagesRequest(req);
+  if (existing) {
+    return existing;
   }
 
   // Sign only ids that this server makes. Do not sign a client-supplied value.
@@ -179,7 +189,14 @@ export function getSecureUUID(
     }
     return { success: true, uuid: userPayload.uuid };
   } else {
-    // For anonymous sites: Use UUID from cookies (signed to prevent spoofing)
+    // For anonymous sites: Use UUID from cookies (signed to prevent spoofing).
+    // Scan every uuid value. Pages cookie.parse keeps the first name, so a
+    // parent-domain .ananda.org uuid can hide the signed host cookie.
+    const picked = pickVerifiedUuidFromPagesRequest(req);
+    if (picked) {
+      return { success: true, uuid: picked };
+    }
+
     const rawCookie = req.cookies?.["uuid"];
     if (!rawCookie) {
       return {
@@ -314,6 +331,14 @@ export async function resolvePersistUuidForRequest(
 }
 
 function resolveUuidFromAppRequestCookie(req: NextRequest): UuidResolutionResult {
+  const headerValues = cookieValuesNamed(req.headers?.get?.("cookie"), "uuid");
+  for (const value of headerValues) {
+    const verified = getVerifiedUuidFromSignedCookie(value);
+    if (verified) {
+      return { success: true, uuid: verified };
+    }
+  }
+
   const rawCookie = req.cookies.get("uuid")?.value;
   if (!rawCookie) {
     return {

@@ -3,6 +3,7 @@
 jest.unmock("next/server");
 
 import { NextRequest } from "next/server";
+import jwt from "jsonwebtoken";
 import {
   middleware,
   isSensitiveFilePath,
@@ -145,6 +146,7 @@ describe("middleware security behavior", () => {
 describe("cookie and referer security checks", () => {
   const originalSiteId = process.env.SITE_ID;
   const originalBaseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+  const originalSecureToken = process.env.SECURE_TOKEN;
   let warnSpy: jest.SpyInstance;
 
   const sites = [
@@ -191,6 +193,11 @@ describe("cookie and referer security checks", () => {
     } else {
       process.env.NEXT_PUBLIC_BASE_URL = originalBaseUrl;
     }
+    if (originalSecureToken === undefined) {
+      delete process.env.SECURE_TOKEN;
+    } else {
+      process.env.SECURE_TOKEN = originalSecureToken;
+    }
   });
 
   function cookieWarningCalls(): string[] {
@@ -206,7 +213,7 @@ describe("cookie and referer security checks", () => {
   }
 
   it("counts name=value cookies and ignores reconstructed attribute tokens", () => {
-    expect(EXCESSIVE_COOKIE_COUNT).toBe(30);
+    expect(EXCESSIVE_COOKIE_COUNT).toBe(100);
     expect(countCookiesInHeader("uuid=a; libraryAccess=b; answersViewer=c")).toBe(3);
     expect(countCookiesInHeader("authToken=jwt; Path=/; HttpOnly; hasSession=1; Path=/; SameSite=Lax")).toBe(2);
     expect(countCookiesInHeader("a=1; ; HttpOnly; Path=/")).toBe(1);
@@ -228,9 +235,18 @@ describe("cookie and referer security checks", () => {
     expect(response.status).not.toBe(403);
   });
 
-  it.each(sites)("$name logs more than 30 real cookies but still allows the request", (site) => {
+  it.each(sites)("$name does not log 33 real cookies and still allows the request", (site) => {
     configureSite(site);
-    const cookieHeader = Array.from({ length: 31 }, (_, index) => `c${index}=v`).join("; ");
+    const cookieHeader = Array.from({ length: 33 }, (_, index) => `c${index}=v`).join("; ");
+    const response = middleware(makeRequest("/answers", { headers: { cookie: cookieHeader } }));
+
+    expect(cookieWarningCalls()).toEqual([]);
+    expect(response.status).not.toBe(403);
+  });
+
+  it.each(sites)("$name logs more than 100 real cookies but still allows the request", (site) => {
+    configureSite(site);
+    const cookieHeader = Array.from({ length: 101 }, (_, index) => `c${index}=v`).join("; ");
     const response = middleware(makeRequest("/answers", { headers: { cookie: cookieHeader } }));
 
     expect(cookieWarningCalls().length).toBe(1);
@@ -260,6 +276,60 @@ describe("cookie and referer security checks", () => {
 
     expect(refererWarningCalls()).toEqual([]);
     expect(response.status).not.toBe(403);
+  });
+
+  it("does not block POST /api/clone-conversation when Origin is present and Referer is missing", () => {
+    const site = sites[0];
+    configureSite(site);
+    const response = middleware(
+      makeRequest("/api/clone-conversation", {
+        method: "POST",
+        headers: {
+          origin: site.baseUrl,
+          "content-type": "application/json",
+        },
+      })
+    );
+
+    expect(refererWarningCalls()).toEqual([]);
+    expect(response.status).not.toBe(403);
+    expect(response.status).not.toBe(401);
+  });
+
+  it("login Luca accepts a host authToken when a parent-domain token comes last", () => {
+    const site = sites[1];
+    configureSite(site);
+    process.env.SECURE_TOKEN = "clone-proxy-test-secret";
+    const validToken = jwt.sign(
+      { client: "web", email: "m@ananda.org", uuid: "22222222-2222-4222-8222-222222222222" },
+      process.env.SECURE_TOKEN,
+      {
+        algorithm: "HS256",
+        issuer: "mega-rag-chatbot",
+        audience: "mega-rag-chatbot-users",
+        expiresIn: "15m",
+      }
+    );
+    const cookieHeader = [
+      ...Array.from({ length: 31 }, (_, index) => `_ga_${index}=v`),
+      `authToken=${validToken}`,
+      "authToken=parent-junk",
+    ].join("; ");
+
+    const response = middleware(
+      makeRequest("/api/clone-conversation", {
+        method: "POST",
+        headers: {
+          cookie: cookieHeader,
+          origin: site.baseUrl,
+          "content-type": "application/json",
+        },
+      })
+    );
+
+    expect(response.status).not.toBe(401);
+    expect(response.status).not.toBe(403);
+    expect(refererWarningCalls()).toEqual([]);
   });
 
   it.each(sites)("$name logs a POST with no Referer and no Origin but does not block it", (site) => {

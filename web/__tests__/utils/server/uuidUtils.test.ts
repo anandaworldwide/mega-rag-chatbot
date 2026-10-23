@@ -185,6 +185,24 @@ describe("uuidUtils", () => {
         });
       });
 
+      it("uses the signed host uuid when cookie.parse kept the parent uuid", () => {
+        const parentUuid = "11111111-1111-4111-8111-111111111111";
+        const hostUuid = "22222222-2222-4222-8222-222222222222";
+        const signedHost = createSignedUUIDCookie(hostUuid);
+        const { req } = createMocks({
+          method: "POST",
+          headers: {
+            cookie: `uuid=${parentUuid}; uuid=${signedHost}`,
+          },
+          cookies: { uuid: parentUuid },
+        });
+
+        expect(getSecureUUID(req as any)).toEqual({
+          success: true,
+          uuid: hostUuid,
+        });
+      });
+
       it("should return error when cookie UUID is missing", () => {
         const { req } = createMocks({
           method: "POST",
@@ -363,15 +381,51 @@ describe("uuidUtils", () => {
       expect(mockSetCookie).not.toHaveBeenCalled();
     });
 
-    it("skips when authToken cookie is present", () => {
+    it("mints a uuid when a leftover authToken is not a signed visitor id", () => {
       const { req, res } = createMocks({
         method: "GET",
         cookies: { authToken: "logged-in-token" },
+        headers: { "x-forwarded-proto": "http" },
       });
 
-      ensureAnonymousVisitorUuidCookie(req as any, res as any);
+      const created = ensureAnonymousVisitorUuidCookie(req as any, res as any);
 
+      expect(created).toMatch(/^[0-9a-f-]{36}$/i);
+      expect(mockSetCookie).toHaveBeenCalledTimes(1);
+    });
+
+    it("uses the signed host uuid when a parent-domain uuid comes first", () => {
+      const parentUuid = "11111111-1111-4111-8111-111111111111";
+      const hostUuid = "22222222-2222-4222-8222-222222222222";
+      const signedHost = createSignedUUIDCookie(hostUuid);
+      const { req, res } = createMocks({
+        method: "POST",
+        headers: {
+          cookie: `uuid=${parentUuid}; authToken=parent-junk; uuid=${signedHost}`,
+        },
+        cookies: { uuid: parentUuid, authToken: "parent-junk" },
+      });
+
+      const result = ensureAnonymousVisitorUuidCookie(req as any, res as any);
+
+      expect(result).toBe(hostUuid);
       expect(mockSetCookie).not.toHaveBeenCalled();
+    });
+
+    it("mints a uuid when only a parent-domain authToken is present", () => {
+      const { req, res } = createMocks({
+        method: "POST",
+        headers: {
+          cookie: "authToken=parent-junk",
+          "x-forwarded-proto": "http",
+        },
+        cookies: { authToken: "parent-junk" },
+      });
+
+      const created = ensureAnonymousVisitorUuidCookie(req as any, res as any);
+
+      expect(created).toMatch(/^[0-9a-f-]{36}$/i);
+      expect(mockSetCookie).toHaveBeenCalledTimes(1);
     });
   });
 

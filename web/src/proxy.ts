@@ -9,6 +9,7 @@ import jwt from "jsonwebtoken";
 import crypto from "crypto";
 import { libraryAccessCookieHeader } from "@/utils/server/libraryAccess";
 import { applyComputedLibraryAccessOverrides } from "@/utils/server/libraryAccessMiddlewareGate";
+import { cookieValuesNamed } from "@/utils/server/cookieHeader";
 
 /** Cookie-header tokens that are attributes, not cookie names. */
 const COOKIE_ATTRIBUTE_NAMES = new Set([
@@ -24,7 +25,7 @@ const COOKIE_ATTRIBUTE_NAMES = new Set([
 ]);
 
 /** Log when a request carries more than this many real cookies. */
-export const EXCESSIVE_COOKIE_COUNT = 30;
+export const EXCESSIVE_COOKIE_COUNT = 100;
 
 /**
  * Count cookies in a Cookie header.
@@ -380,27 +381,30 @@ export function proxy(req: NextRequest) {
         return withLibraryAccessCookie(cronDenied, allowedNames);
       }
     } else {
-      const jwtCookie = req.cookies.get("authToken");
       const jwtSecret = process.env.SECURE_TOKEN;
+      const authTokens = cookieValuesNamed(req.headers.get("cookie"), "authToken");
+      const parsedToken = req.cookies.get("authToken")?.value;
+      if (parsedToken) {
+        authTokens.push(parsedToken);
+      }
 
       let authFailed = false;
 
-      if (!jwtCookie || !jwtSecret) {
+      if (!jwtSecret || authTokens.length === 0) {
         authFailed = true;
       } else {
-        try {
-          // Verify the JWT token with security options
-          jwt.verify(jwtCookie.value, jwtSecret, {
-            algorithms: ["HS256"],
-            issuer: "mega-rag-chatbot",
-            audience: "mega-rag-chatbot-users",
-          });
-          // JWT is valid, authentication succeeds
-          authFailed = false;
-        } catch {
-          // JWT verification failed
-          authFailed = true;
-        }
+        authFailed = !authTokens.some((token) => {
+          try {
+            jwt.verify(token, jwtSecret, {
+              algorithms: ["HS256"],
+              issuer: "mega-rag-chatbot",
+              audience: "mega-rag-chatbot-users",
+            });
+            return true;
+          } catch {
+            return false;
+          }
+        });
       }
 
       if (authFailed) {
