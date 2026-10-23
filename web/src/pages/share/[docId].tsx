@@ -262,7 +262,9 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
               const targetPath = hash
                 ? `/chat/${loadedConversation.convId}${hash}`
                 : `/chat/${loadedConversation.convId}`;
-              router.replace("/", targetPath, { shallow: false });
+              // Full document load. Mask-replace and router.push hit
+              // /_next/data/{build}/chat/{id}.json?convId={id} which 404s.
+              window.location.assign(targetPath);
               return;
             }
           } catch {

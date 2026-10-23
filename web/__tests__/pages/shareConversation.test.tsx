@@ -306,8 +306,9 @@ describe("ShareConversation logged-in owner and non-owner", () => {
       expect(mockLoadConversationByDocId).toHaveBeenCalledWith(SHARE_ID);
     });
     await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith("/", "/chat/conv-owned", { shallow: false });
+      expect(window.location.assign).toHaveBeenCalledWith("/chat/conv-owned");
     });
+    expect(mockReplace).not.toHaveBeenCalled();
     expect(global.fetch).not.toHaveBeenCalledWith(`/api/share/${SHARE_ID}`);
   });
 

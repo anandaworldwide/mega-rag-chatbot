@@ -25,7 +25,7 @@ jest.mock("@/utils/server/getCommonSiteConfigProps", () => ({
   }),
 }));
 
-import ChatConversation from "@/pages/chat/[convId]";
+import ChatConversation, { getServerSideProps } from "@/pages/chat/[convId]";
 
 const mockReplace = jest.fn();
 
@@ -55,11 +55,18 @@ describe("chat/[convId] after clone", () => {
     expect(mockReplace).not.toHaveBeenCalled();
   });
 
-  it("getInitialProps returns props and never notFound when convId query is present", async () => {
-    const result = await ChatConversation.getInitialProps();
+  it("getServerSideProps returns props and never notFound when convId query is present", async () => {
+    const result = await getServerSideProps({
+      query: { convId: "f0cf8eaf-6dba-442b-ae74-2777a7fd9281" },
+      req: {} as never,
+      res: {} as never,
+      resolvedUrl: "/chat/f0cf8eaf-6dba-442b-ae74-2777a7fd9281",
+    });
     expect(result).toEqual(
       expect.objectContaining({
-        siteConfig: expect.anything(),
+        props: expect.objectContaining({
+          siteConfig: expect.anything(),
+        }),
       })
     );
     expect(result).not.toHaveProperty("notFound");
