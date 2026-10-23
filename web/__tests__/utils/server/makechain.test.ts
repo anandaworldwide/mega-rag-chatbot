@@ -3367,6 +3367,215 @@ describe("makeChain", () => {
       expect(mapped.activeFiltersSummary).not.toContain("No library sources matched your current user-set filters");
     });
   });
+
+  describe("named-author empty-filter fallback", () => {
+    const autoSiteConfig = {
+      ...mockSiteConfig,
+      enableAutoAuthorScope: true,
+      includedLibraries: [],
+      authorAliases: { asha: "Asha Nayaswami" },
+    };
+
+    it("retries without the query-inferred author when that filter returns no documents", async () => {
+      const fallbackDoc = new Document({
+        pageContent: "library teaching",
+        metadata: { library: "library1", source: "fallback", author: "Other Author" },
+      });
+      const similaritySearchWithScore = jest.fn().mockImplementation((_query, _k, filter) => {
+        const serialized = JSON.stringify(filter ?? {});
+        if (serialized.includes('"author"') && serialized.includes("$eq")) {
+          return Promise.resolve([]);
+        }
+        return Promise.resolve([[fallbackDoc, 0.81]]);
+      });
+      mockRetriever.vectorStore = {
+        similaritySearch: jest.fn(),
+        similaritySearchWithScore,
+      } as any;
+
+      const sendData = jest.fn();
+      const retrievalFilterCapture: { filter?: Record<string, unknown>; inferredAuthor?: string } = {
+        inferredAuthor: "stale",
+      };
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        { $and: [{ type: { $in: ["text"] } }] },
+        sendData,
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        autoSiteConfig,
+        undefined,
+        undefined,
+        "auto",
+        undefined,
+        retrievalFilterCapture
+      );
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      const result = await retrievalSequence.invoke({
+        question: "What did Asha teach about meditation?",
+        chat_history: "",
+      });
+
+      expect(similaritySearchWithScore).toHaveBeenCalledTimes(2);
+      expect(JSON.stringify(similaritySearchWithScore.mock.calls[0][2])).toContain("Asha Nayaswami");
+      expect(JSON.stringify(similaritySearchWithScore.mock.calls[1][2])).not.toContain("$eq");
+      expect(result.documents).toHaveLength(1);
+      expect(result.documents[0]?.metadata?.source).toBe("fallback");
+      expect(retrievalFilterCapture.inferredAuthor).toBeUndefined();
+      expect(JSON.stringify(retrievalFilterCapture.filter ?? {})).not.toContain("$eq");
+      expect(console.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Named-author filter for "Asha Nayaswami" returned no documents')
+      );
+
+      const mapping = getAnswerChainMappingFromMakeChain();
+      const mapped = mapping({
+        retrievalOutput: { combinedContent: "docs", documents: result.documents },
+        originalInput: { question: "What did Asha teach about meditation?", chat_history: "" },
+      });
+      expect(mapped.activeFiltersSummary).not.toContain("Query-inferred author focus");
+      expect(mapped.activeFiltersSummary).not.toContain("No library sources matched the query-inferred author focus");
+    });
+
+    it("keeps the named-author filter when that search already returned documents", async () => {
+      const ashaDoc = new Document({
+        pageContent: "asha teaching",
+        metadata: { library: "library1", source: "asha", author: "Asha Nayaswami" },
+      });
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([[ashaDoc, 0.9]]);
+      mockRetriever.vectorStore = {
+        similaritySearch: jest.fn(),
+        similaritySearchWithScore,
+      } as any;
+
+      const retrievalFilterCapture: { filter?: Record<string, unknown>; inferredAuthor?: string } = {};
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        jest.fn(),
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        autoSiteConfig,
+        undefined,
+        undefined,
+        "auto",
+        undefined,
+        retrievalFilterCapture
+      );
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      const result = await retrievalSequence.invoke({
+        question: "What did Asha teach about meditation?",
+        chat_history: "",
+      });
+
+      expect(similaritySearchWithScore).toHaveBeenCalledTimes(1);
+      expect(result.documents).toHaveLength(1);
+      expect(retrievalFilterCapture.inferredAuthor).toBe("Asha Nayaswami");
+      expect(JSON.stringify(retrievalFilterCapture.filter ?? {})).toContain("Asha Nayaswami");
+    });
+
+    it("does not carry Radio Ananda into a follow-up that does not name them", async () => {
+      const fallbackDoc = new Document({
+        pageContent: "library teaching",
+        metadata: { library: "library1", source: "follow-up", author: "Other Author" },
+      });
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([[fallbackDoc, 0.8]]);
+      mockRetriever.vectorStore = {
+        similaritySearch: jest.fn(),
+        similaritySearchWithScore,
+      } as any;
+
+      const retrievalFilterCapture: { filter?: Record<string, unknown>; inferredAuthor?: string } = {};
+      const siteConfig = {
+        ...autoSiteConfig,
+        authorAliases: { "radio ananda": "Radio Ananda" },
+      };
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        jest.fn(),
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        siteConfig,
+        "Yes, specific quotes would be good",
+        undefined,
+        "auto",
+        undefined,
+        retrievalFilterCapture
+      );
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      await retrievalSequence.invoke({
+        question: "Yes, specific quotes from Radio Ananda would be good",
+        chat_history: "prior turn",
+      });
+
+      expect(similaritySearchWithScore).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(similaritySearchWithScore.mock.calls[0][2] ?? {})).not.toContain("Radio Ananda");
+      expect(retrievalFilterCapture.inferredAuthor).toBeUndefined();
+    });
+
+    it("does not drop a user-set Master/Swami collection after an empty search", async () => {
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([]);
+      mockRetriever.vectorStore = {
+        similaritySearch: jest.fn(),
+        similaritySearchWithScore,
+      } as any;
+
+      const retrievalFilterCapture: { filter?: Record<string, unknown>; inferredAuthor?: string } = {};
+      const siteConfig = { ...mockSiteConfig, includedLibraries: [] };
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        jest.fn(),
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        siteConfig,
+        undefined,
+        undefined,
+        "master_swami",
+        undefined,
+        retrievalFilterCapture
+      );
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      const result = await retrievalSequence.invoke({
+        question: "What is meditation?",
+        chat_history: "",
+      });
+
+      expect(similaritySearchWithScore).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(similaritySearchWithScore.mock.calls[0][2])).toContain("$in");
+      expect(result.documents).toEqual([]);
+      expect(retrievalFilterCapture.inferredAuthor).toBeUndefined();
+      expect(JSON.stringify(retrievalFilterCapture.filter ?? {})).toContain("$in");
+    });
+  });
 });
 
 describe("createStreamingDeadlineGuard", () => {
