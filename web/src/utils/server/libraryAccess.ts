@@ -192,6 +192,18 @@ export function clearLibraryAccessCookies(cookies: CookieSetter): void {
   cookies.set(LIBRARY_ACCESS_COOKIE, "", expired);
 }
 
+const COOKIE_ATTRIBUTE_NAMES = new Set([
+  "path",
+  "domain",
+  "expires",
+  "max-age",
+  "secure",
+  "httponly",
+  "samesite",
+  "partitioned",
+  "priority",
+]);
+
 function cookiePartsWithout(cookieHeader: string | undefined, name: string): string[] {
   const kept: string[] = [];
   if (!cookieHeader) {
@@ -204,7 +216,7 @@ function cookiePartsWithout(cookieHeader: string | undefined, name: string): str
     }
     const separator = trimmed.indexOf("=");
     const key = separator === -1 ? trimmed : trimmed.slice(0, separator).trim();
-    if (key === name) {
+    if (!key || key === name || COOKIE_ATTRIBUTE_NAMES.has(key.toLowerCase())) {
       continue;
     }
     kept.push(trimmed);

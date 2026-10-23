@@ -13,7 +13,7 @@ import { getAnswersCollectionName } from "@/utils/server/firestoreUtils";
 import { db } from "@/services/firebase";
 import { getTokenFromRequest } from "@/utils/server/jwtUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
-import { getSecureUUID } from "@/utils/server/uuidUtils";
+import { ensureAnonymousVisitorUuidCookie, getSecureUUID } from "@/utils/server/uuidUtils";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import { createIndexErrorResponse } from "@/utils/server/firestoreIndexErrorHandler";
 import { randomUUID } from "crypto";
@@ -62,12 +62,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(401).json({ error: "Authentication required. Please log in to continue." });
       }
     } else {
-      // For non-login sites, get UUID from cookies
+      // No-login sites: reuse a signed uuid cookie, or issue one on this request.
+      // Share pages skip /api/web-token on load, so the cookie may be missing.
       const uuidResult = getSecureUUID(req, res);
-      if (!uuidResult.success) {
-        return res.status(uuidResult.statusCode).json({ error: uuidResult.error });
+      if (uuidResult.success) {
+        userUuid = uuidResult.uuid;
+      } else {
+        const createdUuid = ensureAnonymousVisitorUuidCookie(req, res);
+        if (!createdUuid) {
+          return res.status(uuidResult.statusCode).json({ error: uuidResult.error });
+        }
+        userUuid = createdUuid;
       }
-      userUuid = uuidResult.uuid;
     }
 
     // TypeScript guard: db is not null at this point

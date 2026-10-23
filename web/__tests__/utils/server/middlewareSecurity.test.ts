@@ -10,6 +10,9 @@ import {
   SENSITIVE_FILE_MARKERS,
   buildContentSecurityPolicy,
   createCspNonce,
+  countCookiesInHeader,
+  requestHasTrustedNavigationOrigin,
+  EXCESSIVE_COOKIE_COUNT,
 } from "../../../src/proxy";
 import { getRequestNonce } from "@/utils/server/cspNonce";
 
@@ -136,5 +139,115 @@ describe("middleware security behavior", () => {
     const response = middleware(makeRequest("/logo.png"));
     expect(response.status).not.toBe(401);
     expect(response.headers.get("location")).toBeNull();
+  });
+});
+
+describe("cookie and referer security checks", () => {
+  const originalSiteId = process.env.SITE_ID;
+  const originalBaseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+  let warnSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    loadSiteConfigSync.mockReset();
+    loadSiteConfigSync.mockReturnValue({
+      siteId: "ananda-public",
+      requireLogin: false,
+      allowedFrontEndDomains: ["vivek.ananda.org"],
+    });
+    process.env.SITE_ID = "ananda-public";
+    process.env.NEXT_PUBLIC_BASE_URL = "https://vivek.ananda.org";
+    warnSpy = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+    if (originalSiteId === undefined) {
+      delete process.env.SITE_ID;
+    } else {
+      process.env.SITE_ID = originalSiteId;
+    }
+    if (originalBaseUrl === undefined) {
+      delete process.env.NEXT_PUBLIC_BASE_URL;
+    } else {
+      process.env.NEXT_PUBLIC_BASE_URL = originalBaseUrl;
+    }
+  });
+
+  function cookieWarningCalls(): string[] {
+    return warnSpy.mock.calls
+      .map((args) => String(args[0]))
+      .filter((message) => message.includes("Excessive number of cookies"));
+  }
+
+  function refererWarningCalls(): string[] {
+    return warnSpy.mock.calls
+      .map((args) => String(args[0]))
+      .filter((message) => message.includes("Missing or suspicious referer"));
+  }
+
+  it("counts name=value cookies and ignores reconstructed attribute tokens", () => {
+    expect(EXCESSIVE_COOKIE_COUNT).toBe(30);
+    expect(countCookiesInHeader("uuid=a; libraryAccess=b; answersViewer=c")).toBe(3);
+    expect(countCookiesInHeader("uuid=a; Path=/; HttpOnly; libraryAccess=b; Path=/; SameSite=Lax")).toBe(2);
+    expect(countCookiesInHeader("a=1; ; HttpOnly; Path=/")).toBe(1);
+
+    const elevenCookiesWithAttributes = Array.from({ length: 11 }, (_, index) => `c${index}=v${index}; Path=/; HttpOnly`).join(
+      "; "
+    );
+    expect(elevenCookiesWithAttributes.split(";").length).toBeGreaterThan(30);
+    expect(countCookiesInHeader(elevenCookiesWithAttributes)).toBe(11);
+    expect(countCookiesInHeader(Array.from({ length: 31 }, (_, index) => `c${index}=v`).join("; "))).toBe(31);
+  });
+
+  it("does not log or block a normal browser cookie header that includes attributes", () => {
+    const cookieHeader = Array.from({ length: 11 }, (_, index) => `c${index}=v${index}; Path=/; HttpOnly`).join("; ");
+    const response = middleware(makeRequest("/", { headers: { cookie: cookieHeader } }));
+
+    expect(cookieWarningCalls()).toEqual([]);
+    expect(response.status).not.toBe(403);
+  });
+
+  it("logs more than 30 real cookies but still allows the request", () => {
+    const cookieHeader = Array.from({ length: 31 }, (_, index) => `c${index}=v`).join("; ");
+    const response = middleware(makeRequest("/answers", { headers: { cookie: cookieHeader } }));
+
+    expect(cookieWarningCalls().length).toBe(1);
+    expect(response.status).not.toBe(403);
+  });
+
+  it("treats Origin as a trusted same-site POST signal when Referer is missing", () => {
+    expect(
+      requestHasTrustedNavigationOrigin(
+        makeRequest("/api/chat/v1", {
+          method: "POST",
+          headers: { origin: "https://vivek.ananda.org" },
+        })
+      )
+    ).toBe(true);
+
+    const response = middleware(
+      makeRequest("/api/chat/v1", {
+        method: "POST",
+        headers: {
+          origin: "https://vivek.ananda.org",
+          "content-type": "application/json",
+        },
+      })
+    );
+
+    expect(refererWarningCalls()).toEqual([]);
+    expect(response.status).not.toBe(403);
+  });
+
+  it("logs a POST with no Referer and no Origin but does not block it", () => {
+    const response = middleware(
+      makeRequest("/api/chat/v1", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      })
+    );
+
+    expect(refererWarningCalls().length).toBe(1);
+    expect(response.status).not.toBe(403);
   });
 });

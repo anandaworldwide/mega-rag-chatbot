@@ -17,7 +17,12 @@ import { getGreeting, getSiteName } from "@/utils/client/siteConfig";
 import { ExtendedAIMessage } from "@/types/ExtendedAIMessage";
 import { DocMetadata } from "@/types/DocMetadata";
 import { Document } from "@langchain/core/documents";
-import { fetchWithAuth, isAuthenticated, initializeTokenManager } from "@/utils/client/tokenManager";
+import {
+  ensureAnonymousUuidSynced,
+  fetchWithAuth,
+  isAuthenticated,
+  initializeTokenManager,
+} from "@/utils/client/tokenManager";
 import { getOrCreateUUID } from "@/utils/client/uuid";
 import { generateSourceId } from "@/utils/client/sourceUtils";
 
@@ -85,7 +90,9 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
     setCloneError(null);
 
     try {
-      // Ensure UUID exists in cookies for non-login-required sites
+      // Share pages skip token bootstrap. Ask web-token to set the signed uuid
+      // cookie before the clone POST, which reads that cookie on no-login sites.
+      await ensureAnonymousUuidSynced();
       getOrCreateUUID();
 
       const response = await fetchWithAuth("/api/clone-conversation", {

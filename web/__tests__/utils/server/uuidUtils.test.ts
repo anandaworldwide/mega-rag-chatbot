@@ -298,11 +298,12 @@ describe("uuidUtils", () => {
         headers: { "x-forwarded-proto": "http" },
       });
 
-      ensureAnonymousVisitorUuidCookie(req as any, res as any);
+      const created = ensureAnonymousVisitorUuidCookie(req as any, res as any);
 
       expect(mockSetCookie).toHaveBeenCalledTimes(1);
       expect(mockSetCookie.mock.calls[0][0]).toBe("uuid");
       expect(mockSetCookie.mock.calls[0][1]).toMatch(/^[0-9a-f-]{36}--[0-9a-f]{64}$/i);
+      expect(created).toMatch(/^[0-9a-f-]{36}$/i);
     });
 
     it("does not sign a client-supplied unsigned uuid", () => {
@@ -344,9 +345,10 @@ describe("uuidUtils", () => {
         cookies: { uuid: createSignedUUIDCookie(testUUID) },
       });
 
-      ensureAnonymousVisitorUuidCookie(req as any, res as any);
+      const existing = ensureAnonymousVisitorUuidCookie(req as any, res as any);
 
       expect(mockSetCookie).not.toHaveBeenCalled();
+      expect(existing).toBe(testUUID);
     });
 
     it("skips login-required sites", () => {
@@ -356,7 +358,7 @@ describe("uuidUtils", () => {
       } as any);
 
       const { req, res } = createMocks({ method: "GET", cookies: {} });
-      ensureAnonymousVisitorUuidCookie(req as any, res as any);
+      expect(ensureAnonymousVisitorUuidCookie(req as any, res as any)).toBeNull();
 
       expect(mockSetCookie).not.toHaveBeenCalled();
     });

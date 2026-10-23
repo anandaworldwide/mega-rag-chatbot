@@ -196,4 +196,15 @@ describe("library access gate", () => {
     expect(headers.get("cookie")).toBe("authToken=abc; other=keep; libraryAccess=");
     expect(overwriteCookieValue("libraryAccess=old; uuid=x", "libraryAccess", "")).toBe("uuid=x; libraryAccess=");
   });
+
+  test("request overrides drop reconstructed cookie attributes and keep uuid", () => {
+    const headers = new Headers({
+      cookie: "uuid=abc--sig; Path=/; SameSite=Lax; libraryAccess=old; Path=/; HttpOnly",
+    });
+    applyLibraryAccessRequestOverrides(headers, []);
+    expect(headers.get("cookie")).toBe("uuid=abc--sig; libraryAccess=");
+    expect(overwriteCookieValue("uuid=abc--sig; Path=/; libraryAccess=old", "libraryAccess", "new")).toBe(
+      "uuid=abc--sig; libraryAccess=new"
+    );
+  });
 });

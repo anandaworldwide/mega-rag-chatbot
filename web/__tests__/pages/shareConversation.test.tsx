@@ -1,9 +1,9 @@
 import React from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import ShareConversation from "@/pages/share/[docId]";
 import { SiteConfig } from "@/types/siteConfig";
-import { fetchWithAuth, isAuthenticated } from "@/utils/client/tokenManager";
+import { ensureAnonymousUuidSynced, fetchWithAuth, isAuthenticated } from "@/utils/client/tokenManager";
 import { loadConversationByDocId } from "@/utils/client/conversationLoader";
 import { useRouter } from "next/router";
 
@@ -48,6 +48,7 @@ jest.mock("@/utils/client/tokenManager", () => ({
   fetchWithAuth: jest.fn(),
   initializeTokenManager: jest.fn().mockResolvedValue(null),
   isAuthenticated: jest.fn(),
+  ensureAnonymousUuidSynced: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock("@/utils/client/conversationLoader", () => {
@@ -209,6 +210,35 @@ describe("ShareConversation logged-out on requireLogin false site", () => {
     expect(global.fetch).not.toHaveBeenCalledWith(`/api/document/${SHARE_ID}`);
     expect(mockLoadConversationByDocId).not.toHaveBeenCalled();
     expect(mockFetchWithAuth).not.toHaveBeenCalled();
+  });
+
+  it("syncs the signed uuid cookie before posting clone-conversation", async () => {
+    const mockEnsureAnonymousUuidSynced = ensureAnonymousUuidSynced as jest.MockedFunction<
+      typeof ensureAnonymousUuidSynced
+    >;
+    mockFetchWithAuth.mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, convId: "cloned-conv", messageCount: 1 }),
+    } as Response);
+
+    render(<ShareConversation siteConfig={noLoginSiteConfig} />);
+    expect(await screen.findByText("What is meditation?")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /clone & continue this chat/i }));
+
+    await waitFor(() => {
+      expect(mockEnsureAnonymousUuidSynced).toHaveBeenCalled();
+    });
+    expect(mockFetchWithAuth).toHaveBeenCalledWith(
+      "/api/clone-conversation",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ docId: SHARE_ID }),
+      })
+    );
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith("/chat/cloned-conv");
+    });
   });
 });
 
