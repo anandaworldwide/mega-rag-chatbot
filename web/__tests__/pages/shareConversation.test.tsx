@@ -101,6 +101,7 @@ describe("ShareConversation logged-out on requireLogin site", () => {
         hash: "",
         href: `http://localhost/share/${SHARE_ID}`,
         origin: "http://localhost",
+        assign: jest.fn(),
       },
     });
 
@@ -174,6 +175,7 @@ describe("ShareConversation logged-out on requireLogin false site", () => {
         hash: "",
         href: `http://localhost/share/${SHARE_ID}`,
         origin: "http://localhost",
+        assign: jest.fn(),
       },
     });
 
@@ -237,7 +239,7 @@ describe("ShareConversation logged-out on requireLogin false site", () => {
       })
     );
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith("/chat/cloned-conv");
+      expect(window.location.assign).toHaveBeenCalledWith("/chat/cloned-conv");
     });
   });
 });
@@ -261,6 +263,7 @@ describe("ShareConversation logged-in owner and non-owner", () => {
         hash: "",
         href: `http://localhost/share/${SHARE_ID}`,
         origin: "http://localhost",
+        assign: jest.fn(),
       },
     });
 
@@ -303,8 +306,9 @@ describe("ShareConversation logged-in owner and non-owner", () => {
       expect(mockLoadConversationByDocId).toHaveBeenCalledWith(SHARE_ID);
     });
     await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith("/", "/chat/conv-owned", { shallow: false });
+      expect(window.location.assign).toHaveBeenCalledWith("/chat/conv-owned");
     });
+    expect(mockReplace).not.toHaveBeenCalled();
     expect(global.fetch).not.toHaveBeenCalledWith(`/api/share/${SHARE_ID}`);
   });
 
@@ -347,7 +351,7 @@ describe("ShareConversation logged-in owner and non-owner", () => {
       })
     );
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith("/chat/cloned-conv");
+      expect(window.location.assign).toHaveBeenCalledWith("/chat/cloned-conv");
     });
   });
 });

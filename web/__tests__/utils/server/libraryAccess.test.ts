@@ -155,6 +155,7 @@ describe("library access gate", () => {
     });
     expect(emailFromAuthCookieHeader(`authToken=${token}`)).toBe("me@ananda.org");
     expect(emailFromAuthCookieHeader("authToken=not-a-jwt")).toBeUndefined();
+    expect(emailFromAuthCookieHeader(`authToken=parent-junk; authToken=${token}`)).toBe("me@ananda.org");
   });
 
   test("chat API applyLibraryAccessGate blocks restricted content for a user who is not on the list", () => {

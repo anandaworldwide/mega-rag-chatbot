@@ -529,7 +529,7 @@ capabilities:
 
 **Owner URLs (Full Conversation Access):**
 
-- **`/chat/[convId]`** - Shows complete ongoing conversation for the owner
+- **`/chat/[convId]`** - Shows complete ongoing conversation for the owner. This page renders the home chat UI. Do not mask-replace `/` as `/chat/{id}`: `/_next/data/{build}/chat/{id}.json` 404s for getInitialProps-only dynamic pages (Vercel `x-matched-path: /_not-found`).
 - **Behavior**: URL remains stable across follow-up messages within the same conversation
 - **Access**: Requires authentication and UUID ownership verification
 - **Features**: Full conversation history, ability to continue conversation, edit/delete capabilities

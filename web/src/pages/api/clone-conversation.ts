@@ -11,9 +11,13 @@
 import { NextApiRequest, NextApiResponse } from "next";
 import { getAnswersCollectionName } from "@/utils/server/firestoreUtils";
 import { db } from "@/services/firebase";
-import { getTokenFromRequest } from "@/utils/server/jwtUtils";
+import { getTokenFromRequest, verifyToken } from "@/utils/server/jwtUtils";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
-import { ensureAnonymousVisitorUuidCookie, getSecureUUID } from "@/utils/server/uuidUtils";
+import {
+  ensureAnonymousVisitorUuidCookie,
+  getSecureUUID,
+  resolveAuthenticatedProfileUuid,
+} from "@/utils/server/uuidUtils";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import { createIndexErrorResponse } from "@/utils/server/firestoreIndexErrorHandler";
 import { randomUUID } from "crypto";
@@ -50,14 +54,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     let userEmail: string | null = null;
 
     if (siteConfig?.requireLogin) {
-      // For login-required sites, get UUID and email from JWT token
+      // Bearer from fetchWithAuth, or the signed-in authToken cookie.
+      // Share pages skip _app token bootstrap, so one of these may be missing.
       try {
-        const tokenPayload = getTokenFromRequest(req);
-        if (!tokenPayload.uuid) {
-          return res.status(401).json({ error: "Authentication required. Please log in to continue." });
+        let tokenPayload;
+        try {
+          tokenPayload = getTokenFromRequest(req);
+        } catch {
+          const authCookie = req.cookies?.authToken;
+          if (!authCookie) {
+            return res.status(401).json({ error: "Authentication required. Please log in to continue." });
+          }
+          tokenPayload = verifyToken(authCookie);
         }
-        userUuid = tokenPayload.uuid;
-        userEmail = tokenPayload.email || null;
+        if (tokenPayload.uuid) {
+          userUuid = tokenPayload.uuid;
+          userEmail = tokenPayload.email || null;
+        } else {
+          const resolved = await resolveAuthenticatedProfileUuid(tokenPayload);
+          if (!resolved.success) {
+            return res.status(resolved.statusCode).json({ error: resolved.error });
+          }
+          userUuid = resolved.uuid;
+          userEmail = tokenPayload.email || null;
+        }
       } catch (_error) {
         return res.status(401).json({ error: "Authentication required. Please log in to continue." });
       }

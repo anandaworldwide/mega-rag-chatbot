@@ -509,6 +509,10 @@ describe("Token Manager", () => {
           },
         },
       });
+      Object.defineProperty(document, "cookie", {
+        configurable: true,
+        get: () => "hasSession=1",
+      });
 
       const validToken = createJwtToken(900);
       fetchMock
@@ -521,6 +525,36 @@ describe("Token Manager", () => {
 
       expect(response.status).toBe(401);
       expect(mockLocationAssign).toHaveBeenCalledWith("/login?redirect=%2Fdashboard");
+    });
+
+    it("does not redirect to login on 401 from /chat when there is no session cookie", async () => {
+      const mockLocationAssign = jest.fn();
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: {
+          pathname: "/chat/f0cf8eaf-6dba-442b-ae74-2777a7fd9281",
+          search: "",
+          get href() {
+            return "[REDACTED]/chat/f0cf8eaf-6dba-442b-ae74-2777a7fd9281";
+          },
+          set href(url) {
+            mockLocationAssign(url);
+          },
+        },
+      });
+      Object.defineProperty(document, "cookie", {
+        configurable: true,
+        get: () => "",
+      });
+
+      const validToken = createJwtToken(900);
+      fetchMock.mockResponseOnce(JSON.stringify({ token: validToken })).mockResponse("", { status: 401 });
+
+      await tokenManager.initializeTokenManager();
+      const response = await tokenManager.fetchWithAuth("/api/chats?convId=f0cf8eaf-6dba-442b-ae74-2777a7fd9281");
+
+      expect(response.status).toBe(401);
+      expect(mockLocationAssign).not.toHaveBeenCalled();
     });
 
     it("does not redirect to login on 401 from a public answer page", async () => {

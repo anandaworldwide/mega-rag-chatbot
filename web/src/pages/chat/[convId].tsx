@@ -1,49 +1,23 @@
 /**
- * Chat conversation route - redirects to home page
- * This handles URLs like /chat/[convId] by redirecting to the home page
- * where the URL detection logic will load the conversation and set the title
+ * /chat/[convId] is the home chat UI at a pretty URL.
+ *
+ * Do not router.replace("/", "/chat/id"). Production Vivek proves the document
+ * GET /chat/{id} is 200 (x-matched-path: /chat/[convId]) while
+ * /_next/data/{build}/chat/{id}.json?convId={id} is 404 HTML
+ * (x-matched-path: /_not-found). Same 404 without the query. The query is
+ * Next's [convId] param, not an extra client query. getInitialProps does not
+ * create a Vercel data function; getServerSideProps does (see /answers.json).
  */
 
-import { useRouter } from "next/router";
-import { useEffect } from "react";
+import Home from "../index";
+import { GetServerSideProps } from "next";
 import { getCommonSiteConfigProps } from "@/utils/server/getCommonSiteConfigProps";
+import { SiteConfig } from "@/types/siteConfig";
 
-export default function ChatConversation() {
-  const router = useRouter();
-
-  useEffect(() => {
-    if (!router.isReady) {
-      return;
-    }
-
-    const { convId } = router.query;
-    if (!convId || typeof convId !== "string") {
-      router.replace("/");
-      return;
-    }
-
-    // Preserve hash fragment if present (for source deep linking)
-    const hash = typeof window !== "undefined" ? window.location.hash : "";
-    const targetPath = hash ? `/chat/${convId}${hash}` : `/chat/${convId}`;
-
-    // Navigate to home page, preserving the /chat/[convId] path and hash in the URL
-    // The home page will detect this path and load the conversation
-    // Use replace with the 'as' parameter to show /chat/[convId] in the URL
-    // but render the home page component
-    router.replace("/", targetPath, { shallow: false });
-  }, [router.isReady, router.query, router]);
-
-  // Simple loading display (no title setting to avoid flashing)
-  return (
-    <div className="flex justify-center items-center h-screen">
-      <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-blue-600"></div>
-      <p className="text-lg text-gray-600 ml-4">Loading conversation...</p>
-    </div>
-  );
+export default function ChatConversation(props: { siteConfig: SiteConfig | null }) {
+  return <Home {...props} />;
 }
 
-// Fetch initial props for the page
-ChatConversation.getInitialProps = async () => {
-  const result = await getCommonSiteConfigProps();
-  return result.props;
+export const getServerSideProps: GetServerSideProps<{ siteConfig: SiteConfig | null }> = async () => {
+  return getCommonSiteConfigProps();
 };

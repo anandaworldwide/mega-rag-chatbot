@@ -440,6 +440,11 @@ async function fetchWithRetry(url: string, options?: RequestInit, retryCount = 0
       if (isPublicShareOrAnswerPath(window.location.pathname)) {
         return response;
       }
+      // No-login sites (Vivek) have no session cookie. Show the API error
+      // instead of sending the user to /login after a clone load 401.
+      if (typeof document !== "undefined" && !document.cookie.includes("hasSession=")) {
+        return response;
+      }
       // Save current full path (path + search) for redirect after login
       const fullPath = window.location.pathname + (window.location.search || "");
       window.location.href = `/login?redirect=${encodeURIComponent(fullPath)}`;
@@ -450,7 +455,13 @@ async function fetchWithRetry(url: string, options?: RequestInit, retryCount = 0
   } catch (error) {
     // Handle AuthenticationError from token refresh - redirect to login
     if (error instanceof AuthenticationError && error.shouldRedirect) {
-      if (window.location.pathname !== "/login" && !isPublicShareOrAnswerPath(window.location.pathname)) {
+      const hasSession =
+        typeof document !== "undefined" && document.cookie.includes("hasSession=");
+      if (
+        window.location.pathname !== "/login" &&
+        !isPublicShareOrAnswerPath(window.location.pathname) &&
+        hasSession
+      ) {
         const fullPath = window.location.pathname + (window.location.search || "");
         window.location.href = `/login?redirect=${encodeURIComponent(fullPath)}`;
       }
