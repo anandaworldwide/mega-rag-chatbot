@@ -9,6 +9,7 @@ import {
   normalizeTitleScopeSegment,
   normalizeTitleScopeInput,
   rankTitleScopeSuggestions,
+  resolveTitleScopeSelection,
   getIncludedLibraryNames,
   computeTitleScopeFilterConflictPayload,
   clearTitleCatalogCache,
@@ -55,6 +56,16 @@ describe("normalizeTitleScopeInput", () => {
 describe("rankTitleScopeSuggestions", () => {
   it("returns an empty list for an empty query", () => {
     expect(rankTitleScopeSuggestions([makeEntry()], "")).toEqual([]);
+  });
+
+  it("does not treat the site/library name as a title scope", () => {
+    const entry = makeEntry({
+      canonicalPrefix: "Ananda Libraries",
+      normalizedPrefix: "ananda libraries",
+      normalizedSearchText: "ananda libraries",
+    });
+    expect(rankTitleScopeSuggestions([entry], "Ananda Libraries")).toEqual([]);
+    expect(rankTitleScopeSuggestions([entry], "the Ananda Library")).toEqual([]);
   });
 
   it("ranks an exact match highest", () => {
@@ -122,6 +133,17 @@ describe("rankTitleScopeSuggestions", () => {
     const suggestions = rankTitleScopeSuggestions([entry], "Bible Genesis");
     expect(suggestions[0]?.canonicalPrefix).toBe("Bible:: Old Testament:: Book of Genesis");
     expect(suggestions[0]?.matchType).toBe("ordered_tokens");
+  });
+});
+
+describe("resolveTitleScopeSelection", () => {
+  it("does not resolve the site/library name as a title selection", async () => {
+    await expect(
+      resolveTitleScopeSelection("ananda", { userInput: "the Ananda Libraries" })
+    ).resolves.toBeNull();
+    await expect(
+      resolveTitleScopeSelection("ananda", { canonicalPrefix: "Ananda Library", displayTitle: "Ananda Library" })
+    ).resolves.toBeNull();
   });
 });
 

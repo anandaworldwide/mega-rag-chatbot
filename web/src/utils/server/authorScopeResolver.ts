@@ -6,6 +6,7 @@ import {
   AuthorScopeMode,
   MASTER_SWAMI_AUTHORS,
 } from "@/utils/server/authorConstants";
+import { isSiteLibraryBrandToken, isSiteLibraryName } from "@/utils/server/siteLibraryName";
 
 export type ResolveAuthorScopeInput = {
   question: string;
@@ -60,6 +61,9 @@ export function findExplicitAuthorMatch(
   };
   const aliasEntries = Object.entries(aliases).sort(([left], [right]) => right.length - left.length);
   for (const [alias, author] of aliasEntries) {
+    if (isSiteLibraryBrandToken(alias) || isSiteLibraryName(author)) {
+      continue;
+    }
     if (hasWordBoundaryMatch(question, alias)) {
       return author;
     }
@@ -69,6 +73,9 @@ export function findExplicitAuthorMatch(
     (a, b) => b.length - a.length
   );
   for (const author of authorCandidates) {
+    if (isSiteLibraryBrandToken(author)) {
+      continue;
+    }
     if (hasWordBoundaryMatch(question, author)) {
       return author;
     }
@@ -76,9 +83,12 @@ export function findExplicitAuthorMatch(
 
   const titleCandidates = [...knownTitles].sort((a, b) => b.length - a.length);
   for (const title of titleCandidates) {
+    if (isSiteLibraryName(title)) {
+      continue;
+    }
     if (hasWordBoundaryMatch(question, title)) {
       const mappedAuthor = aliases[title.toLowerCase()];
-      if (mappedAuthor) {
+      if (mappedAuthor && !isSiteLibraryName(mappedAuthor)) {
         return mappedAuthor;
       }
     }

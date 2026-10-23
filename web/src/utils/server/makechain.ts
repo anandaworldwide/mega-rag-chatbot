@@ -102,6 +102,7 @@ import {
   type RetrievalFilterCapture,
 } from "./authorScopeRetrieval";
 import { getCondenseTemplateWithAuthorScope, invokeRephraseWithAuthorScope } from "./rephraseWithAuthorScope";
+import { extractQuotedSpanForEmbedding, resolveEmbeddingQuery } from "./quotedSpanEmbedding";
 import {
   formatRelevanceCutoffLog,
   getEffectiveMinRetrievalScore,
@@ -391,6 +392,10 @@ Examples of location clarifications that should be reformulated:
   → Output: "Is there an Ananda center near Berkeley, California?"
 - Input: "My address is 123 Main Street, Portland, Oregon" (after asking about local groups)
   → Output: "Are there Ananda meditation groups near 123 Main Street, Portland, Oregon?"
+
+SPECIAL HANDLING FOR QUOTED SPANS: If the follow up input contains a quoted phrase or sentence (text inside quotation marks), the standalone question MUST be that quoted text alone. Do not rewrite it as a request for a quotation. Do not wrap it in "Can you provide", "What is the exact", or author names.
+
+SPECIAL HANDLING FOR QUOTE REQUESTS WITHOUT A QUOTED SPAN: If the user asks for an exact quote, more quotes, a first sentence, a chapter, or where a passage lives, keep the topical substance from the conversation. Do not replace the question with a generic request such as "Can you provide more direct quotes from [authors]?"
 
 <chat_history>
   {chat_history}
@@ -865,6 +870,10 @@ Error details: ${errorString}`,
       const allDocuments: Document[] = [];
       const minRetrievalScore = getEffectiveMinRetrievalScore(siteConfig, baseFilter);
       let retrievalRelevance = emptyRelevanceStats();
+      const embeddingQuery = resolveEmbeddingQuery(
+        capturedUserUtterance || originalQuestion || input.question,
+        input.question
+      );
       try {
         // Only treat "auto" as a blend trigger when the site has opted in. Otherwise a stray
         // collection="auto" from a non-auto site must fall back to whole_library, not blend.
@@ -934,7 +943,7 @@ Error details: ${errorString}`,
           const { documents: blendedDocs, debug: blendRetrievalDebug, relevance: blendRelevance } =
             await retrieveWithAuthorScopeBlend(
             retriever,
-            input.question,
+            embeddingQuery,
             sourceCount,
             baseFilter,
             scopeDescriptor.masterSwamiBoost,
@@ -972,7 +981,7 @@ Error details: ${errorString}`,
 
           const { documents: docs, relevance: standardRelevance } = await runStandardRetrieval(
             retriever,
-            input.question,
+            embeddingQuery,
             sourceCount,
             searchFilter,
             includedLibraries,
@@ -993,8 +1002,8 @@ Error details: ${errorString}`,
         const reason = resolveNoSourcesReason(retrievalRelevance);
         const warningMsg =
           reason === "low_relevance"
-            ? `⚠️ NO SOURCES: All ${retrievalRelevance.rawHitCount} retrieved documents were below minRetrievalScore (${minRetrievalScore}) for question: "${input.question.substring(0, 100)}..."`
-            : `⚠️ NO SOURCES: No documents retrieved for question: "${input.question.substring(0, 100)}..."`;
+            ? `⚠️ NO SOURCES: All ${retrievalRelevance.rawHitCount} retrieved documents were below minRetrievalScore (${minRetrievalScore}) for question: "${embeddingQuery.substring(0, 100)}..."`
+            : `⚠️ NO SOURCES: No documents retrieved for question: "${embeddingQuery.substring(0, 100)}..."`;
         console.warn(warningMsg);
         if (reason === "low_relevance" && minRetrievalScore !== undefined) {
           console.warn(formatRelevanceCutoffLog(minRetrievalScore, retrievalRelevance));
@@ -1271,6 +1280,13 @@ Error details: ${errorString}`,
         if (socialMatch) {
           capturedRestatedQuestion = input.question; // Store for later
           return input.question; // Don't reformulate social messages
+        }
+
+        // Quoted spans must be embedded as the span itself. Skip condense so it
+        // cannot replace the passage with a request for a quotation.
+        if (extractQuotedSpanForEmbedding(input.question)) {
+          capturedRestatedQuestion = input.question;
+          return input.question;
         }
 
         if (input.chat_history.length === 0) {
