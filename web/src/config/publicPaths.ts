@@ -21,14 +21,22 @@ export interface PublicPathsConfig {
   /**
    * API endpoints that bypass middleware authentication.
    *
-   * These endpoints are accessible without authentication at the middleware level,
-   * but may enforce their own role-based authorization internally.
-   *
-   * For example, /api/answers:
-   * - On no-login sites: Endpoint allows public access
-   * - On login-required sites: Endpoint restricts to superuser role
+   * These endpoints are accessible without a session cookie at the middleware
+   * level. Handlers may still enforce their own authorization.
    */
   alwaysPublicApis: string[];
+
+  /**
+   * Pages that are public only when siteConfig.requireLogin is false.
+   * Login-required sites keep these paths cookie-gated at the proxy.
+   */
+  noLoginPublicPages: string[];
+
+  /**
+   * API endpoints that are public only when siteConfig.requireLogin is false.
+   * Login-required sites refuse these paths at the proxy.
+   */
+  noLoginPublicApis: string[];
 
   /**
    * Static asset paths that should always be accessible
@@ -53,13 +61,15 @@ export const PUBLIC_PATHS: PublicPathsConfig = {
     "/share/", // Public share pages
     "/request-submitted",
     "/verify-email-change",
+    // List page is public at the proxy so the password form can render.
+    // Handler and getServerSideProps still gate access.
+    "/answers",
   ],
 
   // API endpoints that are always accessible
   alwaysPublicApis: [
     "/api/get-token",
     "/api/web-token",
-    "/api/answers",
     "/api/contact",
     "/api/auth/requestPasswordReset",
     "/api/auth/resetPassword",
@@ -78,7 +88,18 @@ export const PUBLIC_PATHS: PublicPathsConfig = {
     "/api/redirect/",
     "/api/manifest.json",
     "/api/apple-touch-icon",
+    // Viewer password POST. Handler still rate-limits and checks the password.
+    "/api/answers/viewer",
+    // GET list is public at the proxy so a viewer cookie can reach the handler.
+    // DELETE still requires JWT plus privileged checks in the handler.
+    "/api/answers",
   ],
+
+  // Reserved for paths that are public only on no-login sites.
+  noLoginPublicPages: [],
+
+  // Reserved for APIs that are public only on no-login sites.
+  noLoginPublicApis: [],
 
   // Static assets that should always be accessible
   staticAssets: [

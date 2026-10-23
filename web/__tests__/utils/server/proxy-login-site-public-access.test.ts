@@ -168,7 +168,6 @@ describe("proxy login-site public access (real ananda/jairam config)", () => {
         { path: "/api/apple-touch-icon" },
         { path: `/answers/${shareId}` },
         { path: `/_next/data/test-build/answers/${shareId}.json` },
-        { path: `/api/answers?answerIds=${shareId}` },
       ];
 
       for (const { path, method } of shareAndAnswerRequests) {
@@ -186,6 +185,13 @@ describe("proxy login-site public access (real ananda/jairam config)", () => {
       expect(proxy(makeRequest("/api/relatedQuestions")).status).toBe(401);
       expect(proxy(makeRequest("/api/getAudioSignedUrl", { method: "POST" })).status).toBe(401);
       expect(proxy(makeRequest("/api/getPdfSignedUrl", { method: "POST" })).status).toBe(401);
+
+      const answersPage = proxy(makeRequest("/answers"));
+      const answersApi = proxy(makeRequest(`/api/answers?answerIds=${shareId}`));
+      const viewerApi = proxy(makeRequest("/api/answers/viewer", { method: "POST" }));
+      expect(isDenied(answersPage)).toBe(false);
+      expect(isDenied(answersApi)).toBe(false);
+      expect(isDenied(viewerApi)).toBe(false);
 
       for (const path of ["/", "/settings"]) {
         const response = proxy(makeRequest(path));
@@ -219,6 +225,18 @@ describe("proxy no-login site public share (real ananda-public config)", () => {
     expect(isDenied(page)).toBe(false);
     expect(shareApi.status).toBe(200);
     expect(isDenied(shareApi)).toBe(false);
+  });
+
+  it("lets logged-out GET /answers and GET /api/answers through when requireLogin is false", () => {
+    const config = loadSiteConfigSync("ananda-public");
+    expect(config).not.toBeNull();
+    expect(config?.requireLogin).toBe(false);
+
+    process.env.SITE_ID = "ananda-public";
+    const answersPage = proxy(makeRequest("/answers"));
+    const answersApi = proxy(makeRequest("/api/answers"));
+    expect(isDenied(answersPage)).toBe(false);
+    expect(isDenied(answersApi)).toBe(false);
   });
 });
 

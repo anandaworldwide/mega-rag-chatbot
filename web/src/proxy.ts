@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import { getClientIp } from "@/utils/server/ipUtils";
 import { createErrorCorsHeaders, handleCors, addCorsHeaders } from "@/utils/server/corsMiddleware";
-import { getAllPublicPaths } from "@/config/publicPaths";
+import { getAllPublicPaths, PUBLIC_PATHS } from "@/config/publicPaths";
 import { isVercelCronPath } from "@/config/cronPaths";
 import { bearerMatchesCronSecret } from "@/utils/server/cronBearer";
 import jwt from "jsonwebtoken";
@@ -280,8 +280,10 @@ export function proxy(req: NextRequest) {
 
   const { requireLogin } = siteConfig;
 
-  // Get centralized list of public paths
-  const allowed_paths_starts = getAllPublicPaths();
+  // Get centralized list of public paths. No-login sites also add noLogin paths.
+  const allowed_paths_starts = requireLogin
+    ? getAllPublicPaths()
+    : [...getAllPublicPaths(), ...PUBLIC_PATHS.noLoginPublicPages, ...PUBLIC_PATHS.noLoginPublicApis];
 
   // Check if the current path requires authentication (relative to /web)
   const pathname_is_private =

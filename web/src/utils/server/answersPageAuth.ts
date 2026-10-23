@@ -2,16 +2,16 @@ import { NextApiRequest, NextApiResponse } from "next";
 import { SiteConfig } from "@/types/siteConfig";
 import { getRequesterRole } from "@/utils/server/authz";
 import { getSudoCookie } from "@/utils/server/sudoCookieUtils";
+import { hasValidAnswersViewerCookie } from "@/utils/server/answersViewerAuth";
 
 /**
- * Determines if the current user is allowed to access the answers page
+ * Determines if the current user is allowed to access the answers list
  * based on site configuration and user authentication status.
  *
- * Access Rules:
- * 1. Login-required sites: Only admins and superusers can access
- * 2. No-login sites:
- *    - If allowPublicAnswersPage is true: Anyone can access
- *    - If allowPublicAnswersPage is false/undefined: Only sudo users can access
+ * Access Rules (all sites):
+ * 1. Privileged callers: valid sudo cookie, or admin/superuser role
+ * 2. Shared viewer cookie when ANSWERS_VIEWER_PASSWORD is set
+ * 3. All other callers are refused
  *
  * @param req - The Next.js API request object
  * @param res - The Next.js API response object (optional, used for sudo cookie)
@@ -27,14 +27,28 @@ export async function isAnswersPageAllowed(
     return false;
   }
 
-  if (siteConfig.requireLogin) {
-    // Login-required sites: admins and superusers can access
-    const role = getRequesterRole(req);
-    return role === "admin" || role === "superuser";
-  } else {
-    // No-login sites: anyone can access (not advertised, but accessible)
+  if (canReadAnswerVisitorFields(req, res)) {
     return true;
   }
+
+  return hasValidAnswersViewerCookie(req, res);
+}
+
+/**
+ * Returns whether the caller may see visitor fields on answers.
+ * Privileged callers have a valid sudo cookie or an admin/superuser role.
+ */
+export function canReadAnswerVisitorFields(
+  req: NextApiRequest,
+  res: NextApiResponse | undefined
+): boolean {
+  const sudo = getSudoCookie(req, res);
+  if (sudo.sudoCookieValue) {
+    return true;
+  }
+
+  const role = getRequesterRole(req);
+  return role === "admin" || role === "superuser";
 }
 
 /**

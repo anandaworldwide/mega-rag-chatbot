@@ -52,7 +52,24 @@ export function paginateSearchResults<T>(
   };
 }
 
-export function mapAnswerDocToAnswer(doc: firebase.firestore.QueryDocumentSnapshot): Answer {
+const VISITOR_ANSWER_FIELDS = ["ip", "uuid", "history"] as const;
+
+export interface AnswerMapOptions {
+  includeVisitorFields?: boolean;
+}
+
+function omitVisitorFields<T extends Record<string, unknown>>(data: T): T {
+  const sanitized = { ...data };
+  for (const field of VISITOR_ANSWER_FIELDS) {
+    delete sanitized[field];
+  }
+  return sanitized;
+}
+
+export function mapAnswerDocToAnswer(
+  doc: firebase.firestore.QueryDocumentSnapshot,
+  options: AnswerMapOptions = {}
+): Answer {
   const data = doc.data();
   let sources: Document[] = [];
 
@@ -64,7 +81,7 @@ export function mapAnswerDocToAnswer(doc: firebase.firestore.QueryDocumentSnapsh
     }
   }
 
-  return {
+  const mapped = {
     id: doc.id,
     question: data.question,
     answer: data.answer,
@@ -72,24 +89,32 @@ export function mapAnswerDocToAnswer(doc: firebase.firestore.QueryDocumentSnapsh
     sources: sources as Document<Record<string, unknown>>[],
     vote: data.vote,
     collection: data.collection,
-    ip: data.ip,
     relatedQuestionsV2: data.relatedQuestionsV2 || [],
     related_questions: data.related_questions,
     adminAction: data.adminAction,
     adminActionTimestamp: data.adminActionTimestamp,
-    history: data.history || undefined,
     feedbackReason: data.feedbackReason,
     feedbackComment: data.feedbackComment,
     feedbackTimestamp: data.feedbackTimestamp,
     isStarred: data.isStarred || false,
-  } as Answer;
+  } as Answer & Record<string, unknown>;
+
+  if (options.includeVisitorFields) {
+    mapped.ip = data.ip;
+    mapped.uuid = data.uuid;
+    mapped.history = data.history;
+    return mapped as Answer;
+  }
+
+  return omitVisitorFields(mapped) as Answer;
 }
 
 export async function searchAnswersByQuestion(
   q: string,
   daysBack: number,
   page: number,
-  limit: number
+  limit: number,
+  options: AnswerMapOptions = {}
 ): Promise<SearchAnswersResult> {
   if (!db) {
     throw new Error("Database not available");
@@ -130,7 +155,7 @@ export async function searchAnswersByQuestion(
       scannedCount += 1;
       const data = doc.data();
       if (questionMatchesSearch(data.question || "", normalizedQuery)) {
-        matches.push(mapAnswerDocToAnswer(doc));
+        matches.push(mapAnswerDocToAnswer(doc, options));
       }
 
       if (scannedCount >= ANSWERS_SEARCH_MAX_SCAN) {
@@ -164,7 +189,7 @@ export async function searchAnswersByQuestion(
 
 // Fetches answers from Firestore based on an array of IDs
 // Uses batching to optimize database queries
-export async function getAnswersByIds(ids: string[]): Promise<Answer[]> {
+export async function getAnswersByIds(ids: string[], options: AnswerMapOptions = {}): Promise<Answer[]> {
   // Check if db is available
   if (!db) {
     throw new Error("Database not available");
@@ -184,7 +209,8 @@ export async function getAnswersByIds(ids: string[]): Promise<Answer[]> {
     );
 
     snapshot.forEach((doc: any) => {
-      const data = doc.data() as Omit<Answer, "id">;
+      const rawData = doc.data() as Omit<Answer, "id"> & Record<string, unknown>;
+      const data = options.includeVisitorFields ? { ...rawData } : omitVisitorFields(rawData);
       // Parse and clean up sources data
       data.sources = parseAndRemoveWordsFromSources(data.sources as string | Document<DocMetadata>[] | undefined);
 
@@ -198,11 +224,11 @@ export async function getAnswersByIds(ids: string[]): Promise<Answer[]> {
 
       answers.push({
         id: doc.id,
-        ...data,
+        ...(data as Omit<Answer, "id">),
         // Explicitly include feedback fields from data if they exist
-        feedbackReason: data.feedbackReason,
-        feedbackComment: data.feedbackComment,
-        feedbackTimestamp: data.feedbackTimestamp,
+        feedbackReason: data.feedbackReason as Answer["feedbackReason"],
+        feedbackComment: data.feedbackComment as Answer["feedbackComment"],
+        feedbackTimestamp: data.feedbackTimestamp as Answer["feedbackTimestamp"],
       });
     });
   }

@@ -40,7 +40,20 @@ export const isPublicPage = (path: string, siteConfig: SiteConfig | null): boole
  * @param siteConfig The site configuration object
  * @returns True if the endpoint is public, false if it requires authentication
  */
-export const isPublicEndpoint = (url: string, method: string): boolean => {
+export const isPublicEndpoint = (
+  url: string,
+  method: string,
+  _siteConfig?: SiteConfig | null
+): boolean => {
+  if (url.includes("/api/answers/viewer")) {
+    return true;
+  }
+
+  const isAnswersListApi = url.includes("/api/answers") && !url.includes("/api/answers/");
+  if (isAnswersListApi) {
+    return method.toUpperCase() === "GET";
+  }
+
   // Check against centralized public API paths
   if (PUBLIC_PATHS.alwaysPublicApis.some((apiPath) => url.includes(apiPath))) {
     return true;
@@ -51,10 +64,7 @@ export const isPublicEndpoint = (url: string, method: string): boolean => {
     return false;
   }
 
-  // Answers GET requests are public
-  if (url.includes("/api/answers") && method === "GET") {
-    return true;
-  }
+  // /api/document stays cookie-gated.
 
   if (url.includes("/api/getAudioSignedUrl") || url.includes("/api/getPdfSignedUrl")) {
     return true;

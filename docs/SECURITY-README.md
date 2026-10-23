@@ -140,7 +140,18 @@ The system supports two types of authentication which can be used independently 
 Some endpoints require JWT authentication but not siteAuth cookies, such as:
 
 - `/api/contact`: Allows contact form submissions from non-logged-in users
-- `/api/answers/[id]`: Allows access to publicly shared answers
+- `/api/share/[id]`: Allows access to publicly shared answers
+- `/api/answers`: Private on all sites. GET is allowed for privileged callers
+  (valid sudo cookie, or admin/superuser role) and for callers with a valid
+  answers viewer cookie. The shared viewer password lives in
+  `ANSWERS_VIEWER_PASSWORD` (server only). When that value is empty, viewer
+  access is off. The password is accepted only in a POST body to
+  `/api/answers/viewer`. The process never logs the password. A correct
+  password sets a signed `answersViewer` cookie (`httpOnly`, `Secure`,
+  `SameSite=strict`, 30-day expiry). The cookie signature uses a key derived
+  from the password, so a password change invalidates old cookies. Visitor
+  fields (`ip`, `uuid`, `history`) are returned only to privileged callers.
+  Viewers can read answers but cannot DELETE or write.
 - `/api/login`: Handles user authentication (still requires JWT for frontend verification)
 - `/api/logout`: Handles user logout (still requires JWT for frontend verification)
 

@@ -30,6 +30,8 @@ export type Answer = {
   collection?: string;
   // Optional IP address of the user who submitted the question
   ip?: string;
+  // Optional visitor UUID. Returned only to privileged callers.
+  uuid?: string;
 
   // Optional admin action taken on this answer
   adminAction?: AdminAction;
