@@ -101,6 +101,7 @@ describe("ShareConversation logged-out on requireLogin site", () => {
         hash: "",
         href: `http://localhost/share/${SHARE_ID}`,
         origin: "http://localhost",
+        assign: jest.fn(),
       },
     });
 
@@ -174,6 +175,7 @@ describe("ShareConversation logged-out on requireLogin false site", () => {
         hash: "",
         href: `http://localhost/share/${SHARE_ID}`,
         origin: "http://localhost",
+        assign: jest.fn(),
       },
     });
 
@@ -237,7 +239,7 @@ describe("ShareConversation logged-out on requireLogin false site", () => {
       })
     );
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith("/chat/cloned-conv");
+      expect(window.location.assign).toHaveBeenCalledWith("/chat/cloned-conv");
     });
   });
 });
@@ -261,6 +263,7 @@ describe("ShareConversation logged-in owner and non-owner", () => {
         hash: "",
         href: `http://localhost/share/${SHARE_ID}`,
         origin: "http://localhost",
+        assign: jest.fn(),
       },
     });
 
@@ -347,7 +350,7 @@ describe("ShareConversation logged-in owner and non-owner", () => {
       })
     );
     await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith("/chat/cloned-conv");
+      expect(window.location.assign).toHaveBeenCalledWith("/chat/cloned-conv");
     });
   });
 });

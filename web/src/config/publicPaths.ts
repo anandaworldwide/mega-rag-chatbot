@@ -93,6 +93,10 @@ export const PUBLIC_PATHS: PublicPathsConfig = {
     // GET list is public at the proxy so a viewer cookie can reach the handler.
     // DELETE still requires JWT plus privileged checks in the handler.
     "/api/answers",
+    // Share-page clone. Handler still requires a Luca JWT uuid or a Vivek
+    // signed uuid cookie (it mints one when the cookie is missing).
+    // Left out of this list, Luca proxy 401s the POST before the handler runs.
+    "/api/clone-conversation",
   ],
 
   // Reserved for paths that are public only on no-login sites.

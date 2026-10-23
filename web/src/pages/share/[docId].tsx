@@ -114,14 +114,15 @@ export default function ShareConversation({ siteConfig }: ShareConversationProps
       // Log analytics event
       logEvent("conversation_cloned", "Sharing", docId, data.messageCount);
 
-      // Redirect to the new conversation
-      router.push(`/chat/${data.convId}`);
+      // Full document load. Client router.push hits
+      // /_next/data/{build}/chat/{id}.json?convId={id} which 404s.
+      window.location.assign(`/chat/${data.convId}`);
     } catch (error) {
       console.error("Error cloning conversation:", error);
       setCloneError(error instanceof Error ? error.message : "Failed to clone conversation");
       setIsCloning(false);
     }
-  }, [docId, router]);
+  }, [docId]);
 
   // Function to handle clone button click
   const handleCloneClick = useCallback(() => {

@@ -39,4 +39,10 @@ describe("authConfig answers list access", () => {
     expect(isPublicPage("/answers", noLoginConfig)).toBe(true);
     expect(isPublicPage("/answers", loginConfig)).toBe(true);
   });
+
+  it("treats POST /api/clone-conversation as public so the share page can reach the handler", () => {
+    expect(PUBLIC_PATHS.alwaysPublicApis).toContain("/api/clone-conversation");
+    expect(isPublicEndpoint("/api/clone-conversation", "POST", noLoginConfig)).toBe(true);
+    expect(isPublicEndpoint("/api/clone-conversation", "POST", loginConfig)).toBe(true);
+  });
 });
