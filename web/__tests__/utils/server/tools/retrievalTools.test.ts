@@ -480,6 +480,27 @@ describe("retrievalTools", () => {
       ).toBe(false);
     });
 
+    it("treats a short looking-up or fetching status line as incomplete even without the word sources", () => {
+      expect(isIncompleteRetrievalAnswer("Looking up the teachings on this topic.")).toBe(true);
+      expect(isIncompleteRetrievalAnswer("Fetching the requested teachings from the library.")).toBe(
+        true
+      );
+      expect(isIncompleteRetrievalAnswer("Checking the library for this question.")).toBe(true);
+    });
+
+    it("treats I-still-need plus pulling-nearby / tighter-search progress as incomplete", () => {
+      expect(
+        isIncompleteRetrievalAnswer(
+          "I still need clearer Gita quotes and a short story from Master or Swamiji; pulling nearby passages and a tighter search...."
+        )
+      ).toBe(true);
+      expect(
+        isIncompleteRetrievalAnswer(
+          "I still need clearer quotes; pulling nearby passages and a tighter search."
+        )
+      ).toBe(true);
+    });
+
     it("treats spaced and glued Fetching-more status lines as incomplete", () => {
       expect(
         isIncompleteRetrievalAnswer(
