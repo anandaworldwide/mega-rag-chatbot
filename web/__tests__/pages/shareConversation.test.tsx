@@ -319,4 +319,35 @@ describe("ShareConversation logged-in owner and non-owner", () => {
     });
     expect(mockReplace).not.toHaveBeenCalled();
   });
+
+  it("syncs auth before clone on a login-required site for a non-owner", async () => {
+    const mockFetchWithAuth = fetchWithAuth as jest.MockedFunction<typeof fetchWithAuth>;
+    const mockEnsureAnonymousUuidSynced = ensureAnonymousUuidSynced as jest.MockedFunction<
+      typeof ensureAnonymousUuidSynced
+    >;
+    mockLoadConversationByDocId.mockRejectedValue(new Error("Document not found"));
+    mockFetchWithAuth.mockResolvedValue({
+      ok: true,
+      json: async () => ({ success: true, convId: "cloned-conv", messageCount: 1 }),
+    } as Response);
+
+    render(<ShareConversation siteConfig={mockSiteConfig} />);
+    expect(await screen.findByText("What is meditation?")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /clone & continue this chat/i }));
+
+    await waitFor(() => {
+      expect(mockEnsureAnonymousUuidSynced).toHaveBeenCalled();
+    });
+    expect(mockFetchWithAuth).toHaveBeenCalledWith(
+      "/api/clone-conversation",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ docId: SHARE_ID }),
+      })
+    );
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith("/chat/cloned-conv");
+    });
+  });
 });

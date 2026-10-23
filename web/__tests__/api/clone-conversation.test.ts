@@ -114,6 +114,7 @@ describe("/api/clone-conversation", () => {
     expect(jsonMock).toHaveBeenCalledWith({
       error: "Authentication required. Please log in to continue.",
     });
+    expect(ensureAnonymousVisitorUuidCookie).not.toHaveBeenCalled();
   });
 
   it("should reject requests without email in token", async () => {

@@ -207,4 +207,12 @@ describe("library access gate", () => {
       "uuid=abc--sig; libraryAccess=new"
     );
   });
+
+  test("request overrides keep authToken on a login-site cookie header with attributes", () => {
+    const headers = new Headers({
+      cookie: "authToken=jwt-value; Path=/; HttpOnly; hasSession=1; Path=/; uuid=abc--sig; Path=/; libraryAccess=old",
+    });
+    applyLibraryAccessRequestOverrides(headers, []);
+    expect(headers.get("cookie")).toBe("authToken=jwt-value; hasSession=1; uuid=abc--sig; libraryAccess=");
+  });
 });

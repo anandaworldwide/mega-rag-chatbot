@@ -147,15 +147,35 @@ describe("cookie and referer security checks", () => {
   const originalBaseUrl = process.env.NEXT_PUBLIC_BASE_URL;
   let warnSpy: jest.SpyInstance;
 
-  beforeEach(() => {
-    loadSiteConfigSync.mockReset();
-    loadSiteConfigSync.mockReturnValue({
+  const sites = [
+    {
+      name: "no-login Vivek",
       siteId: "ananda-public",
       requireLogin: false,
-      allowedFrontEndDomains: ["vivek.ananda.org"],
+      host: "vivek.ananda.org",
+      baseUrl: "https://vivek.ananda.org",
+    },
+    {
+      name: "login Luca",
+      siteId: "ananda",
+      requireLogin: true,
+      host: "luca.ananda.org",
+      baseUrl: "https://luca.ananda.org",
+    },
+  ] as const;
+
+  function configureSite(site: (typeof sites)[number]) {
+    loadSiteConfigSync.mockReset();
+    loadSiteConfigSync.mockReturnValue({
+      siteId: site.siteId,
+      requireLogin: site.requireLogin,
+      allowedFrontEndDomains: [site.host],
     });
-    process.env.SITE_ID = "ananda-public";
-    process.env.NEXT_PUBLIC_BASE_URL = "https://vivek.ananda.org";
+    process.env.SITE_ID = site.siteId;
+    process.env.NEXT_PUBLIC_BASE_URL = site.baseUrl;
+  }
+
+  beforeEach(() => {
     warnSpy = jest.spyOn(console, "warn").mockImplementation(() => undefined);
   });
 
@@ -188,7 +208,7 @@ describe("cookie and referer security checks", () => {
   it("counts name=value cookies and ignores reconstructed attribute tokens", () => {
     expect(EXCESSIVE_COOKIE_COUNT).toBe(30);
     expect(countCookiesInHeader("uuid=a; libraryAccess=b; answersViewer=c")).toBe(3);
-    expect(countCookiesInHeader("uuid=a; Path=/; HttpOnly; libraryAccess=b; Path=/; SameSite=Lax")).toBe(2);
+    expect(countCookiesInHeader("authToken=jwt; Path=/; HttpOnly; hasSession=1; Path=/; SameSite=Lax")).toBe(2);
     expect(countCookiesInHeader("a=1; ; HttpOnly; Path=/")).toBe(1);
 
     const elevenCookiesWithAttributes = Array.from({ length: 11 }, (_, index) => `c${index}=v${index}; Path=/; HttpOnly`).join(
@@ -199,7 +219,8 @@ describe("cookie and referer security checks", () => {
     expect(countCookiesInHeader(Array.from({ length: 31 }, (_, index) => `c${index}=v`).join("; "))).toBe(31);
   });
 
-  it("does not log or block a normal browser cookie header that includes attributes", () => {
+  it.each(sites)("$name does not log or block a cookie header that includes attributes", (site) => {
+    configureSite(site);
     const cookieHeader = Array.from({ length: 11 }, (_, index) => `c${index}=v${index}; Path=/; HttpOnly`).join("; ");
     const response = middleware(makeRequest("/", { headers: { cookie: cookieHeader } }));
 
@@ -207,7 +228,8 @@ describe("cookie and referer security checks", () => {
     expect(response.status).not.toBe(403);
   });
 
-  it("logs more than 30 real cookies but still allows the request", () => {
+  it.each(sites)("$name logs more than 30 real cookies but still allows the request", (site) => {
+    configureSite(site);
     const cookieHeader = Array.from({ length: 31 }, (_, index) => `c${index}=v`).join("; ");
     const response = middleware(makeRequest("/answers", { headers: { cookie: cookieHeader } }));
 
@@ -215,12 +237,13 @@ describe("cookie and referer security checks", () => {
     expect(response.status).not.toBe(403);
   });
 
-  it("treats Origin as a trusted same-site POST signal when Referer is missing", () => {
+  it.each(sites)("$name treats Origin as a trusted same-site POST signal when Referer is missing", (site) => {
+    configureSite(site);
     expect(
       requestHasTrustedNavigationOrigin(
         makeRequest("/api/chat/v1", {
           method: "POST",
-          headers: { origin: "https://vivek.ananda.org" },
+          headers: { origin: site.baseUrl },
         })
       )
     ).toBe(true);
@@ -229,7 +252,7 @@ describe("cookie and referer security checks", () => {
       makeRequest("/api/chat/v1", {
         method: "POST",
         headers: {
-          origin: "https://vivek.ananda.org",
+          origin: site.baseUrl,
           "content-type": "application/json",
         },
       })
@@ -239,7 +262,8 @@ describe("cookie and referer security checks", () => {
     expect(response.status).not.toBe(403);
   });
 
-  it("logs a POST with no Referer and no Origin but does not block it", () => {
+  it.each(sites)("$name logs a POST with no Referer and no Origin but does not block it", (site) => {
+    configureSite(site);
     const response = middleware(
       makeRequest("/api/chat/v1", {
         method: "POST",
