@@ -243,9 +243,13 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
     /^looking (?:up|for)\b/i.test(trimmed) &&
     /\b(?:more|additional)\b[\s\S]{0,80}\b(?:sources?|passages?)\b/i.test(trimmed);
   const mentionsRetrievalWork =
-    /\b(search|searching|source|sources|passage|passages|chunk|chunks|quote|quotes|richer|additional|more|tighter search|tighter query|book material|articles?|visualizations?)\b/i.test(
+    /\b(search|searching|source|sources|passage|passages|chunk|chunks|quote|quotes|richer|additional|more|tighter search|tighter query|book material)\b/i.test(
       trimmed
     );
+  // article / visualization only with a fetch/gather/search verb (not "I don't have an article…").
+  const hasArticleOrVisualizationFetch =
+    /\b(fetch(?:ing)?|gather(?:ing)?|search(?:ing)?)\b/i.test(trimmed) &&
+    /\b(articles?|visualizations?)\b/i.test(trimmed);
   const hasGluedSearchNarration =
     /\b(expanding the strongest|trying a tighter search|searching the book material|i('ll| will) pull)\b/i.test(
       trimmed
@@ -267,9 +271,11 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
         glued
       );
     gluedMentionsRetrievalWork =
-      /(search|sources?|passages?|chunks?|quotes?|additional|more|tightersearch|tighterquery|bookmaterial|articles?|visualizations?)/.test(
+      /(search|sources?|passages?|chunks?|quotes?|additional|more|tightersearch|tighterquery|bookmaterial)/.test(
         glued
-      );
+      ) ||
+      (/(fetch(?:ing)?|gather(?:ing)?|search(?:ing)?)/.test(glued) &&
+        /(articles?|visualizations?)/.test(glued));
   }
 
   // Short "I'll gather richer sources…" trail-offs, including glued status-like sentences.
@@ -277,7 +283,10 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
     wordCount < 80 &&
     (hasLookingForRetrievalStatus ||
       ((startsLikeSearchNarration || hasGluedSearchNarration || gluedStartsLikeSearchNarration) &&
-        (mentionsRetrievalWork || hasAdjacentFetchNarration || gluedMentionsRetrievalWork)))
+        (mentionsRetrievalWork ||
+          hasArticleOrVisualizationFetch ||
+          hasAdjacentFetchNarration ||
+          gluedMentionsRetrievalWork)))
   ) {
     return true;
   }
