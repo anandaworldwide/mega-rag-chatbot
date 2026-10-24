@@ -65,8 +65,21 @@ export async function getSecureAudioUrl(filename: string, library?: string, docI
           throw new Error("Access denied to audio file");
         case 404:
           throw new Error("Audio file not found");
-        case 429:
-          throw new Error("Too many requests - please wait before trying again");
+        case 429: {
+          const retryAfterHeader = response.headers.get("Retry-After");
+          const error = new Error("Too many requests, wait a moment") as Error & {
+            status?: number;
+            retryAfterMs?: number;
+          };
+          error.status = 429;
+          if (retryAfterHeader) {
+            const seconds = Number(retryAfterHeader);
+            if (Number.isFinite(seconds) && seconds >= 0) {
+              error.retryAfterMs = seconds * 1000;
+            }
+          }
+          throw error;
+        }
         default:
           throw new Error(`Failed to access audio file: ${errorData.message}`);
       }
@@ -93,9 +106,11 @@ export async function getSecureAudioUrl(filename: string, library?: string, docI
 interface CachedAudioUrl {
   url: string;
   expiresAt: number;
+  missing?: boolean;
 }
 
 const audioUrlCache = new Map<string, CachedAudioUrl>();
+const NOT_FOUND_CACHE_MS = 60 * 1000;
 
 /**
  * Gets a secure audio URL with caching to improve performance
@@ -108,21 +123,36 @@ export async function getCachedSecureAudioUrl(filename: string, library?: string
   const cacheKey = `${library || "default"}:${filename}`;
   const cached = audioUrlCache.get(cacheKey);
 
+  // Keep a 404 result for 60 seconds so other players do not call the API again.
+  if (cached?.missing && cached.expiresAt > Date.now()) {
+    throw new Error("Audio file not found");
+  }
+
   // Check if we have a valid cached URL (with 30 minute buffer before expiration)
-  if (cached && cached.expiresAt > Date.now() + 30 * 60 * 1000) {
+  if (cached && !cached.missing && cached.expiresAt > Date.now() + 30 * 60 * 1000) {
     return cached.url;
   }
 
-  // Fetch new URL and cache it
-  const url = await getSecureAudioUrl(filename, library, docId);
+  try {
+    const url = await getSecureAudioUrl(filename, library, docId);
 
-  // Cache for 3.5 hours (30 minutes before the 4-hour expiration)
-  audioUrlCache.set(cacheKey, {
-    url,
-    expiresAt: Date.now() + 3.5 * 60 * 60 * 1000,
-  });
+    // Cache for 3.5 hours (30 minutes before the 4-hour expiration)
+    audioUrlCache.set(cacheKey, {
+      url,
+      expiresAt: Date.now() + 3.5 * 60 * 60 * 1000,
+    });
 
-  return url;
+    return url;
+  } catch (error) {
+    if (error instanceof Error && error.message === "Audio file not found") {
+      audioUrlCache.set(cacheKey, {
+        url: "",
+        expiresAt: Date.now() + NOT_FOUND_CACHE_MS,
+        missing: true,
+      });
+    }
+    throw error;
+  }
 }
 
 /**
