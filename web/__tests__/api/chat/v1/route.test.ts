@@ -44,7 +44,7 @@ import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import { firestoreGet } from "@/utils/server/firestoreRetryUtils";
 import { resolvePersistUuidForRequest } from "@/utils/server/uuidUtils";
 import { sendOpsAlert } from "@/utils/server/emailOps";
-import { CHATBOT_UNAVAILABLE_USER_MESSAGE } from "@/utils/server/errorSanitization";
+import { CHATBOT_UNAVAILABLE_USER_MESSAGE, LLM_CAPACITY_USER_MESSAGE } from "@/utils/server/errorSanitization";
 import { generateTitle } from "@/utils/server/titleGeneration";
 
 const TEST_BODY_UUID = "423e4567-e89b-42d3-a456-426614174000";
@@ -1499,6 +1499,27 @@ describe("Retry Mechanism", () => {
           throttleMs: 15 * 60 * 1000,
         })
       );
+    });
+
+    test("LLM capacity failure streams llm_capacity type and busy message", async () => {
+      (sendOpsAlert as jest.Mock).mockClear();
+      (makeChainModule.setupAndExecuteLanguageModelChain as jest.Mock).mockImplementationOnce(async () => {
+        throw Object.assign(new Error("The model is currently at capacity due to high demand"), {
+          code: "resource-exhausted",
+          type: "server_error",
+        });
+      });
+
+      const response = await POST(buildStreamingRequest(STREAM_BODY));
+      expect(response.status).toBe(200);
+
+      const events = await collectSseObjects(response);
+      const errorEvent = events.find((e) => typeof e.error === "string");
+
+      expect(errorEvent?.error).toBe(LLM_CAPACITY_USER_MESSAGE);
+      expect(errorEvent?.type).toBe("llm_capacity");
+      expect(errorEvent?.error).not.toContain("high demand");
+      expect(sendOpsAlert).not.toHaveBeenCalled();
     });
   });
 });

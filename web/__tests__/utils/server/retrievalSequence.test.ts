@@ -322,4 +322,45 @@ describe("Document Retrieval Logic", () => {
     const libraryFilter = andFilter.find((filter: any) => filter.library && filter.library.$in);
     expect(libraryFilter.library.$in).toEqual(expect.arrayContaining(["library1", "library2"]));
   });
+
+  test("reuses cached restated question and documents on retry", async () => {
+    const mockSimilaritySearch = jest.fn().mockResolvedValue([]);
+    const mockRetriever = { vectorStore: { similaritySearch: mockSimilaritySearch } };
+    const cachedDocs = [new Document({ pageContent: "cached", metadata: { library: "library1" } })];
+    const { makeChain } = await import("../../../src/utils/server/makechain");
+
+    const chain = await makeChain(
+      mockRetriever as any,
+      { model: "gpt-4o", temperature: 0.5 },
+      4,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      false,
+      [],
+      undefined,
+      { siteId: "test-site", includedLibraries: ["library1"] } as any,
+      "original question",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { restatedQuestion: "cached standalone question", documents: cachedDocs }
+    );
+
+    let result: { question?: string; sourceDocuments?: Document[] } | undefined;
+    try {
+      result = await chain.invoke({ question: "original question", chat_history: "" });
+    } catch (_error) {
+      // Generation mocks may throw; retrieval skip is the assertion that matters.
+    }
+    expect(mockSimilaritySearch).not.toHaveBeenCalled();
+    if (result) {
+      expect(result.question).toBe("cached standalone question");
+      expect(result.sourceDocuments).toEqual(cachedDocs);
+    }
+  });
 });

@@ -7,11 +7,20 @@ import {
   getSafeErrorMessage,
   inferLlmProviderFromError,
   isLlmProviderAuthError,
+  isLlmProviderCapacityError,
   isLlmProviderQuotaError,
   isLlmProviderRateLimitError,
+  LLM_CAPACITY_USER_MESSAGE,
   sanitizeErrorForLogging,
   sanitizeErrorMessage,
 } from "@/utils/server/errorSanitization";
+import { isDevelopment } from "@/utils/env";
+
+jest.mock("@/utils/env", () => ({
+  isDevelopment: jest.fn(() => false),
+}));
+
+const mockIsDevelopment = isDevelopment as jest.MockedFunction<typeof isDevelopment>;
 
 describe("errorSanitization LLM provider auth errors", () => {
   test("detects xAI incorrect API key 400", () => {
@@ -76,6 +85,42 @@ describe("errorSanitization LLM provider quota errors", () => {
   });
 });
 
+describe("isLlmProviderCapacityError", () => {
+  test("matches resource-exhausted code with no HTTP status", () => {
+    const error = Object.assign(new Error("provider busy"), { code: "resource-exhausted" });
+    expect(isLlmProviderCapacityError(error)).toBe(true);
+    expect((error as { status?: number }).status).toBeUndefined();
+  });
+
+  test("matches nested xAI SSE payload with server_error and capacity text", () => {
+    const error = Object.assign(new Error("The model is currently at capacity due to high demand"), {
+      error: { code: "resource-exhausted", type: "server_error" },
+    });
+    expect(isLlmProviderCapacityError(error)).toBe(true);
+  });
+
+  test("matches at capacity / high demand text", () => {
+    expect(isLlmProviderCapacityError(new Error("The model is currently at capacity"))).toBe(true);
+    expect(isLlmProviderCapacityError(new Error("Unavailable due to high demand"))).toBe(true);
+  });
+
+  test("matches HTTP 503 and 529", () => {
+    const unavailable = Object.assign(new Error("Service Unavailable"), { status: 503 });
+    const overloaded = Object.assign(new Error("Overloaded"), { status: 529 });
+    expect(isLlmProviderCapacityError(unavailable)).toBe(true);
+    expect(isLlmProviderCapacityError(overloaded)).toBe(true);
+  });
+
+  test("does not treat auth or quota errors as capacity", () => {
+    expect(isLlmProviderCapacityError(new Error('400 "Incorrect API key provided."'))).toBe(false);
+    expect(
+      isLlmProviderCapacityError(
+        new Error("Your team 9bd216ec-d39a-4422-81a3-5a0f430a2d56 has used all available credits")
+      )
+    ).toBe(false);
+  });
+});
+
 describe("classifyLlmProviderChatFailure", () => {
   test("classifies auth failures with generic user message and ops plan", () => {
     const error = new Error('400 "Incorrect API key provided. You can obtain an API key from https://console.x.ai."');
@@ -122,6 +167,54 @@ describe("classifyLlmProviderChatFailure", () => {
 
   test("returns null for unrelated errors", () => {
     expect(classifyLlmProviderChatFailure(new Error("Pinecone timeout"))).toBeNull();
+  });
+
+  test("classifies resource-exhausted with no status as capacity", () => {
+    const error = Object.assign(new Error("busy"), { code: "resource-exhausted" });
+    const plan = classifyLlmProviderChatFailure(error);
+    expect(plan).toEqual(
+      expect.objectContaining({
+        kind: "capacity",
+        userMessage: LLM_CAPACITY_USER_MESSAGE,
+        errorType: "llm_capacity",
+      })
+    );
+  });
+
+  test("classifies 503 capacity separately from auth and quota", () => {
+    const error = Object.assign(new Error("Service Unavailable"), { status: 503 });
+    expect(classifyLlmProviderChatFailure(error)?.kind).toBe("capacity");
+    expect(classifyLlmProviderChatFailure(new Error('400 "Incorrect API key provided."'))?.kind).toBe("auth");
+    expect(
+      classifyLlmProviderChatFailure(
+        new Error("Your team 9bd216ec-d39a-4422-81a3-5a0f430a2d56 has used all available credits")
+      )?.kind
+    ).toBe("quota");
+  });
+});
+
+describe("getSafeErrorMessage production provider text", () => {
+  beforeEach(() => {
+    mockIsDevelopment.mockReturnValue(false);
+  });
+
+  test("returns the busy message for capacity errors", () => {
+    const error = Object.assign(new Error("The model is currently at capacity due to high demand"), {
+      code: "resource-exhausted",
+    });
+    expect(getSafeErrorMessage(error)).toBe(LLM_CAPACITY_USER_MESSAGE);
+    expect(getSafeErrorMessage(error)).not.toContain("high demand");
+  });
+
+  test("does not return raw unknown provider text in production", () => {
+    const error = Object.assign(new Error("xAI mystery failure xyz-secret-trace"), {
+      type: "server_error",
+      status: 500,
+    });
+    const safe = getSafeErrorMessage(error, "An error occurred. Please try again later.");
+    expect(safe).toBe("An error occurred. Please try again later.");
+    expect(safe).not.toContain("mystery");
+    expect(safe).not.toContain("xyz-secret-trace");
   });
 });
 

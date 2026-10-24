@@ -306,6 +306,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     error: chatError,
     setError,
   } = useChat(collection, temporarySession, mediaTypes, siteConfig, selectedLibraries);
+  const [errorType, setErrorType] = useState<string | null>(null);
   const { messages } = messageState as {
     messages: ExtendedAIMessage[];
   };
@@ -1496,6 +1497,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       if (data.error) {
         console.error(`Stream ERROR:`, data.error);
         setError(data.error);
+        setErrorType(data.type ?? null);
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1505,6 +1507,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
       sourceCount,
       setLoading,
       setError,
+      setErrorType,
       rememberSavedDocId,
       setMessageState,
       setSourceDocs,
@@ -1546,6 +1549,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     setIsNearBottom(true);
     setLoading(true);
     setError(null);
+    setErrorType(null);
     setFilterConflict(null);
 
     // Reset accumulated response at the start of each new query
@@ -1978,6 +1982,7 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
 
       setLoading(true);
       setError(null);
+      setErrorType(null);
       setTitleScopeSuggestions([]);
       setTitleScopeError(null);
       accumulatedResponseRef.current = "";
@@ -2287,6 +2292,15 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
     }
     handleRegenerateAnswer(retryIndex);
   }, [handleRegenerateAnswer, loading, messages, pendingConflictRetry]);
+
+  const handleTryAgainLastQuestion = useCallback(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index]?.type === "apiMessage") {
+        handleRegenerateAnswer(index);
+        return;
+      }
+    }
+  }, [handleRegenerateAnswer, messages]);
 
   // Function to handle starting question edit
   const handleEditQuestion = useCallback((messageIndex: number, originalText: string) => {
@@ -3138,6 +3152,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                           collection={collection}
                           temporarySession={temporarySession}
                           error={chatError}
+                          errorType={errorType}
+                          onTryAgain={handleTryAgainLastQuestion}
                           setError={setError}
                           suggestedQueries={suggestedQueries}
                           textAreaRef={textAreaRef}
@@ -3304,6 +3320,8 @@ export default function Home({ siteConfig }: { siteConfig: SiteConfig | null }) 
                         collection={collection}
                         temporarySession={temporarySession}
                         error={chatError}
+                        errorType={errorType}
+                        onTryAgain={handleTryAgainLastQuestion}
                         setError={setError}
                         suggestedQueries={suggestedQueries}
                         textAreaRef={textAreaRef}

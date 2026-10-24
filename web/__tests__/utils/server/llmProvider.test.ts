@@ -100,6 +100,21 @@ describe("llmProvider", () => {
     expect(resolveGrokReasoningEffort()).toBe("medium");
   });
 
+  test("getChatModel adds service_tier priority for Grok through modelKwargs", () => {
+    process.env.XAI_API_KEY = "xai-test-key";
+    getChatModel({
+      model: "grok-4.5",
+      temperature: 0.3,
+      streaming: true,
+      serviceTier: "priority",
+    });
+    expect(ChatOpenAI).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelKwargs: { reasoning_effort: "low", service_tier: "priority" },
+      })
+    );
+  });
+
   test("getChatModel throws when Grok is requested without XAI_API_KEY", () => {
     delete process.env.XAI_API_KEY;
     expect(() => getChatModel({ model: "grok-4.5", temperature: 0.3 })).toThrow(/XAI_API_KEY is required/);

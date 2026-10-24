@@ -29,6 +29,11 @@
 import { ChatOpenAI } from "@langchain/openai";
 import { getChatModel, isAnthropicModel } from "@/utils/server/llmProvider";
 import {
+  inferProviderFromModel,
+  runWithLlmCapacityRetry,
+  type CachedRagContext,
+} from "@/utils/server/llmCapacityRetry";
+import {
   applyProviderUsageToTimingMetrics,
   buildVariableHumanMessage,
   isCachePromptLayoutEnabled,
@@ -155,6 +160,7 @@ interface ModelConfig {
   model: string;
   temperature: number;
   label?: string; // For identifying which model in streaming responses
+  serviceTier?: "auto" | "default" | "flex" | "priority";
 }
 
 // Define TimingMetrics interface directly here
@@ -539,9 +545,11 @@ export const makeChain = async (
   /** Mutable timing bag written by the chat route; makeChain fills TTFB split fields. */
   timingMetrics?: Record<string, unknown>,
   /** Sticky id for xAI `x-grok-conv-id` (conversation id or siteId fallback). */
-  promptCacheKey?: string
+  promptCacheKey?: string,
+  cachedRag?: CachedRagContext,
+  onRagReady?: (ctx: CachedRagContext) => void
 ) => {
-  const { model, temperature, label } = modelConfig;
+  const { model, temperature, label, serviceTier } = modelConfig;
   let answerModel: BaseLanguageModel; // Renamed for clarity
   let rephraseModel: BaseLanguageModel; // New model for rephrasing
   let isLocationQuery = false; // Flag to track if this is a location query
@@ -636,6 +644,7 @@ export const makeChain = async (
       model: answerModelName,
       streaming: true,
       ...(promptCacheKey ? { promptCacheKey } : {}),
+      ...(serviceTier && !useGeoFastModel ? { serviceTier } : {}),
     });
 
     // Retrieval tools: bound for non-Anthropic arms when enabled (Fable holdout keeps today's behavior).
@@ -851,6 +860,12 @@ Error details: ${errorString}`,
     async (input: AnswerChainInput) => {
       const retrievalStart = Date.now();
       retrievalReturnedNoDocuments = false;
+      if (cachedRag?.documents) {
+        if (timingMetrics) {
+          timingMetrics.retrievalMs = 0;
+        }
+        return cachedRag.documents;
+      }
       // Early return for location queries - skip Pinecone entirely for performance
       if (isLocationQuery) {
         if (sendData) {
@@ -1032,6 +1047,10 @@ Error details: ${errorString}`,
       return allDocuments;
     },
     (docs: Document[]) => {
+      const restatedQuestion = capturedRestatedQuestion || originalQuestion || "";
+      if (onRagReady && restatedQuestion) {
+        onRagReady({ restatedQuestion, documents: docs });
+      }
       return {
         documents: docs,
         combinedContent: combineDocumentsFn(docs),
@@ -1257,6 +1276,10 @@ Error details: ${errorString}`,
     {
       question: async (input: AnswerChainInput) => {
         capturedUserUtterance = input.question;
+        if (cachedRag?.restatedQuestion) {
+          capturedRestatedQuestion = cachedRag.restatedQuestion;
+          return cachedRag.restatedQuestion;
+        }
         if (!temporarySession) {
           console.log(`🔍 ORIGINAL QUESTION: "${input.question}"`);
         }
@@ -1577,65 +1600,63 @@ export async function setupAndExecuteLanguageModelChain(
   temperature: number;
   isLocationQuery: boolean;
 }> {
-  const RETRY_DELAY_MS = process.env.NODE_ENV === "test" ? 10 : 1000;
-  const MAX_RETRIES = 3;
   const streamingDeadline = createStreamingDeadlineGuard(CHAIN_STREAMING_IDLE_TIMEOUT_MS);
-
-  let retryCount = 0;
-  let lastError: Error | null = null;
   let tokensStreamed = 0;
+  let cachedRag: CachedRagContext | undefined;
 
-  while (retryCount < MAX_RETRIES) {
-    try {
+  const modelName = modelOverride || siteConfig?.modelName || "gpt-4o";
+  const temperature = siteConfig?.temperature || 0.3;
+  const rephraseModelName = "gpt-4.1-mini";
+  const rephraseTemperature = 0.1;
+  let isLocationQuery = false;
+  let answerModelUsed = modelName;
+
+  const trackStreamingData = (data: StreamingResponseData) => {
+    if (data.isLocationQuery) {
+      isLocationQuery = true;
+    }
+    if (typeof data.model === "string" && data.model.trim()) {
+      answerModelUsed = data.model.trim();
+    }
+    sendData(data);
+  };
+
+  // Expose the answer model early so admin UI can show the A/B arm while streaming
+  sendData({ model: modelName });
+
+  // Send site ID immediately
+  if (siteConfig?.siteId) {
+    const expectedSiteId = process.env.SITE_ID || "default";
+
+    if (siteConfig.siteId !== expectedSiteId) {
+      console.error(`Error: Backend is using incorrect site ID: ${siteConfig.siteId}. Expected: ${expectedSiteId}`);
+    }
+    sendData({ siteId: siteConfig.siteId });
+  }
+
+  const isGeoEnabled = siteConfig?.enableGeoAwareness || false;
+  let geoTools: any[] = [];
+  if (isGeoEnabled && request) {
+    const { TOOL_DEFINITIONS } = await import("./tools");
+    geoTools = TOOL_DEFINITIONS;
+  }
+
+  const retrievalFilterCapture: RetrievalFilterCapture = {};
+  const effectivePromptCacheKey = promptCacheKey || siteConfig?.siteId || process.env.SITE_ID || undefined;
+  const pastMessages = convertChatHistory(history);
+
+  try {
+    return await runWithLlmCapacityRetry({
+      model: modelName,
+      provider: inferProviderFromModel(modelName),
+      siteId: siteConfig?.siteId || process.env.SITE_ID,
+      getTokensStreamed: () => tokensStreamed,
+      execute: async ({ usePriorityTier }) => {
       streamingDeadline.reset();
-      let isLocationQuery = false;
-      let answerModelUsed = modelOverride || siteConfig?.modelName || "gpt-4o";
-      const trackStreamingData = (data: StreamingResponseData) => {
-        if (data.isLocationQuery) {
-          isLocationQuery = true;
-        }
-        if (typeof data.model === "string" && data.model.trim()) {
-          answerModelUsed = data.model.trim();
-        }
-        sendData(data);
-      };
-      const modelName = modelOverride || siteConfig?.modelName || "gpt-4o";
-      const temperature = siteConfig?.temperature || 0.3;
-      const rephraseModelName = "gpt-4.1-mini";
-      const rephraseTemperature = 0.1;
-
-      // Expose the answer model early so admin UI can show the A/B arm while streaming
-      sendData({ model: modelName });
-      answerModelUsed = modelName;
-
-      // Send site ID immediately
-      if (siteConfig?.siteId) {
-        const expectedSiteId = process.env.SITE_ID || "default";
-
-        if (siteConfig.siteId !== expectedSiteId) {
-          console.error(`Error: Backend is using incorrect site ID: ${siteConfig.siteId}. Expected: ${expectedSiteId}`);
-        }
-        sendData({ siteId: siteConfig.siteId });
-      }
-
-      // Check if geo-awareness is enabled for this site
-      // Note: siteConfig is already the specific site's config from loadSiteConfigSync()
-      const isGeoEnabled = siteConfig?.enableGeoAwareness || false;
-
-      // Prepare geo-awareness tools if enabled
-      let geoTools: any[] = [];
-      if (isGeoEnabled && request) {
-        // Import tools dynamically to avoid circular dependencies
-        const { TOOL_DEFINITIONS } = await import("./tools");
-        geoTools = TOOL_DEFINITIONS;
-      }
-
-      const retrievalFilterCapture: RetrievalFilterCapture = {};
-      const effectivePromptCacheKey =
-        promptCacheKey || siteConfig?.siteId || process.env.SITE_ID || undefined;
+      const serviceTier = usePriorityTier ? "priority" : undefined;
       const chain = await makeChain(
         retriever,
-        { model: modelName, temperature },
+        { model: modelName, temperature, ...(serviceTier ? { serviceTier } : {}) },
         sourceCount,
         filter,
         trackStreamingData,
@@ -1651,11 +1672,12 @@ export async function setupAndExecuteLanguageModelChain(
         selectedTitleScopeLabel,
         retrievalFilterCapture,
         timingMetrics,
-        effectivePromptCacheKey
+        effectivePromptCacheKey,
+        cachedRag,
+        (ctx) => {
+          cachedRag = ctx;
+        }
       );
-
-      // Format chat history for the language model
-      const pastMessages = convertChatHistory(history);
 
       let fullResponse = ""; // This will be populated by streaming tokens
       let firstTokenTime: number | null = null;
@@ -1894,6 +1916,7 @@ export async function setupAndExecuteLanguageModelChain(
             model: modelName,
             streaming: true,
             ...(effectivePromptCacheKey ? { promptCacheKey: effectivePromptCacheKey } : {}),
+            ...(serviceTier ? { serviceTier } : {}),
           });
           answerModelUsed = modelName;
           fullResponse = "";
@@ -2081,6 +2104,7 @@ export async function setupAndExecuteLanguageModelChain(
               model: finalAnswerModelName,
               streaming: true,
               ...(effectivePromptCacheKey ? { promptCacheKey: effectivePromptCacheKey } : {}),
+              ...(serviceTier && !anthropicGeoOverride ? { serviceTier } : {}),
             });
             answerModelUsed = finalAnswerModelName;
 
@@ -2376,26 +2400,13 @@ export async function setupAndExecuteLanguageModelChain(
         temperature: temperature, // Return the temperature used
         isLocationQuery,
       };
-    } catch (error) {
-      // Don't retry if we've already streamed tokens - we can't undo what's been sent
-      // Retrying would cause garbled/interleaved responses
-      if (tokensStreamed > 0) {
-        console.error("Operation failed after streaming began. Cannot retry without corrupting response.", error);
-        sendData({ error: "The response stalled before finishing. Please try again." });
-        throw error;
-      }
-
-      lastError = error as Error;
-      retryCount++;
-      if (retryCount < MAX_RETRIES) {
-        console.warn(`Attempt ${retryCount} failed. Retrying in ${RETRY_DELAY_MS}ms...`, error);
-        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
-      } else {
-        console.error("All retry attempts failed", error);
-        throw lastError;
-      }
+      },
+    });
+  } catch (error) {
+    if (tokensStreamed > 0) {
+      console.error("Operation failed after streaming began. Cannot retry without corrupting response.");
+      sendData({ error: "The response stalled before finishing. Please try again." });
     }
+    throw error;
   }
-
-  throw lastError || new Error("Chain execution failed after retries");
 }

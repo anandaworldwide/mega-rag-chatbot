@@ -87,6 +87,8 @@ interface ChatInputProps {
   /** Increment to show the follow-up box (scroll-to-bottom control). */
   revealSignal?: number;
   onMobileBarChange?: (state: { hidden: boolean; height: number }) => void;
+  errorType?: string | null;
+  onTryAgain?: () => void;
 }
 
 export const ChatInput: React.FC<ChatInputProps> = ({
@@ -129,6 +131,8 @@ export const ChatInput: React.FC<ChatInputProps> = ({
   enableHideOnScroll = false,
   revealSignal = 0,
   onMobileBarChange,
+  errorType = null,
+  onTryAgain,
 }) => {
   // State variables for managing component behavior
   const [, setLocalQuery] = useState<string>("");
@@ -534,8 +538,25 @@ export const ChatInput: React.FC<ChatInputProps> = ({
               <FirestoreIndexError error={errorMessage} isBuilding={isBuilding} className="mb-4" />
             ) : (
               <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4">
-                <strong className="font-bold">An error occurred: </strong>
-                <span className="block sm:inline">{error}</span>
+                {errorType === "llm_capacity" ? (
+                  <>
+                    <span className="block sm:inline">{error}</span>
+                    {onTryAgain ? (
+                      <button
+                        type="button"
+                        onClick={onTryAgain}
+                        className="mt-2 sm:mt-0 sm:ml-3 underline font-semibold"
+                      >
+                        Try again
+                      </button>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <strong className="font-bold">An error occurred: </strong>
+                    <span className="block sm:inline">{error}</span>
+                  </>
+                )}
               </div>
             ))}
         </form>

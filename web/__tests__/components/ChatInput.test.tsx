@@ -80,6 +80,8 @@ describe("ChatInput", () => {
     onTemporarySessionChange: jest.fn(),
     sourceCount: 0,
     setSourceCount: jest.fn(),
+    selectedTitleScope: null,
+    setSelectedTitleScope: jest.fn(),
     isChatEmpty: true,
   };
 
@@ -273,6 +275,25 @@ describe("ChatInput", () => {
     render(<ChatInput {...defaultProps} />);
 
     expect(screen.queryByText("auto_fix_high")).not.toBeInTheDocument();
+  });
+
+  it("shows a capacity error without the generic prefix and retries on Try again", () => {
+    const onTryAgain = jest.fn();
+    render(
+      <ChatInput
+        {...defaultProps}
+        error="The AI service is busy right now. Please try again in a minute."
+        errorType="llm_capacity"
+        onTryAgain={onTryAgain}
+      />
+    );
+
+    expect(screen.queryByText(/An error occurred:/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText("The AI service is busy right now. Please try again in a minute.")
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(onTryAgain).toHaveBeenCalledTimes(1);
   });
 
   describe("mobile follow-up auto-hide", () => {
