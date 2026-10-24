@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+from urllib.parse import quote
 
 from pinecone import NotFoundException, Pinecone, PineconeException, ServerlessSpec
 
@@ -9,6 +10,9 @@ from data_ingestion.utils.credential_errors import abort_on_credential_error
 from data_ingestion.utils.pinecone_utils import generate_vector_id
 
 logger = logging.getLogger(__name__)
+
+_AUDIO_VIDEO_CONTENT_TYPES = frozenset({"audio", "video"})
+_FILENAME_FETCH_BATCH_SIZE = 100
 
 """
 Pinecone Vector Database Integration Layer
@@ -201,6 +205,98 @@ def load_pinecone(index_name=None):
     return pc.Index(index_name)
 
 
+def encode_vector_id_for_fetch(vector_id: str) -> str:
+    """Percent-encode spaces in a vector id for Pinecone fetch."""
+    if " " not in vector_id:
+        return vector_id
+    return quote(vector_id, safe="|")
+
+
+def _vectors_from_fetch(fetched) -> dict:
+    """Return the vectors map from a Pinecone fetch result."""
+    if fetched is None:
+        return {}
+    if hasattr(fetched, "vectors"):
+        return fetched.vectors or {}
+    if isinstance(fetched, dict):
+        return fetched.get("vectors") or {}
+    return {}
+
+
+def _metadata_from_vector(vector) -> dict:
+    """Return metadata from a fetched Pinecone vector."""
+    if vector is None:
+        return {}
+    if hasattr(vector, "metadata"):
+        return vector.metadata or {}
+    if isinstance(vector, dict):
+        return vector.get("metadata") or {}
+    return {}
+
+
+def fetch_stored_vector_metadata(pinecone_index, vector_ids: list[str]) -> dict:
+    """Fetch metadata for many ids. Return a map of original id to metadata."""
+    found: dict[str, dict] = {}
+    for start in range(0, len(vector_ids), _FILENAME_FETCH_BATCH_SIZE):
+        batch = vector_ids[start : start + _FILENAME_FETCH_BATCH_SIZE]
+        encoded_ids = [encode_vector_id_for_fetch(vector_id) for vector_id in batch]
+        try:
+            fetched = pinecone_index.fetch(ids=encoded_ids)
+        except Exception as exc:
+            logger.warning(
+                "Filename conflict fetch failed. Continue ingest. error=%s",
+                exc,
+            )
+            continue
+        vectors = _vectors_from_fetch(fetched)
+        for original_id, encoded_id in zip(batch, encoded_ids, strict=True):
+            vector = vectors.get(original_id)
+            if vector is None:
+                vector = vectors.get(encoded_id)
+            if vector is None:
+                continue
+            found[original_id] = _metadata_from_vector(vector)
+    return found
+
+
+def apply_filename_conflict_guard(
+    vectors,
+    pinecone_index,
+    content_type,
+    *,
+    override_conflicts=False,
+):
+    """Drop audio or video vectors that would replace a different stored filename.
+
+    Text and PDF ingest keep the current write. The override flag turns
+    the guard off. A conflict skips that chunk only.
+    """
+    if override_conflicts or content_type not in _AUDIO_VIDEO_CONTENT_TYPES:
+        return vectors
+
+    vector_ids = [vector["id"] for vector in vectors]
+    stored_by_id = fetch_stored_vector_metadata(pinecone_index, vector_ids)
+    kept = []
+    for vector in vectors:
+        vector_id = vector["id"]
+        if vector_id not in stored_by_id:
+            kept.append(vector)
+            continue
+        stored_filename = stored_by_id[vector_id].get("filename")
+        new_filename = (vector.get("metadata") or {}).get("filename")
+        if stored_filename != new_filename:
+            logger.warning(
+                "Skip audio vector write. Stored filename differs. "
+                "id=%s stored=%s new=%s",
+                vector_id,
+                stored_filename,
+                new_filename,
+            )
+            continue
+        kept.append(vector)
+    return kept
+
+
 def store_in_pinecone(
     pinecone_index,
     chunks,
@@ -214,6 +310,7 @@ def store_in_pinecone(
     album=None,
     access_level="public",  # New parameter for access control
     required_access_level=0,
+    override_conflicts=False,
 ):
     """
     Stores vector embeddings with metadata in Pinecone.
@@ -300,6 +397,15 @@ def store_in_pinecone(
         vectors.append({"id": chunk_id, "values": embedding, "metadata": metadata})
 
     apply_author_guard_to_vectors(vectors)
+    vectors = apply_filename_conflict_guard(
+        vectors,
+        pinecone_index,
+        content_type,
+        override_conflicts=override_conflicts,
+    )
+    if not vectors:
+        logger.info("No audio vectors remain after the filename conflict check.")
+        return
 
     # Batch processing with interrupt support
     for i in range(0, len(vectors), 100):
