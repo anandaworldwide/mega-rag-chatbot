@@ -27,13 +27,17 @@ import sys
 from collections import Counter, defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import quote, unquote
 
 from botocore.exceptions import ClientError
 from pinecone import Pinecone
 
-from data_ingestion.audio_video.audio_filename_fix import pick_target
+from data_ingestion.audio_video.audio_filename_fix import (
+    find_old_copy_key,
+    pick_target,
+)
 from data_ingestion.utils.s3_utils import (
     get_bucket_name,
     get_s3_client,
@@ -72,8 +76,9 @@ FETCH_BATCH = 20
 UPDATE_BATCH = 100
 SAMPLE_LIMIT = 3
 REPORT_NAME = "filename-fix-report.jsonl"
-BACKUP_NAME = "filename-fix-backup.jsonl"
+BACKUP_PREFIX = "filename-fix-backup-"
 DEFAULT_OUT_DIR = Path.home() / "audio-filename-fix"
+APPLYABLE_RESULTS = frozenset({"ok", "no_old_copy"})
 
 _SECRET_PATTERNS = (
     re.compile(r"AKIA[0-9A-Z]{16}"),
@@ -110,6 +115,7 @@ class RemapRow:
     vector_count: int
     vector_ids: list[str] = field(default_factory=list)
     s3_size: int | None = None
+    old_copy_size: int | None = None
 
     def to_report(self) -> dict:
         """Return the public report fields. Vector ids stay out of the file."""
@@ -120,7 +126,18 @@ class RemapRow:
             "result": self.result,
             "vector_count": self.vector_count,
             "s3_size": self.s3_size,
+            "old_copy_size": self.old_copy_size,
         }
+
+
+def is_applyable(row: RemapRow) -> bool:
+    """Return True when apply may write this row."""
+    return row.result in APPLYABLE_RESULTS and bool(row.new_key)
+
+
+def is_applyable_result(result: str | None) -> bool:
+    """Return True when a report result is allowed to apply."""
+    return result in APPLYABLE_RESULTS
 
 
 def mask_secrets(text: str) -> str:
@@ -222,21 +239,31 @@ def list_live_s3_keys(s3_client, bucket: str) -> list[str]:
     return relative
 
 
-def build_remap_rows(records: list[AudioRecord], s3_keys: list[str]) -> list[RemapRow]:
-    """Build remap rows for filenames that are missing from S3."""
+def used_keys_from_records(
+    records: list[AudioRecord], s3_keys: Iterable[str]
+) -> set[str]:
+    """Return live filenames that any audio record already uses."""
+    s3_set = set(s3_keys)
+    return {record.filename for record in records if record.filename in s3_set}
+
+
+def collect_candidate_rows(
+    records: list[AudioRecord],
+    s3_keys: list[str],
+    used_keys: Iterable[str],
+) -> list[RemapRow]:
+    """Pick a target for each missing filename. Do not assign first-wins."""
     filename_to_ids: dict[str, list[str]] = defaultdict(list)
     for record in records:
         filename_to_ids[record.filename].append(record.vector_id)
     s3_set = set(s3_keys)
-    used_keys = {name for name in filename_to_ids if name in s3_set}
+    used = set(used_keys)
     rows: list[RemapRow] = []
     for old_key, vector_ids in sorted(filename_to_ids.items()):
         if old_key in s3_set:
             continue
-        new_key, rule = pick_target(old_key, s3_keys, used_keys)
+        new_key, rule = pick_target(old_key, s3_keys, used)
         result = "ok" if new_key else "skip"
-        if new_key:
-            used_keys.add(new_key)
         rows.append(
             RemapRow(
                 old_key=old_key,
@@ -250,25 +277,73 @@ def build_remap_rows(records: list[AudioRecord], s3_keys: list[str]) -> list[Rem
     return rows
 
 
-def head_new_key(s3_client, bucket: str, relative_key: str) -> int:
-    """HEAD a new key. Stop when the object is missing."""
+def mark_collisions(rows: list[RemapRow]) -> list[RemapRow]:
+    """Skip every row that shares a target with another row."""
+    target_counts = Counter(row.new_key for row in rows if row.new_key)
+    for row in rows:
+        if row.new_key and target_counts[row.new_key] > 1:
+            row.rule = "collision"
+            row.result = "skip"
+    return rows
+
+
+def build_remap_rows(
+    records: list[AudioRecord],
+    s3_keys: list[str],
+    used_keys: Iterable[str] | None = None,
+) -> list[RemapRow]:
+    """Build remap rows for filenames that are missing from S3."""
+    if used_keys is None:
+        used_keys = used_keys_from_records(records, s3_keys)
+    return mark_collisions(collect_candidate_rows(records, s3_keys, used_keys))
+
+
+def head_size(s3_client, bucket: str, relative_key: str) -> int | None:
+    """HEAD one key. Return None when the object is missing."""
     full_key = f"{AUDIO_S3_PREFIX}{relative_key}"
     try:
         response = s3_client.head_object(Bucket=bucket, Key=full_key)
     except ClientError as exc:
         code = str(exc.response.get("Error", {}).get("Code", ""))
         if code in {"404", "NoSuchKey", "NotFound"}:
-            raise FilenameFixError(f"New key is missing in S3: {relative_key}") from exc
+            return None
         raise FilenameFixError(mask_secrets(str(exc))) from exc
     return int(response["ContentLength"])
 
 
-def attach_s3_sizes(s3_client, bucket: str, rows: list[RemapRow]) -> None:
-    """HEAD every new key. Record the size. Stop on a missing key."""
+def head_new_key(s3_client, bucket: str, relative_key: str) -> int:
+    """HEAD a new key. Stop when the object is missing."""
+    size = head_size(s3_client, bucket, relative_key)
+    if size is None:
+        raise FilenameFixError(f"New key is missing in S3: {relative_key}")
+    return size
+
+
+def apply_size_check(s3_client, bucket: str, row: RemapRow, s3_keys: list[str]) -> None:
+    """Compare the new key size with the ignore or set-aside copy."""
+    if not row.new_key:
+        return
+    row.s3_size = head_new_key(s3_client, bucket, row.new_key)
+    old_copy = find_old_copy_key(row.old_key, s3_keys)
+    if old_copy is None:
+        row.result = "no_old_copy"
+        return
+    row.old_copy_size = head_size(s3_client, bucket, old_copy)
+    if row.old_copy_size is None:
+        row.result = "no_old_copy"
+        return
+    if row.old_copy_size != row.s3_size:
+        row.result = "size_mismatch"
+
+
+def attach_s3_sizes(
+    s3_client, bucket: str, rows: list[RemapRow], s3_keys: list[str]
+) -> None:
+    """HEAD new keys and old copies. Stop on a missing new key."""
     for row in rows:
-        if not row.new_key:
+        if row.result != "ok" or not row.new_key:
             continue
-        row.s3_size = head_new_key(s3_client, bucket, row.new_key)
+        apply_size_check(s3_client, bucket, row, s3_keys)
 
 
 def read_line_items(path: Path) -> tuple[set[str], set[str]]:
@@ -313,7 +388,7 @@ def apply_limit(rows: list[RemapRow], limit: int | None) -> list[RemapRow]:
     kept: list[RemapRow] = []
     ok_seen = 0
     for row in rows:
-        if row.result == "ok":
+        if is_applyable(row):
             if ok_seen >= limit:
                 continue
             ok_seen += 1
@@ -336,9 +411,34 @@ def write_report(out_dir: Path, rows: list[RemapRow]) -> Path:
     return path
 
 
-def write_backup(out_dir: Path, records: list[AudioRecord]) -> Path:
+def new_backup_path(out_dir: Path, now: datetime | None = None) -> Path:
+    """Return a new backup path. Refuse to overwrite an existing file."""
+    stamp = (now or datetime.now(UTC)).strftime("%Y%m%dT%H%M%S%fZ")
+    path = out_dir / f"{BACKUP_PREFIX}{stamp}.jsonl"
+    if not path.exists():
+        return path
+    suffix = 1
+    while True:
+        path = out_dir / f"{BACKUP_PREFIX}{stamp}-{suffix}.jsonl"
+        if not path.exists():
+            return path
+        suffix += 1
+
+
+def list_backup_files(out_dir: Path) -> list[Path]:
+    """Return backup files in the output directory."""
+    return sorted(out_dir.glob(f"{BACKUP_PREFIX}*.jsonl"))
+
+
+def write_backup(
+    out_dir: Path,
+    records: list[AudioRecord],
+    now: datetime | None = None,
+) -> Path:
     """Write old metadata for every vector that will change."""
-    path = out_dir / BACKUP_NAME
+    path = new_backup_path(out_dir, now=now)
+    if path.exists():
+        raise FilenameFixError(f"Refuse. Backup file already exists: {path}")
     write_jsonl(
         path,
         [
@@ -363,22 +463,56 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def load_report_counts(report_path: Path) -> dict[str, int]:
-    """Read vector counts for successful remaps from a dry-run report."""
+def load_report(report_path: Path) -> list[dict]:
+    """Read the dry-run report. Stop when the file is missing."""
     if not report_path.is_file():
         raise FilenameFixError(
             "Refuse apply. Dry-run report is missing. Run a dry run first."
         )
-    counts: dict[str, int] = {}
+    rows: list[dict] = []
     with report_path.open(encoding="utf-8") as handle:
         for line in handle:
             text = line.strip()
             if not text:
                 continue
-            row = json.loads(text)
-            if row.get("result") == "ok":
-                counts[str(row["old_key"])] = int(row["vector_count"])
+            rows.append(json.loads(text))
+    return rows
+
+
+def load_report_counts(report_path: Path) -> dict[str, int]:
+    """Read vector counts for successful remaps from a dry-run report."""
+    counts: dict[str, int] = {}
+    for row in load_report(report_path):
+        if is_applyable_result(row.get("result")):
+            counts[str(row["old_key"])] = int(row["vector_count"])
     return counts
+
+
+def load_report_pairs(report_path: Path) -> dict[str, str | None]:
+    """Read approved old_key to new_key pairs from a dry-run report."""
+    pairs: dict[str, str | None] = {}
+    for row in load_report(report_path):
+        if is_applyable_result(row.get("result")):
+            new_key = row.get("new_key")
+            pairs[str(row["old_key"])] = str(new_key) if new_key else None
+    return pairs
+
+
+def assert_pairs_match(
+    rows: list[RemapRow], approved_pairs: dict[str, str | None]
+) -> None:
+    """Stop apply when a live new_key differs from the dry-run report."""
+    for row in rows:
+        if not is_applyable(row):
+            continue
+        if row.old_key not in approved_pairs:
+            raise FilenameFixError(
+                f"Refuse apply. Dry-run report does not cover {row.old_key}."
+            )
+        if row.new_key != approved_pairs[row.old_key]:
+            raise FilenameFixError(
+                f"Refuse apply. New key for {row.old_key} does not match the dry-run report."
+            )
 
 
 def live_counts_for_keys(
@@ -437,14 +571,17 @@ def apply_remap(
         by_filename[record.filename].append(record)
     updated = 0
     for row in rows:
-        if row.result != "ok" or not row.new_key:
+        if not is_applyable(row) or not row.new_key:
             continue
         file_records = by_filename.get(row.old_key, [])
         ids = [record.vector_id for record in file_records]
         updated += update_filenames(index, ids, row.new_key)
-        verify_filenames(index, ids, row.new_key)
-        if len(ids) != row.vector_count:
-            raise FilenameFixError("Verify failed. Vector count changed.")
+        try:
+            verify_filenames(index, ids, row.new_key)
+            if len(ids) != row.vector_count:
+                raise FilenameFixError("Verify failed. Vector count changed.")
+        except FilenameFixError as exc:
+            raise FilenameFixError(f"{exc} Run --rollback with {backup_path}.") from exc
     return updated
 
 
@@ -494,19 +631,39 @@ def rollback_from_backup(index, backup_path: Path) -> int:
     return len(records)
 
 
-def print_summary(rows: list[RemapRow], mode: str) -> None:
-    """Print counts and a few names. Do not print credentials."""
-    ok_rows = [row for row in rows if row.result == "ok"]
-    skip_rows = [row for row in rows if row.result != "ok"]
-    print(f"Mode: {mode}")
-    print(f"Remap files: {len(ok_rows)}")
-    print(f"Skip files: {len(skip_rows)}")
-    print(f"Remap vectors: {sum(row.vector_count for row in ok_rows)}")
-    for row in ok_rows[:SAMPLE_LIMIT]:
-        print(f"  {row.old_key} -> {row.new_key} ({row.rule})")
-    extra = len(ok_rows) - SAMPLE_LIMIT
+def print_named_rows(label: str, rows: list[RemapRow]) -> None:
+    """Print a short named list. Show only a few keys."""
+    if not rows:
+        return
+    print(f"{label}: {len(rows)}")
+    for row in rows[:SAMPLE_LIMIT]:
+        print(f"  {row.old_key}")
+    extra = len(rows) - SAMPLE_LIMIT
     if extra > 0:
         print(f"  ... and {extra} more")
+
+
+def print_summary(rows: list[RemapRow], mode: str) -> None:
+    """Print counts and a few names. Do not print credentials."""
+    apply_rows = [row for row in rows if is_applyable(row)]
+    skip_rows = [row for row in rows if not is_applyable(row)]
+    print(f"Mode: {mode}")
+    print(f"Remap files: {len(apply_rows)}")
+    print(f"Skip files: {len(skip_rows)}")
+    print(f"Remap vectors: {sum(row.vector_count for row in apply_rows)}")
+    for row in apply_rows[:SAMPLE_LIMIT]:
+        print(f"  {row.old_key} -> {row.new_key} ({row.rule})")
+    extra = len(apply_rows) - SAMPLE_LIMIT
+    if extra > 0:
+        print(f"  ... and {extra} more")
+    print_named_rows(
+        "Size mismatch files",
+        [row for row in rows if row.result == "size_mismatch"],
+    )
+    print_named_rows(
+        "No old copy files",
+        [row for row in rows if row.result == "no_old_copy"],
+    )
 
 
 def get_index(pc: Pinecone, index_name: str | None = None):
@@ -583,14 +740,13 @@ def run(
     if args.rollback:
         return rollback_from_backup(index, Path(args.rollback))
 
-    records = filter_records(
-        list_audio_records(index),
-        args.only_old_key,
-        args.ids_file,
-    )
+    all_records = list_audio_records(index)
     s3_keys = list_live_s3_keys(s3_client, bucket)
-    rows = apply_limit(build_remap_rows(records, s3_keys), args.limit)
-    attach_s3_sizes(s3_client, bucket, rows)
+    used_keys = used_keys_from_records(all_records, s3_keys)
+    records = filter_records(all_records, args.only_old_key, args.ids_file)
+    rows = build_remap_rows(records, s3_keys, used_keys=used_keys)
+    attach_s3_sizes(s3_client, bucket, rows, s3_keys)
+    rows = apply_limit(rows, args.limit)
 
     if not args.apply:
         write_report(out_dir, rows)
@@ -600,7 +756,9 @@ def run(
 
     report_path = out_dir / REPORT_NAME
     report_counts = load_report_counts(report_path)
-    ok_keys = {row.old_key for row in rows if row.result == "ok"}
+    approved_pairs = load_report_pairs(report_path)
+    assert_pairs_match(rows, approved_pairs)
+    ok_keys = {row.old_key for row in rows if is_applyable(row)}
     compare_counts = {
         key: report_counts[key] for key in ok_keys if key in report_counts
     }
@@ -612,6 +770,7 @@ def run(
 
     backup_records = [record for record in records if record.filename in ok_keys]
     backup_path = write_backup(out_dir, backup_records)
+    print(f"Backup path: {backup_path}")
     print(f"Backup records: {len(backup_records)}")
     print(f"Backup SHA-256: {sha256_file(backup_path)}")
     if not backup_path.is_file() or backup_path.stat().st_size == 0:

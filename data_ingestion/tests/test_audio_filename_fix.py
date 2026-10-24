@@ -1,6 +1,9 @@
 """Tests for pick_target. Keys are synthetic."""
 
-from data_ingestion.audio_video.audio_filename_fix import pick_target
+from data_ingestion.audio_video.audio_filename_fix import (
+    find_old_copy_key,
+    pick_target,
+)
 
 
 def test_pick_target_r1_exact_file_name():
@@ -100,3 +103,27 @@ def test_pick_target_does_not_move_across_libraries():
 
     assert target is None
     assert rule == "zero targets"
+
+
+def test_find_old_copy_key_in_ignore_folder():
+    old_key = "treasures/Talk A.mp3"
+    s3_keys = [
+        "treasures/album/Talk A.mp3",
+        "treasures/ignore/Talk A.mp3",
+    ]
+
+    assert find_old_copy_key(old_key, s3_keys) == "treasures/ignore/Talk A.mp3"
+
+
+def test_find_old_copy_key_in_set_aside_folder():
+    old_key = "treasures/Talk A.mp3"
+    s3_keys = ["treasures/Set Aside/Talk A.mp3"]
+
+    assert find_old_copy_key(old_key, s3_keys) == "treasures/Set Aside/Talk A.mp3"
+
+
+def test_find_old_copy_key_returns_none_when_missing():
+    assert (
+        find_old_copy_key("treasures/Talk A.mp3", ["treasures/album/Talk A.mp3"])
+        is None
+    )

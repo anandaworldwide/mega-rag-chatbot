@@ -80,6 +80,26 @@ def choose_target(
     return None, "ambiguous"
 
 
+def find_old_copy_key(old_key: str, s3_keys: Iterable[str]) -> str | None:
+    """Return one ignore or set-aside key with the same file name.
+
+    The key must stay in the same library. Zero matches return None.
+    Several matches return the first key in sort order.
+    """
+    old_library = library_name(old_key)
+    old_name = file_name(old_key)
+    matches = [
+        key
+        for key in s3_keys
+        if library_name(key) == old_library
+        and has_excluded_folder(key)
+        and file_name(key) == old_name
+    ]
+    if not matches:
+        return None
+    return sorted(matches)[0]
+
+
 def pick_target(
     old_key: str,
     s3_keys: Iterable[str],

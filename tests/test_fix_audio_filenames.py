@@ -25,8 +25,14 @@ def load_script_module():
 SCRIPT = load_script_module()
 OLD_KEY = "treasures/Talk A.mp3"
 NEW_KEY = "treasures/album/Talk A.mp3"
+IGNORE_KEY = "treasures/ignore/Talk A.mp3"
 VECTOR_A = "audio||Treasures||Talk A||hash||0"
 VECTOR_B = "audio||Treasures||Talk A||hash||1"
+MATCH_SIZE = 2048
+
+
+def live_audio_keys(*relative_keys: str) -> list[str]:
+    return [f"public/audio/{key}" for key in relative_keys]
 
 
 class FakeIndex:
@@ -112,9 +118,9 @@ def make_args(out_dir: Path, **overrides) -> SimpleNamespace:
 
 def test_dry_run_writes_report_and_changes_nothing(tmp_path: Path, capsys):
     index = FakeIndex(sample_records())
-    s3 = FakeS3({NEW_KEY: 2048})
+    s3 = FakeS3({NEW_KEY: MATCH_SIZE, IGNORE_KEY: MATCH_SIZE})
     args = make_args(tmp_path)
-    live_keys = [f"public/audio/{NEW_KEY}"]
+    live_keys = live_audio_keys(NEW_KEY, IGNORE_KEY)
 
     with patch.object(SCRIPT, "list_s3_object_keys", return_value=live_keys):
         result = SCRIPT.run(args, index, s3, "test-bucket")
@@ -130,7 +136,8 @@ def test_dry_run_writes_report_and_changes_nothing(tmp_path: Path, capsys):
     assert row["rule"] == "R1"
     assert row["result"] == "ok"
     assert row["vector_count"] == 2
-    assert row["s3_size"] == 2048
+    assert row["s3_size"] == MATCH_SIZE
+    assert row["old_copy_size"] == MATCH_SIZE
     assert "Dry run. No Pinecone writes." in capsys.readouterr().out
 
 
@@ -159,15 +166,16 @@ def test_apply_refuses_without_backup():
 def test_apply_updates_all_vectors_of_a_file(tmp_path: Path):
     records = sample_records()
     index = FakeIndex(records)
-    s3 = FakeS3({NEW_KEY: 2048})
-    live_keys = [f"public/audio/{NEW_KEY}"]
+    s3 = FakeS3({NEW_KEY: MATCH_SIZE, IGNORE_KEY: MATCH_SIZE})
+    live_keys = live_audio_keys(NEW_KEY, IGNORE_KEY)
     report_row = {
         "old_key": OLD_KEY,
         "new_key": NEW_KEY,
         "rule": "R1",
         "result": "ok",
         "vector_count": 2,
-        "s3_size": 2048,
+        "s3_size": MATCH_SIZE,
+        "old_copy_size": MATCH_SIZE,
     }
     (tmp_path / SCRIPT.REPORT_NAME).write_text(
         json.dumps(report_row) + "\n", encoding="utf-8"
@@ -181,23 +189,24 @@ def test_apply_updates_all_vectors_of_a_file(tmp_path: Path):
     assert {vector_id for vector_id, _meta in index.updates} == {VECTOR_A, VECTOR_B}
     assert index.vectors[VECTOR_A]["metadata"]["filename"] == NEW_KEY
     assert index.vectors[VECTOR_B]["metadata"]["filename"] == NEW_KEY
-    backup_path = tmp_path / SCRIPT.BACKUP_NAME
-    assert backup_path.is_file()
-    backup_lines = backup_path.read_text(encoding="utf-8").splitlines()
+    backups = SCRIPT.list_backup_files(tmp_path)
+    assert len(backups) == 1
+    backup_lines = backups[0].read_text(encoding="utf-8").splitlines()
     assert len(backup_lines) == 2
 
 
 def test_vector_count_mismatch_stops_apply(tmp_path: Path):
     index = FakeIndex(sample_records())
-    s3 = FakeS3({NEW_KEY: 2048})
-    live_keys = [f"public/audio/{NEW_KEY}"]
+    s3 = FakeS3({NEW_KEY: MATCH_SIZE, IGNORE_KEY: MATCH_SIZE})
+    live_keys = live_audio_keys(NEW_KEY, IGNORE_KEY)
     report_row = {
         "old_key": OLD_KEY,
         "new_key": NEW_KEY,
         "rule": "R1",
         "result": "ok",
         "vector_count": 3,
-        "s3_size": 2048,
+        "s3_size": MATCH_SIZE,
+        "old_copy_size": MATCH_SIZE,
     }
     (tmp_path / SCRIPT.REPORT_NAME).write_text(
         json.dumps(report_row) + "\n", encoding="utf-8"
@@ -212,7 +221,7 @@ def test_vector_count_mismatch_stops_apply(tmp_path: Path):
     else:
         raise AssertionError("Expected FilenameFixError for a vector count mismatch")
     assert index.updates == []
-    assert not (tmp_path / SCRIPT.BACKUP_NAME).exists()
+    assert SCRIPT.list_backup_files(tmp_path) == []
 
 
 def test_rollback_restores_old_filename(tmp_path: Path):
@@ -221,8 +230,7 @@ def test_rollback_restores_old_filename(tmp_path: Path):
         SCRIPT.AudioRecord(VECTOR_B, NEW_KEY, "Treasures", "Talk A"),
     ]
     index = FakeIndex(records)
-    backup_path = tmp_path / SCRIPT.BACKUP_NAME
-    SCRIPT.write_backup(tmp_path, sample_records())
+    backup_path = SCRIPT.write_backup(tmp_path, sample_records())
     args = make_args(tmp_path, rollback=str(backup_path))
 
     restored = SCRIPT.run(args, index, FakeS3({}), "test-bucket")
@@ -269,6 +277,288 @@ def test_encode_vector_id_percent_encodes_spaces():
     assert SCRIPT.encode_vector_id("audio||Treasures||TalkA||0") == (
         "audio||Treasures||TalkA||0"
     )
+
+
+def test_canary_then_full_apply_keeps_both_backups(tmp_path: Path):
+    old_b = "treasures/Talk B.mp3"
+    new_b = "treasures/album/Talk B.mp3"
+    ignore_b = "treasures/ignore/Talk B.mp3"
+    vector_c = "audio||Treasures||Talk B||hash||0"
+    records = [
+        *sample_records(),
+        SCRIPT.AudioRecord(vector_c, old_b, "Treasures", "Talk B"),
+    ]
+    index = FakeIndex(records)
+    s3 = FakeS3(
+        {
+            NEW_KEY: MATCH_SIZE,
+            IGNORE_KEY: MATCH_SIZE,
+            new_b: MATCH_SIZE,
+            ignore_b: MATCH_SIZE,
+        }
+    )
+    live_keys = live_audio_keys(NEW_KEY, IGNORE_KEY, new_b, ignore_b)
+    report_rows = [
+        {
+            "old_key": OLD_KEY,
+            "new_key": NEW_KEY,
+            "rule": "R1",
+            "result": "ok",
+            "vector_count": 2,
+            "s3_size": MATCH_SIZE,
+            "old_copy_size": MATCH_SIZE,
+        },
+        {
+            "old_key": old_b,
+            "new_key": new_b,
+            "rule": "R1",
+            "result": "ok",
+            "vector_count": 1,
+            "s3_size": MATCH_SIZE,
+            "old_copy_size": MATCH_SIZE,
+        },
+    ]
+    (tmp_path / SCRIPT.REPORT_NAME).write_text(
+        "".join(json.dumps(row) + "\n" for row in report_rows),
+        encoding="utf-8",
+    )
+
+    with patch.object(SCRIPT, "list_s3_object_keys", return_value=live_keys):
+        canary = SCRIPT.run(
+            make_args(tmp_path, apply=True, limit=1), index, s3, "test-bucket"
+        )
+        full = SCRIPT.run(make_args(tmp_path, apply=True), index, s3, "test-bucket")
+
+    backups = SCRIPT.list_backup_files(tmp_path)
+    assert canary == 2
+    assert full == 1
+    assert len(backups) == 2
+    assert backups[0] != backups[1]
+    assert index.vectors[VECTOR_A]["metadata"]["filename"] == NEW_KEY
+    assert index.vectors[VECTOR_B]["metadata"]["filename"] == NEW_KEY
+    assert index.vectors[vector_c]["metadata"]["filename"] == new_b
+
+    SCRIPT.rollback_from_backup(index, backups[0])
+    SCRIPT.rollback_from_backup(index, backups[1])
+    assert index.vectors[VECTOR_A]["metadata"]["filename"] == OLD_KEY
+    assert index.vectors[VECTOR_B]["metadata"]["filename"] == OLD_KEY
+    assert index.vectors[vector_c]["metadata"]["filename"] == old_b
+
+
+def test_filter_does_not_pick_key_used_by_another_record(tmp_path: Path, capsys):
+    used_key = "treasures/album/Talk A.mp3"
+    other_id = "audio||Treasures||Talk C||hash||0"
+    records = [
+        SCRIPT.AudioRecord(VECTOR_A, OLD_KEY, "Treasures", "Talk A"),
+        SCRIPT.AudioRecord(other_id, used_key, "Treasures", "Talk C"),
+    ]
+    index = FakeIndex(records)
+    s3 = FakeS3({used_key: MATCH_SIZE})
+    args = make_args(tmp_path, only_old_key=OLD_KEY)
+
+    with patch.object(
+        SCRIPT, "list_s3_object_keys", return_value=live_audio_keys(used_key)
+    ):
+        SCRIPT.run(args, index, s3, "test-bucket")
+
+    row = json.loads((tmp_path / SCRIPT.REPORT_NAME).read_text(encoding="utf-8"))
+    assert row["old_key"] == OLD_KEY
+    assert row["new_key"] is None
+    assert row["result"] == "skip"
+    assert row["rule"] == "zero targets"
+    assert index.updates == []
+
+
+def test_apply_stops_when_new_key_differs_from_report(tmp_path: Path):
+    other_new = "treasures/copy/Talk A.mp3"
+    index = FakeIndex(sample_records())
+    s3 = FakeS3({NEW_KEY: MATCH_SIZE, IGNORE_KEY: MATCH_SIZE})
+    report_row = {
+        "old_key": OLD_KEY,
+        "new_key": other_new,
+        "rule": "R1",
+        "result": "ok",
+        "vector_count": 2,
+        "s3_size": MATCH_SIZE,
+        "old_copy_size": MATCH_SIZE,
+    }
+    (tmp_path / SCRIPT.REPORT_NAME).write_text(
+        json.dumps(report_row) + "\n", encoding="utf-8"
+    )
+    args = make_args(tmp_path, apply=True)
+
+    try:
+        with patch.object(
+            SCRIPT,
+            "list_s3_object_keys",
+            return_value=live_audio_keys(NEW_KEY, IGNORE_KEY),
+        ):
+            SCRIPT.run(args, index, s3, "test-bucket")
+    except SCRIPT.FilenameFixError as exc:
+        assert OLD_KEY in str(exc)
+        assert "does not match the dry-run report" in str(exc)
+    else:
+        raise AssertionError("Expected FilenameFixError for a new_key mismatch")
+    assert index.updates == []
+    assert SCRIPT.list_backup_files(tmp_path) == []
+
+
+def test_size_check_keeps_matching_old_copy(tmp_path: Path):
+    index = FakeIndex(sample_records())
+    s3 = FakeS3({NEW_KEY: MATCH_SIZE, IGNORE_KEY: MATCH_SIZE})
+    args = make_args(tmp_path)
+
+    with patch.object(
+        SCRIPT,
+        "list_s3_object_keys",
+        return_value=live_audio_keys(NEW_KEY, IGNORE_KEY),
+    ):
+        SCRIPT.run(args, index, s3, "test-bucket")
+
+    row = json.loads((tmp_path / SCRIPT.REPORT_NAME).read_text(encoding="utf-8"))
+    assert row["result"] == "ok"
+    assert row["s3_size"] == MATCH_SIZE
+    assert row["old_copy_size"] == MATCH_SIZE
+    assert index.updates == []
+
+
+def test_size_mismatch_skips_remap(tmp_path: Path, capsys):
+    index = FakeIndex(sample_records())
+    s3 = FakeS3({NEW_KEY: MATCH_SIZE, IGNORE_KEY: 999})
+    args = make_args(tmp_path)
+
+    with patch.object(
+        SCRIPT,
+        "list_s3_object_keys",
+        return_value=live_audio_keys(NEW_KEY, IGNORE_KEY),
+    ):
+        SCRIPT.run(args, index, s3, "test-bucket")
+
+    row = json.loads((tmp_path / SCRIPT.REPORT_NAME).read_text(encoding="utf-8"))
+    output = capsys.readouterr().out
+    assert row["result"] == "size_mismatch"
+    assert row["s3_size"] == MATCH_SIZE
+    assert row["old_copy_size"] == 999
+    assert "Size mismatch files: 1" in output
+    assert index.updates == []
+
+
+def test_no_old_copy_stays_ok_and_is_listed(tmp_path: Path, capsys):
+    index = FakeIndex(sample_records())
+    s3 = FakeS3({NEW_KEY: MATCH_SIZE})
+    args = make_args(tmp_path)
+
+    with patch.object(
+        SCRIPT, "list_s3_object_keys", return_value=live_audio_keys(NEW_KEY)
+    ):
+        SCRIPT.run(args, index, s3, "test-bucket")
+
+    row = json.loads((tmp_path / SCRIPT.REPORT_NAME).read_text(encoding="utf-8"))
+    output = capsys.readouterr().out
+    assert row["result"] == "no_old_copy"
+    assert row["new_key"] == NEW_KEY
+    assert row["s3_size"] == MATCH_SIZE
+    assert row["old_copy_size"] is None
+    assert "No old copy files: 1" in output
+    assert index.updates == []
+
+
+def test_no_old_copy_is_still_applied(tmp_path: Path):
+    index = FakeIndex(sample_records())
+    s3 = FakeS3({NEW_KEY: MATCH_SIZE})
+    report_row = {
+        "old_key": OLD_KEY,
+        "new_key": NEW_KEY,
+        "rule": "R1",
+        "result": "no_old_copy",
+        "vector_count": 2,
+        "s3_size": MATCH_SIZE,
+        "old_copy_size": None,
+    }
+    (tmp_path / SCRIPT.REPORT_NAME).write_text(
+        json.dumps(report_row) + "\n", encoding="utf-8"
+    )
+    args = make_args(tmp_path, apply=True)
+
+    with patch.object(
+        SCRIPT, "list_s3_object_keys", return_value=live_audio_keys(NEW_KEY)
+    ):
+        updated = SCRIPT.run(args, index, s3, "test-bucket")
+
+    assert updated == 2
+    assert index.vectors[VECTOR_A]["metadata"]["filename"] == NEW_KEY
+    assert index.vectors[VECTOR_B]["metadata"]["filename"] == NEW_KEY
+
+
+def test_two_old_keys_that_pick_one_target_are_collisions(tmp_path: Path):
+    old_one = "treasures/old1/Talk A.mp3"
+    old_two = "treasures/old2/Talk A.mp3"
+    records = [
+        SCRIPT.AudioRecord(VECTOR_A, old_one, "Treasures", "Talk A"),
+        SCRIPT.AudioRecord(VECTOR_B, old_two, "Treasures", "Talk A"),
+    ]
+    index = FakeIndex(records)
+    s3 = FakeS3({NEW_KEY: MATCH_SIZE, IGNORE_KEY: MATCH_SIZE})
+    args = make_args(tmp_path)
+
+    with patch.object(
+        SCRIPT,
+        "list_s3_object_keys",
+        return_value=live_audio_keys(NEW_KEY, IGNORE_KEY),
+    ):
+        SCRIPT.run(args, index, s3, "test-bucket")
+
+    rows = [
+        json.loads(line)
+        for line in (tmp_path / SCRIPT.REPORT_NAME)
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line
+    ]
+    assert {row["old_key"] for row in rows} == {old_one, old_two}
+    assert all(row["result"] == "skip" for row in rows)
+    assert all(row["rule"] == "collision" for row in rows)
+    assert all(row["new_key"] == NEW_KEY for row in rows)
+    assert index.updates == []
+
+
+class VerifyFailIndex(FakeIndex):
+    """Apply writes. Fetch then returns a wrong filename."""
+
+    def fetch(self, ids, include_values=False):
+        found = {}
+        for vector_id in ids:
+            decoded = SCRIPT.decode_vector_id(vector_id)
+            key = decoded if decoded in self.vectors else vector_id
+            if key in self.vectors:
+                metadata = dict(self.vectors[key]["metadata"])
+                metadata["filename"] = "wrong"
+                found[key] = SimpleNamespace(metadata=metadata)
+        return SimpleNamespace(vectors=found)
+
+
+def test_verify_failure_names_the_backup_for_rollback(tmp_path: Path):
+    backup_path = SCRIPT.write_backup(tmp_path, sample_records())
+    index = VerifyFailIndex(sample_records())
+    rows = [
+        SCRIPT.RemapRow(
+            old_key=OLD_KEY,
+            new_key=NEW_KEY,
+            rule="R1",
+            result="ok",
+            vector_count=2,
+        )
+    ]
+
+    try:
+        SCRIPT.apply_remap(index, rows, sample_records(), backup_path)
+    except SCRIPT.FilenameFixError as exc:
+        message = str(exc)
+        assert "Verify failed" in message
+        assert f"Run --rollback with {backup_path}" in message
+    else:
+        raise AssertionError("Expected FilenameFixError after a verify failure")
+    assert index.updates
 
 
 def test_mask_secrets_hides_keys():
