@@ -24,6 +24,7 @@ import {
   isIncompleteRetrievalAnswer,
   isRunTogetherNarrationText,
   parseCompleteListFlag,
+  stripLeadingRetrievalNarration,
   shouldAllowAnotherRetrievalRound,
   shouldSkipFurtherRetrievalAfterExpansion,
   finalizeRetrievalUserAnswer,
@@ -510,6 +511,12 @@ describe("retrievalTools", () => {
       ).toBe(false);
     });
 
+    it("detects standalone article-visualization fetch narration as incomplete", () => {
+      expect(
+        isIncompleteRetrievalAnswer("Fetching the remaining aspect visualizations from that article.")
+      ).toBe(true);
+    });
+
     it("keeps short real answers complete when they start with Im/Ill/Imagine or contain moreover/resource", () => {
       expect(
         isIncompleteRetrievalAnswer("Immortality is the soul's nature, not a later reward.")
@@ -547,6 +554,46 @@ Pair share: where did you face an Arjuna moment this week?
 Short quotation and seated quiet. Sources include Crystal Clarity commentaries.
 `.trim();
       expect(isIncompleteRetrievalAnswer(outline)).toBe(false);
+    });
+  });
+
+  describe("stripLeadingRetrievalNarration", () => {
+    it("drops no-space fetch narration and keeps the real answer", () => {
+      const glued =
+        "Fetching the remaining aspect visualizations from that article.From Ananda materials, daily attunement is less a long checklist than choosing a few living practices.";
+      expect(stripLeadingRetrievalNarration(glued)).toBe(
+        "From Ananda materials, daily attunement is less a long checklist than choosing a few living practices."
+      );
+    });
+
+    it("drops spaced fetch narration and keeps the real answer", () => {
+      const spaced =
+        "Fetching the remaining aspect visualizations from that article. From Ananda materials, daily attunement is less a long checklist than choosing a few living practices.";
+      expect(stripLeadingRetrievalNarration(spaced)).toBe(
+        "From Ananda materials, daily attunement is less a long checklist than choosing a few living practices."
+      );
+    });
+
+    it("leaves narration-only text unchanged so the incomplete path can replace it", () => {
+      const narration = "Fetching the remaining aspect visualizations from that article.";
+      expect(stripLeadingRetrievalNarration(narration)).toBe(narration);
+    });
+
+    it("leaves a normal answer unchanged", () => {
+      const answer =
+        "From Ananda materials, daily attunement is less a long checklist than choosing a few living practices.";
+      expect(stripLeadingRetrievalNarration(answer)).toBe(answer);
+    });
+
+    it("does not strip a real I'll-share-sources opening", () => {
+      const answer =
+        "I'll share three sources of inner peace from Master. The first is daily meditation.";
+      expect(stripLeadingRetrievalNarration(answer)).toBe(answer);
+    });
+
+    it("does not strip geo nearby-center narration", () => {
+      const answer = "I'll find nearby Ananda centers based on your location. The closest is in Berkeley.";
+      expect(stripLeadingRetrievalNarration(answer)).toBe(answer);
     });
   });
 
@@ -659,6 +706,16 @@ Short quotation and seated quiet. Sources include Crystal Clarity commentaries.
         "Here are three stories from Autobiography of a Yogi, including the Brindaban tiger and the mustard seed.";
       const result = finalizeRetrievalUserAnswer({
         answerText: answer,
+        afterRetrievalAttempt: true,
+      });
+      expect(result).toEqual({ text: answer, usedFallback: false });
+    });
+
+    it("strips no-space fetch narration and keeps the real answer", () => {
+      const answer =
+        "From Ananda materials, daily attunement is less a long checklist than choosing a few living practices.";
+      const result = finalizeRetrievalUserAnswer({
+        answerText: `Fetching the remaining aspect visualizations from that article.${answer}`,
         afterRetrievalAttempt: true,
       });
       expect(result).toEqual({ text: answer, usedFallback: false });

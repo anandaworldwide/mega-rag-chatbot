@@ -76,6 +76,7 @@ import {
   getRetrievalToolGuidance,
   isIncompleteRetrievalAnswer,
   isRetrievalToolName,
+  stripLeadingRetrievalNarration,
   MAX_RETRIEVAL_TOOL_ITERATIONS,
   parseCompleteListFlag,
   RETRIEVAL_TOOL_DEFINITIONS,
@@ -1815,8 +1816,10 @@ export async function setupAndExecuteLanguageModelChain(
       let pendingToolCalls = extractGeoToolCalls(result.answer);
       const retrievalToolsEnabled = shouldBindRetrievalTools(siteConfig, modelName, isAnthropicModel);
       // Plain-text "I'll search…" with no tool_calls never entered this loop, so the leak became the answer.
+      // Strip a glued narration prefix first so a real answer is not treated as incomplete.
+      const firstPassWithoutNarration = stripLeadingRetrievalNarration(fullResponse);
       const firstPassIsSearchNarration =
-        retrievalToolsEnabled && isIncompleteRetrievalAnswer(fullResponse);
+        retrievalToolsEnabled && isIncompleteRetrievalAnswer(firstPassWithoutNarration);
       if (pendingToolCalls.length > 0 || firstPassIsSearchNarration) {
         console.log("🔧 Starting tool execution loop");
 
@@ -1877,19 +1880,21 @@ export async function setupAndExecuteLanguageModelChain(
             afterRetrievalAttempt:
               retrievalIterations > 0 || firstPassIsSearchNarration || retrievalAnswerForced,
           });
-          if (!finalized.usedFallback) {
+          if (finalized.text === fullResponse) {
             return finalized.text;
           }
-          console.warn(
-            `⚠️ Replacing incomplete retrieval answer with user-facing fallback (${finalized.reason})`
-          );
-          sendData({ status: "retrieving_more_sources" });
+          if (finalized.usedFallback) {
+            console.warn(
+              `⚠️ Replacing incomplete retrieval answer with user-facing fallback (${finalized.reason})`
+            );
+          }
+          // Same SSE event: clear any streamed narration, then show the cleaned answer.
+          sendData({ status: "retrieving_more_sources", token: finalized.text });
           fullResponse = finalized.text;
           tokensStreamed = finalized.text.length;
           firstTokenTime = firstTokenTime ?? Date.now();
           firstByteTime = firstByteTime ?? Date.now();
           streamingDeadline.touchStreamingActivity();
-          sendData({ token: finalized.text });
           return finalized.text;
         };
 
@@ -2250,7 +2255,8 @@ export async function setupAndExecuteLanguageModelChain(
               if (hasFurtherRetrievalCalls && allowMoreRetrievalTools) {
                 continue;
               }
-              if (hasFurtherRetrievalCalls || isIncompleteRetrievalAnswer(bufferedAnswer)) {
+              const usableAnswer = stripLeadingRetrievalNarration(bufferedAnswer);
+              if (hasFurtherRetrievalCalls || isIncompleteRetrievalAnswer(usableAnswer)) {
                 console.warn(
                   `⚠️ Discarding incomplete post-retrieval answer (${bufferedAnswer.length} chars); forcing answer-only recovery`
                 );
@@ -2261,7 +2267,7 @@ export async function setupAndExecuteLanguageModelChain(
                 );
                 break;
               }
-              flushBufferedAnswer(bufferedAnswer);
+              flushBufferedAnswer(usableAnswer);
             }
 
             console.log(`✅ Tool response received for iteration ${iteration}`);
@@ -2352,6 +2358,14 @@ export async function setupAndExecuteLanguageModelChain(
         markerChecked = true;
       }
 
+      // Drop pre-tool / mid-tool status sentences so they are not shown or saved.
+      const cleanedAnswer = stripLeadingRetrievalNarration(fullResponse);
+      if (cleanedAnswer !== fullResponse && cleanedAnswer.trim()) {
+        sendData({ status: "retrieving_more_sources", token: cleanedAnswer });
+        fullResponse = cleanedAnswer;
+        tokensStreamed = cleanedAnswer.length;
+      }
+
       sendData({ done: true, timing: finalTiming });
 
       // Location queries skip Go deeper/broader/daily-life pills.
@@ -2385,7 +2399,9 @@ export async function setupAndExecuteLanguageModelChain(
       // result.question is the restated question from the chain
       // Do not fall back to first-pass tool narration after a retrieval attempt.
       const fallbackAnswerContent =
-        result.answer && typeof result.answer.content === "string" ? result.answer.content : "";
+        result.answer && typeof result.answer.content === "string"
+          ? stripLeadingRetrievalNarration(result.answer.content)
+          : "";
       const authoritativeAnswer = fullResponse.trim()
         ? fullResponse
         : fallbackAnswerContent && !isIncompleteRetrievalAnswer(fallbackAnswerContent)
