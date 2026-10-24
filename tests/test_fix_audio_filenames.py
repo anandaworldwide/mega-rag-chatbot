@@ -60,20 +60,20 @@ class FakeIndex:
     def fetch(self, ids, include_values=False):
         found = {}
         for vector_id in ids:
-            decoded = SCRIPT.decode_vector_id(vector_id)
-            key = decoded if decoded in self.vectors else vector_id
-            if key in self.vectors:
-                found[key] = SimpleNamespace(
-                    metadata=dict(self.vectors[key]["metadata"])
+            if "%20" in vector_id:
+                continue
+            if vector_id in self.vectors:
+                found[vector_id] = SimpleNamespace(
+                    metadata=dict(self.vectors[vector_id]["metadata"])
                 )
         return SimpleNamespace(vectors=found)
 
     def update(self, id, set_metadata):
-        decoded = SCRIPT.decode_vector_id(id)
-        key = decoded if decoded in self.vectors else id
-        self.updates.append((key, dict(set_metadata)))
-        if key in self.vectors:
-            self.vectors[key]["metadata"].update(set_metadata)
+        if "%20" in id:
+            raise KeyError(f"id not found: {id}")
+        self.updates.append((id, dict(set_metadata)))
+        if id in self.vectors:
+            self.vectors[id]["metadata"].update(set_metadata)
 
 
 class FakeS3:
@@ -138,7 +138,10 @@ def test_dry_run_writes_report_and_changes_nothing(tmp_path: Path, capsys):
     assert row["vector_count"] == 2
     assert row["s3_size"] == MATCH_SIZE
     assert row["old_copy_size"] == MATCH_SIZE
-    assert "Dry run. No Pinecone writes." in capsys.readouterr().out
+    output = capsys.readouterr().out
+    digest = SCRIPT.sha256_file(report_path)
+    assert "Dry run. No Pinecone writes." in output
+    assert f"Report SHA-256: {digest}" in output
 
 
 def test_apply_refuses_without_backup():
@@ -269,14 +272,49 @@ def test_out_dir_inside_repo_is_refused():
         raise AssertionError("Expected FilenameFixError for an in-repo out-dir")
 
 
-def test_encode_vector_id_percent_encodes_spaces():
-    raw = "audio||Treasures||Talk A||hash||0"
-    encoded = SCRIPT.encode_vector_id(raw)
-    assert encoded == "audio||Treasures||Talk%20A||hash||0"
-    assert SCRIPT.decode_vector_id(encoded) == raw
-    assert SCRIPT.encode_vector_id("audio||Treasures||TalkA||0") == (
-        "audio||Treasures||TalkA||0"
+def test_encoded_ids_are_rejected_on_fetch_update_and_rollback(tmp_path: Path):
+    """Fail if a percent-encoded id is sent to fetch, update, or rollback."""
+    encoded = VECTOR_A.replace(" ", "%20")
+    assert " " in VECTOR_A
+    assert "%20" in encoded
+
+    fake = FakeIndex(sample_records())
+    assert SCRIPT.fetch_metadata(fake, [encoded]) == {}
+    fetched = SCRIPT.fetch_metadata(fake, [VECTOR_A, VECTOR_B])
+    assert set(fetched) == {VECTOR_A, VECTOR_B}
+
+    try:
+        fake.update(id=encoded, set_metadata={"filename": NEW_KEY})
+    except KeyError as exc:
+        assert encoded in str(exc)
+    else:
+        raise AssertionError("Expected reject of encoded update id")
+    assert fake.updates == []
+    assert fake.vectors[VECTOR_A]["metadata"]["filename"] == OLD_KEY
+
+    index = TrackingIndex(sample_records())
+    listed = SCRIPT.list_audio_records(index)
+    assert [record.vector_id for record in listed] == [VECTOR_A, VECTOR_B]
+    SCRIPT.update_filenames(index, [VECTOR_A], NEW_KEY)
+    assert index.updates[0][0] == VECTOR_A
+    assert "%20" not in index.updates[0][0]
+
+    backup_path = SCRIPT.write_backup(
+        tmp_path,
+        [SCRIPT.AudioRecord(VECTOR_A, OLD_KEY, "Treasures", "Talk A")],
     )
+    backup_row = json.loads(backup_path.read_text(encoding="utf-8"))
+    assert backup_row["id"] == VECTOR_A
+    assert " " in backup_row["id"]
+    assert "%20" not in backup_row["id"]
+
+    rollback_index = TrackingIndex(
+        [SCRIPT.AudioRecord(VECTOR_A, NEW_KEY, "Treasures", "Talk A")]
+    )
+    SCRIPT.rollback_from_backup(rollback_index, backup_path)
+    assert rollback_index.updates[0][0] == VECTOR_A
+    assert "%20" not in rollback_index.updates[0][0]
+    assert rollback_index.vectors[VECTOR_A]["metadata"]["filename"] == OLD_KEY
 
 
 def test_canary_then_full_apply_keeps_both_backups(tmp_path: Path):
@@ -522,18 +560,55 @@ def test_two_old_keys_that_pick_one_target_are_collisions(tmp_path: Path):
     assert index.updates == []
 
 
+class FlakyFetchIndex(FakeIndex):
+    """Fail fetch a set number of times, then succeed."""
+
+    def __init__(self, records, fail_times=2):
+        super().__init__(records)
+        self.fail_times = fail_times
+        self.fetch_calls = 0
+
+    def fetch(self, ids, include_values=False):
+        self.fetch_calls += 1
+        if self.fetch_calls <= self.fail_times:
+            raise RuntimeError("transient fetch error")
+        return super().fetch(ids, include_values)
+
+
+class UpdateFailIndex(FakeIndex):
+    """Raise on update to simulate a Pinecone write error."""
+
+    def update(self, id, set_metadata):
+        raise RuntimeError("Pinecone timeout")
+
+
+class TrackingIndex(FakeIndex):
+    """Fail the test when a percent-encoded id is sent."""
+
+    def fetch(self, ids, include_values=False):
+        for vector_id in ids:
+            if "%20" in vector_id:
+                raise AssertionError(f"encoded fetch id: {vector_id}")
+        return super().fetch(ids, include_values)
+
+    def update(self, id, set_metadata):
+        if "%20" in id:
+            raise AssertionError(f"encoded update id: {id}")
+        return super().update(id, set_metadata)
+
+
 class VerifyFailIndex(FakeIndex):
     """Apply writes. Fetch then returns a wrong filename."""
 
     def fetch(self, ids, include_values=False):
         found = {}
         for vector_id in ids:
-            decoded = SCRIPT.decode_vector_id(vector_id)
-            key = decoded if decoded in self.vectors else vector_id
-            if key in self.vectors:
-                metadata = dict(self.vectors[key]["metadata"])
+            if "%20" in vector_id:
+                continue
+            if vector_id in self.vectors:
+                metadata = dict(self.vectors[vector_id]["metadata"])
                 metadata["filename"] = "wrong"
-                found[key] = SimpleNamespace(metadata=metadata)
+                found[vector_id] = SimpleNamespace(metadata=metadata)
         return SimpleNamespace(vectors=found)
 
 
@@ -568,3 +643,72 @@ def test_mask_secrets_hides_keys():
     assert "xyz" not in masked
     assert "AKIAIOSFODNN7EXAMPLE" not in masked
     assert "[secret]" in masked
+
+
+def test_fetch_retries_then_succeeds():
+    index = FlakyFetchIndex(sample_records(), fail_times=2)
+    sleeps: list[float] = []
+    result = SCRIPT.fetch_metadata_with_retry(
+        index, [VECTOR_A], sleep=sleeps.append
+    )
+    assert VECTOR_A in result
+    assert index.fetch_calls == 3
+    assert sleeps == [SCRIPT.FETCH_BACKOFF_SEC, SCRIPT.FETCH_BACKOFF_SEC]
+
+
+def test_fetch_stops_after_three_failures():
+    index = FlakyFetchIndex(sample_records(), fail_times=10)
+    try:
+        SCRIPT.fetch_metadata_with_retry(
+            index, [VECTOR_A], sleep=lambda _delay: None
+        )
+    except SCRIPT.FilenameFixError as exc:
+        assert "Fetch failed after 3 tries" in str(exc)
+    else:
+        raise AssertionError("Expected FilenameFixError after three fetch failures")
+    assert index.fetch_calls == 3
+
+
+def test_fetch_all_metadata_keeps_input_id_order():
+    records = [
+        SCRIPT.AudioRecord(
+            f"audio||Treasures||Talk {index_number}||hash||0",
+            OLD_KEY,
+            "Treasures",
+            f"Talk {index_number}",
+        )
+        for index_number in range(45)
+    ]
+    reversed_ids = list(reversed([record.vector_id for record in records]))
+    fetched = SCRIPT.fetch_all_metadata(
+        FakeIndex(records), reversed_ids, sleep=lambda _delay: None
+    )
+    assert list(fetched.keys()) == reversed_ids
+
+
+def test_apply_pinecone_error_names_the_backup_for_rollback(tmp_path: Path):
+    backup_path = SCRIPT.write_backup(tmp_path, sample_records())
+    rows = [
+        SCRIPT.RemapRow(
+            old_key=OLD_KEY,
+            new_key=NEW_KEY,
+            rule="R1",
+            result="ok",
+            vector_count=2,
+            vector_ids=[VECTOR_A, VECTOR_B],
+        )
+    ]
+
+    try:
+        SCRIPT.apply_remap(
+            UpdateFailIndex(sample_records()),
+            rows,
+            sample_records(),
+            backup_path,
+        )
+    except SCRIPT.FilenameFixError as exc:
+        message = str(exc)
+        assert "Apply stopped" in message
+        assert f"Run --rollback with {backup_path}" in message
+    else:
+        raise AssertionError("Expected FilenameFixError after a Pinecone error")

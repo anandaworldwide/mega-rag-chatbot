@@ -24,12 +24,13 @@ import json
 import os
 import re
 import sys
+import time
 from collections import Counter, defaultdict
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import quote, unquote
 
 from botocore.exceptions import ClientError
 from pinecone import Pinecone
@@ -73,6 +74,9 @@ AUDIO_ID_PREFIX = "audio||"
 AUDIO_S3_PREFIX = "public/audio/"
 LIST_LIMIT = 100
 FETCH_BATCH = 20
+FETCH_WORKERS = 8
+FETCH_RETRIES = 3
+FETCH_BACKOFF_SEC = 0.2
 UPDATE_BATCH = 100
 SAMPLE_LIMIT = 3
 REPORT_NAME = "filename-fix-report.jsonl"
@@ -148,20 +152,6 @@ def mask_secrets(text: str) -> str:
     return masked
 
 
-def encode_vector_id(vector_id: str) -> str:
-    """Percent-encode spaces in a vector id. Leave other characters."""
-    if " " not in vector_id:
-        return vector_id
-    return quote(vector_id, safe="|")
-
-
-def decode_vector_id(vector_id: str) -> str:
-    """Undo percent-encoding when a fetch key comes back encoded."""
-    if "%" not in vector_id:
-        return vector_id
-    return unquote(vector_id)
-
-
 def default_out_dir() -> Path:
     """Return the default output directory. It is outside the repository."""
     return DEFAULT_OUT_DIR
@@ -176,23 +166,101 @@ def assert_out_dir_outside_repo(out_dir: Path, repo_root: Path = _REPO_ROOT) -> 
     return resolved
 
 
-def fetch_metadata(index, ids: list[str]) -> dict[str, dict]:
-    """Fetch metadata for vector ids. Encode spaces when needed."""
-    encoded = [encode_vector_id(vector_id) for vector_id in ids]
+def call_index_fetch(index, ids: list[str]):
+    """Call index.fetch with raw vector ids."""
     try:
-        response = index.fetch(ids=encoded, include_values=False)
+        return index.fetch(ids=ids, include_values=False)
     except TypeError:
-        response = index.fetch(ids=encoded)
+        return index.fetch(ids=ids)
+
+
+def metadata_from_fetch(response) -> dict[str, dict]:
+    """Read metadata from a fetch response. Keep the raw ids."""
     vectors = response.vectors if hasattr(response, "vectors") else response["vectors"]
-    original = {encode_vector_id(vector_id): vector_id for vector_id in ids}
     found: dict[str, dict] = {}
     for key, vector in vectors.items():
         metadata = (
             vector.metadata if hasattr(vector, "metadata") else vector["metadata"]
         )
-        vector_id = original.get(key, decode_vector_id(key))
-        found[vector_id] = dict(metadata or {})
+        found[key] = dict(metadata or {})
     return found
+
+
+def fetch_metadata(index, ids: list[str]) -> dict[str, dict]:
+    """Fetch metadata for raw vector ids."""
+    return metadata_from_fetch(call_index_fetch(index, ids))
+
+
+def fetch_metadata_with_retry(
+    index, ids: list[str], sleep=time.sleep
+) -> dict[str, dict]:
+    """Fetch one batch. Retry a failed batch up to three times."""
+    last_error: Exception | None = None
+    for attempt in range(FETCH_RETRIES):
+        try:
+            return fetch_metadata(index, ids)
+        except FilenameFixError:
+            raise
+        except Exception as exc:
+            last_error = exc
+            if attempt < FETCH_RETRIES - 1:
+                sleep(FETCH_BACKOFF_SEC)
+    raise FilenameFixError(
+        f"Fetch failed after {FETCH_RETRIES} tries."
+    ) from last_error
+
+
+def fetch_all_metadata(
+    index, vector_ids: list[str], sleep=time.sleep
+) -> dict[str, dict]:
+    """Fetch all ids in parallel. Return metadata in the input id order."""
+    if not vector_ids:
+        return {}
+    batches = [
+        vector_ids[start : start + FETCH_BATCH]
+        for start in range(0, len(vector_ids), FETCH_BATCH)
+    ]
+    batch_results: list[dict[str, dict]] = [{} for _ in batches]
+    with ThreadPoolExecutor(max_workers=FETCH_WORKERS) as pool:
+        futures = {
+            pool.submit(fetch_metadata_with_retry, index, batch, sleep): index_number
+            for index_number, batch in enumerate(batches)
+        }
+        for future in as_completed(futures):
+            batch_results[futures[future]] = future.result()
+    combined: dict[str, dict] = {}
+    for batch in batch_results:
+        combined.update(batch)
+    return {
+        vector_id: combined[vector_id]
+        for vector_id in vector_ids
+        if vector_id in combined
+    }
+
+
+def records_from_metadata(
+    vector_ids: list[str], fetched: dict[str, dict]
+) -> list[AudioRecord]:
+    """Build audio records in the same order as vector_ids."""
+    records: list[AudioRecord] = []
+    for vector_id in vector_ids:
+        metadata = fetched.get(vector_id)
+        if not metadata:
+            continue
+        if str(metadata.get("type") or "") != "audio":
+            continue
+        filename = str(metadata.get("filename") or "")
+        if not filename:
+            continue
+        records.append(
+            AudioRecord(
+                vector_id=vector_id,
+                filename=filename,
+                library=str(metadata.get("library") or ""),
+                title=str(metadata.get("title") or ""),
+            )
+        )
+    return records
 
 
 def list_audio_records(index) -> list[AudioRecord]:
@@ -200,25 +268,8 @@ def list_audio_records(index) -> list[AudioRecord]:
     vector_ids: list[str] = []
     for batch in index.list(prefix=AUDIO_ID_PREFIX, limit=LIST_LIMIT):
         vector_ids.extend(batch)
-    records: list[AudioRecord] = []
-    for start in range(0, len(vector_ids), FETCH_BATCH):
-        chunk = vector_ids[start : start + FETCH_BATCH]
-        fetched = fetch_metadata(index, chunk)
-        for vector_id, metadata in fetched.items():
-            if str(metadata.get("type") or "") != "audio":
-                continue
-            filename = str(metadata.get("filename") or "")
-            if not filename:
-                continue
-            records.append(
-                AudioRecord(
-                    vector_id=vector_id,
-                    filename=filename,
-                    library=str(metadata.get("library") or ""),
-                    title=str(metadata.get("title") or ""),
-                )
-            )
-    return records
+    fetched = fetch_all_metadata(index, vector_ids)
+    return records_from_metadata(vector_ids, fetched)
 
 
 def strip_audio_prefix(key: str) -> str:
@@ -540,7 +591,7 @@ def update_filenames(index, vector_ids: list[str], new_key: str) -> int:
         batch = vector_ids[start : start + UPDATE_BATCH]
         for vector_id in batch:
             index.update(
-                id=encode_vector_id(vector_id),
+                id=vector_id,
                 set_metadata={"filename": new_key},
             )
     return len(vector_ids)
@@ -570,18 +621,28 @@ def apply_remap(
     for record in records:
         by_filename[record.filename].append(record)
     updated = 0
-    for row in rows:
-        if not is_applyable(row) or not row.new_key:
-            continue
-        file_records = by_filename.get(row.old_key, [])
-        ids = [record.vector_id for record in file_records]
-        updated += update_filenames(index, ids, row.new_key)
-        try:
-            verify_filenames(index, ids, row.new_key)
-            if len(ids) != row.vector_count:
-                raise FilenameFixError("Verify failed. Vector count changed.")
-        except FilenameFixError as exc:
-            raise FilenameFixError(f"{exc} Run --rollback with {backup_path}.") from exc
+    try:
+        for row in rows:
+            if not is_applyable(row) or not row.new_key:
+                continue
+            file_records = by_filename.get(row.old_key, [])
+            ids = [record.vector_id for record in file_records]
+            updated += update_filenames(index, ids, row.new_key)
+            try:
+                verify_filenames(index, ids, row.new_key)
+                if len(ids) != row.vector_count:
+                    raise FilenameFixError("Verify failed. Vector count changed.")
+            except FilenameFixError as exc:
+                raise FilenameFixError(
+                    f"{exc} Run --rollback with {backup_path}."
+                ) from exc
+    except FilenameFixError:
+        raise
+    except Exception as exc:
+        raise FilenameFixError(
+            f"Apply stopped. {mask_secrets(str(exc))}. "
+            f"Run --rollback with {backup_path}."
+        ) from exc
     return updated
 
 
@@ -615,7 +676,7 @@ def rollback_from_backup(index, backup_path: Path) -> int:
         batch = records[start : start + UPDATE_BATCH]
         for record in batch:
             index.update(
-                id=encode_vector_id(record.vector_id),
+                id=record.vector_id,
                 set_metadata={"filename": record.filename},
             )
     by_name: dict[str, list[str]] = defaultdict(list)
@@ -749,7 +810,8 @@ def run(
     rows = apply_limit(rows, args.limit)
 
     if not args.apply:
-        write_report(out_dir, rows)
+        report_path = write_report(out_dir, rows)
+        print(f"Report SHA-256: {sha256_file(report_path)}")
         print_summary(rows, "dry-run")
         print("Dry run. No Pinecone writes.")
         return 0
