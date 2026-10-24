@@ -638,3 +638,23 @@ def test_take_finished_results_keeps_success_and_leaves_inflight():
     assert queue.update_item_status.call_args_list[0].args == ("done", "completed")
     assert queue.update_item_status.call_args_list[1].args == ("bad", "error")
     assert finished[0]["errors"] == 0
+
+
+def test_override_conflicts_flag_does_not_set_allow_filename_change():
+    from data_ingestion.audio_video.transcribe_and_ingest_media import _parse_arguments
+
+    with patch("sys.argv", ["prog", "--site", "ananda", "-o"]):
+        args = _parse_arguments()
+
+    assert args.override_conflicts is True
+    assert args.allow_filename_change is False
+
+
+def test_allow_filename_change_flag_is_separate_from_override_conflicts():
+    from data_ingestion.audio_video.transcribe_and_ingest_media import _parse_arguments
+
+    with patch("sys.argv", ["prog", "--site", "ananda", "--allow-filename-change"]):
+        args = _parse_arguments()
+
+    assert args.override_conflicts is False
+    assert args.allow_filename_change is True

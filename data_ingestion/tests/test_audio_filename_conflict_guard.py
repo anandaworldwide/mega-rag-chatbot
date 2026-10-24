@@ -3,6 +3,8 @@
 import logging
 from unittest.mock import Mock
 
+import pytest
+
 from data_ingestion.audio_video.pinecone_utils import (
     apply_filename_conflict_guard,
     encode_vector_id_for_fetch,
@@ -48,7 +50,7 @@ def test_store_skips_audio_chunk_when_stored_filename_differs(caplog):
     other_text = "other spoken text"
     conflict_id = _audio_vector_id(conflict_text, chunk_index=0)
     index = _index_with_stored({conflict_id: "treasures/Talk A.mp3"})
-    caplog.set_level(logging.WARNING)
+    caplog.set_level(logging.INFO)
 
     store_in_pinecone(
         index,
@@ -71,9 +73,11 @@ def test_store_skips_audio_chunk_when_stored_filename_differs(caplog):
     assert written[0]["id"] != conflict_id
     assert written[0]["metadata"]["filename"] == "treasures/album/Talk A.mp3"
     assert "Skip audio vector write" in caplog.text
+    assert "--allow-filename-change" in caplog.text
     assert conflict_id in caplog.text
     assert "treasures/Talk A.mp3" in caplog.text
     assert "treasures/album/Talk A.mp3" in caplog.text
+    assert "1 of 2 chunks skipped" in caplog.text
 
 
 def test_store_writes_audio_chunk_when_stored_filename_matches():
@@ -138,7 +142,7 @@ def test_filename_guard_does_not_apply_to_text_content():
     index.fetch.assert_not_called()
 
 
-def test_override_conflicts_writes_audio_chunk_when_filename_differs():
+def test_allow_filename_change_writes_audio_chunk_when_filename_differs():
     text = "same spoken text"
     vector_id = _audio_vector_id(text)
     index = _index_with_stored({vector_id: "treasures/Talk A.mp3"})
@@ -152,7 +156,7 @@ def test_override_conflicts_writes_audio_chunk_when_filename_differs():
         title="Talk A",
         content_type="audio",
         source_identifier="public/audio/treasures/album/Talk A.mp3",
-        override_conflicts=True,
+        allow_filename_change=True,
     )
 
     index.upsert.assert_called_once()
@@ -161,3 +165,23 @@ def test_override_conflicts_writes_audio_chunk_when_filename_differs():
     assert written[0]["id"] == vector_id
     assert written[0]["metadata"]["filename"] == "treasures/album/Talk A.mp3"
     index.fetch.assert_not_called()
+
+
+def test_store_writes_nothing_when_filename_fetch_raises():
+    text = "same spoken text"
+    index = Mock()
+    index.fetch.side_effect = RuntimeError("pinecone fetch failed")
+
+    with pytest.raises(RuntimeError, match="pinecone fetch failed"):
+        store_in_pinecone(
+            index,
+            [_chunk(text)],
+            [[0.1, 0.2]],
+            author="Test Author",
+            library_name="Treasures",
+            title="Talk A",
+            content_type="audio",
+            source_identifier="public/audio/treasures/album/Talk A.mp3",
+        )
+
+    index.upsert.assert_not_called()

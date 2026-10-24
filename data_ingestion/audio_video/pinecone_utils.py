@@ -235,19 +235,15 @@ def _metadata_from_vector(vector) -> dict:
 
 
 def fetch_stored_vector_metadata(pinecone_index, vector_ids: list[str]) -> dict:
-    """Fetch metadata for many ids. Return a map of original id to metadata."""
+    """Fetch metadata for many ids. Return a map of original id to metadata.
+
+    A fetch error raises so the queue item can run again.
+    """
     found: dict[str, dict] = {}
     for start in range(0, len(vector_ids), _FILENAME_FETCH_BATCH_SIZE):
         batch = vector_ids[start : start + _FILENAME_FETCH_BATCH_SIZE]
         encoded_ids = [encode_vector_id_for_fetch(vector_id) for vector_id in batch]
-        try:
-            fetched = pinecone_index.fetch(ids=encoded_ids)
-        except Exception as exc:
-            logger.warning(
-                "Filename conflict fetch failed. Continue ingest. error=%s",
-                exc,
-            )
-            continue
+        fetched = pinecone_index.fetch(ids=encoded_ids)
         vectors = _vectors_from_fetch(fetched)
         for original_id, encoded_id in zip(batch, encoded_ids, strict=True):
             vector = vectors.get(original_id)
@@ -264,14 +260,14 @@ def apply_filename_conflict_guard(
     pinecone_index,
     content_type,
     *,
-    override_conflicts=False,
+    allow_filename_change=False,
 ):
     """Drop audio or video vectors that would replace a different stored filename.
 
-    Text and PDF ingest keep the current write. The override flag turns
+    Text and PDF ingest keep the current write. The allow flag turns
     the guard off. A conflict skips that chunk only.
     """
-    if override_conflicts or content_type not in _AUDIO_VIDEO_CONTENT_TYPES:
+    if allow_filename_change or content_type not in _AUDIO_VIDEO_CONTENT_TYPES:
         return vectors
 
     vector_ids = [vector["id"] for vector in vectors]
@@ -287,13 +283,31 @@ def apply_filename_conflict_guard(
         if stored_filename != new_filename:
             logger.warning(
                 "Skip audio vector write. Stored filename differs. "
-                "id=%s stored=%s new=%s",
+                "id=%s stored=%s new=%s. Pass --allow-filename-change to write "
+                "this change.",
                 vector_id,
                 stored_filename,
                 new_filename,
             )
             continue
         kept.append(vector)
+    return kept
+
+
+def _apply_guard_and_count_skips(
+    vectors, pinecone_index, content_type, allow_filename_change
+):
+    """Apply the filename guard and log how many chunks were skipped."""
+    chunk_count = len(vectors)
+    kept = apply_filename_conflict_guard(
+        vectors,
+        pinecone_index,
+        content_type,
+        allow_filename_change=allow_filename_change,
+    )
+    skipped_count = chunk_count - len(kept)
+    if skipped_count:
+        logger.info("%s of %s chunks skipped", skipped_count, chunk_count)
     return kept
 
 
@@ -310,7 +324,7 @@ def store_in_pinecone(
     album=None,
     access_level="public",  # New parameter for access control
     required_access_level=0,
-    override_conflicts=False,
+    allow_filename_change=False,
 ):
     """
     Stores vector embeddings with metadata in Pinecone.
@@ -397,11 +411,8 @@ def store_in_pinecone(
         vectors.append({"id": chunk_id, "values": embedding, "metadata": metadata})
 
     apply_author_guard_to_vectors(vectors)
-    vectors = apply_filename_conflict_guard(
-        vectors,
-        pinecone_index,
-        content_type,
-        override_conflicts=override_conflicts,
+    vectors = _apply_guard_and_count_skips(
+        vectors, pinecone_index, content_type, allow_filename_change
     )
     if not vectors:
         logger.info("No audio vectors remain after the filename conflict check.")

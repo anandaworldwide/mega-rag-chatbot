@@ -27,7 +27,7 @@ Required:
 Processing Control:
   -f, --force                  Force re-transcription and re-indexing
   -c, --clear-vectors          Clear existing vectors before processing
-  -o, --override-conflicts     Write audio or video vectors even when a stored filename differs
+  -o, --override-conflicts     Continue processing even if filename conflicts are found
 
 Queue Management:
   -q, --queue NAME             Specify an alternative queue name for parallel processing
@@ -464,7 +464,7 @@ def _process_and_store_transcription(
     required_access_level,
     site=None,
     metadata_path=None,
-    override_conflicts=False,
+    allow_filename_change=False,
 ):
     """
     Processes transcription into chunks and stores in Pinecone.
@@ -557,7 +557,7 @@ def _process_and_store_transcription(
                     album=album,
                     access_level=access_level,
                     required_access_level=required_access_level,
-                    override_conflicts=override_conflicts,
+                    allow_filename_change=allow_filename_change,
                 )
             except ValueError as e:
                 if str(e) != "No valid text chunks found for embedding creation":
@@ -660,7 +660,7 @@ def process_file(
     site=None,
     skip_upload=False,
     content_hash_path=None,
-    override_conflicts=False,
+    allow_filename_change=False,
 ):
     """
     Core processing pipeline for a single media file or YouTube video.
@@ -731,7 +731,7 @@ def process_file(
         required_access_level,
         site=site,
         metadata_path=content_hash_path,
-        override_conflicts=override_conflicts,
+        allow_filename_change=allow_filename_change,
     )
 
     if processing_report["errors"] > 0:
@@ -962,7 +962,7 @@ def process_item(item, args, client, index, site_config):
             site=args.site,
             skip_upload=skip_upload,
             content_hash_path=content_hash_path,
-            override_conflicts=args.override_conflicts,
+            allow_filename_change=args.allow_filename_change,
         )
         end_time = time.time()
         processing_time = end_time - start_time
@@ -1204,6 +1204,11 @@ def _parse_arguments():
     processing.add_argument(
         "-o",
         "--override-conflicts",
+        action="store_true",
+        help="Continue processing even if filename conflicts are found",
+    )
+    processing.add_argument(
+        "--allow-filename-change",
         action="store_true",
         help="Write audio or video vectors even when a stored filename differs",
     )
