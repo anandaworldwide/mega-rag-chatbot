@@ -203,6 +203,22 @@ async function runLoop(question = "Give me some stories from Autobiography of a 
 describe("makechain retrieval tool loop", () => {
   const previousSiteId = process.env.SITE_ID;
 
+  function stubFirstPassTextOnly(content: string, question: string) {
+    mockFirstPassInvoke = jest.fn().mockImplementation(async (_input, options) => {
+      const onToken = options?.callbacks?.[0]?.handleLLMNewToken;
+      if (typeof onToken === "function") {
+        onToken(content);
+      }
+      return {
+        answer: {
+          content,
+        },
+        sourceDocuments: [initialDoc],
+        question,
+      };
+    });
+  }
+
   function stubFirstPass(argsJson: string, question: string) {
     mockFirstPassInvoke = jest.fn().mockImplementation(async (_input, options) => {
       const onToken = options?.callbacks?.[0]?.handleLLMNewToken;
@@ -336,6 +352,38 @@ describe("makechain retrieval tool loop", () => {
     await runLoop("List all the chakras");
 
     expect(executeRetrievalTool).toHaveBeenCalledTimes(2);
+  });
+
+  it("strips no-space fetch narration from the follow-up stream and saves the real answer", async () => {
+    const realAnswer =
+      "From Ananda materials, daily attunement is less a long checklist than choosing a few living practices.";
+    mockFollowUpContent = `Fetching the remaining aspect visualizations from that article.${realAnswer}`;
+    (executeRetrievalTool as jest.Mock).mockResolvedValue({
+      ok: true,
+      documents: [fetchedDoc],
+      content: { documents: [{ content: fetchedDoc.pageContent }], message: "Retrieved 1 additional source(s)." },
+    });
+
+    const { result, events } = await runLoop();
+
+    expect(collectedAnswer(events)).toBe(realAnswer);
+    expect(result.fullResponse).toBe(realAnswer);
+    expect(result.fullResponse).not.toContain("Fetching the remaining");
+    expect(collectedAnswer(events)).not.toMatch(/article\.From/);
+  });
+
+  it("strips no-space fetch narration from a first-pass answer with no tool calls", async () => {
+    const realAnswer =
+      "From Ananda materials, daily attunement is less a long checklist than choosing a few living practices.";
+    const glued = `Fetching the remaining aspect visualizations from that article.${realAnswer}`;
+    stubFirstPassTextOnly(glued, "What is daily attunement?");
+
+    const { result, events } = await runLoop("What is daily attunement?");
+
+    expect(executeRetrievalTool).not.toHaveBeenCalled();
+    expect(collectedAnswer(events)).toBe(realAnswer);
+    expect(result.fullResponse).toBe(realAnswer);
+    expect(result.fullResponse).not.toContain("Fetching the remaining");
   });
 
   it("keeps one-expansion behavior when complete_list is absent", async () => {

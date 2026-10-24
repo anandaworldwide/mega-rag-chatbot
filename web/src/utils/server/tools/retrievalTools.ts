@@ -156,9 +156,10 @@ export type FinalizeRetrievalUserAnswerResult = {
 export function finalizeRetrievalUserAnswer(
   params: FinalizeRetrievalUserAnswerParams
 ): FinalizeRetrievalUserAnswerResult {
-  const incomplete = isIncompleteRetrievalAnswer(params.answerText);
-  if (!incomplete && params.answerText.trim()) {
-    return { text: params.answerText, usedFallback: false };
+  const stripped = stripLeadingRetrievalNarration(params.answerText);
+  const incomplete = isIncompleteRetrievalAnswer(stripped);
+  if (!incomplete && stripped.trim()) {
+    return { text: stripped, usedFallback: false };
   }
   if (!params.afterRetrievalAttempt) {
     return { text: params.answerText, usedFallback: false };
@@ -242,7 +243,7 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
     /^looking (?:up|for)\b/i.test(trimmed) &&
     /\b(?:more|additional)\b[\s\S]{0,80}\b(?:sources?|passages?)\b/i.test(trimmed);
   const mentionsRetrievalWork =
-    /\b(search|searching|source|sources|passage|passages|chunk|chunks|quote|quotes|richer|additional|more|tighter search|tighter query|book material)\b/i.test(
+    /\b(search|searching|source|sources|passage|passages|chunk|chunks|quote|quotes|richer|additional|more|tighter search|tighter query|book material|articles?|visualizations?)\b/i.test(
       trimmed
     );
   const hasGluedSearchNarration =
@@ -266,7 +267,7 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
         glued
       );
     gluedMentionsRetrievalWork =
-      /(search|sources?|passages?|chunks?|quotes?|additional|more|tightersearch|tighterquery|bookmaterial)/.test(
+      /(search|sources?|passages?|chunks?|quotes?|additional|more|tightersearch|tighterquery|bookmaterial|articles?|visualizations?)/.test(
         glued
       );
   }
@@ -282,6 +283,56 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
   }
 
   return false;
+}
+
+/**
+ * Split off the first sentence. "article.From" (no space after the period) is a boundary.
+ */
+function splitFirstSentence(text: string): { lead: string; rest: string } | null {
+  const match = text.match(/^([\s\S]*?[.?!…]+)(?=[A-Z"“]|[\s]+[A-Z"“])/);
+  if (!match) {
+    return null;
+  }
+  return { lead: match[1], rest: text.slice(match[1].length) };
+}
+
+/**
+ * Status-like openers used only when stripping a prefix from an otherwise real answer.
+ * Narrower than isIncompleteRetrievalAnswer so "I'll share three sources..." is not cut.
+ */
+const LEADING_NARRATION_OPENER =
+  /^(i('ll| will) (pull|search|fetch|gather|look)|i am (searching|fetching|pulling|gathering)|i'm (searching|fetching|pulling|gathering)|i don['’]t|let me(?: fetch| search| pull)|gathering|pulling|searching|seeking|fetching|trying|expanding|looking (?:up|for))\b/i;
+
+function isLeadingRetrievalNarrationSentence(sentence: string): boolean {
+  const trimmed = sentence.trim();
+  if (!trimmed || !LEADING_NARRATION_OPENER.test(trimmed)) {
+    return false;
+  }
+  return isIncompleteRetrievalAnswer(trimmed);
+}
+
+/**
+ * Remove leading tool-use / search-status sentences from an answer.
+ * Keeps a real answer that follows, including when the join has no space.
+ * Leaves a narration-only string unchanged so the incomplete-answer path can replace it.
+ */
+export function stripLeadingRetrievalNarration(text: string): string {
+  let remaining = text;
+  for (let i = 0; i < 4; i += 1) {
+    const split = splitFirstSentence(remaining);
+    if (!split) {
+      break;
+    }
+    if (!isLeadingRetrievalNarrationSentence(split.lead)) {
+      break;
+    }
+    const next = split.rest.replace(/^\s+/, "");
+    if (!next) {
+      break;
+    }
+    remaining = next;
+  }
+  return remaining;
 }
 
 /** Fill site-template placeholders used by the normal RAG answer path. */
