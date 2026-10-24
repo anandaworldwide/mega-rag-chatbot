@@ -28,6 +28,7 @@ import os
 import sys
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -49,8 +50,6 @@ from data_ingestion.audio_video.audio_access_level_fix import (  # noqa: E402
     assert_out_dir_outside_repo,
     build_plan_rows,
     compare_live_plan_with_report,
-    decode_vector_id,
-    encode_vector_id,
     file_vector_counts,
     has_library_mismatch,
     load_id_rows,
@@ -69,6 +68,9 @@ from data_ingestion.audio_video.audio_access_level_fix import (  # noqa: E402
 
 LIST_LIMIT = 100
 FETCH_BATCH = 20
+FETCH_WORKERS = 8
+FETCH_RETRIES = 3
+FETCH_BACKOFF_SECONDS = 0.2
 UPDATE_BATCH = 100
 DEFAULT_PAUSE_SECONDS = 1.0
 DEFAULT_OUT_DIR = Path.home() / "audio-access-level-fix"
@@ -93,41 +95,98 @@ def _assert_project_python() -> None:
         )
 
 
-def fetch_metadata(index, ids: list[str]) -> dict[str, dict]:
-    """Fetch metadata for vector ids. Encode spaces when needed."""
-    encoded = [encode_vector_id(vector_id) for vector_id in ids]
+def fetch_batch(index, ids: list[str]) -> dict[str, dict]:
+    """Fetch one batch. Use the raw vector ids. Do not percent-encode."""
     try:
-        response = index.fetch(ids=encoded, include_values=False)
+        response = index.fetch(ids=ids, include_values=False)
     except TypeError:
-        response = index.fetch(ids=encoded)
+        response = index.fetch(ids=ids)
     vectors = response.vectors if hasattr(response, "vectors") else response["vectors"]
-    original = {encode_vector_id(vector_id): vector_id for vector_id in ids}
     found: dict[str, dict] = {}
     for key, vector in vectors.items():
         metadata = (
             vector.metadata if hasattr(vector, "metadata") else vector["metadata"]
         )
-        vector_id = original.get(key, decode_vector_id(key))
-        found[vector_id] = dict(metadata or {})
+        found[str(key)] = dict(metadata or {})
     return found
 
 
-def list_audio_records(index) -> list[AudioAccessRecord]:
+def fetch_batch_with_retry(
+    index,
+    ids: list[str],
+    *,
+    retries: int = FETCH_RETRIES,
+    backoff_seconds: float = FETCH_BACKOFF_SECONDS,
+    sleep_fn: Callable[[float], None] = time.sleep,
+) -> dict[str, dict]:
+    """Retry a failed batch up to 3 times. Then stop with a clear error."""
+    last_error: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            return fetch_batch(index, ids)
+        except AccessLevelFixError:
+            raise
+        except Exception as exc:
+            last_error = exc
+            if attempt < retries:
+                sleep_fn(backoff_seconds * attempt)
+    raise AccessLevelFixError(
+        mask_secrets(f"Fetch failed after {retries} tries: {last_error}")
+    )
+
+
+def fetch_metadata(
+    index,
+    ids: list[str],
+    *,
+    max_workers: int = FETCH_WORKERS,
+    sleep_fn: Callable[[float], None] = time.sleep,
+) -> dict[str, dict]:
+    """Fetch metadata for raw vector ids. Keep the input id order."""
+    if not ids:
+        return {}
+    batches = [
+        ids[start : start + FETCH_BATCH] for start in range(0, len(ids), FETCH_BATCH)
+    ]
+    batch_results: list[dict[str, dict] | None] = [None] * len(batches)
+    workers = min(max_workers, len(batches))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        future_map = {
+            pool.submit(fetch_batch_with_retry, index, batch, sleep_fn=sleep_fn): number
+            for number, batch in enumerate(batches)
+        }
+        for future in as_completed(future_map):
+            batch_results[future_map[future]] = future.result()
+    combined: dict[str, dict] = {}
+    for batch_result in batch_results:
+        if batch_result:
+            combined.update(batch_result)
+    return {
+        vector_id: combined[vector_id] for vector_id in ids if vector_id in combined
+    }
+
+
+def list_audio_records(
+    index,
+    *,
+    sleep_fn: Callable[[float], None] = time.sleep,
+) -> list[AudioAccessRecord]:
     """List audio vectors and read filename, library, and access fields."""
     vector_ids: list[str] = []
     for batch in index.list(prefix=AUDIO_ID_PREFIX, limit=LIST_LIMIT):
         vector_ids.extend(batch)
+    fetched = fetch_metadata(index, vector_ids, sleep_fn=sleep_fn)
     records: list[AudioAccessRecord] = []
-    for start in range(0, len(vector_ids), FETCH_BATCH):
-        chunk = vector_ids[start : start + FETCH_BATCH]
-        fetched = fetch_metadata(index, chunk)
-        for vector_id, metadata in fetched.items():
-            if str(metadata.get("type") or "") != AUDIO_TYPE:
-                continue
-            filename = str(metadata.get("filename") or "")
-            if not filename:
-                continue
-            records.append(AudioAccessRecord.from_metadata(vector_id, metadata))
+    for vector_id in vector_ids:
+        metadata = fetched.get(vector_id)
+        if not metadata:
+            continue
+        if str(metadata.get("type") or "") != AUDIO_TYPE:
+            continue
+        filename = str(metadata.get("filename") or "")
+        if not filename:
+            continue
+        records.append(AudioAccessRecord.from_metadata(vector_id, metadata))
     return records
 
 
@@ -182,7 +241,7 @@ def update_access_fields(
         batch = ids[start : start + UPDATE_BATCH]
         for vector_id in batch:
             index.update(
-                id=encode_vector_id(vector_id),
+                id=vector_id,
                 set_metadata=metadata,
             )
         if start + UPDATE_BATCH < len(ids) and pause_seconds > 0:
@@ -201,7 +260,7 @@ def restore_access_fields(
         batch = rows[start : start + UPDATE_BATCH]
         for row in batch:
             index.update(
-                id=encode_vector_id(row.vector_id),
+                id=row.vector_id,
                 set_metadata={
                     "access_level": row.old_access_level,
                     "required_access_level": row.old_required_access_level,
@@ -226,10 +285,15 @@ def values_match_old(metadata: dict, row: VectorPlanRow) -> bool:
     return access == row.old_access_level and required == row.old_required_access_level
 
 
-def verify_new_values(index, rows: list[VectorPlanRow], backup_path: Path) -> None:
+def verify_new_values(
+    index,
+    rows: list[VectorPlanRow],
+    backup_path: Path,
+    sleep_fn: Callable[[float], None] = time.sleep,
+) -> None:
     """Fetch every changed id and check the new access fields."""
     ids = [row.vector_id for row in update_rows(rows)]
-    fetched = fetch_metadata(index, ids)
+    fetched = fetch_metadata(index, ids, sleep_fn=sleep_fn)
     if len(fetched) != len(ids):
         print(rollback_hint(backup_path))
         raise AccessLevelFixError(
@@ -245,10 +309,14 @@ def verify_new_values(index, rows: list[VectorPlanRow], backup_path: Path) -> No
             )
 
 
-def verify_restored_values(index, rows: list[VectorPlanRow]) -> None:
+def verify_restored_values(
+    index,
+    rows: list[VectorPlanRow],
+    sleep_fn: Callable[[float], None] = time.sleep,
+) -> None:
     """Fetch every restored id and check the old access fields."""
     ids = [row.vector_id for row in rows if row.vector_id]
-    fetched = fetch_metadata(index, ids)
+    fetched = fetch_metadata(index, ids, sleep_fn=sleep_fn)
     if len(fetched) != len(ids):
         raise AccessLevelFixError("Verify failed. Vector count changed.")
     for row in rows:
@@ -265,10 +333,14 @@ def print_verify_only_result(still_old: int, ok: int, missing: int) -> None:
     print(f"Ids missing: {missing}")
 
 
-def verify_only(index, path: Path) -> int:
+def verify_only(
+    index,
+    path: Path,
+    sleep_fn: Callable[[float], None] = time.sleep,
+) -> int:
     """Read ids from a backup or report and check the new access fields."""
     rows = [row for row in load_id_rows(path) if row.vector_id]
-    fetched = fetch_metadata(index, [row.vector_id for row in rows])
+    fetched = fetch_metadata(index, [row.vector_id for row in rows], sleep_fn=sleep_fn)
     still_old = 0
     ok = 0
     missing = 0
@@ -301,9 +373,14 @@ def load_selected_keys(keys_file: Path | None) -> list[str]:
     return keys
 
 
-def build_live_rows(index, keys: list[str], library: str) -> list[VectorPlanRow]:
+def build_live_rows(
+    index,
+    keys: list[str],
+    library: str,
+    sleep_fn: Callable[[float], None] = time.sleep,
+) -> list[VectorPlanRow]:
     """Build the live plan from all audio records, then the key list."""
-    records = list_audio_records(index)
+    records = list_audio_records(index, sleep_fn=sleep_fn)
     return build_plan_rows(records, keys, library)
 
 
@@ -343,7 +420,7 @@ def run_apply(
     print(f"Backup records: {len(update_rows(limited_rows))}")
     print(f"Backup SHA-256: {sha256_file(backup_path)}")
     updated = update_access_fields(index, limited_rows, pause_seconds, sleep_fn)
-    verify_new_values(index, limited_rows, backup_path)
+    verify_new_values(index, limited_rows, backup_path, sleep_fn=sleep_fn)
     print_summary(limited_rows, "apply")
     print(f"Updated vectors: {updated}")
     return 0
@@ -358,7 +435,7 @@ def run_rollback(
     """Restore old access fields from a backup file."""
     rows = load_id_rows(backup_path)
     restored = restore_access_fields(index, rows, pause_seconds, sleep_fn)
-    verify_restored_values(index, rows)
+    verify_restored_values(index, rows, sleep_fn=sleep_fn)
     print("Mode: rollback")
     print(f"Restored vectors: {restored}")
     return 0
@@ -386,10 +463,10 @@ def run(
     if args.rollback:
         return run_rollback(index, Path(args.rollback), pause_seconds, sleep_fn)
     if args.verify_only:
-        return verify_only(index, Path(args.verify_only))
+        return verify_only(index, Path(args.verify_only), sleep_fn=sleep_fn)
 
     keys = load_selected_keys(args.keys_file)
-    full_rows = build_live_rows(index, keys, args.library)
+    full_rows = build_live_rows(index, keys, args.library, sleep_fn=sleep_fn)
     limited_rows = apply_file_limit(full_rows, args.limit if args.apply else None)
 
     if not args.apply:

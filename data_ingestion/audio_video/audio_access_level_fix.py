@@ -14,7 +14,6 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import quote, unquote
 
 TARGET_ACCESS_LEVEL = "kriyaban"
 TARGET_REQUIRED_ACCESS_LEVEL = 200
@@ -148,20 +147,6 @@ def mask_secrets(text: str) -> str:
     for pattern in _SECRET_PATTERNS:
         masked = pattern.sub("[secret]", masked)
     return masked
-
-
-def encode_vector_id(vector_id: str) -> str:
-    """Percent-encode spaces in a vector id. Leave other characters."""
-    if " " not in vector_id:
-        return vector_id
-    return quote(vector_id, safe="|")
-
-
-def decode_vector_id(vector_id: str) -> str:
-    """Undo percent-encoding when a fetch key comes back encoded."""
-    if "%" not in vector_id:
-        return vector_id
-    return unquote(vector_id)
 
 
 def assert_out_dir_outside_repo(out_dir: Path, repo_root: Path) -> Path:
