@@ -324,6 +324,16 @@ describe("Document Retrieval Logic", () => {
   });
 
   test("reuses cached restated question and documents on retry", async () => {
+    jest.spyOn(fs, "readFile").mockImplementation((filePath) => {
+      if (typeof filePath === "string" && filePath.includes("test-site.json")) {
+        return Promise.resolve(JSON.stringify(defaultSiteConfig));
+      }
+      if (typeof filePath === "string" && filePath.endsWith(".json")) {
+        return Promise.resolve(JSON.stringify(defaultSiteConfig));
+      }
+      return Promise.resolve("You are a test assistant.");
+    });
+
     const mockSimilaritySearch = jest.fn().mockResolvedValue([]);
     const mockRetriever = { vectorStore: { similaritySearch: mockSimilaritySearch } };
     const cachedDocs = [new Document({ pageContent: "cached", metadata: { library: "library1" } })];
