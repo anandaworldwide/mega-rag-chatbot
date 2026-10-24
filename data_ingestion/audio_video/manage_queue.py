@@ -131,6 +131,7 @@ from data_ingestion.utils.ingest_s3_layout import (  # noqa: E402
     audio_s3_key,
     is_junk_publish_file,
     path_has_ignore_component,
+    path_has_set_aside_component,
     proposed_audio_access_level,
     relative_path_for_audio_queue,
 )
@@ -269,6 +270,52 @@ def collect_audio_queue_plan(
     )
 
 
+def _audio_basename_key(relative_path: str) -> str:
+    """Return a case-insensitive file name for grouping S3 audio keys."""
+    return Path(relative_path).name.lower()
+
+
+def _is_excluded_canonical_audio_path(relative_path: str) -> bool:
+    """Return True when a folder name is ignore or set aside."""
+    return path_has_ignore_component(relative_path) or path_has_set_aside_component(
+        relative_path
+    )
+
+
+def _pick_canonical_audio_candidate(group):
+    """Pick one key with a fixed rule that does not use list order.
+
+    Skip ignore and set aside folders. Then pick the longest path.
+    Break a tie with alphabetical order.
+    """
+    eligible = [
+        item
+        for item in group
+        if not _is_excluded_canonical_audio_path(item.relative_path)
+    ]
+    if not eligible:
+        return None
+    return min(eligible, key=lambda item: (-len(item.s3_key), item.s3_key))
+
+
+def _select_canonical_s3_audio_candidates(candidates):
+    """Keep one canonical key for each file name in one library."""
+    groups = defaultdict(list)
+    for item in candidates:
+        groups[_audio_basename_key(item.relative_path)].append(item)
+
+    selected = []
+    skipped_keys = []
+    for group in groups.values():
+        winner = _pick_canonical_audio_candidate(group)
+        if winner is None:
+            skipped_keys.extend(item.s3_key for item in group)
+            continue
+        selected.append(winner)
+        skipped_keys.extend(item.s3_key for item in group if item is not winner)
+    return selected, skipped_keys
+
+
 def collect_s3_audio_queue_plan(
     object_keys,
     library,
@@ -278,8 +325,9 @@ def collect_s3_audio_queue_plan(
 ):
     """Classify S3 object keys under public/audio/{library}/ for queueing.
 
-    Ignore/ and non-audio keys stay on S3 and are not queued. Queued items
-    have an empty file_path so the transcriber downloads s3_key.
+    Ignore/, set aside/, and non-audio keys stay on S3 and are not queued.
+    When several keys share one file name, queue one canonical key. Queued
+    items have an empty file_path so the transcriber downloads s3_key.
     """
     prefix = f"{AUDIO_PREFIX}/{library}/"
     skipped_ignore = 0
@@ -289,7 +337,7 @@ def collect_s3_audio_queue_plan(
         if not key.startswith(prefix) or key.endswith("/"):
             continue
         relative_path = key[len(prefix) :]
-        if path_has_ignore_component(relative_path):
+        if _is_excluded_canonical_audio_path(relative_path):
             skipped_ignore += 1
             continue
         if Path(relative_path).suffix.lower() not in AUDIO_EXTENSIONS:
@@ -307,6 +355,16 @@ def collect_s3_audio_queue_plan(
                     ignore_path_access_levels=ignore_path_access_levels,
                 ),
             )
+        )
+    candidates, skipped_duplicate_keys = _select_canonical_s3_audio_candidates(
+        candidates
+    )
+    if skipped_duplicate_keys:
+        examples = ", ".join(skipped_duplicate_keys[:5])
+        logger.debug(
+            "Skipped %s duplicate audio keys. Examples: %s",
+            len(skipped_duplicate_keys),
+            examples,
         )
     return AudioQueuePlan(
         candidates=tuple(candidates),

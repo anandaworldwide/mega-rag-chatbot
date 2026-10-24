@@ -587,6 +587,25 @@ class TestAudioQueuePlan:
         assert plan.skipped_ignore == 1
         assert plan.skipped_non_audio == 1
 
+    def test_collect_s3_audio_queue_plan_keeps_one_canonical_key(self, caplog):
+        from data_ingestion.audio_video.manage_queue import collect_s3_audio_queue_plan
+
+        keys = [
+            "public/audio/treasures/Talk A.mp3",
+            "public/audio/treasures/album/Talk A.mp3",
+            "public/audio/treasures/ignore/Talk A.mp3",
+            "public/audio/treasures/set aside/Talk A.mp3",
+        ]
+        caplog.set_level("DEBUG")
+
+        plan_forward = collect_s3_audio_queue_plan(keys, "treasures")
+        plan_reverse = collect_s3_audio_queue_plan(list(reversed(keys)), "treasures")
+
+        expected = ["public/audio/treasures/album/Talk A.mp3"]
+        assert [item.s3_key for item in plan_forward.candidates] == expected
+        assert [item.s3_key for item in plan_reverse.candidates] == expected
+        assert "Skipped 1 duplicate audio keys" in caplog.text
+
     def test_collect_s3_audio_queue_plan_queues_m4a_and_does_not_infer_kriya(self):
         from data_ingestion.audio_video.manage_queue import collect_s3_audio_queue_plan
 

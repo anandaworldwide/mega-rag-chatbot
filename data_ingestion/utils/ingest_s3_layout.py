@@ -22,6 +22,7 @@ AUDIO_EXTENSIONS = (".mp3", ".wav", ".flac", ".m4a")
 KRIYABAN_ONLY_SEGMENT = "kriyaban-only"
 KRIYABAN_REQUIRED_ACCESS_LEVEL = 200
 IGNORE_SEGMENT = "ignore"
+SET_ASIDE_SEGMENT = "set-aside"
 JUNK_FILENAMES = {".ds_store", "thumbs.db"}
 JUNK_SUFFIXES = {".db", ".sql"}
 _COMPONENT_SEPARATORS = re.compile(r"[\s_-]+")
@@ -52,6 +53,20 @@ def path_has_ignore_component(relative_path: str) -> bool:
     """Return True if any path component is an Ignore folder."""
     return any(
         is_ignore_component(part)
+        for part in normalize_relative_path(relative_path).split("/")
+        if part
+    )
+
+
+def is_set_aside_component(name: str) -> bool:
+    """Return True for a folder named set aside (any case or separator)."""
+    return normalize_path_component(name) == SET_ASIDE_SEGMENT
+
+
+def path_has_set_aside_component(relative_path: str) -> bool:
+    """Return True if any path component is a set aside folder."""
+    return any(
+        is_set_aside_component(part)
         for part in normalize_relative_path(relative_path).split("/")
         if part
     )
