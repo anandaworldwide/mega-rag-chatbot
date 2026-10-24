@@ -527,8 +527,6 @@ describe("retrievalTools", () => {
       ).toBe(false);
     });
 
-
-
     it("keeps short real answers complete when they start with Im/Ill/Imagine or contain moreover/resource", () => {
       expect(
         isIncompleteRetrievalAnswer("Immortality is the soul's nature, not a later reward.")
@@ -606,6 +604,40 @@ Short quotation and seated quiet. Sources include Crystal Clarity commentaries.
     it("does not strip geo nearby-center narration", () => {
       const answer = "I'll find nearby Ananda centers based on your location. The closest is in Berkeley.";
       expect(stripLeadingRetrievalNarration(answer)).toBe(answer);
+    });
+
+    it("does not strip a real I-don't-have-the-sources opening", () => {
+      const answer = "I don't have the sources for that in the library. Here is a general view...";
+      expect(stripLeadingRetrievalNarration(answer)).toBe(answer);
+      expect(isIncompleteRetrievalAnswer(answer)).toBe(false);
+    });
+
+    it("does not strip a Searching-for-peace teaching opening", () => {
+      const answer =
+        "Searching for peace is a core theme in Yogananda's teachings. Here is what the sources say...";
+      expect(stripLeadingRetrievalNarration(answer)).toBe(answer);
+      expect(isIncompleteRetrievalAnswer(answer)).toBe(false);
+    });
+
+    it("drops I'll-search-for-more-sources narration and keeps the real answer", () => {
+      const spaced =
+        "I'll search for more sources. From Ananda materials, daily attunement is less a long checklist than choosing a few living practices.";
+      expect(stripLeadingRetrievalNarration(spaced)).toBe(
+        "From Ananda materials, daily attunement is less a long checklist than choosing a few living practices."
+      );
+    });
+
+    it("leaves short real openings that only look like status verbs unchanged", () => {
+      const keep = [
+        "I don't have an article on that topic.",
+        "Seeking God within...",
+        "Gathering your thoughts...",
+        "Looking for more peace?",
+      ];
+      for (const answer of keep) {
+        expect(stripLeadingRetrievalNarration(answer)).toBe(answer);
+        expect(isIncompleteRetrievalAnswer(answer)).toBe(false);
+      }
     });
   });
 
