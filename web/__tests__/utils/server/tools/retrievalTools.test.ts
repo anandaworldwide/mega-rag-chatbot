@@ -517,6 +517,18 @@ describe("retrievalTools", () => {
       ).toBe(true);
     });
 
+    it("keeps a short real answer that mentions article complete", () => {
+      expect(isIncompleteRetrievalAnswer("I don't have an article on that topic.")).toBe(false);
+    });
+
+    it("keeps a short real answer that mentions visualizations complete", () => {
+      expect(
+        isIncompleteRetrievalAnswer("I'll describe two visualizations from the lesson.")
+      ).toBe(false);
+    });
+
+
+
     it("keeps short real answers complete when they start with Im/Ill/Imagine or contain moreover/resource", () => {
       expect(
         isIncompleteRetrievalAnswer("Immortality is the soul's nature, not a later reward.")
