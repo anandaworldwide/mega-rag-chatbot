@@ -56,6 +56,9 @@ export function countCookiesInHeader(cookieHeader: string | null | undefined): n
   return count;
 }
 
+/** Methods that do not log as unusual. HEAD is used by What's New. */
+export const ALLOWED_HTTP_METHODS = ["GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"];
+
 function originFromAbsoluteUrl(value: string | null | undefined): string | null {
   if (!value) {
     return null;
@@ -68,20 +71,91 @@ function originFromAbsoluteUrl(value: string | null | undefined): string | null 
 }
 
 /**
- * True when Referer or Origin matches NEXT_PUBLIC_BASE_URL's origin.
- * An unset base URL cannot be judged, so the check stays quiet.
+ * Build https:// origin from a site-config host, host:port, or absolute URL.
+ * Skip wildcard patterns. Those are not a fixed origin.
+ */
+function httpsOriginFromAllowedDomain(domain: string): string | null {
+  const trimmed = domain.trim();
+  if (!trimmed || trimmed.includes("*")) {
+    return null;
+  }
+  if (trimmed.includes("://")) {
+    const origin = originFromAbsoluteUrl(trimmed);
+    return origin && origin.startsWith("https://") ? origin : null;
+  }
+  try {
+    return new URL(`https://${trimmed}`).origin;
+  } catch {
+    return null;
+  }
+}
+
+function parseAllowedOriginsEnv(value: string | undefined): string[] {
+  if (!value) {
+    return [];
+  }
+  const origins: string[] = [];
+  for (const part of value.split(",")) {
+    const origin = originFromAbsoluteUrl(part.trim());
+    if (origin) {
+      origins.push(origin);
+    }
+  }
+  return origins;
+}
+
+/**
+ * Fixed trusted origins for the POST Referer/Origin log check.
+ * Sources: allowedFrontEndDomains as https:// origins, NEXT_PUBLIC_BASE_URL,
+ * and optional ALLOWED_ORIGINS. Do not add Host or req.nextUrl.origin.
+ */
+export function collectTrustedNavigationOrigins(
+  allowedFrontEndDomains: readonly string[] | undefined,
+  baseUrl: string | undefined = process.env.NEXT_PUBLIC_BASE_URL,
+  allowedOriginsEnv: string | undefined = process.env.ALLOWED_ORIGINS
+): Set<string> {
+  const origins = new Set<string>();
+  const baseOrigin = originFromAbsoluteUrl(baseUrl);
+  if (baseOrigin) {
+    origins.add(baseOrigin);
+  }
+  for (const domain of allowedFrontEndDomains ?? []) {
+    const origin = httpsOriginFromAllowedDomain(domain);
+    if (origin) {
+      origins.add(origin);
+    }
+  }
+  for (const origin of parseAllowedOriginsEnv(allowedOriginsEnv)) {
+    origins.add(origin);
+  }
+  return origins;
+}
+
+/**
+ * True when Referer or Origin is in the fixed trusted-origin list.
+ * The Host header and req.nextUrl.origin are not trusted.
+ * An empty list cannot be judged, so the check stays quiet.
  */
 export function requestHasTrustedNavigationOrigin(
   req: NextRequest,
-  baseUrl: string | undefined = process.env.NEXT_PUBLIC_BASE_URL
+  baseUrl: string | undefined = process.env.NEXT_PUBLIC_BASE_URL,
+  allowedOriginsEnv: string | undefined = process.env.ALLOWED_ORIGINS
 ): boolean {
-  const trustedOrigin = originFromAbsoluteUrl(baseUrl);
-  if (!trustedOrigin) {
+  const siteConfig = loadSiteConfigSync(process.env.SITE_ID || "default");
+  const trustedOrigins = collectTrustedNavigationOrigins(
+    siteConfig?.allowedFrontEndDomains,
+    baseUrl,
+    allowedOriginsEnv
+  );
+  if (trustedOrigins.size === 0) {
     return true;
   }
 
   const candidates = [req.headers.get("referer"), req.headers.get("referrer"), req.headers.get("origin")];
-  return candidates.some((value) => originFromAbsoluteUrl(value) === trustedOrigin);
+  return candidates.some((value) => {
+    const origin = originFromAbsoluteUrl(value);
+    return origin !== null && trustedOrigins.has(origin);
+  });
 }
 
 // Log suspicious activity with details
@@ -241,15 +315,22 @@ const performSecurityChecks = (req: NextRequest, url: URL): { block: boolean } =
   }
 
   // Check for unusual HTTP methods
-  const allowedMethods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"];
-  if (!allowedMethods.includes(req.method)) {
+  if (!ALLOWED_HTTP_METHODS.includes(req.method)) {
     logSuspiciousActivity(req, `Unusual HTTP method: ${req.method}`);
   }
 
-    // POST referer/origin must match the site origin. Fetch often sends Origin
-  // and omits Referer. This check only logs; it does not block.
-  if (req.method === "POST" && !requestHasTrustedNavigationOrigin(req)) {
-    logSuspiciousActivity(req, "Missing or suspicious referer for POST request");
+  // POST Referer or Origin must be in the trusted-origin list. This check
+  // only logs. It does not block.
+  if (req.method === "POST") {
+    const refererHeader = req.headers.get("referer") || req.headers.get("referrer");
+    const originHeader = req.headers.get("origin");
+    if (requestHasTrustedNavigationOrigin(req)) {
+      if (!refererHeader && originHeader) {
+        console.debug(`POST Origin is trusted and Referer is missing. Origin: ${originHeader}, URL: ${req.url}`);
+      }
+    } else {
+      logSuspiciousActivity(req, "Missing or suspicious referer for POST request");
+    }
   }
 
   // Count name=value cookies, not Cookie-header attribute tokens (Path, HttpOnly).

@@ -808,8 +808,12 @@ not treat a Bearer header as authentication on any other route. Cron paths are n
 
 The interceptor also logs suspicious Cookie and Referer values. Cookie counts use `name=value` pairs and ignore
 attribute tokens such as `Path` or `HttpOnly`. The log threshold is 100 cookies so parent-domain cookies from
-`.ananda.org` do not fire on a normal browser. A POST is trusted when `Referer` or `Origin` matches the origin of
-`NEXT_PUBLIC_BASE_URL`. Both checks write a warning only. They do not return 403.
+`.ananda.org` do not fire on a normal browser. A POST is trusted when `Referer` or `Origin` is in a fixed
+allow-list: `https://` origins from site-config `allowedFrontEndDomains`, the origin of
+`NEXT_PUBLIC_BASE_URL`, and optional comma-separated `ALLOWED_ORIGINS`. The `Host` header and
+`req.nextUrl.origin` are not trusted. Missing `Referer` with a trusted `Origin` logs at debug
+level. A cross-origin value, or both headers missing, still writes a warning. `HEAD` is an
+allowed method (What's New). These checks write a log only. They do not return 403.
 
 ### Hybrid Authentication Pattern
 

@@ -13,6 +13,8 @@ import {
   createCspNonce,
   countCookiesInHeader,
   requestHasTrustedNavigationOrigin,
+  collectTrustedNavigationOrigins,
+  ALLOWED_HTTP_METHODS,
   EXCESSIVE_COOKIE_COUNT,
 } from "../../../src/proxy";
 import { getRequestNonce } from "@/utils/server/cspNonce";
@@ -146,8 +148,10 @@ describe("middleware security behavior", () => {
 describe("cookie and referer security checks", () => {
   const originalSiteId = process.env.SITE_ID;
   const originalBaseUrl = process.env.NEXT_PUBLIC_BASE_URL;
+  const originalAllowedOrigins = process.env.ALLOWED_ORIGINS;
   const originalSecureToken = process.env.SECURE_TOKEN;
   let warnSpy: jest.SpyInstance;
+  let debugSpy: jest.SpyInstance;
 
   const sites = [
     {
@@ -179,10 +183,12 @@ describe("cookie and referer security checks", () => {
 
   beforeEach(() => {
     warnSpy = jest.spyOn(console, "warn").mockImplementation(() => undefined);
+    debugSpy = jest.spyOn(console, "debug").mockImplementation(() => undefined);
   });
 
   afterEach(() => {
     warnSpy.mockRestore();
+    debugSpy.mockRestore();
     if (originalSiteId === undefined) {
       delete process.env.SITE_ID;
     } else {
@@ -192,6 +198,11 @@ describe("cookie and referer security checks", () => {
       delete process.env.NEXT_PUBLIC_BASE_URL;
     } else {
       process.env.NEXT_PUBLIC_BASE_URL = originalBaseUrl;
+    }
+    if (originalAllowedOrigins === undefined) {
+      delete process.env.ALLOWED_ORIGINS;
+    } else {
+      process.env.ALLOWED_ORIGINS = originalAllowedOrigins;
     }
     if (originalSecureToken === undefined) {
       delete process.env.SECURE_TOKEN;
@@ -212,15 +223,28 @@ describe("cookie and referer security checks", () => {
       .filter((message) => message.includes("Missing or suspicious referer"));
   }
 
+  function unusualMethodWarningCalls(): string[] {
+    return warnSpy.mock.calls
+      .map((args) => String(args[0]))
+      .filter((message) => message.includes("Unusual HTTP method"));
+  }
+
+  function trustedOriginDebugCalls(): string[] {
+    return debugSpy.mock.calls
+      .map((args) => String(args[0]))
+      .filter((message) => message.includes("POST Origin is trusted and Referer is missing"));
+  }
+
   it("counts name=value cookies and ignores reconstructed attribute tokens", () => {
     expect(EXCESSIVE_COOKIE_COUNT).toBe(100);
     expect(countCookiesInHeader("uuid=a; libraryAccess=b; answersViewer=c")).toBe(3);
     expect(countCookiesInHeader("authToken=jwt; Path=/; HttpOnly; hasSession=1; Path=/; SameSite=Lax")).toBe(2);
     expect(countCookiesInHeader("a=1; ; HttpOnly; Path=/")).toBe(1);
 
-    const elevenCookiesWithAttributes = Array.from({ length: 11 }, (_, index) => `c${index}=v${index}; Path=/; HttpOnly`).join(
-      "; "
-    );
+    const elevenCookiesWithAttributes = Array.from(
+      { length: 11 },
+      (_, index) => `c${index}=v${index}; Path=/; HttpOnly`
+    ).join("; ");
     expect(elevenCookiesWithAttributes.split(";").length).toBeGreaterThan(30);
     expect(countCookiesInHeader(elevenCookiesWithAttributes)).toBe(11);
     expect(countCookiesInHeader(Array.from({ length: 31 }, (_, index) => `c${index}=v`).join("; "))).toBe(31);
@@ -343,5 +367,123 @@ describe("cookie and referer security checks", () => {
 
     expect(refererWarningCalls().length).toBe(1);
     expect(response.status).not.toBe(403);
+  });
+
+  it("allows HEAD for What's New and does not log an unusual method", () => {
+    expect(ALLOWED_HTTP_METHODS).toContain("HEAD");
+    const site = sites[1];
+    configureSite(site);
+    const response = middleware(makeRequest("/data/ananda/whats-new.json", { method: "HEAD" }));
+
+    expect(unusualMethodWarningCalls()).toEqual([]);
+    expect(response.status).not.toBe(403);
+  });
+
+  it("does not warn when Luca Origin is in allowedFrontEndDomains and NEXT_PUBLIC_BASE_URL differs", () => {
+    loadSiteConfigSync.mockReset();
+    loadSiteConfigSync.mockReturnValue({
+      siteId: "ananda",
+      requireLogin: true,
+      allowedFrontEndDomains: [
+        "luca.ananda.org",
+        "**-ananda-web-services-projects.vercel.app",
+        "localhost:3000",
+        "127.0.0.1:3000",
+      ],
+    });
+    process.env.SITE_ID = "ananda";
+    process.env.NEXT_PUBLIC_BASE_URL = "https://mismatch.example.com";
+
+    const response = middleware(
+      makeRequest("/api/chat/v1", {
+        method: "POST",
+        headers: {
+          origin: "https://luca.ananda.org",
+          "content-type": "application/json",
+        },
+      })
+    );
+
+    expect(refererWarningCalls()).toEqual([]);
+    expect(trustedOriginDebugCalls().length).toBe(1);
+    expect(response.status).not.toBe(403);
+  });
+
+  it("warns when POST Origin is a cross-origin value", () => {
+    loadSiteConfigSync.mockReset();
+    loadSiteConfigSync.mockReturnValue({
+      siteId: "ananda",
+      requireLogin: true,
+      allowedFrontEndDomains: ["luca.ananda.org"],
+    });
+    process.env.SITE_ID = "ananda";
+    process.env.NEXT_PUBLIC_BASE_URL = "https://mismatch.example.com";
+
+    const response = middleware(
+      makeRequest("/api/chat/v1", {
+        method: "POST",
+        headers: {
+          origin: "https://evil.example",
+          "content-type": "application/json",
+        },
+      })
+    );
+
+    expect(refererWarningCalls().length).toBe(1);
+    expect(trustedOriginDebugCalls()).toEqual([]);
+    expect(response.status).not.toBe(403);
+  });
+
+  it("does not trust a spoofed Host header or request URL origin", () => {
+    loadSiteConfigSync.mockReset();
+    loadSiteConfigSync.mockReturnValue({
+      siteId: "ananda",
+      requireLogin: true,
+      allowedFrontEndDomains: ["luca.ananda.org"],
+    });
+    process.env.SITE_ID = "ananda";
+    process.env.NEXT_PUBLIC_BASE_URL = "https://mismatch.example.com";
+
+    const spoofed = new NextRequest("https://luca.ananda.org/api/chat/v1", {
+      method: "POST",
+      headers: {
+        host: "luca.ananda.org",
+        origin: "https://evil.example",
+        "content-type": "application/json",
+      },
+    });
+    const hostOnly = new NextRequest("https://luca.ananda.org/api/chat/v1", {
+      method: "POST",
+      headers: {
+        host: "luca.ananda.org",
+        "content-type": "application/json",
+      },
+    });
+
+    expect(requestHasTrustedNavigationOrigin(spoofed)).toBe(false);
+    expect(middleware(spoofed).status).not.toBe(403);
+    expect(refererWarningCalls().length).toBe(1);
+
+    warnSpy.mockClear();
+    expect(requestHasTrustedNavigationOrigin(hostOnly)).toBe(false);
+    expect(middleware(hostOnly).status).not.toBe(403);
+    expect(refererWarningCalls().length).toBe(1);
+  });
+});
+
+describe("collectTrustedNavigationOrigins", () => {
+  it("builds https origins from site domains, base URL, and ALLOWED_ORIGINS, and skips wildcards", () => {
+    const origins = collectTrustedNavigationOrigins(
+      ["luca.ananda.org", "**-ananda-web-services-projects.vercel.app", "localhost:3000"],
+      "https://mismatch.example.com",
+      "https://extra.example.com, http://127.0.0.1:3000"
+    );
+
+    expect(origins.has("https://luca.ananda.org")).toBe(true);
+    expect(origins.has("https://mismatch.example.com")).toBe(true);
+    expect(origins.has("https://localhost:3000")).toBe(true);
+    expect(origins.has("https://extra.example.com")).toBe(true);
+    expect(origins.has("http://127.0.0.1:3000")).toBe(true);
+    expect([...origins].some((origin) => origin.includes("vercel.app"))).toBe(false);
   });
 });
