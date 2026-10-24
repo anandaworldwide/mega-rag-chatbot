@@ -424,7 +424,47 @@ class TestAudioQueuePlan:
             "1 file under kriyaban-only/ → required_access_level 200 (Kriyaban)" in text
         )
         assert "1 other file → required_access_level 0 (Public)" in text
-        assert "3 skipped (Ignore/ or non-audio)" in text
+        assert "3 skipped (Ignore/, set aside/, or non-audio)" in text
+        assert (
+            "Folders named set aside are now skipped. They were queued before this change."
+            in text
+        )
+
+    def test_format_audio_access_split_prints_duplicate_pairs(self):
+        from data_ingestion.audio_video.manage_queue import (
+            AudioQueueCandidate,
+            AudioQueuePlan,
+            format_audio_access_split,
+        )
+
+        plan = AudioQueuePlan(
+            candidates=(
+                AudioQueueCandidate(
+                    "",
+                    "album/Talk A.mp3",
+                    "public/audio/treasures/album/Talk A.mp3",
+                    0,
+                    100,
+                ),
+            ),
+            skipped_duplicates=1,
+            duplicate_pairs=(
+                (
+                    "public/audio/treasures/album/Talk A.mp3",
+                    "public/audio/treasures/Talk A.mp3",
+                ),
+            ),
+        )
+
+        text = format_audio_access_split(plan)
+
+        assert "1 skipped as same-name copies" in text
+        assert "keep public/audio/treasures/album/Talk A.mp3" in text
+        assert "drop public/audio/treasures/Talk A.mp3" in text
+        assert (
+            "Folders named set aside are now skipped. They were queued before this change."
+            in text
+        )
 
     def test_confirm_audio_access_split_yes_flag_skips_prompt(self, capsys):
         from data_ingestion.audio_video.manage_queue import (
@@ -600,9 +640,11 @@ class TestAudioQueuePlan:
         ]
         logger_name = "data_ingestion.audio_video.manage_queue"
 
-        with caplog.at_level(logging.DEBUG, logger=logger_name):
+        with caplog.at_level(logging.INFO, logger=logger_name):
             plan_forward = collect_s3_audio_queue_plan(keys, "treasures")
-            plan_reverse = collect_s3_audio_queue_plan(list(reversed(keys)), "treasures")
+            plan_reverse = collect_s3_audio_queue_plan(
+                list(reversed(keys)), "treasures"
+            )
 
         expected = ["public/audio/treasures/album/Talk A.mp3"]
         assert [item.s3_key for item in plan_forward.candidates] == expected
@@ -611,6 +653,67 @@ class TestAudioQueuePlan:
         assert plan_reverse.skipped_duplicates == 1
         assert plan_forward.skipped_ignore == 2
         assert "Skipped 1 duplicate audio keys" in caplog.text
+        assert plan_forward.duplicate_pairs == (
+            (
+                "public/audio/treasures/album/Talk A.mp3",
+                "public/audio/treasures/Talk A.mp3",
+            ),
+        )
+
+    def test_collect_s3_audio_queue_plan_keeps_same_name_at_each_access_level(self):
+        from data_ingestion.audio_video.manage_queue import collect_s3_audio_queue_plan
+
+        plan = collect_s3_audio_queue_plan(
+            [
+                "public/audio/treasures/Talk A.mp3",
+                "public/audio/treasures/kriyaban-only/Talk A.mp3",
+            ],
+            "treasures",
+        )
+
+        by_key = {item.s3_key: item.required_access_level for item in plan.candidates}
+        assert by_key == {
+            "public/audio/treasures/Talk A.mp3": 0,
+            "public/audio/treasures/kriyaban-only/Talk A.mp3": 200,
+        }
+        assert plan.skipped_duplicates == 0
+
+    def test_collect_s3_audio_queue_plan_keeps_same_name_with_different_sizes(self):
+        from data_ingestion.audio_video.manage_queue import collect_s3_audio_queue_plan
+
+        plan = collect_s3_audio_queue_plan(
+            [
+                {"Key": "public/audio/treasures/Talk A.mp3", "Size": 100},
+                {"Key": "public/audio/treasures/album/Talk A.mp3", "Size": 200},
+            ],
+            "treasures",
+        )
+
+        assert {item.s3_key for item in plan.candidates} == {
+            "public/audio/treasures/Talk A.mp3",
+            "public/audio/treasures/album/Talk A.mp3",
+        }
+        assert plan.skipped_duplicates == 0
+        assert set(plan.same_name_different_size) == {
+            "public/audio/treasures/Talk A.mp3",
+            "public/audio/treasures/album/Talk A.mp3",
+        }
+
+    def test_collect_s3_audio_queue_plan_collapses_same_name_level_and_size(self):
+        from data_ingestion.audio_video.manage_queue import collect_s3_audio_queue_plan
+
+        objects = [
+            {"Key": "public/audio/treasures/Talk A.mp3", "Size": 100},
+            {"Key": "public/audio/treasures/album/Talk A.mp3", "Size": 100},
+        ]
+        plan_forward = collect_s3_audio_queue_plan(objects, "treasures")
+        plan_reverse = collect_s3_audio_queue_plan(list(reversed(objects)), "treasures")
+
+        expected = ["public/audio/treasures/album/Talk A.mp3"]
+        assert [item.s3_key for item in plan_forward.candidates] == expected
+        assert [item.s3_key for item in plan_reverse.candidates] == expected
+        assert plan_forward.skipped_duplicates == 1
+        assert plan_forward.same_name_different_size == ()
 
     def test_collect_s3_audio_queue_plan_queues_m4a_and_does_not_infer_kriya(self):
         from data_ingestion.audio_video.manage_queue import collect_s3_audio_queue_plan
