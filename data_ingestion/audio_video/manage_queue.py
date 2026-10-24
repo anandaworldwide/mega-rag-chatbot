@@ -208,6 +208,7 @@ class AudioQueuePlan:
     candidates: tuple[AudioQueueCandidate, ...]
     skipped_ignore: int = 0
     skipped_non_audio: int = 0
+    skipped_duplicates: int = 0
 
 
 def _unique_audio_files(audio_files):
@@ -370,6 +371,7 @@ def collect_s3_audio_queue_plan(
         candidates=tuple(candidates),
         skipped_ignore=skipped_ignore,
         skipped_non_audio=skipped_non_audio,
+        skipped_duplicates=len(skipped_duplicate_keys),
     )
 
 
