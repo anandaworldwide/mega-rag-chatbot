@@ -3366,6 +3366,68 @@ describe("makeChain", () => {
 
       expect(mapped.activeFiltersSummary).not.toContain("No library sources matched your current user-set filters");
     });
+
+    it("does not send sourceDocs a second time when retry uses cached documents", async () => {
+      const scoredStore = createScoredVectorStoreMock(mockDocuments, { scores: [0.82, 0.71] });
+      mockRetriever.vectorStore = scoredStore as any;
+      const sendData = jest.fn();
+      const siteConfig = { ...mockSiteConfig, includedLibraries: [] };
+      const fromMock = jest.requireMock("@langchain/core/runnables").RunnableSequence.from as jest.Mock;
+
+      fromMock.mockClear();
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        sendData,
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        siteConfig
+      );
+      const firstRetrieval = getRetrievalSequenceFromMakeChain();
+      await firstRetrieval.invoke({ question: "first attempt", chat_history: "" });
+
+      const sourceDocCallsAfterFirst = sendData.mock.calls.filter(
+        (call) => call[0] && Object.prototype.hasOwnProperty.call(call[0], "sourceDocs")
+      );
+      expect(sourceDocCallsAfterFirst).toHaveLength(1);
+      expect(scoredStore.similaritySearchWithScore).toHaveBeenCalledTimes(1);
+
+      fromMock.mockClear();
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        sendData,
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        siteConfig,
+        "first attempt",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        { restatedQuestion: "first attempt", documents: mockDocuments }
+      );
+      const retryRetrieval = getRetrievalSequenceFromMakeChain();
+      await retryRetrieval.invoke({ question: "first attempt", chat_history: "" });
+
+      const sourceDocCallsAfterRetry = sendData.mock.calls.filter(
+        (call) => call[0] && Object.prototype.hasOwnProperty.call(call[0], "sourceDocs")
+      );
+      expect(sourceDocCallsAfterRetry).toHaveLength(1);
+      expect(scoredStore.similaritySearchWithScore).toHaveBeenCalledTimes(1);
+    });
   });
 });
 

@@ -8,6 +8,7 @@ import {
   inferLlmProviderFromError,
   isLlmProviderAuthError,
   isLlmProviderCapacityError,
+  isLlmProviderHttpServerError,
   isLlmProviderQuotaError,
   isLlmProviderRateLimitError,
   LLM_CAPACITY_USER_MESSAGE,
@@ -118,6 +119,32 @@ describe("isLlmProviderCapacityError", () => {
         new Error("Your team 9bd216ec-d39a-4422-81a3-5a0f430a2d56 has used all available credits")
       )
     ).toBe(false);
+  });
+});
+
+describe("isLlmProviderHttpServerError", () => {
+  test("matches numeric HTTP 5xx status only", () => {
+    expect(isLlmProviderHttpServerError(Object.assign(new Error("upstream"), { status: 500 }))).toBe(true);
+    expect(isLlmProviderHttpServerError(Object.assign(new Error("bad gateway"), { status: 502 }))).toBe(true);
+    expect(isLlmProviderHttpServerError(Object.assign(new Error("gateway timeout"), { status: 504 }))).toBe(true);
+    expect(isLlmProviderHttpServerError(Object.assign(new Error("unavailable"), { status: 503 }))).toBe(true);
+  });
+
+  test("reads status from a wrapped cause", () => {
+    const cause = Object.assign(new Error("Internal Server Error"), { status: 500 });
+    expect(isLlmProviderHttpServerError(Object.assign(new Error("ChatOpenAI failed"), { cause }))).toBe(true);
+  });
+
+  test("does not match 5xx-like numbers in text when status is missing", () => {
+    expect(isLlmProviderHttpServerError(new Error("used 500 tokens"))).toBe(false);
+    expect(isLlmProviderHttpServerError(new Error("status 503"))).toBe(false);
+    expect(isLlmProviderHttpServerError(new Error("HTTP 502 Bad Gateway"))).toBe(false);
+    expect(isLlmProviderHttpServerError(new Error("id 504"))).toBe(false);
+  });
+
+  test("does not match 4xx status", () => {
+    expect(isLlmProviderHttpServerError(Object.assign(new Error("bad request"), { status: 400 }))).toBe(false);
+    expect(isLlmProviderHttpServerError(Object.assign(new Error("rate limited"), { status: 429 }))).toBe(false);
   });
 });
 

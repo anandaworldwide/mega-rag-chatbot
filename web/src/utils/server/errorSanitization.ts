@@ -102,13 +102,17 @@ export function isLlmProviderCapacityError(error: unknown): boolean {
   return false;
 }
 
-/** True when the error carries an HTTP 5xx status or 5xx text. */
+/**
+ * True when the LLM SDK reports an HTTP 5xx status.
+ * OpenAI `APIError` always sets `.status` from the HTTP response. LangChain
+ * mutates that same object, so the status stays on the error or its cause.
+ * Do not match bare numbers in the message. That can hit token counts or ids.
+ * xAI capacity on HTTP 200 has no status and is handled by
+ * `isLlmProviderCapacityError`.
+ */
 export function isLlmProviderHttpServerError(error: unknown): boolean {
-  const { message, status } = getLlmProviderErrorFields(error);
-  if (typeof status === "number" && status >= 500 && status <= 599) {
-    return true;
-  }
-  return /\b(500|502|503|504|529)\b/.test(message);
+  const { status } = getLlmProviderErrorFields(error);
+  return typeof status === "number" && status >= 500 && status <= 599;
 }
 
 /**
