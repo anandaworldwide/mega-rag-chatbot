@@ -1,7 +1,7 @@
 // This component renders an audio player with play/pause controls, a seek bar,
 // and time display. It supports lazy loading and handles audio playback states.
 
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { useAudioContext } from "@/contexts/AudioContext";
 import { logEvent } from "@/utils/client/analytics";
@@ -9,6 +9,29 @@ import { getCachedSecureAudioUrl } from "@/utils/client/getSecureAudioUrl";
 import { generateSourceDeepLink, generateSourceId } from "@/utils/client/sourceUtils";
 import { Document } from "@langchain/core/documents";
 import { DocMetadata } from "@/types/DocMetadata";
+
+const RATE_LIMIT_COOLDOWN_MS = 10 * 1000;
+
+function getUrlErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : "Failed to load audio";
+  if (message === "Audio file not found" || /\b404\b/.test(message)) {
+    return "Audio file not found";
+  }
+  if (message.includes("Too many requests") || /\b429\b/.test(message)) {
+    return "Too many requests, wait a moment";
+  }
+  return message;
+}
+
+function getRetryAfterMs(error: unknown): number | null {
+  if (error && typeof error === "object" && "retryAfterMs" in error) {
+    const value = (error as { retryAfterMs?: unknown }).retryAfterMs;
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+      return value;
+    }
+  }
+  return null;
+}
 
 interface AudioPlayerProps {
   src: string;
@@ -48,8 +71,32 @@ export function AudioPlayer({
   const [secureAudioUrl, setSecureAudioUrl] = useState<string | null>(null);
   const [urlError, setUrlError] = useState<string | null>(null);
   const [isLoadingUrl, setIsLoadingUrl] = useState(false);
+  const [isCoolingDown, setIsCoolingDown] = useState(false);
+  const rateLimitedUntilRef = useRef(0);
+  const cooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { currentlyPlayingId, setCurrentlyPlayingId } = useAudioContext();
   const [error, setError] = useState<string | null>(null);
+
+  const startRateLimitCoolDown = useCallback((waitMs: number) => {
+    rateLimitedUntilRef.current = Date.now() + waitMs;
+    setIsCoolingDown(true);
+    if (cooldownTimerRef.current !== null) {
+      clearTimeout(cooldownTimerRef.current);
+    }
+    cooldownTimerRef.current = setTimeout(() => {
+      rateLimitedUntilRef.current = 0;
+      setIsCoolingDown(false);
+      cooldownTimerRef.current = null;
+    }, waitMs);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (cooldownTimerRef.current !== null) {
+        clearTimeout(cooldownTimerRef.current);
+      }
+    };
+  }, []);
 
   // Custom hook for managing audio playback
   const {
@@ -66,10 +113,16 @@ export function AudioPlayer({
     startTime,
   });
 
-  // Function to fetch secure audio URL
+  // Fetch the signed URL. Do not start a new fetch when the last fetch failed.
   const fetchSecureAudioUrl = useCallback(async () => {
     if (!src) {
       setUrlError("No audio source provided");
+      return;
+    }
+
+    // After HTTP 429, wait before a new fetch.
+    if (Date.now() < rateLimitedUntilRef.current) {
+      setUrlError("Too many requests, wait a moment");
       return;
     }
 
@@ -81,23 +134,26 @@ export function AudioPlayer({
       setSecureAudioUrl(url);
       logEvent("audio_url_fetch_success", "Engagement", audioId);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Failed to load audio";
+      const errorMessage = getUrlErrorMessage(error);
       setUrlError(errorMessage);
+      if (errorMessage === "Too many requests, wait a moment") {
+        startRateLimitCoolDown(getRetryAfterMs(error) ?? RATE_LIMIT_COOLDOWN_MS);
+      }
       console.error("Failed to fetch secure audio URL:", error);
       logEvent("audio_url_fetch_error", "Error", `${audioId}:${errorMessage}`);
     } finally {
       setIsLoadingUrl(false);
     }
-  }, [src, library, docId, audioId]);
+  }, [src, library, docId, audioId, startRateLimitCoolDown]);
 
-  // Load secure audio URL when component mounts or when conditions change
+  // Load the signed URL on mount or when the player opens.
+  // A failed fetch sets urlError, so this effect does not run again.
   useEffect(() => {
-    // Fetch URL when: (not lazy loading OR expanded) AND we don't have a URL yet AND not currently loading
-    if ((!lazyLoad || isExpanded) && !secureAudioUrl && !isLoadingUrl) {
+    if ((!lazyLoad || isExpanded) && !secureAudioUrl && !isLoadingUrl && !urlError) {
       fetchSecureAudioUrl();
       setIsLoaded(true);
     }
-  }, [lazyLoad, isExpanded, secureAudioUrl, isLoadingUrl, fetchSecureAudioUrl]);
+  }, [lazyLoad, isExpanded, secureAudioUrl, isLoadingUrl, urlError, fetchSecureAudioUrl]);
 
   // Pause this audio if another audio starts playing
   useEffect(() => {
@@ -116,12 +172,11 @@ export function AudioPlayer({
       : `${minutes}:${seconds.toString().padStart(2, "0")}`;
   };
 
-  // Handle play/pause button click
+  // A play click can start one more fetch after a failure.
   const handleTogglePlayPause = useCallback(async () => {
-    // If we don't have a secure URL yet, try to fetch it
     if (!secureAudioUrl && !isLoadingUrl) {
       await fetchSecureAudioUrl();
-      return; // Wait for the URL to be fetched before playing
+      return;
     }
 
     if (secureAudioUrl && isLoaded) {
@@ -245,8 +300,9 @@ export function AudioPlayer({
   const sourceId = sourceDoc ? generateSourceId(sourceDoc) : null;
   const isLinkCopied = localLinkCopied || sourceLinkCopied === sourceId;
 
-  // Determine if controls should be disabled
-  const isDisabled = !secureAudioUrl || !!error || !!audioError || !!urlError || isSeeking || isLoadingUrl;
+  const hasPlaybackError = !!error || !!audioError;
+  const isPlayDisabled = isLoadingUrl || isSeeking || hasPlaybackError || isCoolingDown;
+  const isDisabled = !secureAudioUrl || isPlayDisabled || !!urlError;
 
   return (
     <div className="audio-player bg-gray-100 rounded-xl w-full md:w-1/2">
@@ -281,9 +337,9 @@ export function AudioPlayer({
         <button
           onClick={handleTogglePlayPause}
           className={`text-blue-500 p-1 rounded-full hover:bg-blue-100 focus:outline-none ${
-            isDisabled ? "opacity-50 cursor-not-allowed" : ""
+            isPlayDisabled ? "opacity-50 cursor-not-allowed" : ""
           }`}
-          disabled={isDisabled}
+          disabled={isPlayDisabled}
           aria-label={isPlaying ? "Pause audio" : "Play audio"}
         >
           <span className="material-icons text-2xl">
