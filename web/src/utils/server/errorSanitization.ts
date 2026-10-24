@@ -13,6 +13,108 @@ import { isDevelopment } from "@/utils/env";
 export const CHATBOT_UNAVAILABLE_USER_MESSAGE =
   "The chatbot is temporarily unavailable. Please try again later.";
 
+/** User-facing copy when the LLM provider is at capacity. */
+export const LLM_CAPACITY_USER_MESSAGE =
+  "The AI service is busy right now. Please try again in a minute.";
+
+type ProviderErrorFields = {
+  message: string;
+  code?: string;
+  type?: string;
+  status?: number;
+};
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (value && typeof value === "object") {
+    return value as Record<string, unknown>;
+  }
+  return undefined;
+}
+
+function firstString(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function firstNumber(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string" && /^\d+$/.test(value.trim())) {
+      return Number(value.trim());
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Reads code, type, status, and text from common LLM SDK error shapes.
+ * xAI can put these fields on the error, on error.error, or only in the message.
+ */
+export function getLlmProviderErrorFields(error: unknown): ProviderErrorFields {
+  const rec = asRecord(error);
+  const nested = asRecord(rec?.error);
+  const cause = asRecord(rec?.cause);
+  const message = [
+    error instanceof Error ? error.message : undefined,
+    typeof rec?.message === "string" ? rec.message : undefined,
+    typeof nested?.message === "string" ? nested.message : undefined,
+    typeof cause?.message === "string" ? cause.message : undefined,
+  ]
+    .filter((part): part is string => typeof part === "string" && part.length > 0)
+    .join(" ");
+
+  return {
+    message: message || String(error ?? ""),
+    code: firstString(nested?.code, rec?.code, cause?.code),
+    type: firstString(nested?.type, rec?.type, cause?.type),
+    status: firstNumber(rec?.status, rec?.statusCode, nested?.status, cause?.status),
+  };
+}
+
+/**
+ * True when the provider reports capacity, overload, or resource-exhausted.
+ * xAI often sends this on HTTP 200 SSE with no HTTP status.
+ */
+export function isLlmProviderCapacityError(error: unknown): boolean {
+  const { message, code, type, status } = getLlmProviderErrorFields(error);
+  const lower = message.toLowerCase();
+  const codeLower = (code ?? "").toLowerCase();
+  const typeLower = (type ?? "").toLowerCase();
+
+  if (codeLower === "resource-exhausted") {
+    return true;
+  }
+  if (typeLower === "server_error" && lower.includes("capacity")) {
+    return true;
+  }
+  if (lower.includes("at capacity") || lower.includes("high demand")) {
+    return true;
+  }
+  if (status === 503 || status === 529) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * True when the LLM SDK reports an HTTP 5xx status.
+ * OpenAI `APIError` always sets `.status` from the HTTP response. LangChain
+ * mutates that same object, so the status stays on the error or its cause.
+ * Do not match bare numbers in the message. That can hit token counts or ids.
+ * xAI capacity on HTTP 200 has no status and is handled by
+ * `isLlmProviderCapacityError`.
+ */
+export function isLlmProviderHttpServerError(error: unknown): boolean {
+  const { status } = getLlmProviderErrorFields(error);
+  return typeof status === "number" && status >= 500 && status <= 599;
+}
+
 /**
  * Patterns that indicate sensitive information in error messages
  */
@@ -111,13 +213,44 @@ export function isLlmProviderRateLimitError(error: unknown): boolean {
   );
 }
 
-export type LlmChatFailureKind = "auth" | "quota";
+/** True when the error looks like an LLM provider SDK or API failure. */
+export function looksLikeLlmProviderError(error: unknown): boolean {
+  if (
+    isLlmProviderAuthError(error) ||
+    isLlmProviderQuotaError(error) ||
+    isLlmProviderRateLimitError(error) ||
+    isLlmProviderCapacityError(error)
+  ) {
+    return true;
+  }
+
+  const { message, code, type, status } = getLlmProviderErrorFields(error);
+  if (code || type === "server_error" || type === "api_error") {
+    return true;
+  }
+  if (typeof status === "number") {
+    return true;
+  }
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("openai") ||
+    lower.includes("x.ai") ||
+    lower.includes("xai") ||
+    lower.includes("anthropic") ||
+    lower.includes("grok") ||
+    lower.includes("server_error") ||
+    lower.includes("apierror") ||
+    lower.includes("chat completion")
+  );
+}
+
+export type LlmChatFailureKind = "auth" | "quota" | "capacity";
 
 export type LlmChatFailurePlan = {
   kind: LlmChatFailureKind;
   userMessage: string;
   provider: string;
-  errorType: "llm_provider_auth_failure" | "llm_provider_quota_failure";
+  errorType: "llm_provider_auth_failure" | "llm_provider_quota_failure" | "llm_capacity";
   opsSubject: string;
   opsBody: string;
   throttleKey: string;
@@ -148,6 +281,24 @@ IMMEDIATE ACTION REQUIRED:
 
 Error details: ${detail}`,
       throttleKey: "llm_provider_auth_failure",
+    };
+  }
+
+  if (isLlmProviderCapacityError(error)) {
+    const provider = inferLlmProviderFromError(error);
+    const detail = error instanceof Error ? error.message : String(error);
+    return {
+      kind: "capacity",
+      userMessage: LLM_CAPACITY_USER_MESSAGE,
+      provider,
+      errorType: "llm_capacity",
+      opsSubject: `WARNING: ${provider} Capacity / High Demand`,
+      opsBody: `${provider} reported capacity or high demand during chat request processing.
+
+The user can retry. No OpenAI fallback is configured.
+
+Error details: ${detail}`,
+      throttleKey: "llm_capacity",
     };
   }
 
@@ -243,6 +394,10 @@ export function getSafeErrorMessage(
   error: unknown,
   defaultMessage: string = "An error occurred. Please try again later."
 ): string {
+  if (isLlmProviderCapacityError(error)) {
+    return LLM_CAPACITY_USER_MESSAGE;
+  }
+
   // Never surface provider credential, quota, or rate-limit failures to end users (dev or prod).
   if (isLlmProviderAuthError(error) || isLlmProviderQuotaError(error) || isLlmProviderRateLimitError(error)) {
     return CHATBOT_UNAVAILABLE_USER_MESSAGE;
@@ -254,6 +409,11 @@ export function getSafeErrorMessage(
       return error.message || defaultMessage;
     }
     return String(error) || defaultMessage;
+  }
+
+  // Production: never return raw provider text, even after sanitization.
+  if (looksLikeLlmProviderError(error)) {
+    return defaultMessage;
   }
 
   // In production, sanitize error messages

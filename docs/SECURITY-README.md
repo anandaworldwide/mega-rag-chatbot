@@ -977,6 +977,8 @@ try {
 - Never include `error.stack` in production responses
 - Never include `error.details` with raw error messages
 - Log full error details server-side for debugging, but sanitize sensitive patterns
+- Classify xAI `resource-exhausted` / capacity errors as `llm_capacity`
+- In production, never return raw LLM provider text for unknown provider errors
 
 #### Error Response Structure
 

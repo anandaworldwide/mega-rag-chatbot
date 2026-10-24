@@ -14,6 +14,11 @@ export type ChatModelOptions = {
    * Prefer a real conversation id; fall back to siteId for first turns.
    */
   promptCacheKey?: string;
+  /**
+   * xAI / OpenAI service tier. Use `priority` only on the last Grok retry.
+   * ChatOpenAI forwards this through `modelKwargs.service_tier`.
+   */
+  serviceTier?: "auto" | "default" | "flex" | "priority";
 };
 
 export type GrokReasoningEffort = "low" | "medium" | "high";
@@ -55,7 +60,7 @@ export function resolveGrokReasoningEffort(): GrokReasoningEffort {
  * Returns a LangChain chat model for OpenAI, Anthropic, or xAI (Grok) based on the model id.
  */
 export function getChatModel(options: ChatModelOptions): BaseChatModel {
-  const { model, temperature, streaming = false, maxTokens, effort, promptCacheKey } = options;
+  const { model, temperature, streaming = false, maxTokens, effort, promptCacheKey, serviceTier } = options;
 
   if (isAnthropicModel(model)) {
     const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -103,8 +108,10 @@ export function getChatModel(options: ChatModelOptions): BaseChatModel {
         ...(defaultHeaders ? { defaultHeaders } : {}),
       },
       // xAI Chat Completions accepts reasoning_effort for grok-4.5 (API default high; we use low for TTFB).
+      // service_tier is a request-body field; ChatOpenAI passes modelKwargs through.
       modelKwargs: {
         reasoning_effort: reasoningEffort,
+        ...(serviceTier ? { service_tier: serviceTier } : {}),
       },
       ...(maxTokens !== undefined ? { maxTokens } : {}),
     });

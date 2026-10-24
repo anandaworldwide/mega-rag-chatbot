@@ -678,7 +678,10 @@ Error details: ${error.message}`,
 
   const llmFailure = classifyLlmProviderChatFailure(error);
   if (llmFailure) {
-    sendData({ error: llmFailure.userMessage });
+    sendData({
+      error: llmFailure.userMessage,
+      ...(llmFailure.kind === "capacity" ? { type: "llm_capacity" } : {}),
+    });
 
     const sanitizedError = sanitizeErrorForLogging(error);
     console.error("LLM provider failure during chat request processing.", {
@@ -692,23 +695,25 @@ Error details: ${error.message}`,
       timestamp: new Date().toISOString(),
     });
 
-    sendOpsAlert(
-      llmFailure.opsSubject,
-      llmFailure.opsBody,
-      {
-        error,
-        context: {
-          errorType: llmFailure.errorType,
-          provider: llmFailure.provider,
-          kind: llmFailure.kind,
-          timestamp: new Date().toISOString(),
-          apiEndpoint: "/api/chat/v1",
+    if (llmFailure.kind !== "capacity") {
+      sendOpsAlert(
+        llmFailure.opsSubject,
+        llmFailure.opsBody,
+        {
+          error,
+          context: {
+            errorType: llmFailure.errorType,
+            provider: llmFailure.provider,
+            kind: llmFailure.kind,
+            timestamp: new Date().toISOString(),
+            apiEndpoint: "/api/chat/v1",
+          },
         },
-      },
-      { throttleKey: llmFailure.throttleKey, throttleMs: 15 * 60 * 1000 }
-    ).catch((emailError) => {
-      console.error("Failed to send LLM provider ops alert:", emailError);
-    });
+        { throttleKey: llmFailure.throttleKey, throttleMs: 15 * 60 * 1000 }
+      ).catch((emailError) => {
+        console.error("Failed to send LLM provider ops alert:", emailError);
+      });
+    }
     return;
   }
 
