@@ -639,6 +639,37 @@ Short quotation and seated quiet. Sources include Crystal Clarity commentaries.
         expect(isIncompleteRetrievalAnswer(answer)).toBe(false);
       }
     });
+
+    it("drops fetch narration glued to markdown, headings, and lists", () => {
+      const prefix = "Fetching nearby passages for a short story.";
+      expect(stripLeadingRetrievalNarration(`${prefix}**Defaults used:** Theme`)).toBe(
+        "**Defaults used:** Theme"
+      );
+      expect(stripLeadingRetrievalNarration(`${prefix}*Defaults*`)).toBe("*Defaults*");
+      expect(stripLeadingRetrievalNarration(`${prefix}\n\n**Defaults`)).toBe("**Defaults");
+      expect(stripLeadingRetrievalNarration(`${prefix} **Defaults`)).toBe("**Defaults");
+      expect(stripLeadingRetrievalNarration(`${prefix}# Heading`)).toBe("# Heading");
+      expect(stripLeadingRetrievalNarration(`${prefix} 1. First`)).toBe("1. First");
+    });
+
+    it("does not treat a decimal like 3.5 as a sentence boundary", () => {
+      const answer = "Fetching 3.5 million passages are indexed. Theme is listed first.";
+      expect(stripLeadingRetrievalNarration(answer)).toBe("Theme is listed first.");
+      expect(stripLeadingRetrievalNarration(answer)).not.toMatch(/^5 million/);
+    });
+
+    it("strips I'll-pull then fetch narration and keeps the markdown answer", () => {
+      const glued =
+        "I'll pull stronger teaching material for the outline.Fetching nearby passages for quotes.**Defaults used:** Theme";
+      expect(stripLeadingRetrievalNarration(glued)).toBe("**Defaults used:** Theme");
+      expect(isIncompleteRetrievalAnswer(stripLeadingRetrievalNarration(glued))).toBe(false);
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: glued,
+          afterRetrievalAttempt: false,
+        })
+      ).toEqual({ text: "**Defaults used:** Theme", usedFallback: false });
+    });
   });
 
   describe("complete_list retrieval policy", () => {

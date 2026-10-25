@@ -192,9 +192,12 @@ export function finalizeRetrievalUserAnswer(
  */
 /**
  * Split off the first sentence. "article.From" (no space after the period) is a boundary.
+ * Markdown markers (`*`, `_`, `#`, `` ` ``, `>`, `[`) after the end mark also start the rest.
+ * After whitespace, a digit or hyphen can start a list. A digit right after the period
+ * is not a boundary, so "3.5 million" stays in one sentence.
  */
 function splitFirstSentence(text: string): { lead: string; rest: string } | null {
-  const match = text.match(/^([\s\S]*?[.?!…]+)(?=[A-Z"“]|[\s]+[A-Z"“])/);
+  const match = text.match(/^([\s\S]*?[.?!…]+)(?=[A-Z"“*_#`>[]|[\s]+[A-Z"“*_#`>[0-9-])/);
   if (!match) {
     return null;
   }
@@ -327,7 +330,8 @@ const LEADING_NARRATION_OPENER =
   /^(?:(?:fetching|pulling|searching|gathering|retrieving|looking)\b|(?:i(?:'ll| will)|let me)\s+(?:pull|search|fetch|gather|look|retrieve)\b)/i;
 
 /** Retrieval objects. The opener verb (searching, fetching, …) is not an object. */
-const LEADING_NARRATION_OBJECT_NOUN = /\b(?:passages?|chunks?|sources?|articles?|visualizations?)\b/i;
+const LEADING_NARRATION_OBJECT_NOUN =
+  /\b(?:passages?|chunks?|sources?|articles?|visualizations?|teaching material)\b/i;
 
 const LEADING_NARRATION_VERB =
   /\b(?:fetch(?:ing)?|pull(?:ing)?|search(?:ing)?|gather(?:ing)?|retriev(?:e|ing)|look(?:ing)?)\b/gi;
