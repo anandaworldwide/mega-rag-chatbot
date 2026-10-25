@@ -1,15 +1,66 @@
 """Tests for the audio and video Pinecone filename conflict guard."""
 
 import logging
+import time
 
 import pytest
+from urllib3.exceptions import ReadTimeoutError
 
 from data_ingestion.audio_video.pinecone_utils import (
     apply_filename_conflict_guard,
     store_in_pinecone,
 )
-from data_ingestion.tests.strict_fake_index import StrictFakeIndex
+from data_ingestion.tests.strict_fake_index import (
+    StrictFakeFetchResponse,
+    StrictFakeIndex,
+)
 from data_ingestion.utils.pinecone_utils import generate_vector_id
+
+
+class FakeHttpError(Exception):
+    """Error that can carry an HTTP status code."""
+
+    def __init__(self, message, *, status=None, status_code=None):
+        super().__init__(message)
+        if status is not None:
+            self.status = status
+        if status_code is not None:
+            self.status_code = status_code
+
+
+class StuckFetchIndex:
+    """Index whose fetch hangs until pinecone 8.1.0 _request_timeout elapses."""
+
+    def __init__(self, succeed_after=None, records=None):
+        self.succeed_after = succeed_after
+        self.vectors = records or {}
+        self.fetch_calls = []
+        self.request_timeouts = []
+        self.upserts = []
+        self._fail_count = 0
+
+    def fetch(self, ids=None, namespace=None, _request_timeout=None, **kwargs):
+        del namespace, kwargs
+        requested = [str(vector_id) for vector_id in (ids or [])]
+        self.fetch_calls.append(requested)
+        self.request_timeouts.append(_request_timeout)
+        if _request_timeout in (None, 0):
+            raise AssertionError(
+                "pinecone 8.1.0 fetch needs a positive _request_timeout"
+            )
+        if self.succeed_after is not None and self._fail_count >= self.succeed_after:
+            found = {}
+            for vector_id in requested:
+                if vector_id in self.vectors:
+                    found[vector_id] = self.vectors[vector_id]
+            return StrictFakeFetchResponse(namespace="", vectors=found, usage=None)
+        self._fail_count += 1
+        time.sleep(float(_request_timeout))
+        raise ReadTimeoutError(None, None, "Read timed out.")
+
+    def upsert(self, vectors=None, **kwargs):
+        del kwargs
+        self.upserts.append(list(vectors or []))
 
 
 def _chunk(text, start=0.0, end=1.0):
@@ -251,7 +302,7 @@ def test_store_retries_filename_fetch_on_http_429(monkeypatch):
     text = "same spoken text"
     vector_id = _audio_vector_id(text)
     index = _index_with_stored({vector_id: "treasures/album/Talk A.mp3"})
-    index.next_fetch_errors = [RuntimeError("429 Too Many Requests")]
+    index.next_fetch_errors = [FakeHttpError("Too Many Requests", status=429)]
     monkeypatch.setattr(
         "data_ingestion.audio_video.pinecone_utils._FILENAME_FETCH_RETRY_DELAY_SECONDS",
         0,
@@ -278,9 +329,36 @@ def test_store_raises_after_filename_fetch_429_retries(monkeypatch):
     text = "same spoken text"
     index = StrictFakeIndex()
     index.next_fetch_errors = [
-        RuntimeError("429 Too Many Requests"),
-        RuntimeError("429 Too Many Requests"),
-        RuntimeError("429 Too Many Requests"),
+        FakeHttpError("Too Many Requests", status=429),
+        FakeHttpError("Too Many Requests", status=429),
+        FakeHttpError("Too Many Requests", status=429),
+    ]
+    monkeypatch.setattr(
+        "data_ingestion.audio_video.pinecone_utils._FILENAME_FETCH_RETRY_DELAY_SECONDS",
+        0,
+    )
+
+    with pytest.raises(FakeHttpError, match="Too Many Requests"):
+        store_in_pinecone(
+            index,
+            [_chunk(text)],
+            [[0.1, 0.2]],
+            author="Test Author",
+            library_name="Treasures",
+            title="Talk A",
+            content_type="audio",
+            source_identifier="public/audio/treasures/album/Talk A.mp3",
+        )
+
+    assert len(index.fetch_calls) == 3
+    assert index.upserts == []
+
+
+def test_store_does_not_retry_non_429_error_that_contains_429_text(monkeypatch):
+    text = "same spoken text"
+    index = StrictFakeIndex()
+    index.next_fetch_errors = [
+        RuntimeError("upstream body mentioned 429 Too Many Requests")
     ]
     monkeypatch.setattr(
         "data_ingestion.audio_video.pinecone_utils._FILENAME_FETCH_RETRY_DELAY_SECONDS",
@@ -299,5 +377,82 @@ def test_store_raises_after_filename_fetch_429_retries(monkeypatch):
             source_identifier="public/audio/treasures/album/Talk A.mp3",
         )
 
-    assert len(index.fetch_calls) == 3
+    assert len(index.fetch_calls) == 1
     assert index.upserts == []
+
+
+def test_stuck_filename_fetch_times_out_is_retried_then_succeeds(monkeypatch):
+    text = "same spoken text"
+    vector_id = _audio_vector_id(text)
+    stored = {
+        vector_id: {
+            "id": vector_id,
+            "metadata": {"filename": "treasures/album/Talk A.mp3"},
+        }
+    }
+    index = StuckFetchIndex(succeed_after=1, records=stored)
+    monkeypatch.setattr(
+        "data_ingestion.audio_video.pinecone_utils._filename_fetch_timeout_seconds",
+        lambda: 0.05,
+    )
+    monkeypatch.setattr(
+        "data_ingestion.audio_video.pinecone_utils._FILENAME_FETCH_RETRY_DELAY_SECONDS",
+        0,
+    )
+
+    skipped_count = store_in_pinecone(
+        index,
+        [_chunk(text)],
+        [[0.1, 0.2]],
+        author="Test Author",
+        library_name="Treasures",
+        title="Talk A",
+        content_type="audio",
+        source_identifier="public/audio/treasures/album/Talk A.mp3",
+    )
+
+    assert skipped_count == 0
+    assert len(index.fetch_calls) == 2
+    assert index.request_timeouts == [0.05, 0.05]
+    assert len(index.upserts) == 1
+    assert index.upserts[0][0]["id"] == vector_id
+
+
+def test_stuck_filename_fetch_raises_after_timeout_retries(monkeypatch):
+    text = "same spoken text"
+    index = StuckFetchIndex()
+    monkeypatch.setattr(
+        "data_ingestion.audio_video.pinecone_utils._filename_fetch_timeout_seconds",
+        lambda: 0.05,
+    )
+    monkeypatch.setattr(
+        "data_ingestion.audio_video.pinecone_utils._FILENAME_FETCH_RETRY_DELAY_SECONDS",
+        0,
+    )
+
+    with pytest.raises(ReadTimeoutError, match="Read timed out"):
+        store_in_pinecone(
+            index,
+            [_chunk(text)],
+            [[0.1, 0.2]],
+            author="Test Author",
+            library_name="Treasures",
+            title="Talk A",
+            content_type="audio",
+            source_identifier="public/audio/treasures/album/Talk A.mp3",
+        )
+
+    assert len(index.fetch_calls) == 3
+    assert index.request_timeouts == [0.05, 0.05, 0.05]
+    assert index.upserts == []
+
+
+def test_filename_fetch_timeout_reads_env_override(monkeypatch):
+    from data_ingestion.audio_video import pinecone_utils as pu
+
+    monkeypatch.setenv("PINECONE_FILENAME_FETCH_TIMEOUT_SECONDS", "12")
+    assert pu._filename_fetch_timeout_seconds() == 12.0
+    monkeypatch.setenv("PINECONE_FILENAME_FETCH_TIMEOUT_SECONDS", "0")
+    assert pu._filename_fetch_timeout_seconds() == 30.0
+    monkeypatch.delenv("PINECONE_FILENAME_FETCH_TIMEOUT_SECONDS")
+    assert pu._filename_fetch_timeout_seconds() == 30.0

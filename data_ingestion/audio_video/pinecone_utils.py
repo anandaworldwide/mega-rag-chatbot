@@ -5,6 +5,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from pinecone import NotFoundException, Pinecone, PineconeException, ServerlessSpec
+from urllib3.exceptions import MaxRetryError
+from urllib3.exceptions import TimeoutError as Urllib3TimeoutError
 
 from data_ingestion.utils.author_ingest_guard import apply_author_guard_to_vectors
 from data_ingestion.utils.credential_errors import abort_on_credential_error
@@ -17,6 +19,8 @@ _FILENAME_FETCH_BATCH_SIZE = 20
 _FILENAME_FETCH_WORKERS = 8
 _FILENAME_FETCH_RETRIES = 3
 _FILENAME_FETCH_RETRY_DELAY_SECONDS = 0.2
+_FILENAME_FETCH_TIMEOUT_SECONDS = 30.0
+_FILENAME_FETCH_TIMEOUT_ENV = "PINECONE_FILENAME_FETCH_TIMEOUT_SECONDS"
 
 """
 Pinecone Vector Database Integration Layer
@@ -231,32 +235,87 @@ def _metadata_from_vector(vector) -> dict:
     return {}
 
 
-def _is_rate_limit_error(exc: BaseException) -> bool:
-    """Return True when the error is an HTTP 429 rate limit."""
+def _http_status(exc: BaseException) -> int | None:
+    """Return the HTTP status code from the error, if it has one."""
     status = getattr(exc, "status", None)
     if status is None:
         status = getattr(exc, "status_code", None)
-    if status == 429:
+    if isinstance(status, int):
+        return status
+    return None
+
+
+def _is_rate_limit_error(exc: BaseException) -> bool:
+    """Return True when the error has HTTP status 429.
+
+    Do not match the text "429" in the error message.
+    """
+    return _http_status(exc) == 429
+
+
+def _is_timeout_error(exc: BaseException) -> bool:
+    """Return True when the error is a request timeout.
+
+    pinecone 8.1.0 uses urllib3. A timeout raises urllib3 TimeoutError.
+    That class is not a Python TimeoutError. MaxRetryError can wrap it.
+    """
+    if isinstance(exc, TimeoutError):
         return True
-    text = str(exc)
-    return "429" in text or "Too Many Requests" in text
+    if isinstance(exc, Urllib3TimeoutError):
+        return True
+    if isinstance(exc, MaxRetryError):
+        reason = getattr(exc, "reason", None)
+        if isinstance(reason, TimeoutError | Urllib3TimeoutError):
+            return True
+    return False
+
+
+def _is_retryable_fetch_error(exc: BaseException) -> bool:
+    """Return True when the fetch error should use the retry budget."""
+    return _is_rate_limit_error(exc) or _is_timeout_error(exc)
+
+
+def _filename_fetch_timeout_seconds() -> float:
+    """Return the Pinecone fetch timeout in seconds.
+
+    The default is 30 seconds. Set PINECONE_FILENAME_FETCH_TIMEOUT_SECONDS
+    to a positive number to override it.
+    """
+    raw = os.getenv(_FILENAME_FETCH_TIMEOUT_ENV)
+    if raw is None or not raw.strip():
+        return _FILENAME_FETCH_TIMEOUT_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        return _FILENAME_FETCH_TIMEOUT_SECONDS
+    if value <= 0:
+        return _FILENAME_FETCH_TIMEOUT_SECONDS
+    return value
 
 
 def _fetch_vectors_batch(pinecone_index, batch: list[str]) -> dict:
-    """Fetch one batch of raw vector ids."""
-    fetched = pinecone_index.fetch(ids=batch)
+    """Fetch one batch of raw vector ids.
+
+    pinecone 8.1.0 fetch takes _request_timeout. A number is the total
+    request timeout. The default client value is None, so a stuck
+    connection can wait forever. Pass a timeout so that case raises.
+    """
+    fetched = pinecone_index.fetch(
+        ids=batch,
+        _request_timeout=_filename_fetch_timeout_seconds(),
+    )
     return _vectors_from_fetch(fetched)
 
 
 def _fetch_vectors_batch_with_retry(pinecone_index, batch: list[str]) -> dict:
-    """Fetch one batch. Retry a fixed number of times on HTTP 429."""
+    """Fetch one batch. Retry a fixed number of times on timeout or HTTP 429."""
     last_error: BaseException | None = None
     for attempt in range(_FILENAME_FETCH_RETRIES):
         try:
             return _fetch_vectors_batch(pinecone_index, batch)
         except Exception as exc:
             last_error = exc
-            if _is_rate_limit_error(exc) and attempt < _FILENAME_FETCH_RETRIES - 1:
+            if _is_retryable_fetch_error(exc) and attempt < _FILENAME_FETCH_RETRIES - 1:
                 time.sleep(_FILENAME_FETCH_RETRY_DELAY_SECONDS * (attempt + 1))
                 continue
             raise
