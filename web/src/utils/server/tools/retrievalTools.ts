@@ -174,8 +174,9 @@ function hasAnswerStructure(text: string): boolean {
 }
 
 /**
- * After a forced answer-only retry, a short blob with no heading, list, or table
- * is not a finished answer. Do not use this on the normal first-pass path.
+ * After strip, a short blob with no heading, list, or table is not a finished
+ * answer. Use this on every retrieval-guarded path, including when strip did
+ * not change the text (a leftover status note with no peelable prefix).
  */
 export function isForcedRetryAnswerTooThin(text: string): boolean {
   const trimmed = text.trim();
@@ -189,12 +190,12 @@ export function isForcedRetryAnswerTooThin(text: string): boolean {
 }
 
 /**
- * True when a leading narration sentence was removed and the remainder is too
- * thin to keep. Do not use this when strip left the text unchanged.
+ * True when the text after stripLeadingRetrievalNarration is too thin to keep.
+ * Strip need not have changed the string.
  */
 export function isStrippedRemainderTooThin(answerText: string, strippedText?: string): boolean {
   const stripped = strippedText ?? stripLeadingRetrievalNarration(answerText);
-  return stripped !== answerText && isForcedRetryAnswerTooThin(stripped);
+  return isForcedRetryAnswerTooThin(stripped);
 }
 
 export function finalizeRetrievalUserAnswer(
@@ -202,9 +203,7 @@ export function finalizeRetrievalUserAnswer(
 ): FinalizeRetrievalUserAnswerResult {
   const stripped = stripLeadingRetrievalNarration(params.answerText);
   const incomplete =
-    isIncompleteRetrievalAnswer(stripped) ||
-    isStrippedRemainderTooThin(params.answerText, stripped) ||
-    (params.afterForcedAnswerOnlyRetry === true && isForcedRetryAnswerTooThin(stripped));
+    isIncompleteRetrievalAnswer(stripped) || isForcedRetryAnswerTooThin(stripped);
   if (!incomplete && stripped.trim()) {
     return { text: stripped, usedFallback: false };
   }

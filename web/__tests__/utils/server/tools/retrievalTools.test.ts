@@ -642,6 +642,12 @@ Short quotation and seated quiet. Sources include Crystal Clarity commentaries.
       }
     });
 
+    it("peels two consecutive leading status sentences and keeps the remainder", () => {
+      const glued =
+        "Fetching nearby passages for quotes.I'll search for more sources.# Heading";
+      expect(stripLeadingRetrievalNarration(glued)).toBe("# Heading");
+    });
+
     it("drops fetch narration glued to markdown, headings, and lists", () => {
       const prefix = "Fetching nearby passages for a short story.";
       expect(stripLeadingRetrievalNarration(`${prefix}**Defaults used:** Theme`)).toBe(
@@ -799,8 +805,8 @@ Short quotation and seated quiet. Sources include Crystal Clarity commentaries.
 
   describe("finalizeRetrievalUserAnswer", () => {
     it("keeps a complete answer when the fetch returns sources", () => {
-      const answer =
-        "Here are three stories from Autobiography of a Yogi, including the Brindaban tiger and the mustard seed.";
+      const answer = `# Stories
+Here are three stories from Autobiography of a Yogi, including the Brindaban tiger and the mustard seed.`;
       const result = finalizeRetrievalUserAnswer({
         answerText: answer,
         afterRetrievalAttempt: true,
@@ -868,11 +874,13 @@ From Ananda materials, daily attunement is less a long checklist than choosing a
       expect(result).toEqual({ text: answer, usedFallback: false });
     });
 
-    it("keeps a 40-word real answer on the normal path", () => {
-      const answer =
+    it("keeps a headed 40-word real answer on the normal path", () => {
+      const body =
         "Sit for ten minutes each morning with a straight spine and a quiet breath. Read one short line from the lesson, then sit again. Keep the practice simple so you can now repeat it at home each day with ease.";
-      expect(answer.trim().split(/\s+/).filter(Boolean)).toHaveLength(40);
-      expect(isForcedRetryAnswerTooThin(answer)).toBe(true);
+      const answer = `# Home practice
+${body}`;
+      expect(body.trim().split(/\s+/).filter(Boolean)).toHaveLength(40);
+      expect(isForcedRetryAnswerTooThin(answer)).toBe(false);
       expect(isIncompleteRetrievalAnswer(answer)).toBe(false);
       expect(
         finalizeRetrievalUserAnswer({
@@ -899,7 +907,7 @@ From Ananda materials, daily attunement is less a long checklist than choosing a
 - Three teaching points from the lesson
 - Closing meditation`;
 
-    it("treats the 17-word leftover as thin after a forced retry only", () => {
+    it("treats the 17-word leftover as thin after a retrieval attempt", () => {
       expect(leftoverSearchingAgain.trim().split(/\s+/).filter(Boolean)).toHaveLength(17);
       expect(isForcedRetryAnswerTooThin(leftoverSearchingAgain)).toBe(true);
       expect(isIncompleteRetrievalAnswer(leftoverSearchingAgain)).toBe(false);
@@ -908,13 +916,6 @@ From Ananda materials, daily attunement is less a long checklist than choosing a
           answerText: leftoverSearchingAgain,
           afterRetrievalAttempt: true,
         })
-      ).toEqual({ text: leftoverSearchingAgain, usedFallback: false });
-      expect(
-        finalizeRetrievalUserAnswer({
-          answerText: leftoverSearchingAgain,
-          afterRetrievalAttempt: true,
-          afterForcedAnswerOnlyRetry: true,
-        })
       ).toEqual({
         text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
         usedFallback: true,
@@ -922,7 +923,7 @@ From Ananda materials, daily attunement is less a long checklist than choosing a
       });
     });
 
-    it("treats the 37-word leftover as thin after a forced retry only", () => {
+    it("treats the 37-word leftover as thin after a retrieval attempt", () => {
       expect(leftoverPromiseAndStop.trim().split(/\s+/).filter(Boolean)).toHaveLength(37);
       expect(isForcedRetryAnswerTooThin(leftoverPromiseAndStop)).toBe(true);
       expect(isIncompleteRetrievalAnswer(leftoverPromiseAndStop)).toBe(false);
@@ -930,13 +931,6 @@ From Ananda materials, daily attunement is less a long checklist than choosing a
         finalizeRetrievalUserAnswer({
           answerText: leftoverPromiseAndStop,
           afterRetrievalAttempt: true,
-        })
-      ).toEqual({ text: leftoverPromiseAndStop, usedFallback: false });
-      expect(
-        finalizeRetrievalUserAnswer({
-          answerText: leftoverPromiseAndStop,
-          afterRetrievalAttempt: true,
-          afterForcedAnswerOnlyRetry: true,
         })
       ).toEqual({
         text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
@@ -966,19 +960,23 @@ From Ananda materials, daily attunement is less a long checklist than choosing a
     const run3Raw = `${run3Prefix}${run3Leftover}`;
     const run6Raw = `${run3Prefix}${run6Leftover}`;
 
-    it("treats the run 3 leftover as incomplete only after a stripped prefix", () => {
+    it("treats the run 3 leftover as incomplete after a retrieval attempt", () => {
       expect(run3Leftover.trim().split(/\s+/).filter(Boolean)).toHaveLength(19);
       expect(stripLeadingRetrievalNarration(run3Raw)).toBe(run3Leftover);
       expect(isIncompleteRetrievalAnswer(run3Leftover)).toBe(false);
       expect(isForcedRetryAnswerTooThin(run3Leftover)).toBe(true);
-      expect(isStrippedRemainderTooThin(run3Leftover)).toBe(false);
+      expect(isStrippedRemainderTooThin(run3Leftover)).toBe(true);
       expect(isStrippedRemainderTooThin(run3Raw)).toBe(true);
       expect(
         finalizeRetrievalUserAnswer({
           answerText: run3Leftover,
           afterRetrievalAttempt: true,
         })
-      ).toEqual({ text: run3Leftover, usedFallback: false });
+      ).toEqual({
+        text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+        usedFallback: true,
+        reason: "incomplete",
+      });
       expect(
         finalizeRetrievalUserAnswer({
           answerText: run3Raw,
@@ -991,19 +989,23 @@ From Ananda materials, daily attunement is less a long checklist than choosing a
       });
     });
 
-    it("treats the run 6 leftover as incomplete only after a stripped prefix", () => {
+    it("treats the run 6 leftover as incomplete after a retrieval attempt", () => {
       expect(run6Leftover.trim().split(/\s+/).filter(Boolean)).toHaveLength(11);
       expect(stripLeadingRetrievalNarration(run6Raw)).toBe(run6Leftover);
       expect(isIncompleteRetrievalAnswer(run6Leftover)).toBe(false);
       expect(isForcedRetryAnswerTooThin(run6Leftover)).toBe(true);
-      expect(isStrippedRemainderTooThin(run6Leftover)).toBe(false);
+      expect(isStrippedRemainderTooThin(run6Leftover)).toBe(true);
       expect(isStrippedRemainderTooThin(run6Raw)).toBe(true);
       expect(
         finalizeRetrievalUserAnswer({
           answerText: run6Leftover,
           afterRetrievalAttempt: true,
         })
-      ).toEqual({ text: run6Leftover, usedFallback: false });
+      ).toEqual({
+        text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+        usedFallback: true,
+        reason: "incomplete",
+      });
       expect(
         finalizeRetrievalUserAnswer({
           answerText: run6Raw,
@@ -1014,6 +1016,38 @@ From Ananda materials, daily attunement is less a long checklist than choosing a
         usedFallback: true,
         reason: "incomplete",
       });
+    });
+
+    it("treats the Looking-for leftover as thin even when strip does not peel the first sentence", () => {
+      const prefix =
+        "I'll pull a few stronger Bhagavad Gita teaching passages and a short story so the 90-minute outline can include verified quotes.";
+      const leftover =
+        "Looking for a short verified story and clearer Gita quotes from Master or Swamiji.";
+      const raw = `${prefix}${leftover}`;
+      expect(prefix.trim().split(/\s+/).filter(Boolean)).toHaveLength(21);
+      expect(leftover.trim().split(/\s+/).filter(Boolean)).toHaveLength(14);
+      expect(stripLeadingRetrievalNarration(raw)).toBe(raw);
+      expect(stripLeadingRetrievalNarration(leftover)).toBe(leftover);
+      expect(isIncompleteRetrievalAnswer(leftover)).toBe(false);
+      expect(isForcedRetryAnswerTooThin(leftover)).toBe(true);
+      expect(isStrippedRemainderTooThin(leftover)).toBe(true);
+      expect(isStrippedRemainderTooThin(raw)).toBe(true);
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: leftover,
+          afterRetrievalAttempt: true,
+        })
+      ).toEqual({
+        text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+        usedFallback: true,
+        reason: "incomplete",
+      });
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: leftover,
+          afterRetrievalAttempt: false,
+        })
+      ).toEqual({ text: leftover, usedFallback: false });
     });
   });
 });

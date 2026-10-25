@@ -1,10 +1,10 @@
 /** @jest-environment node */
 
 const STATUS_LINE = "Fetching more of the Brindaban account and other AY story passages.";
-const FINAL_ANSWER =
-  "Here are three stories from Autobiography of a Yogi, including the tiger and the mustard seed.";
-const FORTY_WORD_REAL_ANSWER =
-  "Sit for ten minutes each morning with a straight spine and a quiet breath. Read one short line from the lesson, then sit again. Keep the practice simple so you can now repeat it at home each day with ease.";
+const FINAL_ANSWER = `# Stories
+Here are three stories from Autobiography of a Yogi, including the tiger and the mustard seed.`;
+const FORTY_WORD_REAL_ANSWER = `# Home practice
+Sit for ten minutes each morning with a straight spine and a quiet breath. Read one short line from the lesson, then sit again. Keep the practice simple so you can now repeat it at home each day with ease.`;
 const LEFTOVER_SEARCHING_AGAIN =
   "The first pass mostly returned listings. Searching again for actual Gita teaching passages and a usable story.";
 const LEFTOVER_PROMISE_AND_STOP =
@@ -22,6 +22,11 @@ const RUN3_LEFTOVER =
 const RUN6_LEFTOVER = "Still thin on usable Gita quotes and a story—searching more specifically.";
 const RUN3_RAW = `${RUN3_PREFIX}${RUN3_LEFTOVER}`;
 const RUN6_RAW = `${RUN3_PREFIX}${RUN6_LEFTOVER}`;
+const LOOKING_PREFIX =
+  "I'll pull a few stronger Bhagavad Gita teaching passages and a short story so the 90-minute outline can include verified quotes.";
+const LOOKING_LEFTOVER =
+  "Looking for a short verified story and clearer Gita quotes from Master or Swamiji.";
+const LOOKING_RAW = `${LOOKING_PREFIX}${LOOKING_LEFTOVER}`;
 
 let mockFollowUpContent = FINAL_ANSWER;
 let mockFollowUpContentQueue: string[] = [];
@@ -240,6 +245,30 @@ describe("makechain retrieval tool loop", () => {
       return {
         answer: {
           content,
+        },
+        sourceDocuments: [initialDoc],
+        question,
+      };
+    });
+  }
+
+  function stubFirstPassWithContent(content: string, argsJson: string, question: string) {
+    mockFirstPassInvoke = jest.fn().mockImplementation(async (_input, options) => {
+      const onToken = options?.callbacks?.[0]?.handleLLMNewToken;
+      if (typeof onToken === "function") {
+        onToken(content);
+      }
+      return {
+        answer: {
+          content,
+          tool_call_chunks: [
+            {
+              id: "call_search_more",
+              name: "search_more_sources",
+              args: argsJson,
+              index: 0,
+            },
+          ],
         },
         sourceDocuments: [initialDoc],
         question,
@@ -475,6 +504,39 @@ describe("makechain retrieval tool loop", () => {
     expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
     expect(collectedAnswer(events)).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
     expect(collectedAnswer(events)).not.toContain("Still thin on usable Gita");
+  });
+
+  it("replaces a Looking-for leftover after a tool-loop reset (Branch A)", async () => {
+    stubFirstPassWithContent(
+      LOOKING_RAW,
+      '{"query":"class outline quotes","k":8}',
+      "Write a 90-minute class outline"
+    );
+    mockFollowUpContent = LOOKING_LEFTOVER;
+    (executeRetrievalTool as jest.Mock).mockResolvedValue({
+      ok: true,
+      documents: [fetchedDoc],
+      content: { documents: [{ content: fetchedDoc.pageContent }], message: "Retrieved 1 additional source(s)." },
+    });
+
+    const { result, events } = await runLoop("Write a 90-minute class outline");
+
+    expect(executeRetrievalTool).toHaveBeenCalled();
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(collectedAnswer(events)).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(collectedAnswer(events)).not.toContain("Looking for a short verified story");
+  });
+
+  it("replaces a Looking-for leftover on a first-pass with no tool calls (Branch B)", async () => {
+    mockFollowUpContent = LOOKING_LEFTOVER;
+    stubFirstPassTextOnly(LOOKING_RAW, "Write a 90-minute class outline");
+
+    const { result, events } = await runLoop("Write a 90-minute class outline");
+
+    expect(executeRetrievalTool).not.toHaveBeenCalled();
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(collectedAnswer(events)).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(collectedAnswer(events)).not.toContain("Looking for a short verified story");
   });
 
   it("forces an answer-only retry when a tool-loop follow-up strips to a thin leftover", async () => {
