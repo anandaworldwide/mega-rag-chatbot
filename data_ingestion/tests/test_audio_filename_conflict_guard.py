@@ -177,3 +177,127 @@ def test_store_writes_nothing_when_filename_fetch_raises():
         )
 
     assert index.upserts == []
+
+
+def test_filename_guard_sends_raw_ids_when_id_contains_space():
+    text = "same spoken text"
+    vector_id = _audio_vector_id(text, title="Talk A")
+    assert " " in vector_id
+    index = _index_with_stored({vector_id: "treasures/Talk A.mp3"})
+
+    store_in_pinecone(
+        index,
+        [_chunk(text)],
+        [[0.1, 0.2]],
+        author="Test Author",
+        library_name="Treasures",
+        title="Talk A",
+        content_type="audio",
+        source_identifier="public/audio/treasures/album/Talk A.mp3",
+    )
+
+    fetched_ids = [vector_id for batch in index.fetch_calls for vector_id in batch]
+    assert vector_id in fetched_ids
+    assert all("%20" not in fetched_id for fetched_id in fetched_ids)
+    assert index.encoded_ids == []
+
+
+def test_store_skips_conflict_when_vector_id_contains_space():
+    text = "same spoken text"
+    vector_id = _audio_vector_id(text, title="Talk A")
+    assert " " in vector_id
+    index = _index_with_stored({vector_id: "treasures/Talk A.mp3"})
+
+    skipped_count = store_in_pinecone(
+        index,
+        [_chunk(text)],
+        [[0.1, 0.2]],
+        author="Test Author",
+        library_name="Treasures",
+        title="Talk A",
+        content_type="audio",
+        source_identifier="public/audio/treasures/album/Talk A.mp3",
+    )
+
+    assert skipped_count == 1
+    assert index.upserts == []
+    assert index.vectors[vector_id]["metadata"]["filename"] == "treasures/Talk A.mp3"
+
+
+def test_store_writes_when_stored_filename_is_missing():
+    text = "same spoken text"
+    vector_id = _audio_vector_id(text)
+    index = StrictFakeIndex({vector_id: {"library": "Treasures"}})
+
+    skipped_count = store_in_pinecone(
+        index,
+        [_chunk(text)],
+        [[0.1, 0.2]],
+        author="Test Author",
+        library_name="Treasures",
+        title="Talk A",
+        content_type="audio",
+        source_identifier="public/audio/treasures/album/Talk A.mp3",
+    )
+
+    assert skipped_count == 0
+    assert len(index.upserts) == 1
+    written = index.upserts[0]
+    assert written[0]["id"] == vector_id
+    assert written[0]["metadata"]["filename"] == "treasures/album/Talk A.mp3"
+
+
+def test_store_retries_filename_fetch_on_http_429(monkeypatch):
+    text = "same spoken text"
+    vector_id = _audio_vector_id(text)
+    index = _index_with_stored({vector_id: "treasures/album/Talk A.mp3"})
+    index.next_fetch_errors = [RuntimeError("429 Too Many Requests")]
+    monkeypatch.setattr(
+        "data_ingestion.audio_video.pinecone_utils._FILENAME_FETCH_RETRY_DELAY_SECONDS",
+        0,
+    )
+
+    skipped_count = store_in_pinecone(
+        index,
+        [_chunk(text)],
+        [[0.1, 0.2]],
+        author="Test Author",
+        library_name="Treasures",
+        title="Talk A",
+        content_type="audio",
+        source_identifier="public/audio/treasures/album/Talk A.mp3",
+    )
+
+    assert skipped_count == 0
+    assert len(index.fetch_calls) == 2
+    assert len(index.upserts) == 1
+    assert index.upserts[0][0]["id"] == vector_id
+
+
+def test_store_raises_after_filename_fetch_429_retries(monkeypatch):
+    text = "same spoken text"
+    index = StrictFakeIndex()
+    index.next_fetch_errors = [
+        RuntimeError("429 Too Many Requests"),
+        RuntimeError("429 Too Many Requests"),
+        RuntimeError("429 Too Many Requests"),
+    ]
+    monkeypatch.setattr(
+        "data_ingestion.audio_video.pinecone_utils._FILENAME_FETCH_RETRY_DELAY_SECONDS",
+        0,
+    )
+
+    with pytest.raises(RuntimeError, match="429"):
+        store_in_pinecone(
+            index,
+            [_chunk(text)],
+            [[0.1, 0.2]],
+            author="Test Author",
+            library_name="Treasures",
+            title="Talk A",
+            content_type="audio",
+            source_identifier="public/audio/treasures/album/Talk A.mp3",
+        )
+
+    assert len(index.fetch_calls) == 3
+    assert index.upserts == []

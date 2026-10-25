@@ -24,6 +24,7 @@ from data_ingestion.audio_video.transcribe_and_ingest_media import (
     _take_finished_results,
     merge_reports,
     preprocess_youtube_video,
+    print_report,
     process_file,
     verify_and_update_transcription_metadata,
 )
@@ -218,6 +219,35 @@ def test_merge_reports():
     assert merged["fully_indexed"] == 3
     assert len(merged["chunk_lengths"]) == 3
     assert merged["private_videos"] == 1
+
+
+def test_merge_reports_adds_filename_conflict_skip_count():
+    merged = merge_reports(
+        [
+            {"filename_conflicts_skipped": 2, "fully_indexed": 1},
+            {"filename_conflicts_skipped": 3, "fully_indexed": 1},
+        ]
+    )
+
+    assert merged["filename_conflicts_skipped"] == 5
+    assert merged["processed"] == 2
+
+
+def test_print_report_includes_filename_conflict_skip_count(caplog):
+    caplog.set_level("INFO")
+    print_report(
+        {
+            "processed": 1,
+            "skipped": 0,
+            "errors": 0,
+            "error_details": [],
+            "warnings": [],
+            "chunk_lengths": [],
+            "filename_conflicts_skipped": 4,
+        }
+    )
+
+    assert "Filename conflict chunks skipped: 4" in caplog.text
 
 
 @patch("data_ingestion.audio_video.transcribe_and_ingest_media.save_transcription")
