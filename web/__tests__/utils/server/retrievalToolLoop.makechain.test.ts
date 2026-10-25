@@ -13,6 +13,15 @@ const SHORT_STRUCTURED_OUTLINE = `# 90-minute class
 - Opening welcome and one verse
 - Three teaching points from the lesson
 - Closing meditation`;
+const HEADED_REAL_ANSWER = `# Daily attunement
+From Ananda materials, daily attunement is less a long checklist than choosing a few living practices.`;
+const RUN3_PREFIX =
+  "I'll pull stronger Bhagavad Gita teaching material, quotes, and a short story so the 90-minute outline is well grounded.";
+const RUN3_LEFTOVER =
+  "Still light on usable quotes and a story—searching again for Gita allegory, right action, and a short Master/Swamiji anecdote.";
+const RUN6_LEFTOVER = "Still thin on usable Gita quotes and a story—searching more specifically.";
+const RUN3_RAW = `${RUN3_PREFIX}${RUN3_LEFTOVER}`;
+const RUN6_RAW = `${RUN3_PREFIX}${RUN6_LEFTOVER}`;
 
 let mockFollowUpContent = FINAL_ANSWER;
 let mockFollowUpContentQueue: string[] = [];
@@ -375,8 +384,7 @@ describe("makechain retrieval tool loop", () => {
   });
 
   it("strips no-space fetch narration from the follow-up stream and saves the real answer", async () => {
-    const realAnswer =
-      "From Ananda materials, daily attunement is less a long checklist than choosing a few living practices.";
+    const realAnswer = HEADED_REAL_ANSWER;
     mockFollowUpContent = `Fetching the remaining aspect visualizations from that article.${realAnswer}`;
     (executeRetrievalTool as jest.Mock).mockResolvedValue({
       ok: true,
@@ -393,8 +401,7 @@ describe("makechain retrieval tool loop", () => {
   });
 
   it("strips no-space fetch narration from a first-pass answer with no tool calls", async () => {
-    const realAnswer =
-      "From Ananda materials, daily attunement is less a long checklist than choosing a few living practices.";
+    const realAnswer = HEADED_REAL_ANSWER;
     const glued = `Fetching the remaining aspect visualizations from that article.${realAnswer}`;
     stubFirstPassTextOnly(glued, "What is daily attunement?");
 
@@ -442,6 +449,48 @@ describe("makechain retrieval tool loop", () => {
     expect(mockFollowUpInvocations).toBe(2);
     expect(result.fullResponse).toBe(SHORT_STRUCTURED_OUTLINE);
     expect(collectedAnswer(events)).toBe(SHORT_STRUCTURED_OUTLINE);
+  });
+
+  it("replaces a stripped-then-thin run 3 leftover on first pass with the fallback note", async () => {
+    mockFollowUpContent = RUN3_LEFTOVER;
+    stubFirstPassTextOnly(RUN3_RAW, "Write a 90-minute class outline");
+
+    const { result, events } = await runLoop("Write a 90-minute class outline");
+
+    expect(executeRetrievalTool).not.toHaveBeenCalled();
+    expect(mockFollowUpInvocations).toBe(2);
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(collectedAnswer(events)).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(collectedAnswer(events)).not.toContain("Still light on usable quotes");
+  });
+
+  it("replaces a stripped-then-thin run 6 leftover on first pass with the fallback note", async () => {
+    mockFollowUpContent = RUN6_LEFTOVER;
+    stubFirstPassTextOnly(RUN6_RAW, "Write a 90-minute class outline");
+
+    const { result, events } = await runLoop("Write a 90-minute class outline");
+
+    expect(executeRetrievalTool).not.toHaveBeenCalled();
+    expect(mockFollowUpInvocations).toBe(2);
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(collectedAnswer(events)).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(collectedAnswer(events)).not.toContain("Still thin on usable Gita");
+  });
+
+  it("forces an answer-only retry when a tool-loop follow-up strips to a thin leftover", async () => {
+    mockFollowUpContent = RUN3_RAW;
+    (executeRetrievalTool as jest.Mock).mockResolvedValue({
+      ok: true,
+      documents: [fetchedDoc],
+      content: { documents: [{ content: fetchedDoc.pageContent }], message: "Retrieved 1 additional source(s)." },
+    });
+
+    const { result, events } = await runLoop();
+
+    expect(executeRetrievalTool).toHaveBeenCalled();
+    expect(mockFollowUpInvocations).toBeGreaterThanOrEqual(2);
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(collectedAnswer(events)).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
   });
 
   it("keeps a 40-word real answer on the normal retrieval path", async () => {

@@ -77,6 +77,7 @@ import {
   isForcedRetryAnswerTooThin,
   isIncompleteRetrievalAnswer,
   isRetrievalToolName,
+  isStrippedRemainderTooThin,
   stripLeadingRetrievalNarration,
   MAX_RETRIEVAL_TOOL_ITERATIONS,
   parseCompleteListFlag,
@@ -1820,7 +1821,9 @@ export async function setupAndExecuteLanguageModelChain(
       // Strip a glued narration prefix first so a real answer is not treated as incomplete.
       const firstPassWithoutNarration = stripLeadingRetrievalNarration(fullResponse);
       const firstPassIsSearchNarration =
-        retrievalToolsEnabled && isIncompleteRetrievalAnswer(firstPassWithoutNarration);
+        retrievalToolsEnabled &&
+        (isIncompleteRetrievalAnswer(firstPassWithoutNarration) ||
+          isStrippedRemainderTooThin(fullResponse, firstPassWithoutNarration));
       if (pendingToolCalls.length > 0 || firstPassIsSearchNarration) {
         console.log("🔧 Starting tool execution loop");
 
@@ -2268,7 +2271,11 @@ export async function setupAndExecuteLanguageModelChain(
                 continue;
               }
               const usableAnswer = stripLeadingRetrievalNarration(bufferedAnswer);
-              if (hasFurtherRetrievalCalls || isIncompleteRetrievalAnswer(usableAnswer)) {
+              if (
+                hasFurtherRetrievalCalls ||
+                isIncompleteRetrievalAnswer(usableAnswer) ||
+                isStrippedRemainderTooThin(bufferedAnswer, usableAnswer)
+              ) {
                 console.warn(
                   `⚠️ Discarding incomplete post-retrieval answer (${bufferedAnswer.length} chars); forcing answer-only recovery`
                 );
@@ -2373,10 +2380,11 @@ export async function setupAndExecuteLanguageModelChain(
       // Drop pre-tool / mid-tool status sentences so they are not shown or saved.
       // If the leftover text is still only narration, replace it. Do not save it.
       const cleanedAnswer = stripLeadingRetrievalNarration(fullResponse);
+      const strippedThenThin = isStrippedRemainderTooThin(fullResponse, cleanedAnswer);
       if (cleanedAnswer !== fullResponse && cleanedAnswer.trim()) {
         const finalized = finalizeRetrievalUserAnswer({
-          answerText: cleanedAnswer,
-          afterRetrievalAttempt: isIncompleteRetrievalAnswer(cleanedAnswer),
+          answerText: fullResponse,
+          afterRetrievalAttempt: isIncompleteRetrievalAnswer(cleanedAnswer) || strippedThenThin,
         });
         sendData({ status: "retrieving_more_sources", token: finalized.text });
         fullResponse = finalized.text;

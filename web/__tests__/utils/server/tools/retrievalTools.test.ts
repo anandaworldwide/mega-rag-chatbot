@@ -29,6 +29,7 @@ import {
   shouldSkipFurtherRetrievalAfterExpansion,
   finalizeRetrievalUserAnswer,
   isForcedRetryAnswerTooThin,
+  isStrippedRemainderTooThin,
   COMPLETE_LIST_ADDED_RETRIEVAL_SOURCES,
   RETRIEVAL_TOOL_DEFINITIONS,
   RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE,
@@ -661,15 +662,16 @@ Short quotation and seated quiet. Sources include Crystal Clarity commentaries.
 
     it("strips I'll-pull then fetch narration and keeps the markdown answer", () => {
       const glued =
-        "I'll pull stronger teaching material for the outline.Fetching nearby passages for quotes.**Defaults used:** Theme";
-      expect(stripLeadingRetrievalNarration(glued)).toBe("**Defaults used:** Theme");
+        "I'll pull stronger teaching material for the outline.Fetching nearby passages for quotes.# Defaults used";
+      expect(stripLeadingRetrievalNarration(glued)).toBe("# Defaults used");
       expect(isIncompleteRetrievalAnswer(stripLeadingRetrievalNarration(glued))).toBe(false);
+      expect(isStrippedRemainderTooThin(glued)).toBe(false);
       expect(
         finalizeRetrievalUserAnswer({
           answerText: glued,
           afterRetrievalAttempt: false,
         })
-      ).toEqual({ text: "**Defaults used:** Theme", usedFallback: false });
+      ).toEqual({ text: "# Defaults used", usedFallback: false });
     });
 
     it("does not strip I'll-pull teaching material used as a real practice opening", () => {
@@ -807,12 +809,15 @@ Short quotation and seated quiet. Sources include Crystal Clarity commentaries.
     });
 
     it("strips no-space fetch narration and keeps the real answer", () => {
-      const answer =
-        "From Ananda materials, daily attunement is less a long checklist than choosing a few living practices.";
+      const answer = `# Daily attunement
+From Ananda materials, daily attunement is less a long checklist than choosing a few living practices.`;
       const result = finalizeRetrievalUserAnswer({
         answerText: `Fetching the remaining aspect visualizations from that article.${answer}`,
         afterRetrievalAttempt: true,
       });
+      expect(isStrippedRemainderTooThin(`Fetching the remaining aspect visualizations from that article.${answer}`)).toBe(
+        false
+      );
       expect(result).toEqual({ text: answer, usedFallback: false });
     });
 
@@ -949,6 +954,66 @@ Short quotation and seated quiet. Sources include Crystal Clarity commentaries.
           afterForcedAnswerOnlyRetry: true,
         })
       ).toEqual({ text: shortStructuredOutline, usedFallback: false });
+    });
+  });
+
+  describe("stripped-then-thin leftover", () => {
+    const run3Prefix =
+      "I'll pull stronger Bhagavad Gita teaching material, quotes, and a short story so the 90-minute outline is well grounded.";
+    const run3Leftover =
+      "Still light on usable quotes and a story—searching again for Gita allegory, right action, and a short Master/Swamiji anecdote.";
+    const run6Leftover = "Still thin on usable Gita quotes and a story—searching more specifically.";
+    const run3Raw = `${run3Prefix}${run3Leftover}`;
+    const run6Raw = `${run3Prefix}${run6Leftover}`;
+
+    it("treats the run 3 leftover as incomplete only after a stripped prefix", () => {
+      expect(run3Leftover.trim().split(/\s+/).filter(Boolean)).toHaveLength(19);
+      expect(stripLeadingRetrievalNarration(run3Raw)).toBe(run3Leftover);
+      expect(isIncompleteRetrievalAnswer(run3Leftover)).toBe(false);
+      expect(isForcedRetryAnswerTooThin(run3Leftover)).toBe(true);
+      expect(isStrippedRemainderTooThin(run3Leftover)).toBe(false);
+      expect(isStrippedRemainderTooThin(run3Raw)).toBe(true);
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: run3Leftover,
+          afterRetrievalAttempt: true,
+        })
+      ).toEqual({ text: run3Leftover, usedFallback: false });
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: run3Raw,
+          afterRetrievalAttempt: true,
+        })
+      ).toEqual({
+        text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+        usedFallback: true,
+        reason: "incomplete",
+      });
+    });
+
+    it("treats the run 6 leftover as incomplete only after a stripped prefix", () => {
+      expect(run6Leftover.trim().split(/\s+/).filter(Boolean)).toHaveLength(11);
+      expect(stripLeadingRetrievalNarration(run6Raw)).toBe(run6Leftover);
+      expect(isIncompleteRetrievalAnswer(run6Leftover)).toBe(false);
+      expect(isForcedRetryAnswerTooThin(run6Leftover)).toBe(true);
+      expect(isStrippedRemainderTooThin(run6Leftover)).toBe(false);
+      expect(isStrippedRemainderTooThin(run6Raw)).toBe(true);
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: run6Leftover,
+          afterRetrievalAttempt: true,
+        })
+      ).toEqual({ text: run6Leftover, usedFallback: false });
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: run6Raw,
+          afterRetrievalAttempt: true,
+        })
+      ).toEqual({
+        text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+        usedFallback: true,
+        reason: "incomplete",
+      });
     });
   });
 });

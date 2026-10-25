@@ -188,12 +188,22 @@ export function isForcedRetryAnswerTooThin(text: string): boolean {
   return !hasAnswerStructure(trimmed);
 }
 
+/**
+ * True when a leading narration sentence was removed and the remainder is too
+ * thin to keep. Do not use this when strip left the text unchanged.
+ */
+export function isStrippedRemainderTooThin(answerText: string, strippedText?: string): boolean {
+  const stripped = strippedText ?? stripLeadingRetrievalNarration(answerText);
+  return stripped !== answerText && isForcedRetryAnswerTooThin(stripped);
+}
+
 export function finalizeRetrievalUserAnswer(
   params: FinalizeRetrievalUserAnswerParams
 ): FinalizeRetrievalUserAnswerResult {
   const stripped = stripLeadingRetrievalNarration(params.answerText);
   const incomplete =
     isIncompleteRetrievalAnswer(stripped) ||
+    isStrippedRemainderTooThin(params.answerText, stripped) ||
     (params.afterForcedAnswerOnlyRetry === true && isForcedRetryAnswerTooThin(stripped));
   if (!incomplete && stripped.trim()) {
     return { text: stripped, usedFallback: false };
