@@ -2274,7 +2274,7 @@ export async function setupAndExecuteLanguageModelChain(
               if (
                 hasFurtherRetrievalCalls ||
                 isIncompleteRetrievalAnswer(usableAnswer) ||
-                isStrippedRemainderTooThin(bufferedAnswer, usableAnswer)
+                isForcedRetryAnswerTooThin(usableAnswer)
               ) {
                 console.warn(
                   `⚠️ Discarding incomplete post-retrieval answer (${bufferedAnswer.length} chars); forcing answer-only recovery`
@@ -2296,7 +2296,7 @@ export async function setupAndExecuteLanguageModelChain(
           if (
             retrievalIterations > 0 &&
             !retrievalAnswerForced &&
-            isIncompleteRetrievalAnswer(fullResponse)
+            (isIncompleteRetrievalAnswer(fullResponse) || isForcedRetryAnswerTooThin(fullResponse))
           ) {
             await forceRetrievalAnswerOnly(
               fullResponse.trim() ? "loop ended with incomplete retrieval answer" : "loop ended with empty answer"

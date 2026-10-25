@@ -874,6 +874,51 @@ From Ananda materials, daily attunement is less a long checklist than choosing a
       expect(result).toEqual({ text: answer, usedFallback: false });
     });
 
+    it("keeps a short real first-pass answer when no retrieval attempt ran", () => {
+      const answers = [
+        "Hello! How can I help?",
+        "The library opens at nine.",
+        "I don't have a source for that.",
+        "The closest center is in Berkeley.",
+      ];
+      for (const answer of answers) {
+        expect(isIncompleteRetrievalAnswer(answer)).toBe(false);
+        expect(isStrippedRemainderTooThin(answer)).toBe(false);
+        expect(isForcedRetryAnswerTooThin(answer)).toBe(true);
+        expect(
+          finalizeRetrievalUserAnswer({
+            answerText: answer,
+            afterRetrievalAttempt: false,
+          })
+        ).toEqual({ text: answer, usedFallback: false });
+      }
+    });
+
+    it("treats a first-pass I'll-pull passages sentence plus a thin remainder as search narration", () => {
+      const prefix = "I'll pull a few verified Gita passages.";
+      const leftover = "Still looking for a short story.";
+      const raw = `${prefix}${leftover}`;
+      expect(stripLeadingRetrievalNarration(raw)).toBe(leftover);
+      expect(isStrippedRemainderTooThin(raw)).toBe(true);
+      expect(isForcedRetryAnswerTooThin(leftover)).toBe(true);
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: raw,
+          afterRetrievalAttempt: false,
+        })
+      ).toEqual({ text: raw, usedFallback: false });
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: leftover,
+          afterRetrievalAttempt: true,
+        })
+      ).toEqual({
+        text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+        usedFallback: true,
+        reason: "incomplete",
+      });
+    });
+
     it("keeps a headed 40-word real answer on the normal path", () => {
       const body =
         "Sit for ten minutes each morning with a straight spine and a quiet breath. Read one short line from the lesson, then sit again. Keep the practice simple so you can now repeat it at home each day with ease.";
@@ -965,7 +1010,7 @@ ${body}`;
       expect(stripLeadingRetrievalNarration(run3Raw)).toBe(run3Leftover);
       expect(isIncompleteRetrievalAnswer(run3Leftover)).toBe(false);
       expect(isForcedRetryAnswerTooThin(run3Leftover)).toBe(true);
-      expect(isStrippedRemainderTooThin(run3Leftover)).toBe(true);
+      expect(isStrippedRemainderTooThin(run3Leftover)).toBe(false);
       expect(isStrippedRemainderTooThin(run3Raw)).toBe(true);
       expect(
         finalizeRetrievalUserAnswer({
@@ -994,7 +1039,7 @@ ${body}`;
       expect(stripLeadingRetrievalNarration(run6Raw)).toBe(run6Leftover);
       expect(isIncompleteRetrievalAnswer(run6Leftover)).toBe(false);
       expect(isForcedRetryAnswerTooThin(run6Leftover)).toBe(true);
-      expect(isStrippedRemainderTooThin(run6Leftover)).toBe(true);
+      expect(isStrippedRemainderTooThin(run6Leftover)).toBe(false);
       expect(isStrippedRemainderTooThin(run6Raw)).toBe(true);
       expect(
         finalizeRetrievalUserAnswer({
@@ -1030,8 +1075,9 @@ ${body}`;
       expect(stripLeadingRetrievalNarration(leftover)).toBe(leftover);
       expect(isIncompleteRetrievalAnswer(leftover)).toBe(false);
       expect(isForcedRetryAnswerTooThin(leftover)).toBe(true);
-      expect(isStrippedRemainderTooThin(leftover)).toBe(true);
-      expect(isStrippedRemainderTooThin(raw)).toBe(true);
+      expect(isStrippedRemainderTooThin(leftover)).toBe(false);
+      expect(isStrippedRemainderTooThin(raw)).toBe(false);
+      expect(isIncompleteRetrievalAnswer(raw)).toBe(true);
       expect(
         finalizeRetrievalUserAnswer({
           answerText: leftover,

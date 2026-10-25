@@ -442,6 +442,40 @@ describe("makechain retrieval tool loop", () => {
     expect(result.fullResponse).not.toContain("Fetching the remaining");
   });
 
+  it.each([
+    ["Hello! How can I help?", "a greeting"],
+    ["The library opens at nine.", "a one-line fact"],
+    ["I don't have a source for that.", "a missing-source note"],
+    ["The closest center is in Berkeley.", "a short location answer"],
+  ])("keeps first-pass %s without a forced retry", async (answer) => {
+    stubFirstPassTextOnly(answer, "Hello");
+
+    const { result, events } = await runLoop("Hello");
+
+    expect(executeRetrievalTool).not.toHaveBeenCalled();
+    expect(mockFollowUpInvocations).toBe(0);
+    expect(result.fullResponse).toBe(answer);
+    expect(collectedAnswer(events)).toBe(answer);
+    expect(collectedAnswer(events)).not.toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(events.some((event) => event.status === "retrieving_more_sources")).toBe(false);
+  });
+
+  it("treats a first-pass I'll-pull passages sentence plus a thin remainder as search narration", async () => {
+    const prefix = "I'll pull a few verified Gita passages.";
+    const leftover = "Still looking for a short story.";
+    const raw = `${prefix}${leftover}`;
+    mockFollowUpContent = leftover;
+    stubFirstPassTextOnly(raw, "Write a 90-minute class outline");
+
+    const { result, events } = await runLoop("Write a 90-minute class outline");
+
+    expect(executeRetrievalTool).not.toHaveBeenCalled();
+    expect(mockFollowUpInvocations).toBe(2);
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(collectedAnswer(events)).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(collectedAnswer(events)).not.toContain("Still looking for a short story");
+  });
+
   it("replaces a leftover Searching-again listing with the fallback note", async () => {
     const leaked = `I'll pull additional Ananda Library material on the Bhagavad Gita for newcomers—quotes from Master and Swamiji plus a short story—so the 90-minute outline is well grounded.${LEFTOVER_SEARCHING_AGAIN}`;
     mockFollowUpContent = LEFTOVER_SEARCHING_AGAIN;
