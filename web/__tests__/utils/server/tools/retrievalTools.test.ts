@@ -28,6 +28,7 @@ import {
   shouldAllowAnotherRetrievalRound,
   shouldSkipFurtherRetrievalAfterExpansion,
   finalizeRetrievalUserAnswer,
+  isForcedRetryAnswerTooThin,
   COMPLETE_LIST_ADDED_RETRIEVAL_SOURCES,
   RETRIEVAL_TOOL_DEFINITIONS,
   RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE,
@@ -862,32 +863,92 @@ Short quotation and seated quiet. Sources include Crystal Clarity commentaries.
       expect(result).toEqual({ text: answer, usedFallback: false });
     });
 
-    it("replaces a short leftover Searching-again listing after a retrieval attempt", () => {
-      const leaked =
-        "I'll pull additional Ananda Library material on the Bhagavad Gita for newcomers—quotes from Master and Swamiji plus a short story—so the 90-minute outline is well grounded.The first pass mostly returned listings. Searching again for actual Gita teaching passages and a usable story.";
-      const leftover =
-        "The first pass mostly returned listings. Searching again for actual Gita teaching passages and a usable story.";
-      expect(isIncompleteRetrievalAnswer(leftover)).toBe(true);
+    it("keeps a 40-word real answer on the normal path", () => {
+      const answer =
+        "Sit for ten minutes each morning with a straight spine and a quiet breath. Read one short line from the lesson, then sit again. Keep the practice simple so you can now repeat it at home each day with ease.";
+      expect(answer.trim().split(/\s+/).filter(Boolean)).toHaveLength(40);
+      expect(isForcedRetryAnswerTooThin(answer)).toBe(true);
+      expect(isIncompleteRetrievalAnswer(answer)).toBe(false);
       expect(
         finalizeRetrievalUserAnswer({
-          answerText: leaked,
+          answerText: answer,
           afterRetrievalAttempt: true,
+        })
+      ).toEqual({ text: answer, usedFallback: false });
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: answer,
+          afterRetrievalAttempt: false,
+        })
+      ).toEqual({ text: answer, usedFallback: false });
+    });
+  });
+
+  describe("forced answer-only retry thin check", () => {
+    const leftoverSearchingAgain =
+      "The first pass mostly returned listings. Searching again for actual Gita teaching passages and a usable story.";
+    const leftoverPromiseAndStop =
+      "The available sources are still thin on exact Master/Swamiji Gita quotations and a short narrative story; I will finish a complete 90-minute outline from what can be verified, label paraphrases clearly, and keep technique practice high-level only.";
+    const shortStructuredOutline = `# 90-minute class
+- Opening welcome and one verse
+- Three teaching points from the lesson
+- Closing meditation`;
+
+    it("treats the 17-word leftover as thin after a forced retry only", () => {
+      expect(leftoverSearchingAgain.trim().split(/\s+/).filter(Boolean)).toHaveLength(17);
+      expect(isForcedRetryAnswerTooThin(leftoverSearchingAgain)).toBe(true);
+      expect(isIncompleteRetrievalAnswer(leftoverSearchingAgain)).toBe(false);
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: leftoverSearchingAgain,
+          afterRetrievalAttempt: true,
+        })
+      ).toEqual({ text: leftoverSearchingAgain, usedFallback: false });
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: leftoverSearchingAgain,
+          afterRetrievalAttempt: true,
+          afterForcedAnswerOnlyRetry: true,
         })
       ).toEqual({
         text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
         usedFallback: true,
         reason: "incomplete",
       });
+    });
+
+    it("treats the 37-word leftover as thin after a forced retry only", () => {
+      expect(leftoverPromiseAndStop.trim().split(/\s+/).filter(Boolean)).toHaveLength(37);
+      expect(isForcedRetryAnswerTooThin(leftoverPromiseAndStop)).toBe(true);
+      expect(isIncompleteRetrievalAnswer(leftoverPromiseAndStop)).toBe(false);
       expect(
         finalizeRetrievalUserAnswer({
-          answerText: leftover,
+          answerText: leftoverPromiseAndStop,
           afterRetrievalAttempt: true,
+        })
+      ).toEqual({ text: leftoverPromiseAndStop, usedFallback: false });
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: leftoverPromiseAndStop,
+          afterRetrievalAttempt: true,
+          afterForcedAnswerOnlyRetry: true,
         })
       ).toEqual({
         text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
         usedFallback: true,
         reason: "incomplete",
       });
+    });
+
+    it("keeps a short structured outline after a forced retry", () => {
+      expect(isForcedRetryAnswerTooThin(shortStructuredOutline)).toBe(false);
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: shortStructuredOutline,
+          afterRetrievalAttempt: true,
+          afterForcedAnswerOnlyRetry: true,
+        })
+      ).toEqual({ text: shortStructuredOutline, usedFallback: false });
     });
   });
 });

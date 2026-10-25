@@ -3,13 +3,31 @@
 const STATUS_LINE = "Fetching more of the Brindaban account and other AY story passages.";
 const FINAL_ANSWER =
   "Here are three stories from Autobiography of a Yogi, including the tiger and the mustard seed.";
+const FORTY_WORD_REAL_ANSWER =
+  "Sit for ten minutes each morning with a straight spine and a quiet breath. Read one short line from the lesson, then sit again. Keep the practice simple so you can now repeat it at home each day with ease.";
+const LEFTOVER_SEARCHING_AGAIN =
+  "The first pass mostly returned listings. Searching again for actual Gita teaching passages and a usable story.";
+const LEFTOVER_PROMISE_AND_STOP =
+  "The available sources are still thin on exact Master/Swamiji Gita quotations and a short narrative story; I will finish a complete 90-minute outline from what can be verified, label paraphrases clearly, and keep technique practice high-level only.";
+const SHORT_STRUCTURED_OUTLINE = `# 90-minute class
+- Opening welcome and one verse
+- Three teaching points from the lesson
+- Closing meditation`;
 
 let mockFollowUpContent = FINAL_ANSWER;
+let mockFollowUpContentQueue: string[] = [];
 let mockFirstPassInvoke: jest.Mock;
 let mockFollowUpToolCallArgs: string | null = null;
 let mockFollowUpInvocations = 0;
 
-function mockChatOpenAIStream() {
+function mockNextFollowUpContent(): string {
+  if (mockFollowUpContentQueue.length > 0) {
+    return mockFollowUpContentQueue.shift() as string;
+  }
+  return mockFollowUpContent;
+}
+
+function mockChatOpenAIStream(content: string) {
   let sent = false;
   return {
     [Symbol.asyncIterator]() {
@@ -18,7 +36,7 @@ function mockChatOpenAIStream() {
     async next() {
       if (!sent) {
         sent = true;
-        return { value: { content: mockFollowUpContent }, done: false };
+        return { value: { content }, done: false };
       }
       return { done: true, value: undefined };
     },
@@ -28,7 +46,7 @@ function mockChatOpenAIStream() {
 jest.mock("@langchain/openai", () => ({
   ChatOpenAI: jest.fn().mockImplementation(() => ({
     invoke: jest.fn().mockResolvedValue({ content: "[]" }),
-    stream: jest.fn().mockImplementation(() => mockChatOpenAIStream()),
+    stream: jest.fn().mockImplementation(() => mockChatOpenAIStream(mockNextFollowUpContent())),
     bind: jest.fn().mockReturnThis(),
   })),
 }));
@@ -64,13 +82,13 @@ function mockFollowUpToolCallStream(argsJson: string) {
 
 jest.mock("@/utils/server/llmProvider", () => ({
   getChatModel: jest.fn().mockImplementation(() => ({
-    invoke: jest.fn().mockResolvedValue({ content: mockFollowUpContent }),
+    invoke: jest.fn().mockImplementation(() => Promise.resolve({ content: mockNextFollowUpContent() })),
     stream: jest.fn().mockImplementation(() => {
       mockFollowUpInvocations += 1;
       if (mockFollowUpToolCallArgs && mockFollowUpInvocations === 1) {
         return mockFollowUpToolCallStream(mockFollowUpToolCallArgs);
       }
-      return mockChatOpenAIStream();
+      return mockChatOpenAIStream(mockNextFollowUpContent());
     }),
     bindTools: jest.fn().mockReturnThis(),
     bind: jest.fn().mockReturnThis(),
@@ -247,6 +265,7 @@ describe("makechain retrieval tool loop", () => {
   beforeEach(() => {
     process.env.SITE_ID = "default";
     mockFollowUpContent = FINAL_ANSWER;
+    mockFollowUpContentQueue = [];
     mockFollowUpToolCallArgs = null;
     mockFollowUpInvocations = 0;
     stubFirstPass(
@@ -388,17 +407,56 @@ describe("makechain retrieval tool loop", () => {
   });
 
   it("replaces a leftover Searching-again listing with the fallback note", async () => {
-    const leftover =
-      "The first pass mostly returned listings. Searching again for actual Gita teaching passages and a usable story.";
-    const leaked = `I'll pull additional Ananda Library material on the Bhagavad Gita for newcomers—quotes from Master and Swamiji plus a short story—so the 90-minute outline is well grounded.${leftover}`;
-    mockFollowUpContent = leftover;
+    const leaked = `I'll pull additional Ananda Library material on the Bhagavad Gita for newcomers—quotes from Master and Swamiji plus a short story—so the 90-minute outline is well grounded.${LEFTOVER_SEARCHING_AGAIN}`;
+    mockFollowUpContent = LEFTOVER_SEARCHING_AGAIN;
     stubFirstPassTextOnly(leaked, "Write a 90-minute class outline");
 
     const { result, events } = await runLoop("Write a 90-minute class outline");
 
+    expect(mockFollowUpInvocations).toBe(2);
     expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
     expect(collectedAnswer(events)).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
     expect(collectedAnswer(events)).not.toContain("Searching again");
+  });
+
+  it("replaces a leftover promise-and-stop retry with the fallback note", async () => {
+    const leaked = `I'll pull additional Ananda Library material on the Bhagavad Gita for newcomers—quotes from Master and Swamiji plus a short story—so the 90-minute outline is well grounded.${LEFTOVER_PROMISE_AND_STOP}`;
+    mockFollowUpContent = LEFTOVER_PROMISE_AND_STOP;
+    stubFirstPassTextOnly(leaked, "Write a 90-minute class outline");
+
+    const { result, events } = await runLoop("Write a 90-minute class outline");
+
+    expect(mockFollowUpInvocations).toBe(2);
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(collectedAnswer(events)).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(collectedAnswer(events)).not.toContain("I will finish a complete");
+  });
+
+  it("keeps a structured outline when the second forced retry has headings", async () => {
+    const leaked = `I'll pull additional Ananda Library material on the Bhagavad Gita for newcomers—quotes from Master and Swamiji plus a short story—so the 90-minute outline is well grounded.${LEFTOVER_PROMISE_AND_STOP}`;
+    mockFollowUpContentQueue = [LEFTOVER_PROMISE_AND_STOP, SHORT_STRUCTURED_OUTLINE];
+    stubFirstPassTextOnly(leaked, "Write a 90-minute class outline");
+
+    const { result, events } = await runLoop("Write a 90-minute class outline");
+
+    expect(mockFollowUpInvocations).toBe(2);
+    expect(result.fullResponse).toBe(SHORT_STRUCTURED_OUTLINE);
+    expect(collectedAnswer(events)).toBe(SHORT_STRUCTURED_OUTLINE);
+  });
+
+  it("keeps a 40-word real answer on the normal retrieval path", async () => {
+    mockFollowUpContent = FORTY_WORD_REAL_ANSWER;
+    (executeRetrievalTool as jest.Mock).mockResolvedValue({
+      ok: true,
+      documents: [fetchedDoc],
+      content: { documents: [{ content: fetchedDoc.pageContent }], message: "Retrieved 1 additional source(s)." },
+    });
+
+    const { result, events } = await runLoop();
+
+    expect(mockFollowUpInvocations).toBe(1);
+    expect(collectedAnswer(events)).toBe(FORTY_WORD_REAL_ANSWER);
+    expect(result.fullResponse).toBe(FORTY_WORD_REAL_ANSWER);
   });
 
   it("keeps one-expansion behavior when complete_list is absent", async () => {

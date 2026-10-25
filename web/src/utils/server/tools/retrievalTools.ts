@@ -141,6 +141,7 @@ export type FinalizeRetrievalUserAnswerParams = {
   fetchFailed?: boolean;
   roundLimitHit?: boolean;
   afterRetrievalAttempt: boolean;
+  afterForcedAnswerOnlyRetry?: boolean;
 };
 
 export type FinalizeRetrievalUserAnswerResult = {
@@ -153,11 +154,47 @@ export type FinalizeRetrievalUserAnswerResult = {
  * After a retrieval-tool attempt, keep a real answer or replace leftover
  * search narration with a plain user-facing note.
  */
+export const FORCED_RETRY_THIN_WORD_LIMIT = 60;
+
+function countWords(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+function hasAnswerStructure(text: string): boolean {
+  if (/^#{1,6}\s+\S/m.test(text)) {
+    return true;
+  }
+  if (/^\s*(?:[-*+•]|\d+\.)\s+\S/m.test(text)) {
+    return true;
+  }
+  if (/^\s*\|.+\|/m.test(text)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * After a forced answer-only retry, a short blob with no heading, list, or table
+ * is not a finished answer. Do not use this on the normal first-pass path.
+ */
+export function isForcedRetryAnswerTooThin(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return true;
+  }
+  if (countWords(trimmed) >= FORCED_RETRY_THIN_WORD_LIMIT) {
+    return false;
+  }
+  return !hasAnswerStructure(trimmed);
+}
+
 export function finalizeRetrievalUserAnswer(
   params: FinalizeRetrievalUserAnswerParams
 ): FinalizeRetrievalUserAnswerResult {
   const stripped = stripLeadingRetrievalNarration(params.answerText);
-  const incomplete = isIncompleteRetrievalAnswer(stripped);
+  const incomplete =
+    isIncompleteRetrievalAnswer(stripped) ||
+    (params.afterForcedAnswerOnlyRetry === true && isForcedRetryAnswerTooThin(stripped));
   if (!incomplete && stripped.trim()) {
     return { text: stripped, usedFallback: false };
   }
@@ -207,15 +244,6 @@ function splitFirstSentence(text: string): { lead: string; rest: string } | null
 function firstSentenceOrAll(text: string): string {
   const split = splitFirstSentence(text);
   return split ? split.lead.trim() : text;
-}
-
-function lastSentenceOrAll(text: string): string {
-  const parts = text.match(/[^.?!…]+[.?!…]*/g);
-  if (!parts || parts.length === 0) {
-    return text;
-  }
-  const last = parts[parts.length - 1].trim();
-  return last || text;
 }
 
 /** True when Grok (or similar) emitted a status line with almost no spaces. */
@@ -327,16 +355,6 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
     return true;
   }
 
-  // A leftover retry line can sit after a non-opener sentence ("The first pass…").
-  // Do not look at the first sentence only, or that line is saved as the answer.
-  const lastSentence = lastSentenceOrAll(trimmed);
-  const endsWithSearchAgainNarration =
-    /^searching again\b/i.test(lastSentence) &&
-    /\b(passages?|sources?|quotes?|story|listings)\b/i.test(lastSentence);
-  if (wordCount < 40 && endsWithSearchAgainNarration) {
-    return true;
-  }
-
   return false;
 }
 
@@ -353,10 +371,6 @@ const LEADING_NARRATION_OBJECT_NOUN = /\b(?:passages?|chunks?|sources?|articles?
 
 const LEADING_NARRATION_VERB =
   /\b(?:fetch(?:ing)?|pull(?:ing)?|search(?:ing)?|gather(?:ing)?|retriev(?:e|ing)|look(?:ing)?)\b/gi;
-
-function countWords(text: string): number {
-  return text.split(/\s+/).filter(Boolean).length;
-}
 
 function hasLeadingNarrationObject(sentence: string): boolean {
   const withoutVerbs = sentence.replace(LEADING_NARRATION_VERB, " ");

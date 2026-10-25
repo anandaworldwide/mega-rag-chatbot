@@ -74,6 +74,7 @@ import {
   executeRetrievalTool,
   finalizeRetrievalUserAnswer,
   getRetrievalToolGuidance,
+  isForcedRetryAnswerTooThin,
   isIncompleteRetrievalAnswer,
   isRetrievalToolName,
   stripLeadingRetrievalNarration,
@@ -1879,6 +1880,7 @@ export async function setupAndExecuteLanguageModelChain(
             roundLimitHit: retrievalRoundLimitHit,
             afterRetrievalAttempt:
               retrievalIterations > 0 || firstPassIsSearchNarration || retrievalAnswerForced,
+            afterForcedAnswerOnlyRetry: retrievalAnswerForced,
           });
           if (finalized.text === fullResponse) {
             return finalized.text;
@@ -1899,7 +1901,7 @@ export async function setupAndExecuteLanguageModelChain(
         };
 
         /** Answer-only recovery so the client never stuck on "Gathering additional sources...". */
-        const forceRetrievalAnswerOnly = async (reason: string) => {
+        const runForcedAnswerOnlyTurn = async (reason: string) => {
           console.warn(`⚠️ Forcing retrieval answer-only turn (${reason})`);
           retrievalAnswerForced = true;
           sendData({ status: "retrieving_more_sources" });
@@ -1975,6 +1977,15 @@ export async function setupAndExecuteLanguageModelChain(
           currentResponse = recoveryResponse;
           result.answer = recoveryResponse;
           pendingToolCalls = [];
+        };
+
+        /** One extra answer-only turn when the first forced retry is still thin. No third pass. */
+        const forceRetrievalAnswerOnly = async (reason: string) => {
+          await runForcedAnswerOnlyTurn(reason);
+          const stripped = stripLeadingRetrievalNarration(fullResponse);
+          if (isIncompleteRetrievalAnswer(stripped) || isForcedRetryAnswerTooThin(stripped)) {
+            await runForcedAnswerOnlyTurn(`${reason}; thin first retry`);
+          }
         };
 
         await streamingDeadline.waitWithDeadline(async () => {
