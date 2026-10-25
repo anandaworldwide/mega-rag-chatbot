@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
-import threading
 from argparse import Namespace
 from datetime import UTC, datetime
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -30,6 +29,11 @@ from data_ingestion.audio_video.audio_access_level_fix import (
     rollback_hint,
     update_rows,
 )
+from data_ingestion.tests.strict_fake_index import (
+    EncodedVectorIdError,
+    StrictFakeIndex,
+    is_percent_encoded_vector_id,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -47,76 +51,22 @@ def load_script_module():
 
 SCRIPT = load_script_module()
 
-
-class EncodedIdError(Exception):
-    """Raised when a test index receives a percent-encoded vector id."""
-
-
-class FakeIndex:
-    """In-memory Pinecone stand-in. Accept only raw ids. Never call a live index."""
-
-    def __init__(self, vectors: dict[str, dict]):
-        self.vectors = {
-            vector_id: {
-                "metadata": dict(payload["metadata"]),
-                "values": list(payload.get("values") or [0.1, 0.2]),
-            }
-            for vector_id, payload in vectors.items()
-        }
-        self.updates: list[tuple[str, dict]] = []
-        self.fetch_calls: list[list[str]] = []
-        self.fetched_ids: list[str] = []
-        self.encoded_ids: list[str] = []
-        self.fail_fetches_left = 0
-        self.fetch_override: dict[str, dict] | None = None
-        self._lock = threading.Lock()
-
-    def list(self, prefix: str = "", limit: int = 100):
-        ids = [vector_id for vector_id in self.vectors if vector_id.startswith(prefix)]
-        for start in range(0, len(ids), limit):
-            yield ids[start : start + limit]
-
-    def fetch(self, ids: list[str], include_values: bool = False):
-        with self._lock:
-            self.fetch_calls.append(list(ids))
-            self.fetched_ids.extend(ids)
-            if self.fail_fetches_left > 0:
-                self.fail_fetches_left -= 1
-                raise RuntimeError("transient fetch error")
-            source = (
-                self.fetch_override if self.fetch_override is not None else self.vectors
-            )
-            found = {}
-            for raw_id in ids:
-                if "%20" in raw_id:
-                    self.encoded_ids.append(raw_id)
-                    continue
-                if raw_id not in source:
-                    continue
-                item = source[raw_id]
-                found[raw_id] = SimpleNamespace(
-                    metadata=dict(item["metadata"]),
-                    values=list(item.get("values") or []),
-                )
-            return SimpleNamespace(vectors=found)
-
-    def update(self, id: str, set_metadata: dict):
-        with self._lock:
-            if "%20" in id:
-                self.encoded_ids.append(id)
-                raise EncodedIdError("Refuse. Encoded vector id is not allowed.")
-            if id not in self.vectors:
-                raise KeyError(id)
-            self.vectors[id]["metadata"].update(set_metadata)
-            self.updates.append((id, dict(set_metadata)))
+SHARED_FAKE_INDEX_SHA256 = (
+    "2d7537c5d42768c2646749f6d490804f9fe92fca84d6c2a936048bdb2ef4b536"
+)
 
 
-def assert_no_encoded_ids(index: FakeIndex) -> None:
+def _fetched_ids(index: StrictFakeIndex) -> list[str]:
+    """Return every id passed to fetch, in call order."""
+    return [vector_id for call in index.fetch_calls for vector_id in call]
+
+
+def assert_no_encoded_ids(index: StrictFakeIndex) -> None:
     """Fail when fetch, update, or rollback sent a percent-encoded id."""
-    for vector_id in index.fetched_ids:
-        assert "%20" not in vector_id
+    for vector_id in _fetched_ids(index):
+        assert not is_percent_encoded_vector_id(vector_id)
     for vector_id, _metadata in index.updates:
-        assert "%20" not in vector_id
+        assert not is_percent_encoded_vector_id(vector_id)
     assert index.encoded_ids == []
 
 
@@ -163,7 +113,7 @@ def _vector(
     }
 
 
-def _multi_chunk_index() -> FakeIndex:
+def _multi_chunk_index() -> StrictFakeIndex:
     """One file with three chunks, plus a second file and a skip file."""
     vectors = {}
     talk_a = "treasures/talk-a.mp3"
@@ -201,7 +151,7 @@ def _multi_chunk_index() -> FakeIndex:
             title="Talk D",
         )
     )
-    return FakeIndex(vectors)
+    return StrictFakeIndex(vectors)
 
 
 def _write_keys(path: Path, names: list[str]) -> Path:
@@ -233,7 +183,7 @@ def _args(
     )
 
 
-def _run(args: Namespace, index: FakeIndex, **kwargs) -> int:
+def _run(args: Namespace, index: StrictFakeIndex, **kwargs) -> int:
     return SCRIPT.run(
         args,
         index,
@@ -578,8 +528,10 @@ def test_verify_failure_prints_rollback_hint(tmp_path: Path, capsys):
     original_update = index.update
 
     def update_without_change(id: str, set_metadata: dict):
-        if "%20" in id:
-            raise EncodedIdError("Refuse. Encoded vector id is not allowed.")
+        if is_percent_encoded_vector_id(id):
+            raise EncodedVectorIdError(
+                "Vector id contains a percent-encoded byte. Use the raw id."
+            )
         index.updates.append((id, dict(set_metadata)))
 
     index.update = update_without_change  # type: ignore[method-assign]
@@ -636,7 +588,7 @@ def test_script_refuses_out_dir_inside_repo(tmp_path: Path):
 def test_fake_index_does_not_find_encoded_ids():
     raw = "audio||Treasures||audio||Talk A||Test Author||aaa111||0"
     encoded = "audio||Treasures||audio||Talk%20A||Test%20Author||aaa111||0"
-    index = FakeIndex(_vector(raw, "treasures/talk-a.mp3"))
+    index = StrictFakeIndex(_vector(raw, "treasures/talk-a.mp3"))
     found = SCRIPT.fetch_batch(index, [encoded])
     assert found == {}
     assert encoded in index.encoded_ids
@@ -645,8 +597,8 @@ def test_fake_index_does_not_find_encoded_ids():
 def test_fake_index_rejects_encoded_id_on_update():
     raw = "audio||Treasures||audio||Talk A||Test Author||aaa111||0"
     encoded = "audio||Treasures||audio||Talk%20A||Test%20Author||aaa111||0"
-    index = FakeIndex(_vector(raw, "treasures/talk-a.mp3"))
-    with pytest.raises(EncodedIdError, match="Encoded vector id"):
+    index = StrictFakeIndex(_vector(raw, "treasures/talk-a.mp3"))
+    with pytest.raises(EncodedVectorIdError, match="percent-encoded"):
         index.update(id=encoded, set_metadata={"access_level": "kriyaban"})
     assert index.vectors[raw]["metadata"]["access_level"] == "public"
 
@@ -658,7 +610,7 @@ def test_fetch_update_and_rollback_fail_if_encoded_ids_are_sent(tmp_path: Path):
     assert _run(_args(tmp_path, keys, apply=True), index) == 0
     backups = list((tmp_path / "out").glob("access-level-fix-backup-*.jsonl"))
     _run(_args(tmp_path, None, rollback=str(backups[0])), index)
-    spaced = [vector_id for vector_id in index.fetched_ids if " " in vector_id]
+    spaced = [vector_id for vector_id in _fetched_ids(index) if " " in vector_id]
     assert spaced
     assert_no_encoded_ids(index)
     report = read_jsonl(tmp_path / "out" / "access-level-fix-report.jsonl")
@@ -676,19 +628,24 @@ def test_fetch_metadata_keeps_input_id_order():
     vectors: dict[str, dict] = {}
     for vector_id in ids:
         vectors.update(_vector(vector_id, "treasures/talk-order.mp3"))
-    index = FakeIndex(vectors)
+    index = StrictFakeIndex(vectors)
     fetched = SCRIPT.fetch_metadata(
         index, list(reversed(ids)), sleep_fn=lambda _s: None
     )
     assert list(fetched.keys()) == list(reversed(ids))
-    assert all("%20" not in vector_id for vector_id in index.fetched_ids)
+    assert all(
+        not is_percent_encoded_vector_id(vector_id) for vector_id in _fetched_ids(index)
+    )
     assert max(len(call) for call in index.fetch_calls) <= SCRIPT.FETCH_BATCH
 
 
 def test_fetch_retries_a_failed_batch_then_succeeds():
     raw = "audio||Treasures||audio||Talk A||Test Author||aaa111||0"
-    index = FakeIndex(_vector(raw, "treasures/talk-a.mp3"))
-    index.fail_fetches_left = 2
+    index = StrictFakeIndex(_vector(raw, "treasures/talk-a.mp3"))
+    index.next_fetch_errors = [
+        RuntimeError("transient fetch error"),
+        RuntimeError("transient fetch error"),
+    ]
     sleeps: list[float] = []
     found = SCRIPT.fetch_metadata(index, [raw], sleep_fn=sleeps.append)
     assert raw in found
@@ -698,8 +655,15 @@ def test_fetch_retries_a_failed_batch_then_succeeds():
 
 def test_fetch_stops_after_three_failed_tries():
     raw = "audio||Treasures||audio||Talk A||Test Author||aaa111||0"
-    index = FakeIndex(_vector(raw, "treasures/talk-a.mp3"))
-    index.fail_fetches_left = 10
+    index = StrictFakeIndex(_vector(raw, "treasures/talk-a.mp3"))
+    index.next_fetch_errors = [RuntimeError("transient fetch error") for _ in range(10)]
     with pytest.raises(AccessLevelFixError, match="Fetch failed after 3 tries"):
         SCRIPT.fetch_metadata(index, [raw], sleep_fn=lambda _seconds: None)
-    assert index.fail_fetches_left == 7
+    assert len(index.next_fetch_errors) == 7
+
+
+def test_shared_strict_fake_index_file_is_byte_identical():
+    digest = hashlib.sha256(
+        Path(__file__).with_name("strict_fake_index.py").read_bytes()
+    ).hexdigest()
+    assert digest == SHARED_FAKE_INDEX_SHA256
