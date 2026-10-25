@@ -1897,6 +1897,7 @@ export async function setupAndExecuteLanguageModelChain(
         const forceRetrievalAnswerOnly = async (reason: string) => {
           console.warn(`⚠️ Forcing retrieval answer-only turn (${reason})`);
           retrievalAnswerForced = true;
+          tokenBuffer = "";
           sendData({ status: "retrieving_more_sources" });
           const siteTemplate = await getFullTemplate(siteConfig?.siteId || "ananda-public");
           const activeFiltersSummary = buildActiveFiltersSummaryForGeneration(
@@ -2168,6 +2169,7 @@ export async function setupAndExecuteLanguageModelChain(
               tokensStreamed = 0;
               firstTokenTime = null;
               firstByteTime = null;
+              tokenBuffer = "";
             }
 
             if (timingMetrics) {
@@ -2319,7 +2321,10 @@ export async function setupAndExecuteLanguageModelChain(
         finalTiming.retrievalToolMs = Number(timingMetrics.retrievalToolMs) || 0;
       }
 
-      // Flush any remaining buffer content (for very short responses)
+      // Flush leftover first-pass tokens only when no retrieval follow-up already replaced them.
+      if (tokenBuffer.length > 0 && isIncompleteRetrievalAnswer(tokenBuffer) && fullResponse.trim()) {
+        tokenBuffer = "";
+      }
       if (tokenBuffer.length > 0) {
         // Check for marker one final time
         const trimmedBuffer = tokenBuffer.trimStart();
@@ -2350,6 +2355,19 @@ export async function setupAndExecuteLanguageModelChain(
         }
         tokenBuffer = "";
         markerChecked = true;
+      }
+
+      if (retrievalToolsEnabled && isIncompleteRetrievalAnswer(fullResponse)) {
+        const finalized = finalizeRetrievalUserAnswer({
+          answerText: fullResponse,
+          afterRetrievalAttempt: true,
+        });
+        if (finalized.usedFallback) {
+          sendData({ status: "retrieving_more_sources" });
+          fullResponse = finalized.text;
+          tokensStreamed = finalized.text.length;
+          sendData({ token: finalized.text });
+        }
       }
 
       sendData({ done: true, timing: finalTiming });

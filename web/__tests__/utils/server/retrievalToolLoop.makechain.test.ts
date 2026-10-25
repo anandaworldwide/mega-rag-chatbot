@@ -265,6 +265,44 @@ describe("makechain retrieval tool loop", () => {
     expect(result.finalDocs.map((doc) => doc.id)).toContain(fetchedDoc.id);
   });
 
+  it("never returns a post-retrieval status line as the final answer", async () => {
+    mockFollowUpContent = "Looking up the teachings on this topic.";
+    (executeRetrievalTool as jest.Mock).mockResolvedValue({
+      ok: true,
+      documents: [fetchedDoc],
+      content: { documents: [{ content: fetchedDoc.pageContent }], message: "Retrieved 1 additional source(s)." },
+    });
+
+    const { result, events } = await runLoop();
+    const streamed = collectedAnswer(events);
+
+    expect(streamed).not.toBe("Looking up the teachings on this topic.");
+    expect(result.fullResponse).not.toBe("Looking up the teachings on this topic.");
+    expect(streamed).not.toMatch(/^(Looking up|Fetching|Gathering|Pulling|Searching)\b/i);
+    expect(result.fullResponse).not.toMatch(/^(Looking up|Fetching|Gathering|Pulling|Searching)\b/i);
+    expect(result.fullResponse.length).toBeGreaterThan(0);
+  });
+
+  it("never returns an I-still-need / tighter-search progress line as the final answer", async () => {
+    const progressLine =
+      "I still need clearer Gita quotes and a short story from Master or Swamiji; pulling nearby passages and a tighter search....";
+    mockFollowUpContent = progressLine;
+    (executeRetrievalTool as jest.Mock).mockResolvedValue({
+      ok: true,
+      documents: [fetchedDoc],
+      content: { documents: [{ content: fetchedDoc.pageContent }], message: "Retrieved 1 additional source(s)." },
+    });
+
+    const { result, events } = await runLoop();
+    const streamed = collectedAnswer(events);
+
+    expect(streamed).not.toBe(progressLine);
+    expect(result.fullResponse).not.toBe(progressLine);
+    expect(streamed).not.toMatch(/tighter search/i);
+    expect(result.fullResponse).not.toMatch(/tighter search/i);
+    expect(result.fullResponse.length).toBeGreaterThan(0);
+  });
+
   it("sends a plain failure note when the fetch fails, never the status line", async () => {
     mockFollowUpContent = STATUS_LINE;
     (executeRetrievalTool as jest.Mock).mockResolvedValue({
