@@ -166,8 +166,8 @@ def download_s3_object_to_file(s3_key, dest_path, max_attempts=5):
     raise S3DownloadError(f"Failed to download {s3_key} after {max_attempts} attempts")
 
 
-def list_s3_object_keys(prefix, *, s3_client=None, bucket_name=None):
-    """Return object keys under prefix, omitting folder placeholders."""
+def list_s3_objects(prefix, *, s3_client=None, bucket_name=None):
+    """Return Key and Size for objects under prefix. Skip folder keys."""
     client = s3_client or get_s3_client()
     bucket = bucket_name if bucket_name is not None else get_bucket_name()
     if not bucket:
@@ -175,14 +175,24 @@ def list_s3_object_keys(prefix, *, s3_client=None, bucket_name=None):
     if not prefix:
         raise ValueError("prefix must be provided")
 
-    keys = []
+    objects = []
     paginator = client.get_paginator("list_objects_v2")
     for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
         for obj in page.get("Contents", []):
             key = obj["Key"]
             if not key.endswith("/"):
-                keys.append(key)
-    return keys
+                objects.append({"Key": key, "Size": obj.get("Size")})
+    return objects
+
+
+def list_s3_object_keys(prefix, *, s3_client=None, bucket_name=None):
+    """Return object keys under prefix, omitting folder placeholders."""
+    return [
+        item["Key"]
+        for item in list_s3_objects(
+            prefix, s3_client=s3_client, bucket_name=bucket_name
+        )
+    ]
 
 
 def download_s3_object_to_temp(s3_key):

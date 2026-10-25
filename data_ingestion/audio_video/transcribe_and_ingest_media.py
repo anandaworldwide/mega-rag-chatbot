@@ -464,6 +464,7 @@ def _process_and_store_transcription(
     required_access_level,
     site=None,
     metadata_path=None,
+    allow_filename_change=False,
 ):
     """
     Processes transcription into chunks and stores in Pinecone.
@@ -544,7 +545,7 @@ def _process_and_store_transcription(
 
                 # Use valid_chunks (not original chunks) to ensure proper alignment
                 # with embeddings - some chunks may have been skipped during validation
-                store_in_pinecone(
+                skipped_count = store_in_pinecone(
                     pinecone_index,
                     valid_chunks,
                     embeddings,
@@ -556,7 +557,9 @@ def _process_and_store_transcription(
                     album=album,
                     access_level=access_level,
                     required_access_level=required_access_level,
+                    allow_filename_change=allow_filename_change,
                 )
+                local_report["filename_conflicts_skipped"] = int(skipped_count or 0)
             except ValueError as e:
                 if str(e) != "No valid text chunks found for embedding creation":
                     raise
@@ -658,6 +661,7 @@ def process_file(
     site=None,
     skip_upload=False,
     content_hash_path=None,
+    allow_filename_change=False,
 ):
     """
     Core processing pipeline for a single media file or YouTube video.
@@ -728,6 +732,7 @@ def process_file(
         required_access_level,
         site=site,
         metadata_path=content_hash_path,
+        allow_filename_change=allow_filename_change,
     )
 
     if processing_report["errors"] > 0:
@@ -958,6 +963,7 @@ def process_item(item, args, client, index, site_config):
             site=args.site,
             skip_upload=skip_upload,
             content_hash_path=content_hash_path,
+            allow_filename_change=args.allow_filename_change,
         )
         end_time = time.time()
         processing_time = end_time - start_time
@@ -1026,6 +1032,9 @@ def print_report(report):
     logger.info(f"Files processed: {report['processed']}")
     logger.info(f"Files skipped: {report['skipped']}")
     logger.info(f"Files with errors: {report['errors']}")
+    skipped_conflicts = report.get("filename_conflicts_skipped", 0)
+    if skipped_conflicts:
+        logger.info(f"Filename conflict chunks skipped: {skipped_conflicts}")
     if report["errors"] > 0:
         logger.error("\nError details:")
         for error in report["error_details"]:
@@ -1145,6 +1154,7 @@ def merge_reports(reports):
         "fully_indexed": 0,
         "chunk_lengths": [],
         "private_videos": 0,
+        "filename_conflicts_skipped": 0,
     }
     for report in reports:
         for key in [
@@ -1153,6 +1163,7 @@ def merge_reports(reports):
             "errors",
             "fully_indexed",
             "private_videos",
+            "filename_conflicts_skipped",
         ]:
             combined_report[key] += report.get(key, 0)
         combined_report["error_details"].extend(report.get("error_details", []))
@@ -1201,6 +1212,11 @@ def _parse_arguments():
         "--override-conflicts",
         action="store_true",
         help="Continue processing even if filename conflicts are found",
+    )
+    processing.add_argument(
+        "--allow-filename-change",
+        action="store_true",
+        help="Write audio or video vectors even when a stored filename differs",
     )
     processing.add_argument(
         "--yes",
@@ -1577,6 +1593,7 @@ def main():
         "warnings": [],
         "fully_indexed": 0,
         "chunk_lengths": [],
+        "filename_conflicts_skipped": 0,
     }
 
     try:
@@ -1625,6 +1642,9 @@ def main():
             "errors": overall_report.get("errors", 0),
             "fully_indexed": overall_report.get("fully_indexed", 0),
             "private_videos": overall_report.get("private_videos", 0),
+            "filename_conflicts_skipped": overall_report.get(
+                "filename_conflicts_skipped", 0
+            ),
             "warnings": len(overall_report.get("warnings", [])),
             "queue_status": queue_status,
         }

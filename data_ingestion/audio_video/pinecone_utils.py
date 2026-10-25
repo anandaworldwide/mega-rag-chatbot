@@ -1,6 +1,8 @@
 import logging
 import os
 import sys
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from pinecone import NotFoundException, Pinecone, PineconeException, ServerlessSpec
 
@@ -9,6 +11,12 @@ from data_ingestion.utils.credential_errors import abort_on_credential_error
 from data_ingestion.utils.pinecone_utils import generate_vector_id
 
 logger = logging.getLogger(__name__)
+
+_AUDIO_VIDEO_CONTENT_TYPES = frozenset({"audio", "video"})
+_FILENAME_FETCH_BATCH_SIZE = 20
+_FILENAME_FETCH_WORKERS = 8
+_FILENAME_FETCH_RETRIES = 3
+_FILENAME_FETCH_RETRY_DELAY_SECONDS = 0.2
 
 """
 Pinecone Vector Database Integration Layer
@@ -201,6 +209,146 @@ def load_pinecone(index_name=None):
     return pc.Index(index_name)
 
 
+def _vectors_from_fetch(fetched) -> dict:
+    """Return the vectors map from a Pinecone fetch result."""
+    if fetched is None:
+        return {}
+    if hasattr(fetched, "vectors"):
+        return fetched.vectors or {}
+    if isinstance(fetched, dict):
+        return fetched.get("vectors") or {}
+    return {}
+
+
+def _metadata_from_vector(vector) -> dict:
+    """Return metadata from a fetched Pinecone vector."""
+    if vector is None:
+        return {}
+    if hasattr(vector, "metadata"):
+        return vector.metadata or {}
+    if isinstance(vector, dict):
+        return vector.get("metadata") or {}
+    return {}
+
+
+def _is_rate_limit_error(exc: BaseException) -> bool:
+    """Return True when the error is an HTTP 429 rate limit."""
+    status = getattr(exc, "status", None)
+    if status is None:
+        status = getattr(exc, "status_code", None)
+    if status == 429:
+        return True
+    text = str(exc)
+    return "429" in text or "Too Many Requests" in text
+
+
+def _fetch_vectors_batch(pinecone_index, batch: list[str]) -> dict:
+    """Fetch one batch of raw vector ids."""
+    fetched = pinecone_index.fetch(ids=batch)
+    return _vectors_from_fetch(fetched)
+
+
+def _fetch_vectors_batch_with_retry(pinecone_index, batch: list[str]) -> dict:
+    """Fetch one batch. Retry a fixed number of times on HTTP 429."""
+    last_error: BaseException | None = None
+    for attempt in range(_FILENAME_FETCH_RETRIES):
+        try:
+            return _fetch_vectors_batch(pinecone_index, batch)
+        except Exception as exc:
+            last_error = exc
+            if _is_rate_limit_error(exc) and attempt < _FILENAME_FETCH_RETRIES - 1:
+                time.sleep(_FILENAME_FETCH_RETRY_DELAY_SECONDS * (attempt + 1))
+                continue
+            raise
+    raise last_error
+
+
+def fetch_stored_vector_metadata(pinecone_index, vector_ids: list[str]) -> dict:
+    """Fetch metadata for many raw ids. Return a map of id to metadata.
+
+    A fetch error raises so the queue item can run again.
+    """
+    if not vector_ids:
+        return {}
+    batches = [
+        vector_ids[start : start + _FILENAME_FETCH_BATCH_SIZE]
+        for start in range(0, len(vector_ids), _FILENAME_FETCH_BATCH_SIZE)
+    ]
+    batch_vectors: list[dict] = [{} for _ in batches]
+    workers = min(_FILENAME_FETCH_WORKERS, len(batches))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        future_map = {
+            pool.submit(_fetch_vectors_batch_with_retry, pinecone_index, batch): index
+            for index, batch in enumerate(batches)
+        }
+        for future in as_completed(future_map):
+            batch_vectors[future_map[future]] = future.result()
+    found: dict[str, dict] = {}
+    for batch, vectors in zip(batches, batch_vectors, strict=True):
+        for vector_id in batch:
+            vector = vectors.get(vector_id)
+            if vector is None:
+                continue
+            found[vector_id] = _metadata_from_vector(vector)
+    return found
+
+
+def apply_filename_conflict_guard(
+    vectors,
+    pinecone_index,
+    content_type,
+    *,
+    allow_filename_change=False,
+):
+    """Drop audio or video vectors that would replace a different stored filename.
+
+    Text and PDF ingest keep the current write. The allow flag turns
+    the guard off. A conflict skips that chunk only.
+    """
+    if allow_filename_change or content_type not in _AUDIO_VIDEO_CONTENT_TYPES:
+        return vectors
+
+    vector_ids = [vector["id"] for vector in vectors]
+    stored_by_id = fetch_stored_vector_metadata(pinecone_index, vector_ids)
+    kept = []
+    for vector in vectors:
+        vector_id = vector["id"]
+        if vector_id not in stored_by_id:
+            kept.append(vector)
+            continue
+        stored_filename = stored_by_id[vector_id].get("filename")
+        new_filename = (vector.get("metadata") or {}).get("filename")
+        if stored_filename and stored_filename != new_filename:
+            logger.warning(
+                "Skip audio vector write. Stored filename differs. "
+                "id=%s stored=%s new=%s. Pass --allow-filename-change to write "
+                "this change.",
+                vector_id,
+                stored_filename,
+                new_filename,
+            )
+            continue
+        kept.append(vector)
+    return kept
+
+
+def _apply_guard_and_count_skips(
+    vectors, pinecone_index, content_type, allow_filename_change
+):
+    """Apply the filename guard and log how many chunks were skipped."""
+    chunk_count = len(vectors)
+    kept = apply_filename_conflict_guard(
+        vectors,
+        pinecone_index,
+        content_type,
+        allow_filename_change=allow_filename_change,
+    )
+    skipped_count = chunk_count - len(kept)
+    if skipped_count:
+        logger.info("%s of %s chunks skipped", skipped_count, chunk_count)
+    return kept, skipped_count
+
+
 def store_in_pinecone(
     pinecone_index,
     chunks,
@@ -214,6 +362,7 @@ def store_in_pinecone(
     album=None,
     access_level="public",  # New parameter for access control
     required_access_level=0,
+    allow_filename_change=False,
 ):
     """
     Stores vector embeddings with metadata in Pinecone.
@@ -300,13 +449,19 @@ def store_in_pinecone(
         vectors.append({"id": chunk_id, "values": embedding, "metadata": metadata})
 
     apply_author_guard_to_vectors(vectors)
+    vectors, skipped_count = _apply_guard_and_count_skips(
+        vectors, pinecone_index, content_type, allow_filename_change
+    )
+    if not vectors:
+        logger.info("No audio vectors remain after the filename conflict check.")
+        return skipped_count
 
     # Batch processing with interrupt support
     for i in range(0, len(vectors), 100):
         # Check for interrupt signal between batches
         if interrupt_event and interrupt_event.is_set():
             logger.info("Interrupt detected. Stopping Pinecone upload...")
-            return
+            return skipped_count
 
         batch = vectors[i : i + 100]
         try:
@@ -327,6 +482,7 @@ def store_in_pinecone(
                 raise PineconeException(f"Failed to upsert vectors: {str(e)}") from e
 
     logger.info(f"Successfully stored {len(vectors)} vectors in Pinecone")
+    return skipped_count
 
 
 def clear_library_vectors(index, library_name):

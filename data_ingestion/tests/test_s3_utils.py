@@ -490,3 +490,30 @@ class TestS3Utils:
             "public/audio/treasures/open.mp3",
             "public/audio/treasures/kriyaban-only/talk.mp3",
         ]
+
+    def test_list_s3_objects_returns_key_and_size(self):
+        from data_ingestion.utils.s3_utils import list_s3_objects
+
+        mock_s3_client = MagicMock()
+        mock_paginator = MagicMock()
+        mock_s3_client.get_paginator.return_value = mock_paginator
+        mock_paginator.paginate.return_value = [
+            {
+                "Contents": [
+                    {"Key": "public/audio/treasures/Talk A.mp3", "Size": 100},
+                    {"Key": "public/audio/treasures/album/"},
+                    {"Key": "public/audio/treasures/album/Talk A.mp3", "Size": 200},
+                ]
+            }
+        ]
+
+        objects = list_s3_objects(
+            "public/audio/treasures/",
+            s3_client=mock_s3_client,
+            bucket_name="[REDACTED]",
+        )
+
+        assert objects == [
+            {"Key": "public/audio/treasures/Talk A.mp3", "Size": 100},
+            {"Key": "public/audio/treasures/album/Talk A.mp3", "Size": 200},
+        ]
