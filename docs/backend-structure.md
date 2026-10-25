@@ -664,12 +664,15 @@ if (siteConfig?.requireLogin) {
     added-source budget. Use this flag only when the user asks for a complete list of items. The extra round can
     fetch a full-list source, such as a table of contents, an index, or an overview. The flag cannot exceed the
     existing round cap. After usable docs arrive on a normal query, tools are unbound so the model must answer
-    rather than narrate further searching. Plain-text search narration (including glued Grok lines such as
+    rather than narrate further searching.     Plain-text search narration (including glued Grok lines such as
     "FetchingmoreoftheBrindabanaccount…" and adjacent-fetch lines like "Pulling nearby ceremony text…") is discarded
-    and recovered with an answer-only turn even when no tool_call was emitted. If the follow-up or recovery is still
-    incomplete, or if the fetch fails or the round limit is hit, the server sends a plain user-facing note instead of
-    leaving the interim "fetching more" line as the answer. Tool-call extraction also reads streamed
-    `tool_call_chunks`, OpenAI-style `additional_kwargs.tool_calls`, and leaked `search_more_sources` JSON.
+    and recovered with an answer-only turn even when no tool_call was emitted. Any reply that names
+    `search_more_sources` or `get_adjacent_chunks`, a TypeScript tool call, or a fenced/raw tool payload (including
+    argument-only JSON) is also incomplete. The answer-only recovery buffers tokens so a leaked tool call never
+    reaches the client. If the follow-up or recovery is still incomplete, or if the fetch fails or the round limit is
+    hit, the server sends a plain user-facing note instead of leaving the tool call or "fetching more" line as the
+    answer. Tool-call extraction also reads streamed `tool_call_chunks`, OpenAI-style `additional_kwargs.tool_calls`,
+    and leaked `search_more_sources` JSON.
   - `get_adjacent_chunks` lists sibling vector IDs by shared prefix
     (`type||library||loc||title||author||`) then `fetch`es neighbors by exact ID; only accepts `sourceId`s already
     in context and re-checks access metadata.
