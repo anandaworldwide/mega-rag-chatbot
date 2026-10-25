@@ -172,6 +172,13 @@ uv run python data_ingestion/audio_video/transcribe_and_ingest_media.py \
 
 `--library` for audio must be `bhaktan` or `treasures`.
 
+Before an audio or video write, the process reads the stored Pinecone record by raw vector id. It skips a
+chunk when the stored filename differs. Pass `--allow-filename-change` to write that change. Fetch uses
+batches of 20 and up to 8 workers. Each fetch sets pinecone 8.1.0 `_request_timeout`. The default is 30
+seconds. Set `PINECONE_FILENAME_FETCH_TIMEOUT_SECONDS` to override it. A timeout or an HTTP 429 status is
+retried up to 3 times. The 429 check uses the HTTP status code only. Any other fetch error stops that queue
+item so it can run again.
+
 ### YouTube
 
 The source list is JSON in S3 (`{site}-youtube-links.json`). The command pulls the processed map, queues videos that are

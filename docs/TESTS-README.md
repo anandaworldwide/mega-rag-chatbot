@@ -263,6 +263,7 @@ The Python data ingestion pipeline includes comprehensive testing infrastructure
 - **`data_ingestion/tests/`**: Contains all Python tests for data ingestion functionality
   - Test coverage for spaCy text chunking utilities
   - Pinecone client initialization and operations
+  - Audio filename-guard fetch timeout and HTTP 429 retries
   - Document processing and hashing
   - Environment variable handling
   - Signal handling for graceful shutdowns
