@@ -231,6 +231,13 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
     }
   }
 
+  // Leaked fence or XML tool markup. JSON payloads are handled above.
+  const leakedToolMarkup =
+    /```[\s\S]*?(?:search_more_sources|get_adjacent_chunks)|<(?:function_call|parameter)\b[^>]*(?:search_more_sources|get_adjacent_chunks)/i;
+  if (leakedToolMarkup.test(trimmed)) {
+    return true;
+  }
+
   const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
   const startsLikeSearchNarration =
     /^(i('ll| will)|i am|i'm|i don['’]t|let me(?: fetch| search| pull)?|gathering|pulling|searching|seeking|fetching|trying|expanding)\b/i.test(
