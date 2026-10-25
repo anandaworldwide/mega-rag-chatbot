@@ -9,6 +9,11 @@ from unittest.mock import patch
 
 from botocore.exceptions import ClientError
 
+from data_ingestion.tests.strict_fake_index import (
+    EncodedVectorIdError,
+    StrictFakeIndex,
+)
+
 
 def load_script_module():
     """Load the script from bin/."""
@@ -35,45 +40,23 @@ def live_audio_keys(*relative_keys: str) -> list[str]:
     return [f"public/audio/{key}" for key in relative_keys]
 
 
-class FakeIndex:
-    """In-memory Pinecone index. Tests never call a live service."""
+class FakeIndex(StrictFakeIndex):
+    """Thin wrapper: load AudioRecord objects into StrictFakeIndex."""
 
     def __init__(self, records: list[SCRIPT.AudioRecord]):
-        self.vectors = {
-            record.vector_id: {
-                "metadata": {
-                    "filename": record.filename,
-                    "library": record.library,
-                    "title": record.title,
-                    "type": "audio",
+        super().__init__(
+            {
+                record.vector_id: {
+                    "metadata": {
+                        "filename": record.filename,
+                        "library": record.library,
+                        "title": record.title,
+                        "type": "audio",
+                    }
                 }
+                for record in records
             }
-            for record in records
-        }
-        self.updates: list[tuple[str, dict]] = []
-
-    def list(self, prefix="", limit=100):
-        ids = [vector_id for vector_id in self.vectors if vector_id.startswith(prefix)]
-        for start in range(0, len(ids), limit):
-            yield ids[start : start + limit]
-
-    def fetch(self, ids, include_values=False):
-        found = {}
-        for vector_id in ids:
-            if "%20" in vector_id:
-                continue
-            if vector_id in self.vectors:
-                found[vector_id] = SimpleNamespace(
-                    metadata=dict(self.vectors[vector_id]["metadata"])
-                )
-        return SimpleNamespace(vectors=found)
-
-    def update(self, id, set_metadata):
-        if "%20" in id:
-            raise KeyError(f"id not found: {id}")
-        self.updates.append((id, dict(set_metadata)))
-        if id in self.vectors:
-            self.vectors[id]["metadata"].update(set_metadata)
+        )
 
 
 class FakeS3:
@@ -285,8 +268,8 @@ def test_encoded_ids_are_rejected_on_fetch_update_and_rollback(tmp_path: Path):
 
     try:
         fake.update(id=encoded, set_metadata={"filename": NEW_KEY})
-    except KeyError as exc:
-        assert encoded in str(exc)
+    except EncodedVectorIdError as exc:
+        assert "percent-encoded" in str(exc)
     else:
         raise AssertionError("Expected reject of encoded update id")
     assert fake.updates == []
@@ -560,56 +543,44 @@ def test_two_old_keys_that_pick_one_target_are_collisions(tmp_path: Path):
     assert index.updates == []
 
 
-class FlakyFetchIndex(FakeIndex):
-    """Fail fetch a set number of times, then succeed."""
-
-    def __init__(self, records, fail_times=2):
-        super().__init__(records)
-        self.fail_times = fail_times
-        self.fetch_calls = 0
-
-    def fetch(self, ids, include_values=False):
-        self.fetch_calls += 1
-        if self.fetch_calls <= self.fail_times:
-            raise RuntimeError("transient fetch error")
-        return super().fetch(ids, include_values)
-
-
 class UpdateFailIndex(FakeIndex):
     """Raise on update to simulate a Pinecone write error."""
 
-    def update(self, id, set_metadata):
+    def update(self, id=None, values=None, set_metadata=None, namespace=None, **kwargs):
         raise RuntimeError("Pinecone timeout")
 
 
 class TrackingIndex(FakeIndex):
     """Fail the test when a percent-encoded id is sent."""
 
-    def fetch(self, ids, include_values=False):
-        for vector_id in ids:
-            if "%20" in vector_id:
-                raise AssertionError(f"encoded fetch id: {vector_id}")
-        return super().fetch(ids, include_values)
+    def fetch(self, ids=None, namespace=None, **kwargs):
+        result = super().fetch(ids=ids, namespace=namespace, **kwargs)
+        if self.encoded_ids:
+            raise AssertionError(f"encoded fetch id: {self.encoded_ids[-1]}")
+        return result
 
-    def update(self, id, set_metadata):
-        if "%20" in id:
-            raise AssertionError(f"encoded update id: {id}")
-        return super().update(id, set_metadata)
+    def update(self, id=None, values=None, set_metadata=None, namespace=None, **kwargs):
+        try:
+            return super().update(
+                id=id,
+                values=values,
+                set_metadata=set_metadata,
+                namespace=namespace,
+                **kwargs,
+            )
+        except EncodedVectorIdError as exc:
+            raise AssertionError(f"encoded update id: {id}") from exc
 
 
 class VerifyFailIndex(FakeIndex):
     """Apply writes. Fetch then returns a wrong filename."""
 
-    def fetch(self, ids, include_values=False):
-        found = {}
-        for vector_id in ids:
-            if "%20" in vector_id:
-                continue
-            if vector_id in self.vectors:
-                metadata = dict(self.vectors[vector_id]["metadata"])
-                metadata["filename"] = "wrong"
-                found[vector_id] = SimpleNamespace(metadata=metadata)
-        return SimpleNamespace(vectors=found)
+    def fetch(self, ids=None, namespace=None, **kwargs):
+        result = super().fetch(ids=ids, namespace=namespace, **kwargs)
+        for vector in result.vectors.values():
+            if vector.metadata is not None:
+                vector.metadata["filename"] = "wrong"
+        return result
 
 
 def test_verify_failure_names_the_backup_for_rollback(tmp_path: Path):
@@ -646,18 +617,23 @@ def test_mask_secrets_hides_keys():
 
 
 def test_fetch_retries_then_succeeds():
-    index = FlakyFetchIndex(sample_records(), fail_times=2)
+    index = FakeIndex(sample_records())
+    index.next_fetch_errors = [
+        RuntimeError("transient fetch error"),
+        RuntimeError("transient fetch error"),
+    ]
     sleeps: list[float] = []
     result = SCRIPT.fetch_metadata_with_retry(
         index, [VECTOR_A], sleep=sleeps.append
     )
     assert VECTOR_A in result
-    assert index.fetch_calls == 3
+    assert len(index.fetch_calls) == 3
     assert sleeps == [SCRIPT.FETCH_BACKOFF_SEC, SCRIPT.FETCH_BACKOFF_SEC]
 
 
 def test_fetch_stops_after_three_failures():
-    index = FlakyFetchIndex(sample_records(), fail_times=10)
+    index = FakeIndex(sample_records())
+    index.next_fetch_errors = [RuntimeError("transient fetch error")] * 3
     try:
         SCRIPT.fetch_metadata_with_retry(
             index, [VECTOR_A], sleep=lambda _delay: None
@@ -666,7 +642,7 @@ def test_fetch_stops_after_three_failures():
         assert "Fetch failed after 3 tries" in str(exc)
     else:
         raise AssertionError("Expected FilenameFixError after three fetch failures")
-    assert index.fetch_calls == 3
+    assert len(index.fetch_calls) == 3
 
 
 def test_fetch_all_metadata_keeps_input_id_order():
