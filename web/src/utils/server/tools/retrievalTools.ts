@@ -209,6 +209,15 @@ function firstSentenceOrAll(text: string): string {
   return split ? split.lead.trim() : text;
 }
 
+function lastSentenceOrAll(text: string): string {
+  const parts = text.match(/[^.?!…]+[.?!…]*/g);
+  if (!parts || parts.length === 0) {
+    return text;
+  }
+  const last = parts[parts.length - 1].trim();
+  return last || text;
+}
+
 /** True when Grok (or similar) emitted a status line with almost no spaces. */
 export function isRunTogetherNarrationText(text: string): boolean {
   const compact = text.replace(/[\s.,…]+/g, "");
@@ -318,6 +327,16 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
     return true;
   }
 
+  // A leftover retry line can sit after a non-opener sentence ("The first pass…").
+  // Do not look at the first sentence only, or that line is saved as the answer.
+  const lastSentence = lastSentenceOrAll(trimmed);
+  const endsWithSearchAgainNarration =
+    /^searching again\b/i.test(lastSentence) &&
+    /\b(passages?|sources?|quotes?|story|listings)\b/i.test(lastSentence);
+  if (wordCount < 40 && endsWithSearchAgainNarration) {
+    return true;
+  }
+
   return false;
 }
 
@@ -330,8 +349,7 @@ const LEADING_NARRATION_OPENER =
   /^(?:(?:fetching|pulling|searching|gathering|retrieving|looking)\b|(?:i(?:'ll| will)|let me)\s+(?:pull|search|fetch|gather|look|retrieve)\b)/i;
 
 /** Retrieval objects. The opener verb (searching, fetching, …) is not an object. */
-const LEADING_NARRATION_OBJECT_NOUN =
-  /\b(?:passages?|chunks?|sources?|articles?|visualizations?|teaching material)\b/i;
+const LEADING_NARRATION_OBJECT_NOUN = /\b(?:passages?|chunks?|sources?|articles?|visualizations?)\b/i;
 
 const LEADING_NARRATION_VERB =
   /\b(?:fetch(?:ing)?|pull(?:ing)?|search(?:ing)?|gather(?:ing)?|retriev(?:e|ing)|look(?:ing)?)\b/gi;
@@ -342,7 +360,15 @@ function countWords(text: string): number {
 
 function hasLeadingNarrationObject(sentence: string): boolean {
   const withoutVerbs = sentence.replace(LEADING_NARRATION_VERB, " ");
-  return LEADING_NARRATION_OBJECT_NOUN.test(withoutVerbs);
+  if (LEADING_NARRATION_OBJECT_NOUN.test(withoutVerbs)) {
+    return true;
+  }
+  // "teaching material" alone is common in real answers. Count it only with a
+  // retrieval target (outline / quotes / passages / sources).
+  return (
+    /\bteaching material\b/i.test(withoutVerbs) &&
+    /\b(?:outline|quotes?|passages?|sources?)\b/i.test(withoutVerbs)
+  );
 }
 
 function isLeadingRetrievalNarrationSentence(sentence: string): boolean {

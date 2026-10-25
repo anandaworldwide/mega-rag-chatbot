@@ -670,6 +670,25 @@ Short quotation and seated quiet. Sources include Crystal Clarity commentaries.
         })
       ).toEqual({ text: "**Defaults used:** Theme", usedFallback: false });
     });
+
+    it("does not strip I'll-pull teaching material used as a real practice opening", () => {
+      const answer =
+        "I'll pull teaching material into a short home practice. Sit with one line from the lesson.";
+      expect(stripLeadingRetrievalNarration(answer)).toBe(answer);
+      expect(isIncompleteRetrievalAnswer(answer)).toBe(false);
+    });
+
+    it("does not strip Fetching teaching material used as a real class opening", () => {
+      const answer = "Fetching teaching material from last week's class is enough. Keep the rest for later.";
+      expect(stripLeadingRetrievalNarration(answer)).toBe(answer);
+      expect(isIncompleteRetrievalAnswer(answer)).toBe(false);
+    });
+
+    it("does not strip Let-me-pull teaching material used as a real recap opening", () => {
+      const answer = "Let me pull teaching material we already have. Keep the session simple.";
+      expect(stripLeadingRetrievalNarration(answer)).toBe(answer);
+      expect(isIncompleteRetrievalAnswer(answer)).toBe(false);
+    });
   });
 
   describe("complete_list retrieval policy", () => {
@@ -841,6 +860,34 @@ Short quotation and seated quiet. Sources include Crystal Clarity commentaries.
         afterRetrievalAttempt: false,
       });
       expect(result).toEqual({ text: answer, usedFallback: false });
+    });
+
+    it("replaces a short leftover Searching-again listing after a retrieval attempt", () => {
+      const leaked =
+        "I'll pull additional Ananda Library material on the Bhagavad Gita for newcomers—quotes from Master and Swamiji plus a short story—so the 90-minute outline is well grounded.The first pass mostly returned listings. Searching again for actual Gita teaching passages and a usable story.";
+      const leftover =
+        "The first pass mostly returned listings. Searching again for actual Gita teaching passages and a usable story.";
+      expect(isIncompleteRetrievalAnswer(leftover)).toBe(true);
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: leaked,
+          afterRetrievalAttempt: true,
+        })
+      ).toEqual({
+        text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+        usedFallback: true,
+        reason: "incomplete",
+      });
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: leftover,
+          afterRetrievalAttempt: true,
+        })
+      ).toEqual({
+        text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+        usedFallback: true,
+        reason: "incomplete",
+      });
     });
   });
 });

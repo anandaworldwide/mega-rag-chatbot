@@ -122,6 +122,7 @@ import {
   executeRetrievalTool,
   MAX_ADDED_RETRIEVAL_SOURCES,
   RETRIEVAL_FETCH_FAILED_USER_MESSAGE,
+  RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
 } from "@/utils/server/tools/retrievalTools";
 import type { SiteConfig } from "@/types/siteConfig";
 import type { StreamingResponseData } from "@/types/StreamingResponseData";
@@ -384,6 +385,20 @@ describe("makechain retrieval tool loop", () => {
     expect(collectedAnswer(events)).toBe(realAnswer);
     expect(result.fullResponse).toBe(realAnswer);
     expect(result.fullResponse).not.toContain("Fetching the remaining");
+  });
+
+  it("replaces a leftover Searching-again listing with the fallback note", async () => {
+    const leftover =
+      "The first pass mostly returned listings. Searching again for actual Gita teaching passages and a usable story.";
+    const leaked = `I'll pull additional Ananda Library material on the Bhagavad Gita for newcomers—quotes from Master and Swamiji plus a short story—so the 90-minute outline is well grounded.${leftover}`;
+    mockFollowUpContent = leftover;
+    stubFirstPassTextOnly(leaked, "Write a 90-minute class outline");
+
+    const { result, events } = await runLoop("Write a 90-minute class outline");
+
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(collectedAnswer(events)).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(collectedAnswer(events)).not.toContain("Searching again");
   });
 
   it("keeps one-expansion behavior when complete_list is absent", async () => {

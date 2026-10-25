@@ -1980,6 +1980,7 @@ export async function setupAndExecuteLanguageModelChain(
         await streamingDeadline.waitWithDeadline(async () => {
           if (pendingToolCalls.length === 0 && firstPassIsSearchNarration) {
             await forceRetrievalAnswerOnly("first-pass search narration with no tool calls");
+            emitGuardedRetrievalAnswer(fullResponse);
             return;
           }
           while (pendingToolCalls.length > 0) {
@@ -2359,11 +2360,16 @@ export async function setupAndExecuteLanguageModelChain(
       }
 
       // Drop pre-tool / mid-tool status sentences so they are not shown or saved.
+      // If the leftover text is still only narration, replace it. Do not save it.
       const cleanedAnswer = stripLeadingRetrievalNarration(fullResponse);
       if (cleanedAnswer !== fullResponse && cleanedAnswer.trim()) {
-        sendData({ status: "retrieving_more_sources", token: cleanedAnswer });
-        fullResponse = cleanedAnswer;
-        tokensStreamed = cleanedAnswer.length;
+        const finalized = finalizeRetrievalUserAnswer({
+          answerText: cleanedAnswer,
+          afterRetrievalAttempt: isIncompleteRetrievalAnswer(cleanedAnswer),
+        });
+        sendData({ status: "retrieving_more_sources", token: finalized.text });
+        fullResponse = finalized.text;
+        tokensStreamed = finalized.text.length;
       }
 
       sendData({ done: true, timing: finalTiming });
