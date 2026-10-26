@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
@@ -25,6 +26,7 @@ def load_script_module():
     if spec is None or spec.loader is None:
         raise AssertionError("Could not load fix_audio_filenames.py")
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
