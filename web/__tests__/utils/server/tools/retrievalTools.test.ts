@@ -24,9 +24,12 @@ import {
   isIncompleteRetrievalAnswer,
   isRunTogetherNarrationText,
   parseCompleteListFlag,
+  stripLeadingRetrievalNarration,
   shouldAllowAnotherRetrievalRound,
   shouldSkipFurtherRetrievalAfterExpansion,
   finalizeRetrievalUserAnswer,
+  isForcedRetryAnswerTooThin,
+  isStrippedRemainderTooThin,
   COMPLETE_LIST_ADDED_RETRIEVAL_SOURCES,
   RETRIEVAL_TOOL_DEFINITIONS,
   RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE,
@@ -510,6 +513,22 @@ describe("retrievalTools", () => {
       ).toBe(false);
     });
 
+    it("detects standalone article-visualization fetch narration as incomplete", () => {
+      expect(
+        isIncompleteRetrievalAnswer("Fetching the remaining aspect visualizations from that article.")
+      ).toBe(true);
+    });
+
+    it("keeps a short real answer that mentions article complete", () => {
+      expect(isIncompleteRetrievalAnswer("I don't have an article on that topic.")).toBe(false);
+    });
+
+    it("keeps a short real answer that mentions visualizations complete", () => {
+      expect(
+        isIncompleteRetrievalAnswer("I'll describe two visualizations from the lesson.")
+      ).toBe(false);
+    });
+
     it("keeps short real answers complete when they start with Im/Ill/Imagine or contain moreover/resource", () => {
       expect(
         isIncompleteRetrievalAnswer("Immortality is the soul's nature, not a later reward.")
@@ -547,6 +566,137 @@ Pair share: where did you face an Arjuna moment this week?
 Short quotation and seated quiet. Sources include Crystal Clarity commentaries.
 `.trim();
       expect(isIncompleteRetrievalAnswer(outline)).toBe(false);
+    });
+  });
+
+  describe("stripLeadingRetrievalNarration", () => {
+    it("drops no-space fetch narration and keeps the real answer", () => {
+      const glued =
+        "Fetching the remaining aspect visualizations from that article.From Ananda materials, daily attunement is less a long checklist than choosing a few living practices.";
+      expect(stripLeadingRetrievalNarration(glued)).toBe(
+        "From Ananda materials, daily attunement is less a long checklist than choosing a few living practices."
+      );
+    });
+
+    it("drops spaced fetch narration and keeps the real answer", () => {
+      const spaced =
+        "Fetching the remaining aspect visualizations from that article. From Ananda materials, daily attunement is less a long checklist than choosing a few living practices.";
+      expect(stripLeadingRetrievalNarration(spaced)).toBe(
+        "From Ananda materials, daily attunement is less a long checklist than choosing a few living practices."
+      );
+    });
+
+    it("leaves narration-only text unchanged so the incomplete path can replace it", () => {
+      const narration = "Fetching the remaining aspect visualizations from that article.";
+      expect(stripLeadingRetrievalNarration(narration)).toBe(narration);
+    });
+
+    it("leaves a normal answer unchanged", () => {
+      const answer =
+        "From Ananda materials, daily attunement is less a long checklist than choosing a few living practices.";
+      expect(stripLeadingRetrievalNarration(answer)).toBe(answer);
+    });
+
+    it("does not strip a real I'll-share-sources opening", () => {
+      const answer =
+        "I'll share three sources of inner peace from Master. The first is daily meditation.";
+      expect(stripLeadingRetrievalNarration(answer)).toBe(answer);
+    });
+
+    it("does not strip geo nearby-center narration", () => {
+      const answer = "I'll find nearby Ananda centers based on your location. The closest is in Berkeley.";
+      expect(stripLeadingRetrievalNarration(answer)).toBe(answer);
+    });
+
+    it("does not strip a real I-don't-have-the-sources opening", () => {
+      const answer = "I don't have the sources for that in the library. Here is a general view...";
+      expect(stripLeadingRetrievalNarration(answer)).toBe(answer);
+      expect(isIncompleteRetrievalAnswer(answer)).toBe(false);
+    });
+
+    it("does not strip a Searching-for-peace teaching opening", () => {
+      const answer =
+        "Searching for peace is a core theme in Yogananda's teachings. Here is what the sources say...";
+      expect(stripLeadingRetrievalNarration(answer)).toBe(answer);
+      expect(isIncompleteRetrievalAnswer(answer)).toBe(false);
+    });
+
+    it("drops I'll-search-for-more-sources narration and keeps the real answer", () => {
+      const spaced =
+        "I'll search for more sources. From Ananda materials, daily attunement is less a long checklist than choosing a few living practices.";
+      expect(stripLeadingRetrievalNarration(spaced)).toBe(
+        "From Ananda materials, daily attunement is less a long checklist than choosing a few living practices."
+      );
+    });
+
+    it("leaves short real openings that only look like status verbs unchanged", () => {
+      const keep = [
+        "I don't have an article on that topic.",
+        "Seeking God within...",
+        "Gathering your thoughts...",
+        "Looking for more peace?",
+      ];
+      for (const answer of keep) {
+        expect(stripLeadingRetrievalNarration(answer)).toBe(answer);
+        expect(isIncompleteRetrievalAnswer(answer)).toBe(false);
+      }
+    });
+
+    it("peels two consecutive leading status sentences and keeps the remainder", () => {
+      const glued =
+        "Fetching nearby passages for quotes.I'll search for more sources.# Heading";
+      expect(stripLeadingRetrievalNarration(glued)).toBe("# Heading");
+    });
+
+    it("drops fetch narration glued to markdown, headings, and lists", () => {
+      const prefix = "Fetching nearby passages for a short story.";
+      expect(stripLeadingRetrievalNarration(`${prefix}**Defaults used:** Theme`)).toBe(
+        "**Defaults used:** Theme"
+      );
+      expect(stripLeadingRetrievalNarration(`${prefix}*Defaults*`)).toBe("*Defaults*");
+      expect(stripLeadingRetrievalNarration(`${prefix}\n\n**Defaults`)).toBe("**Defaults");
+      expect(stripLeadingRetrievalNarration(`${prefix} **Defaults`)).toBe("**Defaults");
+      expect(stripLeadingRetrievalNarration(`${prefix}# Heading`)).toBe("# Heading");
+      expect(stripLeadingRetrievalNarration(`${prefix} 1. First`)).toBe("1. First");
+    });
+
+    it("does not treat a decimal like 3.5 as a sentence boundary", () => {
+      const answer = "Fetching 3.5 million passages are indexed. Theme is listed first.";
+      expect(stripLeadingRetrievalNarration(answer)).toBe("Theme is listed first.");
+      expect(stripLeadingRetrievalNarration(answer)).not.toMatch(/^5 million/);
+    });
+
+    it("strips I'll-pull then fetch narration and keeps the markdown answer", () => {
+      const glued =
+        "I'll pull stronger teaching material for the outline.Fetching nearby passages for quotes.# Defaults used";
+      expect(stripLeadingRetrievalNarration(glued)).toBe("# Defaults used");
+      expect(isIncompleteRetrievalAnswer(stripLeadingRetrievalNarration(glued))).toBe(false);
+      expect(isStrippedRemainderTooThin(glued)).toBe(false);
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: glued,
+          afterRetrievalAttempt: false,
+        })
+      ).toEqual({ text: "# Defaults used", usedFallback: false });
+    });
+
+    it("does not strip I'll-pull teaching material used as a real practice opening", () => {
+      const answer =
+        "I'll pull teaching material into a short home practice. Sit with one line from the lesson.";
+      expect(stripLeadingRetrievalNarration(answer)).toBe(answer);
+      expect(isIncompleteRetrievalAnswer(answer)).toBe(false);
+    });
+
+    it("does not strip Fetching teaching material used as a real class opening", () => {
+      const answer = "Fetching teaching material from last week's class is enough. Keep the rest for later.";
+      expect(stripLeadingRetrievalNarration(answer)).toBe(answer);
+      expect(isIncompleteRetrievalAnswer(answer)).toBe(false);
+    });
+
+    it("does not strip Let-me-pull teaching material used as a real recap opening", () => {
+      const answer = "Let me pull teaching material we already have. Keep the session simple.";
+      expect(stripLeadingRetrievalNarration(answer)).toBe(answer);
+      expect(isIncompleteRetrievalAnswer(answer)).toBe(false);
     });
   });
 
@@ -655,12 +805,25 @@ Short quotation and seated quiet. Sources include Crystal Clarity commentaries.
 
   describe("finalizeRetrievalUserAnswer", () => {
     it("keeps a complete answer when the fetch returns sources", () => {
-      const answer =
-        "Here are three stories from Autobiography of a Yogi, including the Brindaban tiger and the mustard seed.";
+      const answer = `# Stories
+Here are three stories from Autobiography of a Yogi, including the Brindaban tiger and the mustard seed.`;
       const result = finalizeRetrievalUserAnswer({
         answerText: answer,
         afterRetrievalAttempt: true,
       });
+      expect(result).toEqual({ text: answer, usedFallback: false });
+    });
+
+    it("strips no-space fetch narration and keeps the real answer", () => {
+      const answer = `# Daily attunement
+From Ananda materials, daily attunement is less a long checklist than choosing a few living practices.`;
+      const result = finalizeRetrievalUserAnswer({
+        answerText: `Fetching the remaining aspect visualizations from that article.${answer}`,
+        afterRetrievalAttempt: true,
+      });
+      expect(isStrippedRemainderTooThin(`Fetching the remaining aspect visualizations from that article.${answer}`)).toBe(
+        false
+      );
       expect(result).toEqual({ text: answer, usedFallback: false });
     });
 
@@ -709,6 +872,228 @@ Short quotation and seated quiet. Sources include Crystal Clarity commentaries.
         afterRetrievalAttempt: false,
       });
       expect(result).toEqual({ text: answer, usedFallback: false });
+    });
+
+    it("keeps a short real first-pass answer when no retrieval attempt ran", () => {
+      const answers = [
+        "Hello! How can I help?",
+        "The library opens at nine.",
+        "I don't have a source for that.",
+        "The closest center is in Berkeley.",
+      ];
+      for (const answer of answers) {
+        expect(isIncompleteRetrievalAnswer(answer)).toBe(false);
+        expect(isStrippedRemainderTooThin(answer)).toBe(false);
+        expect(isForcedRetryAnswerTooThin(answer)).toBe(true);
+        expect(
+          finalizeRetrievalUserAnswer({
+            answerText: answer,
+            afterRetrievalAttempt: false,
+          })
+        ).toEqual({ text: answer, usedFallback: false });
+      }
+    });
+
+    it("treats a first-pass I'll-pull passages sentence plus a thin remainder as search narration", () => {
+      const prefix = "I'll pull a few verified Gita passages.";
+      const leftover = "Still looking for a short story.";
+      const raw = `${prefix}${leftover}`;
+      expect(stripLeadingRetrievalNarration(raw)).toBe(leftover);
+      expect(isStrippedRemainderTooThin(raw)).toBe(true);
+      expect(isForcedRetryAnswerTooThin(leftover)).toBe(true);
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: raw,
+          afterRetrievalAttempt: false,
+        })
+      ).toEqual({ text: raw, usedFallback: false });
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: leftover,
+          afterRetrievalAttempt: true,
+        })
+      ).toEqual({
+        text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+        usedFallback: true,
+        reason: "incomplete",
+      });
+    });
+
+    it("keeps a headed 40-word real answer on the normal path", () => {
+      const body =
+        "Sit for ten minutes each morning with a straight spine and a quiet breath. Read one short line from the lesson, then sit again. Keep the practice simple so you can now repeat it at home each day with ease.";
+      const answer = `# Home practice
+${body}`;
+      expect(body.trim().split(/\s+/).filter(Boolean)).toHaveLength(40);
+      expect(isForcedRetryAnswerTooThin(answer)).toBe(false);
+      expect(isIncompleteRetrievalAnswer(answer)).toBe(false);
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: answer,
+          afterRetrievalAttempt: true,
+        })
+      ).toEqual({ text: answer, usedFallback: false });
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: answer,
+          afterRetrievalAttempt: false,
+        })
+      ).toEqual({ text: answer, usedFallback: false });
+    });
+  });
+
+  describe("forced answer-only retry thin check", () => {
+    const leftoverSearchingAgain =
+      "The first pass mostly returned listings. Searching again for actual Gita teaching passages and a usable story.";
+    const leftoverPromiseAndStop =
+      "The available sources are still thin on exact Master/Swamiji Gita quotations and a short narrative story; I will finish a complete 90-minute outline from what can be verified, label paraphrases clearly, and keep technique practice high-level only.";
+    const shortStructuredOutline = `# 90-minute class
+- Opening welcome and one verse
+- Three teaching points from the lesson
+- Closing meditation`;
+
+    it("treats the 17-word leftover as thin after a retrieval attempt", () => {
+      expect(leftoverSearchingAgain.trim().split(/\s+/).filter(Boolean)).toHaveLength(17);
+      expect(isForcedRetryAnswerTooThin(leftoverSearchingAgain)).toBe(true);
+      expect(isIncompleteRetrievalAnswer(leftoverSearchingAgain)).toBe(false);
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: leftoverSearchingAgain,
+          afterRetrievalAttempt: true,
+        })
+      ).toEqual({
+        text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+        usedFallback: true,
+        reason: "incomplete",
+      });
+    });
+
+    it("treats the 37-word leftover as thin after a retrieval attempt", () => {
+      expect(leftoverPromiseAndStop.trim().split(/\s+/).filter(Boolean)).toHaveLength(37);
+      expect(isForcedRetryAnswerTooThin(leftoverPromiseAndStop)).toBe(true);
+      expect(isIncompleteRetrievalAnswer(leftoverPromiseAndStop)).toBe(false);
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: leftoverPromiseAndStop,
+          afterRetrievalAttempt: true,
+        })
+      ).toEqual({
+        text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+        usedFallback: true,
+        reason: "incomplete",
+      });
+    });
+
+    it("keeps a short structured outline after a forced retry", () => {
+      expect(isForcedRetryAnswerTooThin(shortStructuredOutline)).toBe(false);
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: shortStructuredOutline,
+          afterRetrievalAttempt: true,
+          afterForcedAnswerOnlyRetry: true,
+        })
+      ).toEqual({ text: shortStructuredOutline, usedFallback: false });
+    });
+  });
+
+  describe("stripped-then-thin leftover", () => {
+    const run3Prefix =
+      "I'll pull stronger Bhagavad Gita teaching material, quotes, and a short story so the 90-minute outline is well grounded.";
+    const run3Leftover =
+      "Still light on usable quotes and a story—searching again for Gita allegory, right action, and a short Master/Swamiji anecdote.";
+    const run6Leftover = "Still thin on usable Gita quotes and a story—searching more specifically.";
+    const run3Raw = `${run3Prefix}${run3Leftover}`;
+    const run6Raw = `${run3Prefix}${run6Leftover}`;
+
+    it("treats the run 3 leftover as incomplete after a retrieval attempt", () => {
+      expect(run3Leftover.trim().split(/\s+/).filter(Boolean)).toHaveLength(19);
+      expect(stripLeadingRetrievalNarration(run3Raw)).toBe(run3Leftover);
+      expect(isIncompleteRetrievalAnswer(run3Leftover)).toBe(false);
+      expect(isForcedRetryAnswerTooThin(run3Leftover)).toBe(true);
+      expect(isStrippedRemainderTooThin(run3Leftover)).toBe(false);
+      expect(isStrippedRemainderTooThin(run3Raw)).toBe(true);
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: run3Leftover,
+          afterRetrievalAttempt: true,
+        })
+      ).toEqual({
+        text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+        usedFallback: true,
+        reason: "incomplete",
+      });
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: run3Raw,
+          afterRetrievalAttempt: true,
+        })
+      ).toEqual({
+        text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+        usedFallback: true,
+        reason: "incomplete",
+      });
+    });
+
+    it("treats the run 6 leftover as incomplete after a retrieval attempt", () => {
+      expect(run6Leftover.trim().split(/\s+/).filter(Boolean)).toHaveLength(11);
+      expect(stripLeadingRetrievalNarration(run6Raw)).toBe(run6Leftover);
+      expect(isIncompleteRetrievalAnswer(run6Leftover)).toBe(false);
+      expect(isForcedRetryAnswerTooThin(run6Leftover)).toBe(true);
+      expect(isStrippedRemainderTooThin(run6Leftover)).toBe(false);
+      expect(isStrippedRemainderTooThin(run6Raw)).toBe(true);
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: run6Leftover,
+          afterRetrievalAttempt: true,
+        })
+      ).toEqual({
+        text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+        usedFallback: true,
+        reason: "incomplete",
+      });
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: run6Raw,
+          afterRetrievalAttempt: true,
+        })
+      ).toEqual({
+        text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+        usedFallback: true,
+        reason: "incomplete",
+      });
+    });
+
+    it("treats the Looking-for leftover as thin even when strip does not peel the first sentence", () => {
+      const prefix =
+        "I'll pull a few stronger Bhagavad Gita teaching passages and a short story so the 90-minute outline can include verified quotes.";
+      const leftover =
+        "Looking for a short verified story and clearer Gita quotes from Master or Swamiji.";
+      const raw = `${prefix}${leftover}`;
+      expect(prefix.trim().split(/\s+/).filter(Boolean)).toHaveLength(21);
+      expect(leftover.trim().split(/\s+/).filter(Boolean)).toHaveLength(14);
+      expect(stripLeadingRetrievalNarration(raw)).toBe(raw);
+      expect(stripLeadingRetrievalNarration(leftover)).toBe(leftover);
+      expect(isIncompleteRetrievalAnswer(leftover)).toBe(false);
+      expect(isForcedRetryAnswerTooThin(leftover)).toBe(true);
+      expect(isStrippedRemainderTooThin(leftover)).toBe(false);
+      expect(isStrippedRemainderTooThin(raw)).toBe(false);
+      expect(isIncompleteRetrievalAnswer(raw)).toBe(true);
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: leftover,
+          afterRetrievalAttempt: true,
+        })
+      ).toEqual({
+        text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+        usedFallback: true,
+        reason: "incomplete",
+      });
+      expect(
+        finalizeRetrievalUserAnswer({
+          answerText: leftover,
+          afterRetrievalAttempt: false,
+        })
+      ).toEqual({ text: leftover, usedFallback: false });
     });
   });
 });

@@ -141,6 +141,7 @@ export type FinalizeRetrievalUserAnswerParams = {
   fetchFailed?: boolean;
   roundLimitHit?: boolean;
   afterRetrievalAttempt: boolean;
+  afterForcedAnswerOnlyRetry?: boolean;
 };
 
 export type FinalizeRetrievalUserAnswerResult = {
@@ -153,12 +154,60 @@ export type FinalizeRetrievalUserAnswerResult = {
  * After a retrieval-tool attempt, keep a real answer or replace leftover
  * search narration with a plain user-facing note.
  */
+export const FORCED_RETRY_THIN_WORD_LIMIT = 60;
+
+function countWords(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+function hasAnswerStructure(text: string): boolean {
+  if (/^#{1,6}\s+\S/m.test(text)) {
+    return true;
+  }
+  if (/^\s*(?:[-*+•]|\d+\.)\s+\S/m.test(text)) {
+    return true;
+  }
+  if (/^\s*\|.+\|/m.test(text)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * After strip, a short blob with no heading, list, or table is not a finished
+ * answer. On the first pass, use this only when a narration prefix was peeled.
+ * After a retrieval attempt, use it on the remainder even if strip did not peel.
+ */
+export function isForcedRetryAnswerTooThin(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return true;
+  }
+  if (countWords(trimmed) >= FORCED_RETRY_THIN_WORD_LIMIT) {
+    return false;
+  }
+  return !hasAnswerStructure(trimmed);
+}
+
+/**
+ * True when a leading narration sentence was removed and the remainder is too
+ * thin to keep. False when strip left the text unchanged.
+ */
+export function isStrippedRemainderTooThin(answerText: string, strippedText?: string): boolean {
+  const stripped = strippedText ?? stripLeadingRetrievalNarration(answerText);
+  return stripped !== answerText && isForcedRetryAnswerTooThin(stripped);
+}
+
 export function finalizeRetrievalUserAnswer(
   params: FinalizeRetrievalUserAnswerParams
 ): FinalizeRetrievalUserAnswerResult {
-  const incomplete = isIncompleteRetrievalAnswer(params.answerText);
-  if (!incomplete && params.answerText.trim()) {
-    return { text: params.answerText, usedFallback: false };
+  const stripped = stripLeadingRetrievalNarration(params.answerText);
+  const incomplete =
+    isIncompleteRetrievalAnswer(stripped) ||
+    isStrippedRemainderTooThin(params.answerText, stripped) ||
+    (params.afterRetrievalAttempt === true && isForcedRetryAnswerTooThin(stripped));
+  if (!incomplete && stripped.trim()) {
+    return { text: stripped, usedFallback: false };
   }
   if (!params.afterRetrievalAttempt) {
     return { text: params.answerText, usedFallback: false };
@@ -189,6 +238,25 @@ export function finalizeRetrievalUserAnswer(
  * not a usable user-facing response (common when tools are unbound but the site prompt
  * still urges search_more_sources).
  */
+/**
+ * Split off the first sentence. "article.From" (no space after the period) is a boundary.
+ * Markdown markers (`*`, `_`, `#`, `` ` ``, `>`, `[`) after the end mark also start the rest.
+ * After whitespace, a digit or hyphen can start a list. A digit right after the period
+ * is not a boundary, so "3.5 million" stays in one sentence.
+ */
+function splitFirstSentence(text: string): { lead: string; rest: string } | null {
+  const match = text.match(/^([\s\S]*?[.?!…]+)(?=[A-Z"“*_#`>[]|[\s]+[A-Z"“*_#`>[0-9-])/);
+  if (!match) {
+    return null;
+  }
+  return { lead: match[1], rest: text.slice(match[1].length) };
+}
+
+function firstSentenceOrAll(text: string): string {
+  const split = splitFirstSentence(text);
+  return split ? split.lead.trim() : text;
+}
+
 /** True when Grok (or similar) emitted a status line with almost no spaces. */
 export function isRunTogetherNarrationText(text: string): boolean {
   const compact = text.replace(/[\s.,…]+/g, "");
@@ -232,28 +300,39 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
   }
 
   const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+  // Opener + object on the first sentence only. A later "what the sources say"
+  // must not make a real teaching answer look like search narration.
+  const statusWindow = firstSentenceOrAll(trimmed);
   const startsLikeSearchNarration =
     /^(i('ll| will)|i am|i'm|i don['’]t|let me(?: fetch| search| pull)?|gathering|pulling|searching|seeking|fetching|trying|expanding)\b/i.test(
-      trimmed
+      statusWindow
     );
+  const iDontWithoutSearchVerb =
+    /^i don['’]t\b/i.test(statusWindow) &&
+    !/\b(search(?:ing)?|fetch(?:ing)?|gather(?:ing)?|pull(?:ing)?)\b/i.test(statusWindow);
   // "Looking for" is common in real answers. Treat it as a status line only when
   // it is followed by more/additional plus sources/passages.
   const hasLookingForRetrievalStatus =
-    /^looking (?:up|for)\b/i.test(trimmed) &&
-    /\b(?:more|additional)\b[\s\S]{0,80}\b(?:sources?|passages?)\b/i.test(trimmed);
+    /^looking (?:up|for)\b/i.test(statusWindow) &&
+    /\b(?:more|additional)\b[\s\S]{0,80}\b(?:sources?|passages?)\b/i.test(statusWindow);
+  // Do not count search/searching as an object — that is the opener verb.
   const mentionsRetrievalWork =
-    /\b(search|searching|source|sources|passage|passages|chunk|chunks|quote|quotes|richer|additional|more|tighter search|tighter query|book material)\b/i.test(
-      trimmed
+    /\b(source|sources|passage|passages|chunk|chunks|quote|quotes|richer|additional|more|tighter search|tighter query|book material)\b/i.test(
+      statusWindow
     );
+  // article / visualization only with a fetch/gather/search verb (not "I don't have an article…").
+  const hasArticleOrVisualizationFetch =
+    /\b(fetch(?:ing)?|gather(?:ing)?|search(?:ing)?)\b/i.test(statusWindow) &&
+    /\b(articles?|visualizations?)\b/i.test(statusWindow);
   const hasGluedSearchNarration =
     /\b(expanding the strongest|trying a tighter search|searching the book material|i('ll| will) pull)\b/i.test(
-      trimmed
+      statusWindow
     );
   // Adjacent-chunk intent without saying "source/passage/chunk" (e.g. "Pulling nearby ceremony text…").
   // Keep the noun list tight so geo "I'll find nearby centers" is not treated as retrieval narration.
   const hasAdjacentFetchNarration =
     /\b(nearby|adjacent|neighboring|surrounding)\s+(?:the\s+)?(?:ceremony\s+)?(text|chunks?|passages?|sources?|excerpts?|material)\b/i.test(
-      trimmed
+      statusWindow
     );
 
   // Apply the no-space check only to run-together status lines, not normal prose.
@@ -268,20 +347,91 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
     gluedMentionsRetrievalWork =
       /(search|sources?|passages?|chunks?|quotes?|additional|more|tightersearch|tighterquery|bookmaterial)/.test(
         glued
-      );
+      ) ||
+      (/(fetch(?:ing)?|gather(?:ing)?|search(?:ing)?)/.test(glued) &&
+        /(articles?|visualizations?)/.test(glued));
   }
 
   // Short "I'll gather richer sources…" trail-offs, including glued status-like sentences.
   if (
     wordCount < 80 &&
+    !iDontWithoutSearchVerb &&
     (hasLookingForRetrievalStatus ||
       ((startsLikeSearchNarration || hasGluedSearchNarration || gluedStartsLikeSearchNarration) &&
-        (mentionsRetrievalWork || hasAdjacentFetchNarration || gluedMentionsRetrievalWork)))
+        (mentionsRetrievalWork ||
+          hasArticleOrVisualizationFetch ||
+          hasAdjacentFetchNarration ||
+          gluedMentionsRetrievalWork)))
   ) {
     return true;
   }
 
   return false;
+}
+
+/**
+ * Status-like openers used only when stripping a prefix from an otherwise real answer.
+ * No "I don't" — that starts real answers such as "I don't have the sources…".
+ * "I'll share…" is not cut: I'll must be followed by a fetch verb.
+ */
+const LEADING_NARRATION_OPENER =
+  /^(?:(?:fetching|pulling|searching|gathering|retrieving|looking)\b|(?:i(?:'ll| will)|let me)\s+(?:pull|search|fetch|gather|look|retrieve)\b)/i;
+
+/** Retrieval objects. The opener verb (searching, fetching, …) is not an object. */
+const LEADING_NARRATION_OBJECT_NOUN = /\b(?:passages?|chunks?|sources?|articles?|visualizations?)\b/i;
+
+const LEADING_NARRATION_VERB =
+  /\b(?:fetch(?:ing)?|pull(?:ing)?|search(?:ing)?|gather(?:ing)?|retriev(?:e|ing)|look(?:ing)?)\b/gi;
+
+function hasLeadingNarrationObject(sentence: string): boolean {
+  const withoutVerbs = sentence.replace(LEADING_NARRATION_VERB, " ");
+  if (LEADING_NARRATION_OBJECT_NOUN.test(withoutVerbs)) {
+    return true;
+  }
+  // "teaching material" alone is common in real answers. Count it only with a
+  // retrieval target (outline / quotes / passages / sources).
+  return (
+    /\bteaching material\b/i.test(withoutVerbs) &&
+    /\b(?:outline|quotes?|passages?|sources?)\b/i.test(withoutVerbs)
+  );
+}
+
+function isLeadingRetrievalNarrationSentence(sentence: string): boolean {
+  const trimmed = sentence.trim();
+  if (!trimmed) {
+    return false;
+  }
+  if (countWords(trimmed) > 20) {
+    return false;
+  }
+  if (!LEADING_NARRATION_OPENER.test(trimmed)) {
+    return false;
+  }
+  return hasLeadingNarrationObject(trimmed);
+}
+
+/**
+ * Remove leading tool-use / search-status sentences from an answer.
+ * Keeps a real answer that follows, including when the join has no space.
+ * Leaves a narration-only string unchanged so the incomplete-answer path can replace it.
+ */
+export function stripLeadingRetrievalNarration(text: string): string {
+  let remaining = text;
+  for (let i = 0; i < 4; i += 1) {
+    const split = splitFirstSentence(remaining);
+    if (!split) {
+      break;
+    }
+    if (!isLeadingRetrievalNarrationSentence(split.lead)) {
+      break;
+    }
+    const next = split.rest.replace(/^\s+/, "");
+    if (!next) {
+      break;
+    }
+    remaining = next;
+  }
+  return remaining;
 }
 
 /** Fill site-template placeholders used by the normal RAG answer path. */

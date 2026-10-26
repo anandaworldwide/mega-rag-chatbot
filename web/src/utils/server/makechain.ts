@@ -74,8 +74,11 @@ import {
   executeRetrievalTool,
   finalizeRetrievalUserAnswer,
   getRetrievalToolGuidance,
+  isForcedRetryAnswerTooThin,
   isIncompleteRetrievalAnswer,
   isRetrievalToolName,
+  isStrippedRemainderTooThin,
+  stripLeadingRetrievalNarration,
   MAX_RETRIEVAL_TOOL_ITERATIONS,
   parseCompleteListFlag,
   RETRIEVAL_TOOL_DEFINITIONS,
@@ -1815,8 +1818,12 @@ export async function setupAndExecuteLanguageModelChain(
       let pendingToolCalls = extractGeoToolCalls(result.answer);
       const retrievalToolsEnabled = shouldBindRetrievalTools(siteConfig, modelName, isAnthropicModel);
       // Plain-text "I'll search…" with no tool_calls never entered this loop, so the leak became the answer.
+      // Strip a glued narration prefix first so a real answer is not treated as incomplete.
+      const firstPassWithoutNarration = stripLeadingRetrievalNarration(fullResponse);
       const firstPassIsSearchNarration =
-        retrievalToolsEnabled && isIncompleteRetrievalAnswer(fullResponse);
+        retrievalToolsEnabled &&
+        (isIncompleteRetrievalAnswer(firstPassWithoutNarration) ||
+          isStrippedRemainderTooThin(fullResponse, firstPassWithoutNarration));
       if (pendingToolCalls.length > 0 || firstPassIsSearchNarration) {
         console.log("🔧 Starting tool execution loop");
 
@@ -1876,25 +1883,28 @@ export async function setupAndExecuteLanguageModelChain(
             roundLimitHit: retrievalRoundLimitHit,
             afterRetrievalAttempt:
               retrievalIterations > 0 || firstPassIsSearchNarration || retrievalAnswerForced,
+            afterForcedAnswerOnlyRetry: retrievalAnswerForced,
           });
-          if (!finalized.usedFallback) {
+          if (finalized.text === fullResponse) {
             return finalized.text;
           }
-          console.warn(
-            `⚠️ Replacing incomplete retrieval answer with user-facing fallback (${finalized.reason})`
-          );
-          sendData({ status: "retrieving_more_sources" });
+          if (finalized.usedFallback) {
+            console.warn(
+              `⚠️ Replacing incomplete retrieval answer with user-facing fallback (${finalized.reason})`
+            );
+          }
+          // Same SSE event: clear any streamed narration, then show the cleaned answer.
+          sendData({ status: "retrieving_more_sources", token: finalized.text });
           fullResponse = finalized.text;
           tokensStreamed = finalized.text.length;
           firstTokenTime = firstTokenTime ?? Date.now();
           firstByteTime = firstByteTime ?? Date.now();
           streamingDeadline.touchStreamingActivity();
-          sendData({ token: finalized.text });
           return finalized.text;
         };
 
         /** Answer-only recovery so the client never stuck on "Gathering additional sources...". */
-        const forceRetrievalAnswerOnly = async (reason: string) => {
+        const runForcedAnswerOnlyTurn = async (reason: string) => {
           console.warn(`⚠️ Forcing retrieval answer-only turn (${reason})`);
           retrievalAnswerForced = true;
           sendData({ status: "retrieving_more_sources" });
@@ -1972,9 +1982,19 @@ export async function setupAndExecuteLanguageModelChain(
           pendingToolCalls = [];
         };
 
+        /** One extra answer-only turn when the first forced retry is still thin. No third pass. */
+        const forceRetrievalAnswerOnly = async (reason: string) => {
+          await runForcedAnswerOnlyTurn(reason);
+          const stripped = stripLeadingRetrievalNarration(fullResponse);
+          if (isIncompleteRetrievalAnswer(stripped) || isForcedRetryAnswerTooThin(stripped)) {
+            await runForcedAnswerOnlyTurn(`${reason}; thin first retry`);
+          }
+        };
+
         await streamingDeadline.waitWithDeadline(async () => {
           if (pendingToolCalls.length === 0 && firstPassIsSearchNarration) {
             await forceRetrievalAnswerOnly("first-pass search narration with no tool calls");
+            emitGuardedRetrievalAnswer(fullResponse);
             return;
           }
           while (pendingToolCalls.length > 0) {
@@ -2250,7 +2270,12 @@ export async function setupAndExecuteLanguageModelChain(
               if (hasFurtherRetrievalCalls && allowMoreRetrievalTools) {
                 continue;
               }
-              if (hasFurtherRetrievalCalls || isIncompleteRetrievalAnswer(bufferedAnswer)) {
+              const usableAnswer = stripLeadingRetrievalNarration(bufferedAnswer);
+              if (
+                hasFurtherRetrievalCalls ||
+                isIncompleteRetrievalAnswer(usableAnswer) ||
+                isForcedRetryAnswerTooThin(usableAnswer)
+              ) {
                 console.warn(
                   `⚠️ Discarding incomplete post-retrieval answer (${bufferedAnswer.length} chars); forcing answer-only recovery`
                 );
@@ -2261,7 +2286,7 @@ export async function setupAndExecuteLanguageModelChain(
                 );
                 break;
               }
-              flushBufferedAnswer(bufferedAnswer);
+              flushBufferedAnswer(usableAnswer);
             }
 
             console.log(`✅ Tool response received for iteration ${iteration}`);
@@ -2271,7 +2296,7 @@ export async function setupAndExecuteLanguageModelChain(
           if (
             retrievalIterations > 0 &&
             !retrievalAnswerForced &&
-            isIncompleteRetrievalAnswer(fullResponse)
+            (isIncompleteRetrievalAnswer(fullResponse) || isForcedRetryAnswerTooThin(fullResponse))
           ) {
             await forceRetrievalAnswerOnly(
               fullResponse.trim() ? "loop ended with incomplete retrieval answer" : "loop ended with empty answer"
@@ -2352,6 +2377,20 @@ export async function setupAndExecuteLanguageModelChain(
         markerChecked = true;
       }
 
+      // Drop pre-tool / mid-tool status sentences so they are not shown or saved.
+      // If the leftover text is still only narration, replace it. Do not save it.
+      const cleanedAnswer = stripLeadingRetrievalNarration(fullResponse);
+      const strippedThenThin = isStrippedRemainderTooThin(fullResponse, cleanedAnswer);
+      if (cleanedAnswer !== fullResponse && cleanedAnswer.trim()) {
+        const finalized = finalizeRetrievalUserAnswer({
+          answerText: fullResponse,
+          afterRetrievalAttempt: isIncompleteRetrievalAnswer(cleanedAnswer) || strippedThenThin,
+        });
+        sendData({ status: "retrieving_more_sources", token: finalized.text });
+        fullResponse = finalized.text;
+        tokensStreamed = finalized.text.length;
+      }
+
       sendData({ done: true, timing: finalTiming });
 
       // Location queries skip Go deeper/broader/daily-life pills.
@@ -2385,7 +2424,9 @@ export async function setupAndExecuteLanguageModelChain(
       // result.question is the restated question from the chain
       // Do not fall back to first-pass tool narration after a retrieval attempt.
       const fallbackAnswerContent =
-        result.answer && typeof result.answer.content === "string" ? result.answer.content : "";
+        result.answer && typeof result.answer.content === "string"
+          ? stripLeadingRetrievalNarration(result.answer.content)
+          : "";
       const authoritativeAnswer = fullResponse.trim()
         ? fullResponse
         : fallbackAnswerContent && !isIncompleteRetrievalAnswer(fallbackAnswerContent)
