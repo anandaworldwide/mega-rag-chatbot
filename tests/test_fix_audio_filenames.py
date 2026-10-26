@@ -597,7 +597,15 @@ def test_verify_failure_names_the_backup_for_rollback(tmp_path: Path):
     ]
 
     try:
-        SCRIPT.apply_remap(index, rows, sample_records(), backup_path)
+        SCRIPT.apply_remap(
+            index,
+            rows,
+            sample_records(),
+            backup_path,
+            interval=0,
+            limit=0,
+            sleep=lambda _delay: None,
+        )
     except SCRIPT.FilenameFixError as exc:
         message = str(exc)
         assert "Verify failed" in message
