@@ -78,6 +78,8 @@ FETCH_WORKERS = 8
 FETCH_RETRIES = 3
 FETCH_BACKOFF_SEC = 0.2
 UPDATE_BATCH = 100
+VERIFY_INTERVAL_SEC = 5
+VERIFY_LIMIT_SEC = 120
 SAMPLE_LIMIT = 3
 REPORT_NAME = "filename-fix-report.jsonl"
 BACKUP_PREFIX = "filename-fix-backup-"
@@ -597,15 +599,41 @@ def update_filenames(index, vector_ids: list[str], new_key: str) -> int:
     return len(vector_ids)
 
 
-def verify_filenames(index, vector_ids: list[str], expected: str) -> None:
-    """Re-fetch vectors and confirm filename and count."""
-    fetched = fetch_metadata(index, vector_ids)
-    if len(fetched) != len(vector_ids):
-        raise FilenameFixError("Verify failed. Vector count changed.")
-    for vector_id in vector_ids:
-        metadata = fetched.get(vector_id)
-        if not metadata or metadata.get("filename") != expected:
-            raise FilenameFixError("Verify failed. Filename does not match.")
+def verify_filenames(
+    index,
+    vector_ids: list[str],
+    expected: str,
+    interval: float = VERIFY_INTERVAL_SEC,
+    limit: float = VERIFY_LIMIT_SEC,
+    sleep=time.sleep,
+) -> None:
+    """Re-fetch vectors and confirm filename and count.
+
+    Pinecone fetch can lag after an update. Poll until all ids show the
+    expected filename, or until the time limit. A change in vector count
+    fails at once.
+    """
+    waited = 0
+    while True:
+        fetched = fetch_metadata(index, vector_ids)
+        if len(fetched) != len(vector_ids):
+            raise FilenameFixError("Verify failed. Vector count changed.")
+        matched = True
+        for vector_id in vector_ids:
+            metadata = fetched.get(vector_id)
+            if not metadata or metadata.get("filename") != expected:
+                matched = False
+                break
+        if matched:
+            print(f"Verify matched after {waited} seconds.")
+            return
+        if waited >= limit:
+            raise FilenameFixError(
+                "Verify failed. Filename does not match. "
+                f"Waited {waited} seconds."
+            )
+        sleep(interval)
+        waited += interval
 
 
 def apply_remap(
@@ -613,6 +641,9 @@ def apply_remap(
     rows: list[RemapRow],
     records: list[AudioRecord],
     backup_path: Path | None,
+    interval: float = VERIFY_INTERVAL_SEC,
+    limit: float = VERIFY_LIMIT_SEC,
+    sleep=time.sleep,
 ) -> int:
     """Update every vector of each remapped file. Require a backup file."""
     if backup_path is None or not Path(backup_path).is_file():
@@ -629,7 +660,14 @@ def apply_remap(
             ids = [record.vector_id for record in file_records]
             updated += update_filenames(index, ids, row.new_key)
             try:
-                verify_filenames(index, ids, row.new_key)
+                verify_filenames(
+                    index,
+                    ids,
+                    row.new_key,
+                    interval=interval,
+                    limit=limit,
+                    sleep=sleep,
+                )
                 if len(ids) != row.vector_count:
                     raise FilenameFixError("Verify failed. Vector count changed.")
             except FilenameFixError as exc:
@@ -668,7 +706,13 @@ def read_backup(backup_path: Path) -> list[AudioRecord]:
     return records
 
 
-def rollback_from_backup(index, backup_path: Path) -> int:
+def rollback_from_backup(
+    index,
+    backup_path: Path,
+    interval: float = VERIFY_INTERVAL_SEC,
+    limit: float = VERIFY_LIMIT_SEC,
+    sleep=time.sleep,
+) -> int:
     """Set filename back from a backup file."""
     records = read_backup(backup_path)
     ids = [record.vector_id for record in records]
@@ -683,7 +727,14 @@ def rollback_from_backup(index, backup_path: Path) -> int:
     for record in records:
         by_name[record.filename].append(record.vector_id)
     for filename, file_ids in by_name.items():
-        verify_filenames(index, file_ids, filename)
+        verify_filenames(
+            index,
+            file_ids,
+            filename,
+            interval=interval,
+            limit=limit,
+            sleep=sleep,
+        )
     print(f"Rollback vectors: {len(records)}")
     for record in records[:SAMPLE_LIMIT]:
         print(f"  {record.filename}")
