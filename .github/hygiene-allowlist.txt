@@ -1,0 +1,4 @@
+# One glob per line.
+# Each glob is a reviewed exception to the blocked-file rules.
+# Lines that start with # are comments.
+# This file may start with no exception globs.
