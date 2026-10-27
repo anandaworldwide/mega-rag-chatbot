@@ -44,6 +44,8 @@ class BlockedFileChecker:
         return posix.lstrip("/")
 
     def glob_match(self, path: str, pattern: str) -> bool:
+        if pattern.startswith("/"):
+            pattern = pattern[1:]
         return self._match_parts(path.split("/"), pattern.split("/"))
 
     def _match_parts(self, path_parts: list[str], pattern_parts: list[str]) -> bool:
@@ -65,7 +67,12 @@ class BlockedFileChecker:
         posix = self.normalize(path)
         name = posix.rsplit("/", 1)[-1]
         for pattern in self.allow_patterns:
-            if self.glob_match(posix, pattern) or fnmatch.fnmatchcase(name, pattern):
+            if self.glob_match(posix, pattern):
+                return True
+            # A leading / anchors the glob to the repository root.
+            if pattern.startswith("/"):
+                continue
+            if fnmatch.fnmatchcase(name, pattern):
                 return True
         return False
 
