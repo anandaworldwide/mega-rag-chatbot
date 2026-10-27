@@ -63,7 +63,7 @@ jobs:
           uv run --locked python -m pip check || echo "⚠️  Some dependency conflicts detected"
 
           echo "✅ Smoke tests: Running quick validation tests"
-          uv run --locked python -m pytest -q tests/test_smoke_validation.py --tb=short
+          uv run --locked python -m pytest -q tests/test_smoke_validation.py tests/test_pr_hygiene.py --tb=short
 
           echo "✅ Static analysis: Running ruff check"
           uv run --locked python -m ruff check data_ingestion/ bin/ pyutil/ evaluation/ --select=E,W,F || echo "⚠️  Ruff check completed with warnings"
