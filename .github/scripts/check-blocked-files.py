@@ -93,7 +93,21 @@ class BlockedFileChecker:
             return []
         return [self.normalize(item.decode("utf-8")) for item in output.split(b"\0") if item]
 
+    def merge_base(self, base_sha: str, head_sha: str) -> str:
+        return subprocess.check_output(
+            ["git", "-C", str(self.repo_root), "merge-base", base_sha, head_sha],
+            text=True,
+        ).strip()
+
     def list_changed_files(self, base_sha: str, head_sha: str) -> list[str]:
+        """Return files this branch adds or changes.
+
+        Use the three-dot range BASE...HEAD. That range starts at the merge-base.
+        Do not use a two-dot range. A two-dot range includes later changes from main.
+        """
+        merge_base = self.merge_base(base_sha, head_sha)
+        print(f"Using three-dot merge-base range {base_sha}...{head_sha}.")
+        print(f"Merge-base: {merge_base}")
         output = subprocess.check_output(
             [
                 "git",

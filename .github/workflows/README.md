@@ -61,6 +61,9 @@ This directory contains automated CI/CD workflows for the Ananda Library Chatbot
 - Reads reviewed exceptions from `.github/hygiene-allowlist.txt`
 - If the branch already tracks evaluation JSON or data files, the job checks
   only files that the pull request adds or changes
+- The file check uses the three-dot merge-base range. It does not use a
+  two-dot range, so later blocked-path changes on `main` do not fail a
+  stale branch
 
 **Status:** This workflow reports hygiene failures. It does not replace Monorepo CI.
 
