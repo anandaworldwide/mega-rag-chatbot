@@ -119,3 +119,23 @@ def test_blocked_suffix_is_case_insensitive(path: str, blocked: bool, tmp_path: 
         assert reasons == [f"{path} (data file type is blocked)"]
     else:
         assert reasons == []
+
+
+def test_allowlist_exempts_only_root_package_lock_json(tmp_path: Path) -> None:
+    github_dir = tmp_path / ".github"
+    github_dir.mkdir()
+    (github_dir / "hygiene-allowlist.txt").write_text(
+        (ROOT / ".github" / "hygiene-allowlist.txt").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    oversized = b"0" * (blocked_mod.SIZE_LIMIT_BYTES + 1)
+    (tmp_path / "package-lock.json").write_bytes(oversized)
+    nested_dir = tmp_path / "web"
+    nested_dir.mkdir()
+    (nested_dir / "package-lock.json").write_bytes(oversized)
+
+    checker = blocked_mod.BlockedFileChecker(tmp_path)
+    reasons = checker.evaluate(["package-lock.json", "web/package-lock.json"])
+
+    size_reason = f"size {len(oversized)} bytes exceeds {blocked_mod.SIZE_LIMIT_BYTES} bytes"
+    assert reasons == [f"web/package-lock.json ({size_reason})"]
