@@ -23,6 +23,7 @@ This directory contains automated CI/CD workflows for the Ananda Library Chatbot
   - Static analysis with Ruff
   - PDF processing dry-run
   - Node.js linting and type checking
+  - Next.js production build and a proxy compile check
 - Uses caching for uv and npm dependencies for faster builds
 
 **Status:** This workflow must pass before PRs can be merged.
