@@ -107,6 +107,24 @@ jobs:
           echo "✅ Knip — blocking check on high-confidence categories"
           npm run knip -- --include files,dependencies,unlisted,binaries,unresolved
 
+      - name: Build Next.js app
+        working-directory: ./web
+        env:
+          SITE: ananda-public
+          SITE_ID: ananda-public
+          NEXT_PUBLIC_SITE: ananda-public
+          SKIP_ENV_VALIDATION: true
+          NODE_ENV: production
+          SECRET_KEY: ci-placeholder-secret-key
+          NEXT_PUBLIC_BASE_URL: http://127.0.0.1:3000
+          GOOGLE_APPLICATION_CREDENTIALS: "{}"
+          NODE_OPTIONS: "--max-old-space-size=4096"
+        run: npx next build --webpack
+
+      - name: Check proxy in build output
+        working-directory: ./web
+        run: node scripts/check-proxy-in-build.mjs
+
       - name: Test Results Summary
         if: always()
         run: |
