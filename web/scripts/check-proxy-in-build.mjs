@@ -10,7 +10,8 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
-const webRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const defaultWebRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const webRoot = path.resolve(process.env.WEB_ROOT || defaultWebRoot);
 const nextServerDir = path.join(webRoot, ".next", "server");
 const proxySourcePath = path.join(webRoot, "src", "proxy.ts");
 const staleRootMiddlewarePath = path.join(webRoot, "middleware.ts");
@@ -58,14 +59,12 @@ if (fs.existsSync(middlewareManifestPath)) {
 
 if (!hasEdgeMiddleware && !hasNodeProxy) {
   fail(
-    ".next/server/functions-config-manifest.json",
+    functionsManifestPath,
     "Build manifests have no proxy or middleware entry. Next did not compile src/proxy.ts."
   );
 }
 
-const checkedFile = hasNodeProxy
-  ? ".next/server/functions-config-manifest.json"
-  : ".next/server/middleware-manifest.json";
+const checkedFile = hasNodeProxy ? functionsManifestPath : middlewareManifestPath;
 const mode = hasNodeProxy ? "Node proxy (/_middleware)" : "Edge middleware (/)";
 console.log(`Checked file: ${checkedFile}`);
 console.log(`Proxy build check passed: ${mode} is part of the Next.js build.`);
