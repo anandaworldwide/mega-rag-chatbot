@@ -55,10 +55,13 @@ This directory contains automated CI/CD workflows for the Ananda Library Chatbot
 **What it does:**
 
 - Fails when the pull request body has no usable `## Proof` section
+- Treats `none`, `todo`, `tbd`, `n/a`, and `na` as empty Proof text
+- Ignores heading-like lines that sit inside a fenced code block
 - Fails when the pull request adds or changes a blocked file
 - Blocked files include files larger than 500 KB, paths under `.remember/`,
   JSON files under `evaluation/`, and data files (`*.jsonl`, `*.csv`,
   `*.parquet`, `*.sqlite`, `*.db`) outside `node_modules`
+- Data-file suffix checks ignore letter case, so `.CSV` is blocked
 - Reads reviewed exceptions from `.github/hygiene-allowlist.txt`
 - If the branch already tracks evaluation JSON or data files, the job checks
   only files that the pull request adds or changes

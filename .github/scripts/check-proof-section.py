@@ -10,13 +10,14 @@ import sys
 
 FIX_INSTRUCTION = (
     "Add a ## Proof section that holds real evidence. "
-    "Do not leave the section empty, TBD, or N/A."
+    "Do not leave the section empty or set it to none, todo, tbd, or n/a."
 )
 
 HEADING_RE = re.compile(r"^##\s+Proof\s*$")
 NEXT_HEADING_RE = re.compile(r"^#{1,2}\s+\S")
+FENCE_RE = re.compile(r"^(`{3,}|~{3,})")
 HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
-PLACEHOLDERS = frozenset({"tbd", "n/a", "na"})
+PLACEHOLDERS = frozenset({"none", "todo", "tbd", "na"})
 
 
 class ProofSectionChecker:
@@ -33,7 +34,14 @@ class ProofSectionChecker:
             return None
 
         end = len(lines)
+        in_fence = False
         for index in range(start, len(lines)):
+            stripped = lines[index].lstrip()
+            if FENCE_RE.match(stripped):
+                in_fence = not in_fence
+                continue
+            if in_fence:
+                continue
             if NEXT_HEADING_RE.match(lines[index]) and not lines[index].startswith("###"):
                 end = index
                 break
@@ -44,7 +52,7 @@ class ProofSectionChecker:
         return without_comments.strip()
 
     def is_placeholder(self, text: str) -> bool:
-        compact = re.sub(r"[\s.]+", "", text).lower()
+        compact = re.sub(r"[^a-z0-9]+", "", text.lower())
         return compact in PLACEHOLDERS
 
     def evaluate(self, body: str | None) -> tuple[bool, str]:

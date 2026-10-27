@@ -82,7 +82,7 @@ class BlockedFileChecker:
         parts = posix.split("/")
         if "node_modules" in parts:
             return False
-        return posix.endswith(DATA_SUFFIXES)
+        return posix.lower().endswith(DATA_SUFFIXES)
 
     def list_tracked_files(self) -> list[str]:
         output = subprocess.check_output(
