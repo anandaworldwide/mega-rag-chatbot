@@ -63,6 +63,7 @@ This directory contains automated CI/CD workflows for the Ananda Library Chatbot
   `*.parquet`, `*.sqlite`, `*.db`) outside `node_modules`
 - Data-file suffix checks ignore letter case, so `.CSV` is blocked
 - Reads reviewed exceptions from `.github/hygiene-allowlist.txt`
+- A leading `/` in that allowlist anchors the glob to the repository root
 - If the branch already tracks evaluation JSON or data files, the job checks
   only files that the pull request adds or changes
 - The file check uses the three-dot merge-base range. It does not use a

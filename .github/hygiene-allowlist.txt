@@ -1,8 +1,9 @@
 # One glob per line.
 # Each glob is a reviewed exception to the blocked-file rules.
+# A leading / anchors the glob to the repository root.
 # Lines that start with # are comments.
 # This file may start with no exception globs.
 
 # Root lockfile is already larger than the 500 KiB hygiene size limit.
 # Security override pins must update this file.
-package-lock.json
+/package-lock.json
