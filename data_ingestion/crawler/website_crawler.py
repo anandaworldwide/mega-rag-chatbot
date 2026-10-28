@@ -33,6 +33,7 @@ import sys
 import tempfile
 import time
 import traceback
+import urllib.request
 from contextlib import suppress
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -110,6 +111,7 @@ _lock_manager: CrawlerLockManager | None = None
 DEFAULT_PAGE_TIMEOUT_MS = 30000  # 30 seconds
 NETWORK_IDLE_TIMEOUT_MS = 15000  # 15 seconds for network idle
 CSV_TIMEOUT_MS = 30000  # 30 seconds for CSV downloads
+ROBOTS_FETCH_TIMEOUT_SECONDS = 30
 
 SQLITE_NORMALIZED_NEXT_CRAWL = "datetime(replace(substr(next_crawl,1,19),'T',' '))"
 SQLITE_NORMALIZED_RETRY_AFTER = "datetime(replace(substr(retry_after,1,19),'T',' '))"
@@ -428,11 +430,28 @@ class WebsiteCrawler:
         return cache_age > timedelta(hours=self.robots_cache_duration_hours)
 
     def _load_robots_txt(self):
-        """Load or reload robots.txt with caching."""
+        """Load or reload robots.txt with a hard network timeout.
+
+        RobotFileParser.read() uses urlopen with no timeout. A hung TCP
+        connect can block forever and skip --max-runtime-minutes.
+        """
         try:
+            logging.info(
+                f"Loading robots.txt from {self.robots_url} "
+                f"(timeout {ROBOTS_FETCH_TIMEOUT_SECONDS}s)"
+            )
+            request = urllib.request.Request(
+                self.robots_url,
+                headers={"User-Agent": USER_AGENT},
+            )
+            response = urllib.request.urlopen(
+                request, timeout=ROBOTS_FETCH_TIMEOUT_SECONDS
+            )
+            raw = response.read()
+            content = raw.decode("utf-8", errors="replace")
             self.robots_parser = RobotFileParser()
             self.robots_parser.set_url(self.robots_url)
-            self.robots_parser.read()
+            self.robots_parser.parse(content.splitlines())
             self.robots_cache_timestamp = datetime.now()
         except Exception as e:
             logging.error(f"Could not load robots.txt from {self.robots_url}: {e}")
