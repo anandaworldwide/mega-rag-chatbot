@@ -21,8 +21,12 @@ or two VMs). That duplicates work and risks SQLite corruption.
 - **State**: Host directory mounted at container `DATA_DIR` (for example `/srv/ananda-crawler` → `/app/data` in
   container)
 - **Secrets**: Host file (for example `/srv/ananda-crawler/env/.env.ananda-public`) passed with `docker run --env-file`
-- **Schedule**: `systemd` timer invoking a oneshot service that runs `docker run --rm ... website_crawler.py` with
+- **Schedule**: `systemd` timer invoking a oneshot service that runs `docker run --rm --name ananda-crawler-run ... website_crawler.py` with
   `--max-runtime-minutes` and `--non-interactive`
+- **Hard stop**: The process starts a watchdog at startup. The crawl-loop limit cannot fire if a call is blocked.
+  After max runtime plus 300 seconds of grace, the watchdog force-exits. The first SIGTERM starts a 30 second
+  shutdown timer. The unit uses `TimeoutStartSec=3300` (above 45 minutes plus grace), `docker run --stop-timeout 30`,
+  and `ExecStopPost=-/usr/bin/docker rm -f ananda-crawler-run` so a stuck container cannot keep the name.
 - **Daily report**: Separate timer or cron on the same host running `daily_report.py` inside the same image (or a venv
   with crawler deps). CloudWatch log scraping in `daily_report.py` is optional; queue/email sections work without AWS
   log APIs if credentials are not present.
@@ -53,6 +57,7 @@ Match the site’s `.env.<site>` on the host and pass it into the container.
 ```bash
 docker run --rm \
   --name ananda-crawler-test \
+  --stop-timeout 30 \
   -e DATA_DIR=/app/data \
   --env-file /srv/ananda-crawler/env/.env.ananda-public \
   -v /srv/ananda-crawler:/app/data \
@@ -71,6 +76,9 @@ Confirm Playwright/Firefox starts, the DB path under `db/`, and outbound HTTPS t
 Summary of what those files provide:
 
 - **Crawl schedule**: `ananda-crawler.service` + `ananda-crawler.timer` — hourly `docker run` in a PT daytime window.
+  The example unit sets `TimeoutStartSec=3300`, `--stop-timeout 30`, and
+  `ExecStopPost=-/usr/bin/docker rm -f ananda-crawler-run`. Copy the unit again after you pull this change, then
+  `sudo systemctl daemon-reload`.
 - **Daily report email**: `ananda-crawler-daily-report.service` + `.timer` — runs `daily_report.py` in the same image
   (replaces relying on CloudWatch for queue visibility; optional CloudWatch log section in the script stays unused on
   the VM unless you add AWS creds).

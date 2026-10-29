@@ -12,7 +12,14 @@ from pathlib import Path
 from typing import Any
 
 # Import from progress_utils for signal handling
+from utils.progress_utils import is_exiting
 from utils.progress_utils import signal_handler as progress_signal_handler
+
+# Cloud lock is a JSON file, not flock. Heartbeat is the timestamp field.
+# A lock is stale when the heartbeat is older than this timeout.
+CLOUD_LOCK_TIMEOUT_SECONDS = 300
+# A timestamp this far in the future is treated as corrupt.
+CLOUD_LOCK_FUTURE_SKEW_SECONDS = 120
 
 # Configure logging defaults (main() will override with _configure_logging()).
 logging.basicConfig(
@@ -42,16 +49,30 @@ def _is_cloud_mode() -> bool:
     return bool(os.getenv("DATA_DIR"))
 
 
+def _cloud_lock_is_fresh(lock_data: dict[str, Any], now: float | None = None) -> bool:
+    """Return True when the lock heartbeat is recent enough to block a new run."""
+    if now is None:
+        now = time.time()
+    lock_timestamp = lock_data.get("timestamp", 0)
+    if not isinstance(lock_timestamp, int | float):
+        return False
+    if lock_timestamp > now + CLOUD_LOCK_FUTURE_SKEW_SECONDS:
+        return False
+    if lock_timestamp > now:
+        return True
+    return (now - lock_timestamp) < CLOUD_LOCK_TIMEOUT_SECONDS
+
+
 def _check_and_steal_stale_lock(lock_file: str, site: str) -> bool:
     """Check if existing lock is stale and remove it if so.
 
     Returns True if lock was stale and removed, False if lock is fresh.
-    """
-    # Lock timeout: if lock file hasn't been updated in this many seconds,
-    # consider it stale (crashed process). Set to 5 minutes to allow for
-    # long operations like Pinecone upserts.
-    LOCK_TIMEOUT_SECONDS = 300
 
+    Cloud mode cannot use flock or a live PID. Each container has its own
+    PID namespace. The lock is a JSON file with instance_id, timestamp,
+    pid (debug only), and started_at. A lock is stale when the timestamp
+    is older than CLOUD_LOCK_TIMEOUT_SECONDS.
+    """
     if not os.path.exists(lock_file):
         return True  # No lock exists, safe to proceed
 
@@ -61,10 +82,12 @@ def _check_and_steal_stale_lock(lock_file: str, site: str) -> bool:
 
         lock_timestamp = lock_data.get("timestamp", 0)
         lock_instance = lock_data.get("instance_id", "unknown")
-        lock_age_seconds = time.time() - lock_timestamp
+        now = time.time()
+        lock_age_seconds = (
+            now - lock_timestamp if isinstance(lock_timestamp, int | float) else now
+        )
 
-        if lock_age_seconds < LOCK_TIMEOUT_SECONDS:
-            # Lock is fresh - another instance is running
+        if _cloud_lock_is_fresh(lock_data, now=now):
             print(
                 f"Crawler for site '{site}' already running "
                 f"(instance {lock_instance}, lock age: {lock_age_seconds:.0f}s), exiting"
@@ -74,18 +97,17 @@ def _check_and_steal_stale_lock(lock_file: str, site: str) -> bool:
                 f"(instance {lock_instance}, lock age: {lock_age_seconds:.0f}s), exiting"
             )
             return False
-        else:
-            # Lock is stale - previous instance likely crashed
-            print(
-                f"Removing stale cloud lock (instance {lock_instance}, "
-                f"age: {lock_age_seconds:.0f}s > {LOCK_TIMEOUT_SECONDS}s timeout)"
-            )
-            logging.warning(
-                f"Removing stale cloud lock (instance {lock_instance}, "
-                f"age: {lock_age_seconds:.0f}s > {LOCK_TIMEOUT_SECONDS}s timeout)"
-            )
-            os.remove(lock_file)
-            return True
+
+        print(
+            f"Removing stale cloud lock (instance {lock_instance}, "
+            f"age: {lock_age_seconds:.0f}s > {CLOUD_LOCK_TIMEOUT_SECONDS}s timeout)"
+        )
+        logging.warning(
+            f"Removing stale cloud lock (instance {lock_instance}, "
+            f"age: {lock_age_seconds:.0f}s > {CLOUD_LOCK_TIMEOUT_SECONDS}s timeout)"
+        )
+        os.remove(lock_file)
+        return True
 
     except (json.JSONDecodeError, KeyError, TypeError) as e:
         print(f"Error reading cloud lock file, removing it: {e}")
@@ -146,11 +168,6 @@ def _check_cloud_lock(lock_file: str, site: str) -> bool:
 
     DEPRECATED: Use _acquire_cloud_lock() for atomic lock acquisition instead.
     """
-    # Lock timeout: if lock file hasn't been updated in this many seconds,
-    # consider it stale (crashed process). Set to 5 minutes to allow for
-    # long operations like Pinecone upserts.
-    LOCK_TIMEOUT_SECONDS = 300
-
     if not os.path.exists(lock_file):
         return False
 
@@ -160,10 +177,12 @@ def _check_cloud_lock(lock_file: str, site: str) -> bool:
 
         lock_timestamp = lock_data.get("timestamp", 0)
         lock_instance = lock_data.get("instance_id", "unknown")
-        lock_age_seconds = time.time() - lock_timestamp
+        now = time.time()
+        lock_age_seconds = (
+            now - lock_timestamp if isinstance(lock_timestamp, int | float) else now
+        )
 
-        if lock_age_seconds < LOCK_TIMEOUT_SECONDS:
-            # Lock is fresh - another instance is running
+        if _cloud_lock_is_fresh(lock_data, now=now):
             print(
                 f"Crawler for site '{site}' already running "
                 f"(instance {lock_instance}, lock age: {lock_age_seconds:.0f}s), exiting"
@@ -173,18 +192,17 @@ def _check_cloud_lock(lock_file: str, site: str) -> bool:
                 f"(instance {lock_instance}, lock age: {lock_age_seconds:.0f}s), exiting"
             )
             return True
-        else:
-            # Lock is stale - previous instance likely crashed
-            print(
-                f"Removing stale cloud lock (instance {lock_instance}, "
-                f"age: {lock_age_seconds:.0f}s > {LOCK_TIMEOUT_SECONDS}s timeout)"
-            )
-            logging.warning(
-                f"Removing stale cloud lock (instance {lock_instance}, "
-                f"age: {lock_age_seconds:.0f}s > {LOCK_TIMEOUT_SECONDS}s timeout)"
-            )
-            os.remove(lock_file)
-            return False
+
+        print(
+            f"Removing stale cloud lock (instance {lock_instance}, "
+            f"age: {lock_age_seconds:.0f}s > {CLOUD_LOCK_TIMEOUT_SECONDS}s timeout)"
+        )
+        logging.warning(
+            f"Removing stale cloud lock (instance {lock_instance}, "
+            f"age: {lock_age_seconds:.0f}s > {CLOUD_LOCK_TIMEOUT_SECONDS}s timeout)"
+        )
+        os.remove(lock_file)
+        return False
 
     except (json.JSONDecodeError, KeyError, TypeError) as e:
         print(f"Error reading cloud lock file, removing it: {e}")
@@ -304,16 +322,22 @@ class CrawlerLockManager:
             with suppress(Exception):
                 os.remove(self.lock_file)
 
-    def create_signal_handler(self):
-        """Create a signal handler that cleans up the lock file before exiting."""
+    def create_signal_handler(self, on_first_signal=None):
+        """Create a signal handler for SIGTERM and SIGINT.
+
+        The first signal keeps the lock. A hung process that only sets the
+        exit flag would otherwise drop the lock and let a second run start.
+        The second signal removes the lock and forces exit.
+        """
 
         def lock_cleanup_handler(signum: int, frame: Any) -> None:
-            """Signal handler that removes lock file before calling original handler.
-
-            Note: No logging here as logging is not async-signal-safe.
-            """
-            self.cleanup_silent()  # File ops are relatively safe
-            # Call the original handler to set the exiting flag
+            """Handle shutdown. Do not log. Logging is not signal-safe."""
+            if is_exiting():
+                self.cleanup_silent()
+                progress_signal_handler(signum, frame)
+                return
+            if on_first_signal is not None:
+                on_first_signal()
             progress_signal_handler(signum, frame)
 
         return lock_cleanup_handler
