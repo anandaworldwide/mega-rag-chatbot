@@ -4,7 +4,7 @@
 # Edit paths, site, image tag, and --max-runtime-minutes to match your VM.
 # Requires: docker, user in the "docker" group (or run root — not recommended).
 #
-# TimeoutStartSec is a little above --max-runtime-minutes (45 min = 2700s).
+# TimeoutStartSec is above max-runtime (2700s) plus watchdog grace (300s).
 # --stop-timeout 30 tells Docker to SIGKILL the container if it ignores SIGTERM.
 # ExecStopPost removes a leftover container so the next start can reuse the name.
 
@@ -26,7 +26,7 @@ ExecStart=/usr/bin/docker run --rm --name ananda-crawler-run --stop-timeout 30 \
   ananda-crawler:latest \
   /app/.venv/bin/python /app/crawler/website_crawler.py --site ananda-public --max-runtime-minutes 45 --non-interactive
 ExecStopPost=-/usr/bin/docker rm -f ananda-crawler-run
-TimeoutStartSec=3000
+TimeoutStartSec=3300
 StandardOutput=journal
 StandardError=journal
 

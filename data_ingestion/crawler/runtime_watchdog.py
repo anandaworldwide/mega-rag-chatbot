@@ -19,7 +19,9 @@ from contextlib import suppress
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_RUNTIME_GRACE_SECONDS = 60
+# The crawl-loop clock starts after init. Init plus the last page can exceed 60s.
+# 300s keeps a healthy run from hitting os._exit(124) at a normal stop.
+DEFAULT_RUNTIME_GRACE_SECONDS = 300
 DEFAULT_SHUTDOWN_GRACE_SECONDS = 30
 DEFAULT_POLL_SECONDS = 1.0
 EXIT_RUNTIME_TIMEOUT = 124

@@ -14,9 +14,12 @@ from crawler.lock_manager import (
     CrawlerLockManager,
     _cloud_lock_is_fresh,
 )
+from crawler.lock_manager import (
+    is_exiting as lock_manager_is_exiting,
+)
 from crawler.website_crawler import ROBOTS_FETCH_TIMEOUT_SECONDS, WebsiteCrawler
-
-from data_ingestion.utils.progress_utils import reset_shutdown_state
+from utils.progress_utils import is_exiting as utils_is_exiting
+from utils.progress_utils import reset_shutdown_state
 
 
 @pytest.fixture
@@ -24,6 +27,74 @@ def cloud_lock(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     lock_file = str(tmp_path / "crawler_test.lock")
     return lock_file
+
+
+def test_lock_manager_shares_progress_utils_with_utils_import_path():
+    """lock_manager imports utils.progress_utils. The package path is a second copy."""
+    import data_ingestion.utils.progress_utils as package_progress
+
+    assert utils_is_exiting is lock_manager_is_exiting
+    assert package_progress.is_exiting is not lock_manager_is_exiting
+
+
+def test_main_arms_watchdog_before_lock_and_cancels_when_lock_held(
+    tmp_path, monkeypatch
+):
+    events: list[str] = []
+
+    class RecordingWatchdog:
+        def start(self, *args, **kwargs):
+            events.append("watchdog_start")
+
+        def set_cleanup(self, cleanup_fn):
+            events.append("watchdog_set_cleanup")
+
+        def cancel(self):
+            events.append("watchdog_cancel")
+
+        def notify_shutdown(self):
+            events.append("watchdog_notify")
+
+    args = SimpleNamespace(
+        site="ananda-public",
+        max_runtime_minutes=45,
+        debug=False,
+        fresh_start=False,
+        retry_failed=False,
+        clear_vectors=False,
+        stop_after=None,
+        non_interactive=True,
+        force_csv_mode=False,
+    )
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+
+    def acquire(self):
+        events.append("lock_acquire")
+        return False
+
+    with (
+        patch("crawler.cli.parse_arguments", return_value=args),
+        patch("crawler.cli.RuntimeWatchdog", RecordingWatchdog),
+        patch(
+            "crawler.cli._setup_logging_and_config",
+            return_value={"domain": "example.com"},
+        ),
+        patch(
+            "crawler.cli._setup_environment_and_paths",
+            return_value=("example.com", "https://example.com", str(tmp_path / ".env")),
+        ),
+        patch("crawler.cli._perform_system_health_check"),
+        patch("crawler.cli.setup_signal_handlers"),
+        patch("crawler.cli.CrawlerLockManager.acquire", acquire),
+    ):
+        from crawler.cli import main
+
+        with pytest.raises(SystemExit) as exc_info:
+            main()
+
+    assert exc_info.value.code == 1
+    assert events.index("watchdog_start") < events.index("lock_acquire")
+    assert events.index("lock_acquire") < events.index("watchdog_cancel")
 
 
 def test_fresh_cloud_lock_blocks_second_acquire(cloud_lock):
@@ -86,7 +157,9 @@ def test_first_signal_keeps_lock_second_signal_removes_it(cloud_lock):
     manager = CrawlerLockManager("test", cloud_lock)
     assert manager.acquire() is True
     first_calls = []
-    handler = manager.create_signal_handler(on_first_signal=lambda: first_calls.append(1))
+    handler = manager.create_signal_handler(
+        on_first_signal=lambda: first_calls.append(1)
+    )
 
     handler(signal.SIGTERM, None)
     assert Path(cloud_lock).is_file()
