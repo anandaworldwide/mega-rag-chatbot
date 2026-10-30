@@ -13,7 +13,7 @@ Additionally, classify whether this question should search broadly across all li
 Respond ONLY with valid JSON (no markdown):
 {"standalone_question":"<rephrased standalone question>","author_scope":"default"|"broad"}
 
-For standalone_question, apply all rules above (social closers verbatim, directive reformulation, location clarifications).
+For standalone_question, apply all rules above (social closers verbatim, directive reformulation, location clarifications). Write standalone_question in English even when the follow up is in another language.
 
 Use author_scope "broad" when the user clearly asks about a specific non-Master/Swami author, book, or teaching source, or wants comparative / multi-author coverage.
 Use author_scope "default" for general spiritual questions where Master and Swami teachings should remain the primary lens.`;
