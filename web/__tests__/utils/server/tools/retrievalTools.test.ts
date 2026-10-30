@@ -411,6 +411,31 @@ describe("retrievalTools", () => {
   });
 
   describe("isIncompleteRetrievalAnswer", () => {
+    it("treats a fenced search_more_sources fragment as incomplete", () => {
+      expect(isIncompleteRetrievalAnswer("```0xa1b2c3d4e5f67890search_more_sources")).toBe(true);
+      expect(isIncompleteRetrievalAnswer("```0xa1b2c3d4e5f67890get_adjacent_chunks")).toBe(true);
+    });
+
+    it("treats function_call and parameter markup as incomplete", () => {
+      expect(
+        isIncompleteRetrievalAnswer(
+          '```html <function_call name="search_more_sources"><parameter name="query">example query</parameter></function_call>'
+        )
+      ).toBe(true);
+      expect(
+        isIncompleteRetrievalAnswer('<function_call name="get_adjacent_chunks"><parameter name="sourceId">id-1</parameter>')
+      ).toBe(true);
+      expect(isIncompleteRetrievalAnswer('<parameter name="search_more_sources">example query</parameter>')).toBe(
+        true
+      );
+    });
+
+    it("does not treat a real answer that names a tool in prose as incomplete", () => {
+      expect(
+        isIncompleteRetrievalAnswer("The answer is complete. Do not call search_more_sources for this question.")
+      ).toBe(false);
+    });
+
     it("treats fenced search_more_sources JSON as incomplete", () => {
       const leaked = `\`\`\`json
 {"name": "search_more_sources", "parameters": {"query": "Bhagavad Gita quotes", "k": 8}}

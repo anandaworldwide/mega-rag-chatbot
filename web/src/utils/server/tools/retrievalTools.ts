@@ -299,6 +299,13 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
     }
   }
 
+  // Leaked fence or XML tool markup. JSON payloads are handled above.
+  const leakedToolMarkup =
+    /```[\s\S]*?(?:search_more_sources|get_adjacent_chunks)|<(?:function_call|parameter)\b[^>]*(?:search_more_sources|get_adjacent_chunks)/i;
+  if (leakedToolMarkup.test(trimmed)) {
+    return true;
+  }
+
   const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
   // Opener + object on the first sentence only. A later "what the sources say"
   // must not make a real teaching answer look like search narration.
