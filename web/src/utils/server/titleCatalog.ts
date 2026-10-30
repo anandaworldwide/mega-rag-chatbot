@@ -6,6 +6,7 @@ import type { SiteConfig } from "@/types/siteConfig";
 import { libraryEntryName } from "@/utils/libraryEntries";
 import type { MediaTypes } from "@/utils/determineActiveMediaTypes";
 import { determineActiveMediaTypes } from "@/utils/determineActiveMediaTypes";
+import { isSiteLibraryName } from "@/utils/server/siteLibraryName";
 import {
   FilterConflictAction,
   ResolvedTitleScope,
@@ -327,6 +328,10 @@ export function rankTitleScopeSuggestions(
   query: string,
   limit: number = SUGGESTION_LIMIT
 ) {
+  if (isSiteLibraryName(query)) {
+    return [];
+  }
+
   const suggestions = entries
     .map((entry) => scoreLookupEntry(entry, query))
     .filter((suggestion): suggestion is TitleScopeSuggestion => suggestion !== null)
@@ -534,6 +539,11 @@ export async function resolveTitleScopeSelection(
   selection?: TitleScopeSelection
 ): Promise<ResolvedTitleScope | null> {
   if (!selection) {
+    return null;
+  }
+
+  const namedFields = [selection.canonicalPrefix, selection.displayTitle, selection.userInput];
+  if (namedFields.some((value) => value && isSiteLibraryName(value))) {
     return null;
   }
 
