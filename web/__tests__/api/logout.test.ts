@@ -30,6 +30,7 @@ jest.mock("@/utils/server/genericRateLimiter", () => ({
 
 import { createMocks } from "node-mocks-http";
 import type { NextApiRequest, NextApiResponse } from "next";
+import Cookies from "cookies";
 import handler from "@/pages/api/logout";
 
 // Mock cookies library
@@ -74,9 +75,13 @@ describe("Logout API", () => {
 
     expect(setCookieMock.mock.calls[0][0]).toBe("authToken");
     expect(setCookieMock.mock.calls[0][1]).toBe("");
+    expect(Cookies).toHaveBeenCalledWith(req, res, { secure: true });
     expect(setCookieMock.mock.calls[0][2]).toEqual(
       expect.objectContaining({
         expires: expect.any(Date),
+        path: "/",
+        secure: true,
+        sameSite: "lax",
       })
     );
 

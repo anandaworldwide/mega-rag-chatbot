@@ -85,6 +85,7 @@ jest.mock("jsonwebtoken", () => ({
 
 jest.mock("@/utils/server/blacklist", () => ({
   isEmailBlacklisted: jest.fn().mockResolvedValue(false),
+  isLoginBlockedByBlacklist: jest.fn().mockResolvedValue(false),
 }));
 
 jest.mock("@/utils/server/auditLog", () => ({
@@ -130,7 +131,7 @@ describe("Login API", () => {
   it("returns access denied when email is blacklisted", async () => {
     process.env.SITE_ID = "test-site";
     const blacklist = await import("@/utils/server/blacklist");
-    jest.mocked(blacklist.isEmailBlacklisted).mockResolvedValueOnce(true);
+    jest.mocked(blacklist.isLoginBlockedByBlacklist).mockResolvedValueOnce(true);
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "POST",
@@ -198,6 +199,27 @@ describe("Login API", () => {
       message: "Invalid redirect URL",
     });
   });
+
+  it.each(["//evil.example", "//evil.example/phish", "/%2F%2Fevil.example", "https://evil.example/phish"])(
+    "rejects open-redirect target %s",
+    async (redirect) => {
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "POST",
+        body: {
+          email: "test@example.com",
+          password: "validpassword123",
+          redirect,
+        },
+      });
+
+      await handler(req, res);
+
+      expect(res.statusCode).toBe(400);
+      expect(res._getJSONData()).toEqual({
+        message: "Invalid redirect URL",
+      });
+    }
+  );
 
   it("should authenticate valid email and password", async () => {
     const mockEmail = "user@example.com";

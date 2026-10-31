@@ -12,6 +12,9 @@ export function emailFromAuthCookieHeader(cookieHeader: string | undefined): str
     return undefined;
   }
 
+  // Prefer the last verifiable token. Browsers send a parent-domain
+  // `.ananda.org` authToken before the host token (`cookieHeader.test.ts`).
+  let email: string | undefined;
   for (const token of tokens) {
     try {
       // Verify with jsonwebtoken only. Do not import jwtUtils: that module loads
@@ -22,12 +25,12 @@ export function emailFromAuthCookieHeader(cookieHeader: string | undefined): str
         audience: "mega-rag-chatbot-users",
       }) as { email?: string };
       if (payload.email) {
-        return payload.email;
+        email = payload.email;
       }
     } catch {
       // A parent-domain authToken can sit in front of the host token.
     }
   }
 
-  return undefined;
+  return email;
 }

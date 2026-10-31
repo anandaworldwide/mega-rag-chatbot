@@ -143,6 +143,28 @@ describe("JWT Utilities", () => {
       expect(() => getTokenFromRequest(mockReq)).toThrow("No token provided");
       expect(jwt.verify).not.toHaveBeenCalled();
     });
+
+    it("should accept extra whitespace between Bearer and the token", () => {
+      const mockReq = {
+        headers: {
+          authorization: "Bearer    valid-token  ",
+        },
+      } as NextApiRequest;
+
+      const mockPayload: JwtPayload = {
+        client: "web",
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 900,
+      };
+      (jwt.verify as jest.Mock).mockReturnValueOnce(mockPayload);
+
+      expect(getTokenFromRequest(mockReq)).toEqual(mockPayload);
+      expect(jwt.verify).toHaveBeenCalledWith("valid-token", "test-secure-token", {
+        algorithms: ["HS256"],
+        issuer: "mega-rag-chatbot",
+        audience: "mega-rag-chatbot-users",
+      });
+    });
   });
 
   describe("withJwtAuth", () => {

@@ -11,7 +11,7 @@ import { isDevelopment } from "@/utils/env";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreGet } from "@/utils/server/firestoreRetryUtils";
 import { createSignedUUIDCookie, getVerifiedUuidFromSignedCookie } from "@/utils/server/uuidUtils";
-import { isEmailBlacklisted } from "@/utils/server/blacklist";
+import { isLoginBlockedByBlacklist } from "@/utils/server/blacklist";
 import { writeAuditLog } from "@/utils/server/auditLog";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -23,7 +23,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const normalizedMagicEmail = email.trim().toLowerCase();
   const siteIdMagic = process.env.SITE_ID;
-  if (siteIdMagic && (await isEmailBlacklisted(normalizedMagicEmail, siteIdMagic))) {
+  if (siteIdMagic && (await isLoginBlockedByBlacklist(normalizedMagicEmail, siteIdMagic))) {
     await writeAuditLog(req, "blacklist_block", normalizedMagicEmail, { endpoint: "magicLogin" });
     return res.status(403).json({ error: "Access denied. Please contact your administrator." });
   }
