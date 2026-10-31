@@ -163,16 +163,19 @@ class CrawlerSupervisor:
     def _update_last_output_time(
         self, crawler_log: Path, current_time: float, last_output_time: float
     ) -> float:
-        """Update last output time based on log file activity."""
+        """Update last output time from log mtime, not leftover history.
+
+        The supervisor opens the site log in append mode, so the last 20 lines
+        can be from a previous run. Treat the file as active only when its
+        modification time is newer than the last observed output.
+        """
         if not crawler_log.exists():
             return last_output_time
 
         try:
-            with open(crawler_log) as f:
-                lines = f.readlines()
-                # If log has any non-empty lines, consider it active output
-                if any(line.strip() for line in lines[-20:]):
-                    return current_time
+            mtime = crawler_log.stat().st_mtime
+            if mtime > last_output_time:
+                return min(mtime, current_time)
         except Exception as e:
             self.logger.debug(f"Error checking log output: {e}")
 

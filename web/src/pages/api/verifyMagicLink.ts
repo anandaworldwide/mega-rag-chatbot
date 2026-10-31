@@ -13,7 +13,7 @@ import { isDevelopment } from "@/utils/env";
 import { createSignedUUIDCookie, getVerifiedUuidFromSignedCookie } from "@/utils/server/uuidUtils";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import type { EmailCategory } from "@/types/user";
-import { isEmailBlacklisted } from "@/utils/server/blacklist";
+import { isLoginBlockedByBlacklist } from "@/utils/server/blacklist";
 import { writeAuditLog } from "@/utils/server/auditLog";
 
 async function compareToken(token: string, hash: string): Promise<boolean> {
@@ -36,7 +36,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const normalizedVerifyEmail = email.trim().toLowerCase();
   const siteIdVerify = process.env.SITE_ID;
-  if (siteIdVerify && (await isEmailBlacklisted(normalizedVerifyEmail, siteIdVerify))) {
+  if (siteIdVerify && (await isLoginBlockedByBlacklist(normalizedVerifyEmail, siteIdVerify))) {
     await writeAuditLog(req, "blacklist_block", normalizedVerifyEmail, { endpoint: "verifyMagicLink" });
     return res.status(403).json({ error: "Access denied. Please contact your administrator." });
   }

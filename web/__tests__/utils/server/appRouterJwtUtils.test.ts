@@ -64,6 +64,7 @@ describe("appRouterJwtUtils", () => {
       skipped: false,
       cacheHit: true,
       fetchMs: 0,
+      failed: false,
     });
   });
 
@@ -74,6 +75,18 @@ describe("appRouterJwtUtils", () => {
   it("rejects empty Bearer token payloads", () => {
     expect(() => getTokenFromAppRequest(makeReq("Bearer "))).toThrow("No token provided");
     expect(() => getTokenFromAppRequest(makeReq("Bearer"))).toThrow("No token provided");
+  });
+
+  it("accepts extra whitespace between Bearer and the token", () => {
+    process.env.SECURE_TOKEN = "app-router-jwt-secret";
+    const token = jwt.sign({ client: "web", email: "user@example.com" }, process.env.SECURE_TOKEN, {
+      algorithm: "HS256",
+      issuer: "mega-rag-chatbot",
+      audience: "mega-rag-chatbot-users",
+      expiresIn: "15m",
+    });
+    const payload = getTokenFromAppRequest(makeReq(`Bearer   ${token}  `));
+    expect(payload.email).toBe("user@example.com");
   });
 
   it("rejects alg:none and wrong-issuer forged tokens", () => {

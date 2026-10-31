@@ -108,14 +108,19 @@ export function verifyToken(token: string): JwtPayload {
  * @returns The decoded token payload with client information
  * @throws Error if no token is provided or if the token is invalid
  */
-export function getTokenFromRequest(req: NextApiRequest): JwtPayload {
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+export function extractBearerToken(authHeader: string | undefined | null): string {
+  if (!authHeader) {
     throw new Error("No token provided");
   }
+  const match = authHeader.match(/^Bearer\s+(\S+)\s*$/i);
+  if (!match) {
+    throw new Error("No token provided");
+  }
+  return match[1];
+}
 
-  const token = authHeader.split(" ")[1];
+export function getTokenFromRequest(req: NextApiRequest): JwtPayload {
+  const token = extractBearerToken(req.headers.authorization);
   return verifyToken(token);
 }
 

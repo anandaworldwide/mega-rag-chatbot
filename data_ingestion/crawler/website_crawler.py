@@ -2139,7 +2139,10 @@ class WebsiteCrawler:
             Number of vectors successfully deleted (or would be deleted in dry-run mode)
         """
         try:
-            vector_dimension = int(os.getenv("OPENAI_EMBEDDING_DIMENSION", 3072))
+            vector_dimension = int(
+                os.getenv("OPENAI_INGEST_EMBEDDINGS_DIMENSION")
+                or os.getenv("OPENAI_EMBEDDING_DIMENSION", 3072)
+            )
             dummy_vector = [0.0] * vector_dimension
             normalized_url = self.normalize_url(url)
 

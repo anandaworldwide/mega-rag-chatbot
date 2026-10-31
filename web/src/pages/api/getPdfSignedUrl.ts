@@ -73,6 +73,13 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!pdfS3Key || typeof pdfS3Key !== "string") {
       return res.status(400).json({ message: "Invalid PDF S3 key" });
     }
+    if (
+      pdfS3Key.length > 1024 ||
+      /[\0\\]/.test(pdfS3Key) ||
+      pdfS3Key.split("/").some((segment) => segment === "" || segment === "." || segment === "..")
+    ) {
+      return res.status(400).json({ message: "Invalid PDF S3 key" });
+    }
 
     // Check for JWT authentication
     const authHeader = req.headers.authorization;
