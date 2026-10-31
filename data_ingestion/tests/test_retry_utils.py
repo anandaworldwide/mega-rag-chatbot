@@ -155,7 +155,6 @@ class TestRetryWithBackoffAsync:
             "Index not found",
             "Dimension mismatch",
             "Insufficient quota",
-            "Rate limit exceeded",
         ]
 
         def stop_process(code):
@@ -184,6 +183,22 @@ class TestRetryWithBackoffAsync:
 
             assert mock_operation.call_count == 1
             mock_operation.reset_mock()
+
+    @pytest.mark.asyncio
+    async def test_rate_limit_errors_are_retried(self):
+        mock_operation = AsyncMock()
+        mock_operation.side_effect = [
+            Exception("Rate limit exceeded"),
+            "success",
+        ]
+
+        with patch("asyncio.sleep"):
+            result = await retry_with_backoff(
+                mock_operation, max_retries=2, operation_name="test_operation"
+            )
+
+        assert result == "success"
+        assert mock_operation.call_count == 2
 
 
 class TestRetryWithBackoffSync:
