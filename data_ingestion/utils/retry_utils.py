@@ -70,7 +70,6 @@ async def retry_with_backoff(
             "index not found",
             "dimension mismatch",
             "insufficient quota",
-            "rate limit exceeded",
         ]
 
     last_exception = None
@@ -152,7 +151,6 @@ def retry_with_backoff_sync(
             "index not found",
             "dimension mismatch",
             "insufficient quota",
-            "rate limit exceeded",
         ]
 
     last_exception = None

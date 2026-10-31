@@ -609,7 +609,7 @@ class TestBatchUpsertVectors:
 
         success, count = batch_upsert_vectors(mock_index, vectors, batch_size=2)
 
-        assert success is True  # Overall success despite one batch failure
+        assert success is False  # Any skipped batch is a failed upsert
         assert count == 4  # Only 2 batches succeeded (4 vectors)
 
     def test_batch_upsert_complete_failure(self):
@@ -621,7 +621,7 @@ class TestBatchUpsertVectors:
 
         success, count = batch_upsert_vectors(mock_index, vectors)
 
-        assert success is True  # Function completes but no vectors upserted
+        assert success is False  # Function completes but no vectors upserted
         assert count == 0
 
 
