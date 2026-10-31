@@ -71,6 +71,7 @@ jest.mock("@/utils/server/auditLog", () => ({
 
 jest.mock("@/utils/server/blacklist", () => ({
   isEmailBlacklisted: jest.fn().mockResolvedValue(false),
+  isLoginBlockedByBlacklist: jest.fn().mockResolvedValue(false),
 }));
 
 jest.mock("@/utils/server/apiMiddleware", () => ({
@@ -143,7 +144,7 @@ describe("Password Login API", () => {
   it("returns access denied when blacklisted", async () => {
     process.env.SITE_ID = "test-site";
     const blacklist = await import("@/utils/server/blacklist");
-    jest.mocked(blacklist.isEmailBlacklisted).mockResolvedValueOnce(true);
+    jest.mocked(blacklist.isLoginBlockedByBlacklist).mockResolvedValueOnce(true);
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "POST",

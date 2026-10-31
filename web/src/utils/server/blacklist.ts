@@ -19,6 +19,7 @@ type BlacklistCacheEntry = {
   emails: Set<string>;
   loadedAt: number;
   ttlMs: number;
+  failed: boolean;
 };
 
 const cacheBySite = new Map<string, BlacklistCacheEntry>();
@@ -214,18 +215,30 @@ async function fetchBlacklistEmailsFromS3(siteId: string): Promise<FetchResult> 
 
 async function getCachedBlacklistEmails(
   siteId: string
-): Promise<{ emails: Set<string>; cacheHit: boolean; fetchMs: number }> {
+): Promise<{ emails: Set<string>; cacheHit: boolean; fetchMs: number; failed: boolean }> {
   const now = Date.now();
   const cached = cacheBySite.get(siteId);
   if (cached && now - cached.loadedAt < cached.ttlMs) {
-    return { emails: cached.emails, cacheHit: true, fetchMs: 0 };
+    return { emails: cached.emails, cacheHit: true, fetchMs: 0, failed: cached.failed };
   }
   const started = Date.now();
   const { emails, failed } = await fetchBlacklistEmailsFromS3(siteId);
   const fetchMs = Date.now() - started;
+
+  if (failed && cached && !cached.failed) {
+    // Keep the last successful list and retry soon. Do not replace it with empty.
+    cacheBySite.set(siteId, {
+      emails: cached.emails,
+      loadedAt: now,
+      ttlMs: FAIL_OPEN_CACHE_TTL_MS,
+      failed: false,
+    });
+    return { emails: cached.emails, cacheHit: false, fetchMs, failed: false };
+  }
+
   const ttlMs = failed ? FAIL_OPEN_CACHE_TTL_MS : CACHE_TTL_MS;
-  cacheBySite.set(siteId, { emails, loadedAt: now, ttlMs });
-  return { emails, cacheHit: false, fetchMs };
+  cacheBySite.set(siteId, { emails, loadedAt: now, ttlMs, failed });
+  return { emails, cacheHit: false, fetchMs, failed };
 }
 
 export type BlacklistCheckResult = {
@@ -233,6 +246,7 @@ export type BlacklistCheckResult = {
   skipped: boolean;
   cacheHit: boolean;
   fetchMs: number;
+  failed: boolean;
 };
 
 /**
@@ -242,19 +256,29 @@ export type BlacklistCheckResult = {
 export async function checkEmailBlacklist(email: string, siteId: string): Promise<BlacklistCheckResult> {
   const normalized = email.trim().toLowerCase();
   if (!normalized || !siteId || !isBlacklistEnforcedForSite(siteId)) {
-    return { blocked: false, skipped: true, cacheHit: false, fetchMs: 0 };
+    return { blocked: false, skipped: true, cacheHit: false, fetchMs: 0, failed: false };
   }
-  const { emails, cacheHit, fetchMs } = await getCachedBlacklistEmails(siteId);
-  return { blocked: emails.has(normalized), skipped: false, cacheHit, fetchMs };
+  const { emails, cacheHit, fetchMs, failed } = await getCachedBlacklistEmails(siteId);
+  return { blocked: emails.has(normalized), skipped: false, cacheHit, fetchMs, failed };
 }
 
 /**
  * Returns true if email is on the blacklist for this site. Always false if the site disables blacklist checks.
- * On S3 errors (other than missing object), fails open (false) after ops alert.
+ * On S3 errors (other than missing object), blocked stays false. Login paths must use
+ * isLoginBlockedByBlacklist so an outage cannot admit a blocked user.
  */
 export async function isEmailBlacklisted(email: string, siteId: string): Promise<boolean> {
   const { blocked } = await checkEmailBlacklist(email, siteId);
   return blocked;
+}
+
+/**
+ * Login and account-creation paths: deny when the address is listed or when the
+ * blacklist cannot be loaded and there is no last-good cache.
+ */
+export async function isLoginBlockedByBlacklist(email: string, siteId: string): Promise<boolean> {
+  const result = await checkEmailBlacklist(email, siteId);
+  return result.blocked || result.failed;
 }
 
 export type BlacklistTextResult = {
