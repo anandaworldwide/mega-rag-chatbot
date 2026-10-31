@@ -555,4 +555,27 @@ describe("/api/getPdfSignedUrl", () => {
       }
     });
   });
+
+  describe("Adversarial S3 keys", () => {
+    it.each(["../secret.pdf", "public/pdf/../../secret.pdf", "public/pdf/../restricted/secret.pdf"])(
+      "rejects unsafe key %s",
+      async (pdfS3Key) => {
+        const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+          method: "POST",
+          headers: {
+            authorization: "Bearer valid-jwt-token",
+          },
+          body: { pdfS3Key, uuid: "123e4567-e89b-12d3-a456-426614174000" },
+        });
+
+        await handler(req, res);
+
+        expect(res.statusCode).toBe(400);
+        expect(res._getJSONData()).toEqual({
+          message: "Invalid PDF S3 key",
+        });
+        expect(mockS3Client.send).not.toHaveBeenCalled();
+      }
+    );
+  });
 });
