@@ -435,6 +435,52 @@ describe("/api/getPublicAudioUrl", () => {
     });
   });
 
+  describe("Adversarial S3 keys and MIME types", () => {
+    it("rejects video/mpeg even though the subtype contains mpeg", async () => {
+      mockS3Client.send.mockResolvedValue({
+        ContentType: "video/mpeg",
+      });
+
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "POST",
+        headers: {
+          authorization: "Bearer valid-jwt-token",
+        },
+        body: {
+          audioS3Key: "not-audio.mp3",
+        },
+      });
+
+      await handler(req, res);
+
+      expect(res._getStatusCode()).toBe(400);
+      expect(JSON.parse(res._getData())).toEqual({
+        message: "File is not an audio document",
+        actualType: "video/mpeg",
+      });
+    });
+
+    it("rejects path-traversal audio keys", async () => {
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "POST",
+        headers: {
+          authorization: "Bearer valid-jwt-token",
+        },
+        body: {
+          audioS3Key: "public/audio/../../secret.mp3",
+        },
+      });
+
+      await handler(req, res);
+
+      expect(res._getStatusCode()).toBe(400);
+      expect(JSON.parse(res._getData())).toEqual({
+        message: "Invalid audio S3 key",
+      });
+      expect(mockS3Client.send).not.toHaveBeenCalled();
+    });
+  });
+
   describe("Error Handling", () => {
     it("should handle unexpected S3 errors", async () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
