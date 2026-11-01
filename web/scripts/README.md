@@ -22,6 +22,29 @@ node scripts/dev.js ananda
 2. Falls back to the default `.env` file if the specified one doesn't exist
 3. Starts the Next.js development server with the loaded environment
 
+### `vercel-ignore-build.mjs`
+
+Vercel Ignored Build Step for the four chatbot projects that share `web/vercel.json`.
+
+#### Usage of vercel-ignore-build.mjs
+
+Vercel runs this command from `ignoreCommand` in `web/vercel.json`:
+
+```bash
+node ./scripts/vercel-ignore-build.mjs
+```
+
+#### How vercel-ignore-build.mjs works
+
+1. Exit `0` skips the build. Exit `1` runs the build.
+2. Production (`VERCEL_ENV=production`) always builds.
+3. Non-production builds run only for ananda-chatbot.
+4. The script treats a project as ananda-chatbot when `SITE_ID` is `ananda` or
+   `VERCEL_PROJECT_NAME` is `ananda-chatbot`.
+
+The repo has no earlier custom skip command. This command replaces the default
+Vercel file-diff skip.
+
 ### `build.js`
 
 A wrapper script for building the Next.js application with environment configuration.
