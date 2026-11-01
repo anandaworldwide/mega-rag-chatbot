@@ -48,5 +48,6 @@
   "buildCommand": "npm install --include=dev && npm run build-with-api-tests",
   "devCommand": "npm run dev",
   "installCommand": "npm install",
+  "ignoreCommand": "node ./scripts/vercel-ignore-build.mjs",
   "outputDirectory": ".next"
 }

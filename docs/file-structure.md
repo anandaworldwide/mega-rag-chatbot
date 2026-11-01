@@ -107,7 +107,8 @@ mega-rag-chatbot/
 - `requirements.txt`: Exported compatibility requirements file derived from `uv.lock`.
 - `README.md`: Main project documentation file.
 - `middleware.ts`: Next.js middleware configuration for intercepting requests.
-- `vercel.json`: Configuration for deploying the project on Vercel.
+- `vercel.json`: Configuration for deploying the project on Vercel (`web/vercel.json`). Includes cron jobs, the
+  Next.js build command, and `ignoreCommand` for preview-build skips.
 - `firebase.json`: Configuration for Firebase services.
 - `jest.setup.ts`, `jest.setup-server.ts`: Setup files for the Jest testing framework.
 - `SECURITY-TODO.md`, `TESTS-TODO.md`, `TESTS-README.md`, `TOKEN-SECURITY-README.md`: Documentation regarding security,

@@ -66,7 +66,10 @@ facilitate understanding and future development.
   ingestion and processing scripts, including website crawling (`data_ingestion/crawler/website_crawler.py`), PDF
   parsing, audio transcription, and SQL data conversion.
 - **Hosting:** Likely deployed on **Vercel** (implied by Next.js usage and edge functions) and potentially uses **AWS
-  S3** for media storage and **Firebase** services (Firestore).
+  S3** for media storage and **Firebase** services (Firestore). Four Vercel projects share `web/vercel.json`:
+  `ananda-chatbot`, `crystal-chatbot`, `jairam-chatbot`, and `ananda-public-chatbot`. The `ignoreCommand` in that file
+  skips non-production builds except for `ananda-chatbot` (`SITE_ID=ananda` or `VERCEL_PROJECT_NAME=ananda-chatbot`).
+  Production builds on `main` still run for all four projects.
 - **Key Technologies:**
   - **Node.js:** Runtime for the Next.js application.
   - **LangChain:** Framework used for building the core chat logic, orchestrating retrieval, context management, and LLM
