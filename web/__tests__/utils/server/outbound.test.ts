@@ -83,6 +83,25 @@ describe("sendOutboundEmail", () => {
     });
   });
 
+  it("keeps ReplyToAddresses in sink mode", async () => {
+    process.env.VERCEL_ENV = "preview";
+    process.env.OUTBOUND_SINK_EMAIL = "sink@example.test";
+
+    await sendOutboundEmail({
+      ...sampleInput,
+      ReplyToAddresses: ["reply@example.com"],
+    });
+
+    expect(SendEmailCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        Destination: {
+          ToAddresses: ["sink@example.test"],
+        },
+        ReplyToAddresses: ["reply@example.com"],
+      })
+    );
+  });
+
   it("does not double prefix an existing [PREVIEW] subject", async () => {
     process.env.VERCEL_ENV = "preview";
     process.env.OUTBOUND_SINK_EMAIL = "sink@example.test";

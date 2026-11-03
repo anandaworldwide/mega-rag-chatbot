@@ -50,11 +50,13 @@ function prefixPreviewSubject(subject: string): string {
 function rewriteForSink(input: SendEmailCommandInput, sinkEmail: string): SendEmailCommandInput {
   const prefixedSubject = prefixPreviewSubject(getSubjectData(input));
 
+  // Sink mode replaces to/cc/bcc only. ReplyToAddresses stay on the message.
   return {
     ...input,
     Destination: {
       ToAddresses: [sinkEmail],
     },
+    ReplyToAddresses: input.ReplyToAddresses,
     Message: input.Message
       ? {
           ...input.Message,
