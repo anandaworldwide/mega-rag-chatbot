@@ -10,16 +10,8 @@ import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { sanitizeEmail, sanitizeUserText, sanitizeName } from "@/utils/server/inputSanitization";
 import { escapeHtml } from "@/utils/server/templateUtils";
 import { generateEmailContent } from "@/utils/server/emailTemplates";
-import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
+import { sendOutboundEmail } from "@/utils/server/outbound";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
-
-const ses = new SESClient({
-  region: process.env.AWS_REGION || "us-east-1",
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
-  },
-});
 
 // Configure CORS for contact form
 const contactCors = Cors({
@@ -143,7 +135,7 @@ const handleRequest = async (req: NextApiRequest, res: NextApiResponse): Promise
       },
     };
 
-    await ses.send(new SendEmailCommand(params));
+    await sendOutboundEmail(params);
     res.status(200).json({ message: "Message sent successfully" });
   } catch (error) {
     console.error("Error processing contact form:", error);

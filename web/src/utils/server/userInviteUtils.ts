@@ -1,17 +1,9 @@
 // Utilities: Generate/secure activation tokens and send branded activation emails via SES.
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
-import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 import { loadSiteConfigSync } from "./loadSiteConfig";
 import { createEmailParams } from "./emailTemplates";
-
-const ses = new SESClient({
-  region: process.env.AWS_REGION || "us-west-2",
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
-  },
-});
+import { sendOutboundEmail } from "./outbound";
 
 export function generateInviteToken(): string {
   return crypto.randomBytes(16).toString("hex");
@@ -82,7 +74,7 @@ This link expires in 14 days.`;
     console.log(`📤 Sending activation email to: ${email}`);
     console.log(`📤 From: ${fromEmail}`);
     console.log(`📤 Subject: ${params.Message.Subject.Data}`);
-    await ses.send(new SendEmailCommand(params));
+    await sendOutboundEmail(params);
     console.log(`✅ Activation email sent successfully to: ${email}`);
   } catch (error: any) {
     const errorDetails = {
@@ -164,7 +156,7 @@ We're excited to have you join our community!`;
   try {
     console.log(`📤 Sending welcome email to: ${email}`);
     console.log(`📤 From: ${fromEmail}`);
-    await ses.send(new SendEmailCommand(params));
+    await sendOutboundEmail(params);
     console.log(`✅ Welcome email sent successfully to: ${email}`);
   } catch (error: any) {
     const errorDetails = {

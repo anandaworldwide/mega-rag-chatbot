@@ -6,8 +6,8 @@ import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { withJwtAuth, getTokenFromRequest } from "@/utils/server/jwtUtils";
 import { writeAuditLog } from "@/utils/server/auditLog";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
-import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 import { createEmailParams } from "@/utils/server/emailTemplates";
+import { sendOutboundEmail } from "@/utils/server/outbound";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { isDevelopment } from "@/utils/env";
 import { createIndexErrorResponse } from "@/utils/server/firestoreIndexErrorHandler";
@@ -22,13 +22,6 @@ import { unescapeName } from "@/utils/shared/nameUtils";
 import { getDefaultEmailPreferences } from "@/utils/server/emailPreferenceUtils";
 import { isEmailBlacklisted } from "@/utils/server/blacklist";
 
-const ses = new SESClient({
-  region: process.env.AWS_REGION || "us-west-2",
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
-  },
-});
 
 const MAX_MESSAGE_LENGTH = 2000;
 
@@ -93,7 +86,7 @@ Thank you for your interest in ${brand}.`;
     }
   );
 
-  await ses.send(new SendEmailCommand(params));
+  await sendOutboundEmail(params);
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {

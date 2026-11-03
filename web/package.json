@@ -36,7 +36,8 @@
     "prompt": "tsx -r dotenv/config scripts/manage-prompts.ts",
     "knip": "knip",
     "check:cjs-uuid": "node ../scripts/check-cjs-uuid-compat.mjs",
-    "check:juice-deps": "node ../scripts/check-juice-deps.mjs"
+    "check:juice-deps": "node ../scripts/check-juice-deps.mjs",
+    "check:ses-outbound": "node scripts/check-ses-outbound-guard.mjs"
   },
   "dependencies": {
     "@langchain/core": "^1.1.48",

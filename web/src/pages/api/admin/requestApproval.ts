@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import firebase from "firebase-admin";
-import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 import { db } from "@/services/firebase";
+import { sendOutboundEmail } from "@/utils/server/outbound";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { writeAuditLog } from "@/utils/server/auditLog";
@@ -22,13 +22,6 @@ import { getSafeErrorMessage, sanitizeErrorForLogging } from "@/utils/server/err
 import { unescapeName } from "@/utils/shared/nameUtils";
 import { isEmailBlacklisted } from "@/utils/server/blacklist";
 
-const ses = new SESClient({
-  region: process.env.AWS_REGION || "us-west-2",
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
-  },
-});
 
 interface ApprovalRequestData {
   requesterEmail: string;
@@ -124,7 +117,7 @@ export async function sendApprovalRequestEmail(
     }
   );
 
-  await ses.send(new SendEmailCommand(params));
+  await sendOutboundEmail(params);
 }
 
 export async function sendRequesterConfirmationEmail(
@@ -177,7 +170,7 @@ The ${brand} Team`;
     }
   );
 
-  await ses.send(new SendEmailCommand(params));
+  await sendOutboundEmail(params);
 }
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {

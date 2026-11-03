@@ -1,17 +1,9 @@
 // Utilities: Generate/secure password reset tokens and send reset emails via SES
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
-import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 import { loadSiteConfigSync } from "./loadSiteConfig";
 import { createEmailParams } from "./emailTemplates";
-
-const ses = new SESClient({
-  region: process.env.AWS_REGION || "us-west-2",
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
-  },
-});
+import { sendOutboundEmail } from "./outbound";
 
 /**
  * Generates a cryptographically secure random token for password reset
@@ -81,5 +73,5 @@ If you did not request a password reset, you can safely ignore this email.`;
     actionText: "Click here to reset your password.",
   });
 
-  await ses.send(new SendEmailCommand(params));
+  await sendOutboundEmail(params);
 }

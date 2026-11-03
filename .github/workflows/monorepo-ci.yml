@@ -95,6 +95,9 @@ jobs:
           echo "✅ juice newsletter deps (mensch/slick resolve; lockfile complete)"
           node ../scripts/check-juice-deps.mjs
 
+          echo "✅ SES outbound guard (only outbound.ts may send mail)"
+          node scripts/check-ses-outbound-guard.mjs
+
           echo "✅ Linting TypeScript/JavaScript"
           npm run lint || echo "⚠️  Lint completed with warnings (non-blocking)"
 

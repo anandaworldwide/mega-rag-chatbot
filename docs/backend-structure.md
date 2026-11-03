@@ -721,8 +721,9 @@ if (siteConfig?.requireLogin) {
     times 10.
   - Local development can set `QUERY_RATE_LIMIT_DEV_MAX` to a positive integer to replace the times-10 default. The
     process ignores this variable in production, in test, and on Vercel.
-- **Email System (`userInviteUtils.ts`, `emailTemplates.ts`):**
-  - **AWS SES Integration:** Uses AWS SES for reliable email delivery with proper credentials management.
+- **Email System (`outbound.ts`, `userInviteUtils.ts`, `emailTemplates.ts`):**
+  - **AWS SES Integration:** All web SES sends go through `outbound.ts`. A Preview with no
+    `OUTBOUND_SINK_EMAIL` returns success, but sends no mail.
   - **Activation Emails:** `sendActivationEmail()` sends branded activation links with 14-day expiry.
   - **Welcome Emails:** `sendWelcomeEmail()` automatically sent when users complete profile activation, includes
     site-specific branding and prominent button to access chatbot homepage.

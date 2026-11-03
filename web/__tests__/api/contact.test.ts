@@ -20,6 +20,7 @@ jest.mock("@aws-sdk/client-ses", () => {
       send: mockSend,
     })),
     SendEmailCommand: jest.fn(),
+    mockSend,
   };
 });
 
@@ -67,6 +68,8 @@ describe("Contact API", () => {
     process.env.AWS_ACCESS_KEY_ID = "test-key-id";
     process.env.AWS_SECRET_ACCESS_KEY = "test-secret-key";
     process.env.AWS_REGION = "us-east-1";
+    process.env.VERCEL_ENV = "production";
+    delete process.env.OUTBOUND_SINK_EMAIL;
   });
 
   afterEach(() => {
@@ -329,5 +332,88 @@ describe("Contact API", () => {
     expect(html).toContain('<a href="mailto:obrien@example.com">');
     expect(html).not.toContain("&lt;a");
     expect(html).toContain("O&#039;Brien");
+  });
+
+  it("does not call SES when VERCEL_ENV is preview and no sink is set", async () => {
+    process.env.VERCEL_ENV = "preview";
+    delete process.env.OUTBOUND_SINK_EMAIL;
+    const { mockSend } = jest.requireMock("@aws-sdk/client-ses");
+    const logSpy = jest.spyOn(console, "log").mockImplementation(() => undefined);
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: {
+        name: "Preview User",
+        email: "preview@example.com",
+        message: "Preview contact message",
+      },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(SendEmailCommand).not.toHaveBeenCalled();
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(logSpy).toHaveBeenCalledWith("[outbound] skipped SES send (non-production, no sink)");
+    logSpy.mockRestore();
+  });
+
+  it("routes preview mail to the sink address", async () => {
+    process.env.VERCEL_ENV = "preview";
+    process.env.OUTBOUND_SINK_EMAIL = "sink@example.test";
+    const { mockSend } = jest.requireMock("@aws-sdk/client-ses");
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: {
+        name: "Preview User",
+        email: "preview@example.com",
+        message: "Preview contact message",
+      },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(SendEmailCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        Destination: {
+          ToAddresses: ["sink@example.test"],
+        },
+        Message: expect.objectContaining({
+          Subject: expect.objectContaining({
+            Data: "[PREVIEW] Test Site Contact Form Msg from Preview User",
+          }),
+        }),
+      })
+    );
+  });
+
+  it("calls SES when VERCEL_ENV is production", async () => {
+    process.env.VERCEL_ENV = "production";
+    const { mockSend } = jest.requireMock("@aws-sdk/client-ses");
+
+    const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+      method: "POST",
+      body: {
+        name: "Prod User",
+        email: "prod@example.com",
+        message: "Production contact message",
+      },
+    });
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(200);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(SendEmailCommand).toHaveBeenCalledWith(
+      expect.objectContaining({
+        Destination: {
+          ToAddresses: ["contact@example.com"],
+          CcAddresses: ["prod@example.com"],
+        },
+      })
+    );
   });
 });

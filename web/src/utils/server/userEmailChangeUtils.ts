@@ -1,17 +1,9 @@
 // Utilities: Generate/secure email change tokens and send verification emails via SES.
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
-import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 import { loadSiteConfigSync } from "./loadSiteConfig";
 import { createEmailParams } from "./emailTemplates";
-
-const ses = new SESClient({
-  region: process.env.AWS_REGION || "us-west-2",
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
-  },
-});
+import { sendOutboundEmail } from "./outbound";
 
 export function generateEmailChangeToken(): string {
   return crypto.randomBytes(16).toString("hex");
@@ -60,7 +52,7 @@ If you didn't request this change, please ignore this email.`;
     actionText: "Click here to verify your new email address.",
   });
 
-  await ses.send(new SendEmailCommand(params));
+  await sendOutboundEmail(params);
 }
 
 export async function sendEmailChangeConfirmationEmails(oldEmail: string, newEmail: string) {
@@ -102,5 +94,5 @@ You can now use this email address to sign in to your account.`;
   });
 
   // Send both emails
-  await Promise.all([ses.send(new SendEmailCommand(oldEmailParams)), ses.send(new SendEmailCommand(newEmailParams))]);
+  await Promise.all([sendOutboundEmail(oldEmailParams), sendOutboundEmail(newEmailParams)]);
 }
