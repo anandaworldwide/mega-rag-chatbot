@@ -8,8 +8,8 @@ import { withJwtAuth, getTokenFromRequest, verifyToken } from "@/utils/server/jw
 import { requireAdminRoleFromFirestore, getRequesterRoleFromFirestore } from "@/utils/server/authz";
 import { getUsersCollectionName, getAnswersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreQueryGet } from "@/utils/server/firestoreRetryUtils";
-import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 import { loadSiteConfigSync, loadSiteConfig } from "@/utils/server/loadSiteConfig";
+import { sendOutboundEmail } from "@/utils/server/outbound";
 import { writeAuditLog } from "@/utils/server/auditLog";
 import { isDevelopment } from "@/utils/env";
 import { deleteFromCache } from "@/utils/server/redisUtils";
@@ -499,27 +499,16 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       // Attempt to notify both addresses about the change (suppressed during tests)
       if (process.env.NODE_ENV !== "test" && process.env.JEST_WORKER_ID === undefined) {
         try {
-          const ses = new SESClient({
-            region: process.env.AWS_REGION || "us-west-2",
-            credentials: {
-              accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
-              secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
-            },
-          });
           const brand = siteConfig?.name || siteConfig?.shortname || process.env.SITE_ID || "Ananda Library";
           const subject = `Your ${brand} account email was updated`;
           const text = `Your account email was changed from ${currentId} to ${newEmail}. If you did not request this change, please contact support immediately.`;
           const source = process.env.CONTACT_EMAIL || "noreply@ananda.org";
-          const cmds = [currentId, newEmail].map(
-            (addr) =>
-              new SendEmailCommand({
-                Source: source,
-                Destination: { ToAddresses: [addr] },
-                Message: { Subject: { Data: subject }, Body: { Text: { Data: text } } },
-              })
-          );
-          for (const cmd of cmds) {
-            await ses.send(cmd);
+          for (const addr of [currentId, newEmail]) {
+            await sendOutboundEmail({
+              Source: source,
+              Destination: { ToAddresses: [addr] },
+              Message: { Subject: { Data: subject }, Body: { Text: { Data: text } } },
+            });
           }
         } catch (e) {
           // Non-fatal: logging only

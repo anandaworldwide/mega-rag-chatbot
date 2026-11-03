@@ -1,15 +1,7 @@
 // This file provides utilities for sending operational alerts via email.
 // It uses AWS SES for email delivery and supports multiple recipient addresses.
 
-import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
-
-const ses = new SESClient({
-  region: process.env.AWS_REGION || "us-east-1",
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
-  },
-});
+import { sendOutboundEmail } from "./outbound";
 
 const SITE_SHORTNAME_FALLBACKS: Record<string, string> = {
   ananda: "Luca",
@@ -158,7 +150,7 @@ export async function sendOpsAlert(
       },
     };
 
-    await ses.send(new SendEmailCommand(params));
+    await sendOutboundEmail(params);
     console.log(`Ops alert sent successfully to ${recipientEmails.join(", ")}`);
     return true;
   } catch (error) {

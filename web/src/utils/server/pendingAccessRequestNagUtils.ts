@@ -3,22 +3,14 @@
  * First reminder after 3 days pending; follow-ups every 3 days thereafter.
  */
 
-import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 import firebase from "firebase-admin";
 import { createEmailParams } from "@/utils/server/emailTemplates";
 import { loadSiteConfig } from "@/utils/server/loadSiteConfig";
 import { daysSince } from "@/utils/server/dateUtils";
 import { unescapeName } from "@/utils/shared/nameUtils";
+import { sendOutboundEmail } from "@/utils/server/outbound";
 
 export const NAG_INTERVAL_DAYS = 3;
-
-const ses = new SESClient({
-  region: process.env.AWS_REGION || "us-west-2",
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID || "",
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || "",
-  },
-});
 
 /**
  * Returns true when a pending request should receive a NAG email.
@@ -102,5 +94,5 @@ export async function sendPendingAccessRequestNagEmail(options: {
     }
   );
 
-  await ses.send(new SendEmailCommand(params));
+  await sendOutboundEmail(params);
 }

@@ -110,6 +110,7 @@ describe("/api/admin/pendingRequests", () => {
       NEXT_PUBLIC_BASE_URL: "https://test.ananda.org",
       CONTACT_EMAIL: "test@ananda.org",
       SITE_ID: "ananda",
+      VERCEL_ENV: "production",
     };
   });
 
