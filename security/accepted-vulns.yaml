@@ -215,13 +215,113 @@ node:
   - id: "1240912"
     package: node-forge
     reason: >-
-      no patched release; reachability limited
-    review_by: "2026-11-04"
+      Fix node-forge@1.4.3 published 2026-11-04 is inside the 7-day cool-down.
+      Bump after 2026-11-11 (owner: Bert, weekly package cleanup).
+    review_by: "2026-11-11"
     mitigation: >-
-      GHSA-86w9-cpqp-85rv affects node-forge <=1.4.0 and lists no patched
-      release. npm latest is 1.4.0, which is still inside that range.
       firebase-admin 13.8.0 calls forge.pki.privateKeyFromPem only to read a
       service-account PEM. It does not verify untrusted RSA signatures.
+      Nightly 41758800919 failed on this expired high finding. Keep the
+      waiver until the cool-down ends.
+
+  - id: "1244014"
+    package: node-forge
+    reason: >-
+      Fix node-forge@1.4.3 published 2026-11-04 is inside the 7-day cool-down.
+      Bump after 2026-11-11 (owner: Bert, weekly package cleanup).
+    review_by: "2026-11-11"
+    mitigation: >-
+      Same cool-down waiver as 1240912. Do not bump node-forge before 2026-11-11.
+
+  - id: "1244015"
+    package: node-forge
+    reason: >-
+      Fix node-forge@1.4.3 published 2026-11-04 is inside the 7-day cool-down.
+      Bump after 2026-11-11 (owner: Bert, weekly package cleanup).
+    review_by: "2026-11-11"
+    mitigation: >-
+      Same cool-down waiver as 1240912. Do not bump node-forge before 2026-11-11.
+
+  - id: "1244016"
+    package: node-forge
+    reason: >-
+      Fix node-forge@1.4.3 published 2026-11-04 is inside the 7-day cool-down.
+      Bump after 2026-11-11 (owner: Bert, weekly package cleanup).
+    review_by: "2026-11-11"
+    mitigation: >-
+      Same cool-down waiver as 1240912. Do not bump node-forge before 2026-11-11.
+
+  - id: "1244017"
+    package: node-forge
+    reason: >-
+      Fix node-forge@1.4.3 published 2026-11-04 is inside the 7-day cool-down.
+      Bump after 2026-11-11 (owner: Bert, weekly package cleanup).
+    review_by: "2026-11-11"
+    mitigation: >-
+      Same cool-down waiver as 1240912. Do not bump node-forge before 2026-11-11.
+
+  - id: "1244018"
+    package: node-forge
+    reason: >-
+      Fix node-forge@1.4.3 published 2026-11-04 is inside the 7-day cool-down.
+      Bump after 2026-11-11 (owner: Bert, weekly package cleanup).
+    review_by: "2026-11-11"
+    mitigation: >-
+      Same cool-down waiver as 1240912. Do not bump node-forge before 2026-11-11.
+
+  - id: "1244019"
+    package: node-forge
+    reason: >-
+      Fix node-forge@1.4.3 published 2026-11-04 is inside the 7-day cool-down.
+      Bump after 2026-11-11 (owner: Bert, weekly package cleanup).
+    review_by: "2026-11-11"
+    mitigation: >-
+      Same cool-down waiver as 1240912. Do not bump node-forge before 2026-11-11.
+
+  - id: "1244020"
+    package: node-forge
+    reason: >-
+      Fix node-forge@1.4.3 published 2026-11-04 is inside the 7-day cool-down.
+      Bump after 2026-11-11 (owner: Bert, weekly package cleanup).
+    review_by: "2026-11-11"
+    mitigation: >-
+      Same cool-down waiver as 1240912. Do not bump node-forge before 2026-11-11.
+
+  - id: "1244021"
+    package: node-forge
+    reason: >-
+      Fix node-forge@1.4.3 published 2026-11-04 is inside the 7-day cool-down.
+      Bump after 2026-11-11 (owner: Bert, weekly package cleanup).
+    review_by: "2026-11-11"
+    mitigation: >-
+      Same cool-down waiver as 1240912. Do not bump node-forge before 2026-11-11.
+
+  - id: "1244022"
+    package: node-forge
+    reason: >-
+      Fix node-forge@1.4.3 published 2026-11-04 is inside the 7-day cool-down.
+      Bump after 2026-11-11 (owner: Bert, weekly package cleanup).
+    review_by: "2026-11-11"
+    mitigation: >-
+      Same cool-down waiver as 1240912. Do not bump node-forge before 2026-11-11.
+
+  - id: "1244023"
+    package: node-forge
+    reason: >-
+      Fix node-forge@1.4.3 published 2026-11-04 is inside the 7-day cool-down.
+      Bump after 2026-11-11 (owner: Bert, weekly package cleanup).
+    review_by: "2026-11-11"
+    mitigation: >-
+      Same cool-down waiver as 1240912. Do not bump node-forge before 2026-11-11.
+
+  - id: "1244024"
+    package: node-forge
+    reason: >-
+      Fix node-forge@1.4.3 published 2026-11-04 is inside the 7-day cool-down.
+      Bump after 2026-11-11 (owner: Bert, weekly package cleanup).
+    review_by: "2026-11-11"
+    mitigation: >-
+      Same cool-down waiver as 1240912. Do not bump node-forge before 2026-11-11.
 
   - id: "1240992"
     package: braces
