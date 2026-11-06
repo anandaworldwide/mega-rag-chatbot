@@ -270,6 +270,66 @@ describe("Location Intent Detector", () => {
     });
   });
 
+  describe("two-letter country codes are not location keywords", () => {
+    beforeEach(() => {
+      process.env.OPENAI_API_KEY = "test-key";
+      // Force the embedding path to be unavailable so any positive result must come
+      // from the keyword pattern matcher, not from semantic similarity.
+      mockFs.existsSync.mockReturnValue(false);
+    });
+
+    it("should NOT treat Italian article 'il' (Israel ISO code) as a location", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("Che cosa dice il Maestro sugli angeli?")).toBe(false);
+    });
+
+    it("should NOT treat Italian 'se' (Sweden ISO code) as a location", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("Se medito ogni giorno, cosa succede?")).toBe(false);
+    });
+
+    it("should NOT treat German 'de' (Germany ISO code) as a location", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("Was lehrt Yogananda über Meditation de Ananda?")).toBe(false);
+    });
+
+    it("should NOT treat Spanish 'es' (Spain ISO code) as a location", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("Es verdad que Yogananda habla de los angeles?")).toBe(false);
+    });
+
+    it("should NOT treat standalone two-letter country codes as locations", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("What did Yogananda teach in NZ")).toBe(false);
+      expect(await hasLocationIntentAsync("Meditation groups UK")).toBe(false);
+      expect(await hasLocationIntentAsync("IL teachings on devotion")).toBe(false);
+    });
+
+    it("should still treat three-letter code 'usa' as a location keyword", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("Meditation groups USA")).toBe(true);
+    });
+
+    it("should still treat three-letter code 'uae' as a location keyword", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("Meditation groups UAE")).toBe(true);
+    });
+
+    it("should still trigger location intent from phrases when a two-letter country is present", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("Where is the nearest center in the UK")).toBe(true);
+      expect(await hasLocationIntentAsync("Find a meditation group near me in NZ")).toBe(true);
+    });
+  });
+
   describe("cache behavior", () => {
     beforeEach(() => {
       process.env.OPENAI_API_KEY = "test-key";
