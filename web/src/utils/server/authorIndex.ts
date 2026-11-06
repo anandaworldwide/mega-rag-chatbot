@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { db } from "@/services/firebase";
+import { WORK_TITLE_ALIAS_TOKENS } from "@/utils/server/authorConstants";
 
 export interface AuthorScopeIndex {
   canonicalAuthors: string[];
@@ -21,12 +22,13 @@ const SHARED_TOKEN_BLOCKLIST = new Set(["nayaswami", "swami", "om", "sk", "py"])
 const TITLE_PREFIXES = ["nayaswami", "swami"];
 
 /**
- * Tokens that must never become named-author aliases. Includes shared titles plus the
- * site id (and its hyphen/underscore parts) so org names like "ananda" from "Radio Ananda"
- * cannot hard-filter ordinary "What does Ananda say..." questions.
+ * Tokens that must never become named-author aliases. Includes shared titles, work-title
+ * tokens such as "gita", plus the site id (and its hyphen/underscore parts) so org names
+ * like "ananda" from "Radio Ananda" cannot hard-filter ordinary "What does Ananda say..."
+ * questions.
  */
 export function getAliasTokenBlocklist(siteId?: string): Set<string> {
-  const blocked = new Set(SHARED_TOKEN_BLOCKLIST);
+  const blocked = new Set<string>([...SHARED_TOKEN_BLOCKLIST, ...WORK_TITLE_ALIAS_TOKENS]);
   const normalizedSiteId = siteId?.trim().toLowerCase();
   if (!normalizedSiteId) {
     return blocked;

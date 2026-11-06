@@ -112,9 +112,17 @@ describe("buildAliasIndex", () => {
     expect(index.diksha).toBe("Nayaswami Diksha McCord");
   });
 
+  it("does not alias gita from Gita Matlock", () => {
+    const index = buildAliasIndex(["Gita Matlock"], {}, "ananda");
+
+    expect(index.gita).toBeUndefined();
+    expect(index["gita matlock"]).toBe("Gita Matlock");
+    expect(index.matlock).toBe("Gita Matlock");
+  });
+
   it("blocks hyphenated site-id parts such as ananda-public", () => {
     expect(getAliasTokenBlocklist("ananda-public")).toEqual(
-      new Set(["nayaswami", "swami", "om", "sk", "py", "ananda-public", "ananda", "public"])
+      new Set(["nayaswami", "swami", "om", "sk", "py", "gita", "ananda-public", "ananda", "public"])
     );
   });
 });
@@ -214,6 +222,24 @@ describe("getAuthorScopeIndex", () => {
     expect(index.aliasIndex.ananda).toBeUndefined();
     expect(index.aliasIndex["radio ananda"]).toBe("Radio Ananda");
     expect(index.aliasIndex.diksha).toBe("Nayaswami Diksha McCord");
+  });
+
+  it("does not map gita to Gita Matlock from libraryStats", async () => {
+    mockGet.mockResolvedValue({
+      exists: true,
+      data: () => ({
+        authors: {
+          "Gita Matlock": 4,
+        },
+      }),
+    });
+
+    const index = await getAuthorScopeIndex("ananda");
+
+    expect(index.canonicalAuthors).toEqual(["Gita Matlock"]);
+    expect(index.aliasIndex.gita).toBeUndefined();
+    expect(index.aliasIndex["gita matlock"]).toBe("Gita Matlock");
+    expect(index.aliasIndex.matlock).toBe("Gita Matlock");
   });
 
   it("merges Anandi Cornell into Nayaswami Anandi for unambiguous anandi token", async () => {

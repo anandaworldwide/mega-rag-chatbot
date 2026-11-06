@@ -96,6 +96,69 @@ describe("findExplicitAuthorMatch", () => {
     ).toBeNull();
   });
 
+  it("does not map Bhagavad Gita questions to Gita Matlock", () => {
+    const generatedAliasIndex = {
+      gita: "Gita Matlock",
+      "gita matlock": "Gita Matlock",
+      matlock: "Gita Matlock",
+    };
+
+    expect(
+      findExplicitAuthorMatch(
+        "What is the Bhagavad Gita?",
+        baseSiteConfig,
+        ["Gita Matlock"],
+        [],
+        generatedAliasIndex
+      )
+    ).toBeNull();
+    expect(
+      findExplicitAuthorMatch(
+        "What did Master teach about the Bhagavad Gita?",
+        baseSiteConfig,
+        ["Gita Matlock"],
+        [],
+        generatedAliasIndex
+      )
+    ).toBeNull();
+  });
+
+  it("does not map bare Gita in scripture context to Gita Matlock", () => {
+    const generatedAliasIndex = {
+      gita: "Gita Matlock",
+      "gita matlock": "Gita Matlock",
+      matlock: "Gita Matlock",
+    };
+
+    expect(
+      findExplicitAuthorMatch(
+        "What does the Gita say about patience?",
+        baseSiteConfig,
+        ["Gita Matlock"],
+        [],
+        generatedAliasIndex
+      )
+    ).toBeNull();
+  });
+
+  it("still matches Gita Matlock when the person is named", () => {
+    const generatedAliasIndex = {
+      gita: "Gita Matlock",
+      "gita matlock": "Gita Matlock",
+      matlock: "Gita Matlock",
+    };
+
+    expect(
+      findExplicitAuthorMatch(
+        "What did Gita Matlock teach about devotion?",
+        baseSiteConfig,
+        ["Gita Matlock"],
+        [],
+        generatedAliasIndex
+      )
+    ).toBe("Gita Matlock");
+  });
+
   it("matches Gyandev via generated alias index", () => {
     const generatedAliasIndex = {
       gyandev: "Nayaswami Gyandev McCord",
@@ -230,6 +293,51 @@ describe("resolveAuthorScope", () => {
         generatedAliasIndex,
       })
     ).toEqual({ kind: "blend", masterSwamiBoost: 0.2 });
+  });
+
+  it("stays in blend for Bhagavad Gita questions when Gita Matlock is a known author", () => {
+    const generatedAliasIndex = {
+      gita: "Gita Matlock",
+      "gita matlock": "Gita Matlock",
+      matlock: "Gita Matlock",
+    };
+
+    expect(
+      resolveAuthorScope({
+        question: "What is the Bhagavad Gita?",
+        siteConfig: baseSiteConfig,
+        collectionMode: "auto",
+        knownAuthors: ["Gita Matlock"],
+        generatedAliasIndex,
+      })
+    ).toEqual({ kind: "blend", masterSwamiBoost: 0.2 });
+    expect(
+      resolveAuthorScope({
+        question: "What did Master teach about the Bhagavad Gita?",
+        siteConfig: baseSiteConfig,
+        collectionMode: "auto",
+        knownAuthors: ["Gita Matlock"],
+        generatedAliasIndex,
+      })
+    ).toEqual({ kind: "blend", masterSwamiBoost: 0.2 });
+  });
+
+  it("returns named scope when Gita Matlock is explicitly named", () => {
+    const generatedAliasIndex = {
+      gita: "Gita Matlock",
+      "gita matlock": "Gita Matlock",
+      matlock: "Gita Matlock",
+    };
+
+    expect(
+      resolveAuthorScope({
+        question: "What did Gita Matlock teach about devotion?",
+        siteConfig: baseSiteConfig,
+        collectionMode: "auto",
+        knownAuthors: ["Gita Matlock"],
+        generatedAliasIndex,
+      })
+    ).toEqual({ kind: "named", author: "Gita Matlock" });
   });
 
   it("returns blend with default boost for auto mode", () => {

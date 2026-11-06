@@ -38,3 +38,6 @@ Sites with `enableAutoAuthorScope: true` must use `masterSwamiBoost` / `broadMas
 - Generated author aliases must not use the site name. The last token of `Radio Ananda` is `ananda`. If that token
   becomes an alias, Auto mode hard-filters ordinary "What does Ananda say..." questions to Radio Ananda and drops the
   real `ananda.org` pages.
+- Generated author aliases must not use work-title tokens such as `gita`. The first token of `Gita Matlock` is `gita`.
+  If that token becomes an alias, Auto mode hard-filters "What is the Bhagavad Gita?" to Gita Matlock. Full name
+  `Gita Matlock` still matches.
