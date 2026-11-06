@@ -10,9 +10,12 @@ import {
   buildRetrievalToolFilter,
   computeBlendFetchCount,
   dedupeDocuments,
+  dropNamedAuthorClause,
   isMasterSwamiAuthor,
+  isNamedAuthorEqClause,
   rankBoostedDocuments,
   retrieveWithAuthorScopeBlend,
+  retrieveWithNamedAuthorFallback,
 } from "@/utils/server/authorScopeRetrieval";
 
 describe("authorScopeRetrieval helpers", () => {
@@ -29,6 +32,91 @@ describe("authorScopeRetrieval helpers", () => {
   it("builds named author filter", () => {
     const filter = buildNamedAuthorFilter("Asha Nayaswami");
     expect(filter.$and).toContainEqual({ author: { $eq: "Asha Nayaswami" } });
+  });
+
+  it("detects only author $eq clauses as query-inferred named-author filters", () => {
+    expect(isNamedAuthorEqClause({ author: { $eq: "Radio Ananda" } })).toBe(true);
+    expect(isNamedAuthorEqClause({ author: { $in: ["Paramhansa Yogananda", "Swami Kriyananda"] } })).toBe(
+      false
+    );
+    expect(isNamedAuthorEqClause({ library: { $in: ["Ananda Library"] } })).toBe(false);
+  });
+
+  it("drops a named-author $eq and keeps user-set clauses", () => {
+    const named = buildNamedAuthorFilter("Asha Nayaswami", { $and: [{ type: { $in: ["text"] } }] });
+    const dropped = dropNamedAuthorClause(named);
+    expect(dropped?.$and).toEqual([{ type: { $in: ["text"] } }]);
+    expect(JSON.stringify(dropped ?? {})).not.toContain("$eq");
+  });
+
+  it("returns undefined when the only clause was the named-author $eq", () => {
+    expect(dropNamedAuthorClause(buildNamedAuthorFilter("Patanjali"))).toBeUndefined();
+    expect(dropNamedAuthorClause({ author: { $eq: "Nayaswami Krishna" } })).toBeUndefined();
+  });
+
+  it("does not drop Master/Swami $in or unrelated filters", () => {
+    const masterSwami = buildMasterSwamiFilter({ $and: [{ type: { $in: ["text"] } }] });
+    expect(dropNamedAuthorClause(masterSwami)).toEqual(masterSwami);
+    expect(dropNamedAuthorClause({ library: { $in: ["Ananda Library"] } })).toEqual({
+      library: { $in: ["Ananda Library"] },
+    });
+    expect(dropNamedAuthorClause(undefined)).toBeUndefined();
+  });
+
+  it("retries without the named-author filter when the first search is empty", async () => {
+    const fallbackDoc: Document = {
+      pageContent: "library teaching",
+      metadata: { author: "Other Author" },
+      id: "fallback",
+    };
+    const retrieve = jest
+      .fn()
+      .mockResolvedValueOnce({
+        documents: [],
+        relevance: { rawHitCount: 0, rejectedLowRelevance: 0, topScore: null },
+      })
+      .mockResolvedValueOnce({
+        documents: [fallbackDoc],
+        relevance: { rawHitCount: 1, rejectedLowRelevance: 0, topScore: 0.81 },
+      });
+
+    const named = buildNamedAuthorFilter("Asha Nayaswami", { $and: [{ type: { $in: ["text"] } }] });
+    const result = await retrieveWithNamedAuthorFallback(retrieve, named);
+
+    expect(retrieve).toHaveBeenCalledTimes(2);
+    expect(retrieve.mock.calls[0][0]).toEqual(named);
+    expect(retrieve.mock.calls[1][0]).toEqual(dropNamedAuthorClause(named));
+    expect(result.droppedNamedAuthor).toBe(true);
+    expect(result.documents).toEqual([fallbackDoc]);
+    expect(result.searchFilter).toEqual(dropNamedAuthorClause(named));
+  });
+
+  it("does not retry when the named-author search already returned documents", async () => {
+    const ashaDoc: Document = {
+      pageContent: "asha teaching",
+      metadata: { author: "Asha Nayaswami" },
+      id: "asha",
+    };
+    const retrieve = jest.fn().mockResolvedValue({
+      documents: [ashaDoc],
+      relevance: { rawHitCount: 1, rejectedLowRelevance: 0, topScore: 0.9 },
+    });
+    const named = buildNamedAuthorFilter("Asha Nayaswami");
+
+    const result = await retrieveWithNamedAuthorFallback(retrieve, named);
+
+    expect(retrieve).toHaveBeenCalledTimes(1);
+    expect(result.droppedNamedAuthor).toBe(false);
+    expect(result.documents).toEqual([ashaDoc]);
+    expect(result.searchFilter).toEqual(named);
+  });
+
+  it("does not run a second search when the named-author search throws", async () => {
+    const retrieve = jest.fn().mockRejectedValue(new Error("Pinecone down"));
+    await expect(retrieveWithNamedAuthorFallback(retrieve, buildNamedAuthorFilter("Patanjali"))).rejects.toThrow(
+      "Pinecone down"
+    );
+    expect(retrieve).toHaveBeenCalledTimes(1);
   });
 
   it("builds retrieval-tool filter with named author and selected libraries", () => {
