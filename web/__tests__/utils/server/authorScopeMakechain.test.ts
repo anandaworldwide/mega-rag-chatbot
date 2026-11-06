@@ -41,7 +41,10 @@ describe("makechain author index wiring contract", () => {
 
   it("resolves Gyandev the same way makechain passes Firestore index into resolveAuthorScope", () => {
     const canonicalAuthors = ["Nayaswami Gyandev McCord", "Nayaswami Devi Novak", "Nayaswami Jyotish Novak"];
-    const generatedAliasIndex = buildAliasIndex(canonicalAuthors);
+    const generatedAliasIndex = buildAliasIndex(canonicalAuthors, {
+      "Nayaswami Gyandev": "Nayaswami Gyandev McCord",
+      "Gyandev McCord": "Nayaswami Gyandev McCord",
+    });
 
     const result = resolveAuthorScope({
       question: "what did Nayaswami Gyandev say about mantras?",
@@ -53,5 +56,43 @@ describe("makechain author index wiring contract", () => {
     });
 
     expect(result).toEqual({ kind: "named", author: "Nayaswami Gyandev McCord" });
+  });
+
+  it("does not hard-filter Bhagavad Gita questions to Gita Matlock", () => {
+    const canonicalAuthors = ["Gita Matlock", "Paramhansa Yogananda"];
+    const generatedAliasIndex = buildAliasIndex(canonicalAuthors, {}, "ananda");
+
+    expect(
+      resolveAuthorScope({
+        question: "What is the Bhagavad Gita?",
+        scopeHint: "default",
+        siteConfig: autoSiteConfig,
+        collectionMode: "auto",
+        knownAuthors: canonicalAuthors,
+        generatedAliasIndex,
+      })
+    ).toEqual({ kind: "blend", masterSwamiBoost: 0.2 });
+
+    expect(
+      resolveAuthorScope({
+        question: "What did Master teach about the Bhagavad Gita?",
+        scopeHint: "default",
+        siteConfig: autoSiteConfig,
+        collectionMode: "auto",
+        knownAuthors: canonicalAuthors,
+        generatedAliasIndex,
+      })
+    ).toEqual({ kind: "blend", masterSwamiBoost: 0.2 });
+
+    expect(
+      resolveAuthorScope({
+        question: "What did Gita Matlock teach about devotion?",
+        scopeHint: "default",
+        siteConfig: autoSiteConfig,
+        collectionMode: "auto",
+        knownAuthors: canonicalAuthors,
+        generatedAliasIndex,
+      })
+    ).toEqual({ kind: "named", author: "Gita Matlock" });
   });
 });

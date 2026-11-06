@@ -41,34 +41,36 @@ describe("filterCanonicalAuthors", () => {
 });
 
 describe("buildAliasIndex", () => {
-  it("maps first names and title-stripped names to canonical authors", () => {
+  it("maps full canonical names only, not first names or surnames", () => {
     const index = buildAliasIndex(["Nayaswami Gyandev McCord", "Asha Nayaswami"]);
 
-    expect(index.gyandev).toBe("Nayaswami Gyandev McCord");
-    expect(index["gyandev mccord"]).toBe("Nayaswami Gyandev McCord");
-    expect(index.mccord).toBe("Nayaswami Gyandev McCord");
-    expect(index.asha).toBe("Asha Nayaswami");
+    expect(index["nayaswami gyandev mccord"]).toBe("Nayaswami Gyandev McCord");
     expect(index["asha nayaswami"]).toBe("Asha Nayaswami");
+    expect(index.gyandev).toBeUndefined();
+    expect(index.mccord).toBeUndefined();
+    expect(index.asha).toBeUndefined();
     expect(index.nayaswami).toBeUndefined();
     expect(index.swami).toBeUndefined();
   });
 
-  it("drops ambiguous surname tokens shared by multiple authors", () => {
+  it("does not derive first names or surnames from canonical names", () => {
     const index = buildAliasIndex(["Nayaswami Devi Novak", "Nayaswami Jyotish Novak"]);
 
-    expect(index.devi).toBe("Nayaswami Devi Novak");
-    expect(index.jyotish).toBe("Nayaswami Jyotish Novak");
+    expect(index["nayaswami devi novak"]).toBe("Nayaswami Devi Novak");
+    expect(index["nayaswami jyotish novak"]).toBe("Nayaswami Jyotish Novak");
+    expect(index.devi).toBeUndefined();
+    expect(index.jyotish).toBeUndefined();
     expect(index.novak).toBeUndefined();
   });
 
-  it("maps anandi to a single canonical author after variant merge", () => {
+  it("maps the full canonical Anandi name and not a derived first name", () => {
     const index = buildAliasIndex(["Nayaswami Anandi"]);
 
-    expect(index.anandi).toBe("Nayaswami Anandi");
+    expect(index.anandi).toBeUndefined();
     expect(index["nayaswami anandi"]).toBe("Nayaswami Anandi");
   });
 
-  it("uses author_mappings variants and drops ambiguous bare surnames", () => {
+  it("uses author_mappings variants and does not invent surnames or first names", () => {
     const mappings = {
       "Anandi Cornell": "Nayaswami Anandi",
       "Bharat Cornell": "Joseph Bharat Cornell",
@@ -78,18 +80,15 @@ describe("buildAliasIndex", () => {
     expect(index["anandi cornell"]).toBe("Nayaswami Anandi");
     expect(index["bharat cornell"]).toBe("Joseph Bharat Cornell");
     expect(index.cornell).toBeUndefined();
-    expect(index.anandi).toBe("Nayaswami Anandi");
+    expect(index.anandi).toBeUndefined();
   });
 
-  it("maps first names via author_mappings even when Devi is ambiguous in auto tokens", () => {
+  it("maps first names via author_mappings even when Devi is a shared given name", () => {
     const mappings = {
       Devi: "Nayaswami Devi Novak",
       Jyotish: "Nayaswami Jyotish Novak",
     };
-    const index = buildAliasIndex(
-      ["Nayaswami Devi Novak", "Nayaswami Jyotish Novak", "Devi Mukherjee"],
-      mappings
-    );
+    const index = buildAliasIndex(["Nayaswami Devi Novak", "Nayaswami Jyotish Novak", "Devi Mukherjee"], mappings);
 
     expect(index.devi).toBe("Nayaswami Devi Novak");
     expect(index.jyotish).toBe("Nayaswami Jyotish Novak");
@@ -107,14 +106,23 @@ describe("buildAliasIndex", () => {
     const index = buildAliasIndex(["Radio Ananda", "Nayaswami Diksha McCord"], {}, "ananda");
 
     expect(index.ananda).toBeUndefined();
-    expect(index.radio).toBe("Radio Ananda");
+    expect(index.radio).toBeUndefined();
     expect(index["radio ananda"]).toBe("Radio Ananda");
-    expect(index.diksha).toBe("Nayaswami Diksha McCord");
+    expect(index.diksha).toBeUndefined();
+    expect(index["nayaswami diksha mccord"]).toBe("Nayaswami Diksha McCord");
+  });
+
+  it("does not alias gita from Gita Matlock", () => {
+    const index = buildAliasIndex(["Gita Matlock"], {}, "ananda");
+
+    expect(index.gita).toBeUndefined();
+    expect(index["gita matlock"]).toBe("Gita Matlock");
+    expect(index.matlock).toBeUndefined();
   });
 
   it("blocks hyphenated site-id parts such as ananda-public", () => {
     expect(getAliasTokenBlocklist("ananda-public")).toEqual(
-      new Set(["nayaswami", "swami", "om", "sk", "py", "ananda-public", "ananda", "public"])
+      new Set(["nayaswami", "om", "sk", "py", "ananda-public", "ananda", "public"])
     );
   });
 });
@@ -135,9 +143,7 @@ describe("resolveCanonicalAuthorName", () => {
     expect(resolveCanonicalAuthorName("Drevi Novak", "ananda")).toBe("Nayaswami Devi Novak");
     expect(resolveCanonicalAuthorName("Devi", "ananda")).toBe("Nayaswami Devi Novak");
     expect(resolveCanonicalAuthorName("Jyotish", "ananda")).toBe("Nayaswami Jyotish Novak");
-    expect(resolveCanonicalAuthorName("Nayaswami Gyandev", "ananda")).toBe(
-      "Nayaswami Gyandev McCord"
-    );
+    expect(resolveCanonicalAuthorName("Nayaswami Gyandev", "ananda")).toBe("Nayaswami Gyandev McCord");
     expect(resolveCanonicalAuthorName("Gyandev McCord", "ananda")).toBe("Nayaswami Gyandev McCord");
     expect(resolveCanonicalAuthorName("Nayaswami Asha", "ananda")).toBe("Asha Nayaswami");
     expect(resolveCanonicalAuthorName("Paramahansa Yogananda", "ananda")).toBe("Paramhansa Yogananda");
@@ -194,8 +200,13 @@ describe("getAuthorScopeIndex", () => {
       "Nayaswami Devi Novak",
       "Nayaswami Jyotish Novak",
     ]);
-    expect(index.aliasIndex.gyandev).toBe("Nayaswami Gyandev McCord");
+    expect(index.aliasIndex["nayaswami gyandev mccord"]).toBe("Nayaswami Gyandev McCord");
+    expect(index.aliasIndex["nayaswami gyandev"]).toBe("Nayaswami Gyandev McCord");
+    expect(index.aliasIndex["gyandev mccord"]).toBe("Nayaswami Gyandev McCord");
+    expect(index.aliasIndex.gyandev).toBeUndefined();
     expect(index.aliasIndex.novak).toBeUndefined();
+    expect(index.aliasIndex.devi).toBe("Nayaswami Devi Novak");
+    expect(index.aliasIndex.jyotish).toBe("Nayaswami Jyotish Novak");
   });
 
   it("does not map the ananda site name to Radio Ananda", async () => {
@@ -212,11 +223,32 @@ describe("getAuthorScopeIndex", () => {
     const index = await getAuthorScopeIndex("ananda");
 
     expect(index.aliasIndex.ananda).toBeUndefined();
+    expect(index.aliasIndex.radio).toBeUndefined();
     expect(index.aliasIndex["radio ananda"]).toBe("Radio Ananda");
-    expect(index.aliasIndex.diksha).toBe("Nayaswami Diksha McCord");
+    expect(index.aliasIndex.diksha).toBeUndefined();
+    expect(index.aliasIndex["nayaswami diksha"]).toBe("Nayaswami Diksha McCord");
+    expect(index.aliasIndex["diksha mccord"]).toBe("Nayaswami Diksha McCord");
   });
 
-  it("merges Anandi Cornell into Nayaswami Anandi for unambiguous anandi token", async () => {
+  it("does not map gita to Gita Matlock from libraryStats", async () => {
+    mockGet.mockResolvedValue({
+      exists: true,
+      data: () => ({
+        authors: {
+          "Gita Matlock": 4,
+        },
+      }),
+    });
+
+    const index = await getAuthorScopeIndex("ananda");
+
+    expect(index.canonicalAuthors).toEqual(["Gita Matlock"]);
+    expect(index.aliasIndex.gita).toBeUndefined();
+    expect(index.aliasIndex["gita matlock"]).toBe("Gita Matlock");
+    expect(index.aliasIndex.matlock).toBeUndefined();
+  });
+
+  it("merges Anandi Cornell into Nayaswami Anandi without a derived anandi token", async () => {
     mockGet.mockResolvedValue({
       exists: true,
       data: () => ({
@@ -230,7 +262,8 @@ describe("getAuthorScopeIndex", () => {
     const index = await getAuthorScopeIndex("ananda");
 
     expect(index.canonicalAuthors).toEqual(["Nayaswami Anandi"]);
-    expect(index.aliasIndex.anandi).toBe("Nayaswami Anandi");
+    expect(index.aliasIndex.anandi).toBeUndefined();
+    expect(index.aliasIndex["nayaswami anandi"]).toBe("Nayaswami Anandi");
     expect(index.aliasIndex["anandi cornell"]).toBe("Nayaswami Anandi");
     expect(index.aliasIndex.cornell).toBeUndefined();
   });
