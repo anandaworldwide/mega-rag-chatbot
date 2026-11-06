@@ -1,6 +1,13 @@
 /** @jest-environment node */
 
-import { findExplicitAuthorMatch, clampMasterSwamiBoost, getAuthorMatchQuestion, getMasterSwamiBoost, resolveAuthorScope } from "@/utils/server/authorScopeResolver";
+import {
+  findExplicitAuthorMatch,
+  clampMasterSwamiBoost,
+  getAuthorMatchQuestion,
+  getMasterSwamiBoost,
+  resolveAuthorScope,
+} from "@/utils/server/authorScopeResolver";
+import { buildAliasIndex } from "@/utils/server/authorIndex";
 import type { SiteConfig } from "@/types/siteConfig";
 
 const baseSiteConfig = {
@@ -18,9 +25,9 @@ const baseSiteConfig = {
 
 describe("findExplicitAuthorMatch", () => {
   it("matches author aliases in the query", () => {
-    expect(
-      findExplicitAuthorMatch("Tell me about meditation topics from Asha's book", baseSiteConfig)
-    ).toBe("Asha Nayaswami");
+    expect(findExplicitAuthorMatch("Tell me about meditation topics from Asha's book", baseSiteConfig)).toBe(
+      "Asha Nayaswami"
+    );
   });
 
   it("matches Jyotish via alias even when Nayaswami appears in the full name", () => {
@@ -38,9 +45,9 @@ describe("findExplicitAuthorMatch", () => {
   });
 
   it("matches known author names directly", () => {
-    expect(findExplicitAuthorMatch("What did Swami Kriyananda teach about devotion?", baseSiteConfig, [
-      "Swami Kriyananda",
-    ])).toBe("Swami Kriyananda");
+    expect(
+      findExplicitAuthorMatch("What did Swami Kriyananda teach about devotion?", baseSiteConfig, ["Swami Kriyananda"])
+    ).toBe("Swami Kriyananda");
   });
 
   it("prefers longer alias matches first", () => {
@@ -52,9 +59,7 @@ describe("findExplicitAuthorMatch", () => {
       },
     } as SiteConfig;
 
-    expect(findExplicitAuthorMatch("What did Devi teach?", configWithOverlappingAliases)).toBe(
-      "Nayaswami Devi Novak"
-    );
+    expect(findExplicitAuthorMatch("What did Devi teach?", configWithOverlappingAliases)).toBe("Nayaswami Devi Novak");
   });
 
   it("returns null when no author is named", () => {
@@ -62,10 +67,7 @@ describe("findExplicitAuthorMatch", () => {
   });
 
   it("does not treat the site name Ananda as Radio Ananda", () => {
-    const generatedAliasIndex = {
-      "radio ananda": "Radio Ananda",
-      radio: "Radio Ananda",
-    };
+    const generatedAliasIndex = buildAliasIndex(["Radio Ananda"], {}, "ananda");
 
     expect(
       findExplicitAuthorMatch(
@@ -97,20 +99,10 @@ describe("findExplicitAuthorMatch", () => {
   });
 
   it("does not map Bhagavad Gita questions to Gita Matlock", () => {
-    const generatedAliasIndex = {
-      gita: "Gita Matlock",
-      "gita matlock": "Gita Matlock",
-      matlock: "Gita Matlock",
-    };
+    const generatedAliasIndex = buildAliasIndex(["Gita Matlock"], {}, "ananda");
 
     expect(
-      findExplicitAuthorMatch(
-        "What is the Bhagavad Gita?",
-        baseSiteConfig,
-        ["Gita Matlock"],
-        [],
-        generatedAliasIndex
-      )
+      findExplicitAuthorMatch("What is the Bhagavad Gita?", baseSiteConfig, ["Gita Matlock"], [], generatedAliasIndex)
     ).toBeNull();
     expect(
       findExplicitAuthorMatch(
@@ -124,11 +116,7 @@ describe("findExplicitAuthorMatch", () => {
   });
 
   it("does not map bare Gita in scripture context to Gita Matlock", () => {
-    const generatedAliasIndex = {
-      gita: "Gita Matlock",
-      "gita matlock": "Gita Matlock",
-      matlock: "Gita Matlock",
-    };
+    const generatedAliasIndex = buildAliasIndex(["Gita Matlock"], {}, "ananda");
 
     expect(
       findExplicitAuthorMatch(
@@ -142,11 +130,7 @@ describe("findExplicitAuthorMatch", () => {
   });
 
   it("still matches Gita Matlock when the person is named", () => {
-    const generatedAliasIndex = {
-      gita: "Gita Matlock",
-      "gita matlock": "Gita Matlock",
-      matlock: "Gita Matlock",
-    };
+    const generatedAliasIndex = buildAliasIndex(["Gita Matlock"], {}, "ananda");
 
     expect(
       findExplicitAuthorMatch(
@@ -159,11 +143,10 @@ describe("findExplicitAuthorMatch", () => {
     ).toBe("Gita Matlock");
   });
 
-  it("matches Gyandev via generated alias index", () => {
-    const generatedAliasIndex = {
-      gyandev: "Nayaswami Gyandev McCord",
-      "gyandev mccord": "Nayaswami Gyandev McCord",
-    };
+  it("matches Nayaswami Gyandev via an explicit mapping variant", () => {
+    const generatedAliasIndex = buildAliasIndex(["Nayaswami Gyandev McCord"], {
+      "Nayaswami Gyandev": "Nayaswami Gyandev McCord",
+    });
 
     expect(
       findExplicitAuthorMatch(
@@ -176,42 +159,123 @@ describe("findExplicitAuthorMatch", () => {
     ).toBe("Nayaswami Gyandev McCord");
   });
 
-  it("does not match ambiguous Novak surname from generated index", () => {
-    const generatedAliasIndex = {
-      devi: "Nayaswami Devi Novak",
-      jyotish: "Nayaswami Jyotish Novak",
-    };
-
-    expect(
-      findExplicitAuthorMatch("What did Novak teach?", baseSiteConfig, ["Nayaswami Devi Novak", "Nayaswami Jyotish Novak"], [], generatedAliasIndex)
-    ).toBeNull();
-  });
-
-  it("matches first names via generated alias index", () => {
-    const generatedAliasIndex = {
-      devi: "Nayaswami Devi Novak",
-      jyotish: "Nayaswami Jyotish Novak",
-    };
+  it("does not match a surname from canonical names", () => {
+    const generatedAliasIndex = buildAliasIndex(["Nayaswami Devi Novak", "Nayaswami Jyotish Novak"]);
 
     expect(
       findExplicitAuthorMatch(
-        "What did Devi teach about marriage?",
-        { enableAutoAuthorScope: true } as SiteConfig,
-        ["Nayaswami Devi Novak", "Nayaswami Jyotish Novak", "Devi Mukherjee"],
-        [],
-        generatedAliasIndex
-      )
-    ).toBe("Nayaswami Devi Novak");
-
-    expect(
-      findExplicitAuthorMatch(
-        "What did Jyotish say about leadership?",
+        "What did Novak teach?",
         { enableAutoAuthorScope: true } as SiteConfig,
         ["Nayaswami Devi Novak", "Nayaswami Jyotish Novak"],
         [],
         generatedAliasIndex
       )
-    ).toBe("Nayaswami Jyotish Novak");
+    ).toBeNull();
+  });
+
+  it("does not lock a lone first name that is not in site config", () => {
+    const generatedAliasIndex = buildAliasIndex(
+      ["Gita Matlock", "Nayaswami Gyandev McCord", "Nayaswami Devi Novak"],
+      {},
+      "ananda"
+    );
+    const emptyAliasConfig = { enableAutoAuthorScope: true } as SiteConfig;
+
+    expect(
+      findExplicitAuthorMatch(
+        "What did Gita teach about devotion?",
+        emptyAliasConfig,
+        ["Gita Matlock", "Nayaswami Gyandev McCord", "Nayaswami Devi Novak"],
+        [],
+        generatedAliasIndex
+      )
+    ).toBeNull();
+    expect(
+      findExplicitAuthorMatch(
+        "What did Gyandev say about mantras?",
+        emptyAliasConfig,
+        ["Gita Matlock", "Nayaswami Gyandev McCord", "Nayaswami Devi Novak"],
+        [],
+        generatedAliasIndex
+      )
+    ).toBeNull();
+    expect(
+      findExplicitAuthorMatch(
+        "What did Devi teach about marriage?",
+        emptyAliasConfig,
+        ["Gita Matlock", "Nayaswami Gyandev McCord", "Nayaswami Devi Novak"],
+        [],
+        generatedAliasIndex
+      )
+    ).toBeNull();
+  });
+
+  it("locks a full canonical author name", () => {
+    const generatedAliasIndex = buildAliasIndex(["Gita Matlock", "Nayaswami Gyandev McCord"], {}, "ananda");
+    const emptyAliasConfig = { enableAutoAuthorScope: true } as SiteConfig;
+
+    expect(
+      findExplicitAuthorMatch(
+        "What did Gita Matlock teach about devotion?",
+        emptyAliasConfig,
+        ["Gita Matlock", "Nayaswami Gyandev McCord"],
+        [],
+        generatedAliasIndex
+      )
+    ).toBe("Gita Matlock");
+    expect(
+      findExplicitAuthorMatch(
+        "What did Nayaswami Gyandev McCord say about mantras?",
+        emptyAliasConfig,
+        ["Gita Matlock", "Nayaswami Gyandev McCord"],
+        [],
+        generatedAliasIndex
+      )
+    ).toBe("Nayaswami Gyandev McCord");
+  });
+
+  it("locks a configured author alias", () => {
+    const generatedAliasIndex = buildAliasIndex(["Nayaswami Gyandev McCord", "Paramhansa Yogananda"]);
+    const configWithAliases = {
+      enableAutoAuthorScope: true,
+      authorAliases: {
+        gyandev: "Nayaswami Gyandev McCord",
+        yogananda: "Paramhansa Yogananda",
+        master: "Paramhansa Yogananda",
+        jyotish: "Nayaswami Jyotish Novak",
+      },
+    } as SiteConfig;
+
+    expect(
+      findExplicitAuthorMatch(
+        "What did Gyandev say about mantras?",
+        configWithAliases,
+        ["Nayaswami Gyandev McCord", "Paramhansa Yogananda"],
+        [],
+        generatedAliasIndex
+      )
+    ).toBe("Nayaswami Gyandev McCord");
+    expect(
+      findExplicitAuthorMatch(
+        "What did Yogananda teach about devotion?",
+        configWithAliases,
+        ["Nayaswami Gyandev McCord", "Paramhansa Yogananda"],
+        [],
+        generatedAliasIndex
+      )
+    ).toBe("Paramhansa Yogananda");
+    expect(
+      findExplicitAuthorMatch(
+        "What did Master teach about the Bhagavad Gita?",
+        configWithAliases,
+        ["Nayaswami Gyandev McCord", "Paramhansa Yogananda", "Gita Matlock"],
+        [],
+        generatedAliasIndex
+      )
+    ).toBe("Paramhansa Yogananda");
+    expect(findExplicitAuthorMatch("What did Jyotish say about leadership?", configWithAliases)).toBe(
+      "Nayaswami Jyotish Novak"
+    );
   });
 
   it("prefers manual authorAliases over generated alias index on conflict", () => {
@@ -279,10 +343,7 @@ describe("getAuthorMatchQuestion", () => {
 
 describe("resolveAuthorScope", () => {
   it("stays in blend when the question uses the site name Ananda", () => {
-    const generatedAliasIndex = {
-      "radio ananda": "Radio Ananda",
-      radio: "Radio Ananda",
-    };
+    const generatedAliasIndex = buildAliasIndex(["Radio Ananda"], {}, "ananda");
 
     expect(
       resolveAuthorScope({
@@ -296,11 +357,7 @@ describe("resolveAuthorScope", () => {
   });
 
   it("stays in blend for Bhagavad Gita questions when Gita Matlock is a known author", () => {
-    const generatedAliasIndex = {
-      gita: "Gita Matlock",
-      "gita matlock": "Gita Matlock",
-      matlock: "Gita Matlock",
-    };
+    const generatedAliasIndex = buildAliasIndex(["Gita Matlock"], {}, "ananda");
 
     expect(
       resolveAuthorScope({
@@ -323,11 +380,7 @@ describe("resolveAuthorScope", () => {
   });
 
   it("returns named scope when Gita Matlock is explicitly named", () => {
-    const generatedAliasIndex = {
-      gita: "Gita Matlock",
-      "gita matlock": "Gita Matlock",
-      matlock: "Gita Matlock",
-    };
+    const generatedAliasIndex = buildAliasIndex(["Gita Matlock"], {}, "ananda");
 
     expect(
       resolveAuthorScope({
@@ -372,43 +425,43 @@ describe("resolveAuthorScope", () => {
     expect(result).toEqual({ kind: "named", author: "Asha Nayaswami" });
   });
 
-  it("returns named scope for Gyandev via generated alias index", () => {
+  it("returns named scope for Gyandev via an explicit mapping variant", () => {
     const result = resolveAuthorScope({
       question: "what did Nayaswami Gyandev say about mantras?",
       siteConfig: baseSiteConfig,
       collectionMode: "auto",
       knownAuthors: ["Nayaswami Gyandev McCord"],
-      generatedAliasIndex: {
-        gyandev: "Nayaswami Gyandev McCord",
-        "gyandev mccord": "Nayaswami Gyandev McCord",
-      },
+      generatedAliasIndex: buildAliasIndex(["Nayaswami Gyandev McCord"], {
+        "Nayaswami Gyandev": "Nayaswami Gyandev McCord",
+      }),
     });
 
     expect(result).toEqual({ kind: "named", author: "Nayaswami Gyandev McCord" });
   });
 
-  it("returns named scope for Anandi on first turn after variant merge", () => {
+  it("returns named scope for Anandi on first turn via configured alias", () => {
     const result = resolveAuthorScope({
       question: "what did Anandi say about meditation?",
-      siteConfig: baseSiteConfig,
+      siteConfig: {
+        ...baseSiteConfig,
+        authorAliases: {
+          ...baseSiteConfig.authorAliases,
+          anandi: "Nayaswami Anandi",
+        },
+      } as SiteConfig,
       collectionMode: "auto",
       knownAuthors: ["Nayaswami Anandi"],
-      generatedAliasIndex: {
-        anandi: "Nayaswami Anandi",
-        "nayaswami anandi": "Nayaswami Anandi",
-        "anandi cornell": "Nayaswami Anandi",
-      },
+      generatedAliasIndex: buildAliasIndex(["Nayaswami Anandi"], { "Anandi Cornell": "Nayaswami Anandi" }),
     });
 
     expect(result).toEqual({ kind: "named", author: "Nayaswami Anandi" });
   });
 
   it("matches Anandi Cornell variant before bare cornell surname", () => {
-    const generatedAliasIndex = {
-      anandi: "Nayaswami Anandi",
-      "anandi cornell": "Nayaswami Anandi",
-      "bharat cornell": "Joseph Bharat Cornell",
-    };
+    const generatedAliasIndex = buildAliasIndex(["Nayaswami Anandi", "Joseph Bharat Cornell"], {
+      "Anandi Cornell": "Nayaswami Anandi",
+      "Bharat Cornell": "Joseph Bharat Cornell",
+    });
 
     expect(
       findExplicitAuthorMatch(
@@ -446,10 +499,7 @@ describe("resolveAuthorScope", () => {
       question: "Who is Jairam?",
       siteConfig: {
         ...baseSiteConfig,
-        includedLibraries: [
-          "Ananda Library",
-          { name: "Ananda Family Wiki", accessEmailsEnv: "WIKI_LIBRARY_EMAILS" },
-        ],
+        includedLibraries: ["Ananda Library", { name: "Ananda Family Wiki", accessEmailsEnv: "WIKI_LIBRARY_EMAILS" }],
       } as SiteConfig,
       collectionMode: "auto",
     });
@@ -475,8 +525,7 @@ describe("resolveAuthorScope", () => {
 
   it("does not hard-filter Master/Swami when only the retrieval rewrite names them", () => {
     const userUtterance = "How does Kundalini relate to music?";
-    const retrievalQuery =
-      "How does Kundalini relate to music according to Paramhansa Yogananda and Swami Kriyananda?";
+    const retrievalQuery = "How does Kundalini relate to music according to Paramhansa Yogananda and Swami Kriyananda?";
     const result = resolveAuthorScope({
       question: getAuthorMatchQuestion(userUtterance, retrievalQuery),
       siteConfig: baseSiteConfig,

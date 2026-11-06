@@ -5,7 +5,6 @@ import {
   AuthorScopeHint,
   AuthorScopeMode,
   MASTER_SWAMI_AUTHORS,
-  isWorkTitleAliasToken,
 } from "@/utils/server/authorConstants";
 
 export type ResolveAuthorScopeInput = {
@@ -61,9 +60,6 @@ export function findExplicitAuthorMatch(
   };
   const aliasEntries = Object.entries(aliases).sort(([left], [right]) => right.length - left.length);
   for (const [alias, author] of aliasEntries) {
-    if (isWorkTitleAliasToken(alias)) {
-      continue;
-    }
     if (hasWordBoundaryMatch(question, alias)) {
       return author;
     }
@@ -80,9 +76,6 @@ export function findExplicitAuthorMatch(
 
   const titleCandidates = [...knownTitles].sort((a, b) => b.length - a.length);
   for (const title of titleCandidates) {
-    if (isWorkTitleAliasToken(title)) {
-      continue;
-    }
     if (hasWordBoundaryMatch(question, title)) {
       const mappedAuthor = aliases[title.toLowerCase()];
       if (mappedAuthor) {

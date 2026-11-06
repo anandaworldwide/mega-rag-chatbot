@@ -1,7 +1,6 @@
 import fs from "fs";
 import path from "path";
 import { db } from "@/services/firebase";
-import { WORK_TITLE_ALIAS_TOKENS } from "@/utils/server/authorConstants";
 
 export interface AuthorScopeIndex {
   canonicalAuthors: string[];
@@ -18,17 +17,15 @@ const JUNK_AUTHOR_KEYS = new Set([
   "",
 ]);
 
-const SHARED_TOKEN_BLOCKLIST = new Set(["nayaswami", "swami", "om", "sk", "py"]);
-const TITLE_PREFIXES = ["nayaswami", "swami"];
+const SHARED_TOKEN_BLOCKLIST = new Set(["nayaswami", "om", "sk", "py"]);
 
 /**
- * Tokens that must never become named-author aliases. Includes shared titles, work-title
- * tokens such as "gita", plus the site id (and its hyphen/underscore parts) so org names
- * like "ananda" from "Radio Ananda" cannot hard-filter ordinary "What does Ananda say..."
- * questions.
+ * Tokens that must never become named-author aliases. Includes shared titles and short
+ * tokens, plus the site id (and its hyphen/underscore parts) so a mapping or a one-word
+ * canonical name cannot hard-filter ordinary "What does Ananda say..." questions.
  */
 export function getAliasTokenBlocklist(siteId?: string): Set<string> {
-  const blocked = new Set<string>([...SHARED_TOKEN_BLOCKLIST, ...WORK_TITLE_ALIAS_TOKENS]);
+  const blocked = new Set<string>(SHARED_TOKEN_BLOCKLIST);
   const normalizedSiteId = siteId?.trim().toLowerCase();
   if (!normalizedSiteId) {
     return blocked;
@@ -92,26 +89,6 @@ export function buildCanonicalAuthorsFromKeys(authorKeys: string[], siteId: stri
   ];
 }
 
-function deriveTokens(canonical: string, blockedTokens: Set<string>): string[] {
-  const cleaned = canonical.trim();
-  const lower = cleaned.toLowerCase();
-  const parts = lower.split(/\s+/).filter(Boolean);
-  const tokens = new Set<string>([lower]);
-
-  let rest = [...parts];
-  while (rest.length > 1 && TITLE_PREFIXES.includes(rest[0])) {
-    rest = rest.slice(1);
-  }
-
-  if (rest.length) {
-    tokens.add(rest.join(" "));
-    tokens.add(rest[0]);
-    tokens.add(rest[rest.length - 1]);
-  }
-
-  return [...tokens].filter((token) => token.length >= 3 && !blockedTokens.has(token));
-}
-
 export function filterCanonicalAuthors(authorKeys: string[]): string[] {
   return authorKeys.filter((name) => {
     const trimmed = name.trim();
@@ -122,31 +99,23 @@ export function filterCanonicalAuthors(authorKeys: string[]): string[] {
   });
 }
 
+/**
+ * Builds the generated alias index from full canonical names plus explicit siteMappings
+ * variants. Does not auto-derive first names or surnames. Single-token query aliases
+ * belong in siteMappings or siteConfig.authorAliases.
+ */
 export function buildAliasIndex(
   canonicalAuthors: string[],
   siteMappings: Record<string, string> = {},
   siteId?: string
 ): Record<string, string> {
   const blockedTokens = getAliasTokenBlocklist(siteId);
-  const ambiguousSurnames = findAmbiguousMappingSurnames(siteMappings);
-  const tokenOwners = new Map<string, Set<string>>();
+  const index: Record<string, string> = {};
 
   for (const author of canonicalAuthors) {
-    for (const token of deriveTokens(author, blockedTokens)) {
-      if (ambiguousSurnames.has(token)) {
-        continue;
-      }
-      if (!tokenOwners.has(token)) {
-        tokenOwners.set(token, new Set());
-      }
-      tokenOwners.get(token)!.add(author);
-    }
-  }
-
-  const index: Record<string, string> = {};
-  for (const [token, owners] of tokenOwners) {
-    if (owners.size === 1) {
-      index[token] = [...owners][0];
+    const fullName = author.trim().toLowerCase();
+    if (fullName.length >= 3 && !blockedTokens.has(fullName)) {
+      index[fullName] = author;
     }
   }
 
@@ -161,30 +130,6 @@ export function buildAliasIndex(
   }
 
   return index;
-}
-
-function findAmbiguousMappingSurnames(siteMappings: Record<string, string>): Set<string> {
-  const surnameToCanonicals = new Map<string, Set<string>>();
-
-  for (const [variant, canonical] of Object.entries(siteMappings)) {
-    const parts = variant.trim().toLowerCase().split(/\s+/).filter(Boolean);
-    if (parts.length < 2) {
-      continue;
-    }
-    const surname = parts[parts.length - 1];
-    if (!surnameToCanonicals.has(surname)) {
-      surnameToCanonicals.set(surname, new Set());
-    }
-    surnameToCanonicals.get(surname)!.add(canonical);
-  }
-
-  const ambiguous = new Set<string>();
-  for (const [surname, canonicals] of surnameToCanonicals) {
-    if (canonicals.size > 1) {
-      ambiguous.add(surname);
-    }
-  }
-  return ambiguous;
 }
 
 function buildIndexFromAuthorKeys(authorKeys: string[], siteId: string): AuthorScopeIndex {

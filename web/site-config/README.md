@@ -48,8 +48,10 @@ settings.
   cosine score is `>= 0`, so a floor of `0` never rejects anything. Values are clamped to `[0, 1]`; out-of-range
   values log a startup warning. Tune using debug logs (`[RAG] Relevance cutoff: min=…, topScore=…, rejected=…`).
 - `authorAliases`: Optional map of lowercase aliases (author first names or nicknames) to canonical Pinecone
-  author display names for deterministic named-author detection. Do not map shared surnames (e.g. `nayaswami`) or generic
-  entitlement terms (e.g. `lightbearer`) to a single author.
+  author display names for deterministic named-author detection. Single-token query aliases must live here or in
+  `author_mappings.json`. The generated index does not auto-derive first names or surnames from canonical names.
+  Do not map shared surnames (e.g. `nayaswami`), work titles (e.g. `gita`), or generic entitlement terms
+  (e.g. `lightbearer`) to a single author.
 
 ### Auto author scope behavior (Luca)
 
@@ -74,9 +76,9 @@ When `enableAutoAuthorScope` is enabled:
   - User-set `Collection` / `Libraries` / `Media types` / `Source scope` — the only lines that may produce "broaden or
     turn off that filter."
 - **Named-author detection at scale**: When auto author scope is active, chat loads a cached author index from Firestore
-  `libraryStats/{site}.authors` (1h in-process cache, fail-fast timeout). Tokens are derived from canonical Pinecone
-  author names (first name, surname, title-stripped full name) with ambiguous shared tokens dropped. Manual
-  `authorAliases` in config still override generated tokens. The index refreshes weekly via GitHub Actions
+  `libraryStats/{site}.authors` (1h in-process cache, fail-fast timeout). The generated index uses full canonical
+  Pinecone author names plus explicit `author_mappings.json` variants. It does not auto-derive first names or surnames.
+  Manual `authorAliases` in config still override generated tokens. The index refreshes weekly via GitHub Actions
   (`.github/workflows/library-stats.yml` running `bin/vector_db_stats.py --site ananda --env prod --write-firestore`).
 - `accessControl`: Optional site-specific access hierarchy. When enabled, `levels` defines numeric access values,
   `defaultLevel` defines public/default access, `superuserLevel` defines the highest local role level, and

@@ -35,9 +35,7 @@ Sites with `enableAutoAuthorScope: true` must use `masterSwamiBoost` / `broadMas
 - Named-author detection must run on the **current user utterance**, not the rephrased standalone question. Follow-up
   rewrites often inject Master/Swami names from prior turns; matching on that rewrite hard-filters authors the user did
   not name in this question.
-- Generated author aliases must not use the site name. The last token of `Radio Ananda` is `ananda`. If that token
-  becomes an alias, Auto mode hard-filters ordinary "What does Ananda say..." questions to Radio Ananda and drops the
-  real `ananda.org` pages.
-- Generated author aliases must not use work-title tokens such as `gita`. The first token of `Gita Matlock` is `gita`.
-  If that token becomes an alias, Auto mode hard-filters "What is the Bhagavad Gita?" to Gita Matlock. Full name
-  `Gita Matlock` still matches.
+- Generated author aliases use only full canonical names plus explicit `author_mappings.json` / `authorAliases`
+  entries. The index does not auto-derive first names or surnames. That keeps site names (`ananda` from
+  `Radio Ananda`) and work titles (`gita` from `Gita Matlock`) from hard-filtering ordinary questions. Full name
+  `Gita Matlock` still matches. Single-token query aliases such as `yogananda` belong in site config.

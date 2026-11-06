@@ -41,7 +41,10 @@ describe("makechain author index wiring contract", () => {
 
   it("resolves Gyandev the same way makechain passes Firestore index into resolveAuthorScope", () => {
     const canonicalAuthors = ["Nayaswami Gyandev McCord", "Nayaswami Devi Novak", "Nayaswami Jyotish Novak"];
-    const generatedAliasIndex = buildAliasIndex(canonicalAuthors);
+    const generatedAliasIndex = buildAliasIndex(canonicalAuthors, {
+      "Nayaswami Gyandev": "Nayaswami Gyandev McCord",
+      "Gyandev McCord": "Nayaswami Gyandev McCord",
+    });
 
     const result = resolveAuthorScope({
       question: "what did Nayaswami Gyandev say about mantras?",
