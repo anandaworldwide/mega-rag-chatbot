@@ -11,7 +11,7 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { JwtPayload, verifyToken } from "./jwtUtils";
+import { extractBearerToken, JwtPayload, verifyToken } from "./jwtUtils";
 import { loadSiteConfigSync } from "./loadSiteConfig";
 import * as corsMiddleware from "./corsMiddleware";
 import { isDevelopment } from "@/utils/env";
@@ -27,16 +27,7 @@ import { isDevelopment } from "@/utils/env";
  * @throws Error if no token is provided or if the token is invalid
  */
 export function getTokenFromAppRequest(req: NextRequest): JwtPayload {
-  const authHeader = req.headers.get("authorization");
-
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    throw new Error("No token provided");
-  }
-
-  const token = authHeader.split(" ")[1];
-  if (!token) {
-    throw new Error("No token provided");
-  }
+  const token = extractBearerToken(req.headers.get("authorization"));
   return verifyToken(token);
 }
 

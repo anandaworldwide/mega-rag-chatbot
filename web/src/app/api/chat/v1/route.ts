@@ -58,7 +58,7 @@ import { Index, RecordMetadata } from "@pinecone-database/pinecone";
 import { BaseCallbackHandler } from "@langchain/core/callbacks/base";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
-import { validateAndSanitizeQuestion, sanitizeForLogging } from "@/utils/server/inputSanitization";
+import { validateAndSanitizeQuestion, sanitizeChatHistory, sanitizeForLogging } from "@/utils/server/inputSanitization";
 import {
   CHATBOT_UNAVAILABLE_USER_MESSAGE,
   classifyLlmProviderChatFailure,
@@ -316,6 +316,15 @@ async function validateAndPreprocessInput(
     };
   }
 
+  let sanitizedHistory: ChatMessage[] | undefined;
+  try {
+    sanitizedHistory = sanitizeChatHistory(requestBody.history);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : "Invalid history format";
+    const response = NextResponse.json({ error: `Invalid history: ${errorMessage}` }, { status: 400 });
+    return corsMiddleware.addCorsHeaders(response, req, siteConfig);
+  }
+
   const rawFilterExplicitness = requestBody.filterExplicitness;
   let filterExplicitness: ChatRequestBody["filterExplicitness"];
   if (rawFilterExplicitness !== undefined) {
@@ -334,6 +343,7 @@ async function validateAndPreprocessInput(
     sanitizedInput: {
       ...requestBody,
       question: modelQuestion,
+      history: sanitizedHistory,
       uuid: sanitizedUuid,
       clientRequestId: sanitizedClientRequestId,
       filterExplicitness,

@@ -11,6 +11,7 @@
  */
 
 import { EMAIL_REGEX } from "./emailValidation";
+import type { ChatMessage } from "@/utils/shared/chatHistory";
 
 /**
  * Sanitizes text input to prevent XSS and injection attacks
@@ -371,4 +372,45 @@ export function validateAndSanitizeQuestion(
     throw new Error("Question cannot be empty");
   }
   return { display, model };
+}
+
+/**
+ * Validates client-supplied chat history. The latest question is sanitized
+ * separately; history must use the same rules so prompt-injection strings
+ * cannot arrive only on prior turns.
+ */
+export function sanitizeChatHistory(
+  history: unknown,
+  options: { maxMessages?: number; maxLength?: number } = {}
+): ChatMessage[] | undefined {
+  if (history === undefined || history === null) {
+    return undefined;
+  }
+  if (!Array.isArray(history)) {
+    throw new Error("History must be an array");
+  }
+
+  const maxMessages = options.maxMessages ?? 40;
+  const maxLength = options.maxLength ?? 4000;
+  if (history.length > maxMessages) {
+    throw new Error(`History exceeds maximum of ${maxMessages} messages`);
+  }
+
+  const sanitized: ChatMessage[] = [];
+  for (const item of history) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error("History items must be objects");
+    }
+    const role = (item as { role?: unknown }).role;
+    const content = (item as { content?: unknown }).content;
+    if (role !== "user" && role !== "assistant") {
+      throw new Error("History role must be user or assistant");
+    }
+    if (typeof content !== "string") {
+      throw new Error("History content must be a string");
+    }
+    const { model } = validateAndSanitizeQuestion(content, maxLength);
+    sanitized.push({ role, content: model });
+  }
+  return sanitized;
 }
