@@ -18,6 +18,7 @@
 import { OpenAI } from "openai";
 import { readFileSync, existsSync } from "fs";
 import path from "path";
+import { isDraftingOrTranslationQuery } from "@/utils/server/draftingIntentDetector";
 
 interface EmbeddingData {
   model: string;
@@ -378,6 +379,14 @@ function hasLocationKeywordPatterns(query: string): boolean {
  * @returns Promise<boolean> - true if query has location intent
  */
 export async function hasLocationIntentAsync(query: string): Promise<boolean> {
+  // Write / rewrite / translate requests are not center lookup intent
+  if (isDraftingOrTranslationQuery(query)) {
+    if (process.env.NODE_ENV === "development") {
+      console.log(`🔍 Location intent suppressed for drafting/translation question: "${query}"`);
+    }
+    return false;
+  }
+
   // Biographical/historical place questions are not center lookup intent
   if (hasHistoricalPlaceQuestionPatterns(query)) {
     if (process.env.NODE_ENV === "development") {

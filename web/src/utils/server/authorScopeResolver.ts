@@ -15,6 +15,8 @@ export type ResolveAuthorScopeInput = {
   knownAuthors?: string[];
   knownTitles?: string[];
   generatedAliasIndex?: Record<string, string>;
+  /** Drafting / translation jobs must not hard-filter on a name that appears in the user’s text. */
+  skipNamedAuthor?: boolean;
 };
 
 function escapeRegExp(value: string): string {
@@ -114,6 +116,7 @@ export function resolveAuthorScope(input: ResolveAuthorScopeInput): AuthorScopeD
     knownAuthors = [],
     knownTitles = [],
     generatedAliasIndex = {},
+    skipNamedAuthor = false,
   } = input;
 
   if (collectionMode === "master_swami") {
@@ -123,13 +126,9 @@ export function resolveAuthorScope(input: ResolveAuthorScopeInput): AuthorScopeD
     return { kind: "hard", collection: "whole_library" };
   }
 
-  const explicitAuthor = findExplicitAuthorMatch(
-    question,
-    siteConfig,
-    knownAuthors,
-    knownTitles,
-    generatedAliasIndex
-  );
+  const explicitAuthor = skipNamedAuthor
+    ? null
+    : findExplicitAuthorMatch(question, siteConfig, knownAuthors, knownTitles, generatedAliasIndex);
   if (explicitAuthor) {
     return { kind: "named", author: explicitAuthor };
   }
