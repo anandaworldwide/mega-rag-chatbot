@@ -1895,7 +1895,7 @@ class TestRobotsTxtCompliance(BaseWebsiteCrawlerTest):
         # Verify robots.txt parser was initialized
         mock_robot_parser_class.assert_called_once()
         mock_parser.set_url.assert_called_once_with("https://example.com/robots.txt")
-        mock_parser.read.assert_called_once()
+        mock_parser.parse.assert_called_once()
 
         self.assertEqual(crawler.robots_parser, mock_parser)
         crawler.close()
@@ -1904,7 +1904,7 @@ class TestRobotsTxtCompliance(BaseWebsiteCrawlerTest):
     def test_robots_txt_initialization_failure(self, mock_robot_parser_class):
         """Test robots.txt initialization failure handling."""
         mock_parser = Mock()
-        mock_parser.read.side_effect = Exception("Network error")
+        mock_parser.parse.side_effect = Exception("Network error")
         mock_robot_parser_class.return_value = mock_parser
 
         crawler = WebsiteCrawler(self.site_id, self.site_config)
@@ -1951,7 +1951,7 @@ class TestRobotsTxtCompliance(BaseWebsiteCrawlerTest):
     def test_robots_txt_fallback_when_unavailable(self, mock_robot_parser_class):
         """Test URL validation when robots.txt is unavailable."""
         mock_parser = Mock()
-        mock_parser.read.side_effect = Exception("Network error")
+        mock_parser.parse.side_effect = Exception("Network error")
         mock_robot_parser_class.return_value = mock_parser
 
         crawler = WebsiteCrawler(self.site_id, self.site_config)
@@ -1990,7 +1990,7 @@ class TestRobotsTxtCompliance(BaseWebsiteCrawlerTest):
 
         # Reset call count after initialization
         mock_robot_parser_class.reset_mock()
-        mock_parser.read.reset_mock()
+        mock_parser.parse.reset_mock()
 
         # Make multiple URL validation calls
         crawler.is_valid_url("https://example.com/page1")
@@ -1999,7 +1999,7 @@ class TestRobotsTxtCompliance(BaseWebsiteCrawlerTest):
 
         # Verify robots.txt was not reloaded
         mock_robot_parser_class.assert_not_called()
-        mock_parser.read.assert_not_called()
+        mock_parser.parse.assert_not_called()
         crawler.close()
 
     @patch("crawler.website_crawler.RobotFileParser")
@@ -2026,14 +2026,14 @@ class TestRobotsTxtCompliance(BaseWebsiteCrawlerTest):
 
         # Reset call count after initialization
         mock_robot_parser_class.reset_mock()
-        mock_parser.read.reset_mock()
+        mock_parser.parse.reset_mock()
 
         # Make URL validation call after cache expiry
         crawler.is_valid_url("https://example.com/page1")
 
         # Verify robots.txt was reloaded
         mock_robot_parser_class.assert_called_once()
-        mock_parser.read.assert_called_once()
+        mock_parser.parse.assert_called_once()
         self.assertEqual(crawler.robots_cache_timestamp, expired_time)
         crawler.close()
 
@@ -2063,7 +2063,7 @@ class TestRobotsTxtCompliance(BaseWebsiteCrawlerTest):
 
         # Set up second parser to fail
         mock_parser_2 = Mock()
-        mock_parser_2.read.side_effect = Exception("Network error")
+        mock_parser_2.parse.side_effect = Exception("Network error")
         mock_robot_parser_class.return_value = mock_parser_2
 
         # Make URL validation call after cache expiry

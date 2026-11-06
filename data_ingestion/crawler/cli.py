@@ -38,6 +38,11 @@ try:
         CrawlerLockManager,
         _get_lock_file_path,
     )
+    from .runtime_watchdog import (
+        DEFAULT_RUNTIME_GRACE_SECONDS,
+        DEFAULT_SHUTDOWN_GRACE_SECONDS,
+        RuntimeWatchdog,
+    )
     from .website_crawler import WebsiteCrawler
 except ImportError:
     # When running directly
@@ -51,6 +56,11 @@ except ImportError:
     from lock_manager import (  # type: ignore[import-not-found]
         CrawlerLockManager,
         _get_lock_file_path,
+    )
+    from runtime_watchdog import (  # type: ignore[import-not-found]
+        DEFAULT_RUNTIME_GRACE_SECONDS,
+        DEFAULT_SHUTDOWN_GRACE_SECONDS,
+        RuntimeWatchdog,
     )
     from website_crawler import WebsiteCrawler  # type: ignore[import-not-found]
 
@@ -442,6 +452,18 @@ def main():
 
     args = parse_arguments()
 
+    # Arm the watchdog before any network or lock work. The crawl-loop
+    # max-runtime check cannot fire if a call is blocked.
+    watchdog = RuntimeWatchdog()
+    max_runtime_seconds = (
+        args.max_runtime_minutes * 60 if args.max_runtime_minutes > 0 else 0
+    )
+    watchdog.start(
+        max_runtime_seconds,
+        runtime_grace_seconds=DEFAULT_RUNTIME_GRACE_SECONDS,
+        shutdown_grace_seconds=DEFAULT_SHUTDOWN_GRACE_SECONDS,
+    )
+
     logging.info("\n\n" + "-" * 40)
 
     # Setup phase
@@ -453,9 +475,12 @@ def main():
 
     # Initialize lock manager
     _lock_manager = CrawlerLockManager(args.site, lock_file)
+    watchdog.set_cleanup(_lock_manager.cleanup_silent)
 
     # Setup signal handlers with lock cleanup (handle both SIGTERM and SIGINT)
-    lock_cleanup_handler = _lock_manager.create_signal_handler()
+    lock_cleanup_handler = _lock_manager.create_signal_handler(
+        on_first_signal=watchdog.notify_shutdown
+    )
     setup_signal_handlers(
         custom_handler=lock_cleanup_handler,
         signals_to_handle=[signal.SIGTERM, signal.SIGINT],
@@ -466,6 +491,7 @@ def main():
     mode_str = "Cloud" if _lock_manager.is_cloud else "Local"
     logging.info(f"{mode_str} mode - using lock at {lock_file}")
     if not _lock_manager.acquire():
+        watchdog.cancel()
         sys.exit(1)
 
     crawler = None
@@ -480,6 +506,7 @@ def main():
         _execute_crawler(crawler, pinecone_index, args, start_url, lock_file)
 
     finally:
+        watchdog.cancel()
         # Remove lock file using lock manager
         _lock_manager.cleanup()
         cleanup_and_exit(crawler)
