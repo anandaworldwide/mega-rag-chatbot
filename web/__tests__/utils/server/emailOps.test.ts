@@ -1,21 +1,30 @@
 /** @jest-environment node */
 
+const mockSendOutboundEmail = jest.fn().mockResolvedValue({ MessageId: "mock-outbound" });
+const mockSesSend = jest.fn().mockResolvedValue({ MessageId: "mock-ses-id" });
+
+jest.mock("@/utils/server/outbound", () => ({
+  sendOutboundEmail: (...args: unknown[]) => mockSendOutboundEmail(...args),
+}));
+
+jest.mock("@aws-sdk/client-ses", () => ({
+  SESClient: jest.fn().mockImplementation(() => ({
+    send: (...args: unknown[]) => mockSesSend(...args),
+  })),
+  SendEmailCommand: jest.fn().mockImplementation((params) => ({ input: params })),
+}));
+
 import { sendOpsAlert } from "../../../src/utils/server/emailOps";
 
-// Mock AWS SES
-jest.mock("@aws-sdk/client-ses", () => {
-  const mockSESClient = {
-    send: jest.fn(),
-  };
-  return {
-    SESClient: jest.fn().mockImplementation(() => mockSESClient),
-    SendEmailCommand: jest.fn().mockImplementation((params) => ({ input: params })),
-  };
-});
-
 describe("emailOps", () => {
+  const originalJestWorkerId = process.env.JEST_WORKER_ID;
+  const originalVercelEnv = process.env.VERCEL_ENV;
+  const originalVercel = process.env.VERCEL;
+
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSendOutboundEmail.mockResolvedValue({ MessageId: "mock-outbound" });
+    mockSesSend.mockResolvedValue({ MessageId: "mock-ses-id" });
 
     // Reset environment variables
     delete process.env.OPS_ALERT_EMAIL;
@@ -25,6 +34,25 @@ describe("emailOps", () => {
     delete process.env.AWS_SECRET_ACCESS_KEY;
     delete (process.env as any).NODE_ENV;
     delete process.env.SITE_ID;
+    delete process.env.OUTBOUND_SINK_EMAIL;
+  });
+
+  afterEach(() => {
+    if (originalJestWorkerId !== undefined) {
+      process.env.JEST_WORKER_ID = originalJestWorkerId;
+    } else {
+      delete process.env.JEST_WORKER_ID;
+    }
+    if (originalVercelEnv !== undefined) {
+      process.env.VERCEL_ENV = originalVercelEnv;
+    } else {
+      delete process.env.VERCEL_ENV;
+    }
+    if (originalVercel !== undefined) {
+      process.env.VERCEL = originalVercel;
+    } else {
+      delete process.env.VERCEL;
+    }
   });
 
   describe("sendOpsAlert", () => {
@@ -174,7 +202,8 @@ describe("emailOps", () => {
       // Verify
       expect(result).toBe(true); // Should return true for test compatibility
       expect(consoleSpy).toHaveBeenCalledWith("[TEST MODE] Suppressing ops alert: Test Alert");
-      // SES client is mocked and should not send actual emails in test mode
+      expect(mockSendOutboundEmail).not.toHaveBeenCalled();
+      expect(mockSesSend).not.toHaveBeenCalled();
 
       // Cleanup
       if (originalNodeEnv !== undefined) {
@@ -206,7 +235,8 @@ describe("emailOps", () => {
       // Verify
       expect(result).toBe(true); // Should return true for test compatibility
       expect(consoleSpy).toHaveBeenCalledWith("[TEST MODE] Suppressing ops alert: Jest Alert");
-      // SES client is mocked and should not send actual emails in test mode
+      expect(mockSendOutboundEmail).not.toHaveBeenCalled();
+      expect(mockSesSend).not.toHaveBeenCalled();
 
       // Cleanup
       if (originalJestWorkerId !== undefined) {
@@ -237,6 +267,7 @@ describe("emailOps", () => {
 
       expect(first).toBe(true);
       expect(second).toBe(false);
+      expect(mockSesSend).not.toHaveBeenCalled();
     });
   });
 
@@ -277,5 +308,22 @@ describe("emailOps", () => {
 
     // Should succeed with custom AWS region
     expect(result).toBe(true);
+  });
+
+  it("returns success under Vercel production build env without calling SES", async () => {
+    process.env.VERCEL_ENV = "production";
+    process.env.VERCEL = "1";
+    process.env.OPS_ALERT_EMAIL = "ops@example.com";
+    process.env.CONTACT_EMAIL = "noreply@example.com";
+    process.env.AWS_REGION = "us-west-2";
+    delete process.env.JEST_WORKER_ID;
+    delete (process.env as { NODE_ENV?: string }).NODE_ENV;
+    delete process.env.SITE_ID;
+
+    const result = await sendOpsAlert("Test Alert", "Test message");
+
+    expect(result).toBe(true);
+    expect(mockSendOutboundEmail).toHaveBeenCalledTimes(1);
+    expect(mockSesSend).not.toHaveBeenCalled();
   });
 });
