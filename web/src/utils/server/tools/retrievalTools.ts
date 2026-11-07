@@ -310,10 +310,11 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
       statusWindow
     );
   // Short loop/tool status lines often omit "sources" ("Looking up the teachings…").
+  // Do not include gathering/seeking/pulling/searching here: those still need a
+  // retrieval object so openings such as "Seeking God within" stay complete.
   const startsLikeStatusVerb =
-    /^(fetching|gathering|pulling|searching|seeking|retrieving|expanding|scanning|checking)\b/i.test(
-      trimmed
-    ) || /^(looking (?:up|through|into|over))\b/i.test(trimmed);
+    /^(fetching|retrieving|expanding|scanning|checking)\b/i.test(trimmed) ||
+    /^(looking (?:up|through|into|over))\b/i.test(trimmed);
   const hasAnswerPredicate =
     /\b(is|are|was|were|means|because|taught|teaches|said|wrote|writes|explained|according to|for example)\b/i.test(
       trimmed
