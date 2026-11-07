@@ -1,3 +1,7 @@
+/**
+ * @jest-environment node
+ */
+
 import { extractGeoToolCalls, extractStreamedTextDelta } from "@/utils/server/geoToolCalls";
 
 describe("extractGeoToolCalls", () => {
