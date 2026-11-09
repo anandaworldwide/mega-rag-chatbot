@@ -41,6 +41,10 @@ export interface NearestCenterResult {
   searchMode?: "proximity" | "country";
   /** Inline guidance for model response formatting (country-level queries) */
   responseGuidance?: string;
+  /** Country-only nearest questions are imprecise; do not treat ranking as exact. */
+  locationPrecision?: "city" | "country";
+  /** True when distances come from a country-level point, not a city. */
+  distanceIsApproximate?: boolean;
 }
 
 // Using existing S3 client from awsConfig.ts

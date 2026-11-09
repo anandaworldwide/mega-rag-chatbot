@@ -13,7 +13,9 @@ import {
   determineLocationSearchScope,
   extractCountryMentionFromQuestion,
   hasProximityIntentInQuestion,
+  hasExplicitDomesticOnlyRestriction,
   getCanonicalCountryLabel,
+  isCountryOnlyProvidedLocation,
 } from "../../../../src/utils/server/tools/locationLogic";
 import { LocationResult, CenterResult } from "../../../../src/utils/server/tools";
 
@@ -497,6 +499,133 @@ describe("LocationLogic - Pure Business Logic Functions", () => {
       expect(r.scope).toBe("country");
       expect(r.countryFilter).toBe("India");
     });
+
+    // Labeled equivalents for the Vayu Uruguay report. These are not claimed
+    // Vayu quotes. Vayu did not supply exact translated prompts.
+    const URUGUAY_LOCATION = baseLocation({
+      city: "Uruguay",
+      country: "Uruguay",
+      latitude: -32.5228,
+      longitude: -55.7658,
+    });
+
+    it("EQUIV_EN_UY_NEAREST: English nearest-center in Uruguay uses proximity, not domestic-only", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "Uruguay",
+        originalQuestion: "Where is the nearest Ananda center in Uruguay?",
+        resolvedLocation: URUGUAY_LOCATION,
+      });
+      expect(r.scope).toBe("proximity");
+    });
+
+    it("EQUIV_ES_UY_NEAREST: Spanish nearest-center in Uruguay must not be domestic-only", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "Uruguay",
+        originalQuestion: "Cual es el centro Ananda mas cercano en Uruguay?",
+        resolvedLocation: URUGUAY_LOCATION,
+      });
+      expect(r.scope).toBe("proximity");
+    });
+
+    it("EQUIV_ES_UY_NEAREST_ACCENT: accented Spanish nearest-center in Uruguay uses proximity", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "Uruguay",
+        originalQuestion: "¿Cuál es el centro Ananda más cercano en Uruguay?",
+        resolvedLocation: URUGUAY_LOCATION,
+      });
+      expect(r.scope).toBe("proximity");
+    });
+
+    it("EQUIV_FR_UY_NEAREST: French nearest-center in Uruguay must not be domestic-only", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "Uruguay",
+        originalQuestion: "Quel est le centre Ananda le plus proche en Uruguay ?",
+        resolvedLocation: URUGUAY_LOCATION,
+      });
+      expect(r.scope).toBe("proximity");
+    });
+
+    it("EQUIV_EN_MVD_NEAREST: English nearest-center in Montevideo uses proximity", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "Montevideo",
+        originalQuestion: "Where is the nearest Ananda center in Montevideo?",
+        resolvedLocation: baseLocation({
+          city: "Montevideo",
+          country: "Uruguay",
+          latitude: -34.9011,
+          longitude: -56.1645,
+        }),
+      });
+      expect(r.scope).toBe("proximity");
+    });
+
+    it("EQUIV_ES_MVD_NEAREST: Spanish nearest-center in Montevideo uses proximity", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "Montevideo",
+        originalQuestion: "Cual es el centro Ananda mas cercano en Montevideo?",
+        resolvedLocation: baseLocation({
+          city: "Montevideo",
+          country: "Uruguay",
+          latitude: -34.9011,
+          longitude: -56.1645,
+        }),
+      });
+      expect(r.scope).toBe("proximity");
+    });
+
+    it("EQUIV_EN_MVD_CLOSEST_TYPO: misspelled closest at city level still uses proximity", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "Montevideo",
+        originalQuestion: "Where is the closesst Ananda center in Montevideo?",
+        resolvedLocation: baseLocation({
+          city: "Montevideo",
+          country: "Uruguay",
+          latitude: -34.9011,
+          longitude: -56.1645,
+        }),
+      });
+      expect(r.scope).toBe("proximity");
+    });
+
+    it("EQUIV_EN_UY_DOMESTIC_ONLY: explicit only-in-Uruguay stays country scope", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "Uruguay",
+        originalQuestion: "Where is the nearest Ananda center only in Uruguay?",
+        resolvedLocation: URUGUAY_LOCATION,
+      });
+      expect(r.scope).toBe("country");
+      expect(r.countryFilter).toBe("Uruguay");
+    });
+
+    it("EQUIV_ES_UY_DOMESTIC_ONLY: explicit solo-en-Uruguay stays country scope", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "Uruguay",
+        originalQuestion: "Cual es el centro Ananda mas cercano solo en Uruguay?",
+        resolvedLocation: URUGUAY_LOCATION,
+      });
+      expect(r.scope).toBe("country");
+      expect(r.countryFilter).toBe("Uruguay");
+    });
+
+    it("EQUIV_FR_UY_DOMESTIC_ONLY: explicit uniquement-en-Uruguay stays country scope", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "Uruguay",
+        originalQuestion: "Quel est le centre Ananda le plus proche uniquement en Uruguay ?",
+        resolvedLocation: URUGUAY_LOCATION,
+      });
+      expect(r.scope).toBe("country");
+      expect(r.countryFilter).toBe("Uruguay");
+    });
+
+    it("EQUIV_EN_UY_IN: country list without nearest stays country scope", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "Uruguay",
+        originalQuestion: "Are there Ananda centers in Uruguay?",
+        resolvedLocation: URUGUAY_LOCATION,
+      });
+      expect(r.scope).toBe("country");
+      expect(r.countryFilter).toBe("Uruguay");
+    });
   });
 
   describe("extractCountryMentionFromQuestion", () => {
@@ -507,6 +636,11 @@ describe("LocationLogic - Pure Business Logic Functions", () => {
     it("should extract New Zealand", () => {
       expect(extractCountryMentionFromQuestion("Are there centers in New Zealand?")).toBe("New Zealand");
     });
+
+    it("should extract Uruguay after Spanish/French en", () => {
+      expect(extractCountryMentionFromQuestion("Cual es el centro mas cercano en Uruguay?")).toBe("Uruguay");
+      expect(extractCountryMentionFromQuestion("Quel est le centre le plus proche en Uruguay ?")).toBe("Uruguay");
+    });
   });
 
   describe("hasProximityIntentInQuestion", () => {
@@ -516,6 +650,36 @@ describe("LocationLogic - Pure Business Logic Functions", () => {
 
     it("should detect within N miles", () => {
       expect(hasProximityIntentInQuestion("within 50 miles of Austin")).toBe(true);
+    });
+
+    it("should detect Spanish mas cercano with and without accents", () => {
+      expect(hasProximityIntentInQuestion("Cual es el centro Ananda mas cercano en Uruguay?")).toBe(true);
+      expect(hasProximityIntentInQuestion("¿Cuál es el centro Ananda más cercano en Uruguay?")).toBe(true);
+    });
+
+    it("should detect French plus proche", () => {
+      expect(hasProximityIntentInQuestion("Quel est le centre Ananda le plus proche en Uruguay ?")).toBe(true);
+    });
+
+    it("should not treat a teaching question as proximity intent", () => {
+      expect(hasProximityIntentInQuestion("Es verdad que Yogananda habla de los angeles?")).toBe(false);
+    });
+  });
+
+  describe("hasExplicitDomesticOnlyRestriction", () => {
+    it("should detect English only-in and Spanish/French equivalents", () => {
+      expect(hasExplicitDomesticOnlyRestriction("nearest center only in Uruguay")).toBe(true);
+      expect(hasExplicitDomesticOnlyRestriction("mas cercano solo en Uruguay")).toBe(true);
+      expect(hasExplicitDomesticOnlyRestriction("le plus proche uniquement en Uruguay")).toBe(true);
+      expect(hasExplicitDomesticOnlyRestriction("Where is the nearest Ananda center in Uruguay?")).toBe(false);
+    });
+  });
+
+  describe("isCountryOnlyProvidedLocation", () => {
+    it("should treat Uruguay as country-only and Montevideo as not", () => {
+      expect(isCountryOnlyProvidedLocation("Uruguay")).toBe(true);
+      expect(isCountryOnlyProvidedLocation("Montevideo")).toBe(false);
+      expect(isCountryOnlyProvidedLocation("Montevideo, Uruguay")).toBe(false);
     });
   });
 

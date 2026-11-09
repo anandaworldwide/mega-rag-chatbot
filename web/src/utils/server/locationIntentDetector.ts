@@ -18,6 +18,7 @@
 import { OpenAI } from "openai";
 import { readFileSync, existsSync } from "fs";
 import path from "path";
+import { hasProximityIntentInQuestion } from "./tools/locationLogic";
 
 interface EmbeddingData {
   model: string;
@@ -187,6 +188,10 @@ function hasHistoricalPlaceQuestionPatterns(query: string): boolean {
  */
 function hasLocationKeywordPatterns(query: string): boolean {
   const lowerQuery = query.toLowerCase();
+
+  if (hasProximityIntentInQuestion(query)) {
+    return true;
+  }
 
   // Keep only three-letter country codes. Two-letter ISO codes collide with
   // function words in other languages (Italian "il"/"se", German "de", Spanish
