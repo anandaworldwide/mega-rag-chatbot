@@ -143,17 +143,14 @@ function hasExplicitPlaceCue(question: string): boolean {
 }
 
 /**
- * Skip geo only for content-by-author questions with no explicit place.
- * A name alone, a subject mention, or a place/center/group cue keeps geo.
+ * Skip geo when the question asks for content by a named author.
+ * A place or topic word does not override that intent.
  */
 function shouldSkipGeoForAuthorContent(
   question: string | undefined,
   siteConfig?: AppSiteConfig | null
 ): boolean {
   if (!question?.trim()) {
-    return false;
-  }
-  if (hasExplicitPlaceCue(question)) {
     return false;
   }
   return hasByAuthorContentIntent(question, collectExplicitAuthorMatches(question, siteConfig));
@@ -639,7 +636,7 @@ export const makeChain = async (
     if (originalQuestion && siteConfig?.enableGeoAwareness && geoTools.length > 0) {
       const intentDetectionStart = Date.now();
       try {
-        // Content-by-author questions skip geo. A name plus an explicit place keeps geo.
+        // Author-content intent wins. Place cues enable geo only when that intent is absent.
         shouldUseGeoTools = shouldSkipGeoForAuthorContent(originalQuestion, siteConfig)
           ? false
           : hasExplicitPlaceCue(originalQuestion) || (await hasLocationIntentAsync(originalQuestion));
