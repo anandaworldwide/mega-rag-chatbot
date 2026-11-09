@@ -72,7 +72,7 @@ function makeLogger() {
 }
 
 describe("LocationToolService country-level nearest-center flow", () => {
-  it("EQUIV_ES_UY_NEAREST consumer: Spanish Uruguay nearest returns nearby synthetic options, not a domestic empty list", async () => {
+  it("EQUIV_ES_UY_NEAREST consumer: Spanish Uruguay nearest asks for a city and does not rank", async () => {
     const locationService = {
       resolveLocation: jest.fn().mockResolvedValue(URUGUAY_GEOCODE),
     };
@@ -92,15 +92,20 @@ describe("LocationToolService country-level nearest-center flow", () => {
       { originalQuestion: "Cual es el centro Ananda mas cercano en Uruguay?" }
     );
 
-    expect(result.centers.found).toBe(true);
+    expect(result.centers.found).toBe(false);
     expect(result.centers.searchMode).toBe("proximity");
     expect(result.centers.locationPrecision).toBe("country");
-    expect(result.centers.distanceIsApproximate).toBe(true);
-    expect(result.centers.centers.map((c) => c.name)).toEqual(["Synthetic Nearby Center"]);
-    expect(result.centers.fallbackMessage).toBeUndefined();
+    expect(result.centers.centers).toEqual([]);
+    expect(result.centers.fallbackMessage).toMatch(/city/i);
+    expect(result.centers.responseGuidance).toMatch(/Do not rank/i);
+    expect(result.centers.responseGuidance).toMatch(/Ask for a city/i);
+    const toolPayload = JSON.stringify(result);
+    expect(toolPayload).toContain("Do not rank centers as nearest to the user");
+    expect(toolPayload).toContain("Ask for a city");
+    expect(toolPayload).not.toContain("distanceIsApproximate");
   });
 
-  it("EQUIV_FR_UY_NEAREST consumer: French Uruguay nearest matches the English nearby path", async () => {
+  it("EQUIV_FR_UY_NEAREST consumer: French Uruguay nearest matches the English ask-city path", async () => {
     const locationService = {
       resolveLocation: jest.fn().mockResolvedValue(URUGUAY_GEOCODE),
     };
@@ -127,7 +132,11 @@ describe("LocationToolService country-level nearest-center flow", () => {
 
     expect(english.centers.searchMode).toBe("proximity");
     expect(french.centers.searchMode).toBe("proximity");
-    expect(french.centers.centers.map((c) => c.name)).toEqual(english.centers.centers.map((c) => c.name));
+    expect(french.centers.found).toBe(english.centers.found);
+    expect(french.centers.centers).toEqual([]);
+    expect(english.centers.centers).toEqual([]);
+    expect(french.centers.responseGuidance).toBe(english.centers.responseGuidance);
+    expect(french.centers.responseGuidance).toMatch(/Ask for a city/i);
   });
 
   it("EQUIV_ES_UY_DOMESTIC_ONLY consumer: solo en Uruguay stays country-filtered", async () => {
@@ -206,5 +215,41 @@ describe("LocationToolService country-level nearest-center flow", () => {
     expect(result.centers.found).toBe(false);
     expect(result.centers.locationPrecision).toBe("country");
     expect(result.centers.fallbackMessage).toMatch(/city or a more specific place/i);
+    expect(result.centers.responseGuidance).toMatch(/Do not rank/i);
+  });
+
+  it("omitted userProvidedLocation still asks for a city when the question names only a country", async () => {
+    const locationService = {
+      resolveLocation: jest.fn().mockResolvedValue(MONTEVIDEO_GEOCODE),
+    };
+    const findNearestCenters = jest.fn().mockResolvedValue({
+      found: false,
+      centers: [],
+      searchMode: "proximity",
+      locationPrecision: "country",
+      fallbackMessage:
+        "Please name a city or a more specific place. A country-only location is not enough to rank nearby centers.",
+      responseGuidance:
+        "The user named a country, not a city. Do not rank centers as nearest to the user. Do not give exact miles from a country-only point. Ask for a city. After the user names a city, you may search nearby, including across a border. Reply in the user's language.",
+    });
+    const service = new LocationToolService(
+      locationService as any,
+      { findNearestCenters } as any,
+      makeLogger() as any
+    );
+
+    const result = await service.getUserLocation({}, uruguayHeaders(), {
+      originalQuestion: "Cual es el centro Ananda mas cercano en Uruguay?",
+    });
+
+    expect(findNearestCenters).toHaveBeenCalledWith(
+      MONTEVIDEO_GEOCODE.latitude,
+      MONTEVIDEO_GEOCODE.longitude,
+      { searchScope: "proximity", locationPrecision: "country" }
+    );
+    expect(result.centers.found).toBe(false);
+    expect(result.centers.centers).toEqual([]);
+    expect(result.centers.responseGuidance).toMatch(/Do not rank/i);
+    expect(result.centers.responseGuidance).toMatch(/Ask for a city/i);
   });
 });

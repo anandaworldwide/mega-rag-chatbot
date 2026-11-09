@@ -87,7 +87,9 @@ export function selectBestCenters(
   maxResults: number = 10
 ): CenterResult[] {
   return centers
-    .filter((center) => center.distance <= maxDistance)
+    .filter((center): center is CenterResult & { distance: number } =>
+      typeof center.distance === "number" && center.distance <= maxDistance
+    )
     .sort((a, b) => a.distance - b.distance)
     .slice(0, maxResults);
 }
@@ -288,12 +290,36 @@ export function foldDiacritics(text: string): string {
 export function hasProximityIntentInQuestion(question: string): boolean {
   const q = foldDiacritics(question);
   return (
-    /\b(near me|nearby|closest|nearest|closesst|within\s+\d+|\d+\s*miles?\s+of|km\s+of)\b/i.test(q) ||
+    /\b(near me|nearby|closest|nearest|within\s+\d+|\d+\s*miles?\s+of|km\s+of)\b/i.test(q) ||
     /\bmas\s+cercan[oa]s?\b/.test(q) ||
     /\bmas\s+proxim[oa]s?\b/.test(q) ||
-    /\bcerca\s+de(?:\s+mi)?\b/.test(q) ||
+    /\bcerca\s+de\s+mi\b/.test(q) ||
     /\bplus\s+proche\b/.test(q) ||
-    /\bpres\s+de(?:\s+moi)?\b/.test(q)
+    /\bpres\s+de\s+moi\b/.test(q)
+  );
+}
+
+/**
+ * Evidence that the user asks for a place, not only a near/close metaphor.
+ * Used by the keyword geo path. Do not treat bare "cerca de" / "près de" as a location request.
+ */
+export function hasLocationRequestEvidence(question: string): boolean {
+  const q = foldDiacritics(question);
+  if (/\b(near me|cerca de mi|pres de moi)\b/.test(q)) {
+    return true;
+  }
+  const hasPlaceEntity =
+    /\b(centers?|centros?|centres?|groups?|grupos?|groupes?|community|communities|comunidad(?:es)?|communaute(?:s)?|temples?|templos?|church(?:es)?|iglesias?|eglises?|ananda)\b/.test(
+      q
+    );
+  if (!hasPlaceEntity) {
+    return false;
+  }
+  return (
+    /\b(nearest|closest|nearby)\b/.test(q) ||
+    /\bmas\s+cercan[oa]s?\b/.test(q) ||
+    /\bmas\s+proxim[oa]s?\b/.test(q) ||
+    /\bplus\s+proche\b/.test(q)
   );
 }
 
@@ -342,6 +368,22 @@ export function isCountryOnlyProvidedLocation(userProvidedLocation?: string): bo
     return false;
   }
   return getCanonicalCountryLabel(u) !== null;
+}
+
+/**
+ * Country-only when the tool arg is a country, or when the arg is omitted and
+ * the question names a country after in/en/au/aux/dans.
+ */
+export function isCountryOnlyLocationQuery(userProvidedLocation?: string, originalQuestion?: string): boolean {
+  if (isCountryOnlyProvidedLocation(userProvidedLocation)) {
+    return true;
+  }
+  const u = (userProvidedLocation ?? "").trim();
+  if (u) {
+    return false;
+  }
+  const extracted = extractCountryMentionFromQuestion(originalQuestion ?? "");
+  return !!(extracted && getCanonicalCountryLabel(extracted));
 }
 
 export type LocationSearchScopeType = "country" | "proximity" | "fallback";
@@ -427,19 +469,13 @@ export function determineLocationSearchScope(input: LocationSearchScopeInput): L
 /** Max centers returned for country-scoped searches (full list can be large). */
 export const LOCATION_COUNTRY_SEARCH_MAX_RESULTS = 20;
 
-/** Max miles for nearby options when the user named a country, not a city. */
-export const COUNTRY_PROXIMITY_MAX_MILES = 1000;
-
-/** Max nearby options returned for country-level nearest questions. */
-export const COUNTRY_PROXIMITY_MAX_RESULTS = 5;
-
 /** Inline guidance injected into country-level tool results so the model sees it adjacent to the data. */
 export const COUNTRY_SEARCH_RESPONSE_GUIDANCE =
   "This is a country-level search. End the location section by inviting the user to ask about a specific city or region for more targeted results, THEN link to the directory. Do NOT just say 'For a full directory, visit…' without offering the narrower follow-up first.";
 
 /**
- * Guidance for nearest/closest questions that name a country, not a city.
- * Distances from a country centroid are not a definitive nearest ranking.
+ * Country-only nearest/closest: do not rank from a country point.
+ * Ask for a city. Nearby search, including across a border, waits for a city.
  */
 export const COUNTRY_PROXIMITY_RESPONSE_GUIDANCE =
-  "The user named a country, not a city. These are nearby directory options from an imprecise country-level point. Do not present exact distances or a definitive nearest ranking. Invite the user to name a city for a closer match. Reply in the user's language.";
+  "The user named a country, not a city. Do not rank centers as nearest to the user. Do not give exact miles from a country-only point. Ask for a city. After the user names a city, you may search nearby, including across a border. Reply in the user's language.";

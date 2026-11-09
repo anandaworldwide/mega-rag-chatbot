@@ -762,17 +762,19 @@ embeddings.
 
 - **Runtime Detection Module (`web/src/utils/server/locationIntentDetector.ts`):**
   - Loads site-specific embeddings into memory cache on initialization
-  - Keyword fast path matches location phrases (`near me`, `closest`, `center in`) and the
-    three-letter codes `usa` and `uae` only. Two-letter ISO country codes are not keywords;
-    they collide with function words in other languages (Italian `il`/`se`, German `de`,
-    Spanish `es`) and skip library search.
+  - Keyword fast path matches location-request evidence (`near me`, `cerca de mi`,
+    `pres de moi`, or a place entity plus nearest/closest) and the three-letter codes
+    `usa` and `uae` only. Two-letter ISO country codes are not keywords; they collide
+    with function words in other languages (Italian `il`/`se`, German `de`, Spanish `es`)
+    and skip library search. Bare `cerca de` / `près de` is not location-request evidence.
   - Nearest/closest intent also matches Spanish (`más cercano`) and French (`plus proche`)
-    after accent folding. Country-level nearest questions use nearby options, not a
-    domestic-only empty list. Explicit "only in" / "solo en" / "uniquement en" stays
-    country-filtered. Distances from a country-level point are approximate.
+    after accent folding. Country-only nearest/closest does not rank from a country point
+    and does not report miles. The tool asks for a city. After the user names a city,
+    nearby search may include a center across a border. Explicit "only in" / "solo en" /
+    "uniquement en" stays country-filtered.
   - Implements contrastive scoring algorithm:
-    - Positive similarity threshold: >= 0.44
-    - Contrastive threshold: positive similarity must exceed negative by >= 0.1
+    - Positive similarity threshold: >= 0.37
+    - Contrastive threshold: positive similarity must exceed negative by >= 0.05
   - Average latency: ~250ms per query (includes OpenAI API call for query embedding)
   - Graceful fallback if embeddings unavailable
 

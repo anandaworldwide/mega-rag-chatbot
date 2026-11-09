@@ -948,6 +948,7 @@ describe("Services - Dependency Injection Architecture", () => {
 
     describe("country-precision proximity (synthetic fixtures, not live directory status)", () => {
       const URUGUAY_POINT = { lat: -32.5228, lon: -55.7658 };
+      const MONTEVIDEO_POINT = { lat: -34.9011, lon: -56.1645 };
       const syntheticNearby = {
         name: "Synthetic Nearby Center",
         address: "fixture",
@@ -967,7 +968,7 @@ describe("Services - Dependency Injection Architecture", () => {
         longitude: -122.143,
       };
 
-      it("returns nearby synthetic options across the border, not a domestic-only empty list", async () => {
+      it("B2: country-only nearest does not rank a synthetic nearby center from a country point", async () => {
         const haversineService = new CenterSearchService(
           mockCenterDataService,
           new HaversineDistanceCalculator()
@@ -979,15 +980,52 @@ describe("Services - Dependency Injection Architecture", () => {
           locationPrecision: "country",
         });
 
-        expect(result.found).toBe(true);
-        expect(result.searchMode).toBe("proximity");
+        expect(result.found).toBe(false);
+        expect(result.centers).toEqual([]);
         expect(result.locationPrecision).toBe("country");
-        expect(result.distanceIsApproximate).toBe(true);
-        expect(result.centers.map((c) => c.name)).toEqual(["Synthetic Nearby Center"]);
-        expect(result.centers[0]).not.toHaveProperty("distance");
+        expect(result.responseGuidance).toMatch(/city/i);
+        expect(result.responseGuidance).not.toMatch(/nearby directory options from an imprecise/i);
+        expect(result.fallbackMessage).toMatch(/city/i);
       });
 
-      it("reports no verified nearby data when only far synthetic centers exist", async () => {
+      it("B2: country-only nearest does not rank synthetic US or Australia centers from a country point", async () => {
+        const haversineService = new CenterSearchService(
+          mockCenterDataService,
+          new HaversineDistanceCalculator()
+        );
+        const syntheticUS = {
+          name: "Synthetic California Center",
+          address: "fixture",
+          city: "Palo Alto",
+          state: "CA",
+          country: "United States",
+          latitude: 37.4419,
+          longitude: -122.143,
+        };
+        const syntheticAU = {
+          name: "Synthetic Sydney Center",
+          address: "fixture",
+          city: "Sydney",
+          state: "NSW",
+          country: "Australia",
+          latitude: -33.8688,
+          longitude: 151.2093,
+        };
+        mockCenterDataService.loadCenters.mockResolvedValue([syntheticUS, syntheticAU]);
+
+        const usCentroid = { lat: 39.8283, lon: -98.5795 };
+        const result = await haversineService.findNearestCenters(usCentroid.lat, usCentroid.lon, {
+          searchScope: "proximity",
+          locationPrecision: "country",
+        });
+
+        expect(result.found).toBe(false);
+        expect(result.centers).toEqual([]);
+        expect(result.responseGuidance).toBeTruthy();
+        expect(result.centers.every((c) => c.distance === undefined)).toBe(true);
+      });
+
+      it("B2: asks for a city even when only far synthetic centers exist", async () => {
         const haversineService = new CenterSearchService(
           mockCenterDataService,
           new HaversineDistanceCalculator()
@@ -1001,8 +1039,27 @@ describe("Services - Dependency Injection Architecture", () => {
 
         expect(result.found).toBe(false);
         expect(result.centers).toEqual([]);
-        expect(result.fallbackMessage).toMatch(/no verified nearby/i);
+        expect(result.fallbackMessage).toMatch(/city/i);
         expect(result.locationPrecision).toBe("country");
+        expect(result.responseGuidance).toMatch(/Do not rank/i);
+      });
+
+      it("city-level proximity still ranks a synthetic nearby center with miles", async () => {
+        const haversineService = new CenterSearchService(
+          mockCenterDataService,
+          new HaversineDistanceCalculator()
+        );
+        mockCenterDataService.loadCenters.mockResolvedValue([syntheticNearby, syntheticFar]);
+
+        const result = await haversineService.findNearestCenters(MONTEVIDEO_POINT.lat, MONTEVIDEO_POINT.lon, {
+          searchScope: "proximity",
+        });
+
+        expect(result.found).toBe(true);
+        expect(result.centers[0].name).toBe("Synthetic Nearby Center");
+        expect(result.centers[0].distance).toBeGreaterThan(0);
+        expect(result.locationPrecision).toBeUndefined();
+        expect(result.responseGuidance).toBeUndefined();
       });
 
       it("keeps explicit country scope empty when the named country has no synthetic centers", async () => {

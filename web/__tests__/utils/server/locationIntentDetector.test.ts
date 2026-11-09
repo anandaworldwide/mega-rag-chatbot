@@ -345,6 +345,15 @@ describe("Location Intent Detector", () => {
       expect(await hasLocationIntentAsync("Cual es el centro Ananda mas cercano en Uruguay?")).toBe(true);
       expect(await hasLocationIntentAsync("Quel est le centre Ananda le plus proche en Uruguay ?")).toBe(true);
     });
+
+    it("B1: teaching questions with cerca de / près de must not take the keyword geo path", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("Como meditar cerca de Dios?")).toBe(false);
+      expect(await hasLocationIntentAsync("Yogananda habla acerca de estar cerca de la verdad")).toBe(false);
+      expect(await hasLocationIntentAsync("Comment prier près de Dieu ?")).toBe(false);
+      expect(await hasLocationIntentAsync("Yogananda enseigne près de 100 leçons de Kriya")).toBe(false);
+    });
   });
 
   describe("cache behavior", () => {

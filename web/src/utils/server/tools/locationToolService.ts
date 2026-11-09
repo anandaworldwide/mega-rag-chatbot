@@ -13,7 +13,7 @@ import {
   shouldSearchCenters,
   createPerformanceMetrics,
   determineLocationSearchScope,
-  isCountryOnlyProvidedLocation,
+  isCountryOnlyLocationQuery,
 } from "./locationLogic";
 
 /**
@@ -100,7 +100,7 @@ export class LocationToolService implements ILocationToolService {
       const countryOnlyNearest =
         !useCountry &&
         scope.scope === "proximity" &&
-        isCountryOnlyProvidedLocation(args.userProvidedLocation);
+        isCountryOnlyLocationQuery(args.userProvidedLocation, context?.originalQuestion);
       centers = await this.centerSearchService.findNearestCenters(
         location.latitude,
         location.longitude,
