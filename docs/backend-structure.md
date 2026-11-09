@@ -770,11 +770,15 @@ embeddings.
     search. Bare `cerca de` / `près de` is not location-request evidence. Org name plus
     `más cercano` is not enough. `cerca de mi maestro` is not a locative "near me".
   - Nearest/closest intent also matches Spanish (`más cercano`) and French (`plus proche`)
-    after accent folding. Country-only nearest/closest returns directory rows in that
-    country, plus out-of-country rows whose coordinates are within 1000 miles of the
-    geocoded country point. It does not rank nearest-to-user and does not report miles.
-    It also asks for a city. Explicit "only in" / "solo en" / "uniquement en" stays
-    country-filtered. There is no hardcoded country-to-country map.
+    after accent folding. Country-only nearest/closest returns a directory sample.
+    Cap the sample at 8 rows. If the named country has 0 domestic rows, include up to
+    8 foreign rows. If the named country has domestic rows, include up to 5 foreign
+    rows, then fill remaining slots with domestic rows. Pick foreign rows by distance
+    to the country geocode rectangle (`bounds`, else `viewport`). Do not apply a mile
+    cutoff. Keep directory order. Do not show miles on country-only results. Results
+    may be far away. Do not call them nearest. Explicit "only in" / "solo en" /
+    "uniquement en" stays country-filtered. There is no hardcoded country-to-country
+    map.
   - Implements contrastive scoring algorithm:
     - Positive similarity threshold: >= 0.37
     - Contrastive threshold: positive similarity must exceed negative by >= 0.05

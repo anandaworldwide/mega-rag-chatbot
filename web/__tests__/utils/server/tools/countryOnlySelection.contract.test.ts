@@ -126,6 +126,25 @@ describe("country-only selection contract", () => {
     });
   });
 
+  describe("fewer than 8 rows", () => {
+    it("returns the short sample without padding to 8", () => {
+      const domestic = [
+        center({ name: "Domestic 1", country: "United States", latitude: 47.6, longitude: -122.3 }),
+        center({ name: "Domestic 2", country: "United States", latitude: 37.4, longitude: -122.1 }),
+      ];
+      const foreign = center({
+        name: "Foreign 1",
+        country: "Canada",
+        latitude: 49.28,
+        longitude: -123.12,
+      });
+      const result = selectCountryOnlyNearestCandidates([...domestic, foreign], "United States", US_BOX);
+      expect(result.map((row) => row.name)).toEqual(["Domestic 1", "Domestic 2", "Foreign 1"]);
+      expect(result).toHaveLength(3);
+      expect(result.every((row) => row.distance === undefined)).toBe(true);
+    });
+  });
+
   describe("antimeridian", () => {
     it("treats a wrapping box as inside on both sides of 180", () => {
       const wrap: GeoBox = {
@@ -136,6 +155,32 @@ describe("country-only selection contract", () => {
       expect(rectangleDistanceMiles(0, 175, wrap)).toBe(0);
       expect(rectangleDistanceMiles(0, -175, wrap)).toBe(0);
       expect(rectangleDistanceMiles(0, 160, wrap)).toBeCloseTo(haversine.calculateDistance(0, 160, 0, 170), 10);
+    });
+
+    it("selects Fiji in-country and foreign rows across a wrapping bounds box", () => {
+      const fijiBox: GeoBox = {
+        southwest: { lat: -21.5, lng: 177 },
+        northeast: { lat: -16, lng: -178 },
+      };
+      expect(isValidGeoBox(fijiBox)).toBe(true);
+      expect(rectangleDistanceMiles(-18.14, 178.44, fijiBox)).toBe(0);
+      expect(rectangleDistanceMiles(-18.14, 176, fijiBox)).toBeGreaterThan(0);
+      const suva = center({
+        name: "Synthetic Suva Center",
+        country: "Fiji",
+        latitude: -18.14,
+        longitude: 178.44,
+      });
+      const auckland = center({
+        name: "Synthetic Auckland Center",
+        country: "New Zealand",
+        latitude: -36.85,
+        longitude: 174.76,
+      });
+      const result = selectCountryOnlyNearestCandidates([suva, auckland], "Fiji", fijiBox);
+      expect(result.map((row) => row.name)).toEqual(["Synthetic Suva Center", "Synthetic Auckland Center"]);
+      expect(result).toHaveLength(2);
+      expect(result.every((row) => row.distance === undefined)).toBe(true);
     });
   });
 
