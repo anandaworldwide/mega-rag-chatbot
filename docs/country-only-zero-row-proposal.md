@@ -1,6 +1,6 @@
 # Country-only selection: zero in-country rows
 
-Status: proposal only. Not implemented. Selection logic stays on `2279eeb3`. Docs only. No paid calls. No IP fallback.
+Status: implemented on PR233 from the `68316fe6` contract. No paid calls. No IP fallback for a stated country. Uruguay/Argentina live coverage stays unknown.
 
 Conditional technical acceptance of `68316fe6`, with the locks in this revision.
 

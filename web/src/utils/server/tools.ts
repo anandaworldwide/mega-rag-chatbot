@@ -9,6 +9,11 @@
 import { NextRequest } from "next/server";
 
 // Types for tool responses
+export interface GeoBox {
+  southwest: { lat: number; lng: number };
+  northeast: { lat: number; lng: number };
+}
+
 export interface LocationResult {
   city: string;
   country: string;
@@ -16,6 +21,8 @@ export interface LocationResult {
   longitude: number;
   confidence: "high" | "medium" | "low";
   source: "vercel-header" | "vercel-header-geocoded" | "google-geolocation" | "user-provided";
+  bounds?: GeoBox;
+  viewport?: GeoBox;
 }
 
 export interface CenterResult {

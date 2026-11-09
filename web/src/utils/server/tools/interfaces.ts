@@ -3,7 +3,7 @@
  * Enables dependency injection and easy mocking for tests
  */
 
-import { LocationResult, CenterResult, NearestCenterResult } from "../tools";
+import { LocationResult, CenterResult, NearestCenterResult, GeoBox } from "../tools";
 
 /**
  * Interface for geocoding services (Google Maps, etc.)
@@ -43,6 +43,8 @@ export interface CenterSearchOptions {
   countryFilter?: string;
   /** Country-only nearest questions: in-country and nearby-foreign directory options, not a domestic-only list. */
   locationPrecision?: "city" | "country";
+  /** Stated-country geocode box (bounds, else viewport). Required for locationPrecision "country". */
+  countryBox?: GeoBox;
 }
 
 /**
@@ -71,6 +73,8 @@ export interface ILogger {
  */
 export interface ILocationService {
   resolveLocation(userProvidedLocation: string | undefined, headers: Headers): Promise<LocationResult | null>;
+  /** Geocode a stated place only. Never fall back to IP. */
+  geocodeOnly(location: string): Promise<LocationResult | null>;
 }
 
 /**
