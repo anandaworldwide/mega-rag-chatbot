@@ -753,31 +753,38 @@ describe("LocationLogic - Pure Business Logic Functions", () => {
       longitude: 151.2093,
     };
 
+    const uruguayBox = {
+      southwest: { lat: -34.9, lng: -57.9 },
+      northeast: { lat: -30.1, lng: -53.2 },
+    };
+    const usBox = {
+      southwest: { lat: 24.5, lng: -125 },
+      northeast: { lat: 48, lng: -66.9 },
+    };
+
     it("includes a synthetic cross-border center when the named country has none", () => {
-      const result = selectCountryOnlyNearestCandidates([argentina, california], "Uruguay", (center) =>
-        center.country === "Argentina" ? 300 : 6000
-      );
-      expect(result.map((center) => center.name)).toEqual(["Synthetic Nearby Center"]);
+      const result = selectCountryOnlyNearestCandidates([argentina, california], "Uruguay", uruguayBox);
+      expect(result.map((row) => row.name)).toContain("Synthetic Nearby Center");
       expect(result[0].distance).toBeUndefined();
     });
 
-    it("keeps in-country US and Australia rows that are far from the country point", () => {
-      const us = selectCountryOnlyNearestCandidates([california, sydney], "United States", () => 1500);
-      expect(us.map((center) => center.name)).toContain("Synthetic California Center");
-      expect(us.every((center) => center.distance === undefined)).toBe(true);
-      const au = selectCountryOnlyNearestCandidates([california, sydney], "Australia", () => 1500);
-      expect(au.map((center) => center.name)).toContain("Synthetic Sydney Center");
+    it("keeps in-country US and Australia rows that are far from a country box", () => {
+      const us = selectCountryOnlyNearestCandidates([california, sydney], "United States", usBox);
+      expect(us.map((row) => row.name)).toContain("Synthetic California Center");
+      expect(us.every((row) => row.distance === undefined)).toBe(true);
+      const auBox = {
+        southwest: { lat: -44, lng: 112 },
+        northeast: { lat: -10, lng: 154 },
+      };
+      const au = selectCountryOnlyNearestCandidates([california, sydney], "Australia", auBox);
+      expect(au.map((row) => row.name)).toContain("Synthetic Sydney Center");
     });
 
-    it("returns empty when no in-country row and no foreign row is near the country point", () => {
-      expect(selectCountryOnlyNearestCandidates([california], "Uruguay", () => 6000)).toEqual([]);
-      expect(selectCountryOnlyNearestCandidates([], "Uruguay", () => 0)).toEqual([]);
+    it("returns empty only when the directory sample is empty", () => {
+      expect(selectCountryOnlyNearestCandidates([], "Uruguay", uruguayBox)).toEqual([]);
     });
 
-    // PINNED CURRENT FAILURE (Hawk-1). Head 2279eeb3 takes 8 domestic rows, then
-    // adds foreign rows, then cuts the combined list to 8. Canada 400 miles away
-    // is dropped. it.failing stays red until selection reserves a foreign slot.
-    it.failing("PINNED CURRENT FAILURE Hawk-1: 8 domestic rows must not hide a foreign candidate 400 miles away", () => {
+    it("Hawk-1: 8 domestic rows must not hide a foreign candidate outside the box", () => {
       const eightUS: CenterResult[] = Array.from({ length: 8 }, (_, i) => ({
         name: `Synthetic US Center ${i + 1}`,
         address: "fixture",
@@ -796,43 +803,33 @@ describe("LocationLogic - Pure Business Logic Functions", () => {
         latitude: 49.2827,
         longitude: -123.1207,
       };
-      const result = selectCountryOnlyNearestCandidates([...eightUS, canada], "United States", (center) =>
-        center.country === "Canada" ? 400 : 100
-      );
-      expect(result.some((center) => center.name === "Synthetic Canada Center")).toBe(true);
-      expect(result.every((center) => center.distance === undefined)).toBe(true);
+      const result = selectCountryOnlyNearestCandidates([...eightUS, canada], "United States", usBox);
+      expect(result.some((row) => row.name === "Synthetic Canada Center")).toBe(true);
+      expect(result.every((row) => row.distance === undefined)).toBe(true);
     });
 
-    // PINNED CURRENT FAILURE (Hawk-2). Foreign distance is from the country
-    // representative point. Vancouver is ~1365 miles from the US centroid and is
-    // dropped, even though it is ~121 miles from a Seattle in-country row.
-    it.failing(
-      "PINNED CURRENT FAILURE Hawk-2: a foreign row near an in-country center must not drop because the country point is far",
-      () => {
-        const seattle: CenterResult = {
-          name: "Synthetic Seattle Center",
-          address: "fixture",
-          city: "Seattle",
-          state: "WA",
-          country: "United States",
-          latitude: 47.6062,
-          longitude: -122.3321,
-        };
-        const vancouver: CenterResult = {
-          name: "Synthetic Vancouver Center",
-          address: "fixture",
-          city: "Vancouver",
-          state: "BC",
-          country: "Canada",
-          latitude: 49.2827,
-          longitude: -123.1207,
-        };
-        const result = selectCountryOnlyNearestCandidates([seattle, vancouver], "United States", (center) =>
-          center.country === "Canada" ? 1365 : 1295
-        );
-        expect(result.map((center) => center.name)).toContain("Synthetic Vancouver Center");
-      }
-    );
+    it("Hawk-2: a foreign row outside the country box still qualifies", () => {
+      const seattle: CenterResult = {
+        name: "Synthetic Seattle Center",
+        address: "fixture",
+        city: "Seattle",
+        state: "WA",
+        country: "United States",
+        latitude: 47.6062,
+        longitude: -122.3321,
+      };
+      const vancouver: CenterResult = {
+        name: "Synthetic Vancouver Center",
+        address: "fixture",
+        city: "Vancouver",
+        state: "BC",
+        country: "Canada",
+        latitude: 49.2827,
+        longitude: -123.1207,
+      };
+      const result = selectCountryOnlyNearestCandidates([seattle, vancouver], "United States", usBox);
+      expect(result.map((row) => row.name)).toContain("Synthetic Vancouver Center");
+    });
   });
 
   describe("isCountryOnlyLocationQuery", () => {

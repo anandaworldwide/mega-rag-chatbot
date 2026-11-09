@@ -3,7 +3,7 @@
  * Extracted from tools.ts to be independently testable
  */
 
-import { LocationResult, CenterResult, NearestCenterResult } from "../tools";
+import { LocationResult, CenterResult, NearestCenterResult, GeoBox } from "../tools";
 
 // Location resolution strategy types
 export type LocationStrategy = "user-provided" | "ip-geolocation" | "none";
@@ -486,15 +486,24 @@ export const COUNTRY_SEARCH_RESPONSE_GUIDANCE =
   "This is a country-level search. End the location section by inviting the user to ask about a specific city or region for more targeted results, THEN link to the directory. Do NOT just say 'For a full directory, visit…' without offering the narrower follow-up first.";
 
 /**
- * Country-only nearest/closest candidates from directory rows.
- * In-country rows match the named country field (no mile cap from the country point).
- * Cross-border rows are other countries whose coordinates are within
- * COUNTRY_PROXIMITY_FOREIGN_MAX_MILES of the geocoded country point.
- * Distances are used only to pick those foreign rows. They are not returned.
+ * Country-only directory alternatives. Cap 8. Foreign max 8 when in-country
+ * count is 0, else 5. Foreign rows are picked by rectangle-distance with no
+ * mile cutoff, then the sample is emitted in directory order.
  */
 export const COUNTRY_PROXIMITY_MAX_CANDIDATES = 8;
 export const COUNTRY_PROXIMITY_FOREIGN_FILL = 5;
-export const COUNTRY_PROXIMITY_FOREIGN_MAX_MILES = 1000;
+const EARTH_RADIUS_MILES = 3959;
+
+export const COUNTRY_PROXIMITY_RESPONSE_GUIDANCE =
+  "EN: These are directory alternatives. They may be far away. They are not guaranteed to be nearby or in neighboring countries. This is not a complete list. Do not rank them as nearest to the user. Do not give miles. Name a city for distances. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/). " +
+  "ES: Estas son alternativas del directorio. Pueden estar lejos. No se garantiza que estén cerca ni en países vecinos. No es una lista completa. No las clasifique como las más cercanas al usuario. No dé millas. Nombre una ciudad para las distancias. También puede usar [Find Ananda Near You](https://www.ananda.org/find-ananda/). " +
+  "FR: Ce sont des alternatives du répertoire. Elles peuvent être loin. Elles ne sont pas garanties proches ni dans des pays voisins. Ce n'est pas une liste complète. Ne les classez pas comme les plus proches de l'utilisateur. Ne donnez pas de miles. Indiquez une ville pour les distances. Vous pouvez aussi utiliser [Find Ananda Near You](https://www.ananda.org/find-ananda/). " +
+  "Reply in the user's language.";
+
+export const COUNTRY_PROXIMITY_EMPTY_FALLBACK =
+  "EN: Our directory has no listing we can sample for that country from the data we have. That does not mean there are no centers. Name a city. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/). " +
+  "ES: Nuestro directorio no tiene una ficha que podamos mostrar para ese país con los datos disponibles. Eso no significa que no haya centros. Nombre una ciudad. También puede usar [Find Ananda Near You](https://www.ananda.org/find-ananda/). " +
+  "FR: Notre répertoire n'a aucune fiche que nous puissions présenter pour ce pays avec les données dont nous disposons. Cela ne signifie pas qu'il n'y a pas de centres. Indiquez une ville. Vous pouvez aussi utiliser [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
 
 export function omitCenterDistance(center: CenterResult): CenterResult {
   const copy: CenterResult = { ...center };
@@ -502,28 +511,152 @@ export function omitCenterDistance(center: CenterResult): CenterResult {
   return copy;
 }
 
+export function isValidCenterCoordinate(lat: number, lng: number): boolean {
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180
+  );
+}
+
+export function isValidGeoBox(box: unknown): box is GeoBox {
+  if (!box || typeof box !== "object") {
+    return false;
+  }
+  const candidate = box as GeoBox;
+  const sw = candidate.southwest;
+  const ne = candidate.northeast;
+  if (!sw || !ne) {
+    return false;
+  }
+  const values = [sw.lat, sw.lng, ne.lat, ne.lng];
+  if (!values.every((value) => Number.isFinite(value))) {
+    return false;
+  }
+  if (sw.lat < -90 || sw.lat > 90 || ne.lat < -90 || ne.lat > 90) {
+    return false;
+  }
+  if (sw.lng < -180 || sw.lng > 180 || ne.lng < -180 || ne.lng > 180) {
+    return false;
+  }
+  return ne.lat >= sw.lat;
+}
+
+export function pickCountryBox(location: { bounds?: GeoBox; viewport?: GeoBox } | null | undefined): GeoBox | null {
+  if (isValidGeoBox(location?.bounds)) {
+    return location.bounds;
+  }
+  if (isValidGeoBox(location?.viewport)) {
+    return location.viewport;
+  }
+  return null;
+}
+
+function toRadians(degrees: number): number {
+  return degrees * (Math.PI / 180);
+}
+
+function haversineMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const dLat = toRadians(lat2 - lat1);
+  const dLng = toRadians(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return EARTH_RADIUS_MILES * c;
+}
+
+function clamp(value: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, value));
+}
+
+function isInsideLongitude(lng: number, west: number, east: number): boolean {
+  if (west <= east) {
+    return west <= lng && lng <= east;
+  }
+  return lng >= west || lng <= east;
+}
+
+function isInsideBox(lat: number, lng: number, south: number, west: number, north: number, east: number): boolean {
+  return south <= lat && lat <= north && isInsideLongitude(lng, west, east);
+}
+
+function distanceToNonWrappingBox(
+  lat: number,
+  lng: number,
+  south: number,
+  west: number,
+  north: number,
+  east: number
+): number {
+  if (isInsideBox(lat, lng, south, west, north, east)) {
+    return 0;
+  }
+  const latC = clamp(lat, south, north);
+  const lngC = clamp(lng, west, east);
+  return haversineMiles(lat, lng, latC, lngC);
+}
+
+export function rectangleDistanceMiles(lat: number, lng: number, box: GeoBox): number {
+  const south = box.southwest.lat;
+  const west = box.southwest.lng;
+  const north = box.northeast.lat;
+  const east = box.northeast.lng;
+  if (isInsideBox(lat, lng, south, west, north, east)) {
+    return 0;
+  }
+  if (west <= east) {
+    return distanceToNonWrappingBox(lat, lng, south, west, north, east);
+  }
+  return Math.min(
+    distanceToNonWrappingBox(lat, lng, south, west, north, 180),
+    distanceToNonWrappingBox(lat, lng, south, -180, north, east)
+  );
+}
+
+function countryCenterDedupeKey(center: CenterResult): string {
+  const nameKey = (center.name ?? "").normalize("NFC").trim().replace(/\s+/g, " ").toLowerCase();
+  return `${nameKey}\0${String(center.latitude)}\0${String(center.longitude)}`;
+}
+
 export function selectCountryOnlyNearestCandidates(
   centers: CenterResult[],
   namedCountry: string,
-  distanceFromCountryPoint: (center: CenterResult) => number
+  box: GeoBox
 ): CenterResult[] {
-  const inCountry = centers
-    .filter((center) => countriesMatchForCenterSearch(center.country, namedCountry))
-    .slice(0, COUNTRY_PROXIMITY_MAX_CANDIDATES)
-    .map(omitCenterDistance);
-  const foreignNear = centers
-    .filter((center) => !countriesMatchForCenterSearch(center.country, namedCountry))
-    .map((center) => ({ center, miles: distanceFromCountryPoint(center) }))
-    .filter((row) => Number.isFinite(row.miles) && row.miles <= COUNTRY_PROXIMITY_FOREIGN_MAX_MILES)
-    .sort((a, b) => a.miles - b.miles)
-    .slice(0, COUNTRY_PROXIMITY_FOREIGN_FILL)
-    .map((row) => omitCenterDistance(row.center));
-  return [...inCountry, ...foreignNear].slice(0, COUNTRY_PROXIMITY_MAX_CANDIDATES);
-}
+  const seen = new Set<string>();
+  const deduped: { center: CenterResult; index: number }[] = [];
+  centers.forEach((center, index) => {
+    if (!isValidCenterCoordinate(center.latitude, center.longitude)) {
+      return;
+    }
+    const key = countryCenterDedupeKey(center);
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    deduped.push({ center, index });
+  });
 
-/**
- * Country-only nearest/closest: directory options in or near that country.
- * Do not rank nearest-to-user. Do not give exact miles. Also ask for a city.
- */
-export const COUNTRY_PROXIMITY_RESPONSE_GUIDANCE =
-  "The user named a country, not a city. These centers come from directory country fields and coordinates. Some centers may be in a nearby country. Do not rank them as nearest to the user. Do not give exact miles. Also ask the user to name a city. Reply in the user's language.";
+  const inCountry = deduped.filter((row) => countriesMatchForCenterSearch(row.center.country, namedCountry));
+  const foreign = deduped.filter((row) => !countriesMatchForCenterSearch(row.center.country, namedCountry));
+  const foreignMax =
+    inCountry.length === 0 ? COUNTRY_PROXIMITY_MAX_CANDIDATES : COUNTRY_PROXIMITY_FOREIGN_FILL;
+
+  const foreignSelected = foreign
+    .map((row) => ({
+      ...row,
+      miles: rectangleDistanceMiles(row.center.latitude, row.center.longitude, box),
+    }))
+    .sort((a, b) => a.miles - b.miles || a.index - b.index)
+    .slice(0, foreignMax);
+
+  const remaining = COUNTRY_PROXIMITY_MAX_CANDIDATES - foreignSelected.length;
+  const domesticSelected = inCountry.slice(0, Math.max(0, remaining));
+  return [...foreignSelected, ...domesticSelected]
+    .sort((a, b) => a.index - b.index)
+    .map((row) => omitCenterDistance(row.center));
+}

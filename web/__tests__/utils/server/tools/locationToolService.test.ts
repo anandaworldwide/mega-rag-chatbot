@@ -22,6 +22,11 @@ function uruguayHeaders(): Headers {
   });
 }
 
+const URUGUAY_BOX = {
+  southwest: { lat: -34.9, lng: -57.9 },
+  northeast: { lat: -30.1, lng: -53.2 },
+};
+
 const URUGUAY_GEOCODE: LocationResult = {
   city: "Uruguay",
   country: "Uruguay",
@@ -29,6 +34,7 @@ const URUGUAY_GEOCODE: LocationResult = {
   longitude: -55.7658,
   confidence: "high",
   source: "user-provided",
+  bounds: URUGUAY_BOX,
 };
 
 const MONTEVIDEO_GEOCODE: LocationResult = {
@@ -71,11 +77,16 @@ function makeLogger() {
   };
 }
 
+function mockStatedCountryService(location: LocationResult) {
+  return {
+    resolveLocation: jest.fn().mockResolvedValue(location),
+    geocodeOnly: jest.fn().mockResolvedValue(location),
+  };
+}
+
 describe("LocationToolService country-level nearest-center flow", () => {
   it("EQUIV_ES_UY_NEAREST consumer: Spanish Uruguay nearest returns a synthetic nearby option and still asks for a city", async () => {
-    const locationService = {
-      resolveLocation: jest.fn().mockResolvedValue(URUGUAY_GEOCODE),
-    };
+    const locationService = mockStatedCountryService(URUGUAY_GEOCODE);
     const centerDataService = {
       loadCenters: jest.fn().mockResolvedValue([syntheticNearby, syntheticFar]),
       getLastError: jest.fn().mockReturnValue({ type: null, message: null }),
@@ -95,20 +106,21 @@ describe("LocationToolService country-level nearest-center flow", () => {
     expect(result.centers.found).toBe(true);
     expect(result.centers.searchMode).toBe("proximity");
     expect(result.centers.locationPrecision).toBe("country");
-    expect(result.centers.centers.map((c) => c.name)).toEqual(["Synthetic Nearby Center"]);
+    expect(result.centers.centers.map((c) => c.name)).toContain("Synthetic Nearby Center");
     expect(result.centers.centers[0].distance).toBeUndefined();
-    expect(result.centers.responseGuidance).toMatch(/Do not rank/i);
-    expect(result.centers.responseGuidance).toMatch(/name a city/i);
+    expect(result.centers.responseGuidance).toMatch(/directory alternatives/i);
+    expect(result.centers.responseGuidance).toMatch(/name a city for distances/i);
     const toolPayload = JSON.stringify(result);
     expect(toolPayload).toContain("Do not rank them as nearest to the user");
-    expect(toolPayload).toContain("Also ask the user to name a city");
+    expect(toolPayload).toContain("Name a city for distances");
+    expect(toolPayload).not.toContain("across the border");
     expect(toolPayload).not.toContain("distanceIsApproximate");
+    expect(locationService.geocodeOnly).toHaveBeenCalled();
+    expect(locationService.resolveLocation).not.toHaveBeenCalled();
   });
 
   it("EQUIV_FR_UY_NEAREST consumer: French Uruguay nearest matches the English candidate path", async () => {
-    const locationService = {
-      resolveLocation: jest.fn().mockResolvedValue(URUGUAY_GEOCODE),
-    };
+    const locationService = mockStatedCountryService(URUGUAY_GEOCODE);
     const centerDataService = {
       loadCenters: jest.fn().mockResolvedValue([syntheticNearby, syntheticFar]),
       getLastError: jest.fn().mockReturnValue({ type: null, message: null }),
@@ -137,13 +149,11 @@ describe("LocationToolService country-level nearest-center flow", () => {
     expect(french.centers.centers.map((c) => c.name)).toEqual(english.centers.centers.map((c) => c.name));
     expect(french.centers.centers[0].distance).toBeUndefined();
     expect(french.centers.responseGuidance).toBe(english.centers.responseGuidance);
-    expect(french.centers.responseGuidance).toMatch(/name a city/i);
+    expect(french.centers.responseGuidance).toMatch(/name a city for distances/i);
   });
 
   it("EQUIV_ES_UY_DOMESTIC_ONLY consumer: solo en Uruguay stays country-filtered", async () => {
-    const locationService = {
-      resolveLocation: jest.fn().mockResolvedValue(URUGUAY_GEOCODE),
-    };
+    const locationService = mockStatedCountryService(URUGUAY_GEOCODE);
     const centerDataService = {
       loadCenters: jest.fn().mockResolvedValue([syntheticNearby, syntheticFar]),
       getLastError: jest.fn().mockReturnValue({ type: null, message: null }),
@@ -194,9 +204,7 @@ describe("LocationToolService country-level nearest-center flow", () => {
   });
 
   it("EQUIV_NO_NEARBY consumer: country-level nearest with only far fixtures asks for a city", async () => {
-    const locationService = {
-      resolveLocation: jest.fn().mockResolvedValue(URUGUAY_GEOCODE),
-    };
+    const locationService = mockStatedCountryService(URUGUAY_GEOCODE);
     const centerDataService = {
       loadCenters: jest.fn().mockResolvedValue([syntheticFar]),
       getLastError: jest.fn().mockReturnValue({ type: null, message: null }),
@@ -213,27 +221,20 @@ describe("LocationToolService country-level nearest-center flow", () => {
       { originalQuestion: "Where is the nearest Ananda center in Uruguay?" }
     );
 
-    expect(result.centers.found).toBe(false);
+    expect(result.centers.found).toBe(true);
     expect(result.centers.locationPrecision).toBe("country");
-    expect(result.centers.fallbackMessage).toMatch(/city or a more specific place/i);
-    expect(result.centers.responseGuidance).toMatch(/Do not rank/i);
+    expect(result.centers.centers.map((c) => c.name)).toEqual(["Synthetic Far Center"]);
+    expect(result.centers.responseGuidance).toMatch(/may be far away/i);
   });
 
-  // CURRENT BEHAVIOR on head 2279eeb3 (Hawk-3): omitted tool arg still resolves
-  // IP/Montevideo coordinates and pairs them with a Uruguay country filter.
-  it("omitted userProvidedLocation still asks for a city when the question names only a country", async () => {
-    const locationService = {
-      resolveLocation: jest.fn().mockResolvedValue(MONTEVIDEO_GEOCODE),
-    };
+  it("Hawk-3: omitted tool arg must not pair a Uruguay filter with IP coordinates", async () => {
+    const locationService = mockStatedCountryService(URUGUAY_GEOCODE);
     const findNearestCenters = jest.fn().mockResolvedValue({
-      found: false,
+      found: true,
       centers: [],
       searchMode: "proximity",
       locationPrecision: "country",
-      fallbackMessage:
-        "Please name a city or a more specific place. A country-only location is not enough to rank nearby centers.",
-      responseGuidance:
-        "The user named a country, not a city. Do not rank centers as nearest to the user. Do not give exact miles from a country-only point. Ask for a city. After the user names a city, you may search nearby, including across a border. Reply in the user's language.",
+      responseGuidance: "These are directory alternatives. They may be far away.",
     });
     const service = new LocationToolService(
       locationService as any,
@@ -245,51 +246,14 @@ describe("LocationToolService country-level nearest-center flow", () => {
       originalQuestion: "Cual es el centro Ananda mas cercano en Uruguay?",
     });
 
-    expect(findNearestCenters).toHaveBeenCalledWith(
-      MONTEVIDEO_GEOCODE.latitude,
-      MONTEVIDEO_GEOCODE.longitude,
-      { searchScope: "proximity", locationPrecision: "country", countryFilter: "Uruguay" }
+    expect(locationService.resolveLocation).not.toHaveBeenCalled();
+    expect(locationService.geocodeOnly).toHaveBeenCalled();
+    const usedIpPoint = findNearestCenters.mock.calls.some(
+      (call: unknown[]) => call[0] === MONTEVIDEO_GEOCODE.latitude && call[1] === MONTEVIDEO_GEOCODE.longitude
     );
-    expect(result.centers.found).toBe(false);
-    expect(result.centers.centers).toEqual([]);
-    expect(result.centers.responseGuidance).toMatch(/Do not rank/i);
-    expect(result.centers.responseGuidance).toMatch(/Ask for a city/i);
+    expect(usedIpPoint).toBe(false);
+    expect(result.centers.responseGuidance).toMatch(/directory alternatives/i);
   });
-
-  // PINNED CURRENT FAILURE (Hawk-3). Desired: stated-country location, or
-  // insufficient. Must not use IP/Montevideo coordinates for Uruguay selection.
-  it.failing(
-    "PINNED CURRENT FAILURE Hawk-3: omitted tool arg must not pair a Uruguay filter with IP coordinates",
-    async () => {
-      const locationService = {
-        resolveLocation: jest.fn().mockResolvedValue(MONTEVIDEO_GEOCODE),
-      };
-      const findNearestCenters = jest.fn().mockResolvedValue({
-        found: true,
-        centers: [],
-        searchMode: "proximity",
-        locationPrecision: "country",
-        responseGuidance: "sample",
-      });
-      const service = new LocationToolService(
-        locationService as any,
-        { findNearestCenters } as any,
-        makeLogger() as any
-      );
-
-      const result = await service.getUserLocation({}, uruguayHeaders(), {
-        originalQuestion: "Cual es el centro Ananda mas cercano en Uruguay?",
-      });
-
-      const usedIpPoint = findNearestCenters.mock.calls.some(
-        (call: unknown[]) => call[0] === MONTEVIDEO_GEOCODE.latitude && call[1] === MONTEVIDEO_GEOCODE.longitude
-      );
-      expect(usedIpPoint).toBe(false);
-      if (findNearestCenters.mock.calls.length === 0) {
-        expect(result.centers.fallbackMessage).toMatch(/insufficient|city|specific place/i);
-      }
-    }
-  );
 
   it("no-IP-fallback: omitted arg geocodes the stated country and never uses IP coordinates", async () => {
     const locationService = {
@@ -330,7 +294,14 @@ describe("LocationToolService country-level nearest-center flow", () => {
   it("invalid geometry: missing bounds and viewport does not use IP and uses the empty copy", async () => {
     const locationService = {
       resolveLocation: jest.fn().mockResolvedValue(MONTEVIDEO_GEOCODE),
-      geocodeOnly: jest.fn().mockResolvedValue(URUGUAY_GEOCODE),
+      geocodeOnly: jest.fn().mockResolvedValue({
+        city: "Uruguay",
+        country: "Uruguay",
+        latitude: -32.5228,
+        longitude: -55.7658,
+        confidence: "high" as const,
+        source: "user-provided" as const,
+      }),
     };
     const findNearestCenters = jest.fn();
     const service = new LocationToolService(

@@ -16,6 +16,10 @@ import {
   isCountryOnlyLocationQuery,
   getCanonicalCountryLabel,
   extractCountryMentionFromQuestion,
+  hasExplicitDomesticOnlyRestriction,
+  pickCountryBox,
+  COUNTRY_PROXIMITY_EMPTY_FALLBACK,
+  COUNTRY_PROXIMITY_RESPONSE_GUIDANCE,
 } from "./locationLogic";
 
 /**
@@ -49,6 +53,14 @@ export class LocationToolService implements ILocationToolService {
 
     // Log tool execution start
     this.logger.logToolStart("get_user_location", args, requestHeaders);
+
+    const originalQuestion = context?.originalQuestion ?? "";
+    const domesticOnly = hasExplicitDomesticOnlyRestriction(originalQuestion);
+    const countryOnlyNearest = !domesticOnly && isCountryOnlyLocationQuery(args.userProvidedLocation, originalQuestion);
+
+    if (domesticOnly || countryOnlyNearest) {
+      return this.getStatedCountryLocation(args, originalQuestion, domesticOnly, toolStartTime);
+    }
 
     // Extract IP geolocation data from headers
     const ipData = extractIPGeolocationData(headers);
@@ -94,29 +106,16 @@ export class LocationToolService implements ILocationToolService {
     if (shouldSearchCenters(location)) {
       const centerSearchStart = Date.now();
       const scope = determineLocationSearchScope({
-        originalQuestion: context?.originalQuestion,
+        originalQuestion,
         userProvidedLocation: args.userProvidedLocation,
         resolvedLocation: location,
       });
-      const useCountry = scope.scope === "country" && !!scope.countryFilter;
-      const countryOnlyNearest =
-        !useCountry &&
-        scope.scope === "proximity" &&
-        isCountryOnlyLocationQuery(args.userProvidedLocation, context?.originalQuestion);
-      const extractedCountry = extractCountryMentionFromQuestion(context?.originalQuestion ?? "");
-      const countryOnlyLabel =
-        getCanonicalCountryLabel(args.userProvidedLocation ?? "") ||
-        (extractedCountry ? getCanonicalCountryLabel(extractedCountry) : null) ||
-        getCanonicalCountryLabel(location.country) ||
-        location.country;
       centers = await this.centerSearchService.findNearestCenters(
         location.latitude,
         location.longitude,
-        useCountry
+        scope.scope === "country" && scope.countryFilter
           ? { searchScope: "country", countryFilter: scope.countryFilter }
-          : countryOnlyNearest
-            ? { searchScope: "proximity", locationPrecision: "country", countryFilter: countryOnlyLabel }
-            : undefined
+          : undefined
       );
       const centerSearchLatency = Date.now() - centerSearchStart;
 
@@ -143,6 +142,70 @@ export class LocationToolService implements ILocationToolService {
     }
 
     return createLocationResponse(location, centers);
+  }
+
+  private countryOnlyEmptyCenters(): NearestCenterResult {
+    return {
+      found: false,
+      centers: [],
+      searchMode: "proximity",
+      locationPrecision: "country",
+      fallbackMessage: COUNTRY_PROXIMITY_EMPTY_FALLBACK,
+      responseGuidance: COUNTRY_PROXIMITY_RESPONSE_GUIDANCE,
+    };
+  }
+
+  private async getStatedCountryLocation(
+    args: { userProvidedLocation?: string },
+    originalQuestion: string,
+    domesticOnly: boolean,
+    toolStartTime: number
+  ): Promise<{ location: LocationResult | null; centers: NearestCenterResult }> {
+    const extracted = extractCountryMentionFromQuestion(originalQuestion);
+    const stated = (args.userProvidedLocation ?? "").trim() || extracted || "";
+    const countryLabel =
+      getCanonicalCountryLabel(args.userProvidedLocation ?? "") ||
+      (extracted ? getCanonicalCountryLabel(extracted) : null) ||
+      stated;
+
+    const location = stated ? await this.locationService.geocodeOnly(stated) : null;
+
+    if (domesticOnly) {
+      const centerSearchStart = Date.now();
+      const centers = await this.centerSearchService.findNearestCenters(0, 0, {
+        searchScope: "country",
+        countryFilter: countryLabel || stated,
+      });
+      this.logger.logToolComplete("get_user_location", true, {
+        reason: "stated_country_domestic_only",
+        centersFound: centers.centers.length,
+        performance: createPerformanceMetrics(0, 0, Date.now() - centerSearchStart, Date.now() - toolStartTime),
+      });
+      return { location, centers };
+    }
+
+    const box = pickCountryBox(location);
+    if (!location || !box) {
+      this.logger.logToolComplete("get_user_location", false, {
+        reason: "invalid_stated_country_geometry",
+        performance: createPerformanceMetrics(0, 0, 0, Date.now() - toolStartTime),
+      });
+      return { location, centers: this.countryOnlyEmptyCenters() };
+    }
+
+    const centerSearchStart = Date.now();
+    const centers = await this.centerSearchService.findNearestCenters(location.latitude, location.longitude, {
+      searchScope: "proximity",
+      locationPrecision: "country",
+      countryFilter: countryLabel || location.country,
+      countryBox: box,
+    });
+    this.logger.logToolComplete("get_user_location", true, {
+      location: `${location.city}, ${location.country}`,
+      centersFound: centers.centers.length,
+      performance: createPerformanceMetrics(0, 0, Date.now() - centerSearchStart, Date.now() - toolStartTime),
+    });
+    return { location, centers };
   }
 
   /**

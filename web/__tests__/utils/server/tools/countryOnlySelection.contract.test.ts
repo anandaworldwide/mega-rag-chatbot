@@ -153,18 +153,19 @@ describe("country-only selection contract", () => {
         latitude: 49.2827,
         longitude: -123.1207,
       });
-      const extraForeign = Array.from({ length: 8 }, (_, i) =>
+      const extraForeign = Array.from({ length: 7 }, (_, i) =>
         center({
           name: `Other Foreign ${i + 1}`,
-          country: "Mexico",
-          latitude: 32.5,
-          longitude: -117,
+          country: "United States",
+          latitude: 37.4 + i * 0.01,
+          longitude: -122.1,
         })
       );
       const result = selectCountryOnlyNearestCandidates([dupFirst, dupSecond, ...extraForeign], "Uruguay", TIGHT_URUGUAY_BOX);
       const vancouver = result.filter((row) => /vancouver/i.test(row.name));
       expect(vancouver).toHaveLength(1);
       expect(vancouver[0].name).toBe("  Ananda Vancouver ");
+      expect(result.map((row) => row.name)).toContain("Other Foreign 7");
       expect(result).toHaveLength(8);
     });
   });
