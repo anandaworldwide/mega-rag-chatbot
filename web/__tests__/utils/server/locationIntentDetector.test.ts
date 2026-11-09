@@ -8,6 +8,7 @@ import fs from "fs";
 import {
   initializeLocationIntentDetector,
   hasLocationIntentAsync,
+  hasLocationKeywordPatterns,
   getEmbeddingInfo,
   getCachedSiteId,
 } from "../../../src/utils/server/locationIntentDetector";
@@ -362,6 +363,7 @@ describe("Location Intent Detector", () => {
     // Unique site id so earlier tests that cached embeddings for test-site / ananda-public
     // cannot skip this initialize. Query vector is closer to the positive seed than the
     // negative seed (pos >= 0.37 and contrastive >= 0.05). No live embedding API.
+    // Keyword must be false so a failure is the embedding path, not two-letter codes.
     let createEmbedding: jest.Mock;
 
     beforeEach(async () => {
@@ -388,11 +390,17 @@ describe("Location Intent Detector", () => {
     });
 
     it("G1: Como meditar cerca de mi maestro? must not take the location path when embeddings are on", async () => {
-      expect(await hasLocationIntentAsync("Como meditar cerca de mi maestro?")).toBe(false);
+      const prompt = "Como meditar cerca de mi maestro?";
+      expect(hasLocationKeywordPatterns(prompt)).toBe(false);
+      expect(await hasLocationIntentAsync(prompt)).toBe(false);
+      expect(createEmbedding).not.toHaveBeenCalled();
     });
 
     it("G2: Ananda ensena a estar mas cercano a Dios must not take the location path when embeddings are on", async () => {
-      expect(await hasLocationIntentAsync("Ananda ensena a estar mas cercano a Dios")).toBe(false);
+      const prompt = "Ananda ensena a estar mas cercano a Dios";
+      expect(hasLocationKeywordPatterns(prompt)).toBe(false);
+      expect(await hasLocationIntentAsync(prompt)).toBe(false);
+      expect(createEmbedding).not.toHaveBeenCalled();
     });
 
     it("keeps Spanish country-only nearest on the location path with embeddings on", async () => {
@@ -404,11 +412,17 @@ describe("Location Intent Detector", () => {
     });
 
     it("keeps English nearest on the location path with embeddings on", async () => {
-      expect(await hasLocationIntentAsync("Where is the nearest Ananda center?")).toBe(true);
+      const prompt = "Where is the nearest Ananda center?";
+      expect(hasLocationKeywordPatterns(prompt)).toBe(true);
+      expect(await hasLocationIntentAsync(prompt)).toBe(true);
+      expect(createEmbedding).not.toHaveBeenCalled();
     });
 
     it("keeps Meditation groups USA on the location path with embeddings on", async () => {
-      expect(await hasLocationIntentAsync("Meditation groups USA")).toBe(true);
+      const prompt = "Meditation groups USA";
+      expect(hasLocationKeywordPatterns(prompt)).toBe(true);
+      expect(await hasLocationIntentAsync(prompt)).toBe(true);
+      expect(createEmbedding).not.toHaveBeenCalled();
     });
   });
 

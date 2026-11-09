@@ -186,7 +186,7 @@ function hasHistoricalPlaceQuestionPatterns(query: string): boolean {
  * @param query - User query to analyze
  * @returns true if query matches obvious location patterns
  */
-function hasLocationKeywordPatterns(query: string): boolean {
+export function hasLocationKeywordPatterns(query: string): boolean {
   const lowerQuery = query.toLowerCase();
 
   if (hasLocationRequestEvidence(query)) {
