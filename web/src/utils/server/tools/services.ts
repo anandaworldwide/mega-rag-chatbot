@@ -16,7 +16,14 @@ import {
   ILocationService,
   CenterSearchOptions,
 } from "./interfaces";
-import { countriesMatchForCenterSearch, LOCATION_COUNTRY_SEARCH_MAX_RESULTS, COUNTRY_SEARCH_RESPONSE_GUIDANCE } from "./locationLogic";
+import {
+  countriesMatchForCenterSearch,
+  LOCATION_COUNTRY_SEARCH_MAX_RESULTS,
+  COUNTRY_SEARCH_RESPONSE_GUIDANCE,
+  COUNTRY_PROXIMITY_MAX_MILES,
+  COUNTRY_PROXIMITY_MAX_RESULTS,
+  COUNTRY_PROXIMITY_RESPONSE_GUIDANCE,
+} from "./locationLogic";
 import { LocationResult, CenterResult, NearestCenterResult } from "../tools";
 import { safeFetch } from "../ssrfProtection";
 
@@ -742,6 +749,56 @@ export class CenterSearchService implements ICenterSearchService {
           centers: sorted,
           searchMode: "country",
           responseGuidance: COUNTRY_SEARCH_RESPONSE_GUIDANCE,
+        };
+      }
+
+      if (options?.locationPrecision === "country") {
+        const centersWithDistance = centers.map((center) => ({
+          ...center,
+          distance: this.distanceCalculator.calculateDistance(latitude, longitude, center.latitude, center.longitude),
+        }));
+        const nearby = centersWithDistance
+          .filter((center) => center.distance <= COUNTRY_PROXIMITY_MAX_MILES)
+          .sort((a, b) => a.distance - b.distance)
+          .slice(0, COUNTRY_PROXIMITY_MAX_RESULTS)
+          .map((center) => {
+            const withoutDistance = { ...center };
+            delete (withoutDistance as { distance?: number }).distance;
+            return withoutDistance;
+          });
+
+        if (nearby.length === 0) {
+          const lastError = this.centerDataService.getLastError();
+          if (lastError.type && lastError.message) {
+            return {
+              found: false,
+              centers: [],
+              fallbackMessage: lastError.message,
+              searchMode: "proximity",
+              locationPrecision: "country",
+              distanceIsApproximate: true,
+              responseGuidance: COUNTRY_PROXIMITY_RESPONSE_GUIDANCE,
+            };
+          }
+          return {
+            found: false,
+            centers: [],
+            fallbackMessage:
+              "No verified nearby Ananda centers were found from that country-level location. Please name a city or a more specific place.",
+            searchMode: "proximity",
+            locationPrecision: "country",
+            distanceIsApproximate: true,
+            responseGuidance: COUNTRY_PROXIMITY_RESPONSE_GUIDANCE,
+          };
+        }
+
+        return {
+          found: true,
+          centers: nearby as CenterResult[],
+          searchMode: "proximity",
+          locationPrecision: "country",
+          distanceIsApproximate: true,
+          responseGuidance: COUNTRY_PROXIMITY_RESPONSE_GUIDANCE,
         };
       }
 

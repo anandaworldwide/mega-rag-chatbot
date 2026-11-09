@@ -773,6 +773,10 @@ embeddings.
     three-letter codes `usa` and `uae` only. Two-letter ISO country codes are not keywords;
     they collide with function words in other languages (Italian `il`/`se`, German `de`,
     Spanish `es`) and skip library search.
+  - Nearest/closest intent also matches Spanish (`más cercano`) and French (`plus proche`)
+    after accent folding. Country-level nearest questions use nearby options, not a
+    domestic-only empty list. Explicit "only in" / "solo en" / "uniquement en" stays
+    country-filtered. Distances from a country-level point are approximate.
   - Implements contrastive scoring algorithm:
     - Positive similarity threshold: >= 0.44
     - Contrastive threshold: positive similarity must exceed negative by >= 0.1

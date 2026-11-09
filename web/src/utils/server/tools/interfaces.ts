@@ -41,6 +41,8 @@ export interface CenterSearchOptions {
   searchScope?: "proximity" | "country";
   /** Required when searchScope is "country"; matched alias-aware against center.country */
   countryFilter?: string;
+  /** Country-only nearest questions: nearby options, not a domestic-only list. */
+  locationPrecision?: "city" | "country";
 }
 
 /**

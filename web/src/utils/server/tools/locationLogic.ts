@@ -169,7 +169,18 @@ export function createPerformanceMetrics(
 
 /** Synonym groups: first label is the preferred form for matching center CSV `country` values. */
 export const COUNTRY_SYNONYM_GROUPS: readonly (readonly string[])[] = [
-  ["United States", "USA", "US", "America", "U.S.", "U.S.A.", "United States of America"],
+  [
+    "United States",
+    "USA",
+    "US",
+    "America",
+    "U.S.",
+    "U.S.A.",
+    "United States of America",
+    "Estados Unidos",
+    "États-Unis",
+    "Etats-Unis",
+  ],
   ["United Kingdom", "UK", "Great Britain", "Britain", "England", "Scotland", "Wales", "Northern Ireland"],
   ["New Zealand", "NZ", "Aotearoa"],
   ["India", "Republic of India", "Bharat"],
@@ -269,18 +280,51 @@ export function countriesMatchForCenterSearch(centerCsvCountry: string, filterCo
   return nCenter === nFilter;
 }
 
+/** Fold accents so Spanish/French nearest phrases match without an accent-specific regex. */
+export function foldDiacritics(text: string): string {
+  return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
 export function hasProximityIntentInQuestion(question: string): boolean {
-  return /\b(near me|nearby|closest|nearest|within\s+\d+|\d+\s*miles?\s+of|km\s+of)\b/i.test(question);
+  const q = foldDiacritics(question);
+  return (
+    /\b(near me|nearby|closest|nearest|closesst|within\s+\d+|\d+\s*miles?\s+of|km\s+of)\b/i.test(q) ||
+    /\bmas\s+cercan[oa]s?\b/.test(q) ||
+    /\bmas\s+proxim[oa]s?\b/.test(q) ||
+    /\bcerca\s+de(?:\s+mi)?\b/.test(q) ||
+    /\bplus\s+proche\b/.test(q) ||
+    /\bpres\s+de(?:\s+moi)?\b/.test(q)
+  );
 }
 
 /**
- * Extract a country phrase after "in" / "in the" from the user question (e.g. "center in New Zealand").
+ * Explicit within-country-only wording. Nearest/closest must not imply this by language alone.
+ */
+export function hasExplicitDomesticOnlyRestriction(question: string): boolean {
+  const q = foldDiacritics(question);
+  return (
+    /\bonly\s+in\b/.test(q) ||
+    /\bin\s+(?:the\s+)?[a-z]+(?:\s+[a-z]+){0,3}\s+only\b/.test(q) ||
+    /\bonly\s+within\b/.test(q) ||
+    /\bwithin\s+(?:this\s+)?country\b/.test(q) ||
+    /\bsolo\s+en\b/.test(q) ||
+    /\bunicamente\s+en\b/.test(q) ||
+    /\bsolamente\s+en\b/.test(q) ||
+    /\buniquement\s+(?:en|au|aux|dans)\b/.test(q) ||
+    /\bseulement\s+(?:en|au|aux|dans)\b/.test(q)
+  );
+}
+
+/**
+ * Extract a country phrase after in/en/au/aux/dans from the user question.
  */
 export function extractCountryMentionFromQuestion(question: string): string | null {
   if (!question || !question.trim()) {
     return null;
   }
-  const m = question.match(/\bin\s+(?:the\s+)?([A-Za-z]+(?:\s+[A-Za-z]+){0,3})\b/i);
+  const m = question.match(
+    /\b(?:in|en|au|aux|dans)\s+(?:the\s+|el\s+|la\s+|los\s+|las\s+|l['’])?([A-Za-zÀ-ÿ]+(?:\s+[A-Za-zÀ-ÿ]+){0,3})\b/i
+  );
   if (!m) {
     return null;
   }
@@ -289,6 +333,15 @@ export function extractCountryMentionFromQuestion(question: string): string | nu
     return null;
   }
   return candidate;
+}
+
+/** True when the provided location is a country name without a city token. */
+export function isCountryOnlyProvidedLocation(userProvidedLocation?: string): boolean {
+  const u = (userProvidedLocation ?? "").trim();
+  if (!u || /\d/.test(u) || u.includes(",")) {
+    return false;
+  }
+  return getCanonicalCountryLabel(u) !== null;
 }
 
 export type LocationSearchScopeType = "country" | "proximity" | "fallback";
@@ -316,6 +369,18 @@ export function determineLocationSearchScope(input: LocationSearchScopeInput): L
 
   if (!u && !q) {
     return { scope: "fallback" };
+  }
+
+  // Explicit domestic-only wording wins over nearest/closest in any language.
+  if (q && hasExplicitDomesticOnlyRestriction(q)) {
+    const fromUser = u ? getCanonicalCountryLabel(u) : null;
+    const extracted = extractCountryMentionFromQuestion(q);
+    const fromQuestion = extracted ? getCanonicalCountryLabel(extracted) : null;
+    const countryFilter =
+      fromUser ?? fromQuestion ?? getCanonicalCountryLabel(resolvedCountry) ?? resolvedCountry;
+    if (countryFilter) {
+      return { scope: "country", countryFilter };
+    }
   }
 
   if (q && hasProximityIntentInQuestion(q)) {
@@ -362,6 +427,19 @@ export function determineLocationSearchScope(input: LocationSearchScopeInput): L
 /** Max centers returned for country-scoped searches (full list can be large). */
 export const LOCATION_COUNTRY_SEARCH_MAX_RESULTS = 20;
 
+/** Max miles for nearby options when the user named a country, not a city. */
+export const COUNTRY_PROXIMITY_MAX_MILES = 1000;
+
+/** Max nearby options returned for country-level nearest questions. */
+export const COUNTRY_PROXIMITY_MAX_RESULTS = 5;
+
 /** Inline guidance injected into country-level tool results so the model sees it adjacent to the data. */
 export const COUNTRY_SEARCH_RESPONSE_GUIDANCE =
   "This is a country-level search. End the location section by inviting the user to ask about a specific city or region for more targeted results, THEN link to the directory. Do NOT just say 'For a full directory, visit…' without offering the narrower follow-up first.";
+
+/**
+ * Guidance for nearest/closest questions that name a country, not a city.
+ * Distances from a country centroid are not a definitive nearest ranking.
+ */
+export const COUNTRY_PROXIMITY_RESPONSE_GUIDANCE =
+  "The user named a country, not a city. These are nearby directory options from an imprecise country-level point. Do not present exact distances or a definitive nearest ranking. Invite the user to name a city for a closer match. Reply in the user's language.";

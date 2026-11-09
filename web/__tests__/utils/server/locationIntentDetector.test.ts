@@ -328,6 +328,23 @@ describe("Location Intent Detector", () => {
       expect(await hasLocationIntentAsync("Where is the nearest center in the UK")).toBe(true);
       expect(await hasLocationIntentAsync("Find a meditation group near me in NZ")).toBe(true);
     });
+
+    it("ORIGINAL_FIVE: keeps the five Vayu preview keyword regressions", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("Che cosa dice il Maestro sugli angeli?")).toBe(false);
+      expect(await hasLocationIntentAsync("Se medito ogni giorno, cosa succede?")).toBe(false);
+      expect(await hasLocationIntentAsync("Es verdad que Yogananda habla de los angeles?")).toBe(false);
+      expect(await hasLocationIntentAsync("Where is the nearest Ananda center?")).toBe(true);
+      expect(await hasLocationIntentAsync("Meditation groups USA")).toBe(true);
+    });
+
+    it("EQUIV_ES_FR_NEAREST: Spanish and French nearest-center questions hit the keyword path", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("Cual es el centro Ananda mas cercano en Uruguay?")).toBe(true);
+      expect(await hasLocationIntentAsync("Quel est le centre Ananda le plus proche en Uruguay ?")).toBe(true);
+    });
   });
 
   describe("cache behavior", () => {
