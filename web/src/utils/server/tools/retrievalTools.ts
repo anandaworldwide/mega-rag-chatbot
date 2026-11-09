@@ -69,7 +69,7 @@ The JSON sources above already include every document returned by your retrieval
 Answer the user's request completely now from those sources:
 - If they asked for a class/talk outline or other multi-part deliverable, produce the full structured answer (all required sections), not a one-liner or partial draft.
 - When they ask for quotations, give exact lines with citations.
-- If they asked for an exact quoted passage and it is not in the sources, say so in one sentence. Do not recite a neighboring story. A quoted book title plus a topic is not an exact-passage miss.
+- Follow the Quote-role instruction in Active Filters. If it says exact-passage lookup and the passage is not in the sources, say so in one sentence. Do not recite a neighboring story. If it says topical, do not treat quoted text as a missing exact passage.
 - If sources are thin, briefly note what is missing, then still finish the best complete answer you can from what you have.
 - If they asked for a complete list and the sources lack a full list, list every item you can cite and say which ones may be missing.
 - Never end after only saying you will search or gather more.`;

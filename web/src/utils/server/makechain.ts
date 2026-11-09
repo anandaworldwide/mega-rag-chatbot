@@ -110,7 +110,11 @@ import {
   type RetrievalFilterCapture,
 } from "./authorScopeRetrieval";
 import { getCondenseTemplateWithAuthorScope, invokeRephraseWithAuthorScope } from "./rephraseWithAuthorScope";
-import { resolveQuoteRoleForSite, type QuoteRoleDecision } from "./quotedSpanEmbedding";
+import {
+  appendQuoteRoleGuidance,
+  resolveQuoteRoleForSite,
+  type QuoteRoleDecision,
+} from "./quotedSpanEmbedding";
 import {
   formatRelevanceCutoffLog,
   getEffectiveMinRetrievalScore,
@@ -1277,9 +1281,9 @@ Error details: ${errorString}`,
       context: input.retrievalOutput.combinedContent,
       chat_history: input.originalInput.chat_history,
       question: input.originalInput.question,
-      activeFiltersSummary: buildActiveFiltersSummaryForGeneration(
-        activeFilterPromptData,
-        retrievalReturnedNoDocuments
+      activeFiltersSummary: appendQuoteRoleGuidance(
+        buildActiveFiltersSummaryForGeneration(activeFilterPromptData, retrievalReturnedNoDocuments),
+        capturedQuoteRole
       ),
       documents: input.retrievalOutput.documents, // Pass documents along
     }),
@@ -1878,6 +1882,10 @@ export async function setupAndExecuteLanguageModelChain(
         let retrievalAnswerForced = false;
         let retrievalFetchFailed = false;
         let retrievalRoundLimitHit = false;
+        const quoteRoleSiteId = siteConfig?.siteId || process.env.SITE_ID || "";
+        const quoteRole = quoteRoleSiteId
+          ? await resolveQuoteRoleForSite(quoteRoleSiteId, sanitizedQuestion, sanitizedQuestion)
+          : null;
         if (retrievalToolsEnabled) {
           const vectorStore = retriever.vectorStore as PineconeStore;
           const pineconeIndex = vectorStore?.pineconeIndex;
@@ -1886,10 +1894,6 @@ export async function setupAndExecuteLanguageModelChain(
               .map((doc) => (typeof doc.id === "string" ? doc.id : ""))
               .filter((id) => id.length > 0);
             const searchMoreFilter = retrievalFilterCapture.filter ?? filter;
-            const quoteRoleSiteId = siteConfig?.siteId || process.env.SITE_ID || "";
-            const quoteRole = quoteRoleSiteId
-              ? await resolveQuoteRoleForSite(quoteRoleSiteId, sanitizedQuestion, sanitizedQuestion)
-              : null;
             retrievalToolContext = new RetrievalToolContext({
               pineconeIndex,
               vectorStore,
@@ -1937,9 +1941,12 @@ export async function setupAndExecuteLanguageModelChain(
           retrievalAnswerForced = true;
           sendData({ status: "retrieving_more_sources" });
           const siteTemplate = await getFullTemplate(siteConfig?.siteId || "ananda-public");
-          const activeFiltersSummary = buildActiveFiltersSummaryForGeneration(
-            retrievalActiveFilterPromptData,
-            (result.sourceDocuments?.length ?? 0) === 0
+          const activeFiltersSummary = appendQuoteRoleGuidance(
+            buildActiveFiltersSummaryForGeneration(
+              retrievalActiveFilterPromptData,
+              (result.sourceDocuments?.length ?? 0) === 0
+            ),
+            quoteRole
           );
           const reinvokeMessages = buildRetrievalReinvokeMessages({
             siteTemplate,
@@ -2177,9 +2184,12 @@ export async function setupAndExecuteLanguageModelChain(
             let systemPrompt: string;
             let humanPrompt = sanitizedQuestion;
             if (isRetrievalRound) {
-              const activeFiltersSummary = buildActiveFiltersSummaryForGeneration(
-                retrievalActiveFilterPromptData,
-                (result.sourceDocuments?.length ?? 0) === 0
+              const activeFiltersSummary = appendQuoteRoleGuidance(
+                buildActiveFiltersSummaryForGeneration(
+                  retrievalActiveFilterPromptData,
+                  (result.sourceDocuments?.length ?? 0) === 0
+                ),
+                quoteRole
               );
               const reinvoke = buildRetrievalReinvokeMessages({
                 siteTemplate,

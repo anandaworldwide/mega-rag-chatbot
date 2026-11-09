@@ -2,8 +2,11 @@
 
 import type { TitleCatalogLookupEntry } from "@/types/titleScope";
 import {
+  appendQuoteRoleGuidance,
   coerceSearchMoreSourcesQuery,
   extractQuotedSpanForEmbedding,
+  formatQuoteRoleAnswerGuidance,
+  looksLikeSentencePassage,
   resolveEmbeddingQuery,
   resolveQuoteRole,
 } from "@/utils/server/quotedSpanEmbedding";
@@ -302,6 +305,71 @@ describe("resolveQuoteRole", () => {
     expect(role.applyExactQuoteMissInstruction).toBe(false);
   });
 
+  it("does not treat a long unknown unpunctuated title as a passage when catalog is down", () => {
+    const question =
+      'What does "The Purple Lantern Field Manual for Quiet Mountain Practice" say about patience?';
+    const role = resolveQuoteRole(question, question, {
+      catalogEntries: [],
+      catalogStatus: "unavailable",
+    });
+
+    expect(role.kind).toBe("full_question");
+    expect(role.embeddingQuery).toBe(question);
+    expect(role.applyExactQuoteMissInstruction).toBe(false);
+  });
+
+  it("does not treat a curly-quoted long unknown title as a passage when catalog is empty", () => {
+    const question =
+      "What does \u201cThe Purple Lantern Field Manual for Quiet Mountain Practice\u201d say about patience?";
+    const role = resolveQuoteRole(question, question, {
+      catalogEntries: [],
+      catalogStatus: "empty",
+    });
+
+    expect(role.kind).toBe("full_question");
+    expect(role.embeddingQuery).toBe(question);
+    expect(role.applyExactQuoteMissInstruction).toBe(false);
+  });
+
+  it("keeps literal lookup for an explicit exact quotation of a long unpunctuated span without catalog", () => {
+    const question =
+      'Find this quotation: "The Purple Lantern Field Manual for Quiet Mountain Practice"';
+    const role = resolveQuoteRole(question, question, {
+      catalogEntries: [],
+      catalogStatus: "unavailable",
+    });
+
+    expect(role.kind).toBe("passage");
+    expect(role.embeddingQuery).toBe("The Purple Lantern Field Manual for Quiet Mountain Practice");
+    expect(role.applyExactQuoteMissInstruction).toBe(true);
+  });
+
+  it("does not treat a trailing question-mark title as a sentence passage", () => {
+    const question = 'What does "Who am I beyond this restless thought?" say about identity?';
+    const role = resolveQuoteRole(question, question, {
+      catalogEntries: [],
+      catalogStatus: "unavailable",
+    });
+
+    expect(looksLikeSentencePassage("Who am I?")).toBe(false);
+    expect(looksLikeSentencePassage("Who am I beyond this restless thought?")).toBe(false);
+    expect(role.kind).toBe("full_question");
+    expect(role.embeddingQuery).toBe(question);
+    expect(role.applyExactQuoteMissInstruction).toBe(false);
+  });
+
+  it("does not treat an internal abbreviation period as a sentence passage", () => {
+    const question = 'What does "St. Teresa of Avila" say about prayer?';
+    const role = resolveQuoteRole(question, question, {
+      catalogEntries: [],
+      catalogStatus: "unavailable",
+    });
+
+    expect(looksLikeSentencePassage("St. Teresa of Avila")).toBe(false);
+    expect(role.kind).toBe("full_question");
+    expect(role.applyExactQuoteMissInstruction).toBe(false);
+  });
+
   it("does not apply exact-quote miss wording to unquoted topical questions", () => {
     const question = "What did the teachers write about morning practice?";
     const role = resolveQuoteRole(question, question, rajaCatalog);
@@ -318,6 +386,39 @@ describe("resolveQuoteRole", () => {
 
     expect(role.kind).toBe("none");
     expect(role.embeddingQuery).toBe(question);
+  });
+});
+
+describe("formatQuoteRoleAnswerGuidance", () => {
+  const unavailable = { catalogEntries: [], catalogStatus: "unavailable" as const };
+
+  it("tells the model not to treat a long unknown title plus topic as an exact-quote miss", () => {
+    const question =
+      'What does "The Purple Lantern Field Manual for Quiet Mountain Practice" say about patience?';
+    const role = resolveQuoteRole(question, question, unavailable);
+    const guidance = formatQuoteRoleAnswerGuidance(role);
+
+    expect(guidance).toContain("topical question");
+    expect(guidance).toContain("Do not treat the quoted text as a missing exact passage");
+    expect(guidance).not.toContain("exact-passage lookup");
+    expect(appendQuoteRoleGuidance("Whole library", role)).toContain(guidance);
+  });
+
+  it("keeps exact-quote miss wording for an explicit literal counterpart", () => {
+    const question =
+      'Find this quotation: "The Purple Lantern Field Manual for Quiet Mountain Practice"';
+    const role = resolveQuoteRole(question, question, unavailable);
+    const guidance = formatQuoteRoleAnswerGuidance(role);
+
+    expect(guidance).toContain("exact-passage lookup");
+    expect(guidance).toContain("say so in one sentence");
+    expect(appendQuoteRoleGuidance("Whole library", role)).toContain(guidance);
+  });
+
+  it("adds no quote-role line when there is no quoted span", () => {
+    const role = resolveQuoteRole("What did the teachers write about morning practice?", "What did the teachers write about morning practice?");
+    expect(formatQuoteRoleAnswerGuidance(role)).toBe("");
+    expect(appendQuoteRoleGuidance("Whole library", role)).toBe("Whole library");
   });
 });
 

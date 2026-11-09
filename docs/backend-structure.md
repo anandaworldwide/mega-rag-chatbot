@@ -652,7 +652,9 @@ if (siteConfig?.requireLogin) {
     1. Optionally rephrases the question based on history.
     2. Quote-role (`quotedSpanEmbedding.ts`) is shared by embedding, condense skip, retrieval tools,
        and exact-quote miss wording. A recognized catalog title plus a topic embeds the original
-       question. A genuine quoted passage embeds that passage. Catalog matching is exact prefix only.
+       question. A genuine quoted passage embeds that passage. Length alone is not a passage signal.
+       Catalog matching is exact prefix only. The same decision is appended to Active Filters so
+       static miss rules cannot treat a quoted title or uncertain text as an exact-passage miss.
        Site/library brand names such as "Ananda Libraries" are not quoted spans, authors, or title scopes.
        Title-scope Pinecone filters stay user-selected; quote-role never applies them automatically.
     3. Performs similarity search in Pinecone to find relevant document chunks.

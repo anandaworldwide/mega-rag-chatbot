@@ -15,6 +15,8 @@ describe("quote lookup prompt fragments", () => {
     expect(prompt).toContain("Do not recite a neighboring story");
     expect(prompt).toContain("do not put quotation marks around a title, subtitle");
     expect(prompt).toContain("Ananda Libraries excerpts");
-    expect(prompt).toContain("Do not treat a quoted book or source title as a missing passage");
+    expect(prompt).toContain("Do not treat a quoted book or source title, or uncertain quoted text, as a missing passage");
+    expect(prompt).toContain("Follow the Quote-role line in Active Filters");
+    expect(prompt).toContain("A quoted book title plus a topic is a topical question, not an exact lookup");
   });
 });

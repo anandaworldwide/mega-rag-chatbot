@@ -12,7 +12,6 @@ import { findExactTitlePrefixMatches, getTitleCatalogLookup } from "./titleCatal
 
 const MIN_QUOTED_SPAN_CHARS = 12;
 const MIN_QUOTED_SPAN_WORDS = 3;
-const PASSAGE_WORD_FLOOR = 8;
 
 const QUOTED_SPAN_PATTERNS: RegExp[] = [
   /"([^"\n]{8,})"/g,
@@ -23,7 +22,8 @@ const QUOTED_SPAN_PATTERNS: RegExp[] = [
 const EXPLICIT_EXACT_QUOTATION_REQUEST =
   /\b(?:find(?:\s+me)?\s+this\s+(?:exact\s+)?(?:quotation|quote|line)|looking\s+for\s+this\s+(?:line|quotation|quote)|exact\s+(?:first\s+)?(?:line|sentence|wording|phrase)|where\s+does\s+this\s+appear|this\s+exact\s+(?:line|sentence|quotation|quote))\b/i;
 
-const SENTENCE_PUNCTUATION = /[.?!]/;
+/** Terminal . or ! after a word character. Length and ? are not passage signals. */
+const TERMINAL_SENTENCE_PUNCTUATION = /[a-z0-9][.!]$/i;
 
 function wordCount(value: string): number {
   return value.split(/\s+/).filter(Boolean).length;
@@ -67,18 +67,16 @@ export function isExplicitExactQuotationRequest(text: string): boolean {
 }
 
 /**
- * Positive passage signal. Catalog miss is not used.
- * Sentence punctuation or eight or more words.
+ * Positive passage signal. Catalog miss and length are not used.
+ * Requires a terminal period or exclamation after a word character.
+ * A trailing question mark is not enough: quoted titles like "Who am I?" stay uncertain.
  */
 export function looksLikeSentencePassage(span: string): boolean {
   const trimmed = span.trim();
   if (!trimmed) {
     return false;
   }
-  if (SENTENCE_PUNCTUATION.test(trimmed)) {
-    return true;
-  }
-  return wordCount(trimmed) >= PASSAGE_WORD_FLOOR;
+  return TERMINAL_SENTENCE_PUNCTUATION.test(trimmed);
 }
 
 function classifySpan(span: string, options: QuoteRoleOptions): SpanClass {
@@ -266,6 +264,41 @@ export function coerceSearchMoreSourcesQuery(toolQuery: string, role: QuoteRoleD
     return role.embeddingQuery;
   }
   return trimmed;
+}
+
+/**
+ * Per-request miss/answer instruction from the shared quote-role decision.
+ * Empty when there is no quoted span. Callers append this to the variable prompt
+ * (Active Filters) so static "any quoted text" rules cannot override the decision.
+ */
+export function formatQuoteRoleAnswerGuidance(role: QuoteRoleDecision): string {
+  if (role.applyExactQuoteMissInstruction) {
+    return (
+      "Quote-role: exact-passage lookup. If that quoted passage is not in the sources, " +
+      "say so in one sentence. Do not recite a neighboring story."
+    );
+  }
+  if (role.kind === "full_question") {
+    return (
+      "Quote-role: topical question with a quoted title or uncertain quoted text. " +
+      "Answer the full question. Do not treat the quoted text as a missing exact passage."
+    );
+  }
+  return "";
+}
+
+export function appendQuoteRoleGuidance(
+  base: string,
+  role: QuoteRoleDecision | null | undefined
+): string {
+  const extra = role ? formatQuoteRoleAnswerGuidance(role) : "";
+  if (!extra) {
+    return base;
+  }
+  if (!base) {
+    return extra;
+  }
+  return `${base}\n${extra}`;
 }
 
 /** Load exact-prefix catalog entries for quote-role. Failures are empty/unavailable, not throws. */

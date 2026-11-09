@@ -20,6 +20,7 @@ import {
   selectAdjacentIds,
   shouldBindRetrievalTools,
   buildRetrievalReinvokeSystemPrompt,
+  buildRetrievalReinvokeMessages,
   fillRetrievalAnswerTemplate,
   isIncompleteRetrievalAnswer,
   isRunTogetherNarrationText,
@@ -41,7 +42,11 @@ import {
   RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
   getRetrievalToolGuidance,
 } from "../../../../src/utils/server/tools/retrievalTools";
-import { resolveQuoteRole } from "../../../../src/utils/server/quotedSpanEmbedding";
+import {
+  appendQuoteRoleGuidance,
+  formatQuoteRoleAnswerGuidance,
+  resolveQuoteRole,
+} from "../../../../src/utils/server/quotedSpanEmbedding";
 import type { TitleCatalogLookupEntry } from "../../../../src/types/titleScope";
 
 const accessSiteConfig = {
@@ -408,13 +413,50 @@ describe("retrievalTools", () => {
       expect(RETRIEVAL_TOOL_GUIDANCE).toContain("pass that quoted passage as the query");
       expect(RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE).toContain("say so in one sentence");
       expect(RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE).toContain("Do not recite a neighboring story");
+      expect(RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE).toContain("Follow the Quote-role instruction in Active Filters");
       expect(RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE).toContain(
-        "A quoted book title plus a topic is not an exact-passage miss"
+        "If it says topical, do not treat quoted text as a missing exact passage"
       );
       const searchMore = RETRIEVAL_TOOL_DEFINITIONS.find((tool) => tool.function.name === "search_more_sources");
       const properties = searchMore?.function.parameters.properties as Record<string, { description?: string }>;
       expect(properties.query.description).toContain("pass the full topical question");
       expect(properties.query.description).toContain("pass that passage alone");
+    });
+
+    it("carries title vs passage quote-role miss guidance in the reinvoke human message", () => {
+      const unavailable = { catalogEntries: [], catalogStatus: "unavailable" as const };
+      const topical =
+        'What does "The Purple Lantern Field Manual for Quiet Mountain Practice" say about patience?';
+      const topicalRole = resolveQuoteRole(topical, topical, unavailable);
+      const topicalMessages = buildRetrievalReinvokeMessages({
+        siteTemplate: "Rules.\n{activeFiltersSummary}\nQuestion: {question}",
+        contextDocs: [],
+        chatHistory: "",
+        question: topical,
+        activeFiltersSummary: appendQuoteRoleGuidance("Whole library", topicalRole),
+        allowMoreTools: false,
+      });
+      expect(topicalRole.applyExactQuoteMissInstruction).toBe(false);
+      expect(topicalMessages.human).toContain(
+        "Do not treat the quoted text as a missing exact passage"
+      );
+      expect(topicalMessages.human).not.toContain("exact-passage lookup");
+      expect(topicalMessages.system).toContain("Follow the Quote-role instruction in Active Filters");
+
+      const literal =
+        'Find this quotation: "The Purple Lantern Field Manual for Quiet Mountain Practice"';
+      const literalRole = resolveQuoteRole(literal, literal, unavailable);
+      const literalMessages = buildRetrievalReinvokeMessages({
+        siteTemplate: "Rules.\n{activeFiltersSummary}\nQuestion: {question}",
+        contextDocs: [],
+        chatHistory: "",
+        question: literal,
+        activeFiltersSummary: appendQuoteRoleGuidance("Whole library", literalRole),
+        allowMoreTools: false,
+      });
+      expect(literalRole.applyExactQuoteMissInstruction).toBe(true);
+      expect(literalMessages.human).toContain("Quote-role: exact-passage lookup");
+      expect(formatQuoteRoleAnswerGuidance(literalRole)).toContain("say so in one sentence");
     });
 
     it("uses answer-first retrieval guidance while keeping tools bound", () => {
