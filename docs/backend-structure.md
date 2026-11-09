@@ -769,6 +769,9 @@ embeddings.
     in other languages (Italian `il`/`se`, German `de`, Spanish `es`) and skip library
     search. Bare `cerca de` / `près de` is not location-request evidence. Org name plus
     `más cercano` is not enough. `cerca de mi maestro` is not a locative "near me".
+    Teaching or metaphor uses of `cerca` / `cercano` do not use embeddings when the
+    query has no location-request evidence. Do not send those queries to the location
+    path.
   - Nearest/closest intent also matches Spanish (`más cercano`) and French (`plus proche`)
     after accent folding. Country-only nearest/closest returns a directory sample.
     Cap the sample at 8 rows. If the named country has 0 domestic rows, include up to
