@@ -290,4 +290,62 @@ describe("LocationToolService country-level nearest-center flow", () => {
       }
     }
   );
+
+  it("no-IP-fallback: omitted arg geocodes the stated country and never uses IP coordinates", async () => {
+    const locationService = {
+      resolveLocation: jest.fn().mockResolvedValue(MONTEVIDEO_GEOCODE),
+      geocodeOnly: jest.fn().mockResolvedValue({
+        ...URUGUAY_GEOCODE,
+        bounds: {
+          southwest: { lat: -34.9, lng: -57.9 },
+          northeast: { lat: -30.1, lng: -53.2 },
+        },
+      }),
+    };
+    const findNearestCenters = jest.fn().mockResolvedValue({
+      found: true,
+      centers: [],
+      searchMode: "proximity",
+      locationPrecision: "country",
+      responseGuidance: "These are directory alternatives. They may be far away.",
+    });
+    const service = new LocationToolService(
+      locationService as any,
+      { findNearestCenters } as any,
+      makeLogger() as any
+    );
+
+    await service.getUserLocation({}, uruguayHeaders(), {
+      originalQuestion: "Cual es el centro Ananda mas cercano en Uruguay?",
+    });
+
+    expect(locationService.resolveLocation).not.toHaveBeenCalled();
+    expect(locationService.geocodeOnly).toHaveBeenCalled();
+    const usedIpPoint = findNearestCenters.mock.calls.some(
+      (call: unknown[]) => call[0] === MONTEVIDEO_GEOCODE.latitude && call[1] === MONTEVIDEO_GEOCODE.longitude
+    );
+    expect(usedIpPoint).toBe(false);
+  });
+
+  it("invalid geometry: missing bounds and viewport does not use IP and uses the empty copy", async () => {
+    const locationService = {
+      resolveLocation: jest.fn().mockResolvedValue(MONTEVIDEO_GEOCODE),
+      geocodeOnly: jest.fn().mockResolvedValue(URUGUAY_GEOCODE),
+    };
+    const findNearestCenters = jest.fn();
+    const service = new LocationToolService(
+      locationService as any,
+      { findNearestCenters } as any,
+      makeLogger() as any
+    );
+
+    const result = await service.getUserLocation({ userProvidedLocation: "Uruguay" }, uruguayHeaders(), {
+      originalQuestion: "Where is the nearest Ananda center in Uruguay?",
+    });
+
+    expect(locationService.resolveLocation).not.toHaveBeenCalled();
+    expect(findNearestCenters).not.toHaveBeenCalled();
+    expect(result.centers.found).toBe(false);
+    expect(result.centers.fallbackMessage).toMatch(/does not mean there are no centers/i);
+  });
 });
