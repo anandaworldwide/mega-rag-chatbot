@@ -160,18 +160,34 @@ export function selectSourceAuthorMatches(question: string, matches: AuthorMatch
   return { authors, sourceMode };
 }
 
-export function extractTopicTokens(question: string, authors: string[] = []): string[] {
-  let text = normalizeAuthorQueryText(question).toLowerCase();
+export function stripAuthorNamesFromText(text: string, authors: string[] = []): string {
+  let result = normalizeAuthorQueryText(text).toLowerCase();
   for (const author of authors) {
-    text = text.replace(new RegExp(escapeAuthorPattern(author.toLowerCase()), "g"), " ");
-    for (const part of author.split(/\s+/)) {
+    const name = author.trim();
+    if (!name) {
+      continue;
+    }
+    result = result.replace(new RegExp(escapeAuthorPattern(name.toLowerCase()), "g"), " ");
+    for (const part of name.split(/\s+/)) {
       const token = part.trim().toLowerCase();
       if (token.length >= 4) {
-        text = text.replace(new RegExp(`\\b${escapeAuthorPattern(token)}\\b`, "g"), " ");
+        result = result.replace(new RegExp(`\\b${escapeAuthorPattern(token)}\\b`, "g"), " ");
       }
     }
   }
-  return text
+  return result;
+}
+
+export function topicTokenOccursAsWholeWord(text: string, token: string): boolean {
+  const escaped = escapeAuthorPattern(token.toLowerCase());
+  if (!escaped) {
+    return false;
+  }
+  return new RegExp(`\\b${escaped}\\b`).test(text.toLowerCase());
+}
+
+export function extractTopicTokens(question: string, authors: string[] = []): string[] {
+  return stripAuthorNamesFromText(question, authors)
     .split(/[^a-z0-9]+/)
     .filter((token) => token.length >= 4 && !TOPIC_STOPWORDS.has(token));
 }

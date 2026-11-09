@@ -4,7 +4,11 @@ import type { LibraryConfigEntry } from "@/types/siteConfig";
 import { libraryEntryName } from "@/utils/libraryEntries";
 import type { AuthorSourceMode } from "@/utils/server/authorConstants";
 import { MASTER_SWAMI_AUTHORS } from "@/utils/server/authorConstants";
-import { extractTopicTokens } from "@/utils/server/authorMentionIntent";
+import {
+  extractTopicTokens,
+  stripAuthorNamesFromText,
+  topicTokenOccursAsWholeWord,
+} from "@/utils/server/authorMentionIntent";
 import { attachRetrievalScore, filterScoredDocuments, type RelevanceStats } from "@/utils/server/retrievalRelevance";
 
 export function mergeFilterClauses(
@@ -130,6 +134,13 @@ export type NamedAuthorFallbackResult = {
   searchFilter: Record<string, unknown> | undefined;
 };
 
+/**
+ * Preferred-mode lexical check. Author names, title tokens, and partial-word
+ * matches do not count as topic evidence. If the question has no remaining
+ * topic tokens (short, non-English, or only names and stopwords), keep the
+ * preferred hits. This is lexical overlap only. Synonym-only matches cannot
+ * be judged here.
+ */
 export function namedAuthorHitsAreUsable(
   documents: Document[],
   options: NamedAuthorFallbackOptions = {}
@@ -140,15 +151,19 @@ export function namedAuthorHitsAreUsable(
   if (documents.length === 0) {
     return false;
   }
-  const topicTokens = extractTopicTokens(options.question ?? "", options.authors ?? []);
+  const authors = options.authors ?? [];
+  const topicTokens = extractTopicTokens(options.question ?? "", authors);
   if (topicTokens.length === 0) {
     return true;
   }
-  const haystack = documents
-    .map((doc) => `${doc.metadata?.title ?? ""} ${doc.pageContent ?? ""}`)
-    .join(" ")
-    .toLowerCase();
-  return topicTokens.some((token) => haystack.includes(token));
+  return documents.some((doc) => {
+    const docAuthor = typeof doc.metadata?.author === "string" ? doc.metadata.author : "";
+    const haystack = stripAuthorNamesFromText(
+      `${doc.metadata?.title ?? ""} ${doc.pageContent ?? ""}`,
+      [...authors, docAuthor].filter(Boolean)
+    );
+    return topicTokens.some((token) => topicTokenOccursAsWholeWord(haystack, token));
+  });
 }
 
 /**

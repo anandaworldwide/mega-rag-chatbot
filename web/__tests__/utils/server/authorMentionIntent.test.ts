@@ -182,6 +182,54 @@ describe("finding 1: unusable preferred hits", () => {
     );
   });
 
+  it("does not treat yoga inside Yogananda or kriya inside Kriyananda as topic evidence", () => {
+    const yoganandaKitchen = [
+      {
+        pageContent: "Kitchen notes and a cooking class schedule.",
+        metadata: { author: "Paramhansa Yogananda", title: "Yogananda kitchen notes" },
+      },
+    ];
+    const kriyanandaKitchen = [
+      {
+        pageContent: "Kitchen notes and a cooking class schedule.",
+        metadata: { author: "Swami Kriyananda", title: "Kriyananda kitchen notes" },
+      },
+    ];
+    expect(
+      namedAuthorHitsAreUsable(yoganandaKitchen, {
+        question: "What did Paramhansa Yogananda teach about yoga",
+        authors: ["Paramhansa Yogananda"],
+        sourceMode: "preferred",
+      })
+    ).toBe(false);
+    expect(
+      namedAuthorHitsAreUsable(kriyanandaKitchen, {
+        question: "What did Swami Kriyananda teach about kriya",
+        authors: ["Swami Kriyananda"],
+        sourceMode: "preferred",
+      })
+    ).toBe(false);
+  });
+
+  it("keeps preferred hits when the question has no remaining topic tokens", () => {
+    expect(extractTopicTokens("What did Asha teach", ["Asha Nayaswami"])).toEqual([]);
+    expect(
+      namedAuthorHitsAreUsable(
+        [
+          {
+            pageContent: "Kitchen notes and a cooking class schedule.",
+            metadata: { author: "Asha Nayaswami", title: "Kitchen notes" },
+          },
+        ],
+        {
+          question: "What did Asha teach",
+          authors: ["Asha Nayaswami"],
+          sourceMode: "preferred",
+        }
+      )
+    ).toBe(true);
+  });
+
   it("treats off-topic preferred hits as unusable and keeps strict hits", () => {
     const docs = [
       {

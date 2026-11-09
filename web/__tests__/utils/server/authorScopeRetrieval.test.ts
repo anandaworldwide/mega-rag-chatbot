@@ -99,6 +99,74 @@ describe("authorScopeRetrieval helpers", () => {
     expect(result.searchFilter).toEqual(dropNamedAuthorClause(named));
   });
 
+  it("retries when yoga only appears as a substring of Yogananda", async () => {
+    const offTopic: Document = {
+      pageContent: "Kitchen notes and a cooking class schedule.",
+      metadata: { author: "Paramhansa Yogananda", title: "Yogananda kitchen notes" },
+      id: "kitchen",
+    };
+    const broader: Document = {
+      pageContent: "Other teachers describe yoga practice.",
+      metadata: { author: "Other Author", title: "Yoga practice" },
+      id: "broader",
+    };
+    const retrieve = jest
+      .fn()
+      .mockResolvedValueOnce({
+        documents: [offTopic],
+        relevance: { rawHitCount: 1, rejectedLowRelevance: 0, topScore: 0.72 },
+      })
+      .mockResolvedValueOnce({
+        documents: [broader],
+        relevance: { rawHitCount: 1, rejectedLowRelevance: 0, topScore: 0.84 },
+      });
+    const named = buildNamedAuthorFilter("Paramhansa Yogananda");
+
+    const result = await retrieveWithNamedAuthorFallback(retrieve, named, {
+      question: "What did Paramhansa Yogananda teach about yoga",
+      authors: ["Paramhansa Yogananda"],
+      sourceMode: "preferred",
+    });
+
+    expect(retrieve).toHaveBeenCalledTimes(2);
+    expect(result.droppedNamedAuthor).toBe(true);
+    expect(result.documents).toEqual([broader]);
+  });
+
+  it("retries when kriya only appears as a substring of Kriyananda", async () => {
+    const offTopic: Document = {
+      pageContent: "Kitchen notes and a cooking class schedule.",
+      metadata: { author: "Swami Kriyananda", title: "Kriyananda kitchen notes" },
+      id: "kitchen",
+    };
+    const broader: Document = {
+      pageContent: "Other teachers describe kriya practice.",
+      metadata: { author: "Other Author", title: "Kriya practice" },
+      id: "broader",
+    };
+    const retrieve = jest
+      .fn()
+      .mockResolvedValueOnce({
+        documents: [offTopic],
+        relevance: { rawHitCount: 1, rejectedLowRelevance: 0, topScore: 0.72 },
+      })
+      .mockResolvedValueOnce({
+        documents: [broader],
+        relevance: { rawHitCount: 1, rejectedLowRelevance: 0, topScore: 0.84 },
+      });
+    const named = buildNamedAuthorFilter("Swami Kriyananda");
+
+    const result = await retrieveWithNamedAuthorFallback(retrieve, named, {
+      question: "What did Swami Kriyananda teach about kriya",
+      authors: ["Swami Kriyananda"],
+      sourceMode: "preferred",
+    });
+
+    expect(retrieve).toHaveBeenCalledTimes(2);
+    expect(result.droppedNamedAuthor).toBe(true);
+    expect(result.documents).toEqual([broader]);
+  });
+
   it("retries when preferred author hits share no topic tokens", async () => {
     const offTopic: Document = {
       pageContent: "A cooking class schedule and kitchen notes.",

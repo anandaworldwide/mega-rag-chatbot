@@ -911,6 +911,19 @@ Error details: ${errorString}`,
         console.log(`🔍 SEARCH QUERY: "${embeddingQuery}"`);
       }
       try {
+        refreshActiveFilterPromptData(
+          activeFilterPromptData,
+          siteConfig,
+          baseFilter,
+          selectedCollectionKey,
+          selectedLibraries,
+          selectedTitleScopeLabel
+        );
+        if (retrievalFilterCapture) {
+          retrievalFilterCapture.filter = undefined;
+          retrievalFilterCapture.inferredAuthor = undefined;
+          retrievalFilterCapture.broadenedFromAuthors = undefined;
+        }
         // Only treat "auto" as a blend trigger when the site has opted in. Otherwise a stray
         // collection="auto" from a non-auto site must fall back to whole_library, not blend.
         let collectionMode: AuthorScopeMode;
@@ -1032,7 +1045,12 @@ Error details: ${errorString}`,
           );
           // Preferred author focus: retry without that author when hits are empty or unusable.
           // Strict "only by" / "only from" keeps the author filter.
+          // Attribute other authors only when the broader search returned sources.
           if (droppedNamedAuthor) {
+            const hasBroaderSources = namedDocs.length > 0;
+            const inferredAuthorLabel = hasBroaderSources
+              ? undefined
+              : scopeDescriptor.authors.join(", ");
             refreshActiveFilterPromptData(
               activeFilterPromptData,
               siteConfig,
@@ -1040,12 +1058,14 @@ Error details: ${errorString}`,
               selectedCollectionKey,
               selectedLibraries,
               selectedTitleScopeLabel,
-              undefined,
-              scopeDescriptor.authors
+              inferredAuthorLabel,
+              hasBroaderSources ? scopeDescriptor.authors : undefined
             );
             if (retrievalFilterCapture) {
-              retrievalFilterCapture.inferredAuthor = undefined;
-              retrievalFilterCapture.broadenedFromAuthors = scopeDescriptor.authors;
+              retrievalFilterCapture.inferredAuthor = inferredAuthorLabel;
+              retrievalFilterCapture.broadenedFromAuthors = hasBroaderSources
+                ? scopeDescriptor.authors
+                : undefined;
             }
             console.warn(
               `[RAG] Named-author filter for "${scopeDescriptor.authors.join(", ")}" returned no usable documents; retried without that author focus.`
