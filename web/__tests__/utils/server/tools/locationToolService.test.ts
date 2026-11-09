@@ -221,10 +221,11 @@ describe("LocationToolService country-level nearest-center flow", () => {
       { originalQuestion: "Where is the nearest Ananda center in Uruguay?" }
     );
 
-    expect(result.centers.found).toBe(true);
+    expect(result.centers.found).toBe(false);
     expect(result.centers.locationPrecision).toBe("country");
-    expect(result.centers.centers.map((c) => c.name)).toEqual(["Synthetic Far Center"]);
-    expect(result.centers.responseGuidance).toMatch(/may be far away/i);
+    expect(result.centers.centers).toEqual([]);
+    expect(result.centers.fallbackMessage).toMatch(/no center is listed in that country/i);
+    expect(result.centers.fallbackMessage).toMatch(/no close options are listed/i);
   });
 
   it("Hawk-3: omitted tool arg must not pair a Uruguay filter with IP coordinates", async () => {
@@ -317,6 +318,7 @@ describe("LocationToolService country-level nearest-center flow", () => {
     expect(locationService.resolveLocation).not.toHaveBeenCalled();
     expect(findNearestCenters).not.toHaveBeenCalled();
     expect(result.centers.found).toBe(false);
-    expect(result.centers.fallbackMessage).toMatch(/does not mean there are no centers/i);
+    expect(result.centers.fallbackMessage).toMatch(/no center is listed in that country/i);
+    expect(result.centers.fallbackMessage).toMatch(/no close options are listed/i);
   });
 });

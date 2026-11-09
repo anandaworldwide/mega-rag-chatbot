@@ -61,7 +61,7 @@ export const TOOL_DEFINITIONS = [
     function: {
       name: "get_user_location",
       description:
-        "Get user's location and find nearby Ananda centers. For a country-only location, the results are directory alternatives that may be far away. Do not call them nearest. This tool does both location detection AND center search in one call.",
+        "Get user's location and find nearby Ananda centers. For a country-only location, the results are directory alternatives within about 500 miles (800 km). Do not call them nearest. This tool does both location detection AND center search in one call.",
       parameters: {
         type: "object",
         properties: {

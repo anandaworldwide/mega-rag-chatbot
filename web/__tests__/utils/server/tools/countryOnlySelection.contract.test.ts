@@ -89,8 +89,7 @@ describe("country-only selection contract", () => {
       expect(result.map((row) => row.name)).toEqual(["Synthetic Argentina Center"]);
       expect(result[0].distance).toBeUndefined();
       expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).toMatch(/directory alternatives/i);
-      expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).toMatch(/may be far away/i);
-      expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).toMatch(/not guaranteed to be nearby or in neighboring countries/i);
+      expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).toMatch(/within about 500 miles/i);
       expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).toMatch(/Name a city for distances/i);
       expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).toMatch(/alternativas del directorio/i);
       expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).toMatch(/alternatives du répertoire/i);
@@ -178,8 +177,8 @@ describe("country-only selection contract", () => {
         longitude: 174.76,
       });
       const result = selectCountryOnlyNearestCandidates([suva, auckland], "Fiji", fijiBox);
-      expect(result.map((row) => row.name)).toEqual(["Synthetic Suva Center", "Synthetic Auckland Center"]);
-      expect(result).toHaveLength(2);
+      expect(result.map((row) => row.name)).toEqual(["Synthetic Suva Center"]);
+      expect(result).toHaveLength(1);
       expect(result.every((row) => row.distance === undefined)).toBe(true);
     });
   });
@@ -206,7 +205,7 @@ describe("country-only selection contract", () => {
           longitude: -122.1,
         })
       );
-      const result = selectCountryOnlyNearestCandidates([dupFirst, dupSecond, ...extraForeign], "Uruguay", TIGHT_URUGUAY_BOX);
+      const result = selectCountryOnlyNearestCandidates([dupFirst, dupSecond, ...extraForeign], "France", US_BOX);
       const vancouver = result.filter((row) => /vancouver/i.test(row.name));
       expect(vancouver).toHaveLength(1);
       expect(vancouver[0].name).toBe("  Ananda Vancouver ");
@@ -246,7 +245,7 @@ describe("country-only selection contract", () => {
       expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).toMatch(/within about 500 miles/i);
       expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).toMatch(/800 km/i);
       expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).toMatch(/no center is listed in that country/i);
-      expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).not.toMatch(/nearest/i);
+      expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).toMatch(/do not call them nearest/i);
     });
 
     it("returns 0 rows with honest empty wording when no center is within the limit", () => {
@@ -281,9 +280,10 @@ describe("country-only selection contract", () => {
   describe("empty-result copy", () => {
     it("does not say there are no centers", () => {
       expect(selectCountryOnlyNearestCandidates([], "Uruguay", TIGHT_URUGUAY_BOX)).toEqual([]);
-      expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).toMatch(/does not mean there are no centers/i);
-      expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).toMatch(/no significa que no haya centros/i);
-      expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).toMatch(/ne signifie pas qu'il n'y a pas de centres/i);
+      expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).toMatch(/no center is listed in that country/i);
+      expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).toMatch(/no close options are listed/i);
+      expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).toMatch(/no hay un centro listado en ese país/i);
+      expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).toMatch(/aucune option proche n'est listée/i);
       expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).not.toMatch(/Ananda has no centers/i);
     });
   });
