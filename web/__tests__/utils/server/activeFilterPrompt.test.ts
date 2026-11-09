@@ -10,6 +10,7 @@ import {
   EMPTY_RETRIEVAL_INFERRED_AUTHOR_HINT,
   extractMediaTypeFilter,
   formatAuthorScopeDebugLog,
+  formatBroadenedAuthorLine,
   formatInferredAuthorFocusLine,
 } from "@/utils/server/activeFilterPrompt";
 
@@ -129,6 +130,22 @@ describe("buildActiveFilterPromptData", () => {
     expect(result.activeFiltersSummary).not.toContain(AUTOMATIC_AUTHOR_RANKING_LINE);
     expect(result.hasRestrictiveFilters).toBe(false);
     expect(result.inferredAuthor).toBe("Asha Nayaswami");
+  });
+
+  it("attributes broader sources after a preferred author focus is dropped", () => {
+    const result = buildActiveFilterPromptData(
+      mockSiteConfig as any,
+      undefined,
+      "auto",
+      undefined,
+      undefined,
+      undefined,
+      ["Asha Nayaswami"]
+    );
+
+    expect(result.activeFiltersSummary).toContain(`- ${formatBroadenedAuthorLine(["Asha Nayaswami"])}`);
+    expect(result.broadenedFromAuthors).toEqual(["Asha Nayaswami"]);
+    expect(result.inferredAuthor).toBeUndefined();
   });
 
   it("keeps a user-set Collection line when query-inferred author focus is also present", () => {
@@ -251,7 +268,12 @@ describe("formatAuthorScopeDebugLog", () => {
       selectedCollectionKey: "auto",
       collectionMode: "auto",
       scopeHint: "broad",
-      scopeDescriptor: { kind: "named", author: "Asha Nayaswami" },
+      scopeDescriptor: {
+        kind: "named",
+        author: "Asha Nayaswami",
+        authors: ["Asha Nayaswami"],
+        sourceMode: "preferred",
+      },
       activeFilterPromptData,
       blendRetrieval: undefined,
     });

@@ -9,6 +9,7 @@ export type ActiveFilterPromptData = {
   activeFiltersSummary: string;
   hasRestrictiveFilters: boolean;
   inferredAuthor?: string;
+  broadenedFromAuthors?: string[];
   collectionLabel?: string;
   selectedLibraries?: string[];
   mediaTypes?: ActiveMediaTypeFilter;
@@ -21,6 +22,15 @@ export const AUTOMATIC_AUTHOR_RANKING_LINE =
 
 export function formatInferredAuthorFocusLine(author: string): string {
   return `Query-inferred author focus (not a UI filter): ${author}`;
+}
+
+export function formatBroadenedAuthorLine(authors: string[]): string {
+  const names = authors.join(", ");
+  return (
+    `Preferred author focus for ${names} returned no usable sources. ` +
+    "Sources below are from other authors. Attribute those authors by name. " +
+    `Do not say ${names} said nothing.`
+  );
 }
 
 function getSiteLibraryNames(siteConfig?: AppSiteConfig | null): string[] {
@@ -94,7 +104,8 @@ export function buildActiveFilterPromptData(
   selectedCollectionKey?: string,
   selectedLibraries?: string[],
   selectedTitleScopeLabel?: string,
-  namedAuthor?: string
+  namedAuthor?: string,
+  broadenedFromAuthors?: string[]
 ): ActiveFilterPromptData {
   const lines: string[] = [];
   // Auto author ranking and query-inferred named-author are NOT user-set filters.
@@ -113,6 +124,9 @@ export function buildActiveFilterPromptData(
     lines.push(`- ${formatInferredAuthorFocusLine(namedAuthor)}`);
   } else if (selectedCollectionKey === "auto") {
     lines.push(`- ${AUTOMATIC_AUTHOR_RANKING_LINE}`);
+  }
+  if (broadenedFromAuthors && broadenedFromAuthors.length > 0) {
+    lines.push(`- ${formatBroadenedAuthorLine(broadenedFromAuthors)}`);
   }
 
   if (collectionLabel) {
@@ -162,6 +176,8 @@ export function buildActiveFilterPromptData(
         : "Current active filters:\n- No restrictive filters are active.",
     hasRestrictiveFilters: restrictiveFilterCount > 0,
     inferredAuthor: namedAuthor,
+    broadenedFromAuthors:
+      broadenedFromAuthors && broadenedFromAuthors.length > 0 ? [...broadenedFromAuthors] : undefined,
     collectionLabel,
     selectedLibraries: restrictiveLibraries,
     mediaTypes: restrictiveMediaTypes,
@@ -208,8 +224,11 @@ function describeScopeDescriptor(descriptor: AuthorScopeDescriptor): string {
   switch (descriptor.kind) {
     case "blend":
       return `blend (Master/Swami score boost δ=${descriptor.masterSwamiBoost})`;
-    case "named":
-      return `named author "${descriptor.author}" (hard Pinecone author filter)`;
+    case "named": {
+      const authors = descriptor.authors?.length ? descriptor.authors : [descriptor.author];
+      const mode = descriptor.sourceMode ?? "preferred";
+      return `named author "${authors.join(", ")}" (${mode} Pinecone author filter)`;
+    }
     case "hard":
       return `hard collection "${descriptor.collection}" (no blend)`;
   }

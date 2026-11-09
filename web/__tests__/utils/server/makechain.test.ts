@@ -3705,7 +3705,7 @@ describe("makeChain", () => {
       expect(retrievalFilterCapture.inferredAuthor).toBeUndefined();
       expect(JSON.stringify(retrievalFilterCapture.filter ?? {})).not.toContain("$eq");
       expect(console.warn).toHaveBeenCalledWith(
-        expect.stringContaining('Named-author filter for "Asha Nayaswami" returned no documents')
+        expect.stringContaining('Named-author filter for "Asha Nayaswami" returned no usable documents')
       );
 
       const mapping = getAnswerChainMappingFromMakeChain();
@@ -3719,7 +3719,7 @@ describe("makeChain", () => {
 
     it("keeps the named-author filter when that search already returned documents", async () => {
       const ashaDoc = new Document({
-        pageContent: "asha teaching",
+        pageContent: "asha teaching about meditation",
         metadata: { library: "library1", source: "asha", author: "Asha Nayaswami" },
       });
       const similaritySearchWithScore = jest.fn().mockResolvedValue([[ashaDoc, 0.9]]);

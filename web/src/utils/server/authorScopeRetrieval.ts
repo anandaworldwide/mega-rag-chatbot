@@ -2,7 +2,9 @@ import type { Document } from "@langchain/core/documents";
 import type { VectorStoreRetriever } from "@langchain/core/vectorstores";
 import type { LibraryConfigEntry } from "@/types/siteConfig";
 import { libraryEntryName } from "@/utils/libraryEntries";
+import type { AuthorSourceMode } from "@/utils/server/authorConstants";
 import { MASTER_SWAMI_AUTHORS } from "@/utils/server/authorConstants";
+import { extractTopicTokens } from "@/utils/server/authorMentionIntent";
 import { attachRetrievalScore, filterScoredDocuments, type RelevanceStats } from "@/utils/server/retrievalRelevance";
 
 export function mergeFilterClauses(
@@ -38,36 +40,72 @@ export function buildNamedAuthorFilter(
   });
 }
 
+export function buildNamedAuthorsFilter(
+  authors: string[],
+  baseFilter?: Record<string, unknown>
+): Record<string, unknown> {
+  const unique = [...new Set(authors.map((author) => author.trim()).filter(Boolean))];
+  if (unique.length <= 1) {
+    return buildNamedAuthorFilter(unique[0] ?? "", baseFilter);
+  }
+  return mergeFilterClauses(baseFilter ?? { $and: [] }, {
+    author: { $in: unique },
+  });
+}
+
+function isAuthorObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 /** True for a hard query-inferred author `$eq`. Master/Swami `$in` is not this clause. */
 export function isNamedAuthorEqClause(clause: unknown): boolean {
-  if (!clause || typeof clause !== "object" || Array.isArray(clause)) {
+  if (!isAuthorObject(clause)) {
     return false;
   }
-  const author = (clause as Record<string, unknown>).author;
-  if (!author || typeof author !== "object" || Array.isArray(author)) {
+  const author = clause.author;
+  if (!isAuthorObject(author)) {
     return false;
   }
-  return typeof (author as { $eq?: unknown }).$eq === "string";
+  return typeof author.$eq === "string";
+}
+
+function isNamedAuthorInClause(clause: unknown, inferredAuthors?: string[]): boolean {
+  if (!inferredAuthors || inferredAuthors.length === 0 || !isAuthorObject(clause)) {
+    return false;
+  }
+  const author = clause.author;
+  if (!isAuthorObject(author) || !Array.isArray(author.$in)) {
+    return false;
+  }
+  const inferred = new Set(inferredAuthors);
+  return author.$in.every((value) => typeof value === "string" && inferred.has(value));
+}
+
+function isDroppableNamedAuthorClause(clause: unknown, inferredAuthors?: string[]): boolean {
+  return isNamedAuthorEqClause(clause) || isNamedAuthorInClause(clause, inferredAuthors);
 }
 
 /**
- * Removes a query-inferred author `$eq` from a Pinecone filter.
+ * Removes a query-inferred author `$eq` or matching `$in` from a Pinecone filter.
  * Keeps user-set clauses (type, library, title) and Master/Swami `$in`.
  */
 export function dropNamedAuthorClause(
-  filter: Record<string, unknown> | undefined
+  filter: Record<string, unknown> | undefined,
+  inferredAuthors?: string[]
 ): Record<string, unknown> | undefined {
   if (!filter) {
     return undefined;
   }
-  if (isNamedAuthorEqClause(filter)) {
+  if (isDroppableNamedAuthorClause(filter, inferredAuthors)) {
     return undefined;
   }
   if (!("$and" in filter) || !Array.isArray(filter.$and)) {
     return filter;
   }
 
-  const remaining = (filter.$and as unknown[]).filter((clause) => !isNamedAuthorEqClause(clause));
+  const remaining = (filter.$and as unknown[]).filter(
+    (clause) => !isDroppableNamedAuthorClause(clause, inferredAuthors)
+  );
   if (remaining.length === filter.$and.length) {
     return filter;
   }
@@ -79,6 +117,12 @@ export function dropNamedAuthorClause(
   return { ...filter, $and: remaining };
 }
 
+export type NamedAuthorFallbackOptions = {
+  question?: string;
+  authors?: string[];
+  sourceMode?: AuthorSourceMode;
+};
+
 export type NamedAuthorFallbackResult = {
   documents: Document[];
   relevance: RelevanceStats;
@@ -86,17 +130,41 @@ export type NamedAuthorFallbackResult = {
   searchFilter: Record<string, unknown> | undefined;
 };
 
+export function namedAuthorHitsAreUsable(
+  documents: Document[],
+  options: NamedAuthorFallbackOptions = {}
+): boolean {
+  if (options.sourceMode === "strict") {
+    return documents.length > 0;
+  }
+  if (documents.length === 0) {
+    return false;
+  }
+  const topicTokens = extractTopicTokens(options.question ?? "", options.authors ?? []);
+  if (topicTokens.length === 0) {
+    return true;
+  }
+  const haystack = documents
+    .map((doc) => `${doc.metadata?.title ?? ""} ${doc.pageContent ?? ""}`)
+    .join(" ")
+    .toLowerCase();
+  return topicTokens.some((token) => haystack.includes(token));
+}
+
 /**
- * Search with the named-author `$eq`. On zero usable hits, search once more without it.
+ * Search with the named-author filter. Preferred mode retries without that author
+ * when hits are empty or unusable. Strict `only by` / `only from` does not retry.
  */
 export async function retrieveWithNamedAuthorFallback(
   retrieve: (
     filter: Record<string, unknown> | undefined
   ) => Promise<{ documents: Document[]; relevance: RelevanceStats }>,
-  namedAuthorFilter: Record<string, unknown>
+  namedAuthorFilter: Record<string, unknown>,
+  options: NamedAuthorFallbackOptions = {}
 ): Promise<NamedAuthorFallbackResult> {
   const first = await retrieve(namedAuthorFilter);
-  if (first.documents.length > 0) {
+  const sourceMode = options.sourceMode ?? "preferred";
+  if (sourceMode === "strict" || namedAuthorHitsAreUsable(first.documents, { ...options, sourceMode })) {
     return {
       documents: first.documents,
       relevance: first.relevance,
@@ -105,7 +173,7 @@ export async function retrieveWithNamedAuthorFallback(
     };
   }
 
-  const fallbackFilter = dropNamedAuthorClause(namedAuthorFilter);
+  const fallbackFilter = dropNamedAuthorClause(namedAuthorFilter, options.authors);
   const second = await retrieve(fallbackFilter);
   return {
     documents: second.documents,
@@ -142,6 +210,7 @@ export function buildRetrievalToolFilter(
 export type RetrievalFilterCapture = {
   filter?: Record<string, unknown>;
   inferredAuthor?: string;
+  broadenedFromAuthors?: string[];
 };
 
 function getDocumentKey(doc: Document): string {

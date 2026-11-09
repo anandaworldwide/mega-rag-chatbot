@@ -7,6 +7,7 @@ import {
   buildLibraryFilter,
   buildMasterSwamiFilter,
   buildNamedAuthorFilter,
+  buildNamedAuthorsFilter,
   buildRetrievalToolFilter,
   computeBlendFetchCount,
   dedupeDocuments,
@@ -32,6 +33,13 @@ describe("authorScopeRetrieval helpers", () => {
   it("builds named author filter", () => {
     const filter = buildNamedAuthorFilter("Asha Nayaswami");
     expect(filter.$and).toContainEqual({ author: { $eq: "Asha Nayaswami" } });
+  });
+
+  it("builds an OR named-author filter for two authors", () => {
+    const filter = buildNamedAuthorsFilter(["Nayaswami Jyotish Novak", "Asha Nayaswami"]);
+    expect(filter.$and).toContainEqual({
+      author: { $in: ["Nayaswami Jyotish Novak", "Asha Nayaswami"] },
+    });
   });
 
   it("detects only author $eq clauses as query-inferred named-author filters", () => {
@@ -89,6 +97,63 @@ describe("authorScopeRetrieval helpers", () => {
     expect(result.droppedNamedAuthor).toBe(true);
     expect(result.documents).toEqual([fallbackDoc]);
     expect(result.searchFilter).toEqual(dropNamedAuthorClause(named));
+  });
+
+  it("retries when preferred author hits share no topic tokens", async () => {
+    const offTopic: Document = {
+      pageContent: "A cooking class schedule and kitchen notes.",
+      metadata: { author: "Asha Nayaswami", title: "Kitchen notes" },
+      id: "kitchen",
+    };
+    const broader: Document = {
+      pageContent: "Other teachers describe Asha's example of discipleship.",
+      metadata: { author: "Other Author", title: "Discipleship stories" },
+      id: "broader",
+    };
+    const retrieve = jest
+      .fn()
+      .mockResolvedValueOnce({
+        documents: [offTopic],
+        relevance: { rawHitCount: 1, rejectedLowRelevance: 0, topScore: 0.72 },
+      })
+      .mockResolvedValueOnce({
+        documents: [broader],
+        relevance: { rawHitCount: 1, rejectedLowRelevance: 0, topScore: 0.84 },
+      });
+    const named = buildNamedAuthorFilter("Asha Nayaswami");
+
+    const result = await retrieveWithNamedAuthorFallback(retrieve, named, {
+      question: "What did Asha teach about discipleship",
+      authors: ["Asha Nayaswami"],
+      sourceMode: "preferred",
+    });
+
+    expect(retrieve).toHaveBeenCalledTimes(2);
+    expect(result.droppedNamedAuthor).toBe(true);
+    expect(result.documents).toEqual([broader]);
+  });
+
+  it("does not retry unusable hits under a strict only-by author scope", async () => {
+    const offTopic: Document = {
+      pageContent: "A cooking class schedule and kitchen notes.",
+      metadata: { author: "Asha Nayaswami", title: "Kitchen notes" },
+      id: "kitchen",
+    };
+    const retrieve = jest.fn().mockResolvedValue({
+      documents: [offTopic],
+      relevance: { rawHitCount: 1, rejectedLowRelevance: 0, topScore: 0.72 },
+    });
+    const named = buildNamedAuthorFilter("Asha Nayaswami");
+
+    const result = await retrieveWithNamedAuthorFallback(retrieve, named, {
+      question: "Find passages only by Asha about discipleship",
+      authors: ["Asha Nayaswami"],
+      sourceMode: "strict",
+    });
+
+    expect(retrieve).toHaveBeenCalledTimes(1);
+    expect(result.droppedNamedAuthor).toBe(false);
+    expect(result.documents).toEqual([offTopic]);
   });
 
   it("does not retry when the named-author search already returned documents", async () => {

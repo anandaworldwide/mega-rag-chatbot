@@ -7,6 +7,11 @@ import {
   MASTER_SWAMI_AUTHORS,
 } from "@/utils/server/authorConstants";
 import { isSiteLibraryBrandToken, isSiteLibraryName } from "@/utils/server/siteLibraryName";
+import {
+  normalizeAuthorQueryText,
+  selectSourceAuthorMatches,
+  type AuthorMatch,
+} from "@/utils/server/authorMentionIntent";
 
 export type ResolveAuthorScopeInput = {
   question: string;
@@ -28,7 +33,7 @@ function hasWordBoundaryMatch(text: string, term: string): boolean {
     return false;
   }
   const pattern = new RegExp(`\\b${escapeRegExp(normalizedTerm)}\\b`, "i");
-  return pattern.test(text);
+  return pattern.test(normalizeAuthorQueryText(text));
 }
 
 function siteHasWeightedLibraries(siteConfig?: SiteConfig | null): boolean {
@@ -47,25 +52,35 @@ export function getAuthorMatchQuestion(
   return utterance ? utterance : retrievalQuestion;
 }
 
-/** Finds an explicitly named author or title in the query (deterministic, conservative). */
-export function findExplicitAuthorMatch(
+function addAuthorMatch(matches: AuthorMatch[], seen: Set<string>, author: string, matchedTerm: string): void {
+  if (seen.has(author)) {
+    return;
+  }
+  seen.add(author);
+  matches.push({ author, matchedTerm });
+}
+
+/** Finds every explicitly named author or title in the query (deterministic, conservative). */
+export function collectExplicitAuthorMatches(
   question: string,
   siteConfig?: SiteConfig | null,
   knownAuthors: string[] = [],
   knownTitles: string[] = [],
   generatedAliasIndex: Record<string, string> = {}
-): string | null {
+): AuthorMatch[] {
   const aliases = {
     ...generatedAliasIndex,
     ...(siteConfig?.authorAliases ?? {}),
   };
+  const matches: AuthorMatch[] = [];
+  const seen = new Set<string>();
   const aliasEntries = Object.entries(aliases).sort(([left], [right]) => right.length - left.length);
   for (const [alias, author] of aliasEntries) {
     if (isSiteLibraryBrandToken(alias) || isSiteLibraryName(author)) {
       continue;
     }
     if (hasWordBoundaryMatch(question, alias)) {
-      return author;
+      addAuthorMatch(matches, seen, author, alias);
     }
   }
 
@@ -77,7 +92,7 @@ export function findExplicitAuthorMatch(
       continue;
     }
     if (hasWordBoundaryMatch(question, author)) {
-      return author;
+      addAuthorMatch(matches, seen, author, author);
     }
   }
 
@@ -89,12 +104,24 @@ export function findExplicitAuthorMatch(
     if (hasWordBoundaryMatch(question, title)) {
       const mappedAuthor = aliases[title.toLowerCase()];
       if (mappedAuthor && !isSiteLibraryName(mappedAuthor)) {
-        return mappedAuthor;
+        addAuthorMatch(matches, seen, mappedAuthor, title);
       }
     }
   }
 
-  return null;
+  return matches;
+}
+
+/** Finds an explicitly named author or title in the query (deterministic, conservative). */
+export function findExplicitAuthorMatch(
+  question: string,
+  siteConfig?: SiteConfig | null,
+  knownAuthors: string[] = [],
+  knownTitles: string[] = [],
+  generatedAliasIndex: Record<string, string> = {}
+): string | null {
+  return collectExplicitAuthorMatches(question, siteConfig, knownAuthors, knownTitles, generatedAliasIndex)[0]
+    ?.author ?? null;
 }
 
 const MIN_MASTER_SWAMI_BOOST = 0;
@@ -133,15 +160,17 @@ export function resolveAuthorScope(input: ResolveAuthorScopeInput): AuthorScopeD
     return { kind: "hard", collection: "whole_library" };
   }
 
-  const explicitAuthor = findExplicitAuthorMatch(
+  const sourceAuthors = selectSourceAuthorMatches(
     question,
-    siteConfig,
-    knownAuthors,
-    knownTitles,
-    generatedAliasIndex
+    collectExplicitAuthorMatches(question, siteConfig, knownAuthors, knownTitles, generatedAliasIndex)
   );
-  if (explicitAuthor) {
-    return { kind: "named", author: explicitAuthor };
+  if (sourceAuthors.authors.length > 0) {
+    return {
+      kind: "named",
+      author: sourceAuthors.authors[0],
+      authors: sourceAuthors.authors,
+      sourceMode: sourceAuthors.sourceMode,
+    };
   }
 
   if (siteHasWeightedLibraries(siteConfig)) {

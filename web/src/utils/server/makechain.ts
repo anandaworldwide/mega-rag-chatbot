@@ -104,7 +104,7 @@ import { getAuthorMatchQuestion, resolveAuthorScope } from "./authorScopeResolve
 import {
   buildLibraryFilter,
   buildMasterSwamiFilter,
-  buildNamedAuthorFilter,
+  buildNamedAuthorsFilter,
   buildRetrievalToolFilter,
   retrieveWithAuthorScopeBlend,
   retrieveWithNamedAuthorFallback,
@@ -466,7 +466,8 @@ function refreshActiveFilterPromptData(
   selectedCollectionKey: string | undefined,
   selectedLibraries: string[] | undefined,
   selectedTitleScopeLabel: string | undefined,
-  namedAuthor?: string
+  namedAuthor?: string,
+  broadenedFromAuthors?: string[]
 ): void {
   const refreshed = buildActiveFilterPromptData(
     siteConfig,
@@ -474,11 +475,13 @@ function refreshActiveFilterPromptData(
     selectedCollectionKey,
     selectedLibraries,
     selectedTitleScopeLabel,
-    namedAuthor
+    namedAuthor,
+    broadenedFromAuthors
   );
   target.activeFiltersSummary = refreshed.activeFiltersSummary;
   target.hasRestrictiveFilters = refreshed.hasRestrictiveFilters;
   target.inferredAuthor = refreshed.inferredAuthor;
+  target.broadenedFromAuthors = refreshed.broadenedFromAuthors;
   target.collectionLabel = refreshed.collectionLabel;
   target.selectedLibraries = refreshed.selectedLibraries;
   target.mediaTypes = refreshed.mediaTypes;
@@ -937,6 +940,7 @@ Error details: ${errorString}`,
         });
 
         if (scopeDescriptor.kind === "named") {
+          const namedAuthorLabel = scopeDescriptor.authors.join(", ");
           refreshActiveFilterPromptData(
             activeFilterPromptData,
             siteConfig,
@@ -944,10 +948,11 @@ Error details: ${errorString}`,
             selectedCollectionKey,
             selectedLibraries,
             selectedTitleScopeLabel,
-            scopeDescriptor.author
+            namedAuthorLabel
           );
           if (retrievalFilterCapture) {
-            retrievalFilterCapture.inferredAuthor = scopeDescriptor.author;
+            retrievalFilterCapture.inferredAuthor = namedAuthorLabel;
+            retrievalFilterCapture.broadenedFromAuthors = undefined;
           }
         }
 
@@ -1002,7 +1007,7 @@ Error details: ${errorString}`,
           }
           allDocuments.push(...blendedDocs);
         } else if (scopeDescriptor.kind === "named") {
-          const namedFilter = buildNamedAuthorFilter(scopeDescriptor.author, baseFilter);
+          const namedFilter = buildNamedAuthorsFilter(scopeDescriptor.authors, baseFilter);
           const {
             documents: namedDocs,
             relevance: namedRelevance,
@@ -1018,10 +1023,15 @@ Error details: ${errorString}`,
                 includedLibraries,
                 minRetrievalScore
               ),
-            namedFilter
+            namedFilter,
+            {
+              question: authorMatchQuestion,
+              authors: scopeDescriptor.authors,
+              sourceMode: scopeDescriptor.sourceMode,
+            }
           );
-          // Zero hits under query-inferred author `$eq`: one retry without that author.
-          // Do not carry the focus into later tool searches or the next turn.
+          // Preferred author focus: retry without that author when hits are empty or unusable.
+          // Strict "only by" / "only from" keeps the author filter.
           if (droppedNamedAuthor) {
             refreshActiveFilterPromptData(
               activeFilterPromptData,
@@ -1029,13 +1039,16 @@ Error details: ${errorString}`,
               baseFilter,
               selectedCollectionKey,
               selectedLibraries,
-              selectedTitleScopeLabel
+              selectedTitleScopeLabel,
+              undefined,
+              scopeDescriptor.authors
             );
             if (retrievalFilterCapture) {
               retrievalFilterCapture.inferredAuthor = undefined;
+              retrievalFilterCapture.broadenedFromAuthors = scopeDescriptor.authors;
             }
             console.warn(
-              `[RAG] Named-author filter for "${scopeDescriptor.author}" returned no documents; retried without that author focus.`
+              `[RAG] Named-author filter for "${scopeDescriptor.authors.join(", ")}" returned no usable documents; retried without that author focus.`
             );
           }
           if (retrievalFilterCapture) {
@@ -1916,7 +1929,8 @@ export async function setupAndExecuteLanguageModelChain(
           selectedCollectionKey,
           selectedLibraries,
           selectedTitleScopeLabel,
-          retrievalFilterCapture.inferredAuthor
+          retrievalFilterCapture.inferredAuthor,
+          retrievalFilterCapture.broadenedFromAuthors
         );
 
         let retrievalToolContext: RetrievalToolContext | null = null;

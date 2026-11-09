@@ -55,7 +55,12 @@ describe("makechain author index wiring contract", () => {
       generatedAliasIndex,
     });
 
-    expect(result).toEqual({ kind: "named", author: "Nayaswami Gyandev McCord" });
+    expect(result).toEqual({
+      kind: "named",
+      author: "Nayaswami Gyandev McCord",
+      authors: ["Nayaswami Gyandev McCord"],
+      sourceMode: "preferred",
+    });
   });
 
   it("does not hard-filter Bhagavad Gita questions to Gita Matlock", () => {
@@ -93,6 +98,11 @@ describe("makechain author index wiring contract", () => {
         knownAuthors: canonicalAuthors,
         generatedAliasIndex,
       })
-    ).toEqual({ kind: "named", author: "Gita Matlock" });
+    ).toEqual({
+      kind: "named",
+      author: "Gita Matlock",
+      authors: ["Gita Matlock"],
+      sourceMode: "preferred",
+    });
   });
 });
