@@ -3782,6 +3782,26 @@ describe("makeChain", () => {
       return laterSearch.mock.calls[0]?.[2] as Record<string, unknown> | undefined;
     }
 
+    async function expectAuthorPathNotGeo(question: string, pageContent: string) {
+      const ashaDoc = new Document({
+        pageContent,
+        metadata: { library: "library1", source: "asha", author: "Asha Nayaswami" },
+      });
+      const similaritySearchWithScore = authorFilterSearchMock([[ashaDoc, 0.9]], []);
+      const capture: RetrievalCapture = {};
+      const { result, sendData } = await invokeGeoAutoAuthorRetrieval(
+        similaritySearchWithScore,
+        question,
+        capture
+      );
+
+      expect(sendData).not.toHaveBeenCalledWith(expect.objectContaining({ isLocationQuery: true }));
+      expect(similaritySearchWithScore).toHaveBeenCalled();
+      expect(JSON.stringify(similaritySearchWithScore.mock.calls[0][2])).toContain('"$eq":"Asha Nayaswami"');
+      expect(result.documents[0]?.metadata?.author).toBe("Asha Nayaswami");
+      expect(capture.inferredAuthor).toBe("Asha Nayaswami");
+    }
+
     it("retries without the query-inferred author when that filter returns no documents", async () => {
       const fallbackDoc = new Document({
         pageContent: "library teaching",
@@ -4172,6 +4192,34 @@ describe("makeChain", () => {
       expect(laterFilter).toContain('"$in"');
       expect(laterFilter).toContain("Nayaswami Jyotish Novak");
       expect(laterFilter).toContain("Asha Nayaswami");
+    });
+
+    it("uses the author path for Find-articles-from-Asha in Portland", async () => {
+      await expectAuthorPathNotGeo(
+        "Find articles from Asha in Portland",
+        "A talk in Portland on discipleship and living the teachings."
+      );
+    });
+
+    it("uses the author path for Find-articles-from-Asha in lowercase portland", async () => {
+      await expectAuthorPathNotGeo(
+        "Find articles from Asha in portland",
+        "A talk in Portland on discipleship and living the teachings."
+      );
+    });
+
+    it("uses the author path for Find-articles-from-Asha about meditation groups", async () => {
+      await expectAuthorPathNotGeo(
+        "Find articles from Asha about meditation groups",
+        "A talk on meditation groups and living the teachings."
+      );
+    });
+
+    it("uses the author path for What-did-Asha-teach about Ananda centers", async () => {
+      await expectAuthorPathNotGeo(
+        "What did Asha teach about Ananda centers",
+        "A talk on Ananda centers and living the teachings."
+      );
     });
 
     it("keeps location path for an author-owned center in a city", async () => {
