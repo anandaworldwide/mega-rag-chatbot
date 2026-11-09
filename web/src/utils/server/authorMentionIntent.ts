@@ -70,35 +70,35 @@ function testNamePattern(text: string, name: string, build: (escaped: string) =>
   return new RegExp(build(escaped), "i").test(text);
 }
 
-export function classifyAuthorMention(question: string, match: AuthorMatch): AuthorMentionIntent {
-  const text = normalizeAuthorQueryText(question);
-  const names = mentionNames(match);
-  let sawSource = false;
-  let sawStrict = false;
-  let sawSubject = false;
+function isNegativeAuthorMention(text: string, names: string[]): boolean {
+  return names.some((name) =>
+    testNamePattern(
+      text,
+      name,
+      (escaped) => `\\b(?:not|never|except|excluding|without)\\s+(?:by\\s+|from\\s+)?${escaped}\\b`
+    )
+  );
+}
 
+function explicitByAuthorAttribution(text: string, names: string[]): { source: boolean; strict: boolean } {
+  let source = false;
+  let strict = false;
   for (const name of names) {
     if (
-      testNamePattern(
-        text,
-        name,
-        (escaped) => `\\b(?:not|never|except|excluding|without)\\s+(?:by\\s+|from\\s+)?${escaped}\\b`
-      )
+      testNamePattern(text, name, (escaped) => `\\bonly\\s+(?:by|from)\\s+${escaped}\\b`) ||
+      testNamePattern(text, name, (escaped) => `\\bsolo\\s+de\\s+${escaped}\\b`)
     ) {
-      return { role: "negative", sourceMode: "preferred" };
-    }
-    if (testNamePattern(text, name, (escaped) => `\\bonly\\s+(?:by|from)\\s+${escaped}\\b`)) {
-      sawStrict = true;
-      sawSource = true;
+      strict = true;
+      source = true;
     }
     if (
-      testNamePattern(text, name, (escaped) => `\\b(?:what\\s+did|what\\s+does)\\s+${escaped}\\b`) ||
+      testNamePattern(text, name, (escaped) => `\\b(?:what\\s+did|what\\s+does|what\\s+do)\\s+${escaped}\\b`) ||
       testNamePattern(text, name, (escaped) => `\\b(?:by|from|according\\s+to)\\s+${escaped}\\b`) ||
       testNamePattern(text, name, (escaped) => `\\b(?:by|from)\\s+[^.!?]{0,80}\\bor\\s+${escaped}\\b`) ||
       testNamePattern(
         text,
         name,
-        (escaped) => `\\b${escaped}\\s+(?:said|says|taught|teaches|wrote|writes)\\b`
+        (escaped) => `\\b${escaped}\\s+(?:said|says|say|taught|teaches|wrote|writes)\\b`
       ) ||
       testNamePattern(
         text,
@@ -107,8 +107,23 @@ export function classifyAuthorMention(question: string, match: AuthorMatch): Aut
           `\\b${escaped}'s\\s+(?:book|talk|article|essay|letter|lecture|teachings?|quotes?|words)\\b`
       )
     ) {
-      sawSource = true;
+      source = true;
     }
+  }
+  return { source, strict };
+}
+
+export function classifyAuthorMention(question: string, match: AuthorMatch): AuthorMentionIntent {
+  const text = normalizeAuthorQueryText(question);
+  const names = mentionNames(match);
+  let sawSubject = false;
+
+  if (isNegativeAuthorMention(text, names)) {
+    return { role: "negative", sourceMode: "preferred" };
+  }
+
+  const attribution = explicitByAuthorAttribution(text, names);
+  for (const name of names) {
     if (
       testNamePattern(
         text,
@@ -122,13 +137,34 @@ export function classifyAuthorMention(question: string, match: AuthorMatch): Aut
     }
   }
 
-  if (sawSource) {
-    return { role: "source", sourceMode: sawStrict ? "strict" : "preferred" };
+  if (attribution.source) {
+    return { role: "source", sourceMode: attribution.strict ? "strict" : "preferred" };
   }
   if (sawSubject) {
     return { role: "subject", sourceMode: "preferred" };
   }
   return { role: "source", sourceMode: "preferred" };
+}
+
+const BY_AUTHOR_CONTENT_TYPE = /\b(?:articles?|talks?|writings?|teachings?)\b/i;
+
+/** True when the question asks for content BY a named author, not a mere name or subject mention. */
+export function hasByAuthorContentIntent(question: string, matches: AuthorMatch[]): boolean {
+  if (!question.trim() || matches.length === 0) {
+    return false;
+  }
+  const hasContentType = BY_AUTHOR_CONTENT_TYPE.test(question);
+  for (const match of matches) {
+    const intent = classifyAuthorMention(question, match);
+    if (intent.role === "negative" || intent.role === "subject") {
+      continue;
+    }
+    const attribution = explicitByAuthorAttribution(normalizeAuthorQueryText(question), mentionNames(match));
+    if (attribution.source || hasContentType) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function selectSourceAuthorMatches(question: string, matches: AuthorMatch[]): {

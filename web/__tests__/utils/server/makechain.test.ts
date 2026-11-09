@@ -65,10 +65,7 @@ import path from "path";
 import { ChatOpenAI } from "@langchain/openai";
 import { getChatModel } from "@/utils/server/llmProvider";
 import { hasLocationIntentAsync } from "@/utils/server/locationIntentDetector";
-import {
-  executeSearchMoreSources,
-  RetrievalToolContext,
-} from "@/utils/server/tools/retrievalTools";
+import { executeRetrievalTool, RetrievalToolContext } from "@/utils/server/tools/retrievalTools";
 import { S3Client } from "@aws-sdk/client-s3";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { convertChatHistory, ChatMessage } from "../../../src/utils/shared/chatHistory";
@@ -3780,7 +3777,7 @@ describe("makeChain", () => {
         remainingSourceBudget: 4,
         effectiveAccessLevel: 0,
       });
-      await executeSearchMoreSources({ query: "synthetic extra query", k: 4 }, ctx);
+      await executeRetrievalTool("search_more_sources", { query: "synthetic extra query", k: 4 }, ctx);
       expect(laterSearch).toHaveBeenCalled();
       return laterSearch.mock.calls[0]?.[2] as Record<string, unknown> | undefined;
     }

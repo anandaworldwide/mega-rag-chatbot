@@ -100,7 +100,7 @@ import { extractJsonArray } from "./suggestionParsing";
 import { filterSuggestionsForDiversity } from "./suggestionDiversity";
 import { AuthorScopeHint, AuthorScopeMode } from "./authorConstants";
 import { getAuthorScopeIndex } from "./authorIndex";
-import { selectSourceAuthorMatches } from "./authorMentionIntent";
+import { hasByAuthorContentIntent } from "./authorMentionIntent";
 import { collectExplicitAuthorMatches, getAuthorMatchQuestion, resolveAuthorScope } from "./authorScopeResolver";
 import {
   buildLibraryFilter,
@@ -134,19 +134,29 @@ export function isAutoAuthorScopeActive(
   return siteConfig?.enableAutoAuthorScope === true && selectedCollectionKey === "auto";
 }
 
-/** Source-role author mentions skip geo routing so article/by/from queries stay in RAG. */
-function hasQueryInferredSourceAuthor(
+const EXPLICIT_PLACE_CUE =
+  /\b(?:near|nearby|nearest|closest|centers?|groups?|address(?:es)?)\b/i;
+const IN_PLACE_CUE = /\bin\s+[A-Z][A-Za-z]+/;
+
+function hasExplicitPlaceCue(question: string): boolean {
+  return EXPLICIT_PLACE_CUE.test(question) || IN_PLACE_CUE.test(question);
+}
+
+/**
+ * Skip geo only for content-by-author questions with no explicit place.
+ * A name alone, a subject mention, or a place/center/group cue keeps geo.
+ */
+function shouldSkipGeoForAuthorContent(
   question: string | undefined,
   siteConfig?: AppSiteConfig | null
 ): boolean {
   if (!question?.trim()) {
     return false;
   }
-  const sourceAuthors = selectSourceAuthorMatches(
-    question,
-    collectExplicitAuthorMatches(question, siteConfig)
-  );
-  return sourceAuthors.authors.length > 0;
+  if (hasExplicitPlaceCue(question)) {
+    return false;
+  }
+  return hasByAuthorContentIntent(question, collectExplicitAuthorMatches(question, siteConfig));
 }
 
 export { buildActiveFilterPromptData } from "./activeFilterPrompt";
@@ -629,10 +639,10 @@ export const makeChain = async (
     if (originalQuestion && siteConfig?.enableGeoAwareness && geoTools.length > 0) {
       const intentDetectionStart = Date.now();
       try {
-        // Named source authors take precedence over location keywords such as "find a" / "look for".
-        shouldUseGeoTools = hasQueryInferredSourceAuthor(originalQuestion, siteConfig)
+        // Content-by-author questions skip geo. A name plus an explicit place keeps geo.
+        shouldUseGeoTools = shouldSkipGeoForAuthorContent(originalQuestion, siteConfig)
           ? false
-          : await hasLocationIntentAsync(originalQuestion);
+          : hasExplicitPlaceCue(originalQuestion) || (await hasLocationIntentAsync(originalQuestion));
         locationIntentLatency = Date.now() - intentDetectionStart;
         if (timingMetrics) {
           timingMetrics.geoIntentMs = locationIntentLatency;
