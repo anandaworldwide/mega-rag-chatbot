@@ -18,6 +18,7 @@ import {
   getCanonicalCountryLabel,
   isCountryOnlyProvidedLocation,
   isCountryOnlyLocationQuery,
+  selectCountryOnlyNearestCandidates,
 } from "../../../../src/utils/server/tools/locationLogic";
 import { LocationResult, CenterResult } from "../../../../src/utils/server/tools";
 
@@ -687,6 +688,7 @@ describe("LocationLogic - Pure Business Logic Functions", () => {
       expect(hasProximityIntentInQuestion("Yogananda habla acerca de estar cerca de la verdad")).toBe(false);
       expect(hasProximityIntentInQuestion("Comment prier près de Dieu ?")).toBe(false);
       expect(hasProximityIntentInQuestion("Yogananda enseigne près de 100 leçons de Kriya")).toBe(false);
+      expect(hasProximityIntentInQuestion("Como meditar cerca de mi maestro?")).toBe(false);
     });
   });
 
@@ -700,6 +702,8 @@ describe("LocationLogic - Pure Business Logic Functions", () => {
       expect(hasLocationRequestEvidence("Yogananda habla acerca de estar cerca de la verdad")).toBe(false);
       expect(hasLocationRequestEvidence("Comment prier près de Dieu ?")).toBe(false);
       expect(hasLocationRequestEvidence("Yogananda enseigne près de 100 leçons de Kriya")).toBe(false);
+      expect(hasLocationRequestEvidence("Como meditar cerca de mi maestro?")).toBe(false);
+      expect(hasLocationRequestEvidence("Ananda ensena a estar mas cercano a Dios")).toBe(false);
     });
   });
 
@@ -717,6 +721,57 @@ describe("LocationLogic - Pure Business Logic Functions", () => {
       expect(isCountryOnlyProvidedLocation("Uruguay")).toBe(true);
       expect(isCountryOnlyProvidedLocation("Montevideo")).toBe(false);
       expect(isCountryOnlyProvidedLocation("Montevideo, Uruguay")).toBe(false);
+    });
+  });
+
+  describe("selectCountryOnlyNearestCandidates", () => {
+    const argentina: CenterResult = {
+      name: "Synthetic Nearby Center",
+      address: "fixture",
+      city: "Synthetic City",
+      state: "",
+      country: "Argentina",
+      latitude: -34.6037,
+      longitude: -58.3816,
+    };
+    const california: CenterResult = {
+      name: "Synthetic California Center",
+      address: "fixture",
+      city: "Palo Alto",
+      state: "CA",
+      country: "United States",
+      latitude: 37.4419,
+      longitude: -122.143,
+    };
+    const sydney: CenterResult = {
+      name: "Synthetic Sydney Center",
+      address: "fixture",
+      city: "Sydney",
+      state: "NSW",
+      country: "Australia",
+      latitude: -33.8688,
+      longitude: 151.2093,
+    };
+
+    it("includes a synthetic cross-border center when the named country has none", () => {
+      const result = selectCountryOnlyNearestCandidates([argentina, california], "Uruguay", (center) =>
+        center.country === "Argentina" ? 300 : 6000
+      );
+      expect(result.map((center) => center.name)).toEqual(["Synthetic Nearby Center"]);
+      expect(result[0].distance).toBeUndefined();
+    });
+
+    it("keeps in-country US and Australia rows that are far from the country point", () => {
+      const us = selectCountryOnlyNearestCandidates([california, sydney], "United States", () => 1500);
+      expect(us.map((center) => center.name)).toContain("Synthetic California Center");
+      expect(us.every((center) => center.distance === undefined)).toBe(true);
+      const au = selectCountryOnlyNearestCandidates([california, sydney], "Australia", () => 1500);
+      expect(au.map((center) => center.name)).toContain("Synthetic Sydney Center");
+    });
+
+    it("returns empty when no in-country row and no foreign row is near the country point", () => {
+      expect(selectCountryOnlyNearestCandidates([california], "Uruguay", () => 6000)).toEqual([]);
+      expect(selectCountryOnlyNearestCandidates([], "Uruguay", () => 0)).toEqual([]);
     });
   });
 

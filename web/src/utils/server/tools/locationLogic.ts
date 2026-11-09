@@ -287,29 +287,41 @@ export function foldDiacritics(text: string): string {
   return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 }
 
+/**
+ * Locative "near me" / "cerca de mi" / "près de moi" as a complete phrase.
+ * Do not treat "cerca de mi maestro" as a location request: "mi" is possessive there.
+ */
+function hasStandaloneNearMeLocative(q: string): boolean {
+  return (
+    /\bnear me\b(?!\s+(?!in\b|at\b|please\b)[a-z])/.test(q) ||
+    /\bcerca\s+de\s+mi\b(?!\s+(?!en\b|in\b|por\b|para\b)[a-z])/.test(q) ||
+    /\bpres\s+de\s+moi\b(?!\s+(?!en\b|au\b|aux\b|dans\b)[a-z])/.test(q)
+  );
+}
+
 export function hasProximityIntentInQuestion(question: string): boolean {
   const q = foldDiacritics(question);
   return (
-    /\b(near me|nearby|closest|nearest|within\s+\d+|\d+\s*miles?\s+of|km\s+of)\b/i.test(q) ||
+    /\b(nearby|closest|nearest|within\s+\d+|\d+\s*miles?\s+of|km\s+of)\b/i.test(q) ||
+    hasStandaloneNearMeLocative(q) ||
     /\bmas\s+cercan[oa]s?\b/.test(q) ||
     /\bmas\s+proxim[oa]s?\b/.test(q) ||
-    /\bcerca\s+de\s+mi\b/.test(q) ||
-    /\bplus\s+proche\b/.test(q) ||
-    /\bpres\s+de\s+moi\b/.test(q)
+    /\bplus\s+proche\b/.test(q)
   );
 }
 
 /**
  * Evidence that the user asks for a place, not only a near/close metaphor.
  * Used by the keyword geo path. Do not treat bare "cerca de" / "près de" as a location request.
+ * Org name plus "más cercano" is not enough; require a center/group/temple/church/community word.
  */
 export function hasLocationRequestEvidence(question: string): boolean {
   const q = foldDiacritics(question);
-  if (/\b(near me|cerca de mi|pres de moi)\b/.test(q)) {
+  if (hasStandaloneNearMeLocative(q)) {
     return true;
   }
   const hasPlaceEntity =
-    /\b(centers?|centros?|centres?|groups?|grupos?|groupes?|community|communities|comunidad(?:es)?|communaute(?:s)?|temples?|templos?|church(?:es)?|iglesias?|eglises?|ananda)\b/.test(
+    /\b(centers?|centros?|centres?|groups?|grupos?|groupes?|community|communities|comunidad(?:es)?|communaute(?:s)?|temples?|templos?|church(?:es)?|iglesias?|eglises?)\b/.test(
       q
     );
   if (!hasPlaceEntity) {
@@ -474,8 +486,44 @@ export const COUNTRY_SEARCH_RESPONSE_GUIDANCE =
   "This is a country-level search. End the location section by inviting the user to ask about a specific city or region for more targeted results, THEN link to the directory. Do NOT just say 'For a full directory, visit…' without offering the narrower follow-up first.";
 
 /**
- * Country-only nearest/closest: do not rank from a country point.
- * Ask for a city. Nearby search, including across a border, waits for a city.
+ * Country-only nearest/closest candidates from directory rows.
+ * In-country rows match the named country field (no mile cap from the country point).
+ * Cross-border rows are other countries whose coordinates are within
+ * COUNTRY_PROXIMITY_FOREIGN_MAX_MILES of the geocoded country point.
+ * Distances are used only to pick those foreign rows. They are not returned.
+ */
+export const COUNTRY_PROXIMITY_MAX_CANDIDATES = 8;
+export const COUNTRY_PROXIMITY_FOREIGN_FILL = 5;
+export const COUNTRY_PROXIMITY_FOREIGN_MAX_MILES = 1000;
+
+export function omitCenterDistance(center: CenterResult): CenterResult {
+  const copy: CenterResult = { ...center };
+  delete copy.distance;
+  return copy;
+}
+
+export function selectCountryOnlyNearestCandidates(
+  centers: CenterResult[],
+  namedCountry: string,
+  distanceFromCountryPoint: (center: CenterResult) => number
+): CenterResult[] {
+  const inCountry = centers
+    .filter((center) => countriesMatchForCenterSearch(center.country, namedCountry))
+    .slice(0, COUNTRY_PROXIMITY_MAX_CANDIDATES)
+    .map(omitCenterDistance);
+  const foreignNear = centers
+    .filter((center) => !countriesMatchForCenterSearch(center.country, namedCountry))
+    .map((center) => ({ center, miles: distanceFromCountryPoint(center) }))
+    .filter((row) => Number.isFinite(row.miles) && row.miles <= COUNTRY_PROXIMITY_FOREIGN_MAX_MILES)
+    .sort((a, b) => a.miles - b.miles)
+    .slice(0, COUNTRY_PROXIMITY_FOREIGN_FILL)
+    .map((row) => omitCenterDistance(row.center));
+  return [...inCountry, ...foreignNear].slice(0, COUNTRY_PROXIMITY_MAX_CANDIDATES);
+}
+
+/**
+ * Country-only nearest/closest: directory options in or near that country.
+ * Do not rank nearest-to-user. Do not give exact miles. Also ask for a city.
  */
 export const COUNTRY_PROXIMITY_RESPONSE_GUIDANCE =
-  "The user named a country, not a city. Do not rank centers as nearest to the user. Do not give exact miles from a country-only point. Ask for a city. After the user names a city, you may search nearby, including across a border. Reply in the user's language.";
+  "The user named a country, not a city. These centers come from directory country fields and coordinates. Some centers may be in a nearby country. Do not rank them as nearest to the user. Do not give exact miles. Also ask the user to name a city. Reply in the user's language.";

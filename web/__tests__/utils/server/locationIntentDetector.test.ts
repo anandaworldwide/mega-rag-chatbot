@@ -353,6 +353,8 @@ describe("Location Intent Detector", () => {
       expect(await hasLocationIntentAsync("Yogananda habla acerca de estar cerca de la verdad")).toBe(false);
       expect(await hasLocationIntentAsync("Comment prier près de Dieu ?")).toBe(false);
       expect(await hasLocationIntentAsync("Yogananda enseigne près de 100 leçons de Kriya")).toBe(false);
+      expect(await hasLocationIntentAsync("Como meditar cerca de mi maestro?")).toBe(false);
+      expect(await hasLocationIntentAsync("Ananda ensena a estar mas cercano a Dios")).toBe(false);
     });
   });
 

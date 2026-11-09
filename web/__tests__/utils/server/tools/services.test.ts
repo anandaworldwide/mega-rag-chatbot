@@ -968,7 +968,7 @@ describe("Services - Dependency Injection Architecture", () => {
         longitude: -122.143,
       };
 
-      it("B2: country-only nearest does not rank a synthetic nearby center from a country point", async () => {
+      it("country-only nearest returns a synthetic cross-border center without miles or nearest-to-user rank", async () => {
         const haversineService = new CenterSearchService(
           mockCenterDataService,
           new HaversineDistanceCalculator()
@@ -978,17 +978,19 @@ describe("Services - Dependency Injection Architecture", () => {
         const result = await haversineService.findNearestCenters(URUGUAY_POINT.lat, URUGUAY_POINT.lon, {
           searchScope: "proximity",
           locationPrecision: "country",
+          countryFilter: "Uruguay",
         });
 
-        expect(result.found).toBe(false);
-        expect(result.centers).toEqual([]);
+        expect(result.found).toBe(true);
+        expect(result.centers.map((c) => c.name)).toEqual(["Synthetic Nearby Center"]);
+        expect(result.centers[0].distance).toBeUndefined();
         expect(result.locationPrecision).toBe("country");
+        expect(result.responseGuidance).toMatch(/Do not rank/i);
         expect(result.responseGuidance).toMatch(/city/i);
-        expect(result.responseGuidance).not.toMatch(/nearby directory options from an imprecise/i);
-        expect(result.fallbackMessage).toMatch(/city/i);
+        expect(result.responseGuidance).toMatch(/nearby country/i);
       });
 
-      it("B2: country-only nearest does not rank synthetic US or Australia centers from a country point", async () => {
+      it("country-only nearest keeps synthetic US and Australia in-country rows far from the country point", async () => {
         const haversineService = new CenterSearchService(
           mockCenterDataService,
           new HaversineDistanceCalculator()
@@ -1014,18 +1016,27 @@ describe("Services - Dependency Injection Architecture", () => {
         mockCenterDataService.loadCenters.mockResolvedValue([syntheticUS, syntheticAU]);
 
         const usCentroid = { lat: 39.8283, lon: -98.5795 };
-        const result = await haversineService.findNearestCenters(usCentroid.lat, usCentroid.lon, {
+        const usResult = await haversineService.findNearestCenters(usCentroid.lat, usCentroid.lon, {
           searchScope: "proximity",
           locationPrecision: "country",
+          countryFilter: "United States",
         });
+        expect(usResult.found).toBe(true);
+        expect(usResult.centers.map((c) => c.name)).toContain("Synthetic California Center");
+        expect(usResult.centers.every((c) => c.distance === undefined)).toBe(true);
 
-        expect(result.found).toBe(false);
-        expect(result.centers).toEqual([]);
-        expect(result.responseGuidance).toBeTruthy();
-        expect(result.centers.every((c) => c.distance === undefined)).toBe(true);
+        const auCentroid = { lat: -25.2744, lon: 133.7751 };
+        const auResult = await haversineService.findNearestCenters(auCentroid.lat, auCentroid.lon, {
+          searchScope: "proximity",
+          locationPrecision: "country",
+          countryFilter: "Australia",
+        });
+        expect(auResult.found).toBe(true);
+        expect(auResult.centers.map((c) => c.name)).toContain("Synthetic Sydney Center");
+        expect(auResult.centers.every((c) => c.distance === undefined)).toBe(true);
       });
 
-      it("B2: asks for a city even when only far synthetic centers exist", async () => {
+      it("country-only nearest is empty when only far synthetic centers exist", async () => {
         const haversineService = new CenterSearchService(
           mockCenterDataService,
           new HaversineDistanceCalculator()
@@ -1035,6 +1046,7 @@ describe("Services - Dependency Injection Architecture", () => {
         const result = await haversineService.findNearestCenters(URUGUAY_POINT.lat, URUGUAY_POINT.lon, {
           searchScope: "proximity",
           locationPrecision: "country",
+          countryFilter: "Uruguay",
         });
 
         expect(result.found).toBe(false);

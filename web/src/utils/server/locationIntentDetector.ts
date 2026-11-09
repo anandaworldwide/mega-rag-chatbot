@@ -198,6 +198,7 @@ function hasLocationKeywordPatterns(query: string): boolean {
   // "es") and mark teaching questions as location lookups. Bare "cerca de" /
   // "près de" is not location-request evidence. Real nearest-center questions
   // still match hasLocationRequestEvidence, the phrase list below, or embeddings.
+  // "cerca de mi maestro" and org name plus "más cercano" are not location requests.
   const countryCodes = ["usa", "uae"];
 
   for (const abbrev of countryCodes) {
