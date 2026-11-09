@@ -774,11 +774,12 @@ embeddings.
     Cap the sample at 8 rows. If the named country has 0 domestic rows, include up to
     8 foreign rows. If the named country has domestic rows, include up to 5 foreign
     rows, then fill remaining slots with domestic rows. Pick foreign rows by distance
-    to the country geocode rectangle (`bounds`, else `viewport`). Do not apply a mile
-    cutoff. Keep directory order. Do not show miles on country-only results. Results
-    may be far away. Do not call them nearest. Explicit "only in" / "solo en" /
-    "uniquement en" stays country-filtered. There is no hardcoded country-to-country
-    map.
+    to the country geocode rectangle (`bounds`, else `viewport`). Keep a foreign row
+    only if that distance is at most 500 miles (about 800 km). Drop farther foreign
+    rows. If fewer rows qualify, return fewer rows. If none qualify, return 0 rows.
+    Keep directory order. Do not show miles on country-only results. Do not call them
+    nearest. Explicit "only in" / "solo en" / "uniquement en" stays country-filtered.
+    There is no hardcoded country-to-country map.
   - Implements contrastive scoring algorithm:
     - Positive similarity threshold: >= 0.37
     - Contrastive threshold: positive similarity must exceed negative by >= 0.05

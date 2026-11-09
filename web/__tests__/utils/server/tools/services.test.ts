@@ -1100,10 +1100,11 @@ describe("Services - Dependency Injection Architecture", () => {
           countryBox: URUGUAY_BOX,
         });
 
-        expect(result.found).toBe(true);
-        expect(result.centers.map((c) => c.name)).toEqual(["Synthetic Far Center"]);
+        expect(result.found).toBe(false);
+        expect(result.centers).toEqual([]);
         expect(result.locationPrecision).toBe("country");
-        expect(result.responseGuidance).toMatch(/may be far away/i);
+        expect(result.fallbackMessage).toMatch(/no center is listed in that country/i);
+        expect(result.fallbackMessage).toMatch(/no close options are listed/i);
       });
 
       it("city-level proximity still ranks a synthetic nearby center with miles", async () => {
