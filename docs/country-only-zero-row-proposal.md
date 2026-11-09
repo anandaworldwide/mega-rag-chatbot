@@ -1,87 +1,78 @@
 # Country-only selection: zero in-country rows
 
-Status: proposal only. Not implemented. Selection logic stays on `2279eeb3`. Docs only. No paid calls.
+Status: proposal only. Not implemented. Selection logic stays on `2279eeb3`. Docs only. No paid calls. No IP fallback.
 
-Product direction:
+Product: options (b) and (c) are rejected. They do not solve a country with no domestic centers. Pin conversion is not the product criterion. Inside-viewport-only may exclude every useful foreign candidate.
 
-- Options (b) and (c) are rejected. They do not solve a country with no domestic centers.
-- Converting the `it.failing` pins is not the product criterion.
-- For (a): including only rows inside the country viewport may still exclude every useful foreign candidate.
+Do not use a country-point mile gate. Do not claim border proximity, nearest, or completeness.
 
-Rejected earlier: min Haversine to an in-country directory row (fails when in-country count is 0; arbitrary cutoff). Do not bring back a country-point mile gate.
+## Evidence (real repo data)
 
-Hawk conditions that still apply: no country-point gate; never use IP for stated-country selection; keep strict domestic-only unchanged; stable directory order; drop duplicate rows; do not imply border proximity, nearest-to-user order, exhaustive coverage, or "no centers" when data is insufficient.
+There is **no** locations CSV in this repo (`git ls-files '*.csv'` is empty). `web/public/data/ananda-locations.csv` is not in the checkout. `loadCenters` maps `title`/`name`, `address`, `city`, `state`/`state/province`, `country`, `latitude`, `longitude`, `phone`, `website`, `email`, `description`. No region, continent, or polygon. Extra CSV columns are ignored.
 
-## 1. Selection contract for (a) — inside viewport / bounds
+Tests use synthetic centers. Those fixtures **do not prove** that a live Uruguay query yields Argentina. No paid geocode was run. Google’s Uruguay `viewport` / `bounds` are not stored here. Whether Buenos Aires is inside that box is **unknown**.
 
-Inputs (stated-country geocode only; never IP):
+## Which rule applies (insufficient vs foreign sample)
 
-- From `GoogleGeocodingService.geocode` (`maps.googleapis.com/maps/api/geocode/json` for the stated country): keep `geometry.viewport` (southwest + northeast lat/lng). Keep `geometry.bounds` when the JSON has it. Do not use `geometry.location` to rank or to apply a mile gate.
-- From directory rows (`loadCenters`): `country`, `latitude`, `longitude`, `name` (plus display fields). No region or continent field is stored.
-- Tool: `userProvidedLocation` if set, else the country extracted from the question. Strict `solo en` / `only in` / `uniquement en` stays `searchScope: "country"` and does not use this contract.
+Two rules were in conflict:
 
-Inclusion:
+- Hawk: empty domestic data is insufficient for a nearby sample.
+- Option (a) / product: still offer a foreign sample when in-country count is 0.
 
-- In-country: `countriesMatchForCenterSearch(center.country, namedCountry)`.
-- Foreign: the center’s coordinates lie inside `bounds` if present, else inside `viewport`. Inside-only. No edge-mile margin.
-- Skip invalid coordinates (NaN, out of range, 0,0).
-- If viewport/bounds is missing or invalid: do not search from IP. Return insufficient location. Ask for a city. Show Find Ananda.
+**The product rule applies.** Zero in-country rows does **not** block a foreign sample. Zero in-country rows is also **not** proof that Ananda has no centers.
 
-Order, cap, dedupe:
+**Insufficient** applies only when:
 
-- Directory order. Do not sort by distance.
-- Cap: `COUNTRY_PROXIMITY_MAX_CANDIDATES` (8). Reserve up to `COUNTRY_PROXIMITY_FOREIGN_FILL` (5) slots for qualifying foreign rows so 8 domestic rows cannot hide them. Fill the rest with in-country rows.
-- Dedupe: same `name` + latitude + longitude.
+- stated-country geometry is absent or invalid, or
+- after selection, the sample has zero rows.
 
-Response wording (country-only):
+It does not apply when in-country count is 0 and at least one foreign row is selected.
 
-- This is a sample from the directory. It is not a complete list.
-- Some rows may be in another country. Do not say they are near the border.
-- Do not rank nearest to the user. Do not give miles.
-- If the sample is empty: the directory has no in-country row and no foreign row inside the box. That is insufficient for a nearby list. Do not say Ananda has no centers. Show Find Ananda. Ask for a city.
+### User-facing wording
 
-City refinement:
+When the sample has rows (including zero in-country + foreign rows):
 
-- If the user names a city, leave this contract. Geocode the city. Use existing city-level Haversine. Miles and nearest ranking are allowed on that path. The existing 1000-mile trim on the 4th and 5th city results stays.
+> This is a sample from our directory. It is not a complete list. Some listings may be in another country. This is not ranked as nearest to you. These listings are not claimed to sit on the border. Our directory has no row in {country}. Name a city if you want distances. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/).
 
-Files: `LocationResult`, `GoogleGeocodingService.geocode`, `selectCountryOnlyNearestCandidates`, `CenterSearchService.findNearestCenters`, `LocationToolService.getUserLocation` / `LocationService.resolveLocation` (no IP).
+When the sample is empty, or geometry is unusable:
 
-A country Geocoding API call already runs when `userProvidedLocation` is set. Viewport and bounds are in that JSON today and are dropped. The omitted-arg path uses IP today; this contract replaces that with one stated-country geocode.
+> Our directory has no listing we can sample for that country from the data we have. That does not mean Ananda has no centers. Name a city. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/).
 
-## 2. When the viewport contains no foreign rows
+Never fall back to IP. Strict `solo en` / `only in` / `uniquement en` stays domestic-only and does not use the foreign sample.
 
-Contract (a) then returns no foreign rows. If in-country count is also 0, the sample is empty. The reply is the empty-sample wording above, not a neighbor list.
+## Geometry
 
-Real directory data in this repo: **none**. There is no committed locations CSV (`git ls-files '*.csv'` is empty). `web/public/data/ananda-locations.csv` is not in the checkout. `loadCenters` reads S3 `site-config/location/{site}-locations.csv` at runtime, or that missing local fallback. The parser maps `title`/`name`, `address`, `city`, `state`/`state/province`, `country`, `latitude`, `longitude`, `phone`, `website`, `email`, `description`. Extra columns are ignored. Tests use synthetic centers only (Uruguay fixtures have 0 in-country rows; Argentina is a synthetic foreign row).
+**Bounds versus viewport:** use `geometry.bounds` when it is present and valid. Else use `geometry.viewport`. Do not mix corners from both. Do not use `geometry.location` to rank or to apply a mile gate.
 
-So this analysis cannot show the actual Uruguay (or other zero-domestic country) result against live directory coordinates or against a real Google viewport/bounds. No paid geocode was run. Whether Buenos Aires lies inside Google’s Uruguay viewport or bounds is unknown.
+Valid box: southwest and northeast `lat`/`lng` are finite numbers; latitude in [-90, 90]; longitude in [-180, 180]; north ≥ south.
 
-Current implemented path (`2279eeb3`), not (a): empty in-country plus no foreign row within 1000 miles of the country point also returns `found: false` and “No Ananda centers were found in or near that country”.
+**Absent or invalid geometry:** do not search. Do not use IP. Return the empty/unusable wording above.
 
-## 3. Smallest grounded regional-candidate method
+**Antimeridian:** the box wraps when west longitude > east longitude. A point is inside longitude if `lng >= west OR lng <= east` on a wrapping box, and `west <= lng <= east` otherwise. Latitude is `south <= lat <= north`. Distance to the rectangle on a wrapping box is the minimum distance to the two split boxes `(west, 180)` and `(-180, east)`. Do not use a naive `west <= lng <= east` test on a wrapping box.
 
-Existing geometry and fields:
+## Selection (recommended method)
 
-- Geocode: `viewport`, optional `bounds`, `location` point, `address_components` (country, city). No continent. No polygon.
-- Directory: country name + coordinates. No region. No continent.
+Inputs: stated-country geocode box (above); directory `country`, `latitude`, `longitude`, `name`. Never IP. `userProvidedLocation` if set, else the country extracted from the question.
 
-Inside `viewport` only is not enough (product). Inside `bounds` is the same kind of test with a possibly larger box. It can still contain no foreign row. That cannot be checked here without the CSV and a geocode.
+1. Drop invalid center coordinates (NaN, out of range, 0,0).
+2. **Dedupe:** first row wins for the same `name` + latitude + longitude, in directory order.
+3. In-country rows: `countriesMatchForCenterSearch(center.country, namedCountry)`.
+4. Foreign rows: all remaining valid rows.
+5. Rectangle-distance: 0 if inside the box; else Haversine to the nearest point on the box (antimeridian split as above). **No maximum miles.**
+6. **Foreign slot count:** `FOREIGN_MAX = 8` when in-country count is 0 (`COUNTRY_PROXIMITY_MAX_CANDIDATES`). `FOREIGN_MAX = 5` when in-country count > 0 (`COUNTRY_PROXIMITY_FOREIGN_FILL`).
+7. **Fill order:** take up to `FOREIGN_MAX` foreign rows with smallest rectangle-distance, ties by directory index. Then take in-country rows in directory order until the combined set has 8. Emit the combined set in **directory order** (not distance order). Omit `distance`.
 
-A mile radius from the country point is forbidden. A mile radius from an in-country row fails when in-country count is 0. A hardcoded neighbor or continent table is new geography data.
+### When the region is outside the box, or the box is empty of foreign rows
 
-The only remaining method that uses only existing geometry and can still return a foreign sample when the box is empty:
+- Inside-viewport-only (narrow (a)): those foreign rows are **dropped**. If in-country count is also 0, the sample is empty. Use the empty wording. This is why inside-only is not enough.
+- Recommended method: foreign rows **outside** the box stay eligible. They compete for `FOREIGN_MAX` slots by rectangle-distance with no mile cap. Inside-box rows have distance 0 and win ties only against other zeros, then directory index.
 
-- Measure each valid foreign row’s distance to the country rectangle (`bounds` if present, else `viewport`). Inside the rectangle = 0.
-- Put no maximum miles on that distance.
-- Take up to `COUNTRY_PROXIMITY_FOREIGN_FILL` foreign rows with the smallest rectangle-distance. Break ties with directory order.
-- Merge with in-country rows under the same cap, reserved slots, and dedupe as in section 1.
-- Emit the sample in directory order. Omit miles. Do not say nearest, nearest to the country, or near the border.
-- City refinement is unchanged (section 1).
+**Scope justification:** the only stored geometry for a country is Google’s AABB (`bounds` / `viewport`) plus directory coordinates. There is no continent field, no polygon, and no live CSV in the repo. Rectangle-distance with a count cap is the smallest fill that can still return a foreign sample when the box contains none. It is **not** a region and **not** proof that Uruguay yields Argentina. If the live directory has no closer country than a far row, that far row can appear. The wording must not call it nearby, nearest, or on the border.
 
-This can put an Argentina row into a Uruguay sample when that row is closer to the Uruguay rectangle than a California row, even if it sits outside the box.
+If review forbids silent nearest-to-the-box selection, existing data cannot support a grounded regional method. Needed: a region/continent field or a country polygon, plus the live CSV.
 
-Limitation (plain): this is not a region. It is a silent nearest-to-the-box pick with a count cap. The AABB is not a political border and not a continent. If the directory has no closer country, the sample can list far rows. We must not call those rows nearby. Google’s box can also be wrong for large countries, odd shapes, the antimeridian, and overseas territories.
+## City refinement
 
-If review forbids even a silent nearest-to-the-box pick, then the existing geometry and data **cannot** support a grounded regional method. Data that would be needed: a region or continent field on each directory row, or a country polygon (not only an AABB), plus the live directory CSV (not in this repo) to prove which foreign rows qualify.
+If the user names a city, leave this contract. Geocode the city. Use existing city-level Haversine. Miles and nearest ranking are allowed on that path. The existing 1000-mile trim on the 4th and 5th city results stays.
 
-Recommendation: extend (a) with the rectangle-distance sample in section 3. Do not implement until review. Do not use IP. Do not use a country-point mile gate.
+Files: `LocationResult`, `GoogleGeocodingService.geocode`, `selectCountryOnlyNearestCandidates`, `CenterSearchService.findNearestCenters`, `LocationToolService.getUserLocation`, `LocationService.resolveLocation`.
