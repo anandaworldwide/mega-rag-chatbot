@@ -215,6 +215,69 @@ describe("country-only selection contract", () => {
     });
   });
 
+  describe("foreign mile cutoff", () => {
+    const URUGUAY_GEOCODE_BOX: GeoBox = {
+      southwest: { lat: -35.031542, lng: -58.494843 },
+      northeast: { lat: -30.085215, lng: -53.077744 },
+    };
+
+    it("keeps Argentina rows and drops Florida rows for Uruguay", () => {
+      const rows = [
+        center({ name: "Synthetic Boca Raton", country: "United States", latitude: 26.368306, longitude: -80.128932 }),
+        center({ name: "Synthetic Paraná A", country: "Argentina", latitude: -31.74132, longitude: -60.511547 }),
+        center({ name: "Synthetic Varela", country: "Argentina", latitude: -34.796581, longitude: -58.276012 }),
+        center({ name: "Synthetic Tampa", country: "United States", latitude: 27.95169, longitude: -82.458753 }),
+        center({ name: "Synthetic Quilmes", country: "Argentina", latitude: -34.603684, longitude: -58.381559 }),
+        center({ name: "Synthetic Mar del Plata", country: "Argentina", latitude: -38.005477, longitude: -57.542611 }),
+        center({ name: "Synthetic St Petersburg", country: "United States", latitude: 27.767127, longitude: -82.638445 }),
+        center({ name: "Synthetic Paraná B", country: "Argentina", latitude: -31.74132, longitude: -60.511547 }),
+      ];
+      const result = selectCountryOnlyNearestCandidates(rows, "Uruguay", URUGUAY_GEOCODE_BOX);
+      expect(result.map((row) => row.name)).toEqual([
+        "Synthetic Paraná A",
+        "Synthetic Varela",
+        "Synthetic Quilmes",
+        "Synthetic Mar del Plata",
+        "Synthetic Paraná B",
+      ]);
+      expect(result).toHaveLength(5);
+      expect(result.every((row) => row.distance === undefined)).toBe(true);
+      expect(result.some((row) => /Boca|Tampa|Petersburg/i.test(row.name))).toBe(false);
+      expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).toMatch(/within about 500 miles/i);
+      expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).toMatch(/800 km/i);
+      expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).toMatch(/no center is listed in that country/i);
+      expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).not.toMatch(/nearest/i);
+    });
+
+    it("returns 0 rows with honest empty wording when no center is within the limit", () => {
+      const florida = [
+        center({ name: "Synthetic Boca Raton", country: "United States", latitude: 26.368306, longitude: -80.128932 }),
+        center({ name: "Synthetic Tampa", country: "United States", latitude: 27.95169, longitude: -82.458753 }),
+      ];
+      const result = selectCountryOnlyNearestCandidates(florida, "Uruguay", URUGUAY_GEOCODE_BOX);
+      expect(result).toEqual([]);
+      expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).toMatch(/no center is listed in that country/i);
+      expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).toMatch(/no close options are listed/i);
+      expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).toMatch(/no hay un centro listado en ese país/i);
+      expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).toMatch(/no hay opciones cercanas listadas/i);
+      expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).toMatch(/aucun centre n'est listé dans ce pays/i);
+      expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).toMatch(/aucune option proche n'est listée/i);
+      expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).not.toMatch(/nearest/i);
+    });
+
+    it("returns fewer than 8 qualifying rows with no padding", () => {
+      const rows = [
+        center({ name: "Synthetic Varela", country: "Argentina", latitude: -34.796581, longitude: -58.276012 }),
+        center({ name: "Synthetic Quilmes", country: "Argentina", latitude: -34.603684, longitude: -58.381559 }),
+        center({ name: "Synthetic Boca Raton", country: "United States", latitude: 26.368306, longitude: -80.128932 }),
+      ];
+      const result = selectCountryOnlyNearestCandidates(rows, "Uruguay", URUGUAY_GEOCODE_BOX);
+      expect(result.map((row) => row.name)).toEqual(["Synthetic Varela", "Synthetic Quilmes"]);
+      expect(result).toHaveLength(2);
+      expect(result.every((row) => row.distance === undefined)).toBe(true);
+    });
+  });
+
   describe("empty-result copy", () => {
     it("does not say there are no centers", () => {
       expect(selectCountryOnlyNearestCandidates([], "Uruguay", TIGHT_URUGUAY_BOX)).toEqual([]);
