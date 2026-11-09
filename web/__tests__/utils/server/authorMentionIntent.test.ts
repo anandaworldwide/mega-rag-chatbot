@@ -182,6 +182,48 @@ describe("finding 1: unusable preferred hits", () => {
     );
   });
 
+  it("records preferred #1 vs strict #2 usability inputs without changing that logic", () => {
+    const preferredQuestion = "What did Asha teach about discipleship";
+    const strictQuestion = "Find passages only by Asha about discipleship";
+    const authors = ["Asha Nayaswami"];
+    const offTopic = [
+      {
+        pageContent: "Kitchen notes and a cooking class schedule.",
+        metadata: { author: "Asha Nayaswami", title: "Kitchen notes" },
+      },
+    ];
+    const onTopic = [
+      {
+        pageContent: "A talk on discipleship and living the teachings.",
+        metadata: { author: "Asha Nayaswami", title: "Discipleship" },
+      },
+    ];
+
+    expect(extractTopicTokens(preferredQuestion, authors)).toEqual(["discipleship"]);
+    expect(extractTopicTokens(strictQuestion, authors)).toContain("discipleship");
+    expect(
+      namedAuthorHitsAreUsable(offTopic, {
+        question: preferredQuestion,
+        authors,
+        sourceMode: "preferred",
+      })
+    ).toBe(false);
+    expect(
+      namedAuthorHitsAreUsable(onTopic, {
+        question: preferredQuestion,
+        authors,
+        sourceMode: "preferred",
+      })
+    ).toBe(true);
+    expect(
+      namedAuthorHitsAreUsable(offTopic, {
+        question: strictQuestion,
+        authors,
+        sourceMode: "strict",
+      })
+    ).toBe(true);
+  });
+
   it("does not treat yoga inside Yogananda or kriya inside Kriyananda as topic evidence", () => {
     const yoganandaKitchen = [
       {

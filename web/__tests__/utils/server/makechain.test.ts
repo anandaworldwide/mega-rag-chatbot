@@ -65,6 +65,10 @@ import path from "path";
 import { ChatOpenAI } from "@langchain/openai";
 import { getChatModel } from "@/utils/server/llmProvider";
 import { hasLocationIntentAsync } from "@/utils/server/locationIntentDetector";
+import {
+  executeSearchMoreSources,
+  RetrievalToolContext,
+} from "@/utils/server/tools/retrievalTools";
 import { S3Client } from "@aws-sdk/client-s3";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { convertChatHistory, ChatMessage } from "../../../src/utils/shared/chatHistory";
@@ -3764,6 +3768,23 @@ describe("makeChain", () => {
       return { result, sendData, capture };
     }
 
+    async function laterSearchMoreFilter(capturedFilter: Record<string, unknown> | undefined) {
+      const laterSearch = jest.fn().mockResolvedValue([
+        [{ pageContent: "synthetic extra hit", metadata: { title: "Extra" }, id: "extra-1" }, 0.8],
+      ]);
+      const ctx = new RetrievalToolContext({
+        pineconeIndex: { listPaginated: jest.fn(), fetch: jest.fn() },
+        vectorStore: { similaritySearchWithScore: laterSearch },
+        filter: capturedFilter,
+        knownSourceIds: [],
+        remainingSourceBudget: 4,
+        effectiveAccessLevel: 0,
+      });
+      await executeSearchMoreSources({ query: "synthetic extra query", k: 4 }, ctx);
+      expect(laterSearch).toHaveBeenCalled();
+      return laterSearch.mock.calls[0]?.[2] as Record<string, unknown> | undefined;
+    }
+
     it("retries without the query-inferred author when that filter returns no documents", async () => {
       const fallbackDoc = new Document({
         pageContent: "library teaching",
@@ -4094,6 +4115,9 @@ describe("makeChain", () => {
       expect(JSON.stringify(similaritySearchWithScore.mock.calls[0][2])).toContain('"$eq":"Asha Nayaswami"');
       expect(result.documents[0]?.metadata?.author).toBe("Asha Nayaswami");
       expect(capture.inferredAuthor).toBe("Asha Nayaswami");
+      expect(hasNamedAuthorClause(capture.filter)).toBe(true);
+      const laterFilter = JSON.stringify((await laterSearchMoreFilter(capture.filter)) ?? {});
+      expect(laterFilter).toContain('"$eq":"Asha Nayaswami"');
     });
 
     it("does not route look-for-articles-from-Jyotish-or-Asha as a location query", async () => {
@@ -4117,6 +4141,40 @@ describe("makeChain", () => {
       expect(firstFilter).toContain("Asha Nayaswami");
       expect(result.documents[0]?.metadata?.source).toBe("jyotish");
       expect(capture.inferredAuthor).toBe("Nayaswami Jyotish Novak, Asha Nayaswami");
+      expect(hasNamedAuthorClause(capture.filter)).toBe(true);
+      const laterFilter = JSON.stringify((await laterSearchMoreFilter(capture.filter)) ?? {});
+      expect(laterFilter).toContain('"$in"');
+      expect(laterFilter).toContain("Nayaswami Jyotish Novak");
+      expect(laterFilter).toContain("Asha Nayaswami");
+    });
+
+    it("keeps Jyotish-or-Asha $in on search_more_sources for What-do-Jyotish-or-Asha-say", async () => {
+      const question = "What do Jyotish or Asha say about karma?";
+      const jyotishDoc = new Document({
+        pageContent: "A talk on karma and cause and effect.",
+        metadata: { library: "library1", source: "jyotish", author: "Nayaswami Jyotish Novak" },
+      });
+      const similaritySearchWithScore = authorFilterSearchMock([[jyotishDoc, 0.88]], []);
+      const capture: RetrievalCapture = {};
+      const { result, sendData } = await invokeGeoAutoAuthorRetrieval(
+        similaritySearchWithScore,
+        question,
+        capture
+      );
+
+      expect(sendData).not.toHaveBeenCalledWith(expect.objectContaining({ isLocationQuery: true }));
+      expect(similaritySearchWithScore).toHaveBeenCalledTimes(1);
+      const firstFilter = JSON.stringify(similaritySearchWithScore.mock.calls[0][2]);
+      expect(firstFilter).toContain('"$in"');
+      expect(firstFilter).toContain("Nayaswami Jyotish Novak");
+      expect(firstFilter).toContain("Asha Nayaswami");
+      expect(result.documents[0]?.metadata?.author).toBe("Nayaswami Jyotish Novak");
+      expect(capture.inferredAuthor).toBe("Nayaswami Jyotish Novak, Asha Nayaswami");
+      expect(hasNamedAuthorClause(capture.filter)).toBe(true);
+      const laterFilter = JSON.stringify((await laterSearchMoreFilter(capture.filter)) ?? {});
+      expect(laterFilter).toContain('"$in"');
+      expect(laterFilter).toContain("Nayaswami Jyotish Novak");
+      expect(laterFilter).toContain("Asha Nayaswami");
     });
 
     it("still routes a center-near-city question as location", async () => {
