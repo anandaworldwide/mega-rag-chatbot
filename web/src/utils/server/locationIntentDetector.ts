@@ -18,7 +18,7 @@
 import { OpenAI } from "openai";
 import { readFileSync, existsSync } from "fs";
 import path from "path";
-import { hasLocationRequestEvidence } from "./tools/locationLogic";
+import { foldDiacritics, hasLocationRequestEvidence } from "./tools/locationLogic";
 
 interface EmbeddingData {
   model: string;
@@ -199,6 +199,7 @@ function hasLocationKeywordPatterns(query: string): boolean {
   // "près de" is not location-request evidence. Real nearest-center questions
   // still match hasLocationRequestEvidence, the phrase list below, or embeddings.
   // "cerca de mi maestro" and org name plus "más cercano" are not location requests.
+  // Do not let embeddings override those teaching or metaphor uses.
   const countryCodes = ["usa", "uae"];
 
   for (const abbrev of countryCodes) {
@@ -251,6 +252,20 @@ function hasLocationKeywordPatterns(query: string): boolean {
 }
 
 /**
+ * Teaching or metaphor uses of cerca/cercano without a place request.
+ * Example: "cerca de mi maestro", "cercano a Dios".
+ * Keyword detection already returned false. Do not call embeddings.
+ */
+function hasCercaCercanoWithoutPlaceEvidence(query: string): boolean {
+  const q = foldDiacritics(query);
+  const hasCercaFamily = /\bcerca\b/.test(q) || /\bcercan[oa]s?\b/.test(q);
+  if (!hasCercaFamily) {
+    return false;
+  }
+  return !hasLocationRequestEvidence(query);
+}
+
+/**
  * Async version of location intent detection
  *
  * @param query - User query to analyze
@@ -271,6 +286,14 @@ export async function hasLocationIntentAsync(query: string): Promise<boolean> {
       console.log(`🔍 Location intent detected via KEYWORD pattern for "${query}"`);
     }
     return true;
+  }
+
+  // Teaching/metaphor cerca/cercano is not a place request. Do not embed it.
+  if (hasCercaCercanoWithoutPlaceEvidence(query)) {
+    if (process.env.NODE_ENV === "development") {
+      console.log(`🔍 Location intent suppressed for teaching cerca/cercano: "${query}"`);
+    }
+    return false;
   }
 
   // If embeddings not loaded, fall back to disabled detection
