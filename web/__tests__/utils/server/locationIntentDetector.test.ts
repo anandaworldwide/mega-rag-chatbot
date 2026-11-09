@@ -358,6 +358,60 @@ describe("Location Intent Detector", () => {
     });
   });
 
+  describe("G1/G2 teaching cerca/cercano with embeddings enabled", () => {
+    // Unique site id so earlier tests that cached embeddings for test-site / ananda-public
+    // cannot skip this initialize. Query vector is closer to the positive seed than the
+    // negative seed (pos >= 0.37 and contrastive >= 0.05). No live embedding API.
+    let createEmbedding: jest.Mock;
+
+    beforeEach(async () => {
+      createEmbedding = jest.fn().mockResolvedValue({
+        data: [{ embedding: [0.95, 0.05] }],
+      });
+      const { OpenAI } = jest.requireMock("openai");
+      OpenAI.mockImplementation(() => ({
+        embeddings: { create: createEmbedding },
+      }));
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readFileSync.mockReturnValue(
+        JSON.stringify({
+          model: "text-embedding-3-large",
+          timestamp: "2024-01-01T00:00:00.000Z",
+          positiveCount: 1,
+          negativeCount: 1,
+          embeddingDimensions: 2,
+          positiveEmbeddings: [[1, 0]],
+          negativeEmbeddings: [[0, 1]],
+        })
+      );
+      await initializeLocationIntentDetector("g1-g2-semantic-path");
+    });
+
+    it("G1: Como meditar cerca de mi maestro? must not take the location path when embeddings are on", async () => {
+      expect(await hasLocationIntentAsync("Como meditar cerca de mi maestro?")).toBe(false);
+    });
+
+    it("G2: Ananda ensena a estar mas cercano a Dios must not take the location path when embeddings are on", async () => {
+      expect(await hasLocationIntentAsync("Ananda ensena a estar mas cercano a Dios")).toBe(false);
+    });
+
+    it("keeps Spanish country-only nearest on the location path with embeddings on", async () => {
+      expect(await hasLocationIntentAsync("¿Cuál es el centro Ananda más cercano en Uruguay?")).toBe(true);
+    });
+
+    it("keeps Spanish city nearest on the location path with embeddings on", async () => {
+      expect(await hasLocationIntentAsync("Cual es el centro Ananda mas cercano en Montevideo?")).toBe(true);
+    });
+
+    it("keeps English nearest on the location path with embeddings on", async () => {
+      expect(await hasLocationIntentAsync("Where is the nearest Ananda center?")).toBe(true);
+    });
+
+    it("keeps Meditation groups USA on the location path with embeddings on", async () => {
+      expect(await hasLocationIntentAsync("Meditation groups USA")).toBe(true);
+    });
+  });
+
   describe("cache behavior", () => {
     beforeEach(() => {
       process.env.OPENAI_API_KEY = "test-key";
