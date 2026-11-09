@@ -10,7 +10,7 @@
  *
  * Architecture:
  * - Loads site-specific embeddings from web/private/location-intent/{site}-embeddings.json
- * - Uses contrastive scoring: positive similarity > 0.45 AND difference > 0.1
+ * - Uses contrastive scoring: positive similarity >= 0.37 AND difference >= 0.05
  * - Caches embeddings in memory for <1ms response time
  * - Supports multilingual queries (English, Spanish, German, French, Italian, Portuguese, Hindi)
  */
@@ -18,7 +18,7 @@
 import { OpenAI } from "openai";
 import { readFileSync, existsSync } from "fs";
 import path from "path";
-import { hasProximityIntentInQuestion } from "./tools/locationLogic";
+import { hasLocationRequestEvidence } from "./tools/locationLogic";
 
 interface EmbeddingData {
   model: string;
@@ -189,14 +189,15 @@ function hasHistoricalPlaceQuestionPatterns(query: string): boolean {
 function hasLocationKeywordPatterns(query: string): boolean {
   const lowerQuery = query.toLowerCase();
 
-  if (hasProximityIntentInQuestion(query)) {
+  if (hasLocationRequestEvidence(query)) {
     return true;
   }
 
   // Keep only three-letter country codes. Two-letter ISO codes collide with
   // function words in other languages (Italian "il"/"se", German "de", Spanish
-  // "es") and mark teaching questions as location lookups. Real nearest-center
-  // questions still match the phrase list below or the embedding check.
+  // "es") and mark teaching questions as location lookups. Bare "cerca de" /
+  // "près de" is not location-request evidence. Real nearest-center questions
+  // still match hasLocationRequestEvidence, the phrase list below, or embeddings.
   const countryCodes = ["usa", "uae"];
 
   for (const abbrev of countryCodes) {

@@ -13,9 +13,11 @@ import {
   determineLocationSearchScope,
   extractCountryMentionFromQuestion,
   hasProximityIntentInQuestion,
+  hasLocationRequestEvidence,
   hasExplicitDomesticOnlyRestriction,
   getCanonicalCountryLabel,
   isCountryOnlyProvidedLocation,
+  isCountryOnlyLocationQuery,
 } from "../../../../src/utils/server/tools/locationLogic";
 import { LocationResult, CenterResult } from "../../../../src/utils/server/tools";
 
@@ -217,6 +219,21 @@ describe("LocationLogic - Pure Business Logic Functions", () => {
 
       // Should use default maxDistance=500, maxResults=10
       expect(result).toHaveLength(3); // 3 centers within 500 miles
+    });
+
+    it("omits centers that have no distance", () => {
+      const withoutDistance: CenterResult = {
+        name: "No Distance Center",
+        address: "fixture",
+        city: "Unknown",
+        state: "",
+        country: "Uruguay",
+        latitude: -34.9,
+        longitude: -56.1,
+      };
+      const result = selectBestCenters([...mockCenters, withoutDistance], 500);
+      expect(result.every((center) => typeof center.distance === "number")).toBe(true);
+      expect(result.map((center) => center.name)).not.toContain("No Distance Center");
     });
   });
 
@@ -664,6 +681,26 @@ describe("LocationLogic - Pure Business Logic Functions", () => {
     it("should not treat a teaching question as proximity intent", () => {
       expect(hasProximityIntentInQuestion("Es verdad que Yogananda habla de los angeles?")).toBe(false);
     });
+
+    it("B1: does not treat cerca de / près de teaching questions as proximity scope", () => {
+      expect(hasProximityIntentInQuestion("Como meditar cerca de Dios?")).toBe(false);
+      expect(hasProximityIntentInQuestion("Yogananda habla acerca de estar cerca de la verdad")).toBe(false);
+      expect(hasProximityIntentInQuestion("Comment prier près de Dieu ?")).toBe(false);
+      expect(hasProximityIntentInQuestion("Yogananda enseigne près de 100 leçons de Kriya")).toBe(false);
+    });
+  });
+
+  describe("hasLocationRequestEvidence", () => {
+    it("keeps genuine ES/FR center queries and rejects teaching cerca de / près de", () => {
+      expect(hasLocationRequestEvidence("Cual es el centro Ananda mas cercano en Uruguay?")).toBe(true);
+      expect(hasLocationRequestEvidence("Quel est le centre Ananda le plus proche en Uruguay ?")).toBe(true);
+      expect(hasLocationRequestEvidence("Donde hay un centro cerca de mi?")).toBe(true);
+      expect(hasLocationRequestEvidence("Ou est un centre pres de moi ?")).toBe(true);
+      expect(hasLocationRequestEvidence("Como meditar cerca de Dios?")).toBe(false);
+      expect(hasLocationRequestEvidence("Yogananda habla acerca de estar cerca de la verdad")).toBe(false);
+      expect(hasLocationRequestEvidence("Comment prier près de Dieu ?")).toBe(false);
+      expect(hasLocationRequestEvidence("Yogananda enseigne près de 100 leçons de Kriya")).toBe(false);
+    });
   });
 
   describe("hasExplicitDomesticOnlyRestriction", () => {
@@ -680,6 +717,17 @@ describe("LocationLogic - Pure Business Logic Functions", () => {
       expect(isCountryOnlyProvidedLocation("Uruguay")).toBe(true);
       expect(isCountryOnlyProvidedLocation("Montevideo")).toBe(false);
       expect(isCountryOnlyProvidedLocation("Montevideo, Uruguay")).toBe(false);
+    });
+  });
+
+  describe("isCountryOnlyLocationQuery", () => {
+    it("treats an omitted tool location plus a country in the question as country-only", () => {
+      expect(
+        isCountryOnlyLocationQuery(undefined, "Cual es el centro Ananda mas cercano en Uruguay?")
+      ).toBe(true);
+      expect(isCountryOnlyLocationQuery("Montevideo", "Cual es el centro Ananda mas cercano en Montevideo?")).toBe(
+        false
+      );
     });
   });
 

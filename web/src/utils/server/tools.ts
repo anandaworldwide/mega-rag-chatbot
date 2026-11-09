@@ -26,7 +26,7 @@ export interface CenterResult {
   country: string;
   latitude: number;
   longitude: number;
-  distance: number;
+  distance?: number;
   phone?: string;
   website?: string;
   email?: string;
@@ -41,10 +41,8 @@ export interface NearestCenterResult {
   searchMode?: "proximity" | "country";
   /** Inline guidance for model response formatting (country-level queries) */
   responseGuidance?: string;
-  /** Country-only nearest questions are imprecise; do not treat ranking as exact. */
+  /** Country-only nearest questions cannot rank nearest-to-user. */
   locationPrecision?: "city" | "country";
-  /** True when distances come from a country-level point, not a city. */
-  distanceIsApproximate?: boolean;
 }
 
 // Using existing S3 client from awsConfig.ts
