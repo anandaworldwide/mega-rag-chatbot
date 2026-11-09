@@ -100,7 +100,8 @@ import { extractJsonArray } from "./suggestionParsing";
 import { filterSuggestionsForDiversity } from "./suggestionDiversity";
 import { AuthorScopeHint, AuthorScopeMode } from "./authorConstants";
 import { getAuthorScopeIndex } from "./authorIndex";
-import { getAuthorMatchQuestion, resolveAuthorScope } from "./authorScopeResolver";
+import { selectSourceAuthorMatches } from "./authorMentionIntent";
+import { collectExplicitAuthorMatches, getAuthorMatchQuestion, resolveAuthorScope } from "./authorScopeResolver";
 import {
   buildLibraryFilter,
   buildMasterSwamiFilter,
@@ -131,6 +132,21 @@ export function isAutoAuthorScopeActive(
   selectedCollectionKey?: string
 ): boolean {
   return siteConfig?.enableAutoAuthorScope === true && selectedCollectionKey === "auto";
+}
+
+/** Source-role author mentions skip geo routing so article/by/from queries stay in RAG. */
+function hasQueryInferredSourceAuthor(
+  question: string | undefined,
+  siteConfig?: AppSiteConfig | null
+): boolean {
+  if (!question?.trim()) {
+    return false;
+  }
+  const sourceAuthors = selectSourceAuthorMatches(
+    question,
+    collectExplicitAuthorMatches(question, siteConfig)
+  );
+  return sourceAuthors.authors.length > 0;
 }
 
 export { buildActiveFilterPromptData } from "./activeFilterPrompt";
@@ -613,7 +629,10 @@ export const makeChain = async (
     if (originalQuestion && siteConfig?.enableGeoAwareness && geoTools.length > 0) {
       const intentDetectionStart = Date.now();
       try {
-        shouldUseGeoTools = await hasLocationIntentAsync(originalQuestion);
+        // Named source authors take precedence over location keywords such as "find a" / "look for".
+        shouldUseGeoTools = hasQueryInferredSourceAuthor(originalQuestion, siteConfig)
+          ? false
+          : await hasLocationIntentAsync(originalQuestion);
         locationIntentLatency = Date.now() - intentDetectionStart;
         if (timingMetrics) {
           timingMetrics.geoIntentMs = locationIntentLatency;
