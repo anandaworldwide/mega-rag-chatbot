@@ -13,6 +13,7 @@ import {
   getIncludedLibraryNames,
   computeTitleScopeFilterConflictPayload,
   clearTitleCatalogCache,
+  findExactTitlePrefixMatches,
 } from "@/utils/server/titleCatalog";
 import type { TitleCatalogLookupEntry } from "@/types/titleScope";
 import type { SiteConfig } from "@/types/siteConfig";
@@ -196,6 +197,31 @@ describe("computeTitleScopeFilterConflictPayload", () => {
     });
     expect(payload?.actions.some((a) => a.kind === "setMediaTypes")).toBe(true);
     expect(payload?.actions.some((a) => a.kind === "clearTitleScope")).toBe(true);
+  });
+});
+
+describe("findExactTitlePrefixMatches", () => {
+  it("returns exact normalizedPrefix matches only", () => {
+    const matches = findExactTitlePrefixMatches(
+      [makeEntry()],
+      "Autobiography of a Yogi"
+    );
+    expect(matches).toHaveLength(1);
+    expect(matches[0].canonicalPrefix).toBe("Autobiography of a Yogi");
+  });
+
+  it("does not use contains or ordered-token fuzzy ranking", () => {
+    expect(findExactTitlePrefixMatches([makeEntry()], "Yogi")).toEqual([]);
+    expect(findExactTitlePrefixMatches([makeEntry()], "Autobiography Yogi")).toEqual([]);
+  });
+
+  it("does not treat the site/library name as a title", () => {
+    const entry = makeEntry({
+      canonicalPrefix: "Ananda Libraries",
+      normalizedPrefix: "ananda libraries",
+      normalizedSearchText: "ananda libraries",
+    });
+    expect(findExactTitlePrefixMatches([entry], "Ananda Libraries")).toEqual([]);
   });
 });
 

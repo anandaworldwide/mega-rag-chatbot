@@ -15,5 +15,6 @@ describe("quote lookup prompt fragments", () => {
     expect(prompt).toContain("Do not recite a neighboring story");
     expect(prompt).toContain("do not put quotation marks around a title, subtitle");
     expect(prompt).toContain("Ananda Libraries excerpts");
+    expect(prompt).toContain("Do not treat a quoted book or source title as a missing passage");
   });
 });

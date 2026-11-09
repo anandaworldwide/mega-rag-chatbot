@@ -667,7 +667,10 @@ describe("makeChain", () => {
       expect.stringContaining("SPECIAL HANDLING FOR QUOTED SPANS")
     );
     expect(ChatPromptTemplate.fromTemplate).toHaveBeenCalledWith(
-      expect.stringContaining("quoted text alone")
+      expect.stringContaining("keep the full topical question")
+    );
+    expect(ChatPromptTemplate.fromTemplate).toHaveBeenCalledWith(
+      expect.stringContaining("standalone question MUST be that quoted passage alone")
     );
     expect(ChatPromptTemplate.fromTemplate).toHaveBeenCalledWith(
       expect.stringContaining("Do not replace the question with a generic request")

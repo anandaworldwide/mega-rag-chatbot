@@ -41,6 +41,8 @@ import {
   RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
   getRetrievalToolGuidance,
 } from "../../../../src/utils/server/tools/retrievalTools";
+import { resolveQuoteRole } from "../../../../src/utils/server/quotedSpanEmbedding";
+import type { TitleCatalogLookupEntry } from "../../../../src/types/titleScope";
 
 const accessSiteConfig = {
   siteId: "ananda",
@@ -242,6 +244,46 @@ describe("retrievalTools", () => {
       expect(result.error).toMatch(/query/i);
     });
 
+    it("coerces a title-only search_more query to the full topical question", async () => {
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([]);
+      const question = 'What did Swamiji write in "Art and Science of Raja Yoga" about vikrasana?';
+      const quoteRole = resolveQuoteRole(question, question, {
+        catalogStatus: "available",
+        catalogEntries: [
+          {
+            canonicalPrefix: "Art and Science of Raja Yoga",
+            normalizedPrefix: "art and science of raja yoga",
+            normalizedSearchText: "art and science of raja yoga",
+            normalizedLevels: ["art and science of raja yoga"],
+            depth: 1,
+            terminalSegment: "Art and Science of Raja Yoga",
+            normalizedTerminalSegment: "art and science of raja yoga",
+            fullTitleCount: 4,
+            vectorCount: 40,
+            availability: {
+              libraries: ["Ananda Library"],
+              mediaTypes: ["text"],
+              collectionsWithVectors: ["whole_library"],
+            },
+          } as TitleCatalogLookupEntry,
+        ],
+      });
+      const ctx = new RetrievalToolContext({
+        pineconeIndex: { listPaginated: jest.fn(), fetch: jest.fn() },
+        vectorStore: { similaritySearchWithScore },
+        knownSourceIds: [],
+        effectiveAccessLevel: 0,
+        quoteRole,
+      });
+
+      await executeSearchMoreSources({ query: "Art and Science of Raja Yoga" }, ctx);
+      expect(similaritySearchWithScore).toHaveBeenCalledWith(
+        question,
+        expect.any(Number),
+        undefined
+      );
+    });
+
     it("passes the author-scoped Pinecone filter through to similarity search", async () => {
       const freshA = makeId(2);
       const authorFilter = { $and: [{ author: { $eq: "Asha Nayaswami" } }] };
@@ -362,12 +404,17 @@ describe("retrievalTools", () => {
     });
 
     it("tells search_more_sources to embed a quoted phrase, not a quote request", () => {
-      expect(RETRIEVAL_TOOL_GUIDANCE).toContain("pass that quoted phrase as the query");
+      expect(RETRIEVAL_TOOL_GUIDANCE).toContain("pass the full topical question");
+      expect(RETRIEVAL_TOOL_GUIDANCE).toContain("pass that quoted passage as the query");
       expect(RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE).toContain("say so in one sentence");
       expect(RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE).toContain("Do not recite a neighboring story");
+      expect(RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE).toContain(
+        "A quoted book title plus a topic is not an exact-passage miss"
+      );
       const searchMore = RETRIEVAL_TOOL_DEFINITIONS.find((tool) => tool.function.name === "search_more_sources");
       const properties = searchMore?.function.parameters.properties as Record<string, { description?: string }>;
-      expect(properties.query.description).toContain("pass that phrase alone");
+      expect(properties.query.description).toContain("pass the full topical question");
+      expect(properties.query.description).toContain("pass that passage alone");
     });
 
     it("uses answer-first retrieval guidance while keeping tools bound", () => {

@@ -110,7 +110,7 @@ import {
   type RetrievalFilterCapture,
 } from "./authorScopeRetrieval";
 import { getCondenseTemplateWithAuthorScope, invokeRephraseWithAuthorScope } from "./rephraseWithAuthorScope";
-import { extractQuotedSpanForEmbedding, resolveEmbeddingQuery } from "./quotedSpanEmbedding";
+import { resolveQuoteRoleForSite, type QuoteRoleDecision } from "./quotedSpanEmbedding";
 import {
   formatRelevanceCutoffLog,
   getEffectiveMinRetrievalScore,
@@ -402,7 +402,7 @@ Examples of location clarifications that should be reformulated:
 - Input: "My address is 123 Main Street, Portland, Oregon" (after asking about local groups)
   → Output: "Are there Ananda meditation groups near 123 Main Street, Portland, Oregon?"
 
-SPECIAL HANDLING FOR QUOTED SPANS: If the follow up input contains a quoted phrase or sentence (text inside quotation marks), the standalone question MUST be that quoted text alone. Do not rewrite it as a request for a quotation. Do not wrap it in "Can you provide", "What is the exact", or author names.
+SPECIAL HANDLING FOR QUOTED SPANS: If the quoted text is a book or source title and the user asks about a topic, keep the full topical question. Do not use the title alone as the standalone question. If the quoted text is a passage the user wants to find, the standalone question MUST be that quoted passage alone. Do not rewrite a passage as a request for a quotation. Do not wrap a passage in "Can you provide", "What is the exact", or author names.
 
 SPECIAL HANDLING FOR QUOTE REQUESTS WITHOUT A QUOTED SPAN: If the user asks for an exact quote, more quotes, a first sentence, a chapter, or where a passage lives, keep the topical substance from the conversation. Do not replace the question with a generic request such as "Can you provide more direct quotes from [authors]?"
 
@@ -565,6 +565,7 @@ export const makeChain = async (
   // Current user utterance captured before rephrase, so named-author detection cannot
   // hard-filter on Master/Swami names the rewrite injected from prior turns.
   let capturedUserUtterance = "";
+  let capturedQuoteRole: QuoteRoleDecision | null = null;
   // Set inside the retrieval step so the generation prompt can soften its answer when
   // restrictive filters yield no documents (see buildActiveFiltersSummaryForGeneration).
   let retrievalReturnedNoDocuments = false;
@@ -888,10 +889,15 @@ Error details: ${errorString}`,
       const allDocuments: Document[] = [];
       const minRetrievalScore = getEffectiveMinRetrievalScore(siteConfig, baseFilter);
       let retrievalRelevance = emptyRelevanceStats();
-      const embeddingQuery = resolveEmbeddingQuery(
-        capturedUserUtterance || originalQuestion || input.question,
-        input.question
-      );
+      const quoteRole =
+        capturedQuoteRole ??
+        (await resolveQuoteRoleForSite(
+          siteId,
+          capturedUserUtterance || originalQuestion || input.question,
+          input.question
+        ));
+      capturedQuoteRole = quoteRole;
+      const embeddingQuery = quoteRole.embeddingQuery;
       try {
         // Only treat "auto" as a blend trigger when the site has opted in. Otherwise a stray
         // collection="auto" from a non-auto site must fall back to whole_library, not blend.
@@ -1308,9 +1314,10 @@ Error details: ${errorString}`,
           return input.question; // Don't reformulate social messages
         }
 
-        // Quoted spans must be embedded as the span itself. Skip condense so it
-        // cannot replace the passage with a request for a quotation.
-        if (extractQuotedSpanForEmbedding(input.question)) {
+        // Quote-role skip: keep the original question for titles/topics, and keep
+        // a quoted passage from being rewritten as a request for a quotation.
+        capturedQuoteRole = await resolveQuoteRoleForSite(siteId, input.question, input.question);
+        if (capturedQuoteRole.skipQuoteOnlyCondense) {
           capturedRestatedQuestion = input.question;
           return input.question;
         }
@@ -1879,6 +1886,10 @@ export async function setupAndExecuteLanguageModelChain(
               .map((doc) => (typeof doc.id === "string" ? doc.id : ""))
               .filter((id) => id.length > 0);
             const searchMoreFilter = retrievalFilterCapture.filter ?? filter;
+            const quoteRoleSiteId = siteConfig?.siteId || process.env.SITE_ID || "";
+            const quoteRole = quoteRoleSiteId
+              ? await resolveQuoteRoleForSite(quoteRoleSiteId, sanitizedQuestion, sanitizedQuestion)
+              : null;
             retrievalToolContext = new RetrievalToolContext({
               pineconeIndex,
               vectorStore,
@@ -1888,6 +1899,7 @@ export async function setupAndExecuteLanguageModelChain(
               knownSourceIds: knownIds,
               effectiveAccessLevel,
               siteConfig,
+              quoteRole,
             });
           }
         }

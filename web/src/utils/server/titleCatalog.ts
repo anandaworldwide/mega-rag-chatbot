@@ -132,6 +132,33 @@ export function normalizeTitleScopeInput(value: string): string {
     .join(" :: ");
 }
 
+/**
+ * Exact catalog title matches only (normalizedPrefix equality).
+ * Does not use contains or ordered-token fuzzy ranking.
+ */
+export function findExactTitlePrefixMatches(
+  entries: TitleCatalogLookupEntry[],
+  span: string
+): TitleCatalogLookupEntry[] {
+  const normalized = normalizeTitleScopeInput(span);
+  if (!normalized || isSiteLibraryName(span)) {
+    return [];
+  }
+  const matches: TitleCatalogLookupEntry[] = [];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (entry.normalizedPrefix !== normalized) {
+      continue;
+    }
+    if (seen.has(entry.canonicalPrefix)) {
+      continue;
+    }
+    seen.add(entry.canonicalPrefix);
+    matches.push(entry);
+  }
+  return matches;
+}
+
 function tokenizeNormalizedInput(value: string): string[] {
   return normalizeTitleScopeInput(value)
     .replace(/ :: /g, " ")
