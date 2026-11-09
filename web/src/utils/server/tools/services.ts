@@ -21,6 +21,7 @@ import {
   LOCATION_COUNTRY_SEARCH_MAX_RESULTS,
   COUNTRY_SEARCH_RESPONSE_GUIDANCE,
   COUNTRY_PROXIMITY_RESPONSE_GUIDANCE,
+  selectCountryOnlyNearestCandidates,
 } from "./locationLogic";
 import { LocationResult, CenterResult, NearestCenterResult } from "../tools";
 import { safeFetch } from "../ssrfProtection";
@@ -695,18 +696,6 @@ export class CenterSearchService implements ICenterSearchService {
     options?: CenterSearchOptions
   ): Promise<NearestCenterResult> {
     try {
-      if (options?.locationPrecision === "country") {
-        return {
-          found: false,
-          centers: [],
-          fallbackMessage:
-            "Please name a city or a more specific place. A country-only location is not enough to rank nearby centers.",
-          searchMode: "proximity",
-          locationPrecision: "country",
-          responseGuidance: COUNTRY_PROXIMITY_RESPONSE_GUIDANCE,
-        };
-      }
-
       const centers = await this.centerDataService.loadCenters();
 
       if (centers.length === 0) {
@@ -725,6 +714,42 @@ export class CenterSearchService implements ICenterSearchService {
             fallbackMessage: "No Ananda centers data available at this time.",
           };
         }
+      }
+
+      if (options?.locationPrecision === "country") {
+        const namedCountry = options.countryFilter?.trim();
+        if (!namedCountry) {
+          return {
+            found: false,
+            centers: [],
+            fallbackMessage:
+              "Please name a city or a more specific place. A country-only location is not enough to rank nearby centers.",
+            searchMode: "proximity",
+            locationPrecision: "country",
+            responseGuidance: COUNTRY_PROXIMITY_RESPONSE_GUIDANCE,
+          };
+        }
+        const candidates = selectCountryOnlyNearestCandidates(centers, namedCountry, (center) =>
+          this.distanceCalculator.calculateDistance(latitude, longitude, center.latitude, center.longitude)
+        );
+        if (candidates.length === 0) {
+          return {
+            found: false,
+            centers: [],
+            fallbackMessage:
+              "No Ananda centers were found in or near that country in our directory. Please name a city or a more specific place.",
+            searchMode: "proximity",
+            locationPrecision: "country",
+            responseGuidance: COUNTRY_PROXIMITY_RESPONSE_GUIDANCE,
+          };
+        }
+        return {
+          found: true,
+          centers: candidates,
+          searchMode: "proximity",
+          locationPrecision: "country",
+          responseGuidance: COUNTRY_PROXIMITY_RESPONSE_GUIDANCE,
+        };
       }
 
       if (options?.searchScope === "country" && options.countryFilter) {

@@ -14,6 +14,8 @@ import {
   createPerformanceMetrics,
   determineLocationSearchScope,
   isCountryOnlyLocationQuery,
+  getCanonicalCountryLabel,
+  extractCountryMentionFromQuestion,
 } from "./locationLogic";
 
 /**
@@ -101,13 +103,19 @@ export class LocationToolService implements ILocationToolService {
         !useCountry &&
         scope.scope === "proximity" &&
         isCountryOnlyLocationQuery(args.userProvidedLocation, context?.originalQuestion);
+      const extractedCountry = extractCountryMentionFromQuestion(context?.originalQuestion ?? "");
+      const countryOnlyLabel =
+        getCanonicalCountryLabel(args.userProvidedLocation ?? "") ||
+        (extractedCountry ? getCanonicalCountryLabel(extractedCountry) : null) ||
+        getCanonicalCountryLabel(location.country) ||
+        location.country;
       centers = await this.centerSearchService.findNearestCenters(
         location.latitude,
         location.longitude,
         useCountry
           ? { searchScope: "country", countryFilter: scope.countryFilter }
           : countryOnlyNearest
-            ? { searchScope: "proximity", locationPrecision: "country" }
+            ? { searchScope: "proximity", locationPrecision: "country", countryFilter: countryOnlyLabel }
             : undefined
       );
       const centerSearchLatency = Date.now() - centerSearchStart;

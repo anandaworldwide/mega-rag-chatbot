@@ -72,7 +72,7 @@ function makeLogger() {
 }
 
 describe("LocationToolService country-level nearest-center flow", () => {
-  it("EQUIV_ES_UY_NEAREST consumer: Spanish Uruguay nearest asks for a city and does not rank", async () => {
+  it("EQUIV_ES_UY_NEAREST consumer: Spanish Uruguay nearest returns a synthetic nearby option and still asks for a city", async () => {
     const locationService = {
       resolveLocation: jest.fn().mockResolvedValue(URUGUAY_GEOCODE),
     };
@@ -92,20 +92,20 @@ describe("LocationToolService country-level nearest-center flow", () => {
       { originalQuestion: "Cual es el centro Ananda mas cercano en Uruguay?" }
     );
 
-    expect(result.centers.found).toBe(false);
+    expect(result.centers.found).toBe(true);
     expect(result.centers.searchMode).toBe("proximity");
     expect(result.centers.locationPrecision).toBe("country");
-    expect(result.centers.centers).toEqual([]);
-    expect(result.centers.fallbackMessage).toMatch(/city/i);
+    expect(result.centers.centers.map((c) => c.name)).toEqual(["Synthetic Nearby Center"]);
+    expect(result.centers.centers[0].distance).toBeUndefined();
     expect(result.centers.responseGuidance).toMatch(/Do not rank/i);
-    expect(result.centers.responseGuidance).toMatch(/Ask for a city/i);
+    expect(result.centers.responseGuidance).toMatch(/name a city/i);
     const toolPayload = JSON.stringify(result);
-    expect(toolPayload).toContain("Do not rank centers as nearest to the user");
-    expect(toolPayload).toContain("Ask for a city");
+    expect(toolPayload).toContain("Do not rank them as nearest to the user");
+    expect(toolPayload).toContain("Also ask the user to name a city");
     expect(toolPayload).not.toContain("distanceIsApproximate");
   });
 
-  it("EQUIV_FR_UY_NEAREST consumer: French Uruguay nearest matches the English ask-city path", async () => {
+  it("EQUIV_FR_UY_NEAREST consumer: French Uruguay nearest matches the English candidate path", async () => {
     const locationService = {
       resolveLocation: jest.fn().mockResolvedValue(URUGUAY_GEOCODE),
     };
@@ -132,11 +132,12 @@ describe("LocationToolService country-level nearest-center flow", () => {
 
     expect(english.centers.searchMode).toBe("proximity");
     expect(french.centers.searchMode).toBe("proximity");
-    expect(french.centers.found).toBe(english.centers.found);
-    expect(french.centers.centers).toEqual([]);
-    expect(english.centers.centers).toEqual([]);
+    expect(french.centers.found).toBe(true);
+    expect(english.centers.found).toBe(true);
+    expect(french.centers.centers.map((c) => c.name)).toEqual(english.centers.centers.map((c) => c.name));
+    expect(french.centers.centers[0].distance).toBeUndefined();
     expect(french.centers.responseGuidance).toBe(english.centers.responseGuidance);
-    expect(french.centers.responseGuidance).toMatch(/Ask for a city/i);
+    expect(french.centers.responseGuidance).toMatch(/name a city/i);
   });
 
   it("EQUIV_ES_UY_DOMESTIC_ONLY consumer: solo en Uruguay stays country-filtered", async () => {
@@ -245,7 +246,7 @@ describe("LocationToolService country-level nearest-center flow", () => {
     expect(findNearestCenters).toHaveBeenCalledWith(
       MONTEVIDEO_GEOCODE.latitude,
       MONTEVIDEO_GEOCODE.longitude,
-      { searchScope: "proximity", locationPrecision: "country" }
+      { searchScope: "proximity", locationPrecision: "country", countryFilter: "Uruguay" }
     );
     expect(result.centers.found).toBe(false);
     expect(result.centers.centers).toEqual([]);

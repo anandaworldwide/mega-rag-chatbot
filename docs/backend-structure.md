@@ -769,16 +769,19 @@ embeddings.
 
 - **Runtime Detection Module (`web/src/utils/server/locationIntentDetector.ts`):**
   - Loads site-specific embeddings into memory cache on initialization
-  - Keyword fast path matches location-request evidence (`near me`, `cerca de mi`,
-    `pres de moi`, or a place entity plus nearest/closest) and the three-letter codes
-    `usa` and `uae` only. Two-letter ISO country codes are not keywords; they collide
-    with function words in other languages (Italian `il`/`se`, German `de`, Spanish `es`)
-    and skip library search. Bare `cerca de` / `près de` is not location-request evidence.
+  - Keyword fast path matches location-request evidence: a complete locative
+    (`near me`, `cerca de mi`, `pres de moi`) or a center/group/temple/church/community
+    word plus nearest/closest. The three-letter codes `usa` and `uae` still match.
+    Two-letter ISO country codes are not keywords; they collide with function words
+    in other languages (Italian `il`/`se`, German `de`, Spanish `es`) and skip library
+    search. Bare `cerca de` / `près de` is not location-request evidence. Org name plus
+    `más cercano` is not enough. `cerca de mi maestro` is not a locative "near me".
   - Nearest/closest intent also matches Spanish (`más cercano`) and French (`plus proche`)
-    after accent folding. Country-only nearest/closest does not rank from a country point
-    and does not report miles. The tool asks for a city. After the user names a city,
-    nearby search may include a center across a border. Explicit "only in" / "solo en" /
-    "uniquement en" stays country-filtered.
+    after accent folding. Country-only nearest/closest returns directory rows in that
+    country, plus out-of-country rows whose coordinates are within 1000 miles of the
+    geocoded country point. It does not rank nearest-to-user and does not report miles.
+    It also asks for a city. Explicit "only in" / "solo en" / "uniquement en" stays
+    country-filtered. There is no hardcoded country-to-country map.
   - Implements contrastive scoring algorithm:
     - Positive similarity threshold: >= 0.37
     - Contrastive threshold: positive similarity must exceed negative by >= 0.05
