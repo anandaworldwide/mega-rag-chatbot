@@ -219,6 +219,8 @@ describe("LocationToolService country-level nearest-center flow", () => {
     expect(result.centers.responseGuidance).toMatch(/Do not rank/i);
   });
 
+  // CURRENT BEHAVIOR on head 2279eeb3 (Hawk-3): omitted tool arg still resolves
+  // IP/Montevideo coordinates and pairs them with a Uruguay country filter.
   it("omitted userProvidedLocation still asks for a city when the question names only a country", async () => {
     const locationService = {
       resolveLocation: jest.fn().mockResolvedValue(MONTEVIDEO_GEOCODE),
@@ -253,4 +255,39 @@ describe("LocationToolService country-level nearest-center flow", () => {
     expect(result.centers.responseGuidance).toMatch(/Do not rank/i);
     expect(result.centers.responseGuidance).toMatch(/Ask for a city/i);
   });
+
+  // PINNED CURRENT FAILURE (Hawk-3). Desired: stated-country location, or
+  // insufficient. Must not use IP/Montevideo coordinates for Uruguay selection.
+  it.failing(
+    "PINNED CURRENT FAILURE Hawk-3: omitted tool arg must not pair a Uruguay filter with IP coordinates",
+    async () => {
+      const locationService = {
+        resolveLocation: jest.fn().mockResolvedValue(MONTEVIDEO_GEOCODE),
+      };
+      const findNearestCenters = jest.fn().mockResolvedValue({
+        found: true,
+        centers: [],
+        searchMode: "proximity",
+        locationPrecision: "country",
+        responseGuidance: "sample",
+      });
+      const service = new LocationToolService(
+        locationService as any,
+        { findNearestCenters } as any,
+        makeLogger() as any
+      );
+
+      const result = await service.getUserLocation({}, uruguayHeaders(), {
+        originalQuestion: "Cual es el centro Ananda mas cercano en Uruguay?",
+      });
+
+      const usedIpPoint = findNearestCenters.mock.calls.some(
+        (call: unknown[]) => call[0] === MONTEVIDEO_GEOCODE.latitude && call[1] === MONTEVIDEO_GEOCODE.longitude
+      );
+      expect(usedIpPoint).toBe(false);
+      if (findNearestCenters.mock.calls.length === 0) {
+        expect(result.centers.fallbackMessage).toMatch(/insufficient|city|specific place/i);
+      }
+    }
+  );
 });

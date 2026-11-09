@@ -773,6 +773,66 @@ describe("LocationLogic - Pure Business Logic Functions", () => {
       expect(selectCountryOnlyNearestCandidates([california], "Uruguay", () => 6000)).toEqual([]);
       expect(selectCountryOnlyNearestCandidates([], "Uruguay", () => 0)).toEqual([]);
     });
+
+    // PINNED CURRENT FAILURE (Hawk-1). Head 2279eeb3 takes 8 domestic rows, then
+    // adds foreign rows, then cuts the combined list to 8. Canada 400 miles away
+    // is dropped. it.failing stays red until selection reserves a foreign slot.
+    it.failing("PINNED CURRENT FAILURE Hawk-1: 8 domestic rows must not hide a foreign candidate 400 miles away", () => {
+      const eightUS: CenterResult[] = Array.from({ length: 8 }, (_, i) => ({
+        name: `Synthetic US Center ${i + 1}`,
+        address: "fixture",
+        city: "US City",
+        state: "WA",
+        country: "United States",
+        latitude: 47.6,
+        longitude: -122.3,
+      }));
+      const canada: CenterResult = {
+        name: "Synthetic Canada Center",
+        address: "fixture",
+        city: "Vancouver",
+        state: "BC",
+        country: "Canada",
+        latitude: 49.2827,
+        longitude: -123.1207,
+      };
+      const result = selectCountryOnlyNearestCandidates([...eightUS, canada], "United States", (center) =>
+        center.country === "Canada" ? 400 : 100
+      );
+      expect(result.some((center) => center.name === "Synthetic Canada Center")).toBe(true);
+      expect(result.every((center) => center.distance === undefined)).toBe(true);
+    });
+
+    // PINNED CURRENT FAILURE (Hawk-2). Foreign distance is from the country
+    // representative point. Vancouver is ~1365 miles from the US centroid and is
+    // dropped, even though it is ~121 miles from a Seattle in-country row.
+    it.failing(
+      "PINNED CURRENT FAILURE Hawk-2: a foreign row near an in-country center must not drop because the country point is far",
+      () => {
+        const seattle: CenterResult = {
+          name: "Synthetic Seattle Center",
+          address: "fixture",
+          city: "Seattle",
+          state: "WA",
+          country: "United States",
+          latitude: 47.6062,
+          longitude: -122.3321,
+        };
+        const vancouver: CenterResult = {
+          name: "Synthetic Vancouver Center",
+          address: "fixture",
+          city: "Vancouver",
+          state: "BC",
+          country: "Canada",
+          latitude: 49.2827,
+          longitude: -123.1207,
+        };
+        const result = selectCountryOnlyNearestCandidates([seattle, vancouver], "United States", (center) =>
+          center.country === "Canada" ? 1365 : 1295
+        );
+        expect(result.map((center) => center.name)).toContain("Synthetic Vancouver Center");
+      }
+    );
   });
 
   describe("isCountryOnlyLocationQuery", () => {
