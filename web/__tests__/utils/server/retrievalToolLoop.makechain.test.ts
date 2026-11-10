@@ -498,6 +498,18 @@ describe("makechain retrieval tool loop", () => {
     expect(events.some((event) => event.status === "retrieving_more_sources")).toBe(false);
   });
 
+  it("does not replace a short first-pass answer when no retrieval round ran", async () => {
+    const shortAnswer = "Checking the toolbar for the feedback icon.";
+    stubFirstPassTextOnly(shortAnswer, "Where is the feedback control?");
+
+    const { result, events } = await runLoop("Where is the feedback control?");
+
+    expect(executeRetrievalTool).not.toHaveBeenCalled();
+    expect(result.fullResponse).toBe(shortAnswer);
+    expect(collectedAnswer(events)).toBe(shortAnswer);
+    expect(collectedAnswer(events)).not.toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+  });
+
   it("treats a first-pass I'll-pull passages sentence plus a thin remainder as search narration", async () => {
     const prefix = "I'll pull a few verified Gita passages.";
     const leftover = "Still looking for a short story.";
