@@ -499,9 +499,9 @@ const EARTH_RADIUS_MILES = 3959;
 const COUNTRY_PROXIMITY_GUIDANCE_SHARED =
   "These are directory alternatives within about 500 miles (800 km). This is not a complete list. Do not rank them as nearest to the user. Do not call them nearest. Do not show miles. Name a city for distances. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
 const COUNTRY_PROXIMITY_GUIDANCE_SHARED_ES =
-  "Estas son alternativas del directorio a unos 500 millas (800 km). No es una lista completa. No las clasifique como las más cercanas al usuario. No las llame las más cercanas. No muestre millas. Nombre una ciudad para las distancias. También puede usar [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
+  "Estas son alternativas del directorio a menos de unas 500 millas (800 km). No es una lista completa. No las clasifique como las más cercanas al usuario. No las llame las más cercanas. No muestre millas. Nombre una ciudad para las distancias. También puede usar [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
 const COUNTRY_PROXIMITY_GUIDANCE_SHARED_FR =
-  "Ce sont des alternatives du répertoire à environ 500 miles (800 km). Ce n'est pas une liste complète. Ne les classez pas comme les plus proches de l'utilisateur. Ne les appelez pas les plus proches. Ne montrez pas de miles. Indiquez une ville pour les distances. Vous pouvez aussi utiliser [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
+  "Ce sont des alternatives du répertoire à moins d'environ 500 miles (800 km). Ce n'est pas une liste complète. Ne les classez pas comme les plus proches de l'utilisateur. Ne les appelez pas les plus proches. Ne montrez pas de miles. Indiquez une ville pour les distances. Vous pouvez aussi utiliser [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
 
 /** Zero domestic rows: say no center is listed in that country. */
 export const COUNTRY_PROXIMITY_RESPONSE_GUIDANCE =
