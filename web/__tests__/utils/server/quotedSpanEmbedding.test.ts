@@ -158,7 +158,7 @@ describe("resolveQuoteRole", () => {
     expect(role.embeddingQuery).toBe(question);
     expect(role.applyExactQuoteMissInstruction).toBe(false);
     expect(role.titleSpans).toEqual(["Art and Science of Raja Yoga"]);
-    expect(role.skipQuoteOnlyCondense).toBe(true);
+    expect(role.skipQuoteOnlyCondense).toBe(false);
   });
 
   it("does not skip condense for a follow-up that quotes a title", () => {

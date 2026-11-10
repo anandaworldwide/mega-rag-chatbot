@@ -227,7 +227,7 @@ export function resolveQuoteRole(
   return {
     kind: "full_question",
     embeddingQuery: originalQuestion,
-    skipQuoteOnlyCondense: true,
+    skipQuoteOnlyCondense: false,
     applyExactQuoteMissInstruction: false,
     titleSpans,
     passageSpans,

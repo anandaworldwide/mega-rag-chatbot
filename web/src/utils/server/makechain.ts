@@ -1318,8 +1318,8 @@ Error details: ${errorString}`,
           return input.question; // Don't reformulate social messages
         }
 
-        // Quote-role skip: keep the original question for titles/topics, and keep
-        // a quoted passage from being rewritten as a request for a quotation.
+        // Quote-role skip: keep a quoted passage from being rewritten as a request
+        // for a quotation. Title follow-ups still condense so chat history is kept.
         capturedQuoteRole = await resolveQuoteRoleForSite(siteId, input.question, input.question);
         if (capturedQuoteRole.skipQuoteOnlyCondense) {
           capturedRestatedQuestion = input.question;
