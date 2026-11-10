@@ -9,6 +9,7 @@ import {
   looksLikeSentencePassage,
   resolveEmbeddingQuery,
   resolveQuoteRole,
+  searchQueryForQuoteRole,
 } from "@/utils/server/quotedSpanEmbedding";
 
 function catalogEntry(overrides: Partial<TitleCatalogLookupEntry> = {}): TitleCatalogLookupEntry {
@@ -466,12 +467,66 @@ describe("formatQuoteRoleAnswerGuidance", () => {
   });
 });
 
+describe("searchQueryForQuoteRole", () => {
+  it("uses the restated question when the quote role is full_question", () => {
+    const original = 'What does "Synthetic Dawn Manual" say about that?';
+    const restated = "What does Synthetic Dawn Manual say about practicing patience?";
+    const role = resolveQuoteRole(original, original, {
+      catalogStatus: "available",
+      catalogEntries: [
+        catalogEntry({
+          canonicalPrefix: "Synthetic Dawn Manual",
+          normalizedPrefix: "synthetic dawn manual",
+          normalizedSearchText: "synthetic dawn manual",
+          normalizedLevels: ["synthetic dawn manual"],
+          terminalSegment: "Synthetic Dawn Manual",
+          normalizedTerminalSegment: "synthetic dawn manual",
+        }),
+      ],
+    });
+
+    expect(role.kind).toBe("full_question");
+    expect(searchQueryForQuoteRole(role, restated)).toBe(restated);
+  });
+
+  it("keeps the extracted passage when the quote role is passage", () => {
+    const original =
+      'Find this quotation: "Walk quietly toward the inner light when restlessness rises."';
+    const restated = "Walk quietly toward the inner light when restlessness rises.";
+    const role = resolveQuoteRole(original, original, rajaCatalog);
+    const passage = "Walk quietly toward the inner light when restlessness rises.";
+
+    expect(role.kind).toBe("passage");
+    expect(searchQueryForQuoteRole(role, restated)).toBe(passage);
+  });
+});
+
 describe("coerceSearchMoreSourcesQuery", () => {
   it("replaces a recognized title-only tool query with the shared embedding query", () => {
     const question = 'What did Swamiji write in "Art and Science of Raja Yoga" about vikrasana?';
     const role = resolveQuoteRole(question, question, rajaCatalog);
 
     expect(coerceSearchMoreSourcesQuery("Art and Science of Raja Yoga", role)).toBe(question);
+  });
+
+  it("replaces a title-only tool query with the restated question for full_question", () => {
+    const original = 'What does "Synthetic Dawn Manual" say about that?';
+    const restated = "What does Synthetic Dawn Manual say about practicing patience?";
+    const role = resolveQuoteRole(original, original, {
+      catalogStatus: "available",
+      catalogEntries: [
+        catalogEntry({
+          canonicalPrefix: "Synthetic Dawn Manual",
+          normalizedPrefix: "synthetic dawn manual",
+          normalizedSearchText: "synthetic dawn manual",
+          normalizedLevels: ["synthetic dawn manual"],
+          terminalSegment: "Synthetic Dawn Manual",
+          normalizedTerminalSegment: "synthetic dawn manual",
+        }),
+      ],
+    });
+
+    expect(coerceSearchMoreSourcesQuery("Synthetic Dawn Manual", role, restated)).toBe(restated);
   });
 
   it("keeps a passage tool query unchanged", () => {

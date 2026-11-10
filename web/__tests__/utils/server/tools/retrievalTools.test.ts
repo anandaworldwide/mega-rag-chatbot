@@ -289,6 +289,48 @@ describe("retrievalTools", () => {
       );
     });
 
+    it("coerces a title-only search_more query to the restated question", async () => {
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([]);
+      const original = 'What does "Synthetic Dawn Manual" say about that?';
+      const restated = "What does Synthetic Dawn Manual say about practicing patience?";
+      const quoteRole = resolveQuoteRole(original, original, {
+        catalogStatus: "available",
+        catalogEntries: [
+          {
+            canonicalPrefix: "Synthetic Dawn Manual",
+            normalizedPrefix: "synthetic dawn manual",
+            normalizedSearchText: "synthetic dawn manual",
+            normalizedLevels: ["synthetic dawn manual"],
+            depth: 1,
+            terminalSegment: "Synthetic Dawn Manual",
+            normalizedTerminalSegment: "synthetic dawn manual",
+            fullTitleCount: 4,
+            vectorCount: 40,
+            availability: {
+              libraries: ["Ananda Library"],
+              mediaTypes: ["text"],
+              collectionsWithVectors: ["whole_library"],
+            },
+          } as TitleCatalogLookupEntry,
+        ],
+      });
+      const ctx = new RetrievalToolContext({
+        pineconeIndex: { listPaginated: jest.fn(), fetch: jest.fn() },
+        vectorStore: { similaritySearchWithScore },
+        knownSourceIds: [],
+        effectiveAccessLevel: 0,
+        quoteRole,
+        restatedQuestion: restated,
+      });
+
+      await executeSearchMoreSources({ query: "Synthetic Dawn Manual" }, ctx);
+      expect(similaritySearchWithScore).toHaveBeenCalledWith(
+        restated,
+        expect.any(Number),
+        undefined
+      );
+    });
+
     it("passes the author-scoped Pinecone filter through to similarity search", async () => {
       const freshA = makeId(2);
       const authorFilter = { $and: [{ author: { $eq: "Asha Nayaswami" } }] };

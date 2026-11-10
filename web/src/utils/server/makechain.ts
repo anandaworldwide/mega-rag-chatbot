@@ -113,6 +113,7 @@ import { getCondenseTemplateWithAuthorScope, invokeRephraseWithAuthorScope } fro
 import {
   appendQuoteRoleGuidance,
   resolveQuoteRoleForSite,
+  searchQueryForQuoteRole,
   type QuoteRoleDecision,
 } from "./quotedSpanEmbedding";
 import {
@@ -901,7 +902,7 @@ Error details: ${errorString}`,
           input.question
         ));
       capturedQuoteRole = quoteRole;
-      const embeddingQuery = quoteRole.embeddingQuery;
+      const embeddingQuery = searchQueryForQuoteRole(quoteRole, input.question);
       try {
         // Only treat "auto" as a blend trigger when the site has opted in. Otherwise a stray
         // collection="auto" from a non-auto site must fall back to whole_library, not blend.
@@ -1883,8 +1884,12 @@ export async function setupAndExecuteLanguageModelChain(
         let retrievalFetchFailed = false;
         let retrievalRoundLimitHit = false;
         const quoteRoleSiteId = siteConfig?.siteId || process.env.SITE_ID || "";
+        const restatedQuestionForTools =
+          typeof result.question === "string" && result.question.trim()
+            ? result.question
+            : sanitizedQuestion;
         const quoteRole = quoteRoleSiteId
-          ? await resolveQuoteRoleForSite(quoteRoleSiteId, sanitizedQuestion, sanitizedQuestion)
+          ? await resolveQuoteRoleForSite(quoteRoleSiteId, sanitizedQuestion, restatedQuestionForTools)
           : null;
         if (retrievalToolsEnabled) {
           const vectorStore = retriever.vectorStore as PineconeStore;
@@ -1904,6 +1909,7 @@ export async function setupAndExecuteLanguageModelChain(
               effectiveAccessLevel,
               siteConfig,
               quoteRole,
+              restatedQuestion: restatedQuestionForTools,
             });
           }
         }

@@ -255,16 +255,38 @@ export function resolveEmbeddingQuery(
 }
 
 /**
- * If search_more_sources passes a recognized title, use the shared embedding query.
+ * Text sent to vector search for this quote-role.
+ * full_question uses the restated/condensed question so pronouns like "that"
+ * keep chat-history context. Passage keeps the extracted span.
  */
-export function coerceSearchMoreSourcesQuery(toolQuery: string, role: QuoteRoleDecision): string {
+export function searchQueryForQuoteRole(
+  role: QuoteRoleDecision,
+  restatedQuestion: string
+): string {
+  if (role.kind === "full_question") {
+    const restated = restatedQuestion.trim();
+    if (restated.length > 0) {
+      return restated;
+    }
+  }
+  return role.embeddingQuery;
+}
+
+/**
+ * If search_more_sources passes a recognized title, use the shared search query.
+ */
+export function coerceSearchMoreSourcesQuery(
+  toolQuery: string,
+  role: QuoteRoleDecision,
+  restatedQuestion = ""
+): string {
   const trimmed = toolQuery.trim();
   if (!trimmed) {
     return trimmed;
   }
   const titleSet = new Set(role.titleSpans.map((span) => span.toLowerCase()));
   if (titleSet.has(trimmed.toLowerCase())) {
-    return role.embeddingQuery;
+    return searchQueryForQuoteRole(role, restatedQuestion);
   }
   return trimmed;
 }

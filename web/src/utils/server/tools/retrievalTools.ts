@@ -707,6 +707,7 @@ export class RetrievalToolContext {
   effectiveAccessLevel: number;
   siteConfig?: SiteConfig | null;
   quoteRole?: QuoteRoleDecision | null;
+  restatedQuestion: string;
   completeListBudgetApplied = false;
 
   constructor(params: {
@@ -718,6 +719,7 @@ export class RetrievalToolContext {
     effectiveAccessLevel: number;
     siteConfig?: SiteConfig | null;
     quoteRole?: QuoteRoleDecision | null;
+    restatedQuestion?: string;
   }) {
     this.pineconeIndex = params.pineconeIndex as PineconeListIndex;
     this.vectorStore = params.vectorStore;
@@ -727,6 +729,7 @@ export class RetrievalToolContext {
     this.effectiveAccessLevel = params.effectiveAccessLevel;
     this.siteConfig = params.siteConfig;
     this.quoteRole = params.quoteRole ?? null;
+    this.restatedQuestion = params.restatedQuestion ?? "";
   }
 
   /** Raise the added-source budget once when complete_list is set. */
@@ -916,7 +919,7 @@ export async function executeSearchMoreSources(
 ): Promise<RetrievalToolExecutionResult> {
   let query = typeof args.query === "string" ? args.query.trim() : "";
   if (ctx.quoteRole) {
-    query = coerceSearchMoreSourcesQuery(query, ctx.quoteRole);
+    query = coerceSearchMoreSourcesQuery(query, ctx.quoteRole, ctx.restatedQuestion);
   }
   if (!query) {
     return { ok: false, error: "query is required", documents: [], content: { error: "query is required" } };
