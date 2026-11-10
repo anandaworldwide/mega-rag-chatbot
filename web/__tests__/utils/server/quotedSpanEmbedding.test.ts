@@ -206,6 +206,30 @@ describe("resolveQuoteRole", () => {
     expect(role.applyExactQuoteMissInstruction).toBe(true);
   });
 
+  it("omits a recognized title from literal lookup on an exact-quotation request", () => {
+    const question =
+      'Find this quotation in "Synthetic Dawn Manual": "Keep the heart open when the mind is busy with plans"';
+    const role = resolveQuoteRole(question, question, {
+      catalogStatus: "available",
+      catalogEntries: [
+        catalogEntry({
+          canonicalPrefix: "Synthetic Dawn Manual",
+          normalizedPrefix: "synthetic dawn manual",
+          normalizedSearchText: "synthetic dawn manual",
+          normalizedLevels: ["synthetic dawn manual"],
+          terminalSegment: "Synthetic Dawn Manual",
+          normalizedTerminalSegment: "synthetic dawn manual",
+        }),
+      ],
+    });
+
+    expect(role.kind).toBe("passage");
+    expect(role.titleSpans).toEqual(["Synthetic Dawn Manual"]);
+    expect(role.passageSpans).toEqual(["Keep the heart open when the mind is busy with plans"]);
+    expect(role.embeddingQuery).toBe("Keep the heart open when the mind is busy with plans");
+    expect(role.embeddingQuery).not.toContain("Synthetic Dawn Manual");
+  });
+
   it("lets the passage control lookup when a title and a passage are both quoted", () => {
     const question =
       'In "Art and Science of Raja Yoga" find "Keep the spine upright during vikrasana practice."';
