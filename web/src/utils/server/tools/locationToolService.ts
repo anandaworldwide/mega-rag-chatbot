@@ -18,8 +18,7 @@ import {
   extractCountryMentionFromQuestion,
   hasExplicitDomesticOnlyRestriction,
   pickCountryBox,
-  COUNTRY_PROXIMITY_EMPTY_FALLBACK,
-  COUNTRY_PROXIMITY_RESPONSE_GUIDANCE,
+  COUNTRY_PROXIMITY_INVALID_BOX_FALLBACK,
 } from "./locationLogic";
 
 /**
@@ -150,8 +149,7 @@ export class LocationToolService implements ILocationToolService {
       centers: [],
       searchMode: "proximity",
       locationPrecision: "country",
-      fallbackMessage: COUNTRY_PROXIMITY_EMPTY_FALLBACK,
-      responseGuidance: COUNTRY_PROXIMITY_RESPONSE_GUIDANCE,
+      fallbackMessage: COUNTRY_PROXIMITY_INVALID_BOX_FALLBACK,
     };
   }
 
