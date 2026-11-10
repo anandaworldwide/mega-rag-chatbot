@@ -707,6 +707,20 @@ describe("retrievalTools", () => {
       ).toBe(false);
     });
 
+    it("does not mark a one-sentence product answer incomplete", () => {
+      expect(
+        isIncompleteRetrievalAnswer("There is no setting that hides the follow-up input.")
+      ).toBe(false);
+      expect(
+        isIncompleteRetrievalAnswer("Checking the toolbar for the feedback icon.")
+      ).toBe(false);
+    });
+
+    it("does not mark a short teaching answer incomplete", () => {
+      expect(isIncompleteRetrievalAnswer("Loyalty is the first law of God.")).toBe(false);
+      expect(isIncompleteRetrievalAnswer("Checking the breath during meditation.")).toBe(false);
+    });
+
     it("treats a full class outline answer as complete", () => {
       const outline = `
 # Living the Bhagavad Gita
