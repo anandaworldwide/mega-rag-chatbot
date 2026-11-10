@@ -479,6 +479,15 @@ describe("formatQuoteRoleAnswerGuidance", () => {
 });
 
 describe("searchQueryForQuoteRole", () => {
+  it("uses the restated question when the quote role is none", () => {
+    const original = "Tell me more about that.";
+    const restated = "Tell me more about practicing patience.";
+    const role = resolveQuoteRole(original, original);
+
+    expect(role.kind).toBe("none");
+    expect(searchQueryForQuoteRole(role, restated)).toBe(restated);
+  });
+
   it("uses the restated question when the quote role is full_question", () => {
     const original = 'What does "Synthetic Dawn Manual" say about that?';
     const restated = "What does Synthetic Dawn Manual say about practicing patience?";

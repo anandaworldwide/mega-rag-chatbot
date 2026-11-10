@@ -903,6 +903,9 @@ Error details: ${errorString}`,
         ));
       capturedQuoteRole = quoteRole;
       const embeddingQuery = searchQueryForQuoteRole(quoteRole, input.question);
+      if (!temporarySession) {
+        console.log(`🔍 SEARCH QUERY: "${embeddingQuery}"`);
+      }
       try {
         // Only treat "auto" as a blend trigger when the site has opted in. Otherwise a stray
         // collection="auto" from a non-auto site must fall back to whole_library, not blend.
@@ -1888,8 +1891,10 @@ export async function setupAndExecuteLanguageModelChain(
           typeof result.question === "string" && result.question.trim()
             ? result.question
             : sanitizedQuestion;
+        // Classify from the raw utterance, same as Active Filters / capturedQuoteRole.
+        // Search still uses restatedQuestion via searchQueryForQuoteRole.
         const quoteRole = quoteRoleSiteId
-          ? await resolveQuoteRoleForSite(quoteRoleSiteId, sanitizedQuestion, restatedQuestionForTools)
+          ? await resolveQuoteRoleForSite(quoteRoleSiteId, sanitizedQuestion, sanitizedQuestion)
           : null;
         if (retrievalToolsEnabled) {
           const vectorStore = retriever.vectorStore as PineconeStore;

@@ -256,14 +256,14 @@ export function resolveEmbeddingQuery(
 
 /**
  * Text sent to vector search for this quote-role.
- * full_question uses the restated/condensed question so pronouns like "that"
- * keep chat-history context. Passage keeps the extracted span.
+ * Every role except passage uses the restated/condensed question so pronouns
+ * like "that" keep chat-history context. Passage keeps the extracted span.
  */
 export function searchQueryForQuoteRole(
   role: QuoteRoleDecision,
   restatedQuestion: string
 ): string {
-  if (role.kind === "full_question") {
+  if (role.kind !== "passage") {
     const restated = restatedQuestion.trim();
     if (restated.length > 0) {
       return restated;
