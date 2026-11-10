@@ -766,6 +766,38 @@ describe("retrievalTools", () => {
       expect(isIncompleteRetrievalAnswer("Which book do you mean?")).toBe(false);
     });
 
+    it("keeps long answers and a continue statement complete", () => {
+      const unit = ["Sit", "still", "and", "watch", "the", "next", "breath."];
+      const words: string[] = [];
+      while (words.length < 90) {
+        words.push(...unit);
+      }
+      const teaching = `${words.slice(0, 90).join(" ")} Would you like me to continue?`;
+      expect(teaching.trim().split(/\s+/).length).toBeGreaterThanOrEqual(90);
+      expect(isIncompleteRetrievalAnswer(teaching)).toBe(false);
+
+      const outline = [
+        "# Evening class",
+        "## Opening",
+        "Greet the group and sit for one minute of quiet.",
+        "## Points",
+        "1. Sit tall and still.",
+        "2. Watch the breath without force.",
+        "3. Close with thanks.",
+        "Want me to keep going?",
+      ].join("\n");
+      expect(isIncompleteRetrievalAnswer(outline)).toBe(false);
+
+      const story =
+        "A traveler sat under a tree at dusk. Rain began to fall on the road. A farmer offered a dry barn for the night. They talked until the storm passed. The traveler left at dawn with a loaf of bread. Shall I continue?";
+      expect(isIncompleteRetrievalAnswer(story)).toBe(false);
+
+      expect(
+        isIncompleteRetrievalAnswer("Sit each morning and your practice will continue.")
+      ).toBe(false);
+      expect(isIncompleteRetrievalAnswer("Shall I continue?")).toBe(false);
+    });
+
     it("treats a full class outline answer as complete", () => {
       const outline = `
 # Living the Bhagavad Gita

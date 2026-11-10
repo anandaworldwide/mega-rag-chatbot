@@ -697,6 +697,23 @@ describe("makechain retrieval tool loop", () => {
     expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_USER_MESSAGE);
   });
 
+  it("does not retry a full first-pass answer that ends with would you like me to continue", async () => {
+    const unit = ["Sit", "still", "and", "watch", "the", "next", "breath."];
+    const words: string[] = [];
+    while (words.length < 90) {
+      words.push(...unit);
+    }
+    const answer = `${words.slice(0, 90).join(" ")} Would you like me to continue?`;
+    stubFirstPassTextOnly(answer, "Hello");
+    const { result, events } = await runLoop("Hello");
+    expect(executeRetrievalTool).not.toHaveBeenCalled();
+    expect(mockFollowUpInvocations).toBe(0);
+    expect(result.fullResponse).toBe(answer);
+    expect(collectedAnswer(events)).toBe(answer);
+    expect(result.fullResponse).not.toBe(RETRIEVAL_INCOMPLETE_USER_MESSAGE);
+    expect(result.fullResponse).not.toMatch(/after fetching additional sources/i);
+  });
+
   it("keeps short first-pass answers that ask the user or teach without a retry fallback", async () => {
     const answers = [
       "I still need a little more detail from you. Which quote do you mean?",
