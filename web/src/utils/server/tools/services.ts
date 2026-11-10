@@ -20,8 +20,8 @@ import {
   countriesMatchForCenterSearch,
   LOCATION_COUNTRY_SEARCH_MAX_RESULTS,
   COUNTRY_SEARCH_RESPONSE_GUIDANCE,
-  COUNTRY_PROXIMITY_RESPONSE_GUIDANCE,
   COUNTRY_PROXIMITY_EMPTY_FALLBACK,
+  countryProximityResponseGuidance,
   selectCountryOnlyNearestCandidates,
   isValidCenterCoordinate,
   isValidGeoBox,
@@ -754,10 +754,16 @@ export class CenterSearchService implements ICenterSearchService {
             fallbackMessage: COUNTRY_PROXIMITY_EMPTY_FALLBACK,
             searchMode: "proximity",
             locationPrecision: "country",
-            responseGuidance: COUNTRY_PROXIMITY_RESPONSE_GUIDANCE,
+            responseGuidance: countryProximityResponseGuidance(0),
           };
         }
         const candidates = selectCountryOnlyNearestCandidates(centers, namedCountry, options.countryBox);
+        const domesticCount = centers.filter(
+          (center) =>
+            isValidCenterCoordinate(center.latitude, center.longitude) &&
+            countriesMatchForCenterSearch(center.country, namedCountry)
+        ).length;
+        const responseGuidance = countryProximityResponseGuidance(domesticCount);
         if (candidates.length === 0) {
           return {
             found: false,
@@ -765,7 +771,7 @@ export class CenterSearchService implements ICenterSearchService {
             fallbackMessage: COUNTRY_PROXIMITY_EMPTY_FALLBACK,
             searchMode: "proximity",
             locationPrecision: "country",
-            responseGuidance: COUNTRY_PROXIMITY_RESPONSE_GUIDANCE,
+            responseGuidance,
           };
         }
         return {
@@ -773,7 +779,7 @@ export class CenterSearchService implements ICenterSearchService {
           centers: candidates,
           searchMode: "proximity",
           locationPrecision: "country",
-          responseGuidance: COUNTRY_PROXIMITY_RESPONSE_GUIDANCE,
+          responseGuidance,
         };
       }
 

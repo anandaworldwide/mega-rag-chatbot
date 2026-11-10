@@ -496,11 +496,32 @@ export const COUNTRY_PROXIMITY_FOREIGN_FILL = 5;
 export const COUNTRY_PROXIMITY_FOREIGN_MAX_MILES = 500;
 const EARTH_RADIUS_MILES = 3959;
 
+const COUNTRY_PROXIMITY_GUIDANCE_SHARED =
+  "These are directory alternatives within about 500 miles (800 km). This is not a complete list. Do not rank them as nearest to the user. Do not call them nearest. Do not show miles. Name a city for distances. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
+const COUNTRY_PROXIMITY_GUIDANCE_SHARED_ES =
+  "Estas son alternativas del directorio a unos 500 millas (800 km). No es una lista completa. No las clasifique como las más cercanas al usuario. No las llame las más cercanas. No muestre millas. Nombre una ciudad para las distancias. También puede usar [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
+const COUNTRY_PROXIMITY_GUIDANCE_SHARED_FR =
+  "Ce sont des alternatives du répertoire à environ 500 miles (800 km). Ce n'est pas une liste complète. Ne les classez pas comme les plus proches de l'utilisateur. Ne les appelez pas les plus proches. Ne montrez pas de miles. Indiquez une ville pour les distances. Vous pouvez aussi utiliser [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
+
+/** Zero domestic rows: say no center is listed in that country. */
 export const COUNTRY_PROXIMITY_RESPONSE_GUIDANCE =
-  "EN: No center is listed in that country. These are directory alternatives within about 500 miles (800 km). This is not a complete list. Do not rank them as nearest to the user. Do not call them nearest. Do not show miles. Name a city for distances. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/). " +
-  "ES: No hay un centro listado en ese país. Estas son alternativas del directorio a unos 500 millas (800 km). No es una lista completa. No las clasifique como las más cercanas al usuario. No las llame las más cercanas. No muestre millas. Nombre una ciudad para las distancias. También puede usar [Find Ananda Near You](https://www.ananda.org/find-ananda/). " +
-  "FR: Aucun centre n'est listé dans ce pays. Ce sont des alternatives du répertoire à environ 500 miles (800 km). Ce n'est pas une liste complète. Ne les classez pas comme les plus proches de l'utilisateur. Ne les appelez pas les plus proches. Ne montrez pas de miles. Indiquez une ville pour les distances. Vous pouvez aussi utiliser [Find Ananda Near You](https://www.ananda.org/find-ananda/). " +
+  `EN: No center is listed in that country. ${COUNTRY_PROXIMITY_GUIDANCE_SHARED} ` +
+  `ES: No hay un centro listado en ese país. ${COUNTRY_PROXIMITY_GUIDANCE_SHARED_ES} ` +
+  `FR: Aucun centre n'est listé dans ce pays. ${COUNTRY_PROXIMITY_GUIDANCE_SHARED_FR} ` +
   "Reply in the user's language.";
+
+/** Domestic rows > 0: do not say no center is listed in that country. */
+export const COUNTRY_PROXIMITY_WITH_DOMESTIC_GUIDANCE =
+  `EN: ${COUNTRY_PROXIMITY_GUIDANCE_SHARED} ` +
+  `ES: ${COUNTRY_PROXIMITY_GUIDANCE_SHARED_ES} ` +
+  `FR: ${COUNTRY_PROXIMITY_GUIDANCE_SHARED_FR} ` +
+  "Reply in the user's language.";
+
+export function countryProximityResponseGuidance(domesticCount: number): string {
+  return domesticCount > 0
+    ? COUNTRY_PROXIMITY_WITH_DOMESTIC_GUIDANCE
+    : COUNTRY_PROXIMITY_RESPONSE_GUIDANCE;
+}
 
 export const COUNTRY_PROXIMITY_EMPTY_FALLBACK =
   "EN: No center is listed in that country. No close options are listed. Name a city. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/). " +
