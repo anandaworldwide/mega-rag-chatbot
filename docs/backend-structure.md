@@ -778,7 +778,9 @@ embeddings.
     only if that distance is at most 500 miles (about 800 km). Drop farther foreign
     rows. If fewer rows qualify, return fewer rows. If none qualify, return 0 rows.
     Keep directory order. Do not show miles on country-only results. Do not call them
-    nearest. Explicit "only in" / "solo en" / "uniquement en" stays country-filtered.
+    nearest. If the named country has 0 domestic rows, the tool may say that no center
+    is listed in that country. If it has domestic rows, omit that sentence. Explicit
+    "only in" / "solo en" / "uniquement en" stays country-filtered.
     There is no hardcoded country-to-country map.
   - Implements contrastive scoring algorithm:
     - Positive similarity threshold: >= 0.37
