@@ -84,6 +84,9 @@ export const RETRIEVAL_FETCH_FAILED_USER_MESSAGE =
 export const RETRIEVAL_ROUND_LIMIT_USER_MESSAGE =
   "I reached the limit for fetching more sources and could not finish a complete answer. Please try again.";
 
+export const RETRIEVAL_INCOMPLETE_USER_MESSAGE =
+  "I could not finish a complete answer. Please try again.";
+
 export const RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE =
   "I could not finish a complete answer after fetching additional sources. Please try again.";
 
@@ -144,6 +147,8 @@ export type FinalizeRetrievalUserAnswerParams = {
   roundLimitHit?: boolean;
   afterRetrievalAttempt: boolean;
   afterForcedAnswerOnlyRetry?: boolean;
+  /** True only when search_more_sources or get_adjacent_chunks actually ran. */
+  fetchedAdditionalSources?: boolean;
 };
 
 export type FinalizeRetrievalUserAnswerResult = {
@@ -228,8 +233,11 @@ export function finalizeRetrievalUserAnswer(
       reason: "round_limit",
     };
   }
+  const claimFetch = params.fetchedAdditionalSources ?? params.afterRetrievalAttempt;
   return {
-    text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+    text: claimFetch
+      ? RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE
+      : RETRIEVAL_INCOMPLETE_USER_MESSAGE,
     usedFallback: true,
     reason: "incomplete",
   };
@@ -302,6 +310,8 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
   }
 
   const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
+  // A question to the user is a real answer, not loop status text.
+  const asksTheUser = /\?\s*$/.test(trimmed);
   // Opener + object on the first sentence only. A later "what the sources say"
   // must not make a real teaching answer look like search narration.
   const statusWindow = firstSentenceOrAll(trimmed);
@@ -313,7 +323,7 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
   // Do not include gathering/seeking/pulling/searching here: those still need a
   // retrieval object so openings such as "Seeking God within" stay complete.
   const startsLikeStatusVerb =
-    /^(fetching|retrieving|expanding|scanning|checking)\b/i.test(trimmed) ||
+    /^(fetching|retrieving|scanning|checking)\b/i.test(trimmed) ||
     /^(looking (?:up|through|into|over))\b/i.test(trimmed);
   const hasAnswerPredicate =
     /\b(is|are|was|were|means|because|taught|teaches|said|wrote|writes|explained|according to|for example)\b/i.test(
@@ -374,6 +384,7 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
 
   // Short "I'll gather richer sources…" trail-offs, including glued status-like sentences.
   if (
+    !asksTheUser &&
     wordCount < 80 &&
     !iDontWithoutSearchVerb &&
     (hasLookingForRetrievalStatus ||
@@ -394,7 +405,13 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
     /\b(library|libraries|sources?|passages?|chunks?|articles?|visualizations?|question|topic|teachings?)\b/i.test(
       trimmed
     );
-  if (wordCount < 40 && startsLikeStatusVerb && !hasAnswerPredicate && hasLoopStatusObject) {
+  if (
+    !asksTheUser &&
+    wordCount < 40 &&
+    startsLikeStatusVerb &&
+    !hasAnswerPredicate &&
+    hasLoopStatusObject
+  ) {
     return true;
   }
 

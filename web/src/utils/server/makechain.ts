@@ -1927,6 +1927,7 @@ export async function setupAndExecuteLanguageModelChain(
             roundLimitHit: retrievalRoundLimitHit,
             afterRetrievalAttempt: retrievalIterations > 0 || retrievalAnswerForced,
             afterForcedAnswerOnlyRetry: retrievalAnswerForced,
+            fetchedAdditionalSources: retrievalIterations > 0,
           });
           if (finalized.text === fullResponse) {
             return finalized.text;
@@ -2040,7 +2041,9 @@ export async function setupAndExecuteLanguageModelChain(
 
         await streamingDeadline.waitWithDeadline(async () => {
           if (pendingToolCalls.length === 0 && firstPassIsSearchNarration) {
-            // No retrieval round ran. Do not replace a short first-pass answer.
+            // Narration with no tool call: force an answer-only retry so the user
+            // does not see the status line. Do not claim a fetch; none ran.
+            await forceRetrievalAnswerOnly("first-pass search narration with no tool calls");
             emitGuardedRetrievalAnswer(fullResponse);
             return;
           }
@@ -2442,6 +2445,7 @@ export async function setupAndExecuteLanguageModelChain(
           afterRetrievalAttempt:
             retrievalRoundHappened &&
             (isIncompleteRetrievalAnswer(cleanedAnswer) || strippedThenThin),
+          fetchedAdditionalSources: retrievalRoundHappened,
         });
         sendData({ status: "retrieving_more_sources", token: finalized.text });
         fullResponse = finalized.text;
@@ -2454,6 +2458,7 @@ export async function setupAndExecuteLanguageModelChain(
         const finalized = finalizeRetrievalUserAnswer({
           answerText: fullResponse,
           afterRetrievalAttempt: true,
+          fetchedAdditionalSources: true,
         });
         if (finalized.usedFallback) {
           sendData({ status: "retrieving_more_sources" });

@@ -40,6 +40,7 @@ import {
   RETRIEVAL_FETCH_FAILED_USER_MESSAGE,
   RETRIEVAL_ROUND_LIMIT_USER_MESSAGE,
   RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+  RETRIEVAL_INCOMPLETE_USER_MESSAGE,
   getRetrievalToolGuidance,
 } from "../../../../src/utils/server/tools/retrievalTools";
 import {
@@ -1081,7 +1082,7 @@ From Ananda materials, daily attunement is less a long checklist than choosing a
       });
       expect(result.usedFallback).toBe(true);
       expect(result.text).not.toMatch(/after fetching additional sources/i);
-      expect(result.text).toBe("I could not finish a complete answer. Please try again.");
+      expect(result.text).toBe(RETRIEVAL_INCOMPLETE_USER_MESSAGE);
     });
 
     it("claims fetching additional sources after a retrieval attempt", () => {

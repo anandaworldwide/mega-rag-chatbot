@@ -155,6 +155,7 @@ import {
   MAX_ADDED_RETRIEVAL_SOURCES,
   RETRIEVAL_FETCH_FAILED_USER_MESSAGE,
   RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+  RETRIEVAL_INCOMPLETE_USER_MESSAGE,
 } from "@/utils/server/tools/retrievalTools";
 import type { SiteConfig } from "@/types/siteConfig";
 import type { StreamingResponseData } from "@/types/StreamingResponseData";
@@ -183,9 +184,6 @@ function collectedAnswer(events: StreamingResponseData[]): string {
   }
   return text;
 }
-
-const INCOMPLETE_NO_FETCH_USER_MESSAGE =
-  "I could not finish a complete answer. Please try again.";
 
 async function runLoop(
   question = "Give me some stories from Autobiography of a Yogi",
@@ -531,7 +529,7 @@ describe("makechain retrieval tool loop", () => {
     expect(result.fullResponse).not.toMatch(/after fetching additional sources/i);
     expect(collectedAnswer(events)).not.toMatch(/after fetching additional sources/i);
     expect(result.fullResponse).not.toContain("Checking the library for this question.");
-    expect(result.fullResponse).toBe(INCOMPLETE_NO_FETCH_USER_MESSAGE);
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_USER_MESSAGE);
   });
 
   it("claims fetching additional sources after a retrieval round with an incomplete leftover", async () => {
@@ -568,7 +566,7 @@ describe("makechain retrieval tool loop", () => {
     expect(result.fullResponse).not.toContain("Still looking for a short story");
     expect(collectedAnswer(events)).not.toContain("Still looking for a short story");
     expect(result.fullResponse).not.toMatch(/after fetching additional sources/i);
-    expect(result.fullResponse).toBe(INCOMPLETE_NO_FETCH_USER_MESSAGE);
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_USER_MESSAGE);
   });
 
   it("retries a leftover Searching-again listing with no tool call and hides the narration", async () => {
@@ -583,7 +581,7 @@ describe("makechain retrieval tool loop", () => {
     expect(result.fullResponse).not.toContain("Searching again");
     expect(collectedAnswer(events)).not.toContain("Searching again");
     expect(result.fullResponse).not.toMatch(/after fetching additional sources/i);
-    expect(result.fullResponse).toBe(INCOMPLETE_NO_FETCH_USER_MESSAGE);
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_USER_MESSAGE);
   });
 
   it("retries a leftover promise-and-stop line with no tool call and hides the narration", async () => {
@@ -598,7 +596,7 @@ describe("makechain retrieval tool loop", () => {
     expect(result.fullResponse).not.toContain("I will finish a complete");
     expect(collectedAnswer(events)).not.toContain("I will finish a complete");
     expect(result.fullResponse).not.toMatch(/after fetching additional sources/i);
-    expect(result.fullResponse).toBe(INCOMPLETE_NO_FETCH_USER_MESSAGE);
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_USER_MESSAGE);
   });
 
   it("keeps a structured outline when the second forced retry has headings", async () => {
@@ -627,7 +625,7 @@ describe("makechain retrieval tool loop", () => {
     expect(result.fullResponse).not.toContain("Still light on usable quotes");
     expect(collectedAnswer(events)).not.toContain("Still light on usable quotes");
     expect(result.fullResponse).not.toMatch(/after fetching additional sources/i);
-    expect(result.fullResponse).toBe(INCOMPLETE_NO_FETCH_USER_MESSAGE);
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_USER_MESSAGE);
   });
 
   it("retries a stripped-then-thin run 6 leftover with no tool call and hides the narration", async () => {
@@ -641,7 +639,7 @@ describe("makechain retrieval tool loop", () => {
     expect(result.fullResponse).not.toContain("Still thin on usable Gita");
     expect(collectedAnswer(events)).not.toContain("Still thin on usable Gita");
     expect(result.fullResponse).not.toMatch(/after fetching additional sources/i);
-    expect(result.fullResponse).toBe(INCOMPLETE_NO_FETCH_USER_MESSAGE);
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_USER_MESSAGE);
   });
 
   it("replaces a Looking-for leftover after a tool-loop reset (Branch A)", async () => {
@@ -676,7 +674,7 @@ describe("makechain retrieval tool loop", () => {
     expect(result.fullResponse).not.toContain("Looking for a short verified story");
     expect(collectedAnswer(events)).not.toContain("Looking for a short verified story");
     expect(result.fullResponse).not.toMatch(/after fetching additional sources/i);
-    expect(result.fullResponse).toBe(INCOMPLETE_NO_FETCH_USER_MESSAGE);
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_USER_MESSAGE);
   });
 
   it("does not claim a source fetch when retrieval tool context is missing", async () => {
@@ -696,7 +694,7 @@ describe("makechain retrieval tool loop", () => {
     expect(result.fullResponse).not.toContain("Looking for a short verified story");
     expect(collectedAnswer(events)).not.toContain("Looking for a short verified story");
     expect(result.fullResponse).not.toMatch(/after fetching additional sources/i);
-    expect(result.fullResponse).toBe(INCOMPLETE_NO_FETCH_USER_MESSAGE);
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_USER_MESSAGE);
   });
 
   it("keeps short first-pass answers that ask the user or teach without a retry fallback", async () => {
