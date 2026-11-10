@@ -393,8 +393,41 @@ function hasCercaDeNamedPlace(question: string): boolean {
 }
 
 /**
- * Spanish cerca/cercano plus a place clue: donde, ashram, retiro, or a
- * city/country name after "cerca de".
+ * True when the object after "cerca de" / "cercano a" is a teaching noun.
+ * Case and accents do not matter. "cerca de dios" and "cerca de mi maestro"
+ * match. "cerca de bogota" does not.
+ */
+export function cercaDeObjectIsTeachingNoun(question: string): boolean {
+  const q = foldDiacritics(question);
+  const patterns = [
+    /\bcerca\s+de(?:l)?\s+(?:el\s+|la\s+|los\s+|las\s+|un\s+|una\s+)?([a-z0-9]+(?:\s+[a-z0-9]+){0,2})/g,
+    /\bcercan[oa]s?\s+a\s+(?:el\s+|la\s+|los\s+|las\s+|un\s+|una\s+|l['’])?([a-z0-9]+(?:\s+[a-z0-9]+){0,2})/g,
+  ];
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(q)) !== null) {
+      const tokens = match[1].split(/\s+/).filter(Boolean);
+      let index = 0;
+      if (tokens[0] && CERCA_POSSESSIVE_HEADS.has(tokens[0])) {
+        index = 1;
+      }
+      const head = tokens[index];
+      if (head && CERCA_NON_PLACE_HEADS.has(head)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+const CERCA_PLACE_NOUN =
+  /\b(centros?|grupos?|templos?|comunidad(?:es)?|sanghas?|ashrams?|retiros?)\b/;
+
+/**
+ * Spanish cerca/cercano plus a place clue: donde, ashram, retiro, a
+ * capitalized city/country after "cerca de", or a center/group noun with cerca.
+ * A lowercase city alone is not enough. A teaching noun after cerca de is not
+ * a place.
  */
 function hasCercaFamilyPlaceEvidence(question: string): boolean {
   const q = foldDiacritics(question);
@@ -405,7 +438,16 @@ function hasCercaFamilyPlaceEvidence(question: string): boolean {
   if (/\b(donde|ashrams?|retiros?)\b/.test(q)) {
     return true;
   }
-  return hasCercaDeNamedPlace(question);
+  if (hasCercaDeNamedPlace(question)) {
+    return true;
+  }
+  if (cercaDeObjectIsTeachingNoun(question)) {
+    return false;
+  }
+  if (CERCA_PLACE_NOUN.test(q)) {
+    return true;
+  }
+  return /\bhay\s+(?:un|una)\b[\s\S]{0,80}?\bcerca\s+de\b/.test(q);
 }
 
 /**
@@ -413,7 +455,8 @@ function hasCercaFamilyPlaceEvidence(question: string): boolean {
  * Used by the keyword geo path. Do not treat bare "cerca de" / "près de" as a location request.
  * Org name plus "más cercano" is not enough; require a center/group/temple/church/community word.
  * Spanish cerca/cercano also counts when the query names donde, ashram, retiro,
- * or a city/country after "cerca de".
+ * centro, grupo, templo, comunidad, sangha, hay un/una ... cerca de, or a
+ * capitalized city/country after "cerca de". A lowercase city alone is not enough.
  */
 export function hasLocationRequestEvidence(question: string): boolean {
   const q = foldDiacritics(question);

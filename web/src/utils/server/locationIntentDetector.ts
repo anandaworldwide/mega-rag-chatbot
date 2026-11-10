@@ -18,7 +18,7 @@
 import { OpenAI } from "openai";
 import { readFileSync, existsSync } from "fs";
 import path from "path";
-import { foldDiacritics, hasLocationRequestEvidence } from "./tools/locationLogic";
+import { cercaDeObjectIsTeachingNoun, foldDiacritics, hasLocationRequestEvidence } from "./tools/locationLogic";
 
 interface EmbeddingData {
   model: string;
@@ -265,12 +265,17 @@ function hasCercaCercanoWithoutPlaceEvidence(query: string): boolean {
   if (hasLocationRequestEvidence(query)) {
     return false;
   }
+  // Teaching nouns after cerca de stay on the library path even when the query
+  // also names centro or grupo. Example: "hay un centro cerca de dios".
+  if (cercaDeObjectIsTeachingNoun(query)) {
+    return true;
+  }
   // Do not suppress when the query names a place entity. "centros cerca de
   // Montevideo" is a location lookup. G1/G2 have no such word. City names after
   // "cerca de", plus donde / ashram / retiro, are place evidence in
   // hasLocationRequestEvidence.
   const hasPlaceWord =
-    /\b(centros?|grupos?|templos?|comunidad(?:es)?|iglesias?|centers?|centres?|groups?|groupes?|community|communities|temples?|church(?:es)?|eglises?|ashrams?|retiros?|donde)\b/.test(
+    /\b(centros?|grupos?|templos?|comunidad(?:es)?|iglesias?|centers?|centres?|groups?|groupes?|community|communities|temples?|church(?:es)?|eglises?|ashrams?|retiros?|sanghas?|donde)\b/.test(
       q
     );
   if (hasPlaceWord) {
