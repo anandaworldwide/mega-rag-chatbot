@@ -705,10 +705,10 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
 
   describe("Product And Story Lookups", () => {
     test.concurrent("should answer a follow-up box product question instead of refusing", async () => {
-      const query = "How do I get rid of the follow up box? It is in the middle of my phone display.";
+      const query = "How do I hide the extra reply field?";
       const expectedResponseCanonical = [
-        "On a phone, scroll the answers to hide the follow-up box. There is no setting to turn it off. Please send feedback with the Feedback button on desktop or the feedback icon at the top right of the toolbar on mobile.",
-        "The follow-up box stays after the first answer so you can ask the next question. Scroll to hide it on a phone, or send feedback if it blocks the screen.",
+        "On a phone, scroll the answers to hide the extra reply field. There is no setting to turn it off. Please send feedback with the Feedback button on desktop or the feedback icon at the top right of the toolbar on mobile.",
+        "The extra reply field stays after the first answer so you can ask the next question. Scroll to hide it on a phone, or send feedback if it blocks the screen.",
       ];
 
       const actualResponse = await getLucaResponse(query);
@@ -730,10 +730,10 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
     });
 
     test.concurrent("should answer a most-recent-chat history question instead of refusing", async () => {
-      const query = "I'm looking for most recent chat.";
+      const query = "How do I open an earlier conversation?";
       const expectedResponseCanonical = [
         "Open the Chats list. The newest conversation is at the top. On a phone, tap the history icon.",
-        "Your most recent chat is at the top of the Chats sidebar.",
+        "Earlier conversations are in the Chats sidebar, with the newest at the top.",
       ];
 
       const actualResponse = await getLucaResponse(query);
@@ -755,7 +755,7 @@ testRunner("Luca Response Semantic Validation (ananda)", () => {
     });
 
     test.concurrent("should search a story lookup instead of refusing as general history", async () => {
-      const query = "Can you find the story about the monastery that was spared?";
+      const query = "Can you find the story about the traveler who was spared?";
       const actualResponse = await getLucaResponse(query);
       if (!actualResponse) {
         throw new Error(`Received empty response for query: ${query}`);
