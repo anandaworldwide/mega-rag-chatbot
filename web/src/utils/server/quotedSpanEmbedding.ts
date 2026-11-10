@@ -191,16 +191,19 @@ export function resolveQuoteRole(
   }
 
   if (explicit) {
-    const literalSpans = passageSpans.length > 0 ? passageSpans : spans;
-    return {
-      kind: "passage",
-      embeddingQuery: literalSpans.join(" "),
-      skipQuoteOnlyCondense: true,
-      applyExactQuoteMissInstruction: true,
-      titleSpans,
-      passageSpans: literalSpans,
-      reason: "explicit_exact_quotation_request",
-    };
+    const candidateSpans = passageSpans.length > 0 ? passageSpans : spans;
+    const literalSpans = candidateSpans.filter((span) => !titleSpans.includes(span));
+    if (literalSpans.length > 0) {
+      return {
+        kind: "passage",
+        embeddingQuery: literalSpans.join(" "),
+        skipQuoteOnlyCondense: true,
+        applyExactQuoteMissInstruction: true,
+        titleSpans,
+        passageSpans: literalSpans,
+        reason: "explicit_exact_quotation_request",
+      };
+    }
   }
 
   if (passageSpans.length > 0) {
