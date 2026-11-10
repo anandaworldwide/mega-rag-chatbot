@@ -386,7 +386,13 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
   }
 
   // One-sentence loop/tool status with no teaching predicate, even without "sources".
-  if (wordCount < 40 && startsLikeStatusVerb && !hasAnswerPredicate) {
+  // Require a retrieval object so a short product or teaching answer that happens
+  // to start with checking/scanning is not marked incomplete.
+  const hasLoopStatusObject =
+    /\b(library|libraries|sources?|passages?|chunks?|articles?|visualizations?|question|topic|teachings?)\b/i.test(
+      trimmed
+    );
+  if (wordCount < 40 && startsLikeStatusVerb && !hasAnswerPredicate && hasLoopStatusObject) {
     return true;
   }
 
