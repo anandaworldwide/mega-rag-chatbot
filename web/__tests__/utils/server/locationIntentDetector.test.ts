@@ -403,6 +403,18 @@ describe("Location Intent Detector", () => {
       expect(createEmbedding).not.toHaveBeenCalled();
     });
 
+    it('routes "centros cerca de Montevideo" to location when embeddings are on', async () => {
+      expect(await hasLocationIntentAsync("centros cerca de Montevideo")).toBe(true);
+    });
+
+    it('routes "grupo de meditación cercano a Buenos Aires" to location when embeddings are on', async () => {
+      expect(await hasLocationIntentAsync("grupo de meditación cercano a Buenos Aires")).toBe(true);
+    });
+
+    it("routes a Madrid centro cerca query to location when embeddings are on", async () => {
+      expect(await hasLocationIntentAsync("¿Hay un centro Ananda cerca de Madrid?")).toBe(true);
+    });
+
     it("keeps Spanish country-only nearest on the location path with embeddings on", async () => {
       expect(await hasLocationIntentAsync("¿Cuál es el centro Ananda más cercano en Uruguay?")).toBe(true);
     });
