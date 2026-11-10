@@ -1086,6 +1086,36 @@ describe("Services - Dependency Injection Architecture", () => {
         expect(auResult.centers.every((c) => c.distance === undefined)).toBe(true);
       });
 
+      it("USA with domestic rows does not say no center is listed in that country", async () => {
+        const haversineService = new CenterSearchService(
+          mockCenterDataService,
+          new HaversineDistanceCalculator()
+        );
+        const syntheticUS = {
+          name: "Synthetic California Center",
+          address: "fixture",
+          city: "Palo Alto",
+          state: "CA",
+          country: "United States",
+          latitude: 37.4419,
+          longitude: -122.143,
+        };
+        mockCenterDataService.loadCenters.mockResolvedValue([syntheticUS]);
+
+        const result = await haversineService.findNearestCenters(37.4419, -122.143, {
+          searchScope: "proximity",
+          locationPrecision: "country",
+          countryFilter: "United States",
+          countryBox: US_BOX,
+        });
+
+        expect(result.found).toBe(true);
+        expect(result.centers).toHaveLength(1);
+        expect(result.responseGuidance).not.toMatch(/no center is listed in that country/i);
+        expect(result.responseGuidance).not.toMatch(/no hay un centro listado en ese país/i);
+        expect(result.responseGuidance).not.toMatch(/aucun centre n'est listé dans ce pays/i);
+      });
+
       it("country-only nearest still samples a far synthetic center when the box is empty of in-country rows", async () => {
         const haversineService = new CenterSearchService(
           mockCenterDataService,
