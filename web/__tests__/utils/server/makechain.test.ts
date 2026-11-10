@@ -1511,6 +1511,64 @@ describe("makeChain", () => {
     );
   });
 
+  describe("Spanish cerca de city routing", () => {
+    const mockGeoTools = [{ name: "get_user_location", description: "Get user location", parameters: {} }];
+    const mockRequest = { headers: new Map([["x-forwarded-for", "192.168.1.1"]]) } as any;
+    const geoEnabledSiteConfig = { ...mockSiteConfig, enableGeoAwareness: true };
+
+    async function routeQuestion(question: string) {
+      (getChatModel as unknown as jest.Mock).mockClear();
+      (getChatModel as unknown as jest.Mock).mockImplementation(() => ({
+        invoke: jest.fn().mockResolvedValue({ content: "Mock response" }),
+        stream: jest.fn(),
+        bindTools: jest.fn().mockReturnThis(),
+        bind: jest.fn().mockReturnThis(),
+      }));
+      const sendData = jest.fn();
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        2,
+        undefined,
+        sendData,
+        jest.fn(),
+        undefined,
+        false,
+        mockGeoTools,
+        mockRequest,
+        geoEnabledSiteConfig,
+        question
+      );
+      return sendData;
+    }
+
+    function tookLocationPath(sendData: jest.Mock) {
+      return sendData.mock.calls.some(
+        (call) => call[0]?.status === "searching_locations" && call[0]?.isLocationQuery === true
+      );
+    }
+
+    it("routes Spanish cerca de city questions to the location path", async () => {
+      expect(tookLocationPath(await routeQuestion("¿Dónde puedo meditar cerca de Lima?"))).toBe(true);
+      expect(tookLocationPath(await routeQuestion("¿Hay un centro cerca de Bogotá?"))).toBe(true);
+      expect(tookLocationPath(await routeQuestion("Grupos de meditación cerca de Montevideo"))).toBe(true);
+    });
+
+    it("routes Spanish cerca questions with donde, ashram, or retiro to the location path", async () => {
+      expect(tookLocationPath(await routeQuestion("¿Dónde puedo meditar cerca?"))).toBe(true);
+      expect(tookLocationPath(await routeQuestion("¿Hay un ashram cerca?"))).toBe(true);
+      expect(tookLocationPath(await routeQuestion("¿Hay un retiro cerca?"))).toBe(true);
+    });
+
+    it("keeps G1, G2, and spiritual cerca/cercano uses on the library path", async () => {
+      expect(tookLocationPath(await routeQuestion("Como meditar cerca de mi maestro?"))).toBe(false);
+      expect(tookLocationPath(await routeQuestion("Ananda ensena a estar mas cercano a Dios"))).toBe(false);
+      expect(tookLocationPath(await routeQuestion("Como estar cerca de Dios?"))).toBe(false);
+      expect(tookLocationPath(await routeQuestion("Como meditar cerca del Maestro?"))).toBe(false);
+      expect(tookLocationPath(await routeQuestion("Como estar más cercano a Yogananda?"))).toBe(false);
+    });
+  });
+
   test("should handle model initialization errors with quota detection", async () => {
     // Mock ChatOpenAI to throw a quota error
     (ChatOpenAI as unknown as jest.Mock).mockImplementationOnce(() => {

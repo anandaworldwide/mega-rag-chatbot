@@ -357,6 +357,50 @@ describe("Location Intent Detector", () => {
       expect(await hasLocationIntentAsync("Como meditar cerca de mi maestro?")).toBe(false);
       expect(await hasLocationIntentAsync("Ananda ensena a estar mas cercano a Dios")).toBe(false);
     });
+
+    it("routes Spanish cerca de city questions to location when embeddings are off", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      const lima = "¿Dónde puedo meditar cerca de Lima?";
+      expect(hasLocationKeywordPatterns(lima)).toBe(true);
+      expect(await hasLocationIntentAsync(lima)).toBe(true);
+
+      const bogota = "¿Hay un centro cerca de Bogotá?";
+      expect(hasLocationKeywordPatterns(bogota)).toBe(true);
+      expect(await hasLocationIntentAsync(bogota)).toBe(true);
+
+      const montevideo = "Grupos de meditación cerca de Montevideo";
+      expect(hasLocationKeywordPatterns(montevideo)).toBe(true);
+      expect(await hasLocationIntentAsync(montevideo)).toBe(true);
+    });
+
+    it("routes Spanish cerca questions with donde, ashram, or retiro to location when embeddings are off", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      const donde = "¿Dónde puedo meditar cerca?";
+      expect(hasLocationKeywordPatterns(donde)).toBe(true);
+      expect(await hasLocationIntentAsync(donde)).toBe(true);
+
+      const ashram = "¿Hay un ashram cerca?";
+      expect(hasLocationKeywordPatterns(ashram)).toBe(true);
+      expect(await hasLocationIntentAsync(ashram)).toBe(true);
+
+      const retiro = "¿Hay un retiro cerca?";
+      expect(hasLocationKeywordPatterns(retiro)).toBe(true);
+      expect(await hasLocationIntentAsync(retiro)).toBe(true);
+    });
+
+    it("keeps spiritual cerca/cercano uses on the library path when embeddings are off", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(hasLocationKeywordPatterns("Como meditar cerca de mi maestro?")).toBe(false);
+      expect(await hasLocationIntentAsync("Como meditar cerca de mi maestro?")).toBe(false);
+      expect(hasLocationKeywordPatterns("Ananda ensena a estar mas cercano a Dios")).toBe(false);
+      expect(await hasLocationIntentAsync("Ananda ensena a estar mas cercano a Dios")).toBe(false);
+      expect(await hasLocationIntentAsync("Como estar cerca de Dios?")).toBe(false);
+      expect(await hasLocationIntentAsync("Como meditar cerca del Maestro?")).toBe(false);
+      expect(await hasLocationIntentAsync("Como estar más cercano a Yogananda?")).toBe(false);
+    });
   });
 
   describe("G1/G2 teaching cerca/cercano with embeddings enabled", () => {
@@ -434,6 +478,33 @@ describe("Location Intent Detector", () => {
       const prompt = "Meditation groups USA";
       expect(hasLocationKeywordPatterns(prompt)).toBe(true);
       expect(await hasLocationIntentAsync(prompt)).toBe(true);
+      expect(createEmbedding).not.toHaveBeenCalled();
+    });
+
+    it("routes Spanish cerca de city questions to location when embeddings are on", async () => {
+      expect(await hasLocationIntentAsync("¿Dónde puedo meditar cerca de Lima?")).toBe(true);
+      expect(await hasLocationIntentAsync("¿Hay un centro cerca de Bogotá?")).toBe(true);
+      expect(await hasLocationIntentAsync("Grupos de meditación cerca de Montevideo")).toBe(true);
+    });
+
+    it("routes Spanish cerca questions with donde, ashram, or retiro to location when embeddings are on", async () => {
+      expect(await hasLocationIntentAsync("¿Dónde puedo meditar cerca?")).toBe(true);
+      expect(await hasLocationIntentAsync("¿Hay un ashram cerca?")).toBe(true);
+      expect(await hasLocationIntentAsync("¿Hay un retiro cerca?")).toBe(true);
+    });
+
+    it("keeps spiritual cerca/cercano uses on the library path when embeddings are on", async () => {
+      const g1 = "Como meditar cerca de mi maestro?";
+      expect(hasLocationKeywordPatterns(g1)).toBe(false);
+      expect(await hasLocationIntentAsync(g1)).toBe(false);
+
+      const g2 = "Ananda ensena a estar mas cercano a Dios";
+      expect(hasLocationKeywordPatterns(g2)).toBe(false);
+      expect(await hasLocationIntentAsync(g2)).toBe(false);
+
+      expect(await hasLocationIntentAsync("Como estar cerca de Dios?")).toBe(false);
+      expect(await hasLocationIntentAsync("Como meditar cerca del Maestro?")).toBe(false);
+      expect(await hasLocationIntentAsync("Como estar más cercano a Yogananda?")).toBe(false);
       expect(createEmbedding).not.toHaveBeenCalled();
     });
   });

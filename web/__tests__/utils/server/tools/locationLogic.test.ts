@@ -705,6 +705,27 @@ describe("LocationLogic - Pure Business Logic Functions", () => {
       expect(hasLocationRequestEvidence("Como meditar cerca de mi maestro?")).toBe(false);
       expect(hasLocationRequestEvidence("Ananda ensena a estar mas cercano a Dios")).toBe(false);
     });
+
+    it("treats Spanish cerca de city names as place evidence", () => {
+      expect(hasLocationRequestEvidence("¿Dónde puedo meditar cerca de Lima?")).toBe(true);
+      expect(hasLocationRequestEvidence("¿Hay un centro cerca de Bogotá?")).toBe(true);
+      expect(hasLocationRequestEvidence("Grupos de meditación cerca de Montevideo")).toBe(true);
+    });
+
+    it("treats Spanish donde, ashram, and retiro with cerca as place evidence", () => {
+      expect(hasLocationRequestEvidence("¿Dónde puedo meditar cerca?")).toBe(true);
+      expect(hasLocationRequestEvidence("Donde puedo meditar cerca")).toBe(true);
+      expect(hasLocationRequestEvidence("¿Hay un ashram cerca?")).toBe(true);
+      expect(hasLocationRequestEvidence("¿Hay un retiro cerca?")).toBe(true);
+    });
+
+    it("does not treat spiritual cerca/cercano uses as place evidence", () => {
+      expect(hasLocationRequestEvidence("Como meditar cerca de mi maestro?")).toBe(false);
+      expect(hasLocationRequestEvidence("Ananda ensena a estar mas cercano a Dios")).toBe(false);
+      expect(hasLocationRequestEvidence("Como estar cerca de Dios?")).toBe(false);
+      expect(hasLocationRequestEvidence("Como meditar cerca del Maestro?")).toBe(false);
+      expect(hasLocationRequestEvidence("Como estar más cercano a Yogananda?")).toBe(false);
+    });
   });
 
   describe("hasExplicitDomesticOnlyRestriction", () => {
