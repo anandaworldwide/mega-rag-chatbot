@@ -773,6 +773,48 @@ describe("makeChain", () => {
     expect(searchQueries).not.toContain(original);
   });
 
+  test("should search the rephrased question for an unquoted follow-up", async () => {
+    const sendData = jest.fn();
+    const resolveDocs = jest.fn();
+
+    await makeChain(
+      mockRetriever,
+      { model: "gpt-4o-mini", temperature: 0.7 },
+      2,
+      undefined,
+      sendData,
+      resolveDocs,
+      undefined,
+      false,
+      [],
+      undefined,
+      mockSiteConfig
+    );
+
+    const rewriteQuestion = getQuestionRewriterFromMakeChain();
+    const retrievalSequence = getRetrievalSequenceFromMakeChain();
+    const history = "Human: How do I practice patience?\nAI: Begin with a quiet mind.";
+    const original = "Tell me more about that.";
+    const rewritten = await rewriteQuestion({
+      question: original,
+      chat_history: history,
+    });
+
+    expect(rewritten).toBe("Converted standalone question");
+
+    await retrievalSequence.invoke({
+      question: rewritten,
+      chat_history: history,
+    });
+
+    const searchQueries = mockRetriever.vectorStore.similaritySearchWithScore.mock.calls.map(
+      (call) => call[0]
+    );
+    expect(searchQueries.length).toBeGreaterThan(0);
+    expect(searchQueries.every((query) => query === "Converted standalone question")).toBe(true);
+    expect(searchQueries).not.toContain(original);
+  });
+
   test("should search a quoted passage only even when chat history is present", async () => {
     const sendData = jest.fn();
     const resolveDocs = jest.fn();
