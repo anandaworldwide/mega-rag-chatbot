@@ -528,6 +528,11 @@ export const COUNTRY_PROXIMITY_EMPTY_FALLBACK =
   "ES: No hay un centro listado en ese país. No hay opciones cercanas listadas. Nombre una ciudad. También puede usar [Find Ananda Near You](https://www.ananda.org/find-ananda/). " +
   "FR: Aucun centre n'est listé dans ce pays. Aucune option proche n'est listée. Indiquez une ville. Vous pouvez aussi utiliser [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
 
+export const COUNTRY_PROXIMITY_INVALID_BOX_FALLBACK =
+  "EN: The country location could not be determined. Name a city. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/). " +
+  "ES: No se pudo determinar la ubicación del país. Nombre una ciudad. También puede usar [Find Ananda Near You](https://www.ananda.org/find-ananda/). " +
+  "FR: L'emplacement du pays n'a pas pu être déterminé. Indiquez une ville. Vous pouvez aussi utiliser [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
+
 export function omitCenterDistance(center: CenterResult): CenterResult {
   const copy: CenterResult = { ...center };
   delete copy.distance;

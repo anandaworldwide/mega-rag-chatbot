@@ -21,6 +21,7 @@ import {
   LOCATION_COUNTRY_SEARCH_MAX_RESULTS,
   COUNTRY_SEARCH_RESPONSE_GUIDANCE,
   COUNTRY_PROXIMITY_EMPTY_FALLBACK,
+  COUNTRY_PROXIMITY_INVALID_BOX_FALLBACK,
   countryProximityResponseGuidance,
   selectCountryOnlyNearestCandidates,
   isValidCenterCoordinate,
@@ -751,10 +752,9 @@ export class CenterSearchService implements ICenterSearchService {
           return {
             found: false,
             centers: [],
-            fallbackMessage: COUNTRY_PROXIMITY_EMPTY_FALLBACK,
+            fallbackMessage: COUNTRY_PROXIMITY_INVALID_BOX_FALLBACK,
             searchMode: "proximity",
             locationPrecision: "country",
-            responseGuidance: countryProximityResponseGuidance(0),
           };
         }
         const candidates = selectCountryOnlyNearestCandidates(centers, namedCountry, options.countryBox);
