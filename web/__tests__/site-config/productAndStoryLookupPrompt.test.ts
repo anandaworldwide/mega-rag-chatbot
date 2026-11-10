@@ -2,11 +2,11 @@
  * Luca must answer product/UI questions and search before refusing story lookups.
  *
  * Manual smoke (ananda / Luca):
- * 1. "How do I get rid of the follow up box? It is in the middle of my phone display."
+ * 1. "How do I hide the extra reply field?"
  *    → short product answer, not the generic refusal.
- * 2. "I'm looking for most recent chat."
+ * 2. "How do I open an earlier conversation?"
  *    → short history answer, not the generic refusal.
- * 3. A story or quotation lookup (for example a monastery or historical event)
+ * 3. A story or quotation lookup (for example a traveler who was spared)
  *    → search first; do not refuse as general history.
  */
 
@@ -20,8 +20,10 @@ describe("product and story lookup prompt fragments", () => {
 
     expect(prompt).toContain("Luca product, UI, and chat-history questions");
     expect(prompt).toContain("## Product, UI, And Chat History Questions");
-    expect(prompt).toContain("How do I get rid of the follow up box?");
-    expect(prompt).toContain("I'm looking for most recent chat.");
+    expect(prompt).toContain("How do I hide the extra reply field?");
+    expect(prompt).toContain("How do I open an earlier conversation?");
+    expect(prompt).not.toContain("How do I get rid of the follow up box?");
+    expect(prompt).not.toContain("I'm looking for most recent chat.");
     expect(prompt).toContain("feedback icon at the top right of the toolbar");
     expect(prompt).toContain("There is no setting that turns this box off");
   });
@@ -33,7 +35,8 @@ describe("product and story lookup prompt fragments", () => {
     expect(prompt).toContain("ALLOW — story or quotation lookups");
     expect(prompt).toContain("Answer from the retrieved sources");
     expect(prompt).toContain("Do not write that you are searching or gathering sources");
-    expect(prompt).toContain("Can you find the story about the monastery that was spared?");
+    expect(prompt).toContain("Can you find the story about the traveler who was spared?");
+    expect(prompt).not.toContain("Can you find the story about the monastery that was spared?");
     expect(prompt).toContain("Do not refuse it as general history");
   });
 
