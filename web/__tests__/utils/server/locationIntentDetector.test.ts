@@ -400,6 +400,40 @@ describe("Location Intent Detector", () => {
       expect(await hasLocationIntentAsync("Como estar cerca de Dios?")).toBe(false);
       expect(await hasLocationIntentAsync("Como meditar cerca del Maestro?")).toBe(false);
       expect(await hasLocationIntentAsync("Como estar más cercano a Yogananda?")).toBe(false);
+      expect(await hasLocationIntentAsync("quiero estar mas cerca de dios")).toBe(false);
+      expect(await hasLocationIntentAsync("como sentirme cerca del maestro")).toBe(false);
+      expect(await hasLocationIntentAsync("hay un centro cerca de dios")).toBe(false);
+    });
+
+    it("routes lowercase unaccented Spanish cerca city questions to location when embeddings are off", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      const bogota = "hay un centro cerca de bogota";
+      expect(hasLocationKeywordPatterns(bogota)).toBe(true);
+      expect(await hasLocationIntentAsync(bogota)).toBe(true);
+
+      const montevideo = "grupo de meditacion cerca de montevideo";
+      expect(hasLocationKeywordPatterns(montevideo)).toBe(true);
+      expect(await hasLocationIntentAsync(montevideo)).toBe(true);
+
+      const limaDonde = "donde meditar cerca de lima";
+      expect(hasLocationKeywordPatterns(limaDonde)).toBe(true);
+      expect(await hasLocationIntentAsync(limaDonde)).toBe(true);
+    });
+
+    it("keeps bare lowercase cerca de lima on the library path when embeddings are off", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+      // No centro, grupo, donde, or hay un. A lowercase city alone is not place evidence.
+      const limaOnly = "cerca de lima";
+      expect(hasLocationKeywordPatterns(limaOnly)).toBe(false);
+      expect(await hasLocationIntentAsync(limaOnly)).toBe(false);
+    });
+
+    it("routes templo, comunidad, and sangha with cerca to location when embeddings are off", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+      expect(await hasLocationIntentAsync("hay un templo cerca de bogota")).toBe(true);
+      expect(await hasLocationIntentAsync("comunidad cerca de montevideo")).toBe(true);
+      expect(await hasLocationIntentAsync("sangha cerca de lima")).toBe(true);
     });
   });
 
@@ -505,6 +539,22 @@ describe("Location Intent Detector", () => {
       expect(await hasLocationIntentAsync("Como estar cerca de Dios?")).toBe(false);
       expect(await hasLocationIntentAsync("Como meditar cerca del Maestro?")).toBe(false);
       expect(await hasLocationIntentAsync("Como estar más cercano a Yogananda?")).toBe(false);
+      expect(await hasLocationIntentAsync("quiero estar mas cerca de dios")).toBe(false);
+      expect(await hasLocationIntentAsync("como sentirme cerca del maestro")).toBe(false);
+      expect(await hasLocationIntentAsync("hay un centro cerca de dios")).toBe(false);
+      expect(createEmbedding).not.toHaveBeenCalled();
+    });
+
+    it("routes lowercase unaccented Spanish cerca city questions to location when embeddings are on", async () => {
+      expect(await hasLocationIntentAsync("hay un centro cerca de bogota")).toBe(true);
+      expect(await hasLocationIntentAsync("grupo de meditacion cerca de montevideo")).toBe(true);
+      expect(await hasLocationIntentAsync("donde meditar cerca de lima")).toBe(true);
+    });
+
+    it("keeps bare lowercase cerca de lima on the library path when embeddings are on", async () => {
+      const limaOnly = "cerca de lima";
+      expect(hasLocationKeywordPatterns(limaOnly)).toBe(false);
+      expect(await hasLocationIntentAsync(limaOnly)).toBe(false);
       expect(createEmbedding).not.toHaveBeenCalled();
     });
   });

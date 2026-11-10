@@ -725,6 +725,29 @@ describe("LocationLogic - Pure Business Logic Functions", () => {
       expect(hasLocationRequestEvidence("Como estar cerca de Dios?")).toBe(false);
       expect(hasLocationRequestEvidence("Como meditar cerca del Maestro?")).toBe(false);
       expect(hasLocationRequestEvidence("Como estar más cercano a Yogananda?")).toBe(false);
+      expect(hasLocationRequestEvidence("quiero estar mas cerca de dios")).toBe(false);
+      expect(hasLocationRequestEvidence("como sentirme cerca del maestro")).toBe(false);
+    });
+
+    it("treats lowercase unaccented Spanish cerca city questions as place evidence", () => {
+      expect(hasLocationRequestEvidence("hay un centro cerca de bogota")).toBe(true);
+      expect(hasLocationRequestEvidence("grupo de meditacion cerca de montevideo")).toBe(true);
+      expect(hasLocationRequestEvidence("donde meditar cerca de lima")).toBe(true);
+    });
+
+    it("does not treat bare lowercase cerca de lima as place evidence", () => {
+      // A lowercase city after cerca de is not enough. Need centro, grupo, donde, or hay un.
+      expect(hasLocationRequestEvidence("cerca de lima")).toBe(false);
+    });
+
+    it("treats templo, comunidad, and sangha with cerca as place evidence", () => {
+      expect(hasLocationRequestEvidence("hay un templo cerca de bogota")).toBe(true);
+      expect(hasLocationRequestEvidence("comunidad cerca de montevideo")).toBe(true);
+      expect(hasLocationRequestEvidence("sangha cerca de lima")).toBe(true);
+    });
+
+    it("does not treat hay un centro cerca de a teaching noun as place evidence", () => {
+      expect(hasLocationRequestEvidence("hay un centro cerca de dios")).toBe(false);
     });
   });
 

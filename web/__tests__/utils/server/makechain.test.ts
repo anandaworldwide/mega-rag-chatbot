@@ -1566,6 +1566,25 @@ describe("makeChain", () => {
       expect(tookLocationPath(await routeQuestion("Como estar cerca de Dios?"))).toBe(false);
       expect(tookLocationPath(await routeQuestion("Como meditar cerca del Maestro?"))).toBe(false);
       expect(tookLocationPath(await routeQuestion("Como estar más cercano a Yogananda?"))).toBe(false);
+      expect(tookLocationPath(await routeQuestion("quiero estar mas cerca de dios"))).toBe(false);
+      expect(tookLocationPath(await routeQuestion("como sentirme cerca del maestro"))).toBe(false);
+      expect(tookLocationPath(await routeQuestion("hay un centro cerca de dios"))).toBe(false);
+    });
+
+    it("routes lowercase unaccented Spanish cerca city questions to the location path", async () => {
+      expect(tookLocationPath(await routeQuestion("hay un centro cerca de bogota"))).toBe(true);
+      expect(tookLocationPath(await routeQuestion("grupo de meditacion cerca de montevideo"))).toBe(true);
+      expect(tookLocationPath(await routeQuestion("donde meditar cerca de lima"))).toBe(true);
+    });
+
+    it("keeps bare lowercase cerca de lima on the library path", async () => {
+      expect(tookLocationPath(await routeQuestion("cerca de lima"))).toBe(false);
+    });
+
+    it("routes templo, comunidad, and sangha with cerca to the location path", async () => {
+      expect(tookLocationPath(await routeQuestion("hay un templo cerca de bogota"))).toBe(true);
+      expect(tookLocationPath(await routeQuestion("comunidad cerca de montevideo"))).toBe(true);
+      expect(tookLocationPath(await routeQuestion("sangha cerca de lima"))).toBe(true);
     });
   });
 
