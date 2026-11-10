@@ -412,7 +412,10 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
     /\b(?:shall i|should i|would you like me to|want me to)(?:\s+(?:continue|keep going))?\?\s*$/i.test(
       trimmed
     ) || /\b(?:keep going|continue)\?\s*$/i.test(trimmed);
-  const hasRetrievalCue = mentionsRetrievalWork || startsLikeSearchNarration;
+  const hasRetrievalCue =
+    startsLikeSearchNarration ||
+    (/\b(sources?|passages?|quotes?|chunks?|search(?:ing)?|library)\b/i.test(statusWindow) &&
+      !hasAnswerPredicate);
   const offersToSearch = Boolean(offerClose && hasRetrievalCue && wordCount < 25);
 
   if (offersToSearch) {
