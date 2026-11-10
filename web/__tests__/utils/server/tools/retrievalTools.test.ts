@@ -798,6 +798,22 @@ describe("retrievalTools", () => {
       expect(isIncompleteRetrievalAnswer("Shall I continue?")).toBe(false);
     });
 
+    it("keeps short real answers complete when more or additional is not a retrieval cue", () => {
+      expect(isIncompleteRetrievalAnswer("Meditate a little more each day. Shall I continue?")).toBe(
+        false
+      );
+      expect(
+        isIncompleteRetrievalAnswer("This practice brings more peace to the mind. Want me to keep going?")
+      ).toBe(false);
+      expect(
+        isIncompleteRetrievalAnswer("There are additional stories in that book. Should I?")
+      ).toBe(false);
+      const sourcesTaught =
+        "The sources show that the teacher taught stillness as a daily path of breath and devotion. Shall I continue?";
+      expect(sourcesTaught.trim().split(/\s+/).length).toBeLessThan(25);
+      expect(isIncompleteRetrievalAnswer(sourcesTaught)).toBe(false);
+    });
+
     it("treats a full class outline answer as complete", () => {
       const outline = `
 # Living the Bhagavad Gita
