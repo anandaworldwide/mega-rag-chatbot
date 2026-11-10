@@ -776,6 +776,8 @@ embeddings.
     in other languages (Italian `il`/`se`, German `de`, Spanish `es`) and skip library
     search. Bare `cerca de` / `près de` is not location-request evidence. Org name plus
     `más cercano` is not enough. `cerca de mi maestro` is not a locative "near me".
+    A cerca/cercano query that names a place word (`centro`, `grupo`, `templo`,
+    `comunidad`, `iglesia`, with plurals) still takes the location path.
   - Nearest/closest intent also matches Spanish (`más cercano`) and French (`plus proche`)
     after accent folding. Country-only nearest/closest returns a directory sample.
     Cap the sample at 8 rows. If the named country has 0 domestic rows, include up to
@@ -785,11 +787,11 @@ embeddings.
     only if that distance is at most 500 miles (about 800 km). Drop farther foreign
     rows. If fewer rows qualify, return fewer rows. If none qualify, return 0 rows.
     Keep directory order. Do not show miles on country-only results. Do not call them
-    nearest.     If the named country has 0 domestic rows, the tool may say that no center
+    nearest. If the named country has 0 domestic rows, the tool may say that no center
     is listed in that country. If it has domestic rows, omit that sentence. A
     geocoding failure or invalid country box uses its own copy and does not say
-    that no center is listed. Explicit
-    "only in" / "solo en" / "uniquement en" stays country-filtered.
+    that no center is listed. Explicit "only in" / "solo en" / "uniquement en"
+    stays country-filtered.
     There is no hardcoded country-to-country map.
   - Implements contrastive scoring algorithm:
     - Positive similarity threshold: >= 0.37

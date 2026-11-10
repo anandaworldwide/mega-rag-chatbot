@@ -262,7 +262,19 @@ function hasCercaCercanoWithoutPlaceEvidence(query: string): boolean {
   if (!hasCercaFamily) {
     return false;
   }
-  return !hasLocationRequestEvidence(query);
+  if (hasLocationRequestEvidence(query)) {
+    return false;
+  }
+  // Do not suppress when the query names a place entity. "centros cerca de
+  // Montevideo" is a location lookup. G1/G2 have no such word.
+  const hasPlaceWord =
+    /\b(centros?|grupos?|templos?|comunidad(?:es)?|iglesias?|centers?|centres?|groups?|groupes?|community|communities|temples?|church(?:es)?|eglises?)\b/.test(
+      q
+    );
+  if (hasPlaceWord) {
+    return false;
+  }
+  return true;
 }
 
 /**
