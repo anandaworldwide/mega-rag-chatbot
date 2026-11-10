@@ -746,6 +746,26 @@ describe("retrievalTools", () => {
       );
     });
 
+    it("marks search-narration questions and search offers incomplete", () => {
+      expect(isIncompleteRetrievalAnswer("Searching for more passages, shall I?")).toBe(true);
+      expect(
+        isIncompleteRetrievalAnswer("Let me search for more passages on this. Shall I continue?")
+      ).toBe(true);
+      expect(
+        isIncompleteRetrievalAnswer("I'll pull additional sources on this topic. Would you like me to?")
+      ).toBe(true);
+      expect(isIncompleteRetrievalAnswer("Looking for more sources on marriage?")).toBe(true);
+      expect(isIncompleteRetrievalAnswer("Fetching more sources for this question?")).toBe(true);
+      expect(
+        isIncompleteRetrievalAnswer("I'll pull more passages and a short story. Want me to keep going?")
+      ).toBe(true);
+      expect(isIncompleteRetrievalAnswer("Gathering more sources...?")).toBe(true);
+    });
+
+    it("keeps a true question to the user complete", () => {
+      expect(isIncompleteRetrievalAnswer("Which book do you mean?")).toBe(false);
+    });
+
     it("treats a full class outline answer as complete", () => {
       const outline = `
 # Living the Bhagavad Gita
