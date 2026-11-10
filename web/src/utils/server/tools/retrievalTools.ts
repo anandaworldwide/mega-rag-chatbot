@@ -406,30 +406,25 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
     !hasAnswerPredicate &&
     hasLoopStatusObject;
 
-  // Offer to run another search. Never a complete answer.
-  const offersToSearch =
-    /\b(?:shall i|should i|would you like me to|want me to)(?:\s+(?:continue|keep going))?\??\s*$/i.test(
+  // Search offer only: short status-like reply plus retrieval words or a
+  // search-narration opener. "continue" and "keep going" need a trailing "?".
+  const offerClose =
+    /\b(?:shall i|should i|would you like me to|want me to)(?:\s+(?:continue|keep going))?\?\s*$/i.test(
       trimmed
-    ) || /\b(?:keep going|continue)\??\s*$/i.test(trimmed);
-
-  // A "?" reply stays complete only when it is not search narration
-  // and not an offer to search.
-  const asksTheUser =
-    /\?\s*$/.test(trimmed) &&
-    !offersToSearch &&
-    !matchesSearchNarrationRule &&
-    !matchesStatusVerbRule;
+    ) || /\b(?:keep going|continue)\?\s*$/i.test(trimmed);
+  const hasRetrievalCue = mentionsRetrievalWork || startsLikeSearchNarration;
+  const offersToSearch = Boolean(offerClose && hasRetrievalCue && wordCount < 25);
 
   if (offersToSearch) {
     return true;
   }
 
   // Short "I'll gather richer sources…" trail-offs, including glued status-like sentences.
-  if (!asksTheUser && matchesSearchNarrationRule) {
+  if (matchesSearchNarrationRule) {
     return true;
   }
 
-  if (!asksTheUser && matchesStatusVerbRule) {
+  if (matchesStatusVerbRule) {
     return true;
   }
 
