@@ -251,6 +251,17 @@ describe("resolveQuoteRole", () => {
     expect(role.embeddingQuery).not.toContain("Synthetic Dawn Manual");
   });
 
+  it("treats an exact-quote request that quotes only a known title as a full question", () => {
+    const question = 'Find this quotation: "Art and Science of Raja Yoga"';
+    const role = resolveQuoteRole(question, question, rajaCatalog);
+    const guidance = formatQuoteRoleAnswerGuidance(role);
+
+    expect(role.kind).toBe("full_question");
+    expect(role.applyExactQuoteMissInstruction).toBe(false);
+    expect(guidance).not.toContain("exact-passage lookup");
+    expect(guidance).not.toMatch(/say so in one sentence/i);
+  });
+
   it("lets the passage control lookup when a title and a passage are both quoted", () => {
     const question =
       'In "Art and Science of Raja Yoga" find "Keep the spine upright during vikrasana practice."';
