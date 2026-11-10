@@ -721,6 +721,18 @@ describe("retrievalTools", () => {
       expect(isIncompleteRetrievalAnswer("Checking the breath during meditation.")).toBe(false);
     });
 
+    it("does not mark a short teaching answer that starts with Expanding your love incomplete", () => {
+      expect(isIncompleteRetrievalAnswer("Expanding your love more each day.")).toBe(false);
+    });
+
+    it("does not mark a clarifying question that starts with I still need incomplete", () => {
+      expect(
+        isIncompleteRetrievalAnswer(
+          "I still need a few details from you. Which story should I start with?"
+        )
+      ).toBe(false);
+    });
+
     it("treats a full class outline answer as complete", () => {
       const outline = `
 # Living the Bhagavad Gita
