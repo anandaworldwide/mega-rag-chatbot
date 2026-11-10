@@ -230,6 +230,24 @@ describe("makeChain", () => {
     return fromMock.mock.results[matches[0].index]?.value;
   }
 
+  function getQuestionRewriterFromMakeChain() {
+    const fromMock = jest.requireMock("@langchain/core/runnables").RunnableSequence.from as jest.Mock;
+    const matches = fromMock.mock.calls.filter(
+      (call) =>
+        Array.isArray(call[0]) &&
+        typeof call[0][0] === "object" &&
+        call[0][0] !== null &&
+        typeof (call[0][0] as { question?: unknown }).question === "function"
+    );
+    if (matches.length === 0) {
+      throw new Error("question rewriter sequence not found in RunnableSequence.from calls");
+    }
+    return matches[matches.length - 1][0][0].question as (input: {
+      question: string;
+      chat_history: string;
+    }) => Promise<string>;
+  }
+
   // Returns the answerChain's field-mapping step (the function that builds the prompt input,
   // including activeFiltersSummary). Identified by its leading object step keyed by retrievalOutput.
   function getAnswerChainMappingFromMakeChain() {
@@ -674,6 +692,42 @@ describe("makeChain", () => {
     );
     expect(ChatPromptTemplate.fromTemplate).toHaveBeenCalledWith(
       expect.stringContaining("Do not replace the question with a generic request")
+    );
+  });
+
+  test("should condense a title-quoting follow-up so chat history is kept", async () => {
+    const sendData = jest.fn();
+    const resolveDocs = jest.fn();
+
+    await makeChain(
+      mockRetriever,
+      { model: "gpt-4o-mini", temperature: 0.7 },
+      2,
+      undefined,
+      sendData,
+      resolveDocs,
+      undefined,
+      false,
+      [],
+      undefined,
+      mockSiteConfig
+    );
+
+    const rewriteQuestion = getQuestionRewriterFromMakeChain();
+    const history = "Human: How do I practice patience?\nAI: Begin with a quiet mind.";
+    const rewritten = await rewriteQuestion({
+      question: 'What does "Synthetic Dawn Manual" say about that?',
+      chat_history: history,
+    });
+
+    expect(rewritten).toBe("Converted standalone question");
+
+    const passageRewrite = await rewriteQuestion({
+      question: 'Find this quotation: "Keep the heart open when the mind is busy with plans."',
+      chat_history: history,
+    });
+    expect(passageRewrite).toBe(
+      'Find this quotation: "Keep the heart open when the mind is busy with plans."'
     );
   });
 

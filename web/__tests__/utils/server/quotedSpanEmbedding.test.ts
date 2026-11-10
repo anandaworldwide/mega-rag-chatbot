@@ -161,6 +161,26 @@ describe("resolveQuoteRole", () => {
     expect(role.skipQuoteOnlyCondense).toBe(true);
   });
 
+  it("does not skip condense for a follow-up that quotes a title", () => {
+    const question = 'What does "Synthetic Dawn Manual" say about that?';
+    const role = resolveQuoteRole(question, question, {
+      catalogStatus: "available",
+      catalogEntries: [
+        catalogEntry({
+          canonicalPrefix: "Synthetic Dawn Manual",
+          normalizedPrefix: "synthetic dawn manual",
+          normalizedSearchText: "synthetic dawn manual",
+          normalizedLevels: ["synthetic dawn manual"],
+          terminalSegment: "Synthetic Dawn Manual",
+          normalizedTerminalSegment: "synthetic dawn manual",
+        }),
+      ],
+    });
+
+    expect(role.kind).toBe("full_question");
+    expect(role.skipQuoteOnlyCondense).toBe(false);
+  });
+
   it("uses the original question for Autobiography of a Yogi plus a topic", () => {
     const question = 'What does "Autobiography of a Yogi" say about the guru-disciple relationship?';
     const role = resolveQuoteRole(question, question, autobiographyCatalog);
