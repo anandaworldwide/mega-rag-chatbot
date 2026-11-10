@@ -731,6 +731,48 @@ describe("makeChain", () => {
     );
   });
 
+  test("should search the rephrased question for a title-quoting follow-up", async () => {
+    const sendData = jest.fn();
+    const resolveDocs = jest.fn();
+
+    await makeChain(
+      mockRetriever,
+      { model: "gpt-4o-mini", temperature: 0.7 },
+      2,
+      undefined,
+      sendData,
+      resolveDocs,
+      undefined,
+      false,
+      [],
+      undefined,
+      mockSiteConfig
+    );
+
+    const rewriteQuestion = getQuestionRewriterFromMakeChain();
+    const retrievalSequence = getRetrievalSequenceFromMakeChain();
+    const history = "Human: How do I practice patience?\nAI: Begin with a quiet mind.";
+    const original = 'What does "Synthetic Dawn Manual" say about that?';
+    const rewritten = await rewriteQuestion({
+      question: original,
+      chat_history: history,
+    });
+
+    expect(rewritten).toBe("Converted standalone question");
+
+    await retrievalSequence.invoke({
+      question: rewritten,
+      chat_history: history,
+    });
+
+    const searchQueries = mockRetriever.vectorStore.similaritySearchWithScore.mock.calls.map(
+      (call) => call[0]
+    );
+    expect(searchQueries.length).toBeGreaterThan(0);
+    expect(searchQueries.every((query) => query === "Converted standalone question")).toBe(true);
+    expect(searchQueries).not.toContain(original);
+  });
+
   test("should respect privacy mode and not log questions when temporarySession is true", async () => {
     // Test that the function accepts the temporarySession parameter and executes correctly
     const sendData = jest.fn();
