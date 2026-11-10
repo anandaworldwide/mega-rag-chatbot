@@ -347,6 +347,19 @@ describe("Location Intent Detector", () => {
       expect(await hasLocationIntentAsync("Quel est le centre Ananda le plus proche en Uruguay ?")).toBe(true);
     });
 
+    it("plain ES/FR teaching does not route to location through ES/FR words or ISO codes", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(hasLocationKeywordPatterns("Es verdad que el silencio ensena?")).toBe(false);
+      expect(hasLocationKeywordPatterns("Se puede meditar cada manana?")).toBe(false);
+      expect(hasLocationKeywordPatterns("Che cosa dice il Maestro sulla pace?")).toBe(false);
+      expect(hasLocationKeywordPatterns("El centro del ser es mas cercano a la paz")).toBe(false);
+      expect(hasLocationKeywordPatterns("Le centre de lame est plus proche de la verite")).toBe(false);
+      expect(await hasLocationIntentAsync("Es verdad que el silencio ensena?")).toBe(false);
+      expect(await hasLocationIntentAsync("El centro del ser es mas cercano a la paz")).toBe(false);
+      expect(await hasLocationIntentAsync("Le centre de lame est plus proche de la verite")).toBe(false);
+    });
+
     it("B1: teaching questions with cerca de / près de must not take the keyword geo path", async () => {
       await initializeLocationIntentDetector("ananda-public");
 

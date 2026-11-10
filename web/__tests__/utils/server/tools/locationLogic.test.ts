@@ -679,6 +679,11 @@ describe("LocationLogic - Pure Business Logic Functions", () => {
       expect(hasProximityIntentInQuestion("Quel est le centre Ananda le plus proche en Uruguay ?")).toBe(true);
     });
 
+    it("does not treat Spanish or French teaching as proximity intent", () => {
+      expect(hasProximityIntentInQuestion("El centro del ser es mas cercano a la paz")).toBe(false);
+      expect(hasProximityIntentInQuestion("Le centre de lame est plus proche de la verite")).toBe(false);
+    });
+
     it("should not treat a teaching question as proximity intent", () => {
       expect(hasProximityIntentInQuestion("Es verdad que Yogananda habla de los angeles?")).toBe(false);
     });
