@@ -318,7 +318,30 @@ describe("LocationToolService country-level nearest-center flow", () => {
     expect(locationService.resolveLocation).not.toHaveBeenCalled();
     expect(findNearestCenters).not.toHaveBeenCalled();
     expect(result.centers.found).toBe(false);
-    expect(result.centers.fallbackMessage).toMatch(/no center is listed in that country/i);
-    expect(result.centers.fallbackMessage).toMatch(/no close options are listed/i);
+    expect(result.centers.fallbackMessage).not.toMatch(/no center is listed/i);
+    expect(result.centers.fallbackMessage).toMatch(/could not be determined/i);
+  });
+
+  it("geocoding failure does not say no center is listed", async () => {
+    const locationService = {
+      resolveLocation: jest.fn().mockResolvedValue(MONTEVIDEO_GEOCODE),
+      geocodeOnly: jest.fn().mockResolvedValue(null),
+    };
+    const findNearestCenters = jest.fn();
+    const service = new LocationToolService(
+      locationService as any,
+      { findNearestCenters } as any,
+      makeLogger() as any
+    );
+
+    const result = await service.getUserLocation({ userProvidedLocation: "Uruguay" }, uruguayHeaders(), {
+      originalQuestion: "Where is the nearest Ananda center in Uruguay?",
+    });
+
+    expect(locationService.resolveLocation).not.toHaveBeenCalled();
+    expect(findNearestCenters).not.toHaveBeenCalled();
+    expect(result.centers.found).toBe(false);
+    expect(result.centers.fallbackMessage).not.toMatch(/no center is listed/i);
+    expect(result.centers.fallbackMessage).toMatch(/could not be determined/i);
   });
 });
