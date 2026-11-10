@@ -731,6 +731,18 @@ describe("retrievalTools", () => {
           "I still need a few details from you. Which story should I start with?"
         )
       ).toBe(false);
+      expect(
+        isIncompleteRetrievalAnswer("I still need a little more detail from you. Which quote do you mean?")
+      ).toBe(false);
+      expect(
+        isIncompleteRetrievalAnswer("I still need to know which quote you mean. Can you share it?")
+      ).toBe(false);
+    });
+
+    it("does not mark Expanding your love for the teachings as incomplete", () => {
+      expect(isIncompleteRetrievalAnswer("Expanding your love for the teachings each day.")).toBe(
+        false
+      );
     });
 
     it("treats a full class outline answer as complete", () => {
@@ -1061,10 +1073,22 @@ From Ananda materials, daily attunement is less a long checklist than choosing a
       expect(result.text).not.toMatch(/fetching additional sources/i);
     });
 
+    it("uses fallback wording with no fetch claim when the retry had no fetch", () => {
+      const result = finalizeRetrievalUserAnswer({
+        answerText: "Checking the library for this question.",
+        afterRetrievalAttempt: true,
+        fetchedAdditionalSources: false,
+      });
+      expect(result.usedFallback).toBe(true);
+      expect(result.text).not.toMatch(/after fetching additional sources/i);
+      expect(result.text).toBe("I could not finish a complete answer. Please try again.");
+    });
+
     it("claims fetching additional sources after a retrieval attempt", () => {
       const result = finalizeRetrievalUserAnswer({
         answerText: "Checking the library for this question.",
         afterRetrievalAttempt: true,
+        fetchedAdditionalSources: true,
       });
       expect(result.usedFallback).toBe(true);
       expect(result.text).toMatch(/after fetching additional sources/i);
