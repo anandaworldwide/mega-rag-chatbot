@@ -510,84 +510,78 @@ describe("makechain retrieval tool loop", () => {
     expect(collectedAnswer(events)).not.toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
   });
 
-  it("treats a first-pass I'll-pull passages sentence plus a thin remainder as search narration", async () => {
+  it("does not replace a first-pass I'll-pull leftover when no retrieval round ran", async () => {
     const prefix = "I'll pull a few verified Gita passages.";
     const leftover = "Still looking for a short story.";
     const raw = `${prefix}${leftover}`;
-    mockFollowUpContent = leftover;
     stubFirstPassTextOnly(raw, "Write a 90-minute class outline");
 
     const { result, events } = await runLoop("Write a 90-minute class outline");
 
     expect(executeRetrievalTool).not.toHaveBeenCalled();
-    expect(mockFollowUpInvocations).toBe(2);
-    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
-    expect(collectedAnswer(events)).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
-    expect(collectedAnswer(events)).not.toContain("Still looking for a short story");
+    expect(mockFollowUpInvocations).toBe(0);
+    expect(result.fullResponse).not.toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(collectedAnswer(events)).not.toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
   });
 
-  it("replaces a leftover Searching-again listing with the fallback note", async () => {
+  it("does not replace a leftover Searching-again listing when no retrieval round ran", async () => {
     const leaked = `I'll pull additional Ananda Library material on the Bhagavad Gita for newcomers—quotes from Master and Swamiji plus a short story—so the 90-minute outline is well grounded.${LEFTOVER_SEARCHING_AGAIN}`;
-    mockFollowUpContent = LEFTOVER_SEARCHING_AGAIN;
     stubFirstPassTextOnly(leaked, "Write a 90-minute class outline");
 
     const { result, events } = await runLoop("Write a 90-minute class outline");
 
-    expect(mockFollowUpInvocations).toBe(2);
-    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
-    expect(collectedAnswer(events)).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
-    expect(collectedAnswer(events)).not.toContain("Searching again");
+    expect(executeRetrievalTool).not.toHaveBeenCalled();
+    expect(mockFollowUpInvocations).toBe(0);
+    expect(result.fullResponse).not.toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(collectedAnswer(events)).not.toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
   });
 
-  it("replaces a leftover promise-and-stop retry with the fallback note", async () => {
+  it("does not replace a leftover promise-and-stop line when no retrieval round ran", async () => {
     const leaked = `I'll pull additional Ananda Library material on the Bhagavad Gita for newcomers—quotes from Master and Swamiji plus a short story—so the 90-minute outline is well grounded.${LEFTOVER_PROMISE_AND_STOP}`;
-    mockFollowUpContent = LEFTOVER_PROMISE_AND_STOP;
     stubFirstPassTextOnly(leaked, "Write a 90-minute class outline");
 
     const { result, events } = await runLoop("Write a 90-minute class outline");
 
-    expect(mockFollowUpInvocations).toBe(2);
-    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
-    expect(collectedAnswer(events)).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
-    expect(collectedAnswer(events)).not.toContain("I will finish a complete");
+    expect(executeRetrievalTool).not.toHaveBeenCalled();
+    expect(mockFollowUpInvocations).toBe(0);
+    expect(result.fullResponse).not.toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(collectedAnswer(events)).not.toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
   });
 
-  it("keeps a structured outline when the second forced retry has headings", async () => {
+  it("does not force a retry outline when no retrieval round ran", async () => {
     const leaked = `I'll pull additional Ananda Library material on the Bhagavad Gita for newcomers—quotes from Master and Swamiji plus a short story—so the 90-minute outline is well grounded.${LEFTOVER_PROMISE_AND_STOP}`;
     mockFollowUpContentQueue = [LEFTOVER_PROMISE_AND_STOP, SHORT_STRUCTURED_OUTLINE];
     stubFirstPassTextOnly(leaked, "Write a 90-minute class outline");
 
     const { result, events } = await runLoop("Write a 90-minute class outline");
 
-    expect(mockFollowUpInvocations).toBe(2);
-    expect(result.fullResponse).toBe(SHORT_STRUCTURED_OUTLINE);
-    expect(collectedAnswer(events)).toBe(SHORT_STRUCTURED_OUTLINE);
+    expect(executeRetrievalTool).not.toHaveBeenCalled();
+    expect(mockFollowUpInvocations).toBe(0);
+    expect(result.fullResponse).not.toBe(SHORT_STRUCTURED_OUTLINE);
+    expect(result.fullResponse).not.toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(collectedAnswer(events)).not.toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
   });
 
-  it("replaces a stripped-then-thin run 3 leftover on first pass with the fallback note", async () => {
-    mockFollowUpContent = RUN3_LEFTOVER;
+  it("does not replace a stripped-then-thin run 3 leftover when no retrieval round ran", async () => {
     stubFirstPassTextOnly(RUN3_RAW, "Write a 90-minute class outline");
 
     const { result, events } = await runLoop("Write a 90-minute class outline");
 
     expect(executeRetrievalTool).not.toHaveBeenCalled();
-    expect(mockFollowUpInvocations).toBe(2);
-    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
-    expect(collectedAnswer(events)).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
-    expect(collectedAnswer(events)).not.toContain("Still light on usable quotes");
+    expect(mockFollowUpInvocations).toBe(0);
+    expect(result.fullResponse).not.toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(collectedAnswer(events)).not.toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
   });
 
-  it("replaces a stripped-then-thin run 6 leftover on first pass with the fallback note", async () => {
-    mockFollowUpContent = RUN6_LEFTOVER;
+  it("does not replace a stripped-then-thin run 6 leftover when no retrieval round ran", async () => {
     stubFirstPassTextOnly(RUN6_RAW, "Write a 90-minute class outline");
 
     const { result, events } = await runLoop("Write a 90-minute class outline");
 
     expect(executeRetrievalTool).not.toHaveBeenCalled();
-    expect(mockFollowUpInvocations).toBe(2);
-    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
-    expect(collectedAnswer(events)).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
-    expect(collectedAnswer(events)).not.toContain("Still thin on usable Gita");
+    expect(mockFollowUpInvocations).toBe(0);
+    expect(result.fullResponse).not.toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(collectedAnswer(events)).not.toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
   });
 
   it("replaces a Looking-for leftover after a tool-loop reset (Branch A)", async () => {
@@ -611,16 +605,14 @@ describe("makechain retrieval tool loop", () => {
     expect(collectedAnswer(events)).not.toContain("Looking for a short verified story");
   });
 
-  it("replaces a Looking-for leftover on a first-pass with no tool calls (Branch B)", async () => {
-    mockFollowUpContent = LOOKING_LEFTOVER;
+  it("does not replace a Looking-for leftover on a first-pass with no tool calls (Branch B)", async () => {
     stubFirstPassTextOnly(LOOKING_RAW, "Write a 90-minute class outline");
 
     const { result, events } = await runLoop("Write a 90-minute class outline");
 
     expect(executeRetrievalTool).not.toHaveBeenCalled();
-    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
-    expect(collectedAnswer(events)).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
-    expect(collectedAnswer(events)).not.toContain("Looking for a short verified story");
+    expect(result.fullResponse).not.toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(collectedAnswer(events)).not.toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
   });
 
   it("forces an answer-only retry when a tool-loop follow-up strips to a thin leftover", async () => {

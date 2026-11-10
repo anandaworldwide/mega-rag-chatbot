@@ -1855,6 +1855,7 @@ export async function setupAndExecuteLanguageModelChain(
         retrievalToolsEnabled &&
         (isIncompleteRetrievalAnswer(firstPassWithoutNarration) ||
           isStrippedRemainderTooThin(fullResponse, firstPassWithoutNarration));
+      let retrievalRoundHappened = false;
       if (pendingToolCalls.length > 0 || firstPassIsSearchNarration) {
         console.log("🔧 Starting tool execution loop");
 
@@ -1924,8 +1925,7 @@ export async function setupAndExecuteLanguageModelChain(
             answerText,
             fetchFailed: retrievalFetchFailed,
             roundLimitHit: retrievalRoundLimitHit,
-            afterRetrievalAttempt:
-              retrievalIterations > 0 || firstPassIsSearchNarration || retrievalAnswerForced,
+            afterRetrievalAttempt: retrievalIterations > 0 || retrievalAnswerForced,
             afterForcedAnswerOnlyRetry: retrievalAnswerForced,
           });
           if (finalized.text === fullResponse) {
@@ -2040,7 +2040,7 @@ export async function setupAndExecuteLanguageModelChain(
 
         await streamingDeadline.waitWithDeadline(async () => {
           if (pendingToolCalls.length === 0 && firstPassIsSearchNarration) {
-            await forceRetrievalAnswerOnly("first-pass search narration with no tool calls");
+            // No retrieval round ran. Do not replace a short first-pass answer.
             emitGuardedRetrievalAnswer(fullResponse);
             return;
           }
@@ -2081,6 +2081,7 @@ export async function setupAndExecuteLanguageModelChain(
               }
 
               retrievalIterations++;
+              retrievalRoundHappened = true;
               sendData({ status: "retrieving_more_sources" });
             } else if (iteration >= maxGeoIterations) {
               console.warn(`⚠️ Tool execution loop reached max iterations (${maxGeoIterations})`);
@@ -2438,12 +2439,18 @@ export async function setupAndExecuteLanguageModelChain(
       if (cleanedAnswer !== fullResponse && cleanedAnswer.trim()) {
         const finalized = finalizeRetrievalUserAnswer({
           answerText: fullResponse,
-          afterRetrievalAttempt: isIncompleteRetrievalAnswer(cleanedAnswer) || strippedThenThin,
+          afterRetrievalAttempt:
+            retrievalRoundHappened &&
+            (isIncompleteRetrievalAnswer(cleanedAnswer) || strippedThenThin),
         });
         sendData({ status: "retrieving_more_sources", token: finalized.text });
         fullResponse = finalized.text;
         tokensStreamed = finalized.text.length;
-      } else if (retrievalToolsEnabled && isIncompleteRetrievalAnswer(fullResponse)) {
+      } else if (
+        retrievalToolsEnabled &&
+        retrievalRoundHappened &&
+        isIncompleteRetrievalAnswer(fullResponse)
+      ) {
         const finalized = finalizeRetrievalUserAnswer({
           answerText: fullResponse,
           afterRetrievalAttempt: true,
