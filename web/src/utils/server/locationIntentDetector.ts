@@ -18,7 +18,6 @@
 import { OpenAI } from "openai";
 import { readFileSync, existsSync } from "fs";
 import path from "path";
-import { foldDiacritics, hasLocationRequestEvidence } from "./tools/locationLogic";
 
 interface EmbeddingData {
   model: string;
@@ -189,17 +188,9 @@ function hasHistoricalPlaceQuestionPatterns(query: string): boolean {
 export function hasLocationKeywordPatterns(query: string): boolean {
   const lowerQuery = query.toLowerCase();
 
-  if (hasLocationRequestEvidence(query)) {
-    return true;
-  }
-
   // Keep only three-letter country codes. Two-letter ISO codes collide with
   // function words in other languages (Italian "il"/"se", German "de", Spanish
-  // "es") and mark teaching questions as location lookups. Bare "cerca de" /
-  // "près de" is not location-request evidence. Real nearest-center questions
-  // still match hasLocationRequestEvidence, the phrase list below, or embeddings.
-  // "cerca de mi maestro" and org name plus "más cercano" are not location requests.
-  // Do not let embeddings override those teaching or metaphor uses.
+  // "es") and mark teaching questions as location lookups.
   const countryCodes = ["usa", "uae"];
 
   for (const abbrev of countryCodes) {
@@ -252,32 +243,6 @@ export function hasLocationKeywordPatterns(query: string): boolean {
 }
 
 /**
- * Teaching or metaphor uses of cerca/cercano without a place request.
- * Example: "cerca de mi maestro", "cercano a Dios".
- * Keyword detection already returned false. Do not call embeddings.
- */
-function hasCercaCercanoWithoutPlaceEvidence(query: string): boolean {
-  const q = foldDiacritics(query);
-  const hasCercaFamily = /\bcerca\b/.test(q) || /\bcercan[oa]s?\b/.test(q);
-  if (!hasCercaFamily) {
-    return false;
-  }
-  if (hasLocationRequestEvidence(query)) {
-    return false;
-  }
-  // Do not suppress when the query names a place entity. "centros cerca de
-  // Montevideo" is a location lookup. G1/G2 have no such word.
-  const hasPlaceWord =
-    /\b(centros?|grupos?|templos?|comunidad(?:es)?|iglesias?|centers?|centres?|groups?|groupes?|community|communities|temples?|church(?:es)?|eglises?)\b/.test(
-      q
-    );
-  if (hasPlaceWord) {
-    return false;
-  }
-  return true;
-}
-
-/**
  * Async version of location intent detection
  *
  * @param query - User query to analyze
@@ -298,14 +263,6 @@ export async function hasLocationIntentAsync(query: string): Promise<boolean> {
       console.log(`🔍 Location intent detected via KEYWORD pattern for "${query}"`);
     }
     return true;
-  }
-
-  // Teaching/metaphor cerca/cercano is not a place request. Do not embed it.
-  if (hasCercaCercanoWithoutPlaceEvidence(query)) {
-    if (process.env.NODE_ENV === "development") {
-      console.log(`🔍 Location intent suppressed for teaching cerca/cercano: "${query}"`);
-    }
-    return false;
   }
 
   // If embeddings not loaded, fall back to disabled detection

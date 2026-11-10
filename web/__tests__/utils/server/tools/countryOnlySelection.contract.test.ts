@@ -12,7 +12,6 @@ import {
   pickCountryBox,
   selectCountryOnlyNearestCandidates,
   COUNTRY_PROXIMITY_RESPONSE_GUIDANCE,
-  COUNTRY_PROXIMITY_WITH_DOMESTIC_GUIDANCE,
   COUNTRY_PROXIMITY_EMPTY_FALLBACK,
 } from "../../../../src/utils/server/tools/locationLogic";
 import { HaversineDistanceCalculator } from "../../../../src/utils/server/tools/services";
@@ -92,8 +91,6 @@ describe("country-only selection contract", () => {
       expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).toMatch(/directory alternatives/i);
       expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).toMatch(/within about 500 miles/i);
       expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).toMatch(/Name a city for distances/i);
-      expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).toMatch(/alternativas del directorio/i);
-      expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).toMatch(/alternatives du répertoire/i);
       expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).not.toMatch(/across the border/i);
     });
   });
@@ -258,10 +255,6 @@ describe("country-only selection contract", () => {
       expect(result).toEqual([]);
       expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).toMatch(/no center is listed in that country/i);
       expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).toMatch(/no close options are listed/i);
-      expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).toMatch(/no hay un centro listado en ese país/i);
-      expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).toMatch(/no hay opciones cercanas listadas/i);
-      expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).toMatch(/aucun centre n'est listé dans ce pays/i);
-      expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).toMatch(/aucune option proche n'est listée/i);
       expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).not.toMatch(/nearest/i);
     });
 
@@ -278,22 +271,11 @@ describe("country-only selection contract", () => {
     });
   });
 
-  describe("EN/ES/FR distance wording", () => {
-    it("uses the Spanish and French phrases for the 500-mile limit", () => {
-      expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).toMatch(/a menos de unas 500 millas \(800 km\)/);
-      expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).toMatch(/à moins d'environ 500 miles \(800 km\)/);
-      expect(COUNTRY_PROXIMITY_WITH_DOMESTIC_GUIDANCE).toMatch(/a menos de unas 500 millas \(800 km\)/);
-      expect(COUNTRY_PROXIMITY_WITH_DOMESTIC_GUIDANCE).toMatch(/à moins d'environ 500 miles \(800 km\)/);
-    });
-  });
-
   describe("empty-result copy", () => {
     it("does not say there are no centers", () => {
       expect(selectCountryOnlyNearestCandidates([], "Uruguay", TIGHT_URUGUAY_BOX)).toEqual([]);
       expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).toMatch(/no center is listed in that country/i);
       expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).toMatch(/no close options are listed/i);
-      expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).toMatch(/no hay un centro listado en ese país/i);
-      expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).toMatch(/aucune option proche n'est listée/i);
       expect(COUNTRY_PROXIMITY_EMPTY_FALLBACK).not.toMatch(/Ananda has no centers/i);
     });
   });

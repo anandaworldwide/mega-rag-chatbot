@@ -769,17 +769,13 @@ embeddings.
 
 - **Runtime Detection Module (`web/src/utils/server/locationIntentDetector.ts`):**
   - Loads site-specific embeddings into memory cache on initialization
-  - Keyword fast path matches location-request evidence: a complete locative
-    (`near me`, `cerca de mi`, `pres de moi`) or a center/group/temple/church/community
-    word plus nearest/closest. The three-letter codes `usa` and `uae` still match.
+  - Keyword fast path matches English location phrases (`near me`, `nearest`,
+    `where is`, `center in`, …) and the three-letter codes `usa` and `uae`.
     Two-letter ISO country codes are not keywords; they collide with function words
     in other languages (Italian `il`/`se`, German `de`, Spanish `es`) and skip library
-    search. Bare `cerca de` / `près de` is not location-request evidence. Org name plus
-    `más cercano` is not enough. `cerca de mi maestro` is not a locative "near me".
-    A cerca/cercano query that names a place word (`centro`, `grupo`, `templo`,
-    `comunidad`, `iglesia`, with plurals) still takes the location path.
-  - Nearest/closest intent also matches Spanish (`más cercano`) and French (`plus proche`)
-    after accent folding. Country-only nearest/closest returns a directory sample.
+    search. There is no Spanish or French keyword list. Named-place questions in
+    those languages use the embedding path until a separate classifier PR.
+  - Country-only nearest/closest returns a directory sample.
     Cap the sample at 8 rows. If the named country has 0 domestic rows, include up to
     8 foreign rows. If the named country has domestic rows, include up to 5 foreign
     rows, then fill remaining slots with domestic rows. Pick foreign rows by distance
@@ -790,8 +786,7 @@ embeddings.
     nearest. If the named country has 0 domestic rows, the tool may say that no center
     is listed in that country. If it has domestic rows, omit that sentence. A
     geocoding failure or invalid country box uses its own copy and does not say
-    that no center is listed. Explicit "only in" / "solo en" / "uniquement en"
-    stays country-filtered.
+    that no center is listed. Explicit English "only in" stays country-filtered.
     There is no hardcoded country-to-country map.
   - Implements contrastive scoring algorithm:
     - Positive similarity threshold: >= 0.37

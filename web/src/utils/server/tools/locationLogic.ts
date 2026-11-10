@@ -179,9 +179,6 @@ export const COUNTRY_SYNONYM_GROUPS: readonly (readonly string[])[] = [
     "U.S.",
     "U.S.A.",
     "United States of America",
-    "Estados Unidos",
-    "États-Unis",
-    "Etats-Unis",
   ],
   ["United Kingdom", "UK", "Great Britain", "Britain", "England", "Scotland", "Wales", "Northern Ireland"],
   ["New Zealand", "NZ", "Aotearoa"],
@@ -282,87 +279,31 @@ export function countriesMatchForCenterSearch(centerCsvCountry: string, filterCo
   return nCenter === nFilter;
 }
 
-/** Fold accents so Spanish/French nearest phrases match without an accent-specific regex. */
-export function foldDiacritics(text: string): string {
-  return text.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-}
-
-/**
- * Locative "near me" / "cerca de mi" / "près de moi" as a complete phrase.
- * Do not treat "cerca de mi maestro" as a location request: "mi" is possessive there.
- */
-function hasStandaloneNearMeLocative(q: string): boolean {
-  return (
-    /\bnear me\b(?!\s+(?!in\b|at\b|please\b)[a-z])/.test(q) ||
-    /\bcerca\s+de\s+mi\b(?!\s+(?!en\b|in\b|por\b|para\b)[a-z])/.test(q) ||
-    /\bpres\s+de\s+moi\b(?!\s+(?!en\b|au\b|aux\b|dans\b)[a-z])/.test(q)
-  );
-}
-
 export function hasProximityIntentInQuestion(question: string): boolean {
-  const q = foldDiacritics(question);
-  return (
-    /\b(nearby|closest|nearest|within\s+\d+|\d+\s*miles?\s+of|km\s+of)\b/i.test(q) ||
-    hasStandaloneNearMeLocative(q) ||
-    /\bmas\s+cercan[oa]s?\b/.test(q) ||
-    /\bmas\s+proxim[oa]s?\b/.test(q) ||
-    /\bplus\s+proche\b/.test(q)
-  );
+  return /\b(near me|nearby|closest|nearest|within\s+\d+|\d+\s*miles?\s+of|km\s+of)\b/i.test(question);
 }
 
 /**
- * Evidence that the user asks for a place, not only a near/close metaphor.
- * Used by the keyword geo path. Do not treat bare "cerca de" / "près de" as a location request.
- * Org name plus "más cercano" is not enough; require a center/group/temple/church/community word.
- */
-export function hasLocationRequestEvidence(question: string): boolean {
-  const q = foldDiacritics(question);
-  if (hasStandaloneNearMeLocative(q)) {
-    return true;
-  }
-  const hasPlaceEntity =
-    /\b(centers?|centros?|centres?|groups?|grupos?|groupes?|community|communities|comunidad(?:es)?|communaute(?:s)?|temples?|templos?|church(?:es)?|iglesias?|eglises?)\b/.test(
-      q
-    );
-  if (!hasPlaceEntity) {
-    return false;
-  }
-  return (
-    /\b(nearest|closest|nearby)\b/.test(q) ||
-    /\bmas\s+cercan[oa]s?\b/.test(q) ||
-    /\bmas\s+proxim[oa]s?\b/.test(q) ||
-    /\bplus\s+proche\b/.test(q)
-  );
-}
-
-/**
- * Explicit within-country-only wording. Nearest/closest must not imply this by language alone.
+ * Explicit English within-country-only wording. Nearest/closest must not imply this by language alone.
  */
 export function hasExplicitDomesticOnlyRestriction(question: string): boolean {
-  const q = foldDiacritics(question);
+  const q = question.toLowerCase();
   return (
     /\bonly\s+in\b/.test(q) ||
     /\bin\s+(?:the\s+)?[a-z]+(?:\s+[a-z]+){0,3}\s+only\b/.test(q) ||
     /\bonly\s+within\b/.test(q) ||
-    /\bwithin\s+(?:this\s+)?country\b/.test(q) ||
-    /\bsolo\s+en\b/.test(q) ||
-    /\bunicamente\s+en\b/.test(q) ||
-    /\bsolamente\s+en\b/.test(q) ||
-    /\buniquement\s+(?:en|au|aux|dans)\b/.test(q) ||
-    /\bseulement\s+(?:en|au|aux|dans)\b/.test(q)
+    /\bwithin\s+(?:this\s+)?country\b/.test(q)
   );
 }
 
 /**
- * Extract a country phrase after in/en/au/aux/dans from the user question.
+ * Extract a country phrase after "in" / "in the" from the user question.
  */
 export function extractCountryMentionFromQuestion(question: string): string | null {
   if (!question || !question.trim()) {
     return null;
   }
-  const m = question.match(
-    /\b(?:in|en|au|aux|dans)\s+(?:the\s+|el\s+|la\s+|los\s+|las\s+|l['’])?([A-Za-zÀ-ÿ]+(?:\s+[A-Za-zÀ-ÿ]+){0,3})\b/i
-  );
+  const m = question.match(/\bin\s+(?:the\s+)?([A-Za-z]+(?:\s+[A-Za-z]+){0,3})\b/i);
   if (!m) {
     return null;
   }
@@ -384,7 +325,7 @@ export function isCountryOnlyProvidedLocation(userProvidedLocation?: string): bo
 
 /**
  * Country-only when the tool arg is a country, or when the arg is omitted and
- * the question names a country after in/en/au/aux/dans.
+ * the question names a country after English "in".
  */
 export function isCountryOnlyLocationQuery(userProvidedLocation?: string, originalQuestion?: string): boolean {
   if (isCountryOnlyProvidedLocation(userProvidedLocation)) {
@@ -425,7 +366,7 @@ export function determineLocationSearchScope(input: LocationSearchScopeInput): L
     return { scope: "fallback" };
   }
 
-  // Explicit domestic-only wording wins over nearest/closest in any language.
+  // Explicit English domestic-only wording wins over nearest/closest.
   if (q && hasExplicitDomesticOnlyRestriction(q)) {
     const fromUser = u ? getCanonicalCountryLabel(u) : null;
     const extracted = extractCountryMentionFromQuestion(q);
@@ -497,25 +438,14 @@ export const COUNTRY_PROXIMITY_FOREIGN_MAX_MILES = 500;
 const EARTH_RADIUS_MILES = 3959;
 
 const COUNTRY_PROXIMITY_GUIDANCE_SHARED =
-  "These are directory alternatives within about 500 miles (800 km). This is not a complete list. Do not rank them as nearest to the user. Do not call them nearest. Do not show miles. Name a city for distances. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
-const COUNTRY_PROXIMITY_GUIDANCE_SHARED_ES =
-  "Estas son alternativas del directorio a menos de unas 500 millas (800 km). No es una lista completa. No las clasifique como las más cercanas al usuario. No las llame las más cercanas. No muestre millas. Nombre una ciudad para las distancias. También puede usar [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
-const COUNTRY_PROXIMITY_GUIDANCE_SHARED_FR =
-  "Ce sont des alternatives du répertoire à moins d'environ 500 miles (800 km). Ce n'est pas une liste complète. Ne les classez pas comme les plus proches de l'utilisateur. Ne les appelez pas les plus proches. Ne montrez pas de miles. Indiquez une ville pour les distances. Vous pouvez aussi utiliser [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
+  "These are directory alternatives within about 500 miles (800 km). This is not a complete list. Do not rank them as nearest to the user. Do not call them nearest. Do not show miles. Name a city for distances. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/). Reply in the user's language.";
 
 /** Zero domestic rows: say no center is listed in that country. */
 export const COUNTRY_PROXIMITY_RESPONSE_GUIDANCE =
-  `EN: No center is listed in that country. ${COUNTRY_PROXIMITY_GUIDANCE_SHARED} ` +
-  `ES: No hay un centro listado en ese país. ${COUNTRY_PROXIMITY_GUIDANCE_SHARED_ES} ` +
-  `FR: Aucun centre n'est listé dans ce pays. ${COUNTRY_PROXIMITY_GUIDANCE_SHARED_FR} ` +
-  "Reply in the user's language.";
+  `No center is listed in that country. ${COUNTRY_PROXIMITY_GUIDANCE_SHARED}`;
 
 /** Domestic rows > 0: do not say no center is listed in that country. */
-export const COUNTRY_PROXIMITY_WITH_DOMESTIC_GUIDANCE =
-  `EN: ${COUNTRY_PROXIMITY_GUIDANCE_SHARED} ` +
-  `ES: ${COUNTRY_PROXIMITY_GUIDANCE_SHARED_ES} ` +
-  `FR: ${COUNTRY_PROXIMITY_GUIDANCE_SHARED_FR} ` +
-  "Reply in the user's language.";
+export const COUNTRY_PROXIMITY_WITH_DOMESTIC_GUIDANCE = COUNTRY_PROXIMITY_GUIDANCE_SHARED;
 
 export function countryProximityResponseGuidance(domesticCount: number): string {
   return domesticCount > 0
@@ -524,14 +454,10 @@ export function countryProximityResponseGuidance(domesticCount: number): string 
 }
 
 export const COUNTRY_PROXIMITY_EMPTY_FALLBACK =
-  "EN: No center is listed in that country. No close options are listed. Name a city. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/). " +
-  "ES: No hay un centro listado en ese país. No hay opciones cercanas listadas. Nombre una ciudad. También puede usar [Find Ananda Near You](https://www.ananda.org/find-ananda/). " +
-  "FR: Aucun centre n'est listé dans ce pays. Aucune option proche n'est listée. Indiquez une ville. Vous pouvez aussi utiliser [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
+  "No center is listed in that country. No close options are listed. Name a city. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
 
 export const COUNTRY_PROXIMITY_INVALID_BOX_FALLBACK =
-  "EN: The country location could not be determined. Name a city. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/). " +
-  "ES: No se pudo determinar la ubicación del país. Nombre una ciudad. También puede usar [Find Ananda Near You](https://www.ananda.org/find-ananda/). " +
-  "FR: L'emplacement du pays n'a pas pu être déterminé. Indiquez une ville. Vous pouvez aussi utiliser [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
+  "The country location could not be determined. Name a city. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
 
 export function omitCenterDistance(center: CenterResult): CenterResult {
   const copy: CenterResult = { ...center };

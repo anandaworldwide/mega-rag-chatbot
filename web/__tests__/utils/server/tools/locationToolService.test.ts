@@ -152,7 +152,7 @@ describe("LocationToolService country-level nearest-center flow", () => {
     expect(french.centers.responseGuidance).toMatch(/name a city for distances/i);
   });
 
-  it("EQUIV_ES_UY_DOMESTIC_ONLY consumer: solo en Uruguay stays country-filtered", async () => {
+  it("EQUIV_ES_UY_DOMESTIC_ONLY consumer: solo en with a Uruguay arg uses the 500-mile sample", async () => {
     const locationService = mockStatedCountryService(URUGUAY_GEOCODE);
     const centerDataService = {
       loadCenters: jest.fn().mockResolvedValue([syntheticNearby, syntheticFar]),
@@ -170,10 +170,10 @@ describe("LocationToolService country-level nearest-center flow", () => {
       { originalQuestion: "Cual es el centro Ananda mas cercano solo en Uruguay?" }
     );
 
-    expect(result.centers.found).toBe(false);
-    expect(result.centers.searchMode).toBe("country");
-    expect(result.centers.centers).toEqual([]);
-    expect(result.centers.fallbackMessage).toMatch(/no ananda centers were found in that country/i);
+    expect(result.centers.found).toBe(true);
+    expect(result.centers.searchMode).toBe("proximity");
+    expect(result.centers.locationPrecision).toBe("country");
+    expect(result.centers.centers.map((c) => c.name)).toContain("Synthetic Nearby Center");
   });
 
   it("EQUIV_ES_MVD_NEAREST consumer: Montevideo city-level still searches by proximity", async () => {
@@ -226,70 +226,6 @@ describe("LocationToolService country-level nearest-center flow", () => {
     expect(result.centers.centers).toEqual([]);
     expect(result.centers.fallbackMessage).toMatch(/no center is listed in that country/i);
     expect(result.centers.fallbackMessage).toMatch(/no close options are listed/i);
-  });
-
-  it("Hawk-3: omitted tool arg must not pair a Uruguay filter with IP coordinates", async () => {
-    const locationService = mockStatedCountryService(URUGUAY_GEOCODE);
-    const findNearestCenters = jest.fn().mockResolvedValue({
-      found: true,
-      centers: [],
-      searchMode: "proximity",
-      locationPrecision: "country",
-      responseGuidance: "These are directory alternatives. They may be far away.",
-    });
-    const service = new LocationToolService(
-      locationService as any,
-      { findNearestCenters } as any,
-      makeLogger() as any
-    );
-
-    const result = await service.getUserLocation({}, uruguayHeaders(), {
-      originalQuestion: "Cual es el centro Ananda mas cercano en Uruguay?",
-    });
-
-    expect(locationService.resolveLocation).not.toHaveBeenCalled();
-    expect(locationService.geocodeOnly).toHaveBeenCalled();
-    const usedIpPoint = findNearestCenters.mock.calls.some(
-      (call: unknown[]) => call[0] === MONTEVIDEO_GEOCODE.latitude && call[1] === MONTEVIDEO_GEOCODE.longitude
-    );
-    expect(usedIpPoint).toBe(false);
-    expect(result.centers.responseGuidance).toMatch(/directory alternatives/i);
-  });
-
-  it("no-IP-fallback: omitted arg geocodes the stated country and never uses IP coordinates", async () => {
-    const locationService = {
-      resolveLocation: jest.fn().mockResolvedValue(MONTEVIDEO_GEOCODE),
-      geocodeOnly: jest.fn().mockResolvedValue({
-        ...URUGUAY_GEOCODE,
-        bounds: {
-          southwest: { lat: -34.9, lng: -57.9 },
-          northeast: { lat: -30.1, lng: -53.2 },
-        },
-      }),
-    };
-    const findNearestCenters = jest.fn().mockResolvedValue({
-      found: true,
-      centers: [],
-      searchMode: "proximity",
-      locationPrecision: "country",
-      responseGuidance: "These are directory alternatives. They may be far away.",
-    });
-    const service = new LocationToolService(
-      locationService as any,
-      { findNearestCenters } as any,
-      makeLogger() as any
-    );
-
-    await service.getUserLocation({}, uruguayHeaders(), {
-      originalQuestion: "Cual es el centro Ananda mas cercano en Uruguay?",
-    });
-
-    expect(locationService.resolveLocation).not.toHaveBeenCalled();
-    expect(locationService.geocodeOnly).toHaveBeenCalled();
-    const usedIpPoint = findNearestCenters.mock.calls.some(
-      (call: unknown[]) => call[0] === MONTEVIDEO_GEOCODE.latitude && call[1] === MONTEVIDEO_GEOCODE.longitude
-    );
-    expect(usedIpPoint).toBe(false);
   });
 
   it("invalid geometry: missing bounds and viewport does not use IP and uses the empty copy", async () => {

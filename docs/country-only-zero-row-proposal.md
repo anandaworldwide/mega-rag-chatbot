@@ -1,6 +1,6 @@
 # Country-only selection: zero in-country rows
 
-Status: implemented on PR233 from the `68316fe6` contract. No paid calls. No IP fallback for a stated country. Uruguay/Argentina live coverage stays unknown.
+Status: implemented on PR233. No paid calls. No IP fallback when a canonical country arg is passed. Omitted-arg Spanish/French country names use IP (main parity). Uruguay/Argentina live coverage stays unknown.
 
 Conditional technical acceptance of `68316fe6`, with the locks in this revision.
 
@@ -20,19 +20,19 @@ There is **no** locations CSV in this repo (`git ls-files '*.csv'` is empty). `w
 
 ### User-facing wording
 
-When the sample has rows (including zero in-country + foreign rows). Call them directory alternatives that may be far away. Do not say they are nearest, nearby, neighboring, or across the border. Hiding miles is not enough:
+When the sample has rows (including zero in-country + foreign rows). Call them directory alternatives within about 500 miles (800 km). Do not say they are nearest. Hiding miles is not enough:
 
-> EN: These are directory alternatives. They may be far away. They are not guaranteed to be nearby or in neighboring countries. This is not a complete list. Do not rank them as nearest to the user. Do not give miles. Name a city for distances. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/).
-> ES: Estas son alternativas del directorio. Pueden estar lejos. No se garantiza que estén cerca ni en países vecinos. No es una lista completa. No las clasifique como las más cercanas al usuario. No dé millas. Nombre una ciudad para las distancias. También puede usar [Find Ananda Near You](https://www.ananda.org/find-ananda/).
-> FR: Ce sont des alternatives du répertoire. Elles peuvent être loin. Elles ne sont pas garanties proches ni dans des pays voisins. Ce n'est pas une liste complète. Ne les classez pas comme les plus proches de l'utilisateur. Ne donnez pas de miles. Indiquez une ville pour les distances. Vous pouvez aussi utiliser [Find Ananda Near You](https://www.ananda.org/find-ananda/).
+> These are directory alternatives within about 500 miles (800 km). This is not a complete list. Do not rank them as nearest to the user. Do not call them nearest. Do not show miles. Name a city for distances. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/). Reply in the user's language.
 
-When the sample is empty, or geometry is unusable (empty-result copy). This does not mean there are no centers:
+When the sample is empty:
 
-> EN: Our directory has no listing we can sample for that country from the data we have. That does not mean there are no centers. Name a city. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/).
-> ES: Nuestro directorio no tiene una ficha que podamos mostrar para ese país con los datos disponibles. Eso no significa que no haya centros. Nombre una ciudad. También puede usar [Find Ananda Near You](https://www.ananda.org/find-ananda/).
-> FR: Notre répertoire n'a aucune fiche que nous puissions présenter pour ce pays avec les données dont nous disposons. Cela ne signifie pas qu'il n'y a pas de centres. Indiquez une ville. Vous pouvez aussi utiliser [Find Ananda Near You](https://www.ananda.org/find-ananda/).
+> No center is listed in that country. No close options are listed. Name a city. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/).
 
-Never fall back to IP. Strict `solo en` / `only in` / `uniquement en` stays domestic-only and does not use the foreign sample.
+When geometry is unusable:
+
+> The country location could not be determined. Name a city. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/).
+
+Never fall back to IP when a canonical country arg is passed, or when English `in` extracts a country. English `only in` stays domestic-only. Omitted-arg Spanish/French country names use IP (main parity).
 
 ## Locked geometry
 
@@ -102,7 +102,7 @@ min(
 )
 ```
 
-No maximum miles.
+The formula has no cap. Selection keeps a foreign row only if this distance is at most `COUNTRY_PROXIMITY_FOREIGN_MAX_MILES` = 500.
 
 ## Locked dedupe (before caps)
 
@@ -122,7 +122,7 @@ Inputs: stated-country box (above); directory `country`, `latitude`, `longitude`
 2. Dedupe as locked above.
 3. In-country: `countriesMatchForCenterSearch(center.country, namedCountry)`.
 4. Foreign: all remaining rows.
-5. Rectangle-distance as locked. No maximum miles.
+5. Rectangle-distance as locked. Keep a foreign row only if that distance is at most 500 miles.
 6. `TOTAL_MAX = 8` (`COUNTRY_PROXIMITY_MAX_CANDIDATES`). `FOREIGN_MAX = 8` when in-country count is 0. `FOREIGN_MAX = 5` (`COUNTRY_PROXIMITY_FOREIGN_FILL`) when in-country count > 0.
 7. Take up to `FOREIGN_MAX` foreign rows with smallest rectangle-distance, ties by directory index. Then take in-country rows in directory order until the combined set has `TOTAL_MAX`. Emit the combined set in **directory order**. Omit `distance`.
 
@@ -136,7 +136,7 @@ If the user names a city, leave this contract. Geocode the city. Use existing ci
 
 1. **Zero-domestic with an outside-box foreign row:** in-country count 0; one foreign row outside the box; that row is in the sample; wording says results can be far away and are not guaranteed nearby or in neighboring countries.
 2. **Five-foreign plus domestic fill:** more than 5 qualifying foreign rows and more than 3 in-country rows; sample has 5 foreign and 3 in-country; directory order; duplicates removed before the cap.
-3. **Strict-country scope:** `solo en` / `only in` / `uniquement en` returns in-country rows only (no foreign sample).
+3. **Strict-country scope:** English `only in` returns in-country rows only (no foreign sample).
 4. **Invalid geometry with no IP:** missing or invalid bounds/viewport; `findNearestCenters` is not called with IP coordinates; empty-result copy; no IP geocode.
 5. **Empty-result copy:** zero selected rows (or unusable geometry) uses the empty-result wording exactly; it does not say Ananda has no centers.
 
