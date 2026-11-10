@@ -310,14 +310,117 @@ export function hasProximityIntentInQuestion(question: string): boolean {
   );
 }
 
+/** Possessive heads after "cerca de". These are not place names. */
+const CERCA_POSSESSIVE_HEADS = new Set([
+  "mi",
+  "mis",
+  "tu",
+  "tus",
+  "su",
+  "sus",
+  "nuestro",
+  "nuestra",
+  "nuestros",
+  "nuestras",
+]);
+
+/**
+ * Teaching or metaphor nouns after "cerca de" / "cercano a".
+ * Keep this set small. Do not load directory city records.
+ */
+const CERCA_NON_PLACE_HEADS = new Set([
+  "dios",
+  "maestro",
+  "maestra",
+  "yogananda",
+  "kriyananda",
+  "verdad",
+  "jesus",
+  "cristo",
+  "guru",
+]);
+
+function stripTrailingPunctuation(raw: string): string {
+  return raw.replace(/[¿?¡!.,;:]+$/g, "").trim();
+}
+
+/**
+ * True when the token after "cerca de" / "cercano a" is a country or a
+ * capitalized place name, not a teaching noun.
+ * Country match uses COUNTRY_SYNONYM_GROUPS. City match uses a capital letter
+ * on the original token. No directory records.
+ */
+function isCercaDePlaceName(raw: string): boolean {
+  const candidate = stripTrailingPunctuation(raw);
+  if (!candidate) {
+    return false;
+  }
+  const folded = foldDiacritics(candidate);
+  const tokens = folded.split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) {
+    return false;
+  }
+  if (CERCA_POSSESSIVE_HEADS.has(tokens[0])) {
+    return false;
+  }
+  if (tokens.every((token) => CERCA_NON_PLACE_HEADS.has(token))) {
+    return false;
+  }
+  if (getCanonicalCountryLabel(candidate) || tokens.some((token) => getCanonicalCountryLabel(token))) {
+    return true;
+  }
+  const originalFirst = candidate.split(/\s+/).filter(Boolean)[0] ?? "";
+  if (!/^[A-ZÁÉÍÓÚÜÑ]/.test(originalFirst)) {
+    return false;
+  }
+  return !CERCA_NON_PLACE_HEADS.has(foldDiacritics(originalFirst));
+}
+
+function hasCercaDeNamedPlace(question: string): boolean {
+  const patterns = [
+    /\bcerca\s+de(?:l)?\s+(?:el\s+|la\s+|los\s+|las\s+|un\s+|una\s+)?([^\s?.,;:¡!]+(?:\s+[^\s?.,;:¡!]+){0,2})/gi,
+    /\bcercan[oa]s?\s+a\s+(?:el\s+|la\s+|los\s+|las\s+|un\s+|una\s+|l['’])?([^\s?.,;:¡!]+(?:\s+[^\s?.,;:¡!]+){0,2})/gi,
+  ];
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(question)) !== null) {
+      if (isCercaDePlaceName(match[1])) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Spanish cerca/cercano plus a place clue: donde, ashram, retiro, or a
+ * city/country name after "cerca de".
+ */
+function hasCercaFamilyPlaceEvidence(question: string): boolean {
+  const q = foldDiacritics(question);
+  const hasCercaFamily = /\bcerca\b/.test(q) || /\bcercan[oa]s?\b/.test(q);
+  if (!hasCercaFamily) {
+    return false;
+  }
+  if (/\b(donde|ashrams?|retiros?)\b/.test(q)) {
+    return true;
+  }
+  return hasCercaDeNamedPlace(question);
+}
+
 /**
  * Evidence that the user asks for a place, not only a near/close metaphor.
  * Used by the keyword geo path. Do not treat bare "cerca de" / "près de" as a location request.
  * Org name plus "más cercano" is not enough; require a center/group/temple/church/community word.
+ * Spanish cerca/cercano also counts when the query names donde, ashram, retiro,
+ * or a city/country after "cerca de".
  */
 export function hasLocationRequestEvidence(question: string): boolean {
   const q = foldDiacritics(question);
   if (hasStandaloneNearMeLocative(q)) {
+    return true;
+  }
+  if (hasCercaFamilyPlaceEvidence(question)) {
     return true;
   }
   const hasPlaceEntity =

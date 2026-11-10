@@ -770,7 +770,12 @@ embeddings.
     search. Bare `cerca de` / `près de` is not location-request evidence. Org name plus
     `más cercano` is not enough. `cerca de mi maestro` is not a locative "near me".
     A cerca/cercano query that names a place word (`centro`, `grupo`, `templo`,
-    `comunidad`, `iglesia`, with plurals) still takes the location path.
+    `comunidad`, `iglesia`, `ashram`, `retiro`, with plurals) still takes the
+    location path. Spanish `dónde` / `donde` with cerca also counts. A city or
+    country name after `cerca de` / `cercano a` counts as place evidence. Country
+    names use `COUNTRY_SYNONYM_GROUPS`. Other names count when the first token is
+    capitalized and is not a teaching noun (`Dios`, `Maestro`, `Yogananda`).
+    Teaching uses such as `cerca de Dios` stay on the library path.
   - Nearest/closest intent also matches Spanish (`más cercano`) and French (`plus proche`)
     after accent folding. Country-only nearest/closest returns a directory sample.
     Cap the sample at 8 rows. If the named country has 0 domestic rows, include up to
