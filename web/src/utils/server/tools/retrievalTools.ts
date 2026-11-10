@@ -310,13 +310,13 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
   }
 
   const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
-  // A question to the user is a real answer, not loop status text.
-  const asksTheUser = /\?\s*$/.test(trimmed);
   // Opener + object on the first sentence only. A later "what the sources say"
   // must not make a real teaching answer look like search narration.
+  // "I still need" is not an opener here. Use hasNeedMoreThenSearch for
+  // search-progress lines so a clarifying question stays complete.
   const statusWindow = firstSentenceOrAll(trimmed);
   const startsLikeSearchNarration =
-    /^(i('ll| will)|i am|i'm|i don['’]t|i still need|let me(?: fetch| search| pull)?|gathering|pulling|searching|seeking|fetching|trying|retrieving|scanning|checking)\b/i.test(
+    /^(i('ll| will)|i am|i'm|i don['’]t|let me(?: fetch| search| pull)?|gathering|pulling|searching|seeking|fetching|trying|retrieving|scanning|checking)\b/i.test(
       statusWindow
     );
   // Short loop/tool status lines often omit "sources" ("Looking up the teachings…").
@@ -382,9 +382,7 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
         /(articles?|visualizations?)/.test(glued));
   }
 
-  // Short "I'll gather richer sources…" trail-offs, including glued status-like sentences.
-  if (
-    !asksTheUser &&
+  const matchesSearchNarrationRule =
     wordCount < 80 &&
     !iDontWithoutSearchVerb &&
     (hasLookingForRetrievalStatus ||
@@ -393,10 +391,7 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
         (mentionsRetrievalWork ||
           hasArticleOrVisualizationFetch ||
           hasAdjacentFetchNarration ||
-          gluedMentionsRetrievalWork)))
-  ) {
-    return true;
-  }
+          gluedMentionsRetrievalWork)));
 
   // One-sentence loop/tool status with no teaching predicate, even without "sources".
   // Require a retrieval object so a short product or teaching answer that happens
@@ -405,13 +400,36 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
     /\b(library|libraries|sources?|passages?|chunks?|articles?|visualizations?|question|topic|teachings?)\b/i.test(
       trimmed
     );
-  if (
-    !asksTheUser &&
+  const matchesStatusVerbRule =
     wordCount < 40 &&
     startsLikeStatusVerb &&
     !hasAnswerPredicate &&
-    hasLoopStatusObject
-  ) {
+    hasLoopStatusObject;
+
+  // Offer to run another search. Never a complete answer.
+  const offersToSearch =
+    /\b(?:shall i|should i|would you like me to|want me to)(?:\s+(?:continue|keep going))?\??\s*$/i.test(
+      trimmed
+    ) || /\b(?:keep going|continue)\??\s*$/i.test(trimmed);
+
+  // A "?" reply stays complete only when it is not search narration
+  // and not an offer to search.
+  const asksTheUser =
+    /\?\s*$/.test(trimmed) &&
+    !offersToSearch &&
+    !matchesSearchNarrationRule &&
+    !matchesStatusVerbRule;
+
+  if (offersToSearch) {
+    return true;
+  }
+
+  // Short "I'll gather richer sources…" trail-offs, including glued status-like sentences.
+  if (!asksTheUser && matchesSearchNarrationRule) {
+    return true;
+  }
+
+  if (!asksTheUser && matchesStatusVerbRule) {
     return true;
   }
 
