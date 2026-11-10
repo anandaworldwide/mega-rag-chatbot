@@ -12,6 +12,7 @@ import {
   pickCountryBox,
   selectCountryOnlyNearestCandidates,
   COUNTRY_PROXIMITY_RESPONSE_GUIDANCE,
+  COUNTRY_PROXIMITY_WITH_DOMESTIC_GUIDANCE,
   COUNTRY_PROXIMITY_EMPTY_FALLBACK,
 } from "../../../../src/utils/server/tools/locationLogic";
 import { HaversineDistanceCalculator } from "../../../../src/utils/server/tools/services";
@@ -274,6 +275,15 @@ describe("country-only selection contract", () => {
       expect(result.map((row) => row.name)).toEqual(["Synthetic Varela", "Synthetic Quilmes"]);
       expect(result).toHaveLength(2);
       expect(result.every((row) => row.distance === undefined)).toBe(true);
+    });
+  });
+
+  describe("EN/ES/FR distance wording", () => {
+    it("uses the Spanish and French phrases for the 500-mile limit", () => {
+      expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).toMatch(/a menos de unas 500 millas \(800 km\)/);
+      expect(COUNTRY_PROXIMITY_RESPONSE_GUIDANCE).toMatch(/à moins d'environ 500 miles \(800 km\)/);
+      expect(COUNTRY_PROXIMITY_WITH_DOMESTIC_GUIDANCE).toMatch(/a menos de unas 500 millas \(800 km\)/);
+      expect(COUNTRY_PROXIMITY_WITH_DOMESTIC_GUIDANCE).toMatch(/à moins d'environ 500 miles \(800 km\)/);
     });
   });
 
