@@ -306,7 +306,7 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
   // must not make a real teaching answer look like search narration.
   const statusWindow = firstSentenceOrAll(trimmed);
   const startsLikeSearchNarration =
-    /^(i('ll| will)|i am|i'm|i don['’]t|i still need|let me(?: fetch| search| pull)?|gathering|pulling|searching|seeking|fetching|trying|expanding|retrieving|scanning|checking)\b/i.test(
+    /^(i('ll| will)|i am|i'm|i don['’]t|i still need|let me(?: fetch| search| pull)?|gathering|pulling|searching|seeking|fetching|trying|retrieving|scanning|checking)\b/i.test(
       statusWindow
     );
   // Short loop/tool status lines often omit "sources" ("Looking up the teachings…").
@@ -341,10 +341,12 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
       statusWindow
     );
   // "I still need clearer quotes; pulling nearby passages…" is search-progress, not an answer.
+  // First sentence only, and only with a search-progress verb, so a clarifying
+  // question that asks the user something stays complete.
   const hasNeedMoreThenSearch =
-    /^i still need\b/i.test(trimmed) &&
-    /\b(quotes?|passages?|sources?|chunks?|tighter search|nearby passages|pulling nearby|story)\b/i.test(
-      trimmed
+    /^i still need\b/i.test(statusWindow) &&
+    /\b(pulling nearby|tighter search|nearby passages|searching|fetching|gathering)\b/i.test(
+      statusWindow
     );
   // Adjacent-chunk intent without saying "source/passage/chunk" (e.g. "Pulling nearby ceremony text…").
   // Keep the noun list tight so geo "I'll find nearby centers" is not treated as retrieval narration.
