@@ -1040,6 +1040,24 @@ From Ananda materials, daily attunement is less a long checklist than choosing a
       });
     });
 
+    it("does not claim fetching additional sources when no retrieval attempt ran", () => {
+      const result = finalizeRetrievalUserAnswer({
+        answerText: "Checking the library for this question.",
+        afterRetrievalAttempt: false,
+      });
+      expect(result.text).not.toMatch(/after fetching additional sources/i);
+      expect(result.text).not.toMatch(/fetching additional sources/i);
+    });
+
+    it("claims fetching additional sources after a retrieval attempt", () => {
+      const result = finalizeRetrievalUserAnswer({
+        answerText: "Checking the library for this question.",
+        afterRetrievalAttempt: true,
+      });
+      expect(result.usedFallback).toBe(true);
+      expect(result.text).toMatch(/after fetching additional sources/i);
+    });
+
     it("does not replace a no-fetch complete answer", () => {
       const answer = "Kriya Yoga is a meditation technique taught by Paramhansa Yogananda.";
       const result = finalizeRetrievalUserAnswer({

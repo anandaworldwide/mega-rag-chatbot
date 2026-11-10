@@ -510,6 +510,36 @@ describe("makechain retrieval tool loop", () => {
     expect(collectedAnswer(events)).not.toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
   });
 
+  it("does not claim fetching additional sources when no retrieval round ran", async () => {
+    stubFirstPassTextOnly("Checking the library for this question.", "Where is the feedback control?");
+
+    const { result, events } = await runLoop("Where is the feedback control?");
+
+    expect(executeRetrievalTool).not.toHaveBeenCalled();
+    expect(result.fullResponse).not.toMatch(/after fetching additional sources/i);
+    expect(collectedAnswer(events)).not.toMatch(/after fetching additional sources/i);
+  });
+
+  it("claims fetching additional sources after a retrieval round with an incomplete leftover", async () => {
+    stubFirstPassWithContent(
+      LOOKING_RAW,
+      '{"query":"class outline quotes","k":8}',
+      "Write a 90-minute class outline"
+    );
+    mockFollowUpContent = LOOKING_LEFTOVER;
+    (executeRetrievalTool as jest.Mock).mockResolvedValue({
+      ok: true,
+      documents: [fetchedDoc],
+      content: { documents: [{ content: fetchedDoc.pageContent }], message: "Retrieved 1 additional source(s)." },
+    });
+
+    const { result, events } = await runLoop("Write a 90-minute class outline");
+
+    expect(executeRetrievalTool).toHaveBeenCalled();
+    expect(result.fullResponse).toMatch(/after fetching additional sources/i);
+    expect(collectedAnswer(events)).toMatch(/after fetching additional sources/i);
+  });
+
   it("does not replace a first-pass I'll-pull leftover when no retrieval round ran", async () => {
     const prefix = "I'll pull a few verified Gita passages.";
     const leftover = "Still looking for a short story.";
