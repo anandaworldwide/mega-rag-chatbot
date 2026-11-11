@@ -643,6 +643,12 @@ describe("LocationLogic - Pure Business Logic Functions", () => {
       expect(hasExplicitDomesticOnlyRestriction("le plus proche uniquement en Uruguay")).toBe(false);
       expect(hasExplicitDomesticOnlyRestriction("Where is the nearest Ananda center in Uruguay?")).toBe(false);
     });
+
+    it("does not treat only-in evenings as domestic-only, even with a Uruguay arg", () => {
+      const question = "Is there an Ananda group near me that meets only in the evenings?";
+      expect(hasExplicitDomesticOnlyRestriction(question)).toBe(false);
+      expect(hasExplicitDomesticOnlyRestriction(question, "Uruguay")).toBe(false);
+    });
   });
 
   describe("isCountryOnlyProvidedLocation", () => {

@@ -258,6 +258,92 @@ describe("LocationToolService country-level nearest-center flow", () => {
     expect(result.centers.fallbackMessage).toMatch(/could not be determined/i);
   });
 
+  it("only-in evenings does not call geocodeOnly and is not domestic-only", async () => {
+    const locationService = {
+      resolveLocation: jest.fn().mockResolvedValue(MONTEVIDEO_GEOCODE),
+      geocodeOnly: jest.fn().mockResolvedValue(URUGUAY_GEOCODE),
+    };
+    const findNearestCenters = jest.fn().mockResolvedValue({
+      found: true,
+      centers: [{ ...syntheticNearby, distance: 12 }],
+    });
+    const service = new LocationToolService(
+      locationService as any,
+      { findNearestCenters } as any,
+      makeLogger() as any
+    );
+
+    await service.getUserLocation({}, uruguayHeaders(), {
+      originalQuestion: "Is there an Ananda group near me that meets only in the evenings?",
+    });
+
+    expect(locationService.geocodeOnly).not.toHaveBeenCalled();
+    expect(findNearestCenters).not.toHaveBeenCalledWith(
+      0,
+      0,
+      expect.objectContaining({ searchScope: "country" })
+    );
+  });
+
+  it("only-in evenings with a Uruguay arg is not domestic-only", async () => {
+    const locationService = mockStatedCountryService(URUGUAY_GEOCODE);
+    const findNearestCenters = jest.fn().mockResolvedValue({
+      found: true,
+      centers: [syntheticNearby],
+      searchMode: "proximity",
+      locationPrecision: "country",
+    });
+    const service = new LocationToolService(
+      locationService as any,
+      { findNearestCenters } as any,
+      makeLogger() as any
+    );
+
+    const result = await service.getUserLocation({ userProvidedLocation: "Uruguay" }, uruguayHeaders(), {
+      originalQuestion: "Is there an Ananda group near me that meets only in the evenings?",
+    });
+
+    expect(findNearestCenters).not.toHaveBeenCalledWith(
+      0,
+      0,
+      expect.objectContaining({ searchScope: "country" })
+    );
+    expect(result.centers.searchMode).not.toBe("country");
+  });
+
+  it("only-in Spain after another in-phrase filters to Spain", async () => {
+    const locationService = {
+      resolveLocation: jest.fn().mockResolvedValue(MONTEVIDEO_GEOCODE),
+      geocodeOnly: jest.fn().mockResolvedValue({
+        city: "Spain",
+        country: "Spain",
+        latitude: 40.4637,
+        longitude: -3.7492,
+        confidence: "high" as const,
+        source: "user-provided" as const,
+      }),
+    };
+    const findNearestCenters = jest.fn().mockResolvedValue({
+      found: true,
+      centers: [{ name: "Synthetic Spain Center", country: "Spain" }],
+    });
+    const service = new LocationToolService(
+      locationService as any,
+      { findNearestCenters } as any,
+      makeLogger() as any
+    );
+
+    await service.getUserLocation({}, uruguayHeaders(), {
+      originalQuestion: "Which centers in my area are open only in Spain?",
+    });
+
+    expect(findNearestCenters).toHaveBeenCalledWith(
+      0,
+      0,
+      expect.objectContaining({ searchScope: "country", countryFilter: "Spain" })
+    );
+  });
+
   it("geocoding failure does not say no center is listed", async () => {
     const locationService = {
       resolveLocation: jest.fn().mockResolvedValue(MONTEVIDEO_GEOCODE),
