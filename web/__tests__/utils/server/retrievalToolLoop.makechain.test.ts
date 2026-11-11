@@ -155,6 +155,7 @@ import {
   MAX_ADDED_RETRIEVAL_SOURCES,
   RETRIEVAL_FETCH_FAILED_USER_MESSAGE,
   RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+  RETRIEVAL_INCOMPLETE_USER_MESSAGE,
 } from "@/utils/server/tools/retrievalTools";
 import type { SiteConfig } from "@/types/siteConfig";
 import type { StreamingResponseData } from "@/types/StreamingResponseData";
@@ -184,17 +185,24 @@ function collectedAnswer(events: StreamingResponseData[]): string {
   return text;
 }
 
-async function runLoop(question = "Give me some stories from Autobiography of a Yogi") {
+async function runLoop(
+  question = "Give me some stories from Autobiography of a Yogi",
+  options?: { omitPineconeIndex?: boolean }
+) {
   const events: StreamingResponseData[] = [];
   const sendData = (data: StreamingResponseData) => {
     events.push(data);
   };
   const retriever = {
     vectorStore: {
-      pineconeIndex: {
-        listPaginated: jest.fn().mockResolvedValue({ vectors: [] }),
-        fetch: jest.fn().mockResolvedValue({ records: {} }),
-      },
+      ...(options?.omitPineconeIndex
+        ? {}
+        : {
+            pineconeIndex: {
+              listPaginated: jest.fn().mockResolvedValue({ vectors: [] }),
+              fetch: jest.fn().mockResolvedValue({ records: {} }),
+            },
+          }),
       similaritySearch: jest.fn().mockResolvedValue([initialDoc]),
       similaritySearchWithScore: jest.fn().mockResolvedValue([[initialDoc, 0.9]]),
     },
@@ -339,6 +347,44 @@ describe("makechain retrieval tool loop", () => {
     expect(result.finalDocs.map((doc) => doc.id)).toContain(fetchedDoc.id);
   });
 
+  it("never returns a post-retrieval status line as the final answer", async () => {
+    mockFollowUpContent = "Looking up the teachings on this topic.";
+    (executeRetrievalTool as jest.Mock).mockResolvedValue({
+      ok: true,
+      documents: [fetchedDoc],
+      content: { documents: [{ content: fetchedDoc.pageContent }], message: "Retrieved 1 additional source(s)." },
+    });
+
+    const { result, events } = await runLoop();
+    const streamed = collectedAnswer(events);
+
+    expect(streamed).not.toBe("Looking up the teachings on this topic.");
+    expect(result.fullResponse).not.toBe("Looking up the teachings on this topic.");
+    expect(streamed).not.toMatch(/^(Looking up|Fetching|Gathering|Pulling|Searching)\b/i);
+    expect(result.fullResponse).not.toMatch(/^(Looking up|Fetching|Gathering|Pulling|Searching)\b/i);
+    expect(result.fullResponse.length).toBeGreaterThan(0);
+  });
+
+  it("never returns an I-still-need / tighter-search progress line as the final answer", async () => {
+    const progressLine =
+      "I still need clearer Gita quotes and a short story from Master or Swamiji; pulling nearby passages and a tighter search....";
+    mockFollowUpContent = progressLine;
+    (executeRetrievalTool as jest.Mock).mockResolvedValue({
+      ok: true,
+      documents: [fetchedDoc],
+      content: { documents: [{ content: fetchedDoc.pageContent }], message: "Retrieved 1 additional source(s)." },
+    });
+
+    const { result, events } = await runLoop();
+    const streamed = collectedAnswer(events);
+
+    expect(streamed).not.toBe(progressLine);
+    expect(result.fullResponse).not.toBe(progressLine);
+    expect(streamed).not.toMatch(/tighter search/i);
+    expect(result.fullResponse).not.toMatch(/tighter search/i);
+    expect(result.fullResponse.length).toBeGreaterThan(0);
+  });
+
   it("sends a plain failure note when the fetch fails, never the status line", async () => {
     mockFollowUpContent = STATUS_LINE;
     (executeRetrievalTool as jest.Mock).mockResolvedValue({
@@ -460,7 +506,53 @@ describe("makechain retrieval tool loop", () => {
     expect(events.some((event) => event.status === "retrieving_more_sources")).toBe(false);
   });
 
-  it("treats a first-pass I'll-pull passages sentence plus a thin remainder as search narration", async () => {
+  it("does not replace a short first-pass answer when no retrieval round ran", async () => {
+    const shortAnswer = "Checking the toolbar for the feedback icon.";
+    stubFirstPassTextOnly(shortAnswer, "Where is the feedback control?");
+
+    const { result, events } = await runLoop("Where is the feedback control?");
+
+    expect(executeRetrievalTool).not.toHaveBeenCalled();
+    expect(result.fullResponse).toBe(shortAnswer);
+    expect(collectedAnswer(events)).toBe(shortAnswer);
+    expect(collectedAnswer(events)).not.toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+  });
+
+  it("does not claim fetching additional sources when no retrieval round ran", async () => {
+    mockFollowUpContent = "Checking the library for this question.";
+    stubFirstPassTextOnly("Checking the library for this question.", "Where is the feedback control?");
+
+    const { result, events } = await runLoop("Where is the feedback control?");
+
+    expect(executeRetrievalTool).not.toHaveBeenCalled();
+    expect(mockFollowUpInvocations).toBeGreaterThanOrEqual(1);
+    expect(result.fullResponse).not.toMatch(/after fetching additional sources/i);
+    expect(collectedAnswer(events)).not.toMatch(/after fetching additional sources/i);
+    expect(result.fullResponse).not.toContain("Checking the library for this question.");
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_USER_MESSAGE);
+  });
+
+  it("claims fetching additional sources after a retrieval round with an incomplete leftover", async () => {
+    stubFirstPassWithContent(
+      LOOKING_RAW,
+      '{"query":"class outline quotes","k":8}',
+      "Write a 90-minute class outline"
+    );
+    mockFollowUpContent = LOOKING_LEFTOVER;
+    (executeRetrievalTool as jest.Mock).mockResolvedValue({
+      ok: true,
+      documents: [fetchedDoc],
+      content: { documents: [{ content: fetchedDoc.pageContent }], message: "Retrieved 1 additional source(s)." },
+    });
+
+    const { result, events } = await runLoop("Write a 90-minute class outline");
+
+    expect(executeRetrievalTool).toHaveBeenCalled();
+    expect(result.fullResponse).toMatch(/after fetching additional sources/i);
+    expect(collectedAnswer(events)).toMatch(/after fetching additional sources/i);
+  });
+
+  it("retries a first-pass I'll-pull leftover with no tool call and does not claim a fetch", async () => {
     const prefix = "I'll pull a few verified Gita passages.";
     const leftover = "Still looking for a short story.";
     const raw = `${prefix}${leftover}`;
@@ -470,36 +562,41 @@ describe("makechain retrieval tool loop", () => {
     const { result, events } = await runLoop("Write a 90-minute class outline");
 
     expect(executeRetrievalTool).not.toHaveBeenCalled();
-    expect(mockFollowUpInvocations).toBe(2);
-    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
-    expect(collectedAnswer(events)).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(mockFollowUpInvocations).toBeGreaterThanOrEqual(1);
+    expect(result.fullResponse).not.toContain("Still looking for a short story");
     expect(collectedAnswer(events)).not.toContain("Still looking for a short story");
+    expect(result.fullResponse).not.toMatch(/after fetching additional sources/i);
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_USER_MESSAGE);
   });
 
-  it("replaces a leftover Searching-again listing with the fallback note", async () => {
+  it("retries a leftover Searching-again listing with no tool call and hides the narration", async () => {
     const leaked = `I'll pull additional Ananda Library material on the Bhagavad Gita for newcomers—quotes from Master and Swamiji plus a short story—so the 90-minute outline is well grounded.${LEFTOVER_SEARCHING_AGAIN}`;
     mockFollowUpContent = LEFTOVER_SEARCHING_AGAIN;
     stubFirstPassTextOnly(leaked, "Write a 90-minute class outline");
 
     const { result, events } = await runLoop("Write a 90-minute class outline");
 
-    expect(mockFollowUpInvocations).toBe(2);
-    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
-    expect(collectedAnswer(events)).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(executeRetrievalTool).not.toHaveBeenCalled();
+    expect(mockFollowUpInvocations).toBeGreaterThanOrEqual(1);
+    expect(result.fullResponse).not.toContain("Searching again");
     expect(collectedAnswer(events)).not.toContain("Searching again");
+    expect(result.fullResponse).not.toMatch(/after fetching additional sources/i);
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_USER_MESSAGE);
   });
 
-  it("replaces a leftover promise-and-stop retry with the fallback note", async () => {
+  it("retries a leftover promise-and-stop line with no tool call and hides the narration", async () => {
     const leaked = `I'll pull additional Ananda Library material on the Bhagavad Gita for newcomers—quotes from Master and Swamiji plus a short story—so the 90-minute outline is well grounded.${LEFTOVER_PROMISE_AND_STOP}`;
     mockFollowUpContent = LEFTOVER_PROMISE_AND_STOP;
     stubFirstPassTextOnly(leaked, "Write a 90-minute class outline");
 
     const { result, events } = await runLoop("Write a 90-minute class outline");
 
-    expect(mockFollowUpInvocations).toBe(2);
-    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
-    expect(collectedAnswer(events)).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(executeRetrievalTool).not.toHaveBeenCalled();
+    expect(mockFollowUpInvocations).toBeGreaterThanOrEqual(1);
+    expect(result.fullResponse).not.toContain("I will finish a complete");
     expect(collectedAnswer(events)).not.toContain("I will finish a complete");
+    expect(result.fullResponse).not.toMatch(/after fetching additional sources/i);
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_USER_MESSAGE);
   });
 
   it("keeps a structured outline when the second forced retry has headings", async () => {
@@ -509,35 +606,40 @@ describe("makechain retrieval tool loop", () => {
 
     const { result, events } = await runLoop("Write a 90-minute class outline");
 
+    expect(executeRetrievalTool).not.toHaveBeenCalled();
     expect(mockFollowUpInvocations).toBe(2);
     expect(result.fullResponse).toBe(SHORT_STRUCTURED_OUTLINE);
     expect(collectedAnswer(events)).toBe(SHORT_STRUCTURED_OUTLINE);
+    expect(result.fullResponse).not.toContain("I will finish a complete");
+    expect(result.fullResponse).not.toMatch(/after fetching additional sources/i);
   });
 
-  it("replaces a stripped-then-thin run 3 leftover on first pass with the fallback note", async () => {
+  it("retries a stripped-then-thin run 3 leftover with no tool call and hides the narration", async () => {
     mockFollowUpContent = RUN3_LEFTOVER;
     stubFirstPassTextOnly(RUN3_RAW, "Write a 90-minute class outline");
 
     const { result, events } = await runLoop("Write a 90-minute class outline");
 
     expect(executeRetrievalTool).not.toHaveBeenCalled();
-    expect(mockFollowUpInvocations).toBe(2);
-    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
-    expect(collectedAnswer(events)).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(mockFollowUpInvocations).toBeGreaterThanOrEqual(1);
+    expect(result.fullResponse).not.toContain("Still light on usable quotes");
     expect(collectedAnswer(events)).not.toContain("Still light on usable quotes");
+    expect(result.fullResponse).not.toMatch(/after fetching additional sources/i);
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_USER_MESSAGE);
   });
 
-  it("replaces a stripped-then-thin run 6 leftover on first pass with the fallback note", async () => {
+  it("retries a stripped-then-thin run 6 leftover with no tool call and hides the narration", async () => {
     mockFollowUpContent = RUN6_LEFTOVER;
     stubFirstPassTextOnly(RUN6_RAW, "Write a 90-minute class outline");
 
     const { result, events } = await runLoop("Write a 90-minute class outline");
 
     expect(executeRetrievalTool).not.toHaveBeenCalled();
-    expect(mockFollowUpInvocations).toBe(2);
-    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
-    expect(collectedAnswer(events)).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(mockFollowUpInvocations).toBeGreaterThanOrEqual(1);
+    expect(result.fullResponse).not.toContain("Still thin on usable Gita");
     expect(collectedAnswer(events)).not.toContain("Still thin on usable Gita");
+    expect(result.fullResponse).not.toMatch(/after fetching additional sources/i);
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_USER_MESSAGE);
   });
 
   it("replaces a Looking-for leftover after a tool-loop reset (Branch A)", async () => {
@@ -561,16 +663,73 @@ describe("makechain retrieval tool loop", () => {
     expect(collectedAnswer(events)).not.toContain("Looking for a short verified story");
   });
 
-  it("replaces a Looking-for leftover on a first-pass with no tool calls (Branch B)", async () => {
+  it("retries a Looking-for leftover on a first-pass with no tool calls (Branch B)", async () => {
     mockFollowUpContent = LOOKING_LEFTOVER;
     stubFirstPassTextOnly(LOOKING_RAW, "Write a 90-minute class outline");
 
     const { result, events } = await runLoop("Write a 90-minute class outline");
 
     expect(executeRetrievalTool).not.toHaveBeenCalled();
-    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
-    expect(collectedAnswer(events)).toBe(RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE);
+    expect(mockFollowUpInvocations).toBeGreaterThanOrEqual(1);
+    expect(result.fullResponse).not.toContain("Looking for a short verified story");
     expect(collectedAnswer(events)).not.toContain("Looking for a short verified story");
+    expect(result.fullResponse).not.toMatch(/after fetching additional sources/i);
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_USER_MESSAGE);
+  });
+
+  it("does not claim a source fetch when retrieval tool context is missing", async () => {
+    mockFollowUpContent = LOOKING_LEFTOVER;
+    stubFirstPassWithContent(
+      LOOKING_RAW,
+      '{"query":"class outline quotes","k":8}',
+      "Write a 90-minute class outline"
+    );
+
+    const { result, events } = await runLoop("Write a 90-minute class outline", {
+      omitPineconeIndex: true,
+    });
+
+    expect(executeRetrievalTool).not.toHaveBeenCalled();
+    expect(mockFollowUpInvocations).toBeGreaterThanOrEqual(1);
+    expect(result.fullResponse).not.toContain("Looking for a short verified story");
+    expect(collectedAnswer(events)).not.toContain("Looking for a short verified story");
+    expect(result.fullResponse).not.toMatch(/after fetching additional sources/i);
+    expect(result.fullResponse).toBe(RETRIEVAL_INCOMPLETE_USER_MESSAGE);
+  });
+
+  it("does not retry a full first-pass answer that ends with would you like me to continue", async () => {
+    const unit = ["Sit", "still", "and", "watch", "the", "next", "breath."];
+    const words: string[] = [];
+    while (words.length < 90) {
+      words.push(...unit);
+    }
+    const answer = `${words.slice(0, 90).join(" ")} Would you like me to continue?`;
+    stubFirstPassTextOnly(answer, "Hello");
+    const { result, events } = await runLoop("Hello");
+    expect(executeRetrievalTool).not.toHaveBeenCalled();
+    expect(mockFollowUpInvocations).toBe(0);
+    expect(result.fullResponse).toBe(answer);
+    expect(collectedAnswer(events)).toBe(answer);
+    expect(result.fullResponse).not.toBe(RETRIEVAL_INCOMPLETE_USER_MESSAGE);
+    expect(result.fullResponse).not.toMatch(/after fetching additional sources/i);
+  });
+
+  it("keeps short first-pass answers that ask the user or teach without a retry fallback", async () => {
+    const answers = [
+      "I still need a little more detail from you. Which quote do you mean?",
+      "I still need to know which quote you mean. Can you share it?",
+      "Expanding your love for the teachings each day.",
+    ];
+    for (const answer of answers) {
+      mockFollowUpInvocations = 0;
+      stubFirstPassTextOnly(answer, "Hello");
+      const { result, events } = await runLoop("Hello");
+      expect(executeRetrievalTool).not.toHaveBeenCalled();
+      expect(mockFollowUpInvocations).toBe(0);
+      expect(result.fullResponse).toBe(answer);
+      expect(collectedAnswer(events)).toBe(answer);
+      expect(result.fullResponse).not.toMatch(/after fetching additional sources/i);
+    }
   });
 
   it("forces an answer-only retry when a tool-loop follow-up strips to a thin leftover", async () => {

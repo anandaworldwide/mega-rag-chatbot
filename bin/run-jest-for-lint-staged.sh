@@ -25,9 +25,9 @@ needs_server_tests() {
     for file in "${files[@]}"; do
         # Normalize paths - handle both absolute and relative paths
         if [[ "$file" == /* ]]; then
-            # Absolute path - strip workspace root and web/ prefix
-            workspace_root="/Users/Michael/Documents/development/mega-rag-chatbot"
-            normalized_file="${file#$workspace_root/}"
+            # Absolute path - strip known workspace roots and web/ prefix
+            normalized_file="${file#/Users/Michael/Documents/development/mega-rag-chatbot/}"
+            normalized_file="${normalized_file#/workspace/}"
             normalized_file="${normalized_file#web/}"
         else
             # Relative path - just strip web/ prefix if present
@@ -90,9 +90,9 @@ client_files=()
 for file in "$@"; do
     # Normalize paths - handle both absolute and relative paths
     if [[ "$file" == /* ]]; then
-        # Absolute path - strip workspace root and web/ prefix
-        workspace_root="/Users/Michael/Documents/development/mega-rag-chatbot"
-        normalized_file="${file#$workspace_root/}"
+        # Absolute path - strip known workspace roots and web/ prefix
+        normalized_file="${file#/Users/Michael/Documents/development/mega-rag-chatbot/}"
+        normalized_file="${normalized_file#/workspace/}"
         normalized_file="${normalized_file#web/}"
     else
         # Relative path - just strip web/ prefix if present
@@ -137,9 +137,9 @@ if [ "$run_server_tests" = true ]; then
     for file in "$@"; do
         # Normalize paths - handle both absolute and relative paths
         if [[ "$file" == /* ]]; then
-            # Absolute path - strip workspace root and web/ prefix
-            workspace_root="/Users/Michael/Documents/development/mega-rag-chatbot"
-            normalized_file="${file#$workspace_root/}"
+            # Absolute path - strip known workspace roots and web/ prefix
+            normalized_file="${file#/Users/Michael/Documents/development/mega-rag-chatbot/}"
+            normalized_file="${normalized_file#/workspace/}"
             normalized_file="${normalized_file#web/}"
         else
             # Relative path - just strip web/ prefix if present

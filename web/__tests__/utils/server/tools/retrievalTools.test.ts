@@ -40,6 +40,7 @@ import {
   RETRIEVAL_FETCH_FAILED_USER_MESSAGE,
   RETRIEVAL_ROUND_LIMIT_USER_MESSAGE,
   RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+  RETRIEVAL_INCOMPLETE_USER_MESSAGE,
   getRetrievalToolGuidance,
 } from "../../../../src/utils/server/tools/retrievalTools";
 import {
@@ -623,6 +624,27 @@ describe("retrievalTools", () => {
       ).toBe(false);
     });
 
+    it("treats a short looking-up or fetching status line as incomplete even without the word sources", () => {
+      expect(isIncompleteRetrievalAnswer("Looking up the teachings on this topic.")).toBe(true);
+      expect(isIncompleteRetrievalAnswer("Fetching the requested teachings from the library.")).toBe(
+        true
+      );
+      expect(isIncompleteRetrievalAnswer("Checking the library for this question.")).toBe(true);
+    });
+
+    it("treats I-still-need plus pulling-nearby / tighter-search progress as incomplete", () => {
+      expect(
+        isIncompleteRetrievalAnswer(
+          "I still need clearer Gita quotes and a short story from Master or Swamiji; pulling nearby passages and a tighter search...."
+        )
+      ).toBe(true);
+      expect(
+        isIncompleteRetrievalAnswer(
+          "I still need clearer quotes; pulling nearby passages and a tighter search."
+        )
+      ).toBe(true);
+    });
+
     it("treats spaced and glued Fetching-more status lines as incomplete", () => {
       expect(
         isIncompleteRetrievalAnswer(
@@ -684,6 +706,112 @@ describe("retrievalTools", () => {
           "The teaching is, moreover, a practical resource for daily life."
         )
       ).toBe(false);
+    });
+
+    it("does not mark a one-sentence product answer incomplete", () => {
+      expect(
+        isIncompleteRetrievalAnswer("There is no setting that hides the follow-up input.")
+      ).toBe(false);
+      expect(
+        isIncompleteRetrievalAnswer("Checking the toolbar for the feedback icon.")
+      ).toBe(false);
+    });
+
+    it("does not mark a short teaching answer incomplete", () => {
+      expect(isIncompleteRetrievalAnswer("Loyalty is the first law of God.")).toBe(false);
+      expect(isIncompleteRetrievalAnswer("Checking the breath during meditation.")).toBe(false);
+    });
+
+    it("does not mark a short teaching answer that starts with Expanding your love incomplete", () => {
+      expect(isIncompleteRetrievalAnswer("Expanding your love more each day.")).toBe(false);
+    });
+
+    it("does not mark a clarifying question that starts with I still need incomplete", () => {
+      expect(
+        isIncompleteRetrievalAnswer(
+          "I still need a few details from you. Which story should I start with?"
+        )
+      ).toBe(false);
+      expect(
+        isIncompleteRetrievalAnswer("I still need a little more detail from you. Which quote do you mean?")
+      ).toBe(false);
+      expect(
+        isIncompleteRetrievalAnswer("I still need to know which quote you mean. Can you share it?")
+      ).toBe(false);
+    });
+
+    it("does not mark Expanding your love for the teachings as incomplete", () => {
+      expect(isIncompleteRetrievalAnswer("Expanding your love for the teachings each day.")).toBe(
+        false
+      );
+    });
+
+    it("marks search-narration questions and search offers incomplete", () => {
+      expect(isIncompleteRetrievalAnswer("Searching for more passages, shall I?")).toBe(true);
+      expect(
+        isIncompleteRetrievalAnswer("Let me search for more passages on this. Shall I continue?")
+      ).toBe(true);
+      expect(
+        isIncompleteRetrievalAnswer("I'll pull additional sources on this topic. Would you like me to?")
+      ).toBe(true);
+      expect(isIncompleteRetrievalAnswer("Looking for more sources on marriage?")).toBe(true);
+      expect(isIncompleteRetrievalAnswer("Fetching more sources for this question?")).toBe(true);
+      expect(
+        isIncompleteRetrievalAnswer("I'll pull more passages and a short story. Want me to keep going?")
+      ).toBe(true);
+      expect(isIncompleteRetrievalAnswer("Gathering more sources...?")).toBe(true);
+    });
+
+    it("keeps a true question to the user complete", () => {
+      expect(isIncompleteRetrievalAnswer("Which book do you mean?")).toBe(false);
+    });
+
+    it("keeps long answers and a continue statement complete", () => {
+      const unit = ["Sit", "still", "and", "watch", "the", "next", "breath."];
+      const words: string[] = [];
+      while (words.length < 90) {
+        words.push(...unit);
+      }
+      const teaching = `${words.slice(0, 90).join(" ")} Would you like me to continue?`;
+      expect(teaching.trim().split(/\s+/).length).toBeGreaterThanOrEqual(90);
+      expect(isIncompleteRetrievalAnswer(teaching)).toBe(false);
+
+      const outline = [
+        "# Evening class",
+        "## Opening",
+        "Greet the group and sit for one minute of quiet.",
+        "## Points",
+        "1. Sit tall and still.",
+        "2. Watch the breath without force.",
+        "3. Close with thanks.",
+        "Want me to keep going?",
+      ].join("\n");
+      expect(isIncompleteRetrievalAnswer(outline)).toBe(false);
+
+      const story =
+        "A traveler sat under a tree at dusk. Rain began to fall on the road. A farmer offered a dry barn for the night. They talked until the storm passed. The traveler left at dawn with a loaf of bread. Shall I continue?";
+      expect(isIncompleteRetrievalAnswer(story)).toBe(false);
+
+      expect(
+        isIncompleteRetrievalAnswer("Sit each morning and your practice will continue.")
+      ).toBe(false);
+      expect(isIncompleteRetrievalAnswer("Shall I continue?")).toBe(false);
+    });
+
+    it("keeps short real answers complete when more or additional is not a retrieval cue", () => {
+      expect(isIncompleteRetrievalAnswer("Meditate a little more each day. Shall I continue?")).toBe(
+        false
+      );
+      expect(
+        isIncompleteRetrievalAnswer("This practice brings more peace to the mind. Want me to keep going?")
+      ).toBe(false);
+      expect(
+        isIncompleteRetrievalAnswer("There are additional stories in that book. Should I?")
+      ).toBe(false);
+      const sourcesTaught =
+        "The sources show that the teacher taught stillness as a daily path of breath and devotion. Shall I continue?";
+      expect(sourcesTaught.trim().split(/\s+/).length).toBeLessThan(25);
+      expect(isIncompleteRetrievalAnswer(sourcesTaught)).toBe(false);
     });
 
     it("treats a full class outline answer as complete", () => {
@@ -1003,6 +1131,36 @@ From Ananda materials, daily attunement is less a long checklist than choosing a
         usedFallback: true,
         reason: "incomplete",
       });
+    });
+
+    it("does not claim fetching additional sources when no retrieval attempt ran", () => {
+      const result = finalizeRetrievalUserAnswer({
+        answerText: "Checking the library for this question.",
+        afterRetrievalAttempt: false,
+      });
+      expect(result.text).not.toMatch(/after fetching additional sources/i);
+      expect(result.text).not.toMatch(/fetching additional sources/i);
+    });
+
+    it("uses fallback wording with no fetch claim when the retry had no fetch", () => {
+      const result = finalizeRetrievalUserAnswer({
+        answerText: "Checking the library for this question.",
+        afterRetrievalAttempt: true,
+        fetchedAdditionalSources: false,
+      });
+      expect(result.usedFallback).toBe(true);
+      expect(result.text).not.toMatch(/after fetching additional sources/i);
+      expect(result.text).toBe(RETRIEVAL_INCOMPLETE_USER_MESSAGE);
+    });
+
+    it("claims fetching additional sources after a retrieval attempt", () => {
+      const result = finalizeRetrievalUserAnswer({
+        answerText: "Checking the library for this question.",
+        afterRetrievalAttempt: true,
+        fetchedAdditionalSources: true,
+      });
+      expect(result.usedFallback).toBe(true);
+      expect(result.text).toMatch(/after fetching additional sources/i);
     });
 
     it("does not replace a no-fetch complete answer", () => {

@@ -84,6 +84,9 @@ export const RETRIEVAL_FETCH_FAILED_USER_MESSAGE =
 export const RETRIEVAL_ROUND_LIMIT_USER_MESSAGE =
   "I reached the limit for fetching more sources and could not finish a complete answer. Please try again.";
 
+export const RETRIEVAL_INCOMPLETE_USER_MESSAGE =
+  "I could not finish a complete answer. Please try again.";
+
 export const RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE =
   "I could not finish a complete answer after fetching additional sources. Please try again.";
 
@@ -144,6 +147,8 @@ export type FinalizeRetrievalUserAnswerParams = {
   roundLimitHit?: boolean;
   afterRetrievalAttempt: boolean;
   afterForcedAnswerOnlyRetry?: boolean;
+  /** True only when search_more_sources or get_adjacent_chunks actually ran. */
+  fetchedAdditionalSources?: boolean;
 };
 
 export type FinalizeRetrievalUserAnswerResult = {
@@ -228,8 +233,11 @@ export function finalizeRetrievalUserAnswer(
       reason: "round_limit",
     };
   }
+  const claimFetch = params.fetchedAdditionalSources ?? params.afterRetrievalAttempt;
   return {
-    text: RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
+    text: claimFetch
+      ? RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE
+      : RETRIEVAL_INCOMPLETE_USER_MESSAGE,
     usedFallback: true,
     reason: "incomplete",
   };
@@ -304,10 +312,22 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
   const wordCount = trimmed.split(/\s+/).filter(Boolean).length;
   // Opener + object on the first sentence only. A later "what the sources say"
   // must not make a real teaching answer look like search narration.
+  // "I still need" is not an opener here. Use hasNeedMoreThenSearch for
+  // search-progress lines so a clarifying question stays complete.
   const statusWindow = firstSentenceOrAll(trimmed);
   const startsLikeSearchNarration =
-    /^(i('ll| will)|i am|i'm|i don['’]t|let me(?: fetch| search| pull)?|gathering|pulling|searching|seeking|fetching|trying|expanding)\b/i.test(
+    /^(i('ll| will)|i am|i'm|i don['’]t|let me(?: fetch| search| pull)?|gathering|pulling|searching|seeking|fetching|trying|retrieving|scanning|checking)\b/i.test(
       statusWindow
+    );
+  // Short loop/tool status lines often omit "sources" ("Looking up the teachings…").
+  // Do not include gathering/seeking/pulling/searching here: those still need a
+  // retrieval object so openings such as "Seeking God within" stay complete.
+  const startsLikeStatusVerb =
+    /^(fetching|retrieving|scanning|checking)\b/i.test(trimmed) ||
+    /^(looking (?:up|through|into|over))\b/i.test(trimmed);
+  const hasAnswerPredicate =
+    /\b(is|are|was|were|means|because|taught|teaches|said|wrote|writes|explained|according to|for example)\b/i.test(
+      trimmed
     );
   const iDontWithoutSearchVerb =
     /^i don['’]t\b/i.test(statusWindow) &&
@@ -327,7 +347,15 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
     /\b(fetch(?:ing)?|gather(?:ing)?|search(?:ing)?)\b/i.test(statusWindow) &&
     /\b(articles?|visualizations?)\b/i.test(statusWindow);
   const hasGluedSearchNarration =
-    /\b(expanding the strongest|trying a tighter search|searching the book material|i('ll| will) pull)\b/i.test(
+    /\b(expanding the strongest|trying a tighter search|a tighter search|searching the book material|i('ll| will) pull|pulling nearby)\b/i.test(
+      statusWindow
+    );
+  // "I still need clearer quotes; pulling nearby passages…" is search-progress, not an answer.
+  // First sentence only, and only with a search-progress verb, so a clarifying
+  // question that asks the user something stays complete.
+  const hasNeedMoreThenSearch =
+    /^i still need\b/i.test(statusWindow) &&
+    /\b(pulling nearby|tighter search|nearby passages|searching|fetching|gathering)\b/i.test(
       statusWindow
     );
   // Adjacent-chunk intent without saying "source/passage/chunk" (e.g. "Pulling nearby ceremony text…").
@@ -354,17 +382,52 @@ export function isIncompleteRetrievalAnswer(text: string): boolean {
         /(articles?|visualizations?)/.test(glued));
   }
 
-  // Short "I'll gather richer sources…" trail-offs, including glued status-like sentences.
-  if (
+  const matchesSearchNarrationRule =
     wordCount < 80 &&
     !iDontWithoutSearchVerb &&
     (hasLookingForRetrievalStatus ||
+      hasNeedMoreThenSearch ||
       ((startsLikeSearchNarration || hasGluedSearchNarration || gluedStartsLikeSearchNarration) &&
         (mentionsRetrievalWork ||
           hasArticleOrVisualizationFetch ||
           hasAdjacentFetchNarration ||
-          gluedMentionsRetrievalWork)))
-  ) {
+          gluedMentionsRetrievalWork)));
+
+  // One-sentence loop/tool status with no teaching predicate, even without "sources".
+  // Require a retrieval object so a short product or teaching answer that happens
+  // to start with checking/scanning is not marked incomplete.
+  const hasLoopStatusObject =
+    /\b(library|libraries|sources?|passages?|chunks?|articles?|visualizations?|question|topic|teachings?)\b/i.test(
+      trimmed
+    );
+  const matchesStatusVerbRule =
+    wordCount < 40 &&
+    startsLikeStatusVerb &&
+    !hasAnswerPredicate &&
+    hasLoopStatusObject;
+
+  // Search offer only: short status-like reply plus retrieval words or a
+  // search-narration opener. "continue" and "keep going" need a trailing "?".
+  const offerClose =
+    /\b(?:shall i|should i|would you like me to|want me to)(?:\s+(?:continue|keep going))?\?\s*$/i.test(
+      trimmed
+    ) || /\b(?:keep going|continue)\?\s*$/i.test(trimmed);
+  const hasRetrievalCue =
+    startsLikeSearchNarration ||
+    (/\b(sources?|passages?|quotes?|chunks?|search(?:ing)?|library)\b/i.test(statusWindow) &&
+      !hasAnswerPredicate);
+  const offersToSearch = Boolean(offerClose && hasRetrievalCue && wordCount < 25);
+
+  if (offersToSearch) {
+    return true;
+  }
+
+  // Short "I'll gather richer sources…" trail-offs, including glued status-like sentences.
+  if (matchesSearchNarrationRule) {
+    return true;
+  }
+
+  if (matchesStatusVerbRule) {
     return true;
   }
 
