@@ -22,6 +22,7 @@ describe("rephraseWithAuthorScope", () => {
     expect(result).toContain('"standalone_question"');
     expect(result).toContain('"author_scope"');
     expect(result).toContain("Respond ONLY with valid JSON");
+    expect(result).toContain("quoted spans");
   });
 
   it("does not duplicate the 'Follow Up Input: {question}' line", () => {

@@ -6,6 +6,7 @@ import type { SiteConfig } from "@/types/siteConfig";
 import { libraryEntryName } from "@/utils/libraryEntries";
 import type { MediaTypes } from "@/utils/determineActiveMediaTypes";
 import { determineActiveMediaTypes } from "@/utils/determineActiveMediaTypes";
+import { isSiteLibraryName } from "@/utils/server/siteLibraryName";
 import {
   FilterConflictAction,
   ResolvedTitleScope,
@@ -129,6 +130,33 @@ export function normalizeTitleScopeInput(value: string): string {
     .map((level) => normalizeTitleScopeSegment(level))
     .filter(Boolean)
     .join(" :: ");
+}
+
+/**
+ * Exact catalog title matches only (normalizedPrefix equality).
+ * Does not use contains or ordered-token fuzzy ranking.
+ */
+export function findExactTitlePrefixMatches(
+  entries: TitleCatalogLookupEntry[],
+  span: string
+): TitleCatalogLookupEntry[] {
+  const normalized = normalizeTitleScopeInput(span);
+  if (!normalized || isSiteLibraryName(span)) {
+    return [];
+  }
+  const matches: TitleCatalogLookupEntry[] = [];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (entry.normalizedPrefix !== normalized) {
+      continue;
+    }
+    if (seen.has(entry.canonicalPrefix)) {
+      continue;
+    }
+    seen.add(entry.canonicalPrefix);
+    matches.push(entry);
+  }
+  return matches;
 }
 
 function tokenizeNormalizedInput(value: string): string[] {
@@ -327,6 +355,10 @@ export function rankTitleScopeSuggestions(
   query: string,
   limit: number = SUGGESTION_LIMIT
 ) {
+  if (isSiteLibraryName(query)) {
+    return [];
+  }
+
   const suggestions = entries
     .map((entry) => scoreLookupEntry(entry, query))
     .filter((suggestion): suggestion is TitleScopeSuggestion => suggestion !== null)
@@ -534,6 +566,11 @@ export async function resolveTitleScopeSelection(
   selection?: TitleScopeSelection
 ): Promise<ResolvedTitleScope | null> {
   if (!selection) {
+    return null;
+  }
+
+  const namedFields = [selection.canonicalPrefix, selection.displayTitle, selection.userInput];
+  if (namedFields.some((value) => value && isSiteLibraryName(value))) {
     return null;
   }
 

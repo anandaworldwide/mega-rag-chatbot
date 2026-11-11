@@ -650,10 +650,17 @@ if (siteConfig?.requireLogin) {
   - Initializes Pinecone vector store connection for the relevant namespace.
   - Uses `ConversationalRetrievalQAChain` which:
     1. Optionally rephrases the question based on history.
-    2. Performs similarity search in Pinecone to find relevant document chunks.
-    3. Injects retrieved context and chat history into the LLM prompt.
-    4. Calls the LLM (e.g., OpenAI) to generate an answer.
-    5. Streams the answer back to the client.
+    2. Quote-role (`quotedSpanEmbedding.ts`) is shared by embedding, condense skip, retrieval tools,
+       and exact-quote miss wording. A recognized catalog title plus a topic embeds the original
+       question. A genuine quoted passage embeds that passage. Length alone is not a passage signal.
+       Catalog matching is exact prefix only. The same decision is appended to Active Filters so
+       static miss rules cannot treat a quoted title or uncertain text as an exact-passage miss.
+       Site/library brand names such as "Ananda Libraries" are not quoted spans, authors, or title scopes.
+       Title-scope Pinecone filters stay user-selected; quote-role never applies them automatically.
+    3. Performs similarity search in Pinecone to find relevant document chunks.
+    4. Injects retrieved context and chat history into the LLM prompt.
+    5. Calls the LLM (e.g., OpenAI) to generate an answer.
+    6. Streams the answer back to the client.
   - Handles source document formatting and logging.
 - **Retrieval tool callbacks (`tools/retrievalTools.ts`, gated by `enableRetrievalTools`):**
   - When enabled (currently `ananda` / Luca and `jairam`) and the answer model is not Anthropic, the answer model is

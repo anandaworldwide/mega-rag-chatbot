@@ -20,6 +20,7 @@ import {
   selectAdjacentIds,
   shouldBindRetrievalTools,
   buildRetrievalReinvokeSystemPrompt,
+  buildRetrievalReinvokeMessages,
   fillRetrievalAnswerTemplate,
   isIncompleteRetrievalAnswer,
   isRunTogetherNarrationText,
@@ -41,6 +42,12 @@ import {
   RETRIEVAL_INCOMPLETE_AFTER_FETCH_USER_MESSAGE,
   getRetrievalToolGuidance,
 } from "../../../../src/utils/server/tools/retrievalTools";
+import {
+  appendQuoteRoleGuidance,
+  formatQuoteRoleAnswerGuidance,
+  resolveQuoteRole,
+} from "../../../../src/utils/server/quotedSpanEmbedding";
+import type { TitleCatalogLookupEntry } from "../../../../src/types/titleScope";
 
 const accessSiteConfig = {
   siteId: "ananda",
@@ -242,6 +249,88 @@ describe("retrievalTools", () => {
       expect(result.error).toMatch(/query/i);
     });
 
+    it("coerces a title-only search_more query to the full topical question", async () => {
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([]);
+      const question = 'What did Swamiji write in "Art and Science of Raja Yoga" about vikrasana?';
+      const quoteRole = resolveQuoteRole(question, question, {
+        catalogStatus: "available",
+        catalogEntries: [
+          {
+            canonicalPrefix: "Art and Science of Raja Yoga",
+            normalizedPrefix: "art and science of raja yoga",
+            normalizedSearchText: "art and science of raja yoga",
+            normalizedLevels: ["art and science of raja yoga"],
+            depth: 1,
+            terminalSegment: "Art and Science of Raja Yoga",
+            normalizedTerminalSegment: "art and science of raja yoga",
+            fullTitleCount: 4,
+            vectorCount: 40,
+            availability: {
+              libraries: ["Ananda Library"],
+              mediaTypes: ["text"],
+              collectionsWithVectors: ["whole_library"],
+            },
+          } as TitleCatalogLookupEntry,
+        ],
+      });
+      const ctx = new RetrievalToolContext({
+        pineconeIndex: { listPaginated: jest.fn(), fetch: jest.fn() },
+        vectorStore: { similaritySearchWithScore },
+        knownSourceIds: [],
+        effectiveAccessLevel: 0,
+        quoteRole,
+      });
+
+      await executeSearchMoreSources({ query: "Art and Science of Raja Yoga" }, ctx);
+      expect(similaritySearchWithScore).toHaveBeenCalledWith(
+        question,
+        expect.any(Number),
+        undefined
+      );
+    });
+
+    it("coerces a title-only search_more query to the restated question", async () => {
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([]);
+      const original = 'What does "Synthetic Dawn Manual" say about that?';
+      const restated = "What does Synthetic Dawn Manual say about practicing patience?";
+      const quoteRole = resolveQuoteRole(original, original, {
+        catalogStatus: "available",
+        catalogEntries: [
+          {
+            canonicalPrefix: "Synthetic Dawn Manual",
+            normalizedPrefix: "synthetic dawn manual",
+            normalizedSearchText: "synthetic dawn manual",
+            normalizedLevels: ["synthetic dawn manual"],
+            depth: 1,
+            terminalSegment: "Synthetic Dawn Manual",
+            normalizedTerminalSegment: "synthetic dawn manual",
+            fullTitleCount: 4,
+            vectorCount: 40,
+            availability: {
+              libraries: ["Ananda Library"],
+              mediaTypes: ["text"],
+              collectionsWithVectors: ["whole_library"],
+            },
+          } as TitleCatalogLookupEntry,
+        ],
+      });
+      const ctx = new RetrievalToolContext({
+        pineconeIndex: { listPaginated: jest.fn(), fetch: jest.fn() },
+        vectorStore: { similaritySearchWithScore },
+        knownSourceIds: [],
+        effectiveAccessLevel: 0,
+        quoteRole,
+        restatedQuestion: restated,
+      });
+
+      await executeSearchMoreSources({ query: "Synthetic Dawn Manual" }, ctx);
+      expect(similaritySearchWithScore).toHaveBeenCalledWith(
+        restated,
+        expect.any(Number),
+        undefined
+      );
+    });
+
     it("passes the author-scoped Pinecone filter through to similarity search", async () => {
       const freshA = makeId(2);
       const authorFilter = { $and: [{ author: { $eq: "Asha Nayaswami" } }] };
@@ -359,6 +448,57 @@ describe("retrievalTools", () => {
 
     it("does not accept a taskMode option that could gate tool binding", () => {
       expect(shouldBindRetrievalTools.length).toBe(3);
+    });
+
+    it("tells search_more_sources to embed a quoted phrase, not a quote request", () => {
+      expect(RETRIEVAL_TOOL_GUIDANCE).toContain("pass the full topical question");
+      expect(RETRIEVAL_TOOL_GUIDANCE).toContain("pass that quoted passage as the query");
+      expect(RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE).toContain("say so in one sentence");
+      expect(RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE).toContain("Do not recite a neighboring story");
+      expect(RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE).toContain("Follow the Quote-role instruction in Active Filters");
+      expect(RETRIEVAL_POST_TOOL_ANSWER_GUIDANCE).toContain(
+        "If it says topical, do not treat quoted text as a missing exact passage"
+      );
+      const searchMore = RETRIEVAL_TOOL_DEFINITIONS.find((tool) => tool.function.name === "search_more_sources");
+      const properties = searchMore?.function.parameters.properties as Record<string, { description?: string }>;
+      expect(properties.query.description).toContain("pass the full topical question");
+      expect(properties.query.description).toContain("pass that passage alone");
+    });
+
+    it("carries title vs passage quote-role miss guidance in the reinvoke human message", () => {
+      const unavailable = { catalogEntries: [], catalogStatus: "unavailable" as const };
+      const topical =
+        'What does "The Purple Lantern Field Manual for Quiet Mountain Practice" say about patience?';
+      const topicalRole = resolveQuoteRole(topical, topical, unavailable);
+      const topicalMessages = buildRetrievalReinvokeMessages({
+        siteTemplate: "Rules.\n{activeFiltersSummary}\nQuestion: {question}",
+        contextDocs: [],
+        chatHistory: "",
+        question: topical,
+        activeFiltersSummary: appendQuoteRoleGuidance("Whole library", topicalRole),
+        allowMoreTools: false,
+      });
+      expect(topicalRole.applyExactQuoteMissInstruction).toBe(false);
+      expect(topicalMessages.human).toContain(
+        "Do not treat the quoted text as a missing exact passage"
+      );
+      expect(topicalMessages.human).not.toContain("exact-passage lookup");
+      expect(topicalMessages.system).toContain("Follow the Quote-role instruction in Active Filters");
+
+      const literal =
+        'Find this quotation: "The Purple Lantern Field Manual for Quiet Mountain Practice"';
+      const literalRole = resolveQuoteRole(literal, literal, unavailable);
+      const literalMessages = buildRetrievalReinvokeMessages({
+        siteTemplate: "Rules.\n{activeFiltersSummary}\nQuestion: {question}",
+        contextDocs: [],
+        chatHistory: "",
+        question: literal,
+        activeFiltersSummary: appendQuoteRoleGuidance("Whole library", literalRole),
+        allowMoreTools: false,
+      });
+      expect(literalRole.applyExactQuoteMissInstruction).toBe(true);
+      expect(literalMessages.human).toContain("Quote-role: exact-passage lookup");
+      expect(formatQuoteRoleAnswerGuidance(literalRole)).toContain("say so in one sentence");
     });
 
     it("uses answer-first retrieval guidance while keeping tools bound", () => {

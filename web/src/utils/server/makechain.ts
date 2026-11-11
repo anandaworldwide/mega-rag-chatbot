@@ -111,6 +111,12 @@ import {
 } from "./authorScopeRetrieval";
 import { getCondenseTemplateWithAuthorScope, invokeRephraseWithAuthorScope } from "./rephraseWithAuthorScope";
 import {
+  appendQuoteRoleGuidance,
+  resolveQuoteRoleForSite,
+  searchQueryForQuoteRole,
+  type QuoteRoleDecision,
+} from "./quotedSpanEmbedding";
+import {
   formatRelevanceCutoffLog,
   getEffectiveMinRetrievalScore,
   mergeRelevanceStats,
@@ -401,6 +407,10 @@ Examples of location clarifications that should be reformulated:
 - Input: "My address is 123 Main Street, Portland, Oregon" (after asking about local groups)
   → Output: "Are there Ananda meditation groups near 123 Main Street, Portland, Oregon?"
 
+SPECIAL HANDLING FOR QUOTED SPANS: If the quoted text is a book or source title and the user asks about a topic, keep the full topical question. Do not use the title alone as the standalone question. If the quoted text is a passage the user wants to find, the standalone question MUST be that quoted passage alone. Do not rewrite a passage as a request for a quotation. Do not wrap a passage in "Can you provide", "What is the exact", or author names.
+
+SPECIAL HANDLING FOR QUOTE REQUESTS WITHOUT A QUOTED SPAN: If the user asks for an exact quote, more quotes, a first sentence, a chapter, or where a passage lives, keep the topical substance from the conversation. Do not replace the question with a generic request such as "Can you provide more direct quotes from [authors]?"
+
 <chat_history>
   {chat_history}
 </chat_history>
@@ -560,6 +570,7 @@ export const makeChain = async (
   // Current user utterance captured before rephrase, so named-author detection cannot
   // hard-filter on Master/Swami names the rewrite injected from prior turns.
   let capturedUserUtterance = "";
+  let capturedQuoteRole: QuoteRoleDecision | null = null;
   // Set inside the retrieval step so the generation prompt can soften its answer when
   // restrictive filters yield no documents (see buildActiveFiltersSummaryForGeneration).
   let retrievalReturnedNoDocuments = false;
@@ -883,6 +894,18 @@ Error details: ${errorString}`,
       const allDocuments: Document[] = [];
       const minRetrievalScore = getEffectiveMinRetrievalScore(siteConfig, baseFilter);
       let retrievalRelevance = emptyRelevanceStats();
+      const quoteRole =
+        capturedQuoteRole ??
+        (await resolveQuoteRoleForSite(
+          siteId,
+          capturedUserUtterance || originalQuestion || input.question,
+          input.question
+        ));
+      capturedQuoteRole = quoteRole;
+      const embeddingQuery = searchQueryForQuoteRole(quoteRole, input.question);
+      if (!temporarySession) {
+        console.log(`🔍 SEARCH QUERY: "${embeddingQuery}"`);
+      }
       try {
         // Only treat "auto" as a blend trigger when the site has opted in. Otherwise a stray
         // collection="auto" from a non-auto site must fall back to whole_library, not blend.
@@ -952,7 +975,7 @@ Error details: ${errorString}`,
           const { documents: blendedDocs, debug: blendRetrievalDebug, relevance: blendRelevance } =
             await retrieveWithAuthorScopeBlend(
             retriever,
-            input.question,
+            embeddingQuery,
             sourceCount,
             baseFilter,
             scopeDescriptor.masterSwamiBoost,
@@ -990,7 +1013,7 @@ Error details: ${errorString}`,
 
           const { documents: docs, relevance: standardRelevance } = await runStandardRetrieval(
             retriever,
-            input.question,
+            embeddingQuery,
             sourceCount,
             searchFilter,
             includedLibraries,
@@ -1011,8 +1034,8 @@ Error details: ${errorString}`,
         const reason = resolveNoSourcesReason(retrievalRelevance);
         const warningMsg =
           reason === "low_relevance"
-            ? `⚠️ NO SOURCES: All ${retrievalRelevance.rawHitCount} retrieved documents were below minRetrievalScore (${minRetrievalScore}) for question: "${input.question.substring(0, 100)}..."`
-            : `⚠️ NO SOURCES: No documents retrieved for question: "${input.question.substring(0, 100)}..."`;
+            ? `⚠️ NO SOURCES: All ${retrievalRelevance.rawHitCount} retrieved documents were below minRetrievalScore (${minRetrievalScore}) for question: "${embeddingQuery.substring(0, 100)}..."`
+            : `⚠️ NO SOURCES: No documents retrieved for question: "${embeddingQuery.substring(0, 100)}..."`;
         console.warn(warningMsg);
         if (reason === "low_relevance" && minRetrievalScore !== undefined) {
           console.warn(formatRelevanceCutoffLog(minRetrievalScore, retrievalRelevance));
@@ -1262,9 +1285,9 @@ Error details: ${errorString}`,
       context: input.retrievalOutput.combinedContent,
       chat_history: input.originalInput.chat_history,
       question: input.originalInput.question,
-      activeFiltersSummary: buildActiveFiltersSummaryForGeneration(
-        activeFilterPromptData,
-        retrievalReturnedNoDocuments
+      activeFiltersSummary: appendQuoteRoleGuidance(
+        buildActiveFiltersSummaryForGeneration(activeFilterPromptData, retrievalReturnedNoDocuments),
+        capturedQuoteRole
       ),
       documents: input.retrievalOutput.documents, // Pass documents along
     }),
@@ -1297,6 +1320,14 @@ Error details: ${errorString}`,
         if (socialMatch) {
           capturedRestatedQuestion = input.question; // Store for later
           return input.question; // Don't reformulate social messages
+        }
+
+        // Quote-role skip: keep a quoted passage from being rewritten as a request
+        // for a quotation. Title follow-ups still condense so chat history is kept.
+        capturedQuoteRole = await resolveQuoteRoleForSite(siteId, input.question, input.question);
+        if (capturedQuoteRole.skipQuoteOnlyCondense) {
+          capturedRestatedQuestion = input.question;
+          return input.question;
         }
 
         if (input.chat_history.length === 0) {
@@ -1855,6 +1886,16 @@ export async function setupAndExecuteLanguageModelChain(
         let retrievalAnswerForced = false;
         let retrievalFetchFailed = false;
         let retrievalRoundLimitHit = false;
+        const quoteRoleSiteId = siteConfig?.siteId || process.env.SITE_ID || "";
+        const restatedQuestionForTools =
+          typeof result.question === "string" && result.question.trim()
+            ? result.question
+            : sanitizedQuestion;
+        // Classify from the raw utterance, same as Active Filters / capturedQuoteRole.
+        // Search still uses restatedQuestion via searchQueryForQuoteRole.
+        const quoteRole = quoteRoleSiteId
+          ? await resolveQuoteRoleForSite(quoteRoleSiteId, sanitizedQuestion, sanitizedQuestion)
+          : null;
         if (retrievalToolsEnabled) {
           const vectorStore = retriever.vectorStore as PineconeStore;
           const pineconeIndex = vectorStore?.pineconeIndex;
@@ -1872,6 +1913,8 @@ export async function setupAndExecuteLanguageModelChain(
               knownSourceIds: knownIds,
               effectiveAccessLevel,
               siteConfig,
+              quoteRole,
+              restatedQuestion: restatedQuestionForTools,
             });
           }
         }
@@ -1909,9 +1952,12 @@ export async function setupAndExecuteLanguageModelChain(
           retrievalAnswerForced = true;
           sendData({ status: "retrieving_more_sources" });
           const siteTemplate = await getFullTemplate(siteConfig?.siteId || "ananda-public");
-          const activeFiltersSummary = buildActiveFiltersSummaryForGeneration(
-            retrievalActiveFilterPromptData,
-            (result.sourceDocuments?.length ?? 0) === 0
+          const activeFiltersSummary = appendQuoteRoleGuidance(
+            buildActiveFiltersSummaryForGeneration(
+              retrievalActiveFilterPromptData,
+              (result.sourceDocuments?.length ?? 0) === 0
+            ),
+            quoteRole
           );
           const reinvokeMessages = buildRetrievalReinvokeMessages({
             siteTemplate,
@@ -2149,9 +2195,12 @@ export async function setupAndExecuteLanguageModelChain(
             let systemPrompt: string;
             let humanPrompt = sanitizedQuestion;
             if (isRetrievalRound) {
-              const activeFiltersSummary = buildActiveFiltersSummaryForGeneration(
-                retrievalActiveFilterPromptData,
-                (result.sourceDocuments?.length ?? 0) === 0
+              const activeFiltersSummary = appendQuoteRoleGuidance(
+                buildActiveFiltersSummaryForGeneration(
+                  retrievalActiveFilterPromptData,
+                  (result.sourceDocuments?.length ?? 0) === 0
+                ),
+                quoteRole
               );
               const reinvoke = buildRetrievalReinvokeMessages({
                 siteTemplate,

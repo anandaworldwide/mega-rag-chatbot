@@ -230,6 +230,24 @@ describe("makeChain", () => {
     return fromMock.mock.results[matches[0].index]?.value;
   }
 
+  function getQuestionRewriterFromMakeChain() {
+    const fromMock = jest.requireMock("@langchain/core/runnables").RunnableSequence.from as jest.Mock;
+    const matches = fromMock.mock.calls.filter(
+      (call) =>
+        Array.isArray(call[0]) &&
+        typeof call[0][0] === "object" &&
+        call[0][0] !== null &&
+        typeof (call[0][0] as { question?: unknown }).question === "function"
+    );
+    if (matches.length === 0) {
+      throw new Error("question rewriter sequence not found in RunnableSequence.from calls");
+    }
+    return matches[matches.length - 1][0][0].question as (input: {
+      question: string;
+      chat_history: string;
+    }) => Promise<string>;
+  }
+
   // Returns the answerChain's field-mapping step (the function that builds the prompt input,
   // including activeFiltersSummary). Identified by its leading object step keyed by retrievalOutput.
   function getAnswerChainMappingFromMakeChain() {
@@ -643,6 +661,200 @@ describe("makeChain", () => {
     expect(ChatPromptTemplate.fromTemplate).toHaveBeenCalledWith(
       expect.stringContaining("combine the location information with the original question context")
     );
+  });
+
+  test("should keep quoted spans in CONDENSE_TEMPLATE instead of quote requests", async () => {
+    const sendData = jest.fn();
+    const resolveDocs = jest.fn();
+
+    await makeChain(
+      mockRetriever,
+      { model: "gpt-4o-mini", temperature: 0.7 },
+      2,
+      undefined,
+      sendData,
+      resolveDocs,
+      undefined,
+      false,
+      [],
+      undefined,
+      mockSiteConfig
+    );
+
+    expect(ChatPromptTemplate.fromTemplate).toHaveBeenCalledWith(
+      expect.stringContaining("SPECIAL HANDLING FOR QUOTED SPANS")
+    );
+    expect(ChatPromptTemplate.fromTemplate).toHaveBeenCalledWith(
+      expect.stringContaining("keep the full topical question")
+    );
+    expect(ChatPromptTemplate.fromTemplate).toHaveBeenCalledWith(
+      expect.stringContaining("standalone question MUST be that quoted passage alone")
+    );
+    expect(ChatPromptTemplate.fromTemplate).toHaveBeenCalledWith(
+      expect.stringContaining("Do not replace the question with a generic request")
+    );
+  });
+
+  test("should condense a title-quoting follow-up so chat history is kept", async () => {
+    const sendData = jest.fn();
+    const resolveDocs = jest.fn();
+
+    await makeChain(
+      mockRetriever,
+      { model: "gpt-4o-mini", temperature: 0.7 },
+      2,
+      undefined,
+      sendData,
+      resolveDocs,
+      undefined,
+      false,
+      [],
+      undefined,
+      mockSiteConfig
+    );
+
+    const rewriteQuestion = getQuestionRewriterFromMakeChain();
+    const history = "Human: How do I practice patience?\nAI: Begin with a quiet mind.";
+    const rewritten = await rewriteQuestion({
+      question: 'What does "Synthetic Dawn Manual" say about that?',
+      chat_history: history,
+    });
+
+    expect(rewritten).toBe("Converted standalone question");
+
+    const passageRewrite = await rewriteQuestion({
+      question: 'Find this quotation: "Keep the heart open when the mind is busy with plans."',
+      chat_history: history,
+    });
+    expect(passageRewrite).toBe(
+      'Find this quotation: "Keep the heart open when the mind is busy with plans."'
+    );
+  });
+
+  test("should search the rephrased question for a title-quoting follow-up", async () => {
+    const sendData = jest.fn();
+    const resolveDocs = jest.fn();
+
+    await makeChain(
+      mockRetriever,
+      { model: "gpt-4o-mini", temperature: 0.7 },
+      2,
+      undefined,
+      sendData,
+      resolveDocs,
+      undefined,
+      false,
+      [],
+      undefined,
+      mockSiteConfig
+    );
+
+    const rewriteQuestion = getQuestionRewriterFromMakeChain();
+    const retrievalSequence = getRetrievalSequenceFromMakeChain();
+    const history = "Human: How do I practice patience?\nAI: Begin with a quiet mind.";
+    const original = 'What does "Synthetic Dawn Manual" say about that?';
+    const rewritten = await rewriteQuestion({
+      question: original,
+      chat_history: history,
+    });
+
+    expect(rewritten).toBe("Converted standalone question");
+
+    await retrievalSequence.invoke({
+      question: rewritten,
+      chat_history: history,
+    });
+
+    const searchQueries = mockRetriever.vectorStore.similaritySearchWithScore.mock.calls.map(
+      (call) => call[0]
+    );
+    expect(searchQueries.length).toBeGreaterThan(0);
+    expect(searchQueries.every((query) => query === "Converted standalone question")).toBe(true);
+    expect(searchQueries).not.toContain(original);
+  });
+
+  test("should search the rephrased question for an unquoted follow-up", async () => {
+    const sendData = jest.fn();
+    const resolveDocs = jest.fn();
+
+    await makeChain(
+      mockRetriever,
+      { model: "gpt-4o-mini", temperature: 0.7 },
+      2,
+      undefined,
+      sendData,
+      resolveDocs,
+      undefined,
+      false,
+      [],
+      undefined,
+      mockSiteConfig
+    );
+
+    const rewriteQuestion = getQuestionRewriterFromMakeChain();
+    const retrievalSequence = getRetrievalSequenceFromMakeChain();
+    const history = "Human: How do I practice patience?\nAI: Begin with a quiet mind.";
+    const original = "Tell me more about that.";
+    const rewritten = await rewriteQuestion({
+      question: original,
+      chat_history: history,
+    });
+
+    expect(rewritten).toBe("Converted standalone question");
+
+    await retrievalSequence.invoke({
+      question: rewritten,
+      chat_history: history,
+    });
+
+    const searchQueries = mockRetriever.vectorStore.similaritySearchWithScore.mock.calls.map(
+      (call) => call[0]
+    );
+    expect(searchQueries.length).toBeGreaterThan(0);
+    expect(searchQueries.every((query) => query === "Converted standalone question")).toBe(true);
+    expect(searchQueries).not.toContain(original);
+  });
+
+  test("should search a quoted passage only even when chat history is present", async () => {
+    const sendData = jest.fn();
+    const resolveDocs = jest.fn();
+
+    await makeChain(
+      mockRetriever,
+      { model: "gpt-4o-mini", temperature: 0.7 },
+      2,
+      undefined,
+      sendData,
+      resolveDocs,
+      undefined,
+      false,
+      [],
+      undefined,
+      mockSiteConfig
+    );
+
+    const rewriteQuestion = getQuestionRewriterFromMakeChain();
+    const retrievalSequence = getRetrievalSequenceFromMakeChain();
+    const history = "Human: How do I practice patience?\nAI: Begin with a quiet mind.";
+    const original = 'Find this quotation: "Keep the heart open when the mind is busy with plans."';
+    const passage = "Keep the heart open when the mind is busy with plans.";
+    const rewritten = await rewriteQuestion({
+      question: original,
+      chat_history: history,
+    });
+
+    expect(rewritten).toBe(original);
+
+    await retrievalSequence.invoke({
+      question: rewritten,
+      chat_history: history,
+    });
+
+    const searchQueries = mockRetriever.vectorStore.similaritySearchWithScore.mock.calls.map(
+      (call) => call[0]
+    );
+    expect(searchQueries.length).toBeGreaterThan(0);
+    expect(searchQueries.every((query) => query === passage)).toBe(true);
   });
 
   test("should respect privacy mode and not log questions when temporarySession is true", async () => {
