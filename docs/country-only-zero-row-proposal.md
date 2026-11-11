@@ -32,7 +32,7 @@ When geometry is unusable:
 
 > The country location could not be determined. Name a city. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/).
 
-Never fall back to IP when a canonical country arg is passed, or when English `in` extracts a country. English `only in` stays domestic-only. Omitted-arg Spanish/French country names use IP (main parity).
+Never fall back to IP when a canonical country arg is passed, or when English `in` extracts a country. English `only in` stays domestic-only when `getCanonicalCountryLabel` finds a country in that phrase or in `userProvidedLocation`. Omitted-arg Spanish/French country names use IP (main parity).
 
 ## Locked geometry
 
@@ -136,7 +136,7 @@ If the user names a city, leave this contract. Geocode the city. Use existing ci
 
 1. **Zero-domestic with an outside-box foreign row:** in-country count 0; one foreign row outside the box; that row is in the sample; wording says results can be far away and are not guaranteed nearby or in neighboring countries.
 2. **Five-foreign plus domestic fill:** more than 5 qualifying foreign rows and more than 3 in-country rows; sample has 5 foreign and 3 in-country; directory order; duplicates removed before the cap.
-3. **Strict-country scope:** English `only in` returns in-country rows only (no foreign sample).
+3. **Strict-country scope:** English `only in` with a known country returns in-country rows only (no foreign sample).
 4. **Invalid geometry with no IP:** missing or invalid bounds/viewport; `findNearestCenters` is not called with IP coordinates; empty-result copy; no IP geocode.
 5. **Empty-result copy:** zero selected rows (or unusable geometry) uses the empty-result wording exactly; it does not say Ananda has no centers.
 

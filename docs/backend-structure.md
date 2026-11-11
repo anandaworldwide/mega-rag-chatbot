@@ -786,7 +786,10 @@ embeddings.
     nearest. If the named country has 0 domestic rows, the tool may say that no center
     is listed in that country. If it has domestic rows, omit that sentence. A
     geocoding failure or invalid country box uses its own copy and does not say
-    that no center is listed. Explicit English "only in" stays country-filtered.
+    that no center is listed. Explicit English "only in" stays country-filtered
+    only when `getCanonicalCountryLabel` finds a country in that phrase or in
+    `userProvidedLocation`. A non-country phrase such as "evenings" uses the
+    normal path and does not geocode.
     There is no hardcoded country-to-country map.
   - Implements contrastive scoring algorithm:
     - Positive similarity threshold: >= 0.37

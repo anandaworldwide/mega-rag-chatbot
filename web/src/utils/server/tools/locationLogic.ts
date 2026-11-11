@@ -283,10 +283,7 @@ export function hasProximityIntentInQuestion(question: string): boolean {
   return /\b(near me|nearby|closest|nearest|within\s+\d+|\d+\s*miles?\s+of|km\s+of)\b/i.test(question);
 }
 
-/**
- * Explicit English within-country-only wording. Nearest/closest must not imply this by language alone.
- */
-export function hasExplicitDomesticOnlyRestriction(question: string): boolean {
+function hasDomesticOnlyPhrasing(question: string): boolean {
   const q = question.toLowerCase();
   return (
     /\bonly\s+in\b/.test(q) ||
@@ -294,6 +291,60 @@ export function hasExplicitDomesticOnlyRestriction(question: string): boolean {
     /\bonly\s+within\b/.test(q) ||
     /\bwithin\s+(?:this\s+)?country\b/.test(q)
   );
+}
+
+/**
+ * Phrase after English only-in / in-only / only-within. Not a word list.
+ * Prefer "only in X" over an earlier "in … only" so "in my area … only in Spain" yields Spain.
+ */
+function extractDomesticOnlyCountryCandidate(question: string): string | null {
+  if (!question.trim()) {
+    return null;
+  }
+  const patterns = [
+    /\bonly\s+in\s+(?:the\s+)?([A-Za-z]+(?:\s+[A-Za-z]+){0,3})\b/i,
+    /\bin\s+(?:the\s+)?([A-Za-z]+(?:\s+[A-Za-z]+){0,3})\s+only\b/i,
+    /\bonly\s+within\s+(?:the\s+)?([A-Za-z]+(?:\s+[A-Za-z]+){0,3})\b/i,
+  ];
+  for (const re of patterns) {
+    const match = question.match(re);
+    const candidate = match?.[1]?.trim();
+    if (candidate) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+/**
+ * Canonical country for an explicit domestic-only restriction.
+ * Gate: getCanonicalCountryLabel on the restriction candidate, else on userProvidedLocation.
+ * A non-country candidate (for example "evenings") does not fall back to the tool arg.
+ */
+export function resolveDomesticOnlyCountry(
+  question: string,
+  userProvidedLocation?: string
+): string | null {
+  if (!hasDomesticOnlyPhrasing(question)) {
+    return null;
+  }
+  const restrictionCandidate = extractDomesticOnlyCountryCandidate(question);
+  if (restrictionCandidate) {
+    return getCanonicalCountryLabel(restrictionCandidate);
+  }
+  return getCanonicalCountryLabel(userProvidedLocation ?? "");
+}
+
+/**
+ * Explicit English within-country-only wording that names a known country,
+ * or names none and the tool arg is a known country. Nearest/closest must not
+ * imply this by language alone.
+ */
+export function hasExplicitDomesticOnlyRestriction(
+  question: string,
+  userProvidedLocation?: string
+): boolean {
+  return resolveDomesticOnlyCountry(question, userProvidedLocation) !== null;
 }
 
 /**
@@ -367,15 +418,9 @@ export function determineLocationSearchScope(input: LocationSearchScopeInput): L
   }
 
   // Explicit English domestic-only wording wins over nearest/closest.
-  if (q && hasExplicitDomesticOnlyRestriction(q)) {
-    const fromUser = u ? getCanonicalCountryLabel(u) : null;
-    const extracted = extractCountryMentionFromQuestion(q);
-    const fromQuestion = extracted ? getCanonicalCountryLabel(extracted) : null;
-    const countryFilter =
-      fromUser ?? fromQuestion ?? getCanonicalCountryLabel(resolvedCountry) ?? resolvedCountry;
-    if (countryFilter) {
-      return { scope: "country", countryFilter };
-    }
+  const domesticCountry = resolveDomesticOnlyCountry(q, u);
+  if (domesticCountry) {
+    return { scope: "country", countryFilter: domesticCountry };
   }
 
   if (q && hasProximityIntentInQuestion(q)) {

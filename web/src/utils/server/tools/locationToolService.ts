@@ -16,7 +16,7 @@ import {
   isCountryOnlyLocationQuery,
   getCanonicalCountryLabel,
   extractCountryMentionFromQuestion,
-  hasExplicitDomesticOnlyRestriction,
+  resolveDomesticOnlyCountry,
   pickCountryBox,
   COUNTRY_PROXIMITY_INVALID_BOX_FALLBACK,
 } from "./locationLogic";
@@ -54,7 +54,8 @@ export class LocationToolService implements ILocationToolService {
     this.logger.logToolStart("get_user_location", args, requestHeaders);
 
     const originalQuestion = context?.originalQuestion ?? "";
-    const domesticOnly = hasExplicitDomesticOnlyRestriction(originalQuestion);
+    const domesticOnlyCountry = resolveDomesticOnlyCountry(originalQuestion, args.userProvidedLocation);
+    const domesticOnly = domesticOnlyCountry !== null;
     const countryOnlyNearest = !domesticOnly && isCountryOnlyLocationQuery(args.userProvidedLocation, originalQuestion);
 
     if (domesticOnly || countryOnlyNearest) {
@@ -160,8 +161,11 @@ export class LocationToolService implements ILocationToolService {
     toolStartTime: number
   ): Promise<{ location: LocationResult | null; centers: NearestCenterResult }> {
     const extracted = extractCountryMentionFromQuestion(originalQuestion);
-    const stated = (args.userProvidedLocation ?? "").trim() || extracted || "";
+    const domesticCountry = resolveDomesticOnlyCountry(originalQuestion, args.userProvidedLocation);
+    const stated =
+      (args.userProvidedLocation ?? "").trim() || domesticCountry || extracted || "";
     const countryLabel =
+      domesticCountry ||
       getCanonicalCountryLabel(args.userProvidedLocation ?? "") ||
       (extracted ? getCanonicalCountryLabel(extracted) : null) ||
       stated;
