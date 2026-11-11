@@ -167,6 +167,133 @@ describe("authorScopeRetrieval helpers", () => {
     expect(result.documents).toEqual([broader]);
   });
 
+  it("keeps Asha hits that say disciple but not discipleship", async () => {
+    const ashaDoc: Document = {
+      pageContent: "A synthetic talk about a true disciple and other disciples in daily life.",
+      metadata: { author: "Asha Nayaswami", title: "Notes for a disciple" },
+      id: "asha-disciple",
+    };
+    const broader: Document = {
+      pageContent: "Other teachers describe a different subject.",
+      metadata: { author: "Other Author", title: "Other notes" },
+      id: "broader",
+    };
+    const retrieve = jest
+      .fn()
+      .mockResolvedValueOnce({
+        documents: [ashaDoc],
+        relevance: { rawHitCount: 1, rejectedLowRelevance: 0, topScore: 0.88 },
+      })
+      .mockResolvedValueOnce({
+        documents: [broader],
+        relevance: { rawHitCount: 1, rejectedLowRelevance: 0, topScore: 0.84 },
+      });
+    const named = buildNamedAuthorFilter("Asha Nayaswami");
+
+    const result = await retrieveWithNamedAuthorFallback(retrieve, named, {
+      question: "What did Asha teach about discipleship",
+      authors: ["Asha Nayaswami"],
+      sourceMode: "preferred",
+    });
+
+    expect(JSON.stringify(ashaDoc)).not.toMatch(/discipleship/i);
+    expect(retrieve).toHaveBeenCalledTimes(1);
+    expect(result.droppedNamedAuthor).toBe(false);
+    expect(result.documents).toEqual([ashaDoc]);
+    expect(result.searchFilter).toEqual(named);
+  });
+
+  it("keeps Asha hits that say meditate but not meditation", async () => {
+    const ashaDoc: Document = {
+      pageContent: "A synthetic talk on how to meditate each morning.",
+      metadata: { author: "Asha Nayaswami", title: "How to meditate" },
+      id: "asha-meditate",
+    };
+    const retrieve = jest
+      .fn()
+      .mockResolvedValueOnce({
+        documents: [ashaDoc],
+        relevance: { rawHitCount: 1, rejectedLowRelevance: 0, topScore: 0.88 },
+      })
+      .mockResolvedValueOnce({
+        documents: [{ pageContent: "other", metadata: { author: "Other Author" }, id: "broader" }],
+        relevance: { rawHitCount: 1, rejectedLowRelevance: 0, topScore: 0.7 },
+      });
+    const named = buildNamedAuthorFilter("Asha Nayaswami");
+    const result = await retrieveWithNamedAuthorFallback(retrieve, named, {
+      question: "What did Asha teach about meditation",
+      authors: ["Asha Nayaswami"],
+      sourceMode: "preferred",
+    });
+
+    expect(JSON.stringify(ashaDoc)).not.toMatch(/meditation/i);
+    expect(retrieve).toHaveBeenCalledTimes(1);
+    expect(result.droppedNamedAuthor).toBe(false);
+    expect(result.documents).toEqual([ashaDoc]);
+  });
+
+  it("keeps Asha hits that say devotee but not devotion", async () => {
+    const ashaDoc: Document = {
+      pageContent: "A synthetic talk about the path of a devotee.",
+      metadata: { author: "Asha Nayaswami", title: "Notes for a devotee" },
+      id: "asha-devotee",
+    };
+    const retrieve = jest
+      .fn()
+      .mockResolvedValueOnce({
+        documents: [ashaDoc],
+        relevance: { rawHitCount: 1, rejectedLowRelevance: 0, topScore: 0.88 },
+      })
+      .mockResolvedValueOnce({
+        documents: [{ pageContent: "other", metadata: { author: "Other Author" }, id: "broader" }],
+        relevance: { rawHitCount: 1, rejectedLowRelevance: 0, topScore: 0.7 },
+      });
+    const named = buildNamedAuthorFilter("Asha Nayaswami");
+    const result = await retrieveWithNamedAuthorFallback(retrieve, named, {
+      question: "What did Asha teach about devotion",
+      authors: ["Asha Nayaswami"],
+      sourceMode: "preferred",
+    });
+
+    expect(JSON.stringify(ashaDoc)).not.toMatch(/devotion/i);
+    expect(retrieve).toHaveBeenCalledTimes(1);
+    expect(result.droppedNamedAuthor).toBe(false);
+    expect(result.documents).toEqual([ashaDoc]);
+  });
+
+  it("does not treat disco as a match for discipleship", async () => {
+    const offTopic: Document = {
+      pageContent: "A synthetic note about disco music and dance.",
+      metadata: { author: "Asha Nayaswami", title: "Disco night" },
+      id: "asha-disco",
+    };
+    const broader: Document = {
+      pageContent: "Other teachers describe a different subject.",
+      metadata: { author: "Other Author", title: "Other notes" },
+      id: "broader",
+    };
+    const retrieve = jest
+      .fn()
+      .mockResolvedValueOnce({
+        documents: [offTopic],
+        relevance: { rawHitCount: 1, rejectedLowRelevance: 0, topScore: 0.72 },
+      })
+      .mockResolvedValueOnce({
+        documents: [broader],
+        relevance: { rawHitCount: 1, rejectedLowRelevance: 0, topScore: 0.84 },
+      });
+    const named = buildNamedAuthorFilter("Asha Nayaswami");
+    const result = await retrieveWithNamedAuthorFallback(retrieve, named, {
+      question: "What did Asha teach about discipleship",
+      authors: ["Asha Nayaswami"],
+      sourceMode: "preferred",
+    });
+
+    expect(retrieve).toHaveBeenCalledTimes(2);
+    expect(result.droppedNamedAuthor).toBe(true);
+    expect(result.documents).toEqual([broader]);
+  });
+
   it("retries when preferred author hits share no topic tokens", async () => {
     const offTopic: Document = {
       pageContent: "A cooking class schedule and kitchen notes.",
