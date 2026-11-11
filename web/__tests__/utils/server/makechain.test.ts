@@ -54,12 +54,18 @@ jest.mock("@/utils/server/llmProvider", () => ({
 // Now import ChatOpenAI - it will be the mocked version
 import { VectorStoreRetriever } from "@langchain/core/vectorstores";
 import { Document } from "@langchain/core/documents";
+import {
+  EMPTY_RETRIEVAL_INFERRED_AUTHOR_HINT,
+  formatBroadenedAuthorLine,
+} from "../../../src/utils/server/activeFilterPrompt";
 import { createStreamingDeadlineGuard, makeChain, runStandardRetrieval } from "../../../src/utils/server/makechain";
 import { calculateSources, combineDocumentsFn } from "../../../src/utils/server/ragDocumentUtils";
 import fs from "fs/promises";
 import path from "path";
 import { ChatOpenAI } from "@langchain/openai";
 import { getChatModel } from "@/utils/server/llmProvider";
+import { hasLocationIntentAsync } from "@/utils/server/locationIntentDetector";
+import { executeRetrievalTool, RetrievalToolContext } from "@/utils/server/tools/retrievalTools";
 import { S3Client } from "@aws-sdk/client-s3";
 import { ChatPromptTemplate } from "@langchain/core/prompts";
 import { convertChatHistory, ChatMessage } from "../../../src/utils/shared/chatHistory";
@@ -3639,6 +3645,893 @@ describe("makeChain", () => {
       );
       expect(sourceDocCallsAfterRetry).toHaveLength(1);
       expect(scoredStore.similaritySearchWithScore).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("named-author empty-filter fallback", () => {
+    const autoSiteConfig = {
+      ...mockSiteConfig,
+      enableAutoAuthorScope: true,
+      includedLibraries: [],
+      authorAliases: {
+        asha: "Asha Nayaswami",
+        jyotish: "Nayaswami Jyotish Novak",
+        yogananda: "Paramhansa Yogananda",
+        kriyananda: "Swami Kriyananda",
+      },
+    };
+
+    type RetrievalCapture = {
+      filter?: Record<string, unknown>;
+      inferredAuthor?: string;
+      broadenedFromAuthors?: string[];
+    };
+
+    function hasNamedAuthorClause(filter: Record<string, unknown> | undefined): boolean {
+      const serialized = JSON.stringify(filter ?? {});
+      return serialized.includes('"author":{"$eq"') || serialized.includes('"author":{"$in"');
+    }
+
+    function authorFilterSearchMock(namedHits: Array<[Document, number]>, broaderHits: Array<[Document, number]>) {
+      return jest.fn().mockImplementation((_query, _k, filter) => {
+        if (hasNamedAuthorClause(filter)) {
+          return Promise.resolve(namedHits);
+        }
+        return Promise.resolve(broaderHits);
+      });
+    }
+
+    async function invokeAutoAuthorRetrieval(
+      similaritySearchWithScore: jest.Mock,
+      question: string,
+      capture: RetrievalCapture = {},
+      collectionKey: string = "auto"
+    ) {
+      mockRetriever.vectorStore = {
+        similaritySearch: jest.fn(),
+        similaritySearchWithScore,
+      } as any;
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        jest.fn(),
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        autoSiteConfig,
+        undefined,
+        undefined,
+        collectionKey,
+        undefined,
+        capture
+      );
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      const result = await retrievalSequence.invoke({ question, chat_history: "" });
+      const mapping = getAnswerChainMappingFromMakeChain();
+      const mapped = mapping({
+        retrievalOutput: { combinedContent: result.documents.length > 0 ? "docs" : "[]", documents: result.documents },
+        originalInput: { question, chat_history: "" },
+      });
+      return { result, mapped, retrievalSequence, capture };
+    }
+
+    const mockGeoTools = [{ name: "search_locations", description: "Search locations", parameters: {} }];
+    const mockGeoRequest = { headers: new Map([["x-forwarded-for", "127.0.0.1"]]) } as any;
+
+    async function invokeGeoAutoAuthorRetrieval(
+      similaritySearchWithScore: jest.Mock,
+      question: string,
+      capture: RetrievalCapture = {},
+      extraAliases: Record<string, string> = {}
+    ) {
+      const sendData = jest.fn();
+      mockRetriever.vectorStore = {
+        similaritySearch: jest.fn(),
+        similaritySearchWithScore,
+      } as any;
+      const siteConfig = {
+        ...autoSiteConfig,
+        enableGeoAwareness: true,
+        authorAliases: { ...autoSiteConfig.authorAliases, ...extraAliases },
+      };
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        sendData,
+        undefined,
+        undefined,
+        false,
+        mockGeoTools,
+        mockGeoRequest,
+        siteConfig,
+        question,
+        undefined,
+        "auto",
+        undefined,
+        capture
+      );
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      const result = await retrievalSequence.invoke({ question, chat_history: "" });
+      return { result, sendData, capture };
+    }
+
+    async function laterSearchMoreFilter(capturedFilter: Record<string, unknown> | undefined) {
+      const laterSearch = jest.fn().mockResolvedValue([
+        [{ pageContent: "synthetic extra hit", metadata: { title: "Extra" }, id: "extra-1" }, 0.8],
+      ]);
+      const ctx = new RetrievalToolContext({
+        pineconeIndex: { listPaginated: jest.fn(), fetch: jest.fn() },
+        vectorStore: { similaritySearchWithScore: laterSearch },
+        filter: capturedFilter,
+        knownSourceIds: [],
+        remainingSourceBudget: 4,
+        effectiveAccessLevel: 0,
+      });
+      await executeRetrievalTool("search_more_sources", { query: "synthetic extra query", k: 4 }, ctx);
+      expect(laterSearch).toHaveBeenCalled();
+      return laterSearch.mock.calls[0]?.[2] as Record<string, unknown> | undefined;
+    }
+
+    async function expectAuthorPathNotGeo(question: string, pageContent: string) {
+      const ashaDoc = new Document({
+        pageContent,
+        metadata: { library: "library1", source: "asha", author: "Asha Nayaswami" },
+      });
+      const similaritySearchWithScore = authorFilterSearchMock([[ashaDoc, 0.9]], []);
+      const capture: RetrievalCapture = {};
+      const { result, sendData } = await invokeGeoAutoAuthorRetrieval(
+        similaritySearchWithScore,
+        question,
+        capture
+      );
+
+      expect(sendData).not.toHaveBeenCalledWith(expect.objectContaining({ isLocationQuery: true }));
+      expect(similaritySearchWithScore).toHaveBeenCalled();
+      expect(JSON.stringify(similaritySearchWithScore.mock.calls[0][2])).toContain('"$eq":"Asha Nayaswami"');
+      expect(result.documents[0]?.metadata?.author).toBe("Asha Nayaswami");
+      expect(capture.inferredAuthor).toBe("Asha Nayaswami");
+    }
+
+    it("retries without the query-inferred author when that filter returns no documents", async () => {
+      const fallbackDoc = new Document({
+        pageContent: "library teaching",
+        metadata: { library: "library1", source: "fallback", author: "Other Author" },
+      });
+      const similaritySearchWithScore = jest.fn().mockImplementation((_query, _k, filter) => {
+        const serialized = JSON.stringify(filter ?? {});
+        if (serialized.includes('"author"') && serialized.includes("$eq")) {
+          return Promise.resolve([]);
+        }
+        return Promise.resolve([[fallbackDoc, 0.81]]);
+      });
+      mockRetriever.vectorStore = {
+        similaritySearch: jest.fn(),
+        similaritySearchWithScore,
+      } as any;
+
+      const sendData = jest.fn();
+      const retrievalFilterCapture: RetrievalCapture = {
+        inferredAuthor: "stale",
+      };
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        { $and: [{ type: { $in: ["text"] } }] },
+        sendData,
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        autoSiteConfig,
+        undefined,
+        undefined,
+        "auto",
+        undefined,
+        retrievalFilterCapture
+      );
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      const result = await retrievalSequence.invoke({
+        question: "What did Asha teach about meditation?",
+        chat_history: "",
+      });
+
+      expect(similaritySearchWithScore).toHaveBeenCalledTimes(2);
+      expect(JSON.stringify(similaritySearchWithScore.mock.calls[0][2])).toContain("Asha Nayaswami");
+      expect(JSON.stringify(similaritySearchWithScore.mock.calls[1][2])).not.toContain("$eq");
+      expect(result.documents).toHaveLength(1);
+      expect(result.documents[0]?.metadata?.source).toBe("fallback");
+      expect(retrievalFilterCapture.inferredAuthor).toBeUndefined();
+      expect(retrievalFilterCapture.broadenedFromAuthors).toEqual(["Asha Nayaswami"]);
+      expect(JSON.stringify(retrievalFilterCapture.filter ?? {})).not.toContain("$eq");
+      expect(console.warn).toHaveBeenCalledWith(
+        expect.stringContaining('Named-author filter for "Asha Nayaswami" returned no usable documents')
+      );
+
+      const mapping = getAnswerChainMappingFromMakeChain();
+      const mapped = mapping({
+        retrievalOutput: { combinedContent: "docs", documents: result.documents },
+        originalInput: { question: "What did Asha teach about meditation?", chat_history: "" },
+      });
+      expect(mapped.activeFiltersSummary).toContain(formatBroadenedAuthorLine(["Asha Nayaswami"]));
+      expect(mapped.activeFiltersSummary).not.toContain("Query-inferred author focus");
+      expect(mapped.activeFiltersSummary).not.toContain("No library sources matched the query-inferred author focus");
+    });
+
+    it("keeps the named-author filter when that search already returned documents", async () => {
+      const ashaDoc = new Document({
+        pageContent: "asha teaching about meditation",
+        metadata: { library: "library1", source: "asha", author: "Asha Nayaswami" },
+      });
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([[ashaDoc, 0.9]]);
+      mockRetriever.vectorStore = {
+        similaritySearch: jest.fn(),
+        similaritySearchWithScore,
+      } as any;
+
+      const retrievalFilterCapture: { filter?: Record<string, unknown>; inferredAuthor?: string } = {};
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        jest.fn(),
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        autoSiteConfig,
+        undefined,
+        undefined,
+        "auto",
+        undefined,
+        retrievalFilterCapture
+      );
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      const result = await retrievalSequence.invoke({
+        question: "What did Asha teach about meditation?",
+        chat_history: "",
+      });
+
+      expect(similaritySearchWithScore).toHaveBeenCalledTimes(1);
+      expect(result.documents).toHaveLength(1);
+      expect(retrievalFilterCapture.inferredAuthor).toBe("Asha Nayaswami");
+      expect(retrievalFilterCapture.broadenedFromAuthors).toBeUndefined();
+      expect(JSON.stringify(retrievalFilterCapture.filter ?? {})).toContain("Asha Nayaswami");
+    });
+
+    it("retries preferred Yogananda hits that only match yoga inside the author name", async () => {
+      const kitchenDoc = new Document({
+        pageContent: "Kitchen notes and a cooking class schedule.",
+        metadata: { library: "library1", source: "kitchen", author: "Paramhansa Yogananda", title: "Yogananda kitchen notes" },
+      });
+      const broaderDoc = new Document({
+        pageContent: "Other teachers describe yoga practice.",
+        metadata: { library: "library1", source: "broader", author: "Other Author", title: "Yoga practice" },
+      });
+      const similaritySearchWithScore = authorFilterSearchMock([[kitchenDoc, 0.72]], [[broaderDoc, 0.84]]);
+      const capture: RetrievalCapture = {};
+      const { result, mapped } = await invokeAutoAuthorRetrieval(
+        similaritySearchWithScore,
+        "What did Paramhansa Yogananda teach about yoga",
+        capture
+      );
+
+      expect(similaritySearchWithScore).toHaveBeenCalledTimes(2);
+      expect(JSON.stringify(similaritySearchWithScore.mock.calls[0][2])).toContain("Paramhansa Yogananda");
+      expect(hasNamedAuthorClause(similaritySearchWithScore.mock.calls[1][2])).toBe(false);
+      expect(result.documents[0]?.metadata?.source).toBe("broader");
+      expect(capture.inferredAuthor).toBeUndefined();
+      expect(capture.broadenedFromAuthors).toEqual(["Paramhansa Yogananda"]);
+      expect(mapped.activeFiltersSummary).toContain(formatBroadenedAuthorLine(["Paramhansa Yogananda"]));
+    });
+
+    it("retries preferred Kriyananda hits that only match kriya inside the author name", async () => {
+      const kitchenDoc = new Document({
+        pageContent: "Kitchen notes and a cooking class schedule.",
+        metadata: { library: "library1", source: "kitchen", author: "Swami Kriyananda", title: "Kriyananda kitchen notes" },
+      });
+      const broaderDoc = new Document({
+        pageContent: "Other teachers describe kriya practice.",
+        metadata: { library: "library1", source: "broader", author: "Other Author", title: "Kriya practice" },
+      });
+      const similaritySearchWithScore = authorFilterSearchMock([[kitchenDoc, 0.72]], [[broaderDoc, 0.84]]);
+      const capture: RetrievalCapture = {};
+      const { result, mapped } = await invokeAutoAuthorRetrieval(
+        similaritySearchWithScore,
+        "What did Swami Kriyananda teach about kriya",
+        capture
+      );
+
+      expect(similaritySearchWithScore).toHaveBeenCalledTimes(2);
+      expect(result.documents[0]?.metadata?.source).toBe("broader");
+      expect(capture.broadenedFromAuthors).toEqual(["Swami Kriyananda"]);
+      expect(mapped.activeFiltersSummary).toContain(formatBroadenedAuthorLine(["Swami Kriyananda"]));
+    });
+
+    it("does not retry a strict only-by author search with off-topic hits", async () => {
+      const kitchenDoc = new Document({
+        pageContent: "Kitchen notes and a cooking class schedule.",
+        metadata: { library: "library1", source: "kitchen", author: "Asha Nayaswami", title: "Kitchen notes" },
+      });
+      const similaritySearchWithScore = authorFilterSearchMock([[kitchenDoc, 0.72]], []);
+      const capture: RetrievalCapture = {};
+      const { result, mapped } = await invokeAutoAuthorRetrieval(
+        similaritySearchWithScore,
+        "Find passages only by Asha about discipleship",
+        capture
+      );
+
+      expect(similaritySearchWithScore).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(similaritySearchWithScore.mock.calls[0][2])).toContain("Asha Nayaswami");
+      expect(result.documents[0]?.metadata?.source).toBe("kitchen");
+      expect(capture.inferredAuthor).toBe("Asha Nayaswami");
+      expect(capture.broadenedFromAuthors).toBeUndefined();
+      expect(mapped.activeFiltersSummary).toContain("Query-inferred author focus");
+      expect(mapped.activeFiltersSummary).not.toContain("Sources below are from other authors");
+    });
+
+    it("does not lock retrieval to Asha for a subject-only mention", async () => {
+      const blendDoc = new Document({
+        pageContent: "A talk on discipleship and living the teachings.",
+        metadata: { library: "library1", source: "blend", author: "Other Author" },
+      });
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([[blendDoc, 0.84]]);
+      const capture: RetrievalCapture = {};
+      const { result } = await invokeAutoAuthorRetrieval(
+        similaritySearchWithScore,
+        "Tell me how Asha's example of discipleship affected people's lives",
+        capture
+      );
+
+      expect(similaritySearchWithScore).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(similaritySearchWithScore.mock.calls[0][2] ?? {})).not.toContain("Asha Nayaswami");
+      expect(result.documents).toHaveLength(1);
+      expect(capture.inferredAuthor).toBeUndefined();
+      expect(capture.broadenedFromAuthors).toBeUndefined();
+    });
+
+    it("locks retrieval to Asha for an explicit from-Asha source mention", async () => {
+      const ashaDoc = new Document({
+        pageContent: "A talk on discipleship and living the teachings.",
+        metadata: { library: "library1", source: "asha", author: "Asha Nayaswami" },
+      });
+      const similaritySearchWithScore = authorFilterSearchMock([[ashaDoc, 0.9]], []);
+      const capture: RetrievalCapture = {};
+      const { result } = await invokeAutoAuthorRetrieval(
+        similaritySearchWithScore,
+        "Find articles from Asha about discipleship",
+        capture
+      );
+
+      expect(similaritySearchWithScore).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(similaritySearchWithScore.mock.calls[0][2])).toContain('"$eq":"Asha Nayaswami"');
+      expect(result.documents[0]?.metadata?.source).toBe("asha");
+      expect(capture.inferredAuthor).toBe("Asha Nayaswami");
+    });
+
+    it("uses author $in for Jyotish or Asha", async () => {
+      const jyotishDoc = new Document({
+        pageContent: "A talk on karma and cause and effect.",
+        metadata: { library: "library1", source: "jyotish", author: "Nayaswami Jyotish Novak" },
+      });
+      const similaritySearchWithScore = authorFilterSearchMock([[jyotishDoc, 0.88]], []);
+      const capture: RetrievalCapture = {};
+      const { result } = await invokeAutoAuthorRetrieval(
+        similaritySearchWithScore,
+        "look for articles about karma from Jyotish or Asha",
+        capture
+      );
+
+      expect(similaritySearchWithScore).toHaveBeenCalledTimes(1);
+      const firstFilter = JSON.stringify(similaritySearchWithScore.mock.calls[0][2]);
+      expect(firstFilter).toContain('"$in"');
+      expect(firstFilter).toContain("Nayaswami Jyotish Novak");
+      expect(firstFilter).toContain("Asha Nayaswami");
+      expect(result.documents[0]?.metadata?.source).toBe("jyotish");
+      expect(capture.inferredAuthor).toBe("Nayaswami Jyotish Novak, Asha Nayaswami");
+    });
+
+    it("maps Yogananda to Paramhansa Yogananda on the retrieval caller", async () => {
+      const yoganandaDoc = new Document({
+        pageContent: "A talk on devotion and divine love.",
+        metadata: { library: "library1", source: "yogananda", author: "Paramhansa Yogananda" },
+      });
+      const similaritySearchWithScore = authorFilterSearchMock([[yoganandaDoc, 0.91]], []);
+      const capture: RetrievalCapture = {};
+      const { result } = await invokeAutoAuthorRetrieval(
+        similaritySearchWithScore,
+        "What did Yogananda teach about devotion?",
+        capture
+      );
+
+      expect(similaritySearchWithScore).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(similaritySearchWithScore.mock.calls[0][2])).toContain('"$eq":"Paramhansa Yogananda"');
+      expect(result.documents[0]?.metadata?.author).toBe("Paramhansa Yogananda");
+      expect(capture.inferredAuthor).toBe("Paramhansa Yogananda");
+    });
+
+    it("keeps inferred-author prompt state when preferred and broader searches are both empty", async () => {
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([]);
+      const capture: RetrievalCapture = {};
+      const { result, mapped } = await invokeAutoAuthorRetrieval(
+        similaritySearchWithScore,
+        "What did Asha teach about discipleship",
+        capture
+      );
+
+      expect(similaritySearchWithScore).toHaveBeenCalledTimes(2);
+      expect(hasNamedAuthorClause(similaritySearchWithScore.mock.calls[0][2])).toBe(true);
+      expect(hasNamedAuthorClause(similaritySearchWithScore.mock.calls[1][2])).toBe(false);
+      expect(result.documents).toEqual([]);
+      expect(capture.inferredAuthor).toBe("Asha Nayaswami");
+      expect(capture.broadenedFromAuthors).toBeUndefined();
+      expect(mapped.activeFiltersSummary).toContain("Query-inferred author focus (not a UI filter): Asha Nayaswami");
+      expect(mapped.activeFiltersSummary).toContain(EMPTY_RETRIEVAL_INFERRED_AUTHOR_HINT);
+      expect(mapped.activeFiltersSummary).not.toContain("Sources below are from other authors");
+    });
+
+    it("clears named-author state on a later question that does not name the author", async () => {
+      const broaderDoc = new Document({
+        pageContent: "Other teachers describe discipleship.",
+        metadata: { library: "library1", source: "broader", author: "Other Author" },
+      });
+      const similaritySearchWithScore = authorFilterSearchMock([], [[broaderDoc, 0.81]]);
+      const capture: RetrievalCapture = { inferredAuthor: "stale", broadenedFromAuthors: ["stale"] };
+      const { retrievalSequence } = await invokeAutoAuthorRetrieval(
+        similaritySearchWithScore,
+        "What did Asha teach about discipleship",
+        capture
+      );
+
+      expect(capture.broadenedFromAuthors).toEqual(["Asha Nayaswami"]);
+
+      const followUp = await retrievalSequence.invoke({
+        question: "Tell me more about meditation practice",
+        chat_history: "prior turn",
+      });
+
+      expect(followUp.documents).toHaveLength(1);
+      const lastFilter = similaritySearchWithScore.mock.calls[similaritySearchWithScore.mock.calls.length - 1][2];
+      expect(hasNamedAuthorClause(lastFilter)).toBe(false);
+      expect(capture.inferredAuthor).toBeUndefined();
+      expect(capture.broadenedFromAuthors).toBeUndefined();
+    });
+
+    it("does not route Find-articles-from-Asha as a location query", async () => {
+      const question = "Find articles from Asha about discipleship";
+      const ashaDoc = new Document({
+        pageContent: "A talk on discipleship and living the teachings.",
+        metadata: { library: "library1", source: "asha", author: "Asha Nayaswami", title: "Discipleship talk" },
+      });
+      const similaritySearchWithScore = authorFilterSearchMock([[ashaDoc, 0.9]], []);
+      const capture: RetrievalCapture = {};
+
+      expect(await hasLocationIntentAsync(question)).toBe(true);
+
+      const { result, sendData } = await invokeGeoAutoAuthorRetrieval(similaritySearchWithScore, question, capture);
+
+      expect(sendData).not.toHaveBeenCalledWith(expect.objectContaining({ isLocationQuery: true }));
+      expect(similaritySearchWithScore).toHaveBeenCalled();
+      expect(JSON.stringify(similaritySearchWithScore.mock.calls[0][2])).toContain('"$eq":"Asha Nayaswami"');
+      expect(result.documents[0]?.metadata?.author).toBe("Asha Nayaswami");
+      expect(capture.inferredAuthor).toBe("Asha Nayaswami");
+      expect(hasNamedAuthorClause(capture.filter)).toBe(true);
+      const laterFilter = JSON.stringify((await laterSearchMoreFilter(capture.filter)) ?? {});
+      expect(laterFilter).toContain('"$eq":"Asha Nayaswami"');
+    });
+
+    it("does not route look-for-articles-from-Jyotish-or-Asha as a location query", async () => {
+      const question = "look for articles about karma from Jyotish or Asha";
+      const jyotishDoc = new Document({
+        pageContent: "A talk on karma and cause and effect.",
+        metadata: { library: "library1", source: "jyotish", author: "Nayaswami Jyotish Novak" },
+      });
+      const similaritySearchWithScore = authorFilterSearchMock([[jyotishDoc, 0.88]], []);
+      const capture: RetrievalCapture = {};
+
+      expect(await hasLocationIntentAsync(question)).toBe(true);
+
+      const { result, sendData } = await invokeGeoAutoAuthorRetrieval(similaritySearchWithScore, question, capture);
+
+      expect(sendData).not.toHaveBeenCalledWith(expect.objectContaining({ isLocationQuery: true }));
+      expect(similaritySearchWithScore).toHaveBeenCalledTimes(1);
+      const firstFilter = JSON.stringify(similaritySearchWithScore.mock.calls[0][2]);
+      expect(firstFilter).toContain('"$in"');
+      expect(firstFilter).toContain("Nayaswami Jyotish Novak");
+      expect(firstFilter).toContain("Asha Nayaswami");
+      expect(result.documents[0]?.metadata?.source).toBe("jyotish");
+      expect(capture.inferredAuthor).toBe("Nayaswami Jyotish Novak, Asha Nayaswami");
+      expect(hasNamedAuthorClause(capture.filter)).toBe(true);
+      const laterFilter = JSON.stringify((await laterSearchMoreFilter(capture.filter)) ?? {});
+      expect(laterFilter).toContain('"$in"');
+      expect(laterFilter).toContain("Nayaswami Jyotish Novak");
+      expect(laterFilter).toContain("Asha Nayaswami");
+    });
+
+    it("keeps Jyotish-or-Asha $in on search_more_sources for What-do-Jyotish-or-Asha-say", async () => {
+      const question = "What do Jyotish or Asha say about karma?";
+      const jyotishDoc = new Document({
+        pageContent: "A talk on karma and cause and effect.",
+        metadata: { library: "library1", source: "jyotish", author: "Nayaswami Jyotish Novak" },
+      });
+      const similaritySearchWithScore = authorFilterSearchMock([[jyotishDoc, 0.88]], []);
+      const capture: RetrievalCapture = {};
+      const { result, sendData } = await invokeGeoAutoAuthorRetrieval(
+        similaritySearchWithScore,
+        question,
+        capture
+      );
+
+      expect(sendData).not.toHaveBeenCalledWith(expect.objectContaining({ isLocationQuery: true }));
+      expect(similaritySearchWithScore).toHaveBeenCalledTimes(1);
+      const firstFilter = JSON.stringify(similaritySearchWithScore.mock.calls[0][2]);
+      expect(firstFilter).toContain('"$in"');
+      expect(firstFilter).toContain("Nayaswami Jyotish Novak");
+      expect(firstFilter).toContain("Asha Nayaswami");
+      expect(result.documents[0]?.metadata?.author).toBe("Nayaswami Jyotish Novak");
+      expect(capture.inferredAuthor).toBe("Nayaswami Jyotish Novak, Asha Nayaswami");
+      expect(hasNamedAuthorClause(capture.filter)).toBe(true);
+      const laterFilter = JSON.stringify((await laterSearchMoreFilter(capture.filter)) ?? {});
+      expect(laterFilter).toContain('"$in"');
+      expect(laterFilter).toContain("Nayaswami Jyotish Novak");
+      expect(laterFilter).toContain("Asha Nayaswami");
+    });
+
+    it("uses the author path for Find-articles-from-Asha in Portland", async () => {
+      await expectAuthorPathNotGeo(
+        "Find articles from Asha in Portland",
+        "A talk in Portland on discipleship and living the teachings."
+      );
+    });
+
+    it("uses the author path for Find-articles-from-Asha in lowercase portland", async () => {
+      await expectAuthorPathNotGeo(
+        "Find articles from Asha in portland",
+        "A talk in Portland on discipleship and living the teachings."
+      );
+    });
+
+    it("uses the author path for Find-articles-from-Asha about meditation groups", async () => {
+      await expectAuthorPathNotGeo(
+        "Find articles from Asha about meditation groups",
+        "A talk on meditation groups and living the teachings."
+      );
+    });
+
+    it("uses the author path for What-did-Asha-teach about Ananda centers", async () => {
+      await expectAuthorPathNotGeo(
+        "What did Asha teach about Ananda centers",
+        "A talk on Ananda centers and living the teachings."
+      );
+    });
+
+    it("keeps location path for an author-owned center in a city", async () => {
+      const question = "Find Asha's center in Portland";
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([]);
+      expect(await hasLocationIntentAsync(question)).toBe(true);
+
+      const { result, sendData, capture } = await invokeGeoAutoAuthorRetrieval(
+        similaritySearchWithScore,
+        question,
+        {}
+      );
+
+      expect(sendData).toHaveBeenCalledWith(expect.objectContaining({ isLocationQuery: true }));
+      expect(similaritySearchWithScore).not.toHaveBeenCalled();
+      expect(result.documents).toEqual([]);
+      expect(capture.inferredAuthor).toBeUndefined();
+      expect(hasNamedAuthorClause(capture.filter)).toBe(false);
+    });
+
+    it("keeps location path when a place query only mentions an author", async () => {
+      const question = "Find a meditation group in Seattle that Asha mentioned";
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([]);
+      expect(await hasLocationIntentAsync(question)).toBe(true);
+
+      const { result, sendData, capture } = await invokeGeoAutoAuthorRetrieval(
+        similaritySearchWithScore,
+        question,
+        {}
+      );
+
+      expect(sendData).toHaveBeenCalledWith(expect.objectContaining({ isLocationQuery: true }));
+      expect(similaritySearchWithScore).not.toHaveBeenCalled();
+      expect(result.documents).toEqual([]);
+      expect(capture.inferredAuthor).toBeUndefined();
+      expect(hasNamedAuthorClause(capture.filter)).toBe(false);
+    });
+
+    it("keeps location path for Only-Asha's-centers in a city", async () => {
+      const question = "Only Asha's centers in Portland";
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([]);
+
+      const { result, sendData, capture } = await invokeGeoAutoAuthorRetrieval(
+        similaritySearchWithScore,
+        question,
+        {}
+      );
+
+      expect(sendData).toHaveBeenCalledWith(expect.objectContaining({ isLocationQuery: true }));
+      expect(similaritySearchWithScore).not.toHaveBeenCalled();
+      expect(result.documents).toEqual([]);
+      expect(capture.inferredAuthor).toBeUndefined();
+      expect(hasNamedAuthorClause(capture.filter)).toBe(false);
+    });
+
+    it("keeps location path for Find-only-Asha-led groups in a city", async () => {
+      const question = "Find only Asha-led groups in Seattle";
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([]);
+
+      const { result, sendData, capture } = await invokeGeoAutoAuthorRetrieval(
+        similaritySearchWithScore,
+        question,
+        {}
+      );
+
+      expect(sendData).toHaveBeenCalledWith(expect.objectContaining({ isLocationQuery: true }));
+      expect(similaritySearchWithScore).not.toHaveBeenCalled();
+      expect(result.documents).toEqual([]);
+      expect(capture.inferredAuthor).toBeUndefined();
+      expect(hasNamedAuthorClause(capture.filter)).toBe(false);
+    });
+
+    it("uses the author filter for only-from-Asha, not location", async () => {
+      const question = "only from Asha";
+      const ashaDoc = new Document({
+        pageContent: "A talk on discipleship and living the teachings.",
+        metadata: { library: "library1", source: "asha", author: "Asha Nayaswami" },
+      });
+      const similaritySearchWithScore = authorFilterSearchMock([[ashaDoc, 0.9]], []);
+      const capture: RetrievalCapture = {};
+
+      const { result, sendData } = await invokeGeoAutoAuthorRetrieval(
+        similaritySearchWithScore,
+        question,
+        capture
+      );
+
+      expect(sendData).not.toHaveBeenCalledWith(expect.objectContaining({ isLocationQuery: true }));
+      expect(similaritySearchWithScore).toHaveBeenCalled();
+      expect(JSON.stringify(similaritySearchWithScore.mock.calls[0][2])).toContain('"$eq":"Asha Nayaswami"');
+      expect(result.documents[0]?.metadata?.author).toBe("Asha Nayaswami");
+      expect(capture.inferredAuthor).toBe("Asha Nayaswami");
+    });
+
+    it("uses the author filter for solo-de-Asha, not location", async () => {
+      const question = "solo de Asha";
+      const ashaDoc = new Document({
+        pageContent: "A talk on discipleship and living the teachings.",
+        metadata: { library: "library1", source: "asha", author: "Asha Nayaswami" },
+      });
+      const similaritySearchWithScore = authorFilterSearchMock([[ashaDoc, 0.9]], []);
+      const capture: RetrievalCapture = {};
+
+      const { sendData } = await invokeGeoAutoAuthorRetrieval(similaritySearchWithScore, question, capture);
+
+      expect(sendData).not.toHaveBeenCalledWith(expect.objectContaining({ isLocationQuery: true }));
+      expect(similaritySearchWithScore).toHaveBeenCalled();
+      expect(JSON.stringify(similaritySearchWithScore.mock.calls[0][2])).toContain('"$eq":"Asha Nayaswami"');
+    });
+
+    it("does not set an author $eq for not-from-Asha", async () => {
+      const otherDoc = new Document({
+        pageContent: "A talk on discipleship from another author.",
+        metadata: { library: "library1", source: "other", author: "Other Author" },
+      });
+      const similaritySearchWithScore = authorFilterSearchMock([], [[otherDoc, 0.8]]);
+      const capture: RetrievalCapture = {};
+
+      const { sendData } = await invokeGeoAutoAuthorRetrieval(similaritySearchWithScore, "not from Asha", capture);
+
+      expect(sendData).not.toHaveBeenCalledWith(expect.objectContaining({ isLocationQuery: true }));
+      expect(hasNamedAuthorClause(similaritySearchWithScore.mock.calls[0]?.[2])).toBe(false);
+      expect(hasNamedAuthorClause(capture.filter)).toBe(false);
+      expect(capture.inferredAuthor).toBeUndefined();
+    });
+
+    it("does not set an author $eq for excluding-Asha", async () => {
+      const otherDoc = new Document({
+        pageContent: "A talk on discipleship from another author.",
+        metadata: { library: "library1", source: "other", author: "Other Author" },
+      });
+      const similaritySearchWithScore = authorFilterSearchMock([], [[otherDoc, 0.8]]);
+      const capture: RetrievalCapture = {};
+
+      const { sendData } = await invokeGeoAutoAuthorRetrieval(similaritySearchWithScore, "excluding Asha", capture);
+
+      expect(sendData).not.toHaveBeenCalledWith(expect.objectContaining({ isLocationQuery: true }));
+      expect(hasNamedAuthorClause(similaritySearchWithScore.mock.calls[0]?.[2])).toBe(false);
+      expect(hasNamedAuthorClause(capture.filter)).toBe(false);
+      expect(capture.inferredAuthor).toBeUndefined();
+    });
+
+    it("still routes a center-near-city question as location", async () => {
+      const question = "Find an Ananda center near Portland";
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([]);
+      expect(await hasLocationIntentAsync(question)).toBe(true);
+
+      const { result, sendData, capture } = await invokeGeoAutoAuthorRetrieval(
+        similaritySearchWithScore,
+        question,
+        {}
+      );
+
+      expect(sendData).toHaveBeenCalledWith(expect.objectContaining({ isLocationQuery: true }));
+      expect(similaritySearchWithScore).not.toHaveBeenCalled();
+      expect(result.documents).toEqual([]);
+      expect(capture.inferredAuthor).toBeUndefined();
+    });
+
+    it("still routes a meditation-group-in-city question as location", async () => {
+      const question = "Find a meditation group in Seattle";
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([]);
+      expect(await hasLocationIntentAsync(question)).toBe(true);
+
+      const { sendData, capture } = await invokeGeoAutoAuthorRetrieval(similaritySearchWithScore, question, {});
+
+      expect(sendData).toHaveBeenCalledWith(expect.objectContaining({ isLocationQuery: true }));
+      expect(similaritySearchWithScore).not.toHaveBeenCalled();
+      expect(capture.inferredAuthor).toBeUndefined();
+    });
+
+    it("still routes where-is-Ananda-Village as location", async () => {
+      const question = "where is Ananda Village";
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([]);
+      expect(await hasLocationIntentAsync(question)).toBe(true);
+
+      const { sendData } = await invokeGeoAutoAuthorRetrieval(similaritySearchWithScore, question, {});
+
+      expect(sendData).toHaveBeenCalledWith(expect.objectContaining({ isLocationQuery: true }));
+      expect(similaritySearchWithScore).not.toHaveBeenCalled();
+    });
+
+    it("locks a source author even when the author alias is also a place word", async () => {
+      const question = "Find articles from Portland about discipleship";
+      const portlandDoc = new Document({
+        pageContent: "A talk on discipleship.",
+        metadata: { library: "library1", source: "portland", author: "Portland Teacher" },
+      });
+      const similaritySearchWithScore = authorFilterSearchMock([[portlandDoc, 0.9]], []);
+      const capture: RetrievalCapture = {};
+
+      expect(await hasLocationIntentAsync(question)).toBe(true);
+
+      const { result, sendData } = await invokeGeoAutoAuthorRetrieval(
+        similaritySearchWithScore,
+        question,
+        capture,
+        { portland: "Portland Teacher" }
+      );
+
+      expect(sendData).not.toHaveBeenCalledWith(expect.objectContaining({ isLocationQuery: true }));
+      expect(JSON.stringify(similaritySearchWithScore.mock.calls[0][2])).toContain('"$eq":"Portland Teacher"');
+      expect(result.documents[0]?.metadata?.author).toBe("Portland Teacher");
+      expect(capture.inferredAuthor).toBe("Portland Teacher");
+    });
+
+    it("keeps preferred Asha hits that contain the discipleship topic token", async () => {
+      const ashaDoc = new Document({
+        pageContent: "A talk on discipleship and living the teachings.",
+        metadata: { library: "library1", source: "asha-discipleship", author: "Asha Nayaswami", title: "Discipleship" },
+      });
+      const similaritySearchWithScore = authorFilterSearchMock([[ashaDoc, 0.9]], []);
+      const capture: RetrievalCapture = {};
+      const { result } = await invokeAutoAuthorRetrieval(
+        similaritySearchWithScore,
+        "What did Asha teach about discipleship",
+        capture
+      );
+
+      expect(similaritySearchWithScore).toHaveBeenCalledTimes(1);
+      expect(result.documents[0]?.metadata?.source).toBe("asha-discipleship");
+      expect(capture.inferredAuthor).toBe("Asha Nayaswami");
+      expect(capture.broadenedFromAuthors).toBeUndefined();
+    });
+
+    it("does not carry Radio Ananda into a follow-up that does not name them", async () => {
+      const fallbackDoc = new Document({
+        pageContent: "library teaching",
+        metadata: { library: "library1", source: "follow-up", author: "Other Author" },
+      });
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([[fallbackDoc, 0.8]]);
+      mockRetriever.vectorStore = {
+        similaritySearch: jest.fn(),
+        similaritySearchWithScore,
+      } as any;
+
+      const retrievalFilterCapture: { filter?: Record<string, unknown>; inferredAuthor?: string } = {};
+      const siteConfig = {
+        ...autoSiteConfig,
+        authorAliases: { "radio ananda": "Radio Ananda" },
+      };
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        jest.fn(),
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        siteConfig,
+        "Yes, specific quotes would be good",
+        undefined,
+        "auto",
+        undefined,
+        retrievalFilterCapture
+      );
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      await retrievalSequence.invoke({
+        question: "Yes, specific quotes from Radio Ananda would be good",
+        chat_history: "prior turn",
+      });
+
+      expect(similaritySearchWithScore).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(similaritySearchWithScore.mock.calls[0][2] ?? {})).not.toContain("Radio Ananda");
+      expect(retrievalFilterCapture.inferredAuthor).toBeUndefined();
+    });
+
+    it("does not drop a user-set Master/Swami collection after an empty search", async () => {
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([]);
+      mockRetriever.vectorStore = {
+        similaritySearch: jest.fn(),
+        similaritySearchWithScore,
+      } as any;
+
+      const retrievalFilterCapture: { filter?: Record<string, unknown>; inferredAuthor?: string } = {};
+      const siteConfig = { ...mockSiteConfig, includedLibraries: [] };
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        jest.fn(),
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        siteConfig,
+        undefined,
+        undefined,
+        "master_swami",
+        undefined,
+        retrievalFilterCapture
+      );
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      const result = await retrievalSequence.invoke({
+        question: "What is meditation?",
+        chat_history: "",
+      });
+
+      expect(similaritySearchWithScore).toHaveBeenCalledTimes(1);
+      expect(JSON.stringify(similaritySearchWithScore.mock.calls[0][2])).toContain("$in");
+      expect(result.documents).toEqual([]);
+      expect(retrievalFilterCapture.inferredAuthor).toBeUndefined();
+      expect(JSON.stringify(retrievalFilterCapture.filter ?? {})).toContain("$in");
     });
   });
 });

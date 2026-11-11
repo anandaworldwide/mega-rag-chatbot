@@ -147,6 +147,7 @@ describe("resolveCanonicalAuthorName", () => {
     expect(resolveCanonicalAuthorName("Gyandev McCord", "ananda")).toBe("Nayaswami Gyandev McCord");
     expect(resolveCanonicalAuthorName("Nayaswami Asha", "ananda")).toBe("Asha Nayaswami");
     expect(resolveCanonicalAuthorName("Paramahansa Yogananda", "ananda")).toBe("Paramhansa Yogananda");
+    expect(resolveCanonicalAuthorName("Yogananda", "ananda")).toBe("Paramhansa Yogananda");
     expect(resolveCanonicalAuthorName("Atman Goering", "ananda")).toBe("Nayaswami Atman Goering");
     expect(resolveCanonicalAuthorName("Padma McGilloway", "ananda")).toBe("Nayaswami Padma McGilloway");
     expect(resolveCanonicalAuthorName("Nirmala", "ananda")).toBe("Nayaswami Nirmala");

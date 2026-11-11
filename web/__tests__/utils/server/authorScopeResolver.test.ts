@@ -417,7 +417,12 @@ describe("resolveAuthorScope", () => {
         knownAuthors: ["Gita Matlock"],
         generatedAliasIndex,
       })
-    ).toEqual({ kind: "named", author: "Gita Matlock" });
+    ).toEqual({
+      kind: "named",
+      author: "Gita Matlock",
+      authors: ["Gita Matlock"],
+      sourceMode: "preferred",
+    });
   });
 
   it("returns blend with default boost for auto mode", () => {
@@ -449,7 +454,12 @@ describe("resolveAuthorScope", () => {
       collectionMode: "auto",
     });
 
-    expect(result).toEqual({ kind: "named", author: "Asha Nayaswami" });
+    expect(result).toEqual({
+      kind: "named",
+      author: "Asha Nayaswami",
+      authors: ["Asha Nayaswami"],
+      sourceMode: "preferred",
+    });
   });
 
   it("returns named scope for Gyandev via an explicit mapping variant", () => {
@@ -463,7 +473,12 @@ describe("resolveAuthorScope", () => {
       }),
     });
 
-    expect(result).toEqual({ kind: "named", author: "Nayaswami Gyandev McCord" });
+    expect(result).toEqual({
+      kind: "named",
+      author: "Nayaswami Gyandev McCord",
+      authors: ["Nayaswami Gyandev McCord"],
+      sourceMode: "preferred",
+    });
   });
 
   it("returns named scope for Anandi on first turn via configured alias", () => {
@@ -481,7 +496,12 @@ describe("resolveAuthorScope", () => {
       generatedAliasIndex: buildAliasIndex(["Nayaswami Anandi"], { "Anandi Cornell": "Nayaswami Anandi" }),
     });
 
-    expect(result).toEqual({ kind: "named", author: "Nayaswami Anandi" });
+    expect(result).toEqual({
+      kind: "named",
+      author: "Nayaswami Anandi",
+      authors: ["Nayaswami Anandi"],
+      sourceMode: "preferred",
+    });
   });
 
   it("matches Anandi Cornell variant before bare cornell surname", () => {
@@ -548,6 +568,27 @@ describe("resolveAuthorScope", () => {
     });
 
     expect(result).toEqual({ kind: "hard", collection: "master_swami" });
+  });
+
+  it("does not carry a prior focused author into a follow-up that does not name them", () => {
+    const userUtterance = "Yes, specific quotes would be good";
+    const retrievalQuery = "Yes, specific quotes from Radio Ananda would be good";
+    const generatedAliasIndex = {
+      "radio ananda": "Radio Ananda",
+    };
+
+    const result = resolveAuthorScope({
+      question: getAuthorMatchQuestion(userUtterance, retrievalQuery),
+      siteConfig: baseSiteConfig,
+      collectionMode: "auto",
+      knownAuthors: ["Radio Ananda"],
+      generatedAliasIndex,
+    });
+
+    expect(findExplicitAuthorMatch(retrievalQuery, baseSiteConfig, ["Radio Ananda"], [], generatedAliasIndex)).toBe(
+      "Radio Ananda"
+    );
+    expect(result).toEqual({ kind: "blend", masterSwamiBoost: 0.2 });
   });
 
   it("does not hard-filter Master/Swami when only the retrieval rewrite names them", () => {

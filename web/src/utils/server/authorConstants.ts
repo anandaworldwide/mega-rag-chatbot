@@ -5,7 +5,9 @@ export type AuthorScopeHint = "default" | "broad";
 
 export type AuthorScopeMode = "auto" | "master_swami" | "whole_library";
 
+export type AuthorSourceMode = "preferred" | "strict";
+
 export type AuthorScopeDescriptor =
   | { kind: "blend"; masterSwamiBoost: number }
-  | { kind: "named"; author: string }
+  | { kind: "named"; author: string; authors: string[]; sourceMode: AuthorSourceMode }
   | { kind: "hard"; collection: "master_swami" | "whole_library" };

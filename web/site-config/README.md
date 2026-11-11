@@ -70,11 +70,17 @@ When `enableAutoAuthorScope` is enabled:
   named in this question. The rewritten question is still used for the vector query.
 - **Prompt filter labels** (`activeFiltersSummary`):
   - `Author ranking: Automatic` — score boost only; not a hard filter; never tell the user to turn it off.
-  - `Query-inferred author focus (not a UI filter)` — hard `$eq` because the current question named an author; not a
-    user-set control; do not say they set a focused-author filter. This line does **not** replace a user-set
-    `Collection` line; both appear when a restrictive collection is also active.
+  - `Query-inferred author focus (not a UI filter)` — preferred source mentions apply a Pinecone author `$eq` or `$in`
+    because the current question named an author. If that search is empty or the hits share no topic tokens, retrieval
+    retries without that author. Strict `only by` / `only from` keeps the author filter. Subject mentions do not lock
+    the author. This is not a user-set control; do not say they set a focused-author filter. This line does **not**
+    replace a user-set `Collection` line; both appear when a restrictive collection is also active. Partial-word matches
+    inside author names, and synonym-only matches, are not treated as semantic certainty.
   - User-set `Collection` / `Libraries` / `Media types` / `Source scope` — the only lines that may produce "broaden or
     turn off that filter."
+- **Author metadata required for the Pinecone author filter**: Named-author `$eq` / `$in` only matches vectors that
+  store an `author` field. Video pages that have no author metadata cannot be returned by that filter, even when the
+  page is about that person. Preferred retry without the author filter can still surface those pages.
 - **Named-author detection at scale**: When auto author scope is active, chat loads a cached author index from Firestore
   `libraryStats/{site}.authors` (1h in-process cache, fail-fast timeout). The generated index uses full canonical
   Pinecone author names plus explicit `author_mappings.json` variants. It does not auto-derive first names or surnames.

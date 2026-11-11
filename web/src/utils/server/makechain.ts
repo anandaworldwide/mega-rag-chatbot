@@ -100,13 +100,15 @@ import { extractJsonArray } from "./suggestionParsing";
 import { filterSuggestionsForDiversity } from "./suggestionDiversity";
 import { AuthorScopeHint, AuthorScopeMode } from "./authorConstants";
 import { getAuthorScopeIndex } from "./authorIndex";
-import { getAuthorMatchQuestion, resolveAuthorScope } from "./authorScopeResolver";
+import { hasByAuthorContentIntent } from "./authorMentionIntent";
+import { collectExplicitAuthorMatches, getAuthorMatchQuestion, resolveAuthorScope } from "./authorScopeResolver";
 import {
   buildLibraryFilter,
   buildMasterSwamiFilter,
-  buildNamedAuthorFilter,
+  buildNamedAuthorsFilter,
   buildRetrievalToolFilter,
   retrieveWithAuthorScopeBlend,
+  retrieveWithNamedAuthorFallback,
   type RetrievalFilterCapture,
 } from "./authorScopeRetrieval";
 import { getCondenseTemplateWithAuthorScope, invokeRephraseWithAuthorScope } from "./rephraseWithAuthorScope";
@@ -130,6 +132,28 @@ export function isAutoAuthorScopeActive(
   selectedCollectionKey?: string
 ): boolean {
   return siteConfig?.enableAutoAuthorScope === true && selectedCollectionKey === "auto";
+}
+
+const EXPLICIT_PLACE_CUE =
+  /\b(?:near|nearby|nearest|closest|centers?|groups?|address(?:es)?)\b/i;
+const IN_PLACE_CUE = /\bin\s+[A-Z][A-Za-z]+/;
+
+function hasExplicitPlaceCue(question: string): boolean {
+  return EXPLICIT_PLACE_CUE.test(question) || IN_PLACE_CUE.test(question);
+}
+
+/**
+ * Skip geo when the question asks for content by a named author.
+ * A place or topic word does not override that intent.
+ */
+function shouldSkipGeoForAuthorContent(
+  question: string | undefined,
+  siteConfig?: AppSiteConfig | null
+): boolean {
+  if (!question?.trim()) {
+    return false;
+  }
+  return hasByAuthorContentIntent(question, collectExplicitAuthorMatches(question, siteConfig));
 }
 
 export { buildActiveFilterPromptData } from "./activeFilterPrompt";
@@ -465,7 +489,8 @@ function refreshActiveFilterPromptData(
   selectedCollectionKey: string | undefined,
   selectedLibraries: string[] | undefined,
   selectedTitleScopeLabel: string | undefined,
-  namedAuthor?: string
+  namedAuthor?: string,
+  broadenedFromAuthors?: string[]
 ): void {
   const refreshed = buildActiveFilterPromptData(
     siteConfig,
@@ -473,11 +498,13 @@ function refreshActiveFilterPromptData(
     selectedCollectionKey,
     selectedLibraries,
     selectedTitleScopeLabel,
-    namedAuthor
+    namedAuthor,
+    broadenedFromAuthors
   );
   target.activeFiltersSummary = refreshed.activeFiltersSummary;
   target.hasRestrictiveFilters = refreshed.hasRestrictiveFilters;
   target.inferredAuthor = refreshed.inferredAuthor;
+  target.broadenedFromAuthors = refreshed.broadenedFromAuthors;
   target.collectionLabel = refreshed.collectionLabel;
   target.selectedLibraries = refreshed.selectedLibraries;
   target.mediaTypes = refreshed.mediaTypes;
@@ -609,7 +636,10 @@ export const makeChain = async (
     if (originalQuestion && siteConfig?.enableGeoAwareness && geoTools.length > 0) {
       const intentDetectionStart = Date.now();
       try {
-        shouldUseGeoTools = await hasLocationIntentAsync(originalQuestion);
+        // Author-content intent wins. Place cues enable geo only when that intent is absent.
+        shouldUseGeoTools = shouldSkipGeoForAuthorContent(originalQuestion, siteConfig)
+          ? false
+          : hasExplicitPlaceCue(originalQuestion) || (await hasLocationIntentAsync(originalQuestion));
         locationIntentLatency = Date.now() - intentDetectionStart;
         if (timingMetrics) {
           timingMetrics.geoIntentMs = locationIntentLatency;
@@ -907,6 +937,19 @@ Error details: ${errorString}`,
         console.log(`🔍 SEARCH QUERY: "${embeddingQuery}"`);
       }
       try {
+        refreshActiveFilterPromptData(
+          activeFilterPromptData,
+          siteConfig,
+          baseFilter,
+          selectedCollectionKey,
+          selectedLibraries,
+          selectedTitleScopeLabel
+        );
+        if (retrievalFilterCapture) {
+          retrievalFilterCapture.filter = undefined;
+          retrievalFilterCapture.inferredAuthor = undefined;
+          retrievalFilterCapture.broadenedFromAuthors = undefined;
+        }
         // Only treat "auto" as a blend trigger when the site has opted in. Otherwise a stray
         // collection="auto" from a non-auto site must fall back to whole_library, not blend.
         let collectionMode: AuthorScopeMode;
@@ -936,6 +979,7 @@ Error details: ${errorString}`,
         });
 
         if (scopeDescriptor.kind === "named") {
+          const namedAuthorLabel = scopeDescriptor.authors.join(", ");
           refreshActiveFilterPromptData(
             activeFilterPromptData,
             siteConfig,
@@ -943,10 +987,11 @@ Error details: ${errorString}`,
             selectedCollectionKey,
             selectedLibraries,
             selectedTitleScopeLabel,
-            scopeDescriptor.author
+            namedAuthorLabel
           );
           if (retrievalFilterCapture) {
-            retrievalFilterCapture.inferredAuthor = scopeDescriptor.author;
+            retrievalFilterCapture.inferredAuthor = namedAuthorLabel;
+            retrievalFilterCapture.broadenedFromAuthors = undefined;
           }
         }
 
@@ -1000,11 +1045,66 @@ Error details: ${errorString}`,
             });
           }
           allDocuments.push(...blendedDocs);
+        } else if (scopeDescriptor.kind === "named") {
+          const namedFilter = buildNamedAuthorsFilter(scopeDescriptor.authors, baseFilter);
+          const {
+            documents: namedDocs,
+            relevance: namedRelevance,
+            droppedNamedAuthor,
+            searchFilter,
+          } = await retrieveWithNamedAuthorFallback(
+            (filter) =>
+              runStandardRetrieval(
+                retriever,
+                input.question,
+                sourceCount,
+                filter,
+                includedLibraries,
+                minRetrievalScore
+              ),
+            namedFilter,
+            {
+              question: authorMatchQuestion,
+              authors: scopeDescriptor.authors,
+              sourceMode: scopeDescriptor.sourceMode,
+            }
+          );
+          // Preferred author focus: retry without that author when hits are empty or unusable.
+          // Strict "only by" / "only from" keeps the author filter.
+          // Attribute other authors only when the broader search returned sources.
+          if (droppedNamedAuthor) {
+            const hasBroaderSources = namedDocs.length > 0;
+            const inferredAuthorLabel = hasBroaderSources
+              ? undefined
+              : scopeDescriptor.authors.join(", ");
+            refreshActiveFilterPromptData(
+              activeFilterPromptData,
+              siteConfig,
+              baseFilter,
+              selectedCollectionKey,
+              selectedLibraries,
+              selectedTitleScopeLabel,
+              inferredAuthorLabel,
+              hasBroaderSources ? scopeDescriptor.authors : undefined
+            );
+            if (retrievalFilterCapture) {
+              retrievalFilterCapture.inferredAuthor = inferredAuthorLabel;
+              retrievalFilterCapture.broadenedFromAuthors = hasBroaderSources
+                ? scopeDescriptor.authors
+                : undefined;
+            }
+            console.warn(
+              `[RAG] Named-author filter for "${scopeDescriptor.authors.join(", ")}" returned no usable documents; retried without that author focus.`
+            );
+          }
+          if (retrievalFilterCapture) {
+            retrievalFilterCapture.filter = buildRetrievalToolFilter(searchFilter, includedLibraries);
+          }
+          retrievalRelevance = namedRelevance;
+          allDocuments.push(...namedDocs);
         } else {
           let searchFilter = baseFilter;
-          if (scopeDescriptor.kind === "named") {
-            searchFilter = buildNamedAuthorFilter(scopeDescriptor.author, baseFilter);
-          } else if (scopeDescriptor.kind === "hard" && scopeDescriptor.collection === "master_swami") {
+          if (scopeDescriptor.kind === "hard" && scopeDescriptor.collection === "master_swami") {
             searchFilter = buildMasterSwamiFilter(baseFilter);
           }
           if (retrievalFilterCapture) {
@@ -1875,7 +1975,8 @@ export async function setupAndExecuteLanguageModelChain(
           selectedCollectionKey,
           selectedLibraries,
           selectedTitleScopeLabel,
-          retrievalFilterCapture.inferredAuthor
+          retrievalFilterCapture.inferredAuthor,
+          retrievalFilterCapture.broadenedFromAuthors
         );
 
         let retrievalToolContext: RetrievalToolContext | null = null;
