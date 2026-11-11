@@ -7,7 +7,7 @@ import { MASTER_SWAMI_AUTHORS } from "@/utils/server/authorConstants";
 import {
   extractTopicTokens,
   stripAuthorNamesFromText,
-  topicTokenOccursAsWholeWord,
+  topicTokenMatchesHaystack,
 } from "@/utils/server/authorMentionIntent";
 import { attachRetrievalScore, filterScoredDocuments, type RelevanceStats } from "@/utils/server/retrievalRelevance";
 
@@ -135,11 +135,10 @@ export type NamedAuthorFallbackResult = {
 };
 
 /**
- * Preferred-mode lexical check. Author names, title tokens, and partial-word
- * matches do not count as topic evidence. If the question has no remaining
- * topic tokens (short, non-English, or only names and stopwords), keep the
- * preferred hits. This is lexical overlap only. Synonym-only matches cannot
- * be judged here.
+ * Preferred-mode lexical check. Author names and title tokens do not count.
+ * A topic token matches a haystack word by exact whole word, or by a shared
+ * prefix of at least five letters. Short prefixes do not count. If the
+ * question has no remaining topic tokens, keep the preferred hits.
  */
 export function namedAuthorHitsAreUsable(
   documents: Document[],
@@ -162,7 +161,7 @@ export function namedAuthorHitsAreUsable(
       `${doc.metadata?.title ?? ""} ${doc.pageContent ?? ""}`,
       [...authors, docAuthor].filter(Boolean)
     );
-    return topicTokens.some((token) => topicTokenOccursAsWholeWord(haystack, token));
+    return topicTokens.some((token) => topicTokenMatchesHaystack(haystack, token));
   });
 }
 

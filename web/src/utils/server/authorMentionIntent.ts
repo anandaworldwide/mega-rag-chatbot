@@ -222,6 +222,39 @@ export function topicTokenOccursAsWholeWord(text: string, token: string): boolea
   return new RegExp(`\\b${escaped}\\b`).test(text.toLowerCase());
 }
 
+/** Shared prefix shorter than this is too weak to count as the same stem. */
+const MIN_TOPIC_STEM_PREFIX = 5;
+
+export function sharedPrefixLength(left: string, right: string): number {
+  const a = left.toLowerCase();
+  const b = right.toLowerCase();
+  const limit = Math.min(a.length, b.length);
+  let index = 0;
+  while (index < limit && a[index] === b[index]) {
+    index += 1;
+  }
+  return index;
+}
+
+/**
+ * Exact whole-word match, or a shared prefix of at least five letters.
+ * Short prefixes such as art/disco do not count.
+ */
+export function topicTokenMatchesHaystack(haystack: string, token: string): boolean {
+  if (topicTokenOccursAsWholeWord(haystack, token)) {
+    return true;
+  }
+  const topic = token.toLowerCase();
+  if (topic.length < MIN_TOPIC_STEM_PREFIX) {
+    return false;
+  }
+  const words = haystack
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((word) => word.length >= MIN_TOPIC_STEM_PREFIX);
+  return words.some((word) => sharedPrefixLength(topic, word) >= MIN_TOPIC_STEM_PREFIX);
+}
+
 export function extractTopicTokens(question: string, authors: string[] = []): string[] {
   return stripAuthorNamesFromText(question, authors)
     .split(/[^a-z0-9]+/)
