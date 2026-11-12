@@ -374,6 +374,41 @@ describe("Services - Dependency Injection Architecture", () => {
       );
     });
 
+    it("keeps bounds and prefers them over viewport", async () => {
+      const mockResponse = {
+        ok: true,
+        json: jest.fn().mockResolvedValue({
+          status: "OK",
+          results: [
+            {
+              geometry: {
+                location: { lat: -32.5, lng: -55.8 },
+                bounds: {
+                  southwest: { lat: -35, lng: -59 },
+                  northeast: { lat: -30, lng: -53 },
+                },
+                viewport: {
+                  southwest: { lat: 24, lng: -125 },
+                  northeast: { lat: 49, lng: -66 },
+                },
+              },
+              address_components: [{ types: ["country"], long_name: "Uruguay" }],
+            },
+          ],
+        }),
+      };
+      global.fetch = jest.fn().mockResolvedValue(mockResponse);
+      const result = await service.geocode("Uruguay");
+      expect(result?.bounds).toEqual({
+        southwest: { lat: -35, lng: -59 },
+        northeast: { lat: -30, lng: -53 },
+      });
+      expect(result?.viewport).toEqual({
+        southwest: { lat: 24, lng: -125 },
+        northeast: { lat: 49, lng: -66 },
+      });
+    });
+
     it("should handle ZERO_RESULTS status", async () => {
       const mockResponse = {
         ok: true,
@@ -944,6 +979,194 @@ describe("Services - Dependency Injection Architecture", () => {
 
       expect(result.found).toBe(true);
       expect(result.centers.length).toBe(20);
+    });
+
+    describe("country-precision proximity (synthetic fixtures, not live directory status)", () => {
+      const URUGUAY_POINT = { lat: -32.5228, lon: -55.7658 };
+      const MONTEVIDEO_POINT = { lat: -34.9011, lon: -56.1645 };
+      const URUGUAY_BOX = {
+        southwest: { lat: -34.9, lng: -57.9 },
+        northeast: { lat: -30.1, lng: -53.2 },
+      };
+      const US_BOX = {
+        southwest: { lat: 24.5, lng: -125 },
+        northeast: { lat: 49.4, lng: -66.9 },
+      };
+      const AU_BOX = {
+        southwest: { lat: -44, lng: 112 },
+        northeast: { lat: -10, lng: 154 },
+      };
+      const syntheticNearby = {
+        name: "Synthetic Nearby Center",
+        address: "fixture",
+        city: "Synthetic City",
+        state: "",
+        country: "Argentina",
+        latitude: -34.6037,
+        longitude: -58.3816,
+      };
+      const syntheticFar = {
+        name: "Synthetic Far Center",
+        address: "fixture",
+        city: "Synthetic Far City",
+        state: "",
+        country: "United States",
+        latitude: 37.4419,
+        longitude: -122.143,
+      };
+
+      it("country-only nearest returns a synthetic cross-border center without miles or nearest-to-user rank", async () => {
+        const haversineService = new CenterSearchService(
+          mockCenterDataService,
+          new HaversineDistanceCalculator()
+        );
+        mockCenterDataService.loadCenters.mockResolvedValue([syntheticNearby, syntheticFar]);
+
+        const result = await haversineService.findNearestCenters(URUGUAY_POINT.lat, URUGUAY_POINT.lon, {
+          searchScope: "proximity",
+          locationPrecision: "country",
+          countryFilter: "Uruguay",
+          countryBox: URUGUAY_BOX,
+        });
+
+        expect(result.found).toBe(true);
+        expect(result.centers.map((c) => c.name)).toContain("Synthetic Nearby Center");
+        expect(result.centers[0].distance).toBeUndefined();
+        expect(result.locationPrecision).toBe("country");
+        expect(result.responseGuidance).toMatch(/directory alternatives/i);
+        expect(result.responseGuidance).toMatch(/city/i);
+        expect(result.responseGuidance).not.toMatch(/across the border/i);
+      });
+
+      it("country-only nearest keeps synthetic US and Australia in-country rows far from the country point", async () => {
+        const haversineService = new CenterSearchService(
+          mockCenterDataService,
+          new HaversineDistanceCalculator()
+        );
+        const syntheticUS = {
+          name: "Synthetic California Center",
+          address: "fixture",
+          city: "Palo Alto",
+          state: "CA",
+          country: "United States",
+          latitude: 37.4419,
+          longitude: -122.143,
+        };
+        const syntheticAU = {
+          name: "Synthetic Sydney Center",
+          address: "fixture",
+          city: "Sydney",
+          state: "NSW",
+          country: "Australia",
+          latitude: -33.8688,
+          longitude: 151.2093,
+        };
+        mockCenterDataService.loadCenters.mockResolvedValue([syntheticUS, syntheticAU]);
+
+        const usCentroid = { lat: 39.8283, lon: -98.5795 };
+        const usResult = await haversineService.findNearestCenters(usCentroid.lat, usCentroid.lon, {
+          searchScope: "proximity",
+          locationPrecision: "country",
+          countryFilter: "United States",
+          countryBox: US_BOX,
+        });
+        expect(usResult.found).toBe(true);
+        expect(usResult.centers.map((c) => c.name)).toContain("Synthetic California Center");
+        expect(usResult.centers.every((c) => c.distance === undefined)).toBe(true);
+
+        const auCentroid = { lat: -25.2744, lon: 133.7751 };
+        const auResult = await haversineService.findNearestCenters(auCentroid.lat, auCentroid.lon, {
+          searchScope: "proximity",
+          locationPrecision: "country",
+          countryFilter: "Australia",
+          countryBox: AU_BOX,
+        });
+        expect(auResult.found).toBe(true);
+        expect(auResult.centers.map((c) => c.name)).toContain("Synthetic Sydney Center");
+        expect(auResult.centers.every((c) => c.distance === undefined)).toBe(true);
+      });
+
+      it("USA with domestic rows does not say no center is listed in that country", async () => {
+        const haversineService = new CenterSearchService(
+          mockCenterDataService,
+          new HaversineDistanceCalculator()
+        );
+        const syntheticUS = {
+          name: "Synthetic California Center",
+          address: "fixture",
+          city: "Palo Alto",
+          state: "CA",
+          country: "United States",
+          latitude: 37.4419,
+          longitude: -122.143,
+        };
+        mockCenterDataService.loadCenters.mockResolvedValue([syntheticUS]);
+
+        const result = await haversineService.findNearestCenters(37.4419, -122.143, {
+          searchScope: "proximity",
+          locationPrecision: "country",
+          countryFilter: "United States",
+          countryBox: US_BOX,
+        });
+
+        expect(result.found).toBe(true);
+        expect(result.centers).toHaveLength(1);
+        expect(result.responseGuidance).not.toMatch(/no center is listed in that country/i);
+        expect(result.responseGuidance).not.toMatch(/no hay un centro listado en ese país/i);
+        expect(result.responseGuidance).not.toMatch(/aucun centre n'est listé dans ce pays/i);
+      });
+
+      it("country-only nearest still samples a far synthetic center when the box is empty of in-country rows", async () => {
+        const haversineService = new CenterSearchService(
+          mockCenterDataService,
+          new HaversineDistanceCalculator()
+        );
+        mockCenterDataService.loadCenters.mockResolvedValue([syntheticFar]);
+
+        const result = await haversineService.findNearestCenters(URUGUAY_POINT.lat, URUGUAY_POINT.lon, {
+          searchScope: "proximity",
+          locationPrecision: "country",
+          countryFilter: "Uruguay",
+          countryBox: URUGUAY_BOX,
+        });
+
+        expect(result.found).toBe(false);
+        expect(result.centers).toEqual([]);
+        expect(result.locationPrecision).toBe("country");
+        expect(result.fallbackMessage).toMatch(/no center is listed in that country/i);
+        expect(result.fallbackMessage).toMatch(/no close options are listed/i);
+      });
+
+      it("city-level proximity still ranks a synthetic nearby center with miles", async () => {
+        const haversineService = new CenterSearchService(
+          mockCenterDataService,
+          new HaversineDistanceCalculator()
+        );
+        mockCenterDataService.loadCenters.mockResolvedValue([syntheticNearby, syntheticFar]);
+
+        const result = await haversineService.findNearestCenters(MONTEVIDEO_POINT.lat, MONTEVIDEO_POINT.lon, {
+          searchScope: "proximity",
+        });
+
+        expect(result.found).toBe(true);
+        expect(result.centers[0].name).toBe("Synthetic Nearby Center");
+        expect(result.centers[0].distance).toBeGreaterThan(0);
+        expect(result.locationPrecision).toBeUndefined();
+        expect(result.responseGuidance).toBeUndefined();
+      });
+
+      it("keeps explicit country scope empty when the named country has no synthetic centers", async () => {
+        mockCenterDataService.loadCenters.mockResolvedValue([syntheticNearby]);
+
+        const result = await service.findNearestCenters(URUGUAY_POINT.lat, URUGUAY_POINT.lon, {
+          searchScope: "country",
+          countryFilter: "Uruguay",
+        });
+
+        expect(result.found).toBe(false);
+        expect(result.searchMode).toBe("country");
+        expect(result.fallbackMessage).toMatch(/no ananda centers were found in that country/i);
+      });
     });
   });
 });

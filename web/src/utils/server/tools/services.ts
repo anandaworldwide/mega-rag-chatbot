@@ -16,9 +16,41 @@ import {
   ILocationService,
   CenterSearchOptions,
 } from "./interfaces";
-import { countriesMatchForCenterSearch, LOCATION_COUNTRY_SEARCH_MAX_RESULTS, COUNTRY_SEARCH_RESPONSE_GUIDANCE } from "./locationLogic";
-import { LocationResult, CenterResult, NearestCenterResult } from "../tools";
+import {
+  countriesMatchForCenterSearch,
+  LOCATION_COUNTRY_SEARCH_MAX_RESULTS,
+  COUNTRY_SEARCH_RESPONSE_GUIDANCE,
+  COUNTRY_PROXIMITY_EMPTY_FALLBACK,
+  COUNTRY_PROXIMITY_INVALID_BOX_FALLBACK,
+  countryProximityResponseGuidance,
+  selectCountryOnlyNearestCandidates,
+  isValidCenterCoordinate,
+  isValidGeoBox,
+} from "./locationLogic";
+import { LocationResult, CenterResult, NearestCenterResult, GeoBox } from "../tools";
 import { safeFetch } from "../ssrfProtection";
+
+function readGoogleCorner(raw: { lat?: unknown; lng?: unknown } | undefined): { lat: number; lng: number } | null {
+  if (!raw) {
+    return null;
+  }
+  const lat = typeof raw.lat === "function" ? Number((raw.lat as () => number)()) : Number(raw.lat);
+  const lng = typeof raw.lng === "function" ? Number((raw.lng as () => number)()) : Number(raw.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return null;
+  }
+  return { lat, lng };
+}
+
+function readGoogleGeoBox(raw: { southwest?: { lat?: unknown; lng?: unknown }; northeast?: { lat?: unknown; lng?: unknown } } | undefined): GeoBox | undefined {
+  const southwest = readGoogleCorner(raw?.southwest);
+  const northeast = readGoogleCorner(raw?.northeast);
+  if (!southwest || !northeast) {
+    return undefined;
+  }
+  const box: GeoBox = { southwest, northeast };
+  return isValidGeoBox(box) ? box : undefined;
+}
 
 /**
  * Google Maps geocoding service implementation
@@ -68,14 +100,18 @@ export class GoogleGeocodingService implements IGeocodingService {
         addressComponents.find((comp: any) => comp.types.includes("sublocality"))?.long_name ||
         "";
       const country = addressComponents.find((comp: any) => comp.types.includes("country"))?.long_name || "";
+      const bounds = readGoogleGeoBox(result.geometry?.bounds);
+      const viewport = readGoogleGeoBox(result.geometry?.viewport);
 
       return {
         city: city || location,
         country: country || "Unknown",
         latitude: geometry.lat,
         longitude: geometry.lng,
-        confidence: "high",
-        source: "google-geolocation",
+        confidence: "high" as const,
+        source: "google-geolocation" as const,
+        ...(bounds ? { bounds } : {}),
+        ...(viewport ? { viewport } : {}),
       };
     } catch (error) {
       console.error("Geocoding error:", error);
@@ -339,10 +375,10 @@ export class S3CenterDataService implements ICenterDataService {
           });
 
           // Map the actual CSV structure to our expected structure
-          const latitude = parseFloat(row.latitude) || 0;
-          const longitude = parseFloat(row.longitude) || 0;
+          const latitude = parseFloat(row.latitude);
+          const longitude = parseFloat(row.longitude);
 
-          if (latitude !== 0 && longitude !== 0) {
+          if (isValidCenterCoordinate(latitude, longitude)) {
             const center = {
               name: row.title || row.name || "",
               address: row.address || "",
@@ -437,10 +473,10 @@ Impact: All geo-awareness functionality is degraded until resolved.`,
               row[header] = values[index]?.trim() || "";
             });
 
-            const latitude = parseFloat(row.latitude) || 0;
-            const longitude = parseFloat(row.longitude) || 0;
+            const latitude = parseFloat(row.latitude);
+            const longitude = parseFloat(row.longitude);
 
-            if (latitude !== 0 && longitude !== 0) {
+            if (isValidCenterCoordinate(latitude, longitude)) {
               centers.push({
                 name: row.name || "",
                 address: row.address || "",
@@ -710,6 +746,43 @@ export class CenterSearchService implements ICenterSearchService {
         }
       }
 
+      if (options?.locationPrecision === "country") {
+        const namedCountry = options.countryFilter?.trim();
+        if (!namedCountry || !isValidGeoBox(options.countryBox)) {
+          return {
+            found: false,
+            centers: [],
+            fallbackMessage: COUNTRY_PROXIMITY_INVALID_BOX_FALLBACK,
+            searchMode: "proximity",
+            locationPrecision: "country",
+          };
+        }
+        const candidates = selectCountryOnlyNearestCandidates(centers, namedCountry, options.countryBox);
+        const domesticCount = centers.filter(
+          (center) =>
+            isValidCenterCoordinate(center.latitude, center.longitude) &&
+            countriesMatchForCenterSearch(center.country, namedCountry)
+        ).length;
+        const responseGuidance = countryProximityResponseGuidance(domesticCount);
+        if (candidates.length === 0) {
+          return {
+            found: false,
+            centers: [],
+            fallbackMessage: COUNTRY_PROXIMITY_EMPTY_FALLBACK,
+            searchMode: "proximity",
+            locationPrecision: "country",
+            responseGuidance,
+          };
+        }
+        return {
+          found: true,
+          centers: candidates,
+          searchMode: "proximity",
+          locationPrecision: "country",
+          responseGuidance,
+        };
+      }
+
       if (options?.searchScope === "country" && options.countryFilter) {
         const filtered = centers.filter((c) => countriesMatchForCenterSearch(c.country, options.countryFilter!));
         if (filtered.length === 0) {
@@ -866,6 +939,17 @@ export class LocationService implements ILocationService {
     private ipGeolocationService: IIPGeolocationService,
     private logger: ILogger
   ) {}
+
+  async geocodeOnly(location: string): Promise<LocationResult | null> {
+    const query = location.trim();
+    if (!query) {
+      return null;
+    }
+    const geocodeStart = Date.now();
+    const result = await this.geocodingService.geocode(query);
+    this.logger.logGeocodingResult(!!result, query, result || undefined, Date.now() - geocodeStart);
+    return result;
+  }
 
   async resolveLocation(userProvidedLocation: string | undefined, headers: Headers): Promise<LocationResult | null> {
     // Try user-provided location first

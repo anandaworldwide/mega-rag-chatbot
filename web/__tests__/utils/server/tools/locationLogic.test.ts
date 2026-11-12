@@ -13,7 +13,11 @@ import {
   determineLocationSearchScope,
   extractCountryMentionFromQuestion,
   hasProximityIntentInQuestion,
+  hasExplicitDomesticOnlyRestriction,
   getCanonicalCountryLabel,
+  isCountryOnlyProvidedLocation,
+  isCountryOnlyLocationQuery,
+  selectCountryOnlyNearestCandidates,
 } from "../../../../src/utils/server/tools/locationLogic";
 import { LocationResult, CenterResult } from "../../../../src/utils/server/tools";
 
@@ -215,6 +219,21 @@ describe("LocationLogic - Pure Business Logic Functions", () => {
 
       // Should use default maxDistance=500, maxResults=10
       expect(result).toHaveLength(3); // 3 centers within 500 miles
+    });
+
+    it("omits centers that have no distance", () => {
+      const withoutDistance: CenterResult = {
+        name: "No Distance Center",
+        address: "fixture",
+        city: "Unknown",
+        state: "",
+        country: "Uruguay",
+        latitude: -34.9,
+        longitude: -56.1,
+      };
+      const result = selectBestCenters([...mockCenters, withoutDistance], 500);
+      expect(result.every((center) => typeof center.distance === "number")).toBe(true);
+      expect(result.map((center) => center.name)).not.toContain("No Distance Center");
     });
   });
 
@@ -497,6 +516,86 @@ describe("LocationLogic - Pure Business Logic Functions", () => {
       expect(r.scope).toBe("country");
       expect(r.countryFilter).toBe("India");
     });
+
+    // Labeled equivalents for the Vayu Uruguay report. These are not claimed
+    // Vayu quotes. Vayu did not supply exact translated prompts.
+    const URUGUAY_LOCATION = baseLocation({
+      city: "Uruguay",
+      country: "Uruguay",
+      latitude: -32.5228,
+      longitude: -55.7658,
+    });
+
+    it("EQUIV_EN_UY_NEAREST: English nearest-center in Uruguay uses proximity, not domestic-only", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "Uruguay",
+        originalQuestion: "Where is the nearest Ananda center in Uruguay?",
+        resolvedLocation: URUGUAY_LOCATION,
+      });
+      expect(r.scope).toBe("proximity");
+    });
+
+    it("EQUIV_EN_MVD_NEAREST: English nearest-center in Montevideo uses proximity", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "Montevideo",
+        originalQuestion: "Where is the nearest Ananda center in Montevideo?",
+        resolvedLocation: baseLocation({
+          city: "Montevideo",
+          country: "Uruguay",
+          latitude: -34.9011,
+          longitude: -56.1645,
+        }),
+      });
+      expect(r.scope).toBe("proximity");
+    });
+
+    it("EQUIV_ES_MVD_NEAREST: Spanish nearest-center in Montevideo uses proximity", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "Montevideo",
+        originalQuestion: "Cual es el centro Ananda mas cercano en Montevideo?",
+        resolvedLocation: baseLocation({
+          city: "Montevideo",
+          country: "Uruguay",
+          latitude: -34.9011,
+          longitude: -56.1645,
+        }),
+      });
+      expect(r.scope).toBe("proximity");
+    });
+
+    it("EQUIV_EN_MVD_CLOSEST_TYPO: misspelled closest at city level still uses proximity", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "Montevideo",
+        originalQuestion: "Where is the closesst Ananda center in Montevideo?",
+        resolvedLocation: baseLocation({
+          city: "Montevideo",
+          country: "Uruguay",
+          latitude: -34.9011,
+          longitude: -56.1645,
+        }),
+      });
+      expect(r.scope).toBe("proximity");
+    });
+
+    it("EQUIV_EN_UY_DOMESTIC_ONLY: explicit only-in-Uruguay stays country scope", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "Uruguay",
+        originalQuestion: "Where is the nearest Ananda center only in Uruguay?",
+        resolvedLocation: URUGUAY_LOCATION,
+      });
+      expect(r.scope).toBe("country");
+      expect(r.countryFilter).toBe("Uruguay");
+    });
+
+    it("EQUIV_EN_UY_IN: country list without nearest stays country scope", () => {
+      const r = determineLocationSearchScope({
+        userProvidedLocation: "Uruguay",
+        originalQuestion: "Are there Ananda centers in Uruguay?",
+        resolvedLocation: URUGUAY_LOCATION,
+      });
+      expect(r.scope).toBe("country");
+      expect(r.countryFilter).toBe("Uruguay");
+    });
   });
 
   describe("extractCountryMentionFromQuestion", () => {
@@ -507,6 +606,7 @@ describe("LocationLogic - Pure Business Logic Functions", () => {
     it("should extract New Zealand", () => {
       expect(extractCountryMentionFromQuestion("Are there centers in New Zealand?")).toBe("New Zealand");
     });
+
   });
 
   describe("hasProximityIntentInQuestion", () => {
@@ -516,6 +616,166 @@ describe("LocationLogic - Pure Business Logic Functions", () => {
 
     it("should detect within N miles", () => {
       expect(hasProximityIntentInQuestion("within 50 miles of Austin")).toBe(true);
+    });
+
+    it("does not treat Spanish or French teaching as proximity intent", () => {
+      expect(hasProximityIntentInQuestion("El centro del ser es mas cercano a la paz")).toBe(false);
+      expect(hasProximityIntentInQuestion("Le centre de lame est plus proche de la verite")).toBe(false);
+    });
+
+    it("should not treat a teaching question as proximity intent", () => {
+      expect(hasProximityIntentInQuestion("Es verdad que Yogananda habla de los angeles?")).toBe(false);
+    });
+
+    it("B1: does not treat cerca de / près de teaching questions as proximity scope", () => {
+      expect(hasProximityIntentInQuestion("Como meditar cerca de Dios?")).toBe(false);
+      expect(hasProximityIntentInQuestion("Yogananda habla acerca de estar cerca de la verdad")).toBe(false);
+      expect(hasProximityIntentInQuestion("Comment prier près de Dieu ?")).toBe(false);
+      expect(hasProximityIntentInQuestion("Yogananda enseigne près de 100 leçons de Kriya")).toBe(false);
+      expect(hasProximityIntentInQuestion("Como meditar cerca de mi maestro?")).toBe(false);
+    });
+  });
+
+  describe("hasExplicitDomesticOnlyRestriction", () => {
+    it("should detect English only-in and ignore Spanish/French wording", () => {
+      expect(hasExplicitDomesticOnlyRestriction("nearest center only in Uruguay")).toBe(true);
+      expect(hasExplicitDomesticOnlyRestriction("mas cercano solo en Uruguay")).toBe(false);
+      expect(hasExplicitDomesticOnlyRestriction("le plus proche uniquement en Uruguay")).toBe(false);
+      expect(hasExplicitDomesticOnlyRestriction("Where is the nearest Ananda center in Uruguay?")).toBe(false);
+    });
+
+    it("does not treat only-in evenings as domestic-only, even with a Uruguay arg", () => {
+      const question = "Is there an Ananda group near me that meets only in the evenings?";
+      expect(hasExplicitDomesticOnlyRestriction(question)).toBe(false);
+      expect(hasExplicitDomesticOnlyRestriction(question, "Uruguay")).toBe(false);
+    });
+  });
+
+  describe("isCountryOnlyProvidedLocation", () => {
+    it("should treat Uruguay as country-only and Montevideo as not", () => {
+      expect(isCountryOnlyProvidedLocation("Uruguay")).toBe(true);
+      expect(isCountryOnlyProvidedLocation("Montevideo")).toBe(false);
+      expect(isCountryOnlyProvidedLocation("Montevideo, Uruguay")).toBe(false);
+    });
+  });
+
+  describe("selectCountryOnlyNearestCandidates", () => {
+    const argentina: CenterResult = {
+      name: "Synthetic Nearby Center",
+      address: "fixture",
+      city: "Synthetic City",
+      state: "",
+      country: "Argentina",
+      latitude: -34.6037,
+      longitude: -58.3816,
+    };
+    const california: CenterResult = {
+      name: "Synthetic California Center",
+      address: "fixture",
+      city: "Palo Alto",
+      state: "CA",
+      country: "United States",
+      latitude: 37.4419,
+      longitude: -122.143,
+    };
+    const sydney: CenterResult = {
+      name: "Synthetic Sydney Center",
+      address: "fixture",
+      city: "Sydney",
+      state: "NSW",
+      country: "Australia",
+      latitude: -33.8688,
+      longitude: 151.2093,
+    };
+
+    const uruguayBox = {
+      southwest: { lat: -34.9, lng: -57.9 },
+      northeast: { lat: -30.1, lng: -53.2 },
+    };
+    const usBox = {
+      southwest: { lat: 24.5, lng: -125 },
+      northeast: { lat: 48, lng: -66.9 },
+    };
+
+    it("includes a synthetic cross-border center when the named country has none", () => {
+      const result = selectCountryOnlyNearestCandidates([argentina, california], "Uruguay", uruguayBox);
+      expect(result.map((row) => row.name)).toContain("Synthetic Nearby Center");
+      expect(result[0].distance).toBeUndefined();
+    });
+
+    it("keeps in-country US and Australia rows that are far from a country box", () => {
+      const us = selectCountryOnlyNearestCandidates([california, sydney], "United States", usBox);
+      expect(us.map((row) => row.name)).toContain("Synthetic California Center");
+      expect(us.every((row) => row.distance === undefined)).toBe(true);
+      const auBox = {
+        southwest: { lat: -44, lng: 112 },
+        northeast: { lat: -10, lng: 154 },
+      };
+      const au = selectCountryOnlyNearestCandidates([california, sydney], "Australia", auBox);
+      expect(au.map((row) => row.name)).toContain("Synthetic Sydney Center");
+    });
+
+    it("returns empty only when the directory sample is empty", () => {
+      expect(selectCountryOnlyNearestCandidates([], "Uruguay", uruguayBox)).toEqual([]);
+    });
+
+    it("Hawk-1: 8 domestic rows must not hide a foreign candidate outside the box", () => {
+      const eightUS: CenterResult[] = Array.from({ length: 8 }, (_, i) => ({
+        name: `Synthetic US Center ${i + 1}`,
+        address: "fixture",
+        city: "US City",
+        state: "WA",
+        country: "United States",
+        latitude: 47.6,
+        longitude: -122.3,
+      }));
+      const canada: CenterResult = {
+        name: "Synthetic Canada Center",
+        address: "fixture",
+        city: "Vancouver",
+        state: "BC",
+        country: "Canada",
+        latitude: 49.2827,
+        longitude: -123.1207,
+      };
+      const result = selectCountryOnlyNearestCandidates([...eightUS, canada], "United States", usBox);
+      expect(result.some((row) => row.name === "Synthetic Canada Center")).toBe(true);
+      expect(result.every((row) => row.distance === undefined)).toBe(true);
+    });
+
+    it("Hawk-2: a foreign row outside the country box still qualifies", () => {
+      const seattle: CenterResult = {
+        name: "Synthetic Seattle Center",
+        address: "fixture",
+        city: "Seattle",
+        state: "WA",
+        country: "United States",
+        latitude: 47.6062,
+        longitude: -122.3321,
+      };
+      const vancouver: CenterResult = {
+        name: "Synthetic Vancouver Center",
+        address: "fixture",
+        city: "Vancouver",
+        state: "BC",
+        country: "Canada",
+        latitude: 49.2827,
+        longitude: -123.1207,
+      };
+      const result = selectCountryOnlyNearestCandidates([seattle, vancouver], "United States", usBox);
+      expect(result.map((row) => row.name)).toContain("Synthetic Vancouver Center");
+    });
+  });
+
+  describe("isCountryOnlyLocationQuery", () => {
+    it("treats an omitted tool location plus English in-country as country-only", () => {
+      expect(isCountryOnlyLocationQuery(undefined, "Where is the nearest Ananda center in Uruguay?")).toBe(true);
+      expect(
+        isCountryOnlyLocationQuery(undefined, "Cual es el centro Ananda mas cercano en Uruguay?")
+      ).toBe(false);
+      expect(isCountryOnlyLocationQuery("Montevideo", "Cual es el centro Ananda mas cercano en Montevideo?")).toBe(
+        false
+      );
     });
   });
 

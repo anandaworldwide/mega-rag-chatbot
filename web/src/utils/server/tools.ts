@@ -9,6 +9,11 @@
 import { NextRequest } from "next/server";
 
 // Types for tool responses
+export interface GeoBox {
+  southwest: { lat: number; lng: number };
+  northeast: { lat: number; lng: number };
+}
+
 export interface LocationResult {
   city: string;
   country: string;
@@ -16,6 +21,8 @@ export interface LocationResult {
   longitude: number;
   confidence: "high" | "medium" | "low";
   source: "vercel-header" | "vercel-header-geocoded" | "google-geolocation" | "user-provided";
+  bounds?: GeoBox;
+  viewport?: GeoBox;
 }
 
 export interface CenterResult {
@@ -26,7 +33,7 @@ export interface CenterResult {
   country: string;
   latitude: number;
   longitude: number;
-  distance: number;
+  distance?: number;
   phone?: string;
   website?: string;
   email?: string;
@@ -41,6 +48,8 @@ export interface NearestCenterResult {
   searchMode?: "proximity" | "country";
   /** Inline guidance for model response formatting (country-level queries) */
   responseGuidance?: string;
+  /** Country-only nearest questions cannot rank nearest-to-user. */
+  locationPrecision?: "city" | "country";
 }
 
 // Using existing S3 client from awsConfig.ts
@@ -52,7 +61,7 @@ export const TOOL_DEFINITIONS = [
     function: {
       name: "get_user_location",
       description:
-        "Get user's location and find nearby Ananda centers. This tool does both location detection AND center search in one call.",
+        "Get user's location and find nearby Ananda centers. For a country-only location, the results are directory alternatives within about 500 miles (800 km). Do not call them nearest. This tool does both location detection AND center search in one call.",
       parameters: {
         type: "object",
         properties: {

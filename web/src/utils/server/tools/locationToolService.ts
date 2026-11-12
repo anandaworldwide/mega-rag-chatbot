@@ -13,6 +13,12 @@ import {
   shouldSearchCenters,
   createPerformanceMetrics,
   determineLocationSearchScope,
+  isCountryOnlyLocationQuery,
+  getCanonicalCountryLabel,
+  extractCountryMentionFromQuestion,
+  resolveDomesticOnlyCountry,
+  pickCountryBox,
+  COUNTRY_PROXIMITY_INVALID_BOX_FALLBACK,
 } from "./locationLogic";
 
 /**
@@ -46,6 +52,15 @@ export class LocationToolService implements ILocationToolService {
 
     // Log tool execution start
     this.logger.logToolStart("get_user_location", args, requestHeaders);
+
+    const originalQuestion = context?.originalQuestion ?? "";
+    const domesticOnlyCountry = resolveDomesticOnlyCountry(originalQuestion, args.userProvidedLocation);
+    const domesticOnly = domesticOnlyCountry !== null;
+    const countryOnlyNearest = !domesticOnly && isCountryOnlyLocationQuery(args.userProvidedLocation, originalQuestion);
+
+    if (domesticOnly || countryOnlyNearest) {
+      return this.getStatedCountryLocation(args, originalQuestion, domesticOnly, toolStartTime);
+    }
 
     // Extract IP geolocation data from headers
     const ipData = extractIPGeolocationData(headers);
@@ -91,15 +106,14 @@ export class LocationToolService implements ILocationToolService {
     if (shouldSearchCenters(location)) {
       const centerSearchStart = Date.now();
       const scope = determineLocationSearchScope({
-        originalQuestion: context?.originalQuestion,
+        originalQuestion,
         userProvidedLocation: args.userProvidedLocation,
         resolvedLocation: location,
       });
-      const useCountry = scope.scope === "country" && !!scope.countryFilter;
       centers = await this.centerSearchService.findNearestCenters(
         location.latitude,
         location.longitude,
-        useCountry
+        scope.scope === "country" && scope.countryFilter
           ? { searchScope: "country", countryFilter: scope.countryFilter }
           : undefined
       );
@@ -128,6 +142,72 @@ export class LocationToolService implements ILocationToolService {
     }
 
     return createLocationResponse(location, centers);
+  }
+
+  private countryOnlyEmptyCenters(): NearestCenterResult {
+    return {
+      found: false,
+      centers: [],
+      searchMode: "proximity",
+      locationPrecision: "country",
+      fallbackMessage: COUNTRY_PROXIMITY_INVALID_BOX_FALLBACK,
+    };
+  }
+
+  private async getStatedCountryLocation(
+    args: { userProvidedLocation?: string },
+    originalQuestion: string,
+    domesticOnly: boolean,
+    toolStartTime: number
+  ): Promise<{ location: LocationResult | null; centers: NearestCenterResult }> {
+    const extracted = extractCountryMentionFromQuestion(originalQuestion);
+    const domesticCountry = resolveDomesticOnlyCountry(originalQuestion, args.userProvidedLocation);
+    const stated =
+      (args.userProvidedLocation ?? "").trim() || domesticCountry || extracted || "";
+    const countryLabel =
+      domesticCountry ||
+      getCanonicalCountryLabel(args.userProvidedLocation ?? "") ||
+      (extracted ? getCanonicalCountryLabel(extracted) : null) ||
+      stated;
+
+    const location = stated ? await this.locationService.geocodeOnly(stated) : null;
+
+    if (domesticOnly) {
+      const centerSearchStart = Date.now();
+      const centers = await this.centerSearchService.findNearestCenters(0, 0, {
+        searchScope: "country",
+        countryFilter: countryLabel || stated,
+      });
+      this.logger.logToolComplete("get_user_location", true, {
+        reason: "stated_country_domestic_only",
+        centersFound: centers.centers.length,
+        performance: createPerformanceMetrics(0, 0, Date.now() - centerSearchStart, Date.now() - toolStartTime),
+      });
+      return { location, centers };
+    }
+
+    const box = pickCountryBox(location);
+    if (!location || !box) {
+      this.logger.logToolComplete("get_user_location", false, {
+        reason: "invalid_stated_country_geometry",
+        performance: createPerformanceMetrics(0, 0, 0, Date.now() - toolStartTime),
+      });
+      return { location, centers: this.countryOnlyEmptyCenters() };
+    }
+
+    const centerSearchStart = Date.now();
+    const centers = await this.centerSearchService.findNearestCenters(location.latitude, location.longitude, {
+      searchScope: "proximity",
+      locationPrecision: "country",
+      countryFilter: countryLabel || location.country,
+      countryBox: box,
+    });
+    this.logger.logToolComplete("get_user_location", true, {
+      location: `${location.city}, ${location.country}`,
+      centersFound: centers.centers.length,
+      performance: createPerformanceMetrics(0, 0, Date.now() - centerSearchStart, Date.now() - toolStartTime),
+    });
+    return { location, centers };
   }
 
   /**

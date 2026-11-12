@@ -3,7 +3,7 @@
  * Extracted from tools.ts to be independently testable
  */
 
-import { LocationResult, CenterResult, NearestCenterResult } from "../tools";
+import { LocationResult, CenterResult, NearestCenterResult, GeoBox } from "../tools";
 
 // Location resolution strategy types
 export type LocationStrategy = "user-provided" | "ip-geolocation" | "none";
@@ -87,7 +87,9 @@ export function selectBestCenters(
   maxResults: number = 10
 ): CenterResult[] {
   return centers
-    .filter((center) => center.distance <= maxDistance)
+    .filter((center): center is CenterResult & { distance: number } =>
+      typeof center.distance === "number" && center.distance <= maxDistance
+    )
     .sort((a, b) => a.distance - b.distance)
     .slice(0, maxResults);
 }
@@ -169,7 +171,15 @@ export function createPerformanceMetrics(
 
 /** Synonym groups: first label is the preferred form for matching center CSV `country` values. */
 export const COUNTRY_SYNONYM_GROUPS: readonly (readonly string[])[] = [
-  ["United States", "USA", "US", "America", "U.S.", "U.S.A.", "United States of America"],
+  [
+    "United States",
+    "USA",
+    "US",
+    "America",
+    "U.S.",
+    "U.S.A.",
+    "United States of America",
+  ],
   ["United Kingdom", "UK", "Great Britain", "Britain", "England", "Scotland", "Wales", "Northern Ireland"],
   ["New Zealand", "NZ", "Aotearoa"],
   ["India", "Republic of India", "Bharat"],
@@ -273,8 +283,72 @@ export function hasProximityIntentInQuestion(question: string): boolean {
   return /\b(near me|nearby|closest|nearest|within\s+\d+|\d+\s*miles?\s+of|km\s+of)\b/i.test(question);
 }
 
+function hasDomesticOnlyPhrasing(question: string): boolean {
+  const q = question.toLowerCase();
+  return (
+    /\bonly\s+in\b/.test(q) ||
+    /\bin\s+(?:the\s+)?[a-z]+(?:\s+[a-z]+){0,3}\s+only\b/.test(q) ||
+    /\bonly\s+within\b/.test(q) ||
+    /\bwithin\s+(?:this\s+)?country\b/.test(q)
+  );
+}
+
 /**
- * Extract a country phrase after "in" / "in the" from the user question (e.g. "center in New Zealand").
+ * Phrase after English only-in / in-only / only-within. Not a word list.
+ * Prefer "only in X" over an earlier "in … only" so "in my area … only in Spain" yields Spain.
+ */
+function extractDomesticOnlyCountryCandidate(question: string): string | null {
+  if (!question.trim()) {
+    return null;
+  }
+  const patterns = [
+    /\bonly\s+in\s+(?:the\s+)?([A-Za-z]+(?:\s+[A-Za-z]+){0,3})\b/i,
+    /\bin\s+(?:the\s+)?([A-Za-z]+(?:\s+[A-Za-z]+){0,3})\s+only\b/i,
+    /\bonly\s+within\s+(?:the\s+)?([A-Za-z]+(?:\s+[A-Za-z]+){0,3})\b/i,
+  ];
+  for (const re of patterns) {
+    const match = question.match(re);
+    const candidate = match?.[1]?.trim();
+    if (candidate) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+/**
+ * Canonical country for an explicit domestic-only restriction.
+ * Gate: getCanonicalCountryLabel on the restriction candidate, else on userProvidedLocation.
+ * A non-country candidate (for example "evenings") does not fall back to the tool arg.
+ */
+export function resolveDomesticOnlyCountry(
+  question: string,
+  userProvidedLocation?: string
+): string | null {
+  if (!hasDomesticOnlyPhrasing(question)) {
+    return null;
+  }
+  const restrictionCandidate = extractDomesticOnlyCountryCandidate(question);
+  if (restrictionCandidate) {
+    return getCanonicalCountryLabel(restrictionCandidate);
+  }
+  return getCanonicalCountryLabel(userProvidedLocation ?? "");
+}
+
+/**
+ * Explicit English within-country-only wording that names a known country,
+ * or names none and the tool arg is a known country. Nearest/closest must not
+ * imply this by language alone.
+ */
+export function hasExplicitDomesticOnlyRestriction(
+  question: string,
+  userProvidedLocation?: string
+): boolean {
+  return resolveDomesticOnlyCountry(question, userProvidedLocation) !== null;
+}
+
+/**
+ * Extract a country phrase after "in" / "in the" from the user question.
  */
 export function extractCountryMentionFromQuestion(question: string): string | null {
   if (!question || !question.trim()) {
@@ -289,6 +363,31 @@ export function extractCountryMentionFromQuestion(question: string): string | nu
     return null;
   }
   return candidate;
+}
+
+/** True when the provided location is a country name without a city token. */
+export function isCountryOnlyProvidedLocation(userProvidedLocation?: string): boolean {
+  const u = (userProvidedLocation ?? "").trim();
+  if (!u || /\d/.test(u) || u.includes(",")) {
+    return false;
+  }
+  return getCanonicalCountryLabel(u) !== null;
+}
+
+/**
+ * Country-only when the tool arg is a country, or when the arg is omitted and
+ * the question names a country after English "in".
+ */
+export function isCountryOnlyLocationQuery(userProvidedLocation?: string, originalQuestion?: string): boolean {
+  if (isCountryOnlyProvidedLocation(userProvidedLocation)) {
+    return true;
+  }
+  const u = (userProvidedLocation ?? "").trim();
+  if (u) {
+    return false;
+  }
+  const extracted = extractCountryMentionFromQuestion(originalQuestion ?? "");
+  return !!(extracted && getCanonicalCountryLabel(extracted));
 }
 
 export type LocationSearchScopeType = "country" | "proximity" | "fallback";
@@ -316,6 +415,12 @@ export function determineLocationSearchScope(input: LocationSearchScopeInput): L
 
   if (!u && !q) {
     return { scope: "fallback" };
+  }
+
+  // Explicit English domestic-only wording wins over nearest/closest.
+  const domesticCountry = resolveDomesticOnlyCountry(q, u);
+  if (domesticCountry) {
+    return { scope: "country", countryFilter: domesticCountry };
   }
 
   if (q && hasProximityIntentInQuestion(q)) {
@@ -365,3 +470,193 @@ export const LOCATION_COUNTRY_SEARCH_MAX_RESULTS = 20;
 /** Inline guidance injected into country-level tool results so the model sees it adjacent to the data. */
 export const COUNTRY_SEARCH_RESPONSE_GUIDANCE =
   "This is a country-level search. End the location section by inviting the user to ask about a specific city or region for more targeted results, THEN link to the directory. Do NOT just say 'For a full directory, visit…' without offering the narrower follow-up first.";
+
+/**
+ * Country-only directory alternatives. Cap 8. Foreign max 8 when in-country
+ * count is 0, else 5. Keep a foreign row only if rectangle-distance to the
+ * country geocode box is at most COUNTRY_PROXIMITY_FOREIGN_MAX_MILES. Emit
+ * the sample in directory order.
+ */
+export const COUNTRY_PROXIMITY_MAX_CANDIDATES = 8;
+export const COUNTRY_PROXIMITY_FOREIGN_FILL = 5;
+export const COUNTRY_PROXIMITY_FOREIGN_MAX_MILES = 500;
+const EARTH_RADIUS_MILES = 3959;
+
+const COUNTRY_PROXIMITY_GUIDANCE_SHARED =
+  "These are directory alternatives within about 500 miles (800 km). This is not a complete list. Do not rank them as nearest to the user. Do not call them nearest. Do not show miles. Name a city for distances. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/). Reply in the user's language.";
+
+/** Zero domestic rows: say no center is listed in that country. */
+export const COUNTRY_PROXIMITY_RESPONSE_GUIDANCE =
+  `No center is listed in that country. ${COUNTRY_PROXIMITY_GUIDANCE_SHARED}`;
+
+/** Domestic rows > 0: do not say no center is listed in that country. */
+export const COUNTRY_PROXIMITY_WITH_DOMESTIC_GUIDANCE = COUNTRY_PROXIMITY_GUIDANCE_SHARED;
+
+export function countryProximityResponseGuidance(domesticCount: number): string {
+  return domesticCount > 0
+    ? COUNTRY_PROXIMITY_WITH_DOMESTIC_GUIDANCE
+    : COUNTRY_PROXIMITY_RESPONSE_GUIDANCE;
+}
+
+export const COUNTRY_PROXIMITY_EMPTY_FALLBACK =
+  "No center is listed in that country. No close options are listed. Name a city. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
+
+export const COUNTRY_PROXIMITY_INVALID_BOX_FALLBACK =
+  "The country location could not be determined. Name a city. You can also use [Find Ananda Near You](https://www.ananda.org/find-ananda/).";
+
+export function omitCenterDistance(center: CenterResult): CenterResult {
+  const copy: CenterResult = { ...center };
+  delete copy.distance;
+  return copy;
+}
+
+export function isValidCenterCoordinate(lat: number, lng: number): boolean {
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lng) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lng >= -180 &&
+    lng <= 180
+  );
+}
+
+export function isValidGeoBox(box: unknown): box is GeoBox {
+  if (!box || typeof box !== "object") {
+    return false;
+  }
+  const candidate = box as GeoBox;
+  const sw = candidate.southwest;
+  const ne = candidate.northeast;
+  if (!sw || !ne) {
+    return false;
+  }
+  const values = [sw.lat, sw.lng, ne.lat, ne.lng];
+  if (!values.every((value) => Number.isFinite(value))) {
+    return false;
+  }
+  if (sw.lat < -90 || sw.lat > 90 || ne.lat < -90 || ne.lat > 90) {
+    return false;
+  }
+  if (sw.lng < -180 || sw.lng > 180 || ne.lng < -180 || ne.lng > 180) {
+    return false;
+  }
+  return ne.lat >= sw.lat;
+}
+
+export function pickCountryBox(location: { bounds?: GeoBox; viewport?: GeoBox } | null | undefined): GeoBox | null {
+  if (isValidGeoBox(location?.bounds)) {
+    return location.bounds;
+  }
+  if (isValidGeoBox(location?.viewport)) {
+    return location.viewport;
+  }
+  return null;
+}
+
+function toRadians(degrees: number): number {
+  return degrees * (Math.PI / 180);
+}
+
+function haversineMiles(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const dLat = toRadians(lat2 - lat1);
+  const dLng = toRadians(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return EARTH_RADIUS_MILES * c;
+}
+
+function clamp(value: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, value));
+}
+
+function isInsideLongitude(lng: number, west: number, east: number): boolean {
+  if (west <= east) {
+    return west <= lng && lng <= east;
+  }
+  return lng >= west || lng <= east;
+}
+
+function isInsideBox(lat: number, lng: number, south: number, west: number, north: number, east: number): boolean {
+  return south <= lat && lat <= north && isInsideLongitude(lng, west, east);
+}
+
+function distanceToNonWrappingBox(
+  lat: number,
+  lng: number,
+  south: number,
+  west: number,
+  north: number,
+  east: number
+): number {
+  if (isInsideBox(lat, lng, south, west, north, east)) {
+    return 0;
+  }
+  const latC = clamp(lat, south, north);
+  const lngC = clamp(lng, west, east);
+  return haversineMiles(lat, lng, latC, lngC);
+}
+
+export function rectangleDistanceMiles(lat: number, lng: number, box: GeoBox): number {
+  const south = box.southwest.lat;
+  const west = box.southwest.lng;
+  const north = box.northeast.lat;
+  const east = box.northeast.lng;
+  if (isInsideBox(lat, lng, south, west, north, east)) {
+    return 0;
+  }
+  if (west <= east) {
+    return distanceToNonWrappingBox(lat, lng, south, west, north, east);
+  }
+  return Math.min(
+    distanceToNonWrappingBox(lat, lng, south, west, north, 180),
+    distanceToNonWrappingBox(lat, lng, south, -180, north, east)
+  );
+}
+
+function countryCenterDedupeKey(center: CenterResult): string {
+  const nameKey = (center.name ?? "").normalize("NFC").trim().replace(/\s+/g, " ").toLowerCase();
+  return `${nameKey}\0${String(center.latitude)}\0${String(center.longitude)}`;
+}
+
+export function selectCountryOnlyNearestCandidates(
+  centers: CenterResult[],
+  namedCountry: string,
+  box: GeoBox
+): CenterResult[] {
+  const seen = new Set<string>();
+  const deduped: { center: CenterResult; index: number }[] = [];
+  centers.forEach((center, index) => {
+    if (!isValidCenterCoordinate(center.latitude, center.longitude)) {
+      return;
+    }
+    const key = countryCenterDedupeKey(center);
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    deduped.push({ center, index });
+  });
+
+  const inCountry = deduped.filter((row) => countriesMatchForCenterSearch(row.center.country, namedCountry));
+  const foreign = deduped.filter((row) => !countriesMatchForCenterSearch(row.center.country, namedCountry));
+  const foreignMax =
+    inCountry.length === 0 ? COUNTRY_PROXIMITY_MAX_CANDIDATES : COUNTRY_PROXIMITY_FOREIGN_FILL;
+
+  const foreignSelected = foreign
+    .map((row) => ({
+      ...row,
+      miles: rectangleDistanceMiles(row.center.latitude, row.center.longitude, box),
+    }))
+    .filter((row) => row.miles <= COUNTRY_PROXIMITY_FOREIGN_MAX_MILES)
+    .sort((a, b) => a.miles - b.miles || a.index - b.index)
+    .slice(0, foreignMax);
+
+  const remaining = COUNTRY_PROXIMITY_MAX_CANDIDATES - foreignSelected.length;
+  const domesticSelected = inCountry.slice(0, Math.max(0, remaining));
+  return [...foreignSelected, ...domesticSelected]
+    .sort((a, b) => a.index - b.index)
+    .map((row) => omitCenterDistance(row.center));
+}

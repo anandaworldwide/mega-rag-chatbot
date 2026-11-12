@@ -8,6 +8,7 @@ import fs from "fs";
 import {
   initializeLocationIntentDetector,
   hasLocationIntentAsync,
+  hasLocationKeywordPatterns,
   getEmbeddingInfo,
   getCachedSiteId,
 } from "../../../src/utils/server/locationIntentDetector";
@@ -267,6 +268,184 @@ describe("Location Intent Detector", () => {
       expect(await hasLocationIntentAsync("Where is the Ananda center in Los Angeles")).toBe(true);
       expect(await hasLocationIntentAsync("Find a meditation group near Los Angeles")).toBe(true);
       expect(await hasLocationIntentAsync("How do I get to the Los Angeles center")).toBe(true);
+    });
+  });
+
+  describe("two-letter country codes are not location keywords", () => {
+    beforeEach(() => {
+      process.env.OPENAI_API_KEY = "test-key";
+      // Force the embedding path to be unavailable so any positive result must come
+      // from the keyword pattern matcher, not from semantic similarity.
+      mockFs.existsSync.mockReturnValue(false);
+    });
+
+    it("should NOT treat Italian article 'il' (Israel ISO code) as a location", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("Che cosa dice il Maestro sugli angeli?")).toBe(false);
+    });
+
+    it("should NOT treat Italian 'se' (Sweden ISO code) as a location", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("Se medito ogni giorno, cosa succede?")).toBe(false);
+    });
+
+    it("should NOT treat German 'de' (Germany ISO code) as a location", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("Was lehrt Yogananda über Meditation de Ananda?")).toBe(false);
+    });
+
+    it("should NOT treat Spanish 'es' (Spain ISO code) as a location", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("Es verdad que Yogananda habla de los angeles?")).toBe(false);
+    });
+
+    it("should NOT treat standalone two-letter country codes as locations", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("What did Yogananda teach in NZ")).toBe(false);
+      expect(await hasLocationIntentAsync("Meditation groups UK")).toBe(false);
+      expect(await hasLocationIntentAsync("IL teachings on devotion")).toBe(false);
+    });
+
+    it("should still treat three-letter code 'usa' as a location keyword", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("Meditation groups USA")).toBe(true);
+    });
+
+    it("should still treat three-letter code 'uae' as a location keyword", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("Meditation groups UAE")).toBe(true);
+    });
+
+    it("should still trigger location intent from phrases when a two-letter country is present", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("Where is the nearest center in the UK")).toBe(true);
+      expect(await hasLocationIntentAsync("Find a meditation group near me in NZ")).toBe(true);
+    });
+
+    it("ORIGINAL_FIVE: keeps the five Vayu preview keyword regressions", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("Che cosa dice il Maestro sugli angeli?")).toBe(false);
+      expect(await hasLocationIntentAsync("Se medito ogni giorno, cosa succede?")).toBe(false);
+      expect(await hasLocationIntentAsync("Es verdad que Yogananda habla de los angeles?")).toBe(false);
+      expect(await hasLocationIntentAsync("Where is the nearest Ananda center?")).toBe(true);
+      expect(await hasLocationIntentAsync("Meditation groups USA")).toBe(true);
+    });
+
+    it("EQUIV_ES_FR_NEAREST: Spanish and French nearest-center questions miss the English keyword path", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(hasLocationKeywordPatterns("Cual es el centro Ananda mas cercano en Uruguay?")).toBe(false);
+      expect(hasLocationKeywordPatterns("Quel est le centre Ananda le plus proche en Uruguay ?")).toBe(false);
+      expect(await hasLocationIntentAsync("Cual es el centro Ananda mas cercano en Uruguay?")).toBe(false);
+      expect(await hasLocationIntentAsync("Quel est le centre Ananda le plus proche en Uruguay ?")).toBe(false);
+    });
+
+    it("plain ES/FR teaching does not route to location through ES/FR words or ISO codes", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(hasLocationKeywordPatterns("Es verdad que el silencio ensena?")).toBe(false);
+      expect(hasLocationKeywordPatterns("Se puede meditar cada manana?")).toBe(false);
+      expect(hasLocationKeywordPatterns("Che cosa dice il Maestro sulla pace?")).toBe(false);
+      expect(hasLocationKeywordPatterns("El centro del ser es mas cercano a la paz")).toBe(false);
+      expect(hasLocationKeywordPatterns("Le centre de lame est plus proche de la verite")).toBe(false);
+      expect(await hasLocationIntentAsync("Es verdad que el silencio ensena?")).toBe(false);
+      expect(await hasLocationIntentAsync("El centro del ser es mas cercano a la paz")).toBe(false);
+      expect(await hasLocationIntentAsync("Le centre de lame est plus proche de la verite")).toBe(false);
+    });
+
+    it("B1: teaching questions with cerca de / près de must not take the keyword geo path", async () => {
+      await initializeLocationIntentDetector("ananda-public");
+
+      expect(await hasLocationIntentAsync("Como meditar cerca de Dios?")).toBe(false);
+      expect(await hasLocationIntentAsync("Yogananda habla acerca de estar cerca de la verdad")).toBe(false);
+      expect(await hasLocationIntentAsync("Comment prier près de Dieu ?")).toBe(false);
+      expect(await hasLocationIntentAsync("Yogananda enseigne près de 100 leçons de Kriya")).toBe(false);
+      expect(await hasLocationIntentAsync("Como meditar cerca de mi maestro?")).toBe(false);
+      expect(await hasLocationIntentAsync("Ananda ensena a estar mas cercano a Dios")).toBe(false);
+    });
+  });
+
+  describe("G1/G2 teaching cerca/cercano with embeddings enabled", () => {
+    // Unique site id so earlier tests that cached embeddings for test-site / ananda-public
+    // cannot skip this initialize. Query vector is closer to the positive seed than the
+    // negative seed (pos >= 0.37 and contrastive >= 0.05). No live embedding API.
+    // Keyword must be false so a failure is the embedding path, not two-letter codes.
+    let createEmbedding: jest.Mock;
+
+    beforeEach(async () => {
+      createEmbedding = jest.fn().mockResolvedValue({
+        data: [{ embedding: [0.95, 0.05] }],
+      });
+      const { OpenAI } = jest.requireMock("openai");
+      OpenAI.mockImplementation(() => ({
+        embeddings: { create: createEmbedding },
+      }));
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readFileSync.mockReturnValue(
+        JSON.stringify({
+          model: "text-embedding-3-large",
+          timestamp: "2024-01-01T00:00:00.000Z",
+          positiveCount: 1,
+          negativeCount: 1,
+          embeddingDimensions: 2,
+          positiveEmbeddings: [[1, 0]],
+          negativeEmbeddings: [[0, 1]],
+        })
+      );
+      await initializeLocationIntentDetector("g1-g2-semantic-path");
+    });
+
+    it("synthetic Spanish teaching is not a keyword hit when embeddings are on", async () => {
+      const prompt = "El centro del ser es mas cercano a la paz";
+      expect(hasLocationKeywordPatterns(prompt)).toBe(false);
+    });
+
+    it("synthetic French teaching is not a keyword hit when embeddings are on", async () => {
+      const prompt = "Le centre de lame est plus proche de la verite";
+      expect(hasLocationKeywordPatterns(prompt)).toBe(false);
+    });
+
+    it('routes "centros cerca de Montevideo" to location when embeddings are on', async () => {
+      expect(await hasLocationIntentAsync("centros cerca de Montevideo")).toBe(true);
+    });
+
+    it('routes "grupo de meditación cercano a Buenos Aires" to location when embeddings are on', async () => {
+      expect(await hasLocationIntentAsync("grupo de meditación cercano a Buenos Aires")).toBe(true);
+    });
+
+    it("routes a Madrid centro cerca query to location when embeddings are on", async () => {
+      expect(await hasLocationIntentAsync("¿Hay un centro Ananda cerca de Madrid?")).toBe(true);
+    });
+
+    it("keeps Spanish country-only nearest on the location path with embeddings on", async () => {
+      expect(await hasLocationIntentAsync("¿Cuál es el centro Ananda más cercano en Uruguay?")).toBe(true);
+    });
+
+    it("keeps Spanish city nearest on the location path with embeddings on", async () => {
+      expect(await hasLocationIntentAsync("Cual es el centro Ananda mas cercano en Montevideo?")).toBe(true);
+    });
+
+    it("keeps English nearest on the location path with embeddings on", async () => {
+      const prompt = "Where is the nearest Ananda center?";
+      expect(hasLocationKeywordPatterns(prompt)).toBe(true);
+      expect(await hasLocationIntentAsync(prompt)).toBe(true);
+      expect(createEmbedding).not.toHaveBeenCalled();
+    });
+
+    it("keeps Meditation groups USA on the location path with embeddings on", async () => {
+      const prompt = "Meditation groups USA";
+      expect(hasLocationKeywordPatterns(prompt)).toBe(true);
+      expect(await hasLocationIntentAsync(prompt)).toBe(true);
+      expect(createEmbedding).not.toHaveBeenCalled();
     });
   });
 

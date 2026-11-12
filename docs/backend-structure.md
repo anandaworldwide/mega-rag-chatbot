@@ -769,9 +769,31 @@ embeddings.
 
 - **Runtime Detection Module (`web/src/utils/server/locationIntentDetector.ts`):**
   - Loads site-specific embeddings into memory cache on initialization
+  - Keyword fast path matches English location phrases (`near me`, `nearest`,
+    `where is`, `center in`, …) and the three-letter codes `usa` and `uae`.
+    Two-letter ISO country codes are not keywords; they collide with function words
+    in other languages (Italian `il`/`se`, German `de`, Spanish `es`) and skip library
+    search. There is no Spanish or French keyword list. Named-place questions in
+    those languages use the embedding path until a separate classifier PR.
+  - Country-only nearest/closest returns a directory sample.
+    Cap the sample at 8 rows. If the named country has 0 domestic rows, include up to
+    8 foreign rows. If the named country has domestic rows, include up to 5 foreign
+    rows, then fill remaining slots with domestic rows. Pick foreign rows by distance
+    to the country geocode rectangle (`bounds`, else `viewport`). Keep a foreign row
+    only if that distance is at most 500 miles (about 800 km). Drop farther foreign
+    rows. If fewer rows qualify, return fewer rows. If none qualify, return 0 rows.
+    Keep directory order. Do not show miles on country-only results. Do not call them
+    nearest. If the named country has 0 domestic rows, the tool may say that no center
+    is listed in that country. If it has domestic rows, omit that sentence. A
+    geocoding failure or invalid country box uses its own copy and does not say
+    that no center is listed. Explicit English "only in" stays country-filtered
+    only when `getCanonicalCountryLabel` finds a country in that phrase or in
+    `userProvidedLocation`. A non-country phrase such as "evenings" uses the
+    normal path and does not geocode.
+    There is no hardcoded country-to-country map.
   - Implements contrastive scoring algorithm:
-    - Positive similarity threshold: >= 0.44
-    - Contrastive threshold: positive similarity must exceed negative by >= 0.1
+    - Positive similarity threshold: >= 0.37
+    - Contrastive threshold: positive similarity must exceed negative by >= 0.05
   - Average latency: ~250ms per query (includes OpenAI API call for query embedding)
   - Graceful fallback if embeddings unavailable
 
