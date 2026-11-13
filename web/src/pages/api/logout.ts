@@ -3,6 +3,7 @@ import Cookies from "cookies";
 import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { clearLibraryAccessCookies } from "@/utils/server/libraryAccess";
+import { isDevelopment } from "@/utils/env";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Apply rate limiting
@@ -17,21 +18,21 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
   }
 
   if (req.method === "POST") {
-    const cookies = new Cookies(req, res);
-    cookies.set("authToken", "", {
+    // Match the Secure/SameSite attributes used when login sets these cookies.
+    // Browsers may reject overwrites that omit Secure on HTTPS (RFC 6265).
+    const isSecure = req.headers["x-forwarded-proto"] === "https" || !isDevelopment();
+    const cookies = new Cookies(req, res, { secure: isSecure });
+    const expireOpts = {
       expires: new Date(0),
       path: "/",
-    });
+      secure: isSecure,
+      sameSite: "lax" as const,
+    };
+    cookies.set("authToken", "", expireOpts);
     // Also clear client-readable UUID to avoid cross-user adoption on shared devices
-    cookies.set("uuid", "", {
-      expires: new Date(0),
-      path: "/",
-    });
+    cookies.set("uuid", "", expireOpts);
     // Clear client-readable session indicator
-    cookies.set("hasSession", "", {
-      expires: new Date(0),
-      path: "/",
-    });
+    cookies.set("hasSession", "", expireOpts);
     clearLibraryAccessCookies(cookies);
     res.status(200).json({ message: "Logged out" });
   } else {

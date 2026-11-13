@@ -158,6 +158,21 @@ describe("library access gate", () => {
     expect(emailFromAuthCookieHeader(`authToken=parent-junk; authToken=${token}`)).toBe("me@ananda.org");
   });
 
+  test("prefers the host authToken when a parent-domain token is also valid", () => {
+    process.env.SECURE_TOKEN = "library-access-test-secret";
+    const parentToken = jwt.sign({ client: "web", email: "parent@ananda.org" }, process.env.SECURE_TOKEN, {
+      algorithm: "HS256",
+      issuer: "mega-rag-chatbot",
+      audience: "mega-rag-chatbot-users",
+    });
+    const hostToken = jwt.sign({ client: "web", email: "host@ananda.org" }, process.env.SECURE_TOKEN, {
+      algorithm: "HS256",
+      issuer: "mega-rag-chatbot",
+      audience: "mega-rag-chatbot-users",
+    });
+    expect(emailFromAuthCookieHeader(`authToken=${parentToken}; authToken=${hostToken}`)).toBe("host@ananda.org");
+  });
+
   test("chat API applyLibraryAccessGate blocks restricted content for a user who is not on the list", () => {
     process.env.WIKI_LIBRARY_EMAILS = "allowed@ananda.org";
     const result = applyLibraryAccessGate(siteConfig, "visitor@ananda.org", ["Ananda Family Wiki"]);
