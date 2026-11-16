@@ -12,7 +12,7 @@ click==8.3.3
 colorama==0.4.6
 cryptography>=50.0.0,<51
 dill==0.4.0
-filelock>=3.20.1  # CVE-2025-68146: TOCTOU symlink attack fix
+filelock>=4.2.1  # CVE-2025-68146: TOCTOU symlink attack fix
 firebase-admin==7.1.0
 fpdf==1.7.2
 frozenlist==1.7.0
@@ -52,7 +52,7 @@ pipdeptree==2.26.1
 pinecone>=8.0.0
 reportlab==4.2.5
 playwright>=1.55.1
-pyasn1>=0.6.4  # GHSA-hm4w-wwcw-mr6r, GHSA-8ppf-4f7h-5ppj: OID/REAL DoS fixes
+pyasn1>=0.6.5  # GHSA-hm4w-wwcw-mr6r, GHSA-8ppf-4f7h-5ppj: OID/REAL DoS fixes
 pycryptodomex==3.23.0
 pyjwt[crypto]>=2.15.0  # CVE-2026-32597: crit header validation fix
 pydub==0.25.1
