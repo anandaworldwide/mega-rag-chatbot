@@ -54,7 +54,7 @@ pandas==2.3.0
     # via
     #   mega-rag-chatbot-wordpress-analytics
     #   seaborn
-pillow==12.3.0
+pillow==13.0.0
     # via matplotlib
 proto-plus==1.27.2
     # via
@@ -67,7 +67,7 @@ protobuf==6.33.6
     #   googleapis-common-protos
     #   grpcio-status
     #   proto-plus
-pyasn1==0.6.4
+pyasn1==0.6.5
     # via pyasn1-modules
 pyasn1-modules==0.4.2
     # via google-auth
