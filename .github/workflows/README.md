@@ -95,6 +95,7 @@ The workflows use minimal environment variables to avoid requiring secrets in CI
 Both workflows implement caching to reduce build times:
 
 - **uv cache:** managed by `astral-sh/setup-uv`, keyed from `uv.lock`
+- **uv version:** pin `0.13.9` in every `setup-uv` step. `bin/export-python-requirements.sh` also requires this version.
 - **npm cache:** Built-in npm cache via `actions/setup-node@v4`
 
 ## Troubleshooting
@@ -122,6 +123,7 @@ Test the validation checklist locally:
 
 ```bash
 # Python validation
+# Use uv 0.13.9 (same pin as CI). Install with: uv self update 0.13.9
 uv sync --locked --package mega-rag-chatbot --package mega-rag-chatbot-crawler
 ./bin/export-python-requirements.sh
 uv run python bin/import_sweep.py requirements.txt

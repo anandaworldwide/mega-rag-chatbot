@@ -19,6 +19,7 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.11"
+          version: "0.13.9"
       - run: uv sync --locked
       - name: Satisfy load_env file check (values come from env above)
         run: touch .env.ananda
