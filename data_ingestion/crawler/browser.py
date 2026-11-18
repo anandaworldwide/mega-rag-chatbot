@@ -98,9 +98,35 @@ def _handle_retry_delay(attempt: int, max_retries: int, base_delay: int) -> None
 # evaluates JS.
 _BLOCKED_RESOURCE_TYPES = frozenset({"image", "media", "font", "stylesheet"})
 
+# Analytics and ad-tracking requests the crawler must never make. Because the
+# crawler runs page scripts, it otherwise reports itself as a site visitor: on
+# www.ananda.org, PixelYourSite sent about 330 server-side Facebook events a day
+# from the crawler to /wp-json/pys-facebook/v1/event (Cloudflare firewall
+# events, Nov 2026), and Google Tag Manager counts it in Google Analytics.
+# PixelYourSite sends its events with navigator.sendBeacon, which page.route()
+# does not reliably intercept, so block the scripts that would send them
+# (script loads are always routed) and also disable beacons in Firefox — see
+# "beacon.enabled" in _launch_browser_instance().
+_BLOCKED_URL_SUBSTRINGS = (
+    "/wp-content/plugins/pixelyoursite",  # PixelYourSite scripts
+    "/wp-json/pys-",  # PixelYourSite server-event endpoints (fetch fallback)
+    "connect.facebook.net/",  # Facebook pixel loader (fbevents.js)
+    "facebook.com/tr",  # Facebook pixel hits
+    "googletagmanager.com/",  # Google Tag Manager / gtag.js
+    "google-analytics.com/",  # Google Analytics hits
+    "analytics.google.com/",  # Google Analytics (GA4) hits
+)
+
+
+def _is_blocked_request(resource_type: str, url: str) -> bool:
+    """Return True when the crawler should abort this request."""
+    if resource_type in _BLOCKED_RESOURCE_TYPES:
+        return True
+    return any(fragment in url for fragment in _BLOCKED_URL_SUBSTRINGS)
+
 
 def _block_nonessential_resources(page) -> None:
-    """Install a route interceptor to abort non-text resource requests."""
+    """Install a route interceptor to abort non-text and tracking requests."""
 
     def _route_handler(route):
         # A Playwright route is one-shot: abort()/continue_()/fulfill() are all
@@ -110,7 +136,7 @@ def _block_nonessential_resources(page) -> None:
         # failure. Log at debug (these errors are common and expected during
         # page teardown) and let Playwright's own logic handle the request.
         try:
-            if route.request.resource_type in _BLOCKED_RESOURCE_TYPES:
+            if _is_blocked_request(route.request.resource_type, route.request.url):
                 route.abort()
             else:
                 route.continue_()
@@ -149,6 +175,9 @@ def _launch_browser_instance(
             "browser.sessionstore.resume_from_crash": False,
             "browser.tabs.warnOnClose": False,
             "browser.tabs.warnOnCloseOtherTabs": False,
+            # Remove navigator.sendBeacon so analytics pings cannot slip past
+            # the route blocklist in _block_nonessential_resources().
+            "beacon.enabled": False,
         },
         timeout=launch_timeout,
     )
