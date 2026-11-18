@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-EXPECTED_UV_VERSION="0.13.9"
+EXPECTED_UV_VERSION="0.13.7"
 
 cd "${ROOT_DIR}"
 
