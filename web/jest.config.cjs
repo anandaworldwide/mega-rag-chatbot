@@ -37,6 +37,11 @@ const customJestConfig = {
     "^next/server$": "<rootDir>/__mocks__/next/server.js",
     "^next/(.*)$": "<rootDir>/../node_modules/next/$1",
     "^uuid$": "<rootDir>/__mocks__/uuid.js",
+    // Map marked to its UMD build. next/jest does not transform marked's ESM
+    // entry in node_modules, so a direct ESM import fails under Jest.
+    // marked 17.0.6 ships UMD and ESM from the same compiler output. The UMD
+    // wrapper is the only difference. Tests that import `marked` therefore run
+    // the same parser and renderer as the Next.js ESM build.
     "^marked$": "<rootDir>/../node_modules/marked/lib/marked.umd.js",
   },
   testMatch: ["**/__tests__/**/*.[jt]s?(x)", "**/?(*.)+(spec|test).[jt]s?(x)"],
