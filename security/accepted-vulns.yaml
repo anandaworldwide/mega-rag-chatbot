@@ -166,48 +166,6 @@ python:
     mitigation: "Dormant reranking subgraph; not reachable in production."
 
 node:
-  - id: "1117038"
-    package: showdown
-    reason: >-
-      No fixed npm release (latest 2.1.0 still in advisory range). Used only in
-      CopyButton for trusted app-generated markdown to HTML clipboard export,
-      not untrusted HTML render. Exception renewed 2026-11-19 by Teresa for
-      Michael for 30 days pending a replacement plan Hawk will review before
-      any code.
-    review_by: "2026-12-19"
-    mitigation: >-
-      Input is chat answer markdown from our pipeline; ReDoS in link/anchor
-      parsing is low practical risk. Revisit if showdown ships a patch or we
-      replace the converter.
-
-  - id: "1138814"
-    package: showdown
-    reason: >-
-      No fixed npm release (latest 2.1.0 still in advisory range). Used only in
-      CopyButton for trusted app-generated markdown to HTML clipboard export,
-      not untrusted HTML render. Exception renewed 2026-11-19 by Teresa for
-      Michael for 30 days pending a replacement plan Hawk will review before
-      any code.
-    review_by: "2026-12-19"
-    mitigation: >-
-      Metadata-title XSS in showdown is not reachable for clipboard export of
-      trusted chat answers. Revisit if showdown ships a patch or we replace the
-      converter.
-
-  - id: "1138815"
-    package: showdown
-    reason: >-
-      No fixed npm release (latest 2.1.0 still in advisory range). Used only in
-      CopyButton for trusted app-generated markdown to HTML clipboard export,
-      not untrusted HTML render. Exception renewed 2026-11-19 by Teresa for
-      Michael for 30 days pending a replacement plan Hawk will review before
-      any code.
-    review_by: "2026-12-19"
-    mitigation: >-
-      Table-header ID XSS in showdown is not reachable for clipboard export of
-      trusted chat answers. Revisit if showdown ships a patch or we replace the
-      converter.
-
   - id: "1240992"
     package: braces
     reason: >-
