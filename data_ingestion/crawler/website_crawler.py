@@ -80,12 +80,14 @@ try:
         ensure_scheme,
         requires_db,
     )
+    from .browser import _block_nonessential_resources
     from .health import HealthMonitor
     from .listing_page import listing_skips_enabled, url_is_listing
     from .lock_manager import CrawlerLockManager
 except ImportError:
     # When running directly (python website_crawler.py)
     from author_extraction import extract_author_from_html  # type: ignore[import-not-found]
+    from browser import _block_nonessential_resources  # type: ignore[import-not-found]
     from config import (  # type: ignore[import-not-found]
         USER_AGENT,
         ContentHash,
@@ -2393,6 +2395,8 @@ class WebsiteCrawler:
                 # Create a new page in the existing browser context
                 page = browser.new_page()
                 page.set_extra_http_headers({"User-Agent": USER_AGENT})
+                # Install the same tracking block used on the main crawler page.
+                _block_nonessential_resources(page)
                 # Set default timeout to prevent indefinite hangs
                 page.set_default_timeout(Timeouts.PAGE_DEFAULT_MS)  # 30 seconds
 

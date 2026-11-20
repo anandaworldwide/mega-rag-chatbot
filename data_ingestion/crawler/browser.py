@@ -13,6 +13,7 @@ except ImportError:
 
 import os
 import sys
+from urllib.parse import urlparse
 
 # Add parent directory to path for utils imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -98,31 +99,76 @@ def _handle_retry_delay(attempt: int, max_retries: int, base_delay: int) -> None
 # evaluates JS.
 _BLOCKED_RESOURCE_TYPES = frozenset({"image", "media", "font", "stylesheet"})
 
-# Analytics and ad-tracking requests the crawler must never make. Because the
-# crawler runs page scripts, it otherwise reports itself as a site visitor: on
-# www.ananda.org, PixelYourSite sent about 330 server-side Facebook events a day
-# from the crawler to /wp-json/pys-facebook/v1/event (Cloudflare firewall
-# events, Nov 2026), and Google Tag Manager counts it in Google Analytics.
-# PixelYourSite sends its events with navigator.sendBeacon, which page.route()
-# does not reliably intercept, so block the scripts that would send them
-# (script loads are always routed) and also disable beacons in Firefox — see
-# "beacon.enabled" in _launch_browser_instance().
+# The crawler runs page scripts. Tracking pixels then count it as a visitor.
+# PixelYourSite posted about 330 Facebook events a day from this crawler.
+# page.route() does not catch navigator.sendBeacon. Block the tracking scripts.
+# Also disable beacons in Firefox. See beacon.enabled in _launch_browser_instance().
 _BLOCKED_URL_SUBSTRINGS = (
-    "/wp-content/plugins/pixelyoursite",  # PixelYourSite scripts
-    "/wp-json/pys-",  # PixelYourSite server-event endpoints (fetch fallback)
-    "connect.facebook.net/",  # Facebook pixel loader (fbevents.js)
-    "facebook.com/tr",  # Facebook pixel hits
-    "googletagmanager.com/",  # Google Tag Manager / gtag.js
-    "google-analytics.com/",  # Google Analytics hits
-    "analytics.google.com/",  # Google Analytics (GA4) hits
+    "/wp-content/plugins/pixelyoursite",
+    "/wp-json/pys-",
 )
+
+# Block these hosts and their subdomains. Host checks are case insensitive.
+_BLOCKED_HOSTS = frozenset(
+    {
+        "connect.facebook.net",
+        "googletagmanager.com",
+        "google-analytics.com",
+        "analytics.google.com",
+        "stats.g.doubleclick.net",
+        "googleadservices.com",
+    }
+)
+
+_FACEBOOK_PIXEL_HOSTS = frozenset({"facebook.com", "www.facebook.com"})
+_GOOGLE_CCM_HOSTS = frozenset({"google.com", "www.google.com"})
+
+
+def _request_host(url: str) -> str:
+    """Return the URL host in lower case. Missing hosts become an empty string."""
+    return (urlparse(url).hostname or "").lower()
+
+
+def _request_path(url: str) -> str:
+    """Return the URL path in lower case. Missing paths become an empty string."""
+    return (urlparse(url).path or "").lower()
+
+
+def _host_is_blocked(host: str) -> bool:
+    """Return True when host matches a blocked host or a subdomain of one."""
+    if host in _BLOCKED_HOSTS:
+        return True
+    return any(host.endswith("." + blocked) for blocked in _BLOCKED_HOSTS)
+
+
+def _is_facebook_pixel_hit(host: str, path: str) -> bool:
+    """Return True for facebook.com or www.facebook.com with path /tr or /tr/."""
+    if host not in _FACEBOOK_PIXEL_HOSTS:
+        return False
+    return path == "/tr" or path.startswith("/tr/")
+
+
+def _is_google_ccm_collect(host: str, path: str) -> bool:
+    """Return True for google.com CCM collect paths."""
+    if host not in _GOOGLE_CCM_HOSTS:
+        return False
+    return path == "/ccm/collect" or path.startswith("/ccm/collect/")
 
 
 def _is_blocked_request(resource_type: str, url: str) -> bool:
-    """Return True when the crawler should abort this request."""
+    """Return True when the crawler aborts this request."""
     if resource_type in _BLOCKED_RESOURCE_TYPES:
         return True
-    return any(fragment in url for fragment in _BLOCKED_URL_SUBSTRINGS)
+    lower_url = url.lower()
+    if any(fragment in lower_url for fragment in _BLOCKED_URL_SUBSTRINGS):
+        return True
+    host = _request_host(url)
+    path = _request_path(url)
+    if _is_facebook_pixel_hit(host, path):
+        return True
+    if _is_google_ccm_collect(host, path):
+        return True
+    return _host_is_blocked(host)
 
 
 def _block_nonessential_resources(page) -> None:
