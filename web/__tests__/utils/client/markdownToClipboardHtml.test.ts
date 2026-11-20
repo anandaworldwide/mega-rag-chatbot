@@ -1,5 +1,9 @@
 import { markdownToClipboardHtml } from "@/utils/client/markdownToClipboardHtml";
-import { FEATURE_PARITY_FIXTURES, XSS_MARKDOWN_FIXTURES } from "./clipboardMarkdownFixtures";
+import {
+  FEATURE_PARITY_FIXTURES,
+  GOLDEN_CLIPBOARD_HTML_FIXTURES,
+  XSS_MARKDOWN_FIXTURES,
+} from "./clipboardMarkdownFixtures";
 
 const parseHtml = (html: string): Document => {
   const parser = new DOMParser();
@@ -105,3 +109,82 @@ describe("markdownToClipboardHtml XSS", () => {
     }
   );
 });
+
+describe("markdownToClipboardHtml golden output", () => {
+  it.each(GOLDEN_CLIPBOARD_HTML_FIXTURES)("matches golden HTML for $name", ({ markdown, expectedHtml }) => {
+    expect(markdownToClipboardHtml(markdown)).toBe(expectedHtml);
+  });
+});
+
+describe("markdownToClipboardHtml links", () => {
+  it("escapes ampersands and quotes in link titles", () => {
+    const html = markdownToClipboardHtml(`[docs](https://example.com/a 'Tom & "Jerry"')`);
+    const link = parseHtml(html).querySelector("a");
+    expect(link).not.toBeNull();
+    expect(link?.getAttribute("href")).toBe("https://example.com/a");
+    expect(link?.getAttribute("title")).toBe('Tom & "Jerry"');
+    expect(html).toContain('title="Tom &amp; &quot;Jerry&quot;"');
+    expect(link?.getAttribute("target")).toBe("_blank");
+  });
+
+  it("preserves mailto links", () => {
+    const html = markdownToClipboardHtml("[Email us](mailto:info@example.com)");
+    const link = parseHtml(html).querySelector("a");
+    expect(link?.getAttribute("href")).toBe("mailto:info@example.com");
+    expect(link?.textContent).toBe("Email us");
+    expect(link?.getAttribute("target")).toBe("_blank");
+  });
+
+  it("preserves relative links", () => {
+    const html = markdownToClipboardHtml("[Share](/share/abc) [Up](../page) [Local](./here)");
+    const doc = parseHtml(html);
+    const hrefs = Array.from(doc.querySelectorAll("a")).map((anchor) => anchor.getAttribute("href"));
+    expect(hrefs).toEqual(["/share/abc", "../page", "./here"]);
+    for (const anchor of Array.from(doc.querySelectorAll("a"))) {
+      expect(anchor.getAttribute("target")).toBe("_blank");
+    }
+  });
+});
+
+describe("markdownToClipboardHtml scale", () => {
+  it("converts a large markdown document without crashing", () => {
+    const markdown = Array.from(
+      { length: 800 },
+      (_, index) => `## Heading ${index}\n\nParagraph ${index} with **bold** and [link](https://example.com/${index}).\n`
+    ).join("\n");
+    const startedAt = Date.now();
+    const html = markdownToClipboardHtml(markdown);
+    const elapsedMs = Date.now() - startedAt;
+    expect(typeof html).toBe("string");
+    expect(html).toContain("Heading 0");
+    expect(html).toContain("Heading 799");
+    expect(html.length).toBeGreaterThan(10_000);
+    expect(elapsedMs).toBeLessThan(5_000);
+  });
+
+  it("converts deeply nested lists without crashing", () => {
+    let markdown = "leaf";
+    for (let depth = 0; depth < 20; depth += 1) {
+      markdown = `- nested ${depth}\n${markdown
+        .split("\n")
+        .map((line) => `  ${line}`)
+        .join("\n")}`;
+    }
+    const startedAt = Date.now();
+    const html = markdownToClipboardHtml(markdown);
+    const elapsedMs = Date.now() - startedAt;
+    expect(html).toContain("nested");
+    expect(html).toContain("leaf");
+    expect(elapsedMs).toBeLessThan(2_000);
+  });
+
+  it("converts deeply nested blockquotes without crashing", () => {
+    const markdown = `${"> ".repeat(40)}deep quote`;
+    const startedAt = Date.now();
+    const html = markdownToClipboardHtml(markdown);
+    const elapsedMs = Date.now() - startedAt;
+    expect(html).toContain("deep quote");
+    expect(elapsedMs).toBeLessThan(2_000);
+  });
+});
+
