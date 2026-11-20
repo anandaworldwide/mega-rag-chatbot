@@ -10,9 +10,44 @@ import { withApiMiddleware } from "@/utils/server/apiMiddleware";
 import { db } from "@/services/firebase";
 import { getUsersCollectionName } from "@/utils/server/firestoreUtils";
 import { firestoreGet } from "@/utils/server/firestoreRetryUtils";
-import { isEmailBlacklisted } from "@/utils/server/blacklist";
+import { isLoginBlockedByBlacklist } from "@/utils/server/blacklist";
 import { writeAuditLog } from "@/utils/server/auditLog";
 import { clearLibraryAccessCookies } from "@/utils/server/libraryAccess";
+
+/**
+ * Allow only same-origin path redirects. Reject protocol-relative URLs
+ * (`//host`), backslashes, control characters, and absolute URLs.
+ * Decode before the check so `%2F%2Fhost` cannot bypass the rule.
+ */
+function sanitizeLoginRedirect(redirect: unknown): string | null {
+  if (redirect == null || redirect === "") {
+    return "/";
+  }
+  if (typeof redirect !== "string") {
+    return null;
+  }
+
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(redirect.trim());
+  } catch {
+    return null;
+  }
+
+  if (!decoded || decoded === "/") {
+    return "/";
+  }
+  if (/[\0\r\n\t\\]/.test(decoded)) {
+    return null;
+  }
+  if (!decoded.startsWith("/") || decoded.startsWith("//")) {
+    return null;
+  }
+  if (decoded.includes("://")) {
+    return null;
+  }
+  return decoded;
+}
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   await runMiddleware(req, res, cors);
@@ -44,18 +79,8 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (!validator.isLength(password, { min: 6, max: 100 })) {
       return res.status(400).json({ message: "Invalid password length" });
     }
-    if (
-      redirect &&
-      redirect !== "/" &&
-      !validator.isURL(redirect, {
-        require_tld: false,
-        allow_protocol_relative_urls: true,
-        require_protocol: false,
-        allow_fragments: false,
-        allow_query_components: true,
-      }) &&
-      !redirect.startsWith("/")
-    ) {
+    const sanitizedRedirect = sanitizeLoginRedirect(redirect);
+    if (sanitizedRedirect === null) {
       console.log("Invalid redirect URL:", redirect);
       return res.status(400).json({ message: "Invalid redirect URL" });
     }
@@ -63,12 +88,11 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
     // Sanitize inputs
     const sanitizedEmail = email.toLowerCase().trim();
     const sanitizedPassword = password.trim();
-    const sanitizedRedirect = redirect ? decodeURIComponent(redirect.trim()) : "/";
 
     console.log("Received login request for email:", sanitizedEmail, "with redirect:", sanitizedRedirect);
 
     const siteIdLogin = process.env.SITE_ID;
-    if (siteIdLogin && (await isEmailBlacklisted(sanitizedEmail, siteIdLogin))) {
+    if (siteIdLogin && (await isLoginBlockedByBlacklist(sanitizedEmail, siteIdLogin))) {
       await writeAuditLog(req, "blacklist_block", sanitizedEmail, { endpoint: "login" });
       return res.status(403).json({ message: "Access denied. Please contact your administrator." });
     }

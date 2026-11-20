@@ -282,17 +282,39 @@ describe("isEmailBlacklisted (S3-backed)", () => {
     mockSend.mockResolvedValueOnce({
       Body: Readable.from([Buffer.from("bad@x.com\n")]),
     });
-    const { isEmailBlacklisted } = await import("@/utils/server/blacklist");
+    const { isEmailBlacklisted, checkEmailBlacklist, isLoginBlockedByBlacklist } = await import(
+      "@/utils/server/blacklist"
+    );
     const nowSpy = jest.spyOn(Date, "now");
     const t0 = 1_700_000_000_000;
     nowSpy.mockReturnValue(t0);
     await expect(isEmailBlacklisted("bad@x.com", "login-site")).resolves.toBe(false);
+    const failedCheck = await checkEmailBlacklist("bad@x.com", "login-site");
+    expect(failedCheck.failed).toBe(true);
+    await expect(isLoginBlockedByBlacklist("bad@x.com", "login-site")).resolves.toBe(true);
     expect(mockSend).toHaveBeenCalledTimes(1);
 
     // Advance past the 5s fail-open TTL but well under the healthy TTL.
     nowSpy.mockReturnValue(t0 + 10_000);
     await expect(isEmailBlacklisted("bad@x.com", "login-site")).resolves.toBe(true);
     expect(mockSend).toHaveBeenCalledTimes(2);
+    nowSpy.mockRestore();
+  });
+
+  it("keeps the last successful blacklist when a later S3 read fails", async () => {
+    mockSend.mockResolvedValueOnce({
+      Body: Readable.from([Buffer.from("bad@x.com\n")]),
+    });
+    mockSend.mockRejectedValueOnce(Object.assign(new Error("transient"), { name: "ServiceUnavailable" }));
+    const { isEmailBlacklisted, isLoginBlockedByBlacklist } = await import("@/utils/server/blacklist");
+    const nowSpy = jest.spyOn(Date, "now");
+    const t0 = 1_800_000_000_000;
+    nowSpy.mockReturnValue(t0);
+    await expect(isEmailBlacklisted("bad@x.com", "login-site")).resolves.toBe(true);
+
+    nowSpy.mockReturnValue(t0 + 15 * 60_000 + 1);
+    await expect(isEmailBlacklisted("bad@x.com", "login-site")).resolves.toBe(true);
+    await expect(isLoginBlockedByBlacklist("other@y.com", "login-site")).resolves.toBe(false);
     nowSpy.mockRestore();
   });
 });

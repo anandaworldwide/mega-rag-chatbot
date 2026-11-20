@@ -20,6 +20,51 @@ const VALID_AUDIO_MIME_TYPES = [
   "audio/flac",
   "audio/x-flac",
 ];
+const MAX_AUDIO_S3_KEY_LENGTH = 1024;
+
+function isSafeS3KeySegment(segment: string): boolean {
+  return segment.length > 0 && segment !== "." && segment !== "..";
+}
+
+function constructAudioS3Key(audioS3Key: string, library: unknown): string | null {
+  if (audioS3Key.length === 0 || audioS3Key.length > MAX_AUDIO_S3_KEY_LENGTH) {
+    return null;
+  }
+  if (/[\0\\]/.test(audioS3Key)) {
+    return null;
+  }
+
+  let fullS3Key = audioS3Key;
+  if (library && typeof library === "string" && !audioS3Key.includes("/")) {
+    if (library.length === 0 || library.length > 128 || /[\0\\/]/.test(library) || library.includes("..")) {
+      return null;
+    }
+    fullS3Key = `public/audio/${library.toLowerCase()}/${audioS3Key}`;
+  } else if (!audioS3Key.startsWith("public/audio/")) {
+    fullS3Key = `public/audio/${audioS3Key}`;
+  }
+
+  if (fullS3Key.length > MAX_AUDIO_S3_KEY_LENGTH) {
+    return null;
+  }
+  const segments = fullS3Key.split("/");
+  if (!segments.every(isSafeS3KeySegment)) {
+    return null;
+  }
+  if (segments[0] !== "public" || segments[1] !== "audio") {
+    return null;
+  }
+  return fullS3Key;
+}
+
+function isAllowedAudioContentType(contentType: string): boolean {
+  const normalized = contentType.split(";")[0].trim().toLowerCase();
+  return (
+    VALID_AUDIO_MIME_TYPES.includes(normalized) ||
+    normalized === "binary/octet-stream" ||
+    normalized === "application/octet-stream"
+  );
+}
 
 /**
  * Generates a signed URL for audio file access from S3 with security validation
@@ -131,12 +176,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return res.status(401).json({ message: "Authentication required for audio access" });
     }
 
-    // Construct the full S3 key with library path if provided
-    let fullS3Key = audioS3Key;
-    if (library && typeof library === "string" && !audioS3Key.includes("/")) {
-      fullS3Key = `public/audio/${library.toLowerCase()}/${audioS3Key}`;
-    } else if (!audioS3Key.startsWith("public/audio/")) {
-      fullS3Key = `public/audio/${audioS3Key}`;
+    const fullS3Key = constructAudioS3Key(audioS3Key, library);
+    if (!fullS3Key) {
+      return res.status(400).json({ message: "Invalid audio S3 key" });
     }
 
     // Security validation: Ensure the key appears to be an audio file
@@ -161,21 +203,12 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       const headResponse = await s3Client.send(headCommand);
 
       // Verify content type is audio or binary/octet-stream (common for older uploads)
-      if (headResponse.ContentType) {
-        const isValidAudioType = VALID_AUDIO_MIME_TYPES.some((type) =>
-          headResponse.ContentType?.includes(type.split("/")[1])
-        );
-        const isBinaryOctetStream =
-          headResponse.ContentType.includes("binary/octet-stream") ||
-          headResponse.ContentType.includes("application/octet-stream");
-
-        if (!isValidAudioType && !isBinaryOctetStream) {
-          console.warn(`Audio content-type validation failed: ${fullS3Key} has type ${headResponse.ContentType}`);
-          return res.status(400).json({
-            message: "File is not an audio document",
-            actualType: headResponse.ContentType,
-          });
-        }
+      if (!headResponse.ContentType || !isAllowedAudioContentType(headResponse.ContentType)) {
+        console.warn(`Audio content-type validation failed: ${fullS3Key} has type ${headResponse.ContentType}`);
+        return res.status(400).json({
+          message: "File is not an audio document",
+          actualType: headResponse.ContentType || "missing",
+        });
       }
     } catch (s3Error: any) {
       // Handle S3 errors (file not found, access denied, etc.)

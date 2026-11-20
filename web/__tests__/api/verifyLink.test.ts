@@ -75,6 +75,7 @@ jest.mock("@/utils/server/firestoreUtils", () => ({
 
 jest.mock("@/utils/server/blacklist", () => ({
   isEmailBlacklisted: jest.fn().mockResolvedValue(false),
+  isLoginBlockedByBlacklist: jest.fn().mockResolvedValue(false),
 }));
 
 jest.mock("@/utils/server/auditLog", () => ({
@@ -126,7 +127,7 @@ describe("/api/verifyMagicLink", () => {
   it("returns 403 when email is blacklisted", async () => {
     process.env.SITE_ID = "test-site";
     const blacklist = await import("@/utils/server/blacklist");
-    jest.mocked(blacklist.isEmailBlacklisted).mockResolvedValueOnce(true);
+    jest.mocked(blacklist.isLoginBlockedByBlacklist).mockResolvedValueOnce(true);
 
     const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
       method: "POST",

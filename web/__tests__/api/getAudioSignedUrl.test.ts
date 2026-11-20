@@ -352,6 +352,32 @@ describe("/api/getAudioSignedUrl", () => {
       expect(res.statusCode).toBe(200);
     });
 
+    it("should reject video/mpeg even though the subtype contains mpeg", async () => {
+      mockS3Client.send.mockResolvedValue({
+        ContentType: "video/mpeg",
+      });
+
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "POST",
+        headers: {
+          authorization: "Bearer valid-jwt-token",
+        },
+        body: {
+          audioS3Key: "not-audio.mp3",
+          uuid: "123e4567-e89b-12d3-a456-426614174000",
+        },
+      });
+
+      await handler(req, res);
+
+      expect(res.statusCode).toBe(400);
+      expect(res._getJSONData()).toEqual({
+        message: "File is not an audio document",
+        actualType: "video/mpeg",
+      });
+      expect(getSignedUrl).not.toHaveBeenCalled();
+    });
+
     it("should reject invalid MIME types", async () => {
       mockS3Client.send.mockResolvedValue({
         ContentType: "application/pdf", // Invalid for audio
@@ -528,6 +554,55 @@ describe("/api/getAudioSignedUrl", () => {
       expect(res._getJSONData()).toEqual({
         message: "Internal server error",
       });
+    });
+  });
+
+  describe("Adversarial S3 keys", () => {
+    it.each([
+      "../../secret.mp3",
+      "public/audio/../../secret.mp3",
+      "public/audio/../restricted/secret.mp3",
+      `${"a".repeat(2000)}.mp3`,
+    ])("rejects unsafe key %s", async (audioS3Key) => {
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "POST",
+        headers: {
+          authorization: "Bearer valid-jwt-token",
+        },
+        body: {
+          audioS3Key,
+          uuid: "123e4567-e89b-12d3-a456-426614174000",
+        },
+      });
+
+      await handler(req, res);
+
+      expect(res.statusCode).toBe(400);
+      expect(res._getJSONData()).toEqual({
+        message: "Invalid audio S3 key",
+      });
+      expect(mockS3Client.send).not.toHaveBeenCalled();
+    });
+
+    it("accepts a unicode audio filename under the public prefix", async () => {
+      const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
+        method: "POST",
+        headers: {
+          authorization: "Bearer valid-jwt-token",
+        },
+        body: {
+          audioS3Key: "public/audio/café-talk.mp3",
+          uuid: "123e4567-e89b-12d3-a456-426614174000",
+        },
+      });
+
+      await handler(req, res);
+
+      expect(res.statusCode).toBe(200);
+      expect(mockS3Client.send).toHaveBeenCalled();
+      const sentKey = mockS3Client.send.mock.calls[0][0].input.Key;
+      expect(sentKey.startsWith("public/audio/")).toBe(true);
+      expect(sentKey.endsWith(".mp3")).toBe(true);
     });
   });
 

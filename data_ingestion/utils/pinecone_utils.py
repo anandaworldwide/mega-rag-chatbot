@@ -576,7 +576,7 @@ def batch_upsert_vectors(
             logger.info(
                 f"Successfully upserted {total_upserted}/{len(vectors)} vectors"
             )
-        return True, total_upserted
+        return total_upserted == len(vectors), total_upserted
 
     except Exception as e:
         logger.error(f"Error in batch upsert operation: {e}")

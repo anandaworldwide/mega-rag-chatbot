@@ -14,7 +14,7 @@ import { isDevelopment } from "@/utils/env";
 import { writeAuditLog } from "@/utils/server/auditLog";
 import { loadSiteConfigSync } from "@/utils/server/loadSiteConfig";
 import { createSignedUUIDCookie, getVerifiedUuidFromSignedCookie } from "@/utils/server/uuidUtils";
-import { isEmailBlacklisted } from "@/utils/server/blacklist";
+import { isLoginBlockedByBlacklist } from "@/utils/server/blacklist";
 
 async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
@@ -37,7 +37,7 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
 
   const normalizedLoginEmail = email.trim().toLowerCase();
   const siteIdPwd = process.env.SITE_ID;
-  if (siteIdPwd && (await isEmailBlacklisted(normalizedLoginEmail, siteIdPwd))) {
+  if (siteIdPwd && (await isLoginBlockedByBlacklist(normalizedLoginEmail, siteIdPwd))) {
     await writeAuditLog(req, "blacklist_block", normalizedLoginEmail, { endpoint: "loginWithPassword" });
     return res.status(403).json({ error: "Access denied. Please contact your administrator." });
   }

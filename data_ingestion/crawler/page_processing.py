@@ -74,6 +74,7 @@ def upsert_to_pinecone(vectors: list[dict], index: Any, index_name: str):
             f"Upserting {total_vectors} vectors to Pinecone index '{index_name}' in batches of {batch_size}..."
         )
 
+        failed_batches = 0
         for i in range(0, total_vectors, batch_size):
             batch = vectors[i : i + batch_size]
             logging.debug(
@@ -97,10 +98,15 @@ def upsert_to_pinecone(vectors: list[dict], index: Any, index_name: str):
                     )
                     raise Exception(f"Vector ID sanitization error: {error_msg}") from e
 
-                # Log but continue for transient errors
+                failed_batches += 1
                 logging.warning(
                     f"Skipping batch {i // batch_size + 1} due to error, continuing with next batch..."
                 )
+        if failed_batches:
+            raise RuntimeError(
+                f"Partial Pinecone upsert failure: {failed_batches} batch(es) failed "
+                f"for index '{index_name}'"
+            )
         logging.info(f"Upsert of {total_vectors} vectors complete.")
 
 

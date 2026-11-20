@@ -3214,6 +3214,7 @@ class Test404PineconeDeletion(BaseWebsiteCrawlerTest):
     @patch.dict(os.environ, {"OPENAI_EMBEDDING_DIMENSION": "1536"})
     def test_remove_url_from_pinecone(self):
         """Test that remove_url_from_pinecone calls Pinecone correctly."""
+        os.environ.pop("OPENAI_INGEST_EMBEDDINGS_DIMENSION", None)
         crawler = WebsiteCrawler(self.site_id, self.site_config)
         test_url = "https://example.com/test-page"
 
@@ -3243,9 +3244,23 @@ class Test404PineconeDeletion(BaseWebsiteCrawlerTest):
 
         crawler.close()
 
+    @patch.dict(os.environ, {"OPENAI_INGEST_EMBEDDINGS_DIMENSION": "1536"})
+    def test_remove_url_from_pinecone_uses_ingest_dimension_env(self):
+        os.environ.pop("OPENAI_EMBEDDING_DIMENSION", None)
+        crawler = WebsiteCrawler(self.site_id, self.site_config)
+        mock_index = Mock()
+        mock_index.query.return_value = Mock(matches=[])
+
+        crawler.remove_url_from_pinecone(mock_index, "https://example.com/test-page")
+
+        first_call_args = mock_index.query.call_args_list[0]
+        self.assertEqual(len(first_call_args[1]["vector"]), 1536)
+        crawler.close()
+
     @patch.dict(os.environ, {"OPENAI_EMBEDDING_DIMENSION": "1536"})
     def test_remove_url_from_pinecone_no_vectors(self):
         """Test remove_url_from_pinecone when no vectors are found."""
+        os.environ.pop("OPENAI_INGEST_EMBEDDINGS_DIMENSION", None)
         crawler = WebsiteCrawler(self.site_id, self.site_config)
         test_url = "https://example.com/no-vectors"
 
@@ -3296,6 +3311,7 @@ class Test404PineconeDeletion(BaseWebsiteCrawlerTest):
         """Test the complete end-to-end flow: 404 retry exhaustion -> automatic Pinecone cleanup."""
         from crawler.crawl_loop import _process_pinecone_deletions
 
+        os.environ.pop("OPENAI_INGEST_EMBEDDINGS_DIMENSION", None)
         crawler = WebsiteCrawler(self.site_id, self.site_config)
         test_url = "https://example.com/deleted-after-retries"
         normalized_url = crawler.normalize_url(test_url)
