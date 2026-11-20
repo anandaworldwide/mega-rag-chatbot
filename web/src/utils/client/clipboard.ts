@@ -1,3 +1,5 @@
+import { sanitizeClipboardHtml } from './sanitizeClipboardHtml';
+
 /**
  * Adds inline CSS styles to HTML tables so they render properly in
  * rich text apps like TextEdit, Word, Evernote, and Typora.
@@ -5,7 +7,7 @@
  */
 const styleHtmlTables = (html: string): string => {
   const tempDiv = document.createElement('div');
-  tempDiv.innerHTML = html;
+  tempDiv.innerHTML = sanitizeClipboardHtml(html);
 
   const tables = tempDiv.querySelectorAll('table');
   tables.forEach(table => {
@@ -43,7 +45,7 @@ const styleHtmlTables = (html: string): string => {
 const htmlToPlainText = (html: string): string => {
   // Create a temporary DOM element to parse HTML
   const tempDiv = document.createElement('div');
-  tempDiv.innerHTML = html;
+  tempDiv.innerHTML = sanitizeClipboardHtml(html);
 
   // Process tables to preserve structure as pipe-delimited text
   const tables = tempDiv.querySelectorAll('table');
@@ -101,7 +103,7 @@ const copyUsingExecCommand = (html: string, _plainText: string): boolean => {
   container.style.left = '-9999px';
   container.style.top = '0';
   container.setAttribute('contenteditable', 'true');
-  container.innerHTML = html;
+  container.innerHTML = sanitizeClipboardHtml(html);
   document.body.appendChild(container);
 
   try {

@@ -44,6 +44,7 @@ if (isServerTest) {
       "^react-markdown$": "<rootDir>/__mocks__/react-markdown.js",
       "^remark-gfm$": "<rootDir>/__mocks__/remark-gfm.js",
       "^next/server$": "<rootDir>/__mocks__/next/server.js",
+      "^marked$": "<rootDir>/../node_modules/marked/lib/marked.umd.js",
     },
     testMatch: ["**/__tests__/**/*.[jt]s?(x)", "**/?(*.)+(spec|test).[jt]s?(x)"],
     testPathIgnorePatterns: [
@@ -63,7 +64,7 @@ if (isServerTest) {
       "^.+\\.(js|jsx|ts|tsx)$": ["babel-jest", { presets: ["next/babel"] }],
     },
     transformIgnorePatterns: [
-      "/node_modules/(?!react-markdown|remark-*|rehype-*|unified|mdast-*|micromark|decode-named-character-reference|character-entities|property-information|hast-*|unist-*|bail|is-plain-obj|trough|vfile|escape-string-regexp|.+\\.mjs$)/",
+      "/node_modules/(?!marked|react-markdown|remark-*|rehype-*|unified|mdast-*|micromark|decode-named-character-reference|character-entities|property-information|hast-*|unist-*|bail|is-plain-obj|trough|vfile|escape-string-regexp|.+\\.mjs$)/",
     ],
     maxWorkers: 4,
     rootDir: ".",
