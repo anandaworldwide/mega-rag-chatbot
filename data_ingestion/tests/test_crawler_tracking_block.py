@@ -18,6 +18,8 @@ BLOCKED_URLS = [
     "https://WWW.FACEBOOK.COM/tr/?id=123",
     "https://www.facebook.com/tr/",
     "https://stats.g.doubleclick.net/dc.js",
+    "https://googleads.g.doubleclick.net/pagead/id",
+    "https://static.doubleclick.net/instream/ad_status.js",
     "https://www.google.com/ccm/collect?tid=1",
     "https://www.googleadservices.com/pagead/conversion.js",
     "https://www.googletagmanager.com/gtm.js?id=GTM-XXXX",
@@ -61,6 +63,18 @@ def test_nonessential_resource_types_still_blocked(resource_type):
 )
 def test_facebook_lookalike_paths_are_allowed(url):
     assert not _is_blocked_request("document", url)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://notdoubleclick.net/pagead/id",
+        "https://doubleclick.net.example.com/pagead/id",
+        "https://www.example.com/doubleclick.net/pagead/id",
+    ],
+)
+def test_blocked_host_lookalikes_are_allowed(url):
+    assert not _is_blocked_request("script", url)
 
 
 def test_route_handler_aborts_facebook_pixel():

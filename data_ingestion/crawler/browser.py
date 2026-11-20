@@ -116,7 +116,7 @@ _BLOCKED_HOSTS = frozenset(
         "googletagmanager.com",
         "google-analytics.com",
         "analytics.google.com",
-        "stats.g.doubleclick.net",
+        "doubleclick.net",
         "googleadservices.com",
     }
 )
