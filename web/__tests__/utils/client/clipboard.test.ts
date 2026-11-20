@@ -1,4 +1,5 @@
 import { copyTextToClipboard, htmlToPlainText, styleHtmlTables } from '@/utils/client/clipboard';
+import { XSS_RAW_HTML_FIXTURES } from './clipboardMarkdownFixtures';
 
 describe('clipboard utils', () => {
   const originalClipboard = { ...global.navigator.clipboard };
@@ -121,6 +122,28 @@ describe('styleHtmlTables', () => {
     const result = styleHtmlTables(html);
     expect(result).toBe('<p>No tables here</p>');
   });
+
+  it.each(XSS_RAW_HTML_FIXTURES)(
+    'sanitizes $name before innerHTML assignment',
+    ({ html, forbiddenTags, forbiddenAttrs, forbiddenHrefSchemes, preserved }) => {
+      const result = styleHtmlTables(html);
+      const container = document.createElement('div');
+      container.innerHTML = result;
+      for (const tag of forbiddenTags) {
+        expect(container.querySelector(tag)).toBeNull();
+      }
+      for (const attr of forbiddenAttrs) {
+        expect(container.querySelector(`[${attr}]`)).toBeNull();
+      }
+      for (const scheme of forbiddenHrefSchemes) {
+        const hrefs = Array.from(container.querySelectorAll('[href]')).map((el) =>
+          (el.getAttribute('href') || '').toLowerCase()
+        );
+        expect(hrefs.some((href) => href.startsWith(scheme))).toBe(false);
+      }
+      expect(result).toContain(preserved);
+    }
+  );
 });
 
 describe('htmlToPlainText', () => {

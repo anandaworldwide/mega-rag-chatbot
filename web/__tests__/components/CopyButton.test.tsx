@@ -36,13 +36,16 @@ const mockedCopyTextToClipboard = copyTextToClipboard as jest.MockedFunction<typ
 
 /**
  * Helper to check if HTML contains a link with the given href and text.
+ * Parses HTML so entity encoding (&amp;) does not break the match.
  * Allows for optional attributes like rel="noopener noreferrer" target="_blank"
  */
 const expectLinkWithHrefAndText = (html: string, href: string, text: string, suffix?: string) => {
-  // Check href is present in an anchor tag
-  expect(html).toContain(`href="${href}"`);
-  // Check link text is present
-  expect(html).toContain(`>${text}</a>`);
+  const container = document.createElement("div");
+  container.innerHTML = html;
+  const match = Array.from(container.querySelectorAll("a")).find(
+    (anchor) => anchor.getAttribute("href") === href && anchor.textContent === text
+  );
+  expect(match).toBeTruthy();
   // Check suffix if provided (e.g., "(Library)" or "→ 1:10")
   if (suffix) {
     expect(html).toContain(`</a>${suffix}`);
@@ -178,9 +181,9 @@ describe("CopyButton", () => {
     const callHtml = mockedCopyTextToClipboard.mock.calls[0][0];
     expectLinkWithHrefAndText(
       callHtml,
-      'https://ananda-chatbot.s3.us-west-1.amazonaws.com/public/audio/my%20treasures/audiofile.mp3',
-      'Direct Audio Test',
-      ' (My Treasures) → 1:10'
+      "https://ananda-chatbot.s3.us-west-1.amazonaws.com/public/audio/my%20treasures/audiofile.mp3",
+      "Direct Audio Test",
+      " (My Treasures) → 1:10"
     );
   });
 
@@ -208,9 +211,9 @@ describe("CopyButton", () => {
     const callHtml = mockedCopyTextToClipboard.mock.calls[0][0];
     expectLinkWithHrefAndText(
       callHtml,
-      'https://ananda-chatbot.s3.us-west-1.amazonaws.com/public/audio/my%20lectures/series1/lecture2.mp3',
-      'Path Audio Test',
-      ' (My Lectures) → 0:30'
+      "https://ananda-chatbot.s3.us-west-1.amazonaws.com/public/audio/my%20lectures/series1/lecture2.mp3",
+      "Path Audio Test",
+      " (My Lectures) → 0:30"
     );
   });
 
@@ -238,9 +241,9 @@ describe("CopyButton", () => {
     const callHtml = mockedCopyTextToClipboard.mock.calls[0][0];
     expectLinkWithHrefAndText(
       callHtml,
-      'https://example.com/page-for-audio.html',
-      'Fallback Audio Test',
-      ' (Old Collection) → 1:30'
+      "https://example.com/page-for-audio.html",
+      "Fallback Audio Test",
+      " (Old Collection) → 1:30"
     );
   });
 
@@ -253,7 +256,7 @@ describe("CopyButton", () => {
     });
 
     const callHtml = mockedCopyTextToClipboard.mock.calls[0][0];
-    expectLinkWithHrefAndText(callHtml, 'https://test.com/doc1', 'Test Doc 1', ' (Test Library)');
+    expectLinkWithHrefAndText(callHtml, "https://test.com/doc1", "Test Doc 1", " (Test Library)");
   });
 
   it("formats sources correctly without URLs", async () => {
@@ -298,9 +301,9 @@ describe("CopyButton", () => {
     const call = mockedCopyTextToClipboard.mock.calls[0][0];
     expectLinkWithHrefAndText(
       call,
-      'https://www.youtube.com/watch?v=example123&t=512',
-      'The Healing Power of Silence',
-      ' (Ananda Youtube)'
+      "https://www.youtube.com/watch?v=example123&t=512",
+      "The Healing Power of Silence",
+      " (Ananda Youtube)"
     );
   });
 
@@ -332,7 +335,7 @@ describe("CopyButton", () => {
 
     expect(mockedCopyTextToClipboard).toHaveBeenCalled();
     const call = mockedCopyTextToClipboard.mock.calls[0][0];
-    expectLinkWithHrefAndText(call, 'https://example.com/audio.mp3', 'Audio Clip Title', ' (Audio Library) → 2:05');
+    expectLinkWithHrefAndText(call, "https://example.com/audio.mp3", "Audio Clip Title", " (Audio Library) → 2:05");
   });
 
   it("should correctly format and include start_time with hours for a video source that is youtube type", async () => {
@@ -363,7 +366,12 @@ describe("CopyButton", () => {
 
     expect(mockedCopyTextToClipboard).toHaveBeenCalled();
     const call = mockedCopyTextToClipboard.mock.calls[0][0];
-    expectLinkWithHrefAndText(call, 'https://example.com/long_video.mp4?t=7505', 'Long Video Title', ' (Video Library)');
+    expectLinkWithHrefAndText(
+      call,
+      "https://example.com/long_video.mp4?t=7505",
+      "Long Video Title",
+      " (Video Library)"
+    );
   });
 
   it("should handle start_time of zero correctly for youtube and audio", async () => {
@@ -416,15 +424,30 @@ describe("CopyButton", () => {
     const callText = mockedCopyTextToClipboard.mock.calls[0][0];
 
     // Check YouTube with start_time: 0
-    expectLinkWithHrefAndText(callText, 'https://www.youtube.com/watch?v=zero_start&t=0', 'YouTube Zero Start', ' (YouTube Library)');
+    expectLinkWithHrefAndText(
+      callText,
+      "https://www.youtube.com/watch?v=zero_start&t=0",
+      "YouTube Zero Start",
+      " (YouTube Library)"
+    );
     const youtubeZeroStartString = callText.split("\n").find((line: string) => line.includes("YouTube Zero Start"));
     expect(youtubeZeroStartString).not.toContain("[");
 
     // Check Audio with start_time: 0
-    expectLinkWithHrefAndText(callText, 'https://example.com/audio_zero_start.mp3', 'Audio Zero Start', ' (Audio Library) → 0:00');
+    expectLinkWithHrefAndText(
+      callText,
+      "https://example.com/audio_zero_start.mp3",
+      "Audio Zero Start",
+      " (Audio Library) → 0:00"
+    );
 
     // Check YouTube with undefined start_time (should not have &t= or at)
-    expectLinkWithHrefAndText(callText, 'https://example.com/video_no_start', 'No Start Time Doc (YouTube)', ' (Video Library)');
+    expectLinkWithHrefAndText(
+      callText,
+      "https://example.com/video_no_start",
+      "No Start Time Doc (YouTube)",
+      " (Video Library)"
+    );
     const youtubeNoStartTimeString = callText
       .split("\n")
       .find((line: string) => line.includes("No Start Time Doc (YouTube)"));
@@ -471,14 +494,24 @@ describe("CopyButton", () => {
     const callContent = mockedCopyTextToClipboard.mock.calls[0][0];
 
     // Check YouTube with undefined start_time
-    expectLinkWithHrefAndText(callContent, 'https://example.com/video_no_start_undefined', 'No Start Time Doc (YouTube Undefined)', ' (Video Library)');
+    expectLinkWithHrefAndText(
+      callContent,
+      "https://example.com/video_no_start_undefined",
+      "No Start Time Doc (YouTube Undefined)",
+      " (Video Library)"
+    );
     const ytUndefinedString = callContent
       .split("\n")
       .find((line: string) => line.includes("No Start Time Doc (YouTube Undefined)"));
     expect(ytUndefinedString).not.toContain("[");
 
     // Check Audio with undefined start_time
-    expectLinkWithHrefAndText(callContent, 'https://example.com/audio_no_start_undefined.mp3', 'No Start Time Doc (Audio Undefined)', ' (Audio Library)');
+    expectLinkWithHrefAndText(
+      callContent,
+      "https://example.com/audio_no_start_undefined.mp3",
+      "No Start Time Doc (Audio Undefined)",
+      " (Audio Library)"
+    );
     const audioUndefinedString = callContent
       .split("\n")
       .find((line: string) => line.includes("No Start Time Doc (Audio Undefined)"));
@@ -523,7 +556,7 @@ describe("CopyButton", () => {
 
     expect(mockedCopyTextToClipboard).toHaveBeenCalled();
     const call = mockedCopyTextToClipboard.mock.calls[0][0];
-    expectLinkWithHrefAndText(call, 'https://example.com/text_doc', 'Text Doc With Time', ' (Text Library)');
+    expectLinkWithHrefAndText(call, "https://example.com/text_doc", "Text Doc With Time", " (Text Library)");
 
     // Check specifically for the generic video type
     const genericVideoSourceString = call.split("\n").find((line: string) => line.includes("Generic Video With Time"));
@@ -642,7 +675,12 @@ describe("CopyButton", () => {
     const callHtml = mockedCopyTextToClipboard.mock.calls[0][0];
 
     // Should contain truncated question as link text and site name in parentheses
-    expectLinkWithHrefAndText(callHtml, 'https://test.com/share/123', 'This is a very long question that should be truncated…', ' (Test Site)');
+    expectLinkWithHrefAndText(
+      callHtml,
+      "https://test.com/share/123",
+      "This is a very long question that should be truncated...",
+      " (Test Site)"
+    );
   });
 
   it("formats 'From:' section with short question as hyperlink and site name in parentheses", async () => {
@@ -663,7 +701,7 @@ describe("CopyButton", () => {
     const callHtml = mockedCopyTextToClipboard.mock.calls[0][0];
 
     // Should contain full question as link text (no truncation) and site name in parentheses
-    expectLinkWithHrefAndText(callHtml, 'https://test.com/share/123', 'Short question', ' (Test Site)');
+    expectLinkWithHrefAndText(callHtml, "https://test.com/share/123", "Short question", " (Test Site)");
   });
 
   it("truncates question at word boundary when possible", async () => {
@@ -684,9 +722,14 @@ describe("CopyButton", () => {
     const callHtml = mockedCopyTextToClipboard.mock.calls[0][0];
 
     // Should truncate at word boundary, not mid-word
-    expectLinkWithHrefAndText(callHtml, 'https://test.com/share/123', 'This is a question that should be truncated at a word…', ' (Test Site)');
+    expectLinkWithHrefAndText(
+      callHtml,
+      "https://test.com/share/123",
+      "This is a question that should be truncated at a word...",
+      " (Test Site)"
+    );
     // Should not contain partial words
-    expect(callHtml).not.toContain("boundar…");
+    expect(callHtml).not.toContain("boundar...");
   });
 
   it("should properly convert audio sources to HTML links (regression test)", async () => {
@@ -724,9 +767,9 @@ describe("CopyButton", () => {
     // Should contain properly formatted HTML link with encoded URL
     expectLinkWithHrefAndText(
       callHtml,
-      'https://ananda-chatbot.s3.us-west-1.amazonaws.com/public/audio/treasures/Thumb%20drive%20from%20Krishna%207-2024/MP3%202017/sp-marriage-8-2-80.mp3',
-      'Spiritual Marriage & Family 8/2/80',
-      ' (Treasures) → 31:11'
+      "https://ananda-chatbot.s3.us-west-1.amazonaws.com/public/audio/treasures/Thumb%20drive%20from%20Krishna%207-2024/MP3%202017/sp-marriage-8-2-80.mp3",
+      "Spiritual Marriage & Family 8/2/80",
+      " (Treasures) → 31:11"
     );
   });
 
@@ -751,8 +794,8 @@ describe("CopyButton", () => {
       // Should contain temporary chat annotation
       expect(callHtml).toContain("<em>Note: This is from a temporary chat session.</em>");
 
-      // Should NOT contain "From:" section with link (showdown adds id attribute)
-      expect(callHtml).not.toContain('<h3 id="from">From:</h3>');
+      // Should NOT contain "From:" section with link
+      expect(callHtml).not.toMatch(/<h3[^>]*>From:<\/h3>/);
       expect(callHtml).not.toContain("https://test.com/share/123");
       expect(callHtml).not.toContain("(Test Site)");
     });
@@ -777,8 +820,8 @@ describe("CopyButton", () => {
       // Should NOT contain temporary chat annotation
       expect(callHtml).not.toContain("temporary chat session");
 
-      // Should contain "From:" section with link (showdown adds id attribute)
-      expect(callHtml).toContain('<h3 id="from">From:</h3>');
+      // Should contain "From:" section with link
+      expect(callHtml).toMatch(/<h3[^>]*>From:<\/h3>/);
       expect(callHtml).toContain("https://test.com/share/123");
       expect(callHtml).toContain("(Test Site)");
     });
@@ -803,9 +846,42 @@ describe("CopyButton", () => {
       // Should NOT contain temporary chat annotation
       expect(callHtml).not.toContain("temporary chat session");
 
-      // Should contain "From:" section with link (showdown adds id attribute)
-      expect(callHtml).toContain('<h3 id="from">From:</h3>');
+      // Should contain "From:" section with link
+      expect(callHtml).toMatch(/<h3[^>]*>From:<\/h3>/);
       expect(callHtml).toContain("https://test.com/share/123");
+    });
+  });
+
+  describe("clipboard markdown conversion", () => {
+    it("copies tables, target=_blank links, and strips XSS payloads", async () => {
+      const markdown = [
+        "| Col | Val |",
+        "| --- | --- |",
+        "| A | 1 |",
+        "",
+        "See https://example.com/path and [docs](https://example.com/docs).",
+        "",
+        "<script>alert(1)</script>",
+        "[bad](javascript:alert(1))",
+      ].join("\n");
+      const { getByTitle } = render(<CopyButton {...mockProps} markdown={markdown} />);
+      const button = getByTitle("Copy answer to clipboard");
+
+      await act(async () => {
+        fireEvent.click(button);
+      });
+
+      expect(mockedCopyTextToClipboard).toHaveBeenCalled();
+      const callHtml = mockedCopyTextToClipboard.mock.calls[0][0];
+      expect(callHtml).toContain("<table");
+      expect(callHtml).toContain('target="_blank"');
+      const container = document.createElement("div");
+      container.innerHTML = callHtml;
+      expect(container.querySelector("script")).toBeNull();
+      const hrefs = Array.from(container.querySelectorAll("[href]")).map((el) =>
+        (el.getAttribute("href") || "").toLowerCase()
+      );
+      expect(hrefs.some((href) => href.startsWith("javascript:"))).toBe(false);
     });
   });
 });
