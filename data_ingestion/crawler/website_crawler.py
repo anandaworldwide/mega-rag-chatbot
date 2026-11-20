@@ -71,6 +71,7 @@ from utils.text_splitter_utils import SpacyTextSplitter
 try:
     # When running as a module (python -m crawler.website_crawler)
     from .author_extraction import extract_author_from_html
+    from .browser import _block_nonessential_resources
     from .config import (
         USER_AGENT,
         ContentHash,
@@ -80,7 +81,6 @@ try:
         ensure_scheme,
         requires_db,
     )
-    from .browser import _block_nonessential_resources
     from .health import HealthMonitor
     from .listing_page import listing_skips_enabled, url_is_listing
     from .lock_manager import CrawlerLockManager

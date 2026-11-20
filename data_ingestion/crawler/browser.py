@@ -101,8 +101,9 @@ _BLOCKED_RESOURCE_TYPES = frozenset({"image", "media", "font", "stylesheet"})
 
 # The crawler runs page scripts. Tracking pixels then count it as a visitor.
 # PixelYourSite posted about 330 Facebook events a day from this crawler.
-# page.route() does not catch navigator.sendBeacon. Block the tracking scripts.
-# Also disable beacons in Firefox. See beacon.enabled in _launch_browser_instance().
+# Block the tracking scripts. This is the primary fix.
+# Also disable beacons in Firefox as a second guard.
+# See beacon.enabled in _launch_browser_instance().
 _BLOCKED_URL_SUBSTRINGS = (
     "/wp-content/plugins/pixelyoursite",
     "/wp-json/pys-",
@@ -221,8 +222,8 @@ def _launch_browser_instance(
             "browser.sessionstore.resume_from_crash": False,
             "browser.tabs.warnOnClose": False,
             "browser.tabs.warnOnCloseOtherTabs": False,
-            # Remove navigator.sendBeacon so analytics pings cannot slip past
-            # the route blocklist in _block_nonessential_resources().
+            # Remove navigator.sendBeacon. Tracking scripts then cannot send beacons.
+            # This is a second guard after _block_nonessential_resources().
             "beacon.enabled": False,
         },
         timeout=launch_timeout,
