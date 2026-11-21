@@ -82,10 +82,50 @@ def test_facebook_lookalikes_are_allowed(url):
         "https://notdoubleclick.net/pagead/id",
         "https://doubleclick.net.example.com/pagead/id",
         "https://www.example.com/doubleclick.net/pagead/id",
+        "https://facebook.com.evil.com/tr",
+        "https://google-analytics.com.evil.com/g/collect",
+        "https://evilfacebook.com/tr",
     ],
 )
 def test_blocked_host_lookalikes_are_allowed(url):
     assert not _is_blocked_request("script", url)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.google-analytics.com/g/collect",
+        "https://stats.g.doubleclick.net/dc.js",
+        "https://www.google-analytics.com:443/g/collect",
+        "https://www.facebook.com:443/tr",
+        "https://www.google-analytics.com:8080/g/collect",
+        "https://www.facebook.com:8080/tr",
+        "https://WWW.GOOGLE-ANALYTICS.COM/g/collect",
+        "https://Www.Facebook.Com/tr",
+        "https://www.google-analytics.com/g/collect?v=2&tid=G-XXXX",
+        "https://www.facebook.com/tr/?id=123&ev=PageView#frag",
+        "https://www.google-analytics.com./g/collect",
+        "https://www.facebook.com./tr",
+    ],
+)
+def test_tracking_url_edge_cases_are_blocked(url):
+    assert _is_blocked_request("script", url)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://facebook.com.evil.com:443/tr",
+        "https://google-analytics.com.evil.com:8080/g/collect",
+        "https://Facebook.Com.Evil.Com/tr",
+        "https://www.ananda.org/page?next=https://facebook.com/tr",
+        "https://www.ananda.org/page#https://www.google-analytics.com/g/collect",
+        "https://facebook.com.evil.com./tr",
+    ],
+)
+def test_lookalike_and_site_url_edge_cases_are_allowed(url):
+    assert not _is_blocked_request("script", url)
+    assert not _is_blocked_request("document", url)
 
 
 def _capture_handler():
