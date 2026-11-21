@@ -99,12 +99,24 @@ def _handle_retry_delay(attempt: int, max_retries: int, base_delay: int) -> None
 # evaluates JS.
 _BLOCKED_RESOURCE_TYPES = frozenset({"image", "media", "font", "stylesheet"})
 
+# What is blocked
+# PixelYourSite scripts and REST calls.
+# The match uses the URL path, not the query string.
+# Facebook pixel scripts on connect.facebook.net. Pixel hits on facebook.com/tr.
+# Google Tag Manager, Google Analytics, DoubleClick, and Google Ads hosts.
+#
+# Why
 # The crawler runs page scripts. Tracking pixels then count it as a visitor.
 # PixelYourSite posted about 330 Facebook events a day from this crawler.
 # Block the tracking scripts. This is the main fix.
 # Also disable beacons in Firefox as a second guard.
 # See beacon.enabled in _launch_browser_instance().
-# Block PixelYourSite scripts and REST calls by URL path, not by query string.
+#
+# How the host match works
+# Host checks are case insensitive. A trailing dot on the host is ignored.
+# A host matches if it equals a blocked host.
+# A subdomain of a blocked host also matches.
+# Subdomain match uses a leading-dot suffix. It does not use a substring match.
 _BLOCKED_PATH_FRAGMENTS = (
     "/wp-content/plugins/pixelyoursite",
     "/wp-json/pys-",
