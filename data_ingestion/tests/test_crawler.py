@@ -692,31 +692,45 @@ https://example.com/page2,2025-07-13 09:30:00,Test Page 2
 
         crawler.close()
 
-    @patch("crawler.website_crawler._block_nonessential_resources")
-    def test_download_csv_data_installs_tracking_block(self, mock_block):
-        """CSV download pages use the same tracking block as the main crawler page."""
+    def test_download_csv_data_installs_tracking_block(self):
+        """CSV download pages install the block list before they open the site."""
         crawler = WebsiteCrawler(self.site_id, self.site_config)
         mock_browser = Mock()
         mock_page = Mock()
         mock_browser.new_page.return_value = mock_page
 
+        def session_side_effect(page):
+            # The route must exist before the page opens the main site.
+            page.route.assert_called_once()
+            return True
+
+        def navigate_side_effect(page, download_info):
+            download_info["content"] = "URL\nhttps://example.com/page1"
+
         with (
-            patch.object(crawler, "_establish_csv_session", return_value=True),
+            patch.object(
+                crawler, "_establish_csv_session", side_effect=session_side_effect
+            ),
             patch.object(crawler, "_create_download_handler"),
-            patch.object(crawler, "_navigate_to_csv_url") as mock_navigate,
+            patch.object(
+                crawler, "_navigate_to_csv_url", side_effect=navigate_side_effect
+            ),
             patch.object(
                 crawler,
                 "_parse_csv_content",
                 return_value=[{"URL": "https://example.com/page1"}],
             ),
         ):
-
-            def mock_navigate_side_effect(page, download_info):
-                download_info["content"] = "URL\nhttps://example.com/page1"
-
-            mock_navigate.side_effect = mock_navigate_side_effect
             crawler.download_csv_data(mock_browser)
-            mock_block.assert_called_once_with(mock_page)
+
+        pattern, handler = mock_page.route.call_args.args
+        self.assertEqual(pattern, "**/*")
+        route = Mock()
+        route.request.resource_type = "script"
+        route.request.url = "https://connect.facebook.net/en_US/fbevents.js"
+        handler(route)
+        route.abort.assert_called_once()
+        route.continue_.assert_not_called()
 
         crawler.close()
 

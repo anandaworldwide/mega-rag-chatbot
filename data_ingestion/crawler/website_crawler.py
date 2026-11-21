@@ -2395,7 +2395,7 @@ class WebsiteCrawler:
                 # Create a new page in the existing browser context
                 page = browser.new_page()
                 page.set_extra_http_headers({"User-Agent": USER_AGENT})
-                # Install the same tracking block used on the main crawler page.
+                # Use the same route handler as the main crawler page.
                 _block_nonessential_resources(page)
                 # Set default timeout to prevent indefinite hangs
                 page.set_default_timeout(Timeouts.PAGE_DEFAULT_MS)  # 30 seconds

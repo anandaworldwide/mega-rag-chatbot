@@ -101,10 +101,11 @@ _BLOCKED_RESOURCE_TYPES = frozenset({"image", "media", "font", "stylesheet"})
 
 # The crawler runs page scripts. Tracking pixels then count it as a visitor.
 # PixelYourSite posted about 330 Facebook events a day from this crawler.
-# Block the tracking scripts. This is the primary fix.
+# Block the tracking scripts. This is the main fix.
 # Also disable beacons in Firefox as a second guard.
 # See beacon.enabled in _launch_browser_instance().
-_BLOCKED_URL_SUBSTRINGS = (
+# Block PixelYourSite scripts and REST calls by URL path, not by query string.
+_BLOCKED_PATH_FRAGMENTS = (
     "/wp-content/plugins/pixelyoursite",
     "/wp-json/pys-",
 )
@@ -125,14 +126,17 @@ _FACEBOOK_PIXEL_HOSTS = frozenset({"facebook.com", "www.facebook.com"})
 _GOOGLE_CCM_HOSTS = frozenset({"google.com", "www.google.com"})
 
 
-def _request_host(url: str) -> str:
-    """Return the URL host in lower case. Missing hosts become an empty string."""
-    return (urlparse(url).hostname or "").lower()
+def _host_and_path(url: str) -> tuple[str, str]:
+    """Return the URL host and path in lower case.
 
-
-def _request_path(url: str) -> str:
-    """Return the URL path in lower case. Missing paths become an empty string."""
-    return (urlparse(url).path or "").lower()
+    The host loses a trailing dot. A URL that does not parse gives empty strings.
+    """
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname or ""
+    except ValueError:
+        return "", ""
+    return host.rstrip("."), parsed.path.lower()
 
 
 def _host_is_blocked(host: str) -> bool:
@@ -143,7 +147,11 @@ def _host_is_blocked(host: str) -> bool:
 
 
 def _is_facebook_pixel_hit(host: str, path: str) -> bool:
-    """Return True for facebook.com or www.facebook.com with path /tr or /tr/."""
+    """Return True for a Facebook pixel hit.
+
+    The host must be facebook.com or www.facebook.com.
+    The path must be /tr or start with /tr/.
+    """
     if host not in _FACEBOOK_PIXEL_HOSTS:
         return False
     return path == "/tr" or path.startswith("/tr/")
@@ -160,11 +168,9 @@ def _is_blocked_request(resource_type: str, url: str) -> bool:
     """Return True when the crawler aborts this request."""
     if resource_type in _BLOCKED_RESOURCE_TYPES:
         return True
-    lower_url = url.lower()
-    if any(fragment in lower_url for fragment in _BLOCKED_URL_SUBSTRINGS):
+    host, path = _host_and_path(url)
+    if any(fragment in path for fragment in _BLOCKED_PATH_FRAGMENTS):
         return True
-    host = _request_host(url)
-    path = _request_path(url)
     if _is_facebook_pixel_hit(host, path):
         return True
     if _is_google_ccm_collect(host, path):
