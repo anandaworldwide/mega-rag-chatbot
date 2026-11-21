@@ -30,7 +30,7 @@ defusedxml==0.7.1
     # via nltk
 distro==1.9.0
     # via openai
-filelock==3.25.2
+filelock==4.2.10
     # via
     #   huggingface-hub
     #   mega-rag-chatbot-reranking
@@ -193,7 +193,7 @@ scikit-learn==1.8.0
     # via mega-rag-chatbot-reranking
 scipy==1.17.1
     # via scikit-learn
-setuptools==83.0.0
+setuptools==84.2.1
     # via torch
 six==1.17.0
     # via python-dateutil
