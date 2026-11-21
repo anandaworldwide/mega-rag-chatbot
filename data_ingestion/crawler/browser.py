@@ -13,6 +13,7 @@ except ImportError:
 
 import os
 import sys
+from urllib.parse import urlparse
 
 # Add parent directory to path for utils imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -98,9 +99,87 @@ def _handle_retry_delay(attempt: int, max_retries: int, base_delay: int) -> None
 # evaluates JS.
 _BLOCKED_RESOURCE_TYPES = frozenset({"image", "media", "font", "stylesheet"})
 
+# The crawler runs page scripts. Tracking pixels then count it as a visitor.
+# PixelYourSite posted about 330 Facebook events a day from this crawler.
+# Block the tracking scripts. This is the main fix.
+# Also disable beacons in Firefox as a second guard.
+# See beacon.enabled in _launch_browser_instance().
+# Block PixelYourSite scripts and REST calls by URL path, not by query string.
+_BLOCKED_PATH_FRAGMENTS = (
+    "/wp-content/plugins/pixelyoursite",
+    "/wp-json/pys-",
+)
+
+# Block these hosts and their subdomains. Host checks are case insensitive.
+_BLOCKED_HOSTS = frozenset(
+    {
+        "connect.facebook.net",
+        "googletagmanager.com",
+        "google-analytics.com",
+        "analytics.google.com",
+        "doubleclick.net",
+        "googleadservices.com",
+    }
+)
+
+_FACEBOOK_PIXEL_HOSTS = frozenset({"facebook.com", "www.facebook.com"})
+_GOOGLE_CCM_HOSTS = frozenset({"google.com", "www.google.com"})
+
+
+def _host_and_path(url: str) -> tuple[str, str]:
+    """Return the URL host and path in lower case.
+
+    The host loses a trailing dot. A URL that does not parse gives empty strings.
+    """
+    try:
+        parsed = urlparse(url)
+        host = parsed.hostname or ""
+    except ValueError:
+        return "", ""
+    return host.rstrip("."), parsed.path.lower()
+
+
+def _host_is_blocked(host: str) -> bool:
+    """Return True when host matches a blocked host or a subdomain of one."""
+    if host in _BLOCKED_HOSTS:
+        return True
+    return any(host.endswith("." + blocked) for blocked in _BLOCKED_HOSTS)
+
+
+def _is_facebook_pixel_hit(host: str, path: str) -> bool:
+    """Return True for a Facebook pixel hit.
+
+    The host must be facebook.com or www.facebook.com.
+    The path must be /tr or start with /tr/.
+    """
+    if host not in _FACEBOOK_PIXEL_HOSTS:
+        return False
+    return path == "/tr" or path.startswith("/tr/")
+
+
+def _is_google_ccm_collect(host: str, path: str) -> bool:
+    """Return True for google.com CCM collect paths."""
+    if host not in _GOOGLE_CCM_HOSTS:
+        return False
+    return path == "/ccm/collect" or path.startswith("/ccm/collect/")
+
+
+def _is_blocked_request(resource_type: str, url: str) -> bool:
+    """Return True when the crawler aborts this request."""
+    if resource_type in _BLOCKED_RESOURCE_TYPES:
+        return True
+    host, path = _host_and_path(url)
+    if any(fragment in path for fragment in _BLOCKED_PATH_FRAGMENTS):
+        return True
+    if _is_facebook_pixel_hit(host, path):
+        return True
+    if _is_google_ccm_collect(host, path):
+        return True
+    return _host_is_blocked(host)
+
 
 def _block_nonessential_resources(page) -> None:
-    """Install a route interceptor to abort non-text resource requests."""
+    """Install a route interceptor to abort non-text and tracking requests."""
 
     def _route_handler(route):
         # A Playwright route is one-shot: abort()/continue_()/fulfill() are all
@@ -110,7 +189,7 @@ def _block_nonessential_resources(page) -> None:
         # failure. Log at debug (these errors are common and expected during
         # page teardown) and let Playwright's own logic handle the request.
         try:
-            if route.request.resource_type in _BLOCKED_RESOURCE_TYPES:
+            if _is_blocked_request(route.request.resource_type, route.request.url):
                 route.abort()
             else:
                 route.continue_()
@@ -149,6 +228,9 @@ def _launch_browser_instance(
             "browser.sessionstore.resume_from_crash": False,
             "browser.tabs.warnOnClose": False,
             "browser.tabs.warnOnCloseOtherTabs": False,
+            # Remove navigator.sendBeacon. Tracking scripts then cannot send beacons.
+            # This is a second guard after _block_nonessential_resources().
+            "beacon.enabled": False,
         },
         timeout=launch_timeout,
     )
