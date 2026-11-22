@@ -3253,7 +3253,7 @@ class Test404PineconeDeletion(BaseWebsiteCrawlerTest):
 
         crawler.close()
 
-    @patch.dict(os.environ, {"OPENAI_EMBEDDING_DIMENSION": "1536"})
+    @patch.dict(os.environ, {"OPENAI_INGEST_EMBEDDINGS_DIMENSION": "1536"})
     def test_remove_url_from_pinecone(self):
         """Test that remove_url_from_pinecone calls Pinecone correctly."""
         crawler = WebsiteCrawler(self.site_id, self.site_config)
@@ -3285,7 +3285,7 @@ class Test404PineconeDeletion(BaseWebsiteCrawlerTest):
 
         crawler.close()
 
-    @patch.dict(os.environ, {"OPENAI_EMBEDDING_DIMENSION": "1536"})
+    @patch.dict(os.environ, {"OPENAI_INGEST_EMBEDDINGS_DIMENSION": "1536"})
     def test_remove_url_from_pinecone_no_vectors(self):
         """Test remove_url_from_pinecone when no vectors are found."""
         crawler = WebsiteCrawler(self.site_id, self.site_config)
@@ -3333,7 +3333,7 @@ class Test404PineconeDeletion(BaseWebsiteCrawlerTest):
 
         crawler.close()
 
-    @patch.dict(os.environ, {"OPENAI_EMBEDDING_DIMENSION": "1536"})
+    @patch.dict(os.environ, {"OPENAI_INGEST_EMBEDDINGS_DIMENSION": "1536"})
     def test_end_to_end_404_pinecone_cleanup_integration(self):
         """Test the complete end-to-end flow: 404 retry exhaustion -> automatic Pinecone cleanup."""
         from crawler.crawl_loop import _process_pinecone_deletions
@@ -3407,6 +3407,7 @@ class Test404PineconeDeletion(BaseWebsiteCrawlerTest):
 
         crawler.close()
 
+    @patch.dict(os.environ, {"OPENAI_INGEST_EMBEDDINGS_DIMENSION": "1536"})
     def test_maintenance_cycle_handles_multiple_deleted_urls(self):
         """Test that the maintenance cycle can handle multiple 404'd URLs at once."""
         from crawler.crawl_loop import _process_pinecone_deletions

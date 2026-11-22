@@ -86,8 +86,6 @@ def upsert_to_pinecone(vectors: list[dict], index: Any, index_name: str):
             except Exception as e:
                 error_msg = str(e)
                 logging.error(f"Error upserting batch starting at index {i}: {e}")
-
-                # Check for vector ID sanitization errors that should be treated as temporary failures
                 if (
                     "Vector ID must be ASCII" in error_msg
                     or "must be ASCII" in error_msg
@@ -96,11 +94,7 @@ def upsert_to_pinecone(vectors: list[dict], index: Any, index_name: str):
                         "Vector ID sanitization error detected - this should be fixed by updated sanitization logic"
                     )
                     raise Exception(f"Vector ID sanitization error: {error_msg}") from e
-
-                # Log but continue for transient errors
-                logging.warning(
-                    f"Skipping batch {i // batch_size + 1} due to error, continuing with next batch..."
-                )
+                raise
         logging.info(f"Upsert of {total_vectors} vectors complete.")
 
 
@@ -113,16 +107,17 @@ def _update_pinecone_vectors(
     title: str,
     author: str | None = None,
 ) -> None:
-    """Clear old vectors and upsert new ones for a URL."""
-    # Always clear old vectors before upserting new ones
-    # This handles: recrawls with changed content, first crawls with stale data,
-    # and any edge cases where Pinecone has old vectors for this URL
-    deleted_count = crawler.remove_url_from_pinecone(pinecone_index, url)
-    if deleted_count > 0:
-        logging.info(f"Cleared {deleted_count} old vectors from Pinecone for: {url}")
-
+    """Upsert new vectors, then delete stale ones for a URL."""
     embeddings = crawler.create_embeddings(chunks, url, title, author=author)
     upsert_to_pinecone(embeddings, pinecone_index, index_name)
+    keep_ids = {vector["id"] for vector in embeddings if vector.get("id")}
+    deleted_count = crawler.remove_url_from_pinecone(
+        pinecone_index, url, keep_ids=keep_ids
+    )
+    if deleted_count < 0:
+        raise PineconeCleanupError(f"Failed to delete stale vectors for {url}")
+    if deleted_count > 0:
+        logging.info(f"Cleared {deleted_count} old vectors from Pinecone for: {url}")
     logging.debug(f"Successfully processed and upserted: {url}")
     logging.debug(f"Created {len(chunks)} chunks, {len(embeddings)} embeddings.")
 
