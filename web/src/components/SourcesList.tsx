@@ -669,16 +669,14 @@ const SourcesList: React.FC<SourcesListProps> = ({
         const requestBody: any = { pdfS3Key: doc.metadata.pdf_s3_key };
         const headers: any = { "Content-Type": "application/json" };
 
+        if (!docId) {
+          throw new Error("Document ID required for PDF access");
+        }
+        requestBody.docId = docId;
+
         if (token && !token.includes("placeholder")) {
-          // Authenticated user
           requestBody.uuid = uuid;
           headers.Authorization = `Bearer ${token}`;
-        } else {
-          // Anonymous user - require docId for share validation
-          if (!docId) {
-            throw new Error("Document ID required for PDF access");
-          }
-          requestBody.docId = docId;
         }
 
         const response = await fetch("/api/getPdfSignedUrl", {
@@ -1148,16 +1146,14 @@ const SourcesList: React.FC<SourcesListProps> = ({
                           const requestBody: any = { pdfS3Key: currentSourceDoc.metadata.pdf_s3_key };
                           const headers: any = { "Content-Type": "application/json" };
 
+                          if (!docId) {
+                            throw new Error("Document ID required for PDF access");
+                          }
+                          requestBody.docId = docId;
+
                           if (token && !token.includes("placeholder")) {
-                            // Authenticated user
                             requestBody.uuid = uuid;
                             headers.Authorization = `Bearer ${token}`;
-                          } else {
-                            // Anonymous user - require docId for share validation
-                            if (!docId) {
-                              throw new Error("Document ID required for PDF access");
-                            }
-                            requestBody.docId = docId;
                           }
 
                           const response = await fetch("/api/getPdfSignedUrl", {

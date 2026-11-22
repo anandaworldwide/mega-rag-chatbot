@@ -177,6 +177,7 @@ const AnswerItem: React.FC<AnswerItemProps> = ({
               collectionName={hasMultipleCollections ? answer.collection : null}
               siteConfig={siteConfig}
               isSudoAdmin={isPrivilegedUser}
+              docId={answer.id}
             />
           )}
 

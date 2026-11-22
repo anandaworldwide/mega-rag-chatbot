@@ -14,7 +14,7 @@
 
 import { NextApiRequest, NextApiResponse } from "next";
 import { createMocks } from "node-mocks-http";
-import handler from "@/pages/api/getPdfSignedUrl";
+import actualHandler from "@/pages/api/getPdfSignedUrl";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { getS3PdfSignedUrl } from "@/utils/server/getS3PdfSignedUrl";
 import { s3Client } from "@/utils/server/awsConfig";
@@ -45,11 +45,39 @@ jest.mock("@aws-sdk/client-s3", () => ({
 jest.mock("@/utils/server/jwtUtils", () => ({
   verifyToken: jest.fn((token) => {
     if (token === "valid-jwt-token") {
-      return { userId: "test-user", email: "test@example.com" };
+      return { userId: "test-user", email: "test@example.com", uuid: "123e4567-e89b-12d3-a456-426614174000" };
     }
     throw new Error("Invalid token");
   }),
 }));
+
+const mockDocGet = jest.fn();
+jest.mock("@/services/firebase", () => ({
+  db: {
+    collection: jest.fn(() => ({
+      doc: jest.fn(() => ({ get: mockDocGet })),
+      add: jest.fn().mockResolvedValue({ id: "log-1" }),
+    })),
+  },
+}));
+jest.mock("@/utils/server/loadSiteConfig", () => ({
+  loadSiteConfigSync: jest.fn(() => ({ siteId: "ananda" })),
+}));
+jest.mock("@/utils/server/firestoreUtils", () => ({
+  getAnswersCollectionName: jest.fn(() => "test_chatLogs"),
+}));
+
+async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const key = typeof req.body?.pdfS3Key === "string" ? req.body.pdfS3Key : "";
+  mockDocGet.mockResolvedValue({
+    exists: true,
+    data: () => ({
+      uuid: "123e4567-e89b-12d3-a456-426614174000",
+      sources: key ? [{ s3Key: key, metadata: { pdf_s3_key: key } }] : [],
+    }),
+  });
+  return actualHandler(req, res);
+}
 
 const mockGenericRateLimiter = genericRateLimiter as jest.MockedFunction<typeof genericRateLimiter>;
 const mockGetS3PdfSignedUrl = getS3PdfSignedUrl as jest.MockedFunction<typeof getS3PdfSignedUrl>;
@@ -75,7 +103,7 @@ describe("/api/getPdfSignedUrl", () => {
     it("should only allow POST requests", async () => {
       const { req, res } = createMocks<NextApiRequest, NextApiResponse>({
         method: "GET",
-        body: { pdfS3Key: "test.pdf" },
+        body: { pdfS3Key: "public/pdf/test-library/test.pdf" },
       });
 
       await handler(req, res);
@@ -92,7 +120,7 @@ describe("/api/getPdfSignedUrl", () => {
         headers: {
           authorization: "Bearer valid-jwt-token",
         },
-        body: { pdfS3Key: "test.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000" },
+        body: { pdfS3Key: "public/pdf/test-library/test.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000", docId: "doc-1" },
       });
 
       await handler(req, res);
@@ -108,7 +136,7 @@ describe("/api/getPdfSignedUrl", () => {
         headers: {
           authorization: "Bearer valid-jwt-token",
         },
-        body: { pdfS3Key: "test.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000" },
+        body: { pdfS3Key: "public/pdf/test-library/test.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000", docId: "doc-1" },
       });
 
       await handler(req, res);
@@ -133,7 +161,7 @@ describe("/api/getPdfSignedUrl", () => {
         headers: {
           authorization: "Bearer valid-jwt-token",
         },
-        body: { pdfS3Key: "test.pdf" },
+        body: { pdfS3Key: "public/pdf/test-library/test.pdf" },
       });
 
       await handler(req, res);
@@ -201,7 +229,7 @@ describe("/api/getPdfSignedUrl", () => {
         headers: {
           authorization: "Bearer valid-jwt-token",
         },
-        body: { pdfS3Key: "document.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000" },
+        body: { pdfS3Key: "public/pdf/test-library/document.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000", docId: "doc-1" },
       });
 
       await handler(req, res);
@@ -215,7 +243,7 @@ describe("/api/getPdfSignedUrl", () => {
         headers: {
           authorization: "Bearer valid-jwt-token",
         },
-        body: { pdfS3Key: "document.PDF", uuid: "123e4567-e89b-12d3-a456-426614174000" },
+        body: { pdfS3Key: "public/pdf/test-library/document.PDF", uuid: "123e4567-e89b-12d3-a456-426614174000", docId: "doc-1" },
       });
 
       await handler(req, res);
@@ -229,7 +257,7 @@ describe("/api/getPdfSignedUrl", () => {
         headers: {
           authorization: "Bearer valid-jwt-token",
         },
-        body: { pdfS3Key: "document.txt", uuid: "123e4567-e89b-12d3-a456-426614174000" },
+        body: { pdfS3Key: "document.txt", uuid: "123e4567-e89b-12d3-a456-426614174000", docId: "doc-1" },
       });
 
       await handler(req, res);
@@ -246,7 +274,7 @@ describe("/api/getPdfSignedUrl", () => {
         headers: {
           authorization: "Bearer valid-jwt-token",
         },
-        body: { pdfS3Key: "document", uuid: "123e4567-e89b-12d3-a456-426614174000" },
+        body: { pdfS3Key: "document", uuid: "123e4567-e89b-12d3-a456-426614174000", docId: "doc-1" },
       });
 
       await handler(req, res);
@@ -265,7 +293,7 @@ describe("/api/getPdfSignedUrl", () => {
         headers: {
           authorization: "Bearer valid-jwt-token",
         },
-        body: { pdfS3Key: "test-document.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000" },
+        body: { pdfS3Key: "public/pdf/test-library/test-document.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000", docId: "doc-1" },
       });
 
       await handler(req, res);
@@ -274,7 +302,7 @@ describe("/api/getPdfSignedUrl", () => {
         expect.objectContaining({
           input: {
             Bucket: "ananda-chatbot",
-            Key: "test-document.pdf",
+            Key: "public/pdf/test-library/test-document.pdf",
           },
         })
       );
@@ -290,7 +318,7 @@ describe("/api/getPdfSignedUrl", () => {
         headers: {
           authorization: "Bearer valid-jwt-token",
         },
-        body: { pdfS3Key: "nonexistent.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000" },
+        body: { pdfS3Key: "public/pdf/test-library/nonexistent.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000", docId: "doc-1" },
       });
 
       await handler(req, res);
@@ -311,7 +339,7 @@ describe("/api/getPdfSignedUrl", () => {
         headers: {
           authorization: "Bearer valid-jwt-token",
         },
-        body: { pdfS3Key: "restricted.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000" },
+        body: { pdfS3Key: "public/pdf/test-library/restricted.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000", docId: "doc-1" },
       });
 
       await handler(req, res);
@@ -332,7 +360,7 @@ describe("/api/getPdfSignedUrl", () => {
         headers: {
           authorization: "Bearer valid-jwt-token",
         },
-        body: { pdfS3Key: "test.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000" },
+        body: { pdfS3Key: "public/pdf/test-library/test.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000", docId: "doc-1" },
       });
 
       await handler(req, res);
@@ -355,7 +383,7 @@ describe("/api/getPdfSignedUrl", () => {
         headers: {
           authorization: "Bearer valid-jwt-token",
         },
-        body: { pdfS3Key: "valid-document.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000" },
+        body: { pdfS3Key: "public/pdf/test-library/valid-document.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000", docId: "doc-1" },
       });
 
       await handler(req, res);
@@ -373,7 +401,7 @@ describe("/api/getPdfSignedUrl", () => {
         headers: {
           authorization: "Bearer valid-jwt-token",
         },
-        body: { pdfS3Key: "legacy-document.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000" },
+        body: { pdfS3Key: "public/pdf/test-library/legacy-document.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000", docId: "doc-1" },
       });
 
       await handler(req, res);
@@ -394,7 +422,7 @@ describe("/api/getPdfSignedUrl", () => {
         headers: {
           authorization: "Bearer valid-jwt-token",
         },
-        body: { pdfS3Key: "old-document.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000" },
+        body: { pdfS3Key: "public/pdf/test-library/old-document.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000", docId: "doc-1" },
       });
 
       await handler(req, res);
@@ -415,7 +443,7 @@ describe("/api/getPdfSignedUrl", () => {
         headers: {
           authorization: "Bearer valid-jwt-token",
         },
-        body: { pdfS3Key: "fake-document.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000" },
+        body: { pdfS3Key: "public/pdf/test-library/fake-document.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000", docId: "doc-1" },
       });
 
       await handler(req, res);
@@ -437,7 +465,7 @@ describe("/api/getPdfSignedUrl", () => {
         headers: {
           authorization: "Bearer valid-jwt-token",
         },
-        body: { pdfS3Key: "no-content-type.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000" },
+        body: { pdfS3Key: "public/pdf/test-library/no-content-type.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000", docId: "doc-1" },
       });
 
       await handler(req, res);
@@ -454,12 +482,12 @@ describe("/api/getPdfSignedUrl", () => {
         headers: {
           authorization: "Bearer valid-jwt-token",
         },
-        body: { pdfS3Key: "valid-document.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000" },
+        body: { pdfS3Key: "public/pdf/test-library/valid-document.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000", docId: "doc-1" },
       });
 
       await handler(req, res);
 
-      expect(mockGetS3PdfSignedUrl).toHaveBeenCalledWith("valid-document.pdf");
+      expect(mockGetS3PdfSignedUrl).toHaveBeenCalledWith("public/pdf/test-library/valid-document.pdf");
       expect(res.statusCode).toBe(200);
       expect(res._getJSONData()).toEqual({
         signedUrl: "https://signed-url.com/document.pdf",
@@ -474,7 +502,7 @@ describe("/api/getPdfSignedUrl", () => {
         headers: {
           authorization: "Bearer valid-jwt-token",
         },
-        body: { pdfS3Key: "test-document.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000" },
+        body: { pdfS3Key: "public/pdf/test-library/test-document.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000", docId: "doc-1" },
       });
 
       await handler(req, res);
@@ -493,7 +521,7 @@ describe("/api/getPdfSignedUrl", () => {
         headers: {
           authorization: "Bearer valid-jwt-token",
         },
-        body: { pdfS3Key: "malicious.exe", uuid: "123e4567-e89b-12d3-a456-426614174000" },
+        body: { pdfS3Key: "malicious.exe", uuid: "123e4567-e89b-12d3-a456-426614174000", docId: "doc-1" },
       });
 
       await handler(req, res);
@@ -512,14 +540,14 @@ describe("/api/getPdfSignedUrl", () => {
         headers: {
           authorization: "Bearer valid-jwt-token",
         },
-        body: { pdfS3Key: "secure-document.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000" },
+        body: { pdfS3Key: "public/pdf/test-library/secure-document.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000", docId: "doc-1" },
       });
 
       await handler(req, res);
 
       // Should verify file exists and then generate URL
       expect(mockS3Client.send).toHaveBeenCalled();
-      expect(mockGetS3PdfSignedUrl).toHaveBeenCalledWith("secure-document.pdf");
+      expect(mockGetS3PdfSignedUrl).toHaveBeenCalledWith("public/pdf/test-library/secure-document.pdf");
       expect(res.statusCode).toBe(200);
     });
   });
@@ -535,7 +563,7 @@ describe("/api/getPdfSignedUrl", () => {
         headers: {
           authorization: "Bearer valid-jwt-token",
         },
-        body: { pdfS3Key: "test.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000" },
+        body: { pdfS3Key: "public/pdf/test-library/test.pdf", uuid: "123e4567-e89b-12d3-a456-426614174000", docId: "doc-1" },
       });
 
       await handler(req, res);
@@ -544,7 +572,7 @@ describe("/api/getPdfSignedUrl", () => {
         expect.objectContaining({
           input: {
             Bucket: "ananda-chatbot", // Default bucket
-            Key: "test.pdf",
+            Key: "public/pdf/test-library/test.pdf",
           },
         })
       );

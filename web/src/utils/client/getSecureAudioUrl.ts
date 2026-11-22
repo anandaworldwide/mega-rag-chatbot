@@ -34,12 +34,13 @@ export async function getSecureAudioUrl(filename: string, library?: string, docI
       library,
     };
 
+    if (docId) {
+      requestBody.docId = docId;
+    }
+
     // For authenticated users, include UUID
     if (token && !token.includes("placeholder")) {
       requestBody.uuid = uuid;
-    } else if (docId) {
-      // For anonymous users, include docId for share validation
-      requestBody.docId = docId;
     }
 
     // Make request to secure audio endpoint
