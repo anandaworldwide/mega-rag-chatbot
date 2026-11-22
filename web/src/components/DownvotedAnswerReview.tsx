@@ -151,6 +151,7 @@ const DownvotedAnswerReview: React.FC<DownvotedAnswerReviewProps> = ({ answer, s
             collectionName={hasMultipleCollections ? answer.collection : null}
             siteConfig={siteConfig}
             isSudoAdmin={isSudoAdmin}
+            docId={answer.id}
           />
         )}
         {(answer.feedbackReason || answer.feedbackComment) && (

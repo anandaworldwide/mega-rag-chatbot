@@ -3,9 +3,15 @@ import { s3Client } from "@/utils/server/awsConfig";
 import { GetObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
-import { verifyToken } from "@/utils/server/jwtUtils";
+import { JwtPayload, verifyToken } from "@/utils/server/jwtUtils";
 import { getAnswersCollectionName } from "@/utils/server/firestoreUtils";
 import { db } from "@/services/firebase";
+import {
+  getSiteIdForPublicS3Prefix,
+  hasForbiddenS3KeyShape,
+  isAllowedSitePublicS3Key,
+  isOtherSitePublicKey,
+} from "@/utils/server/sitePublicS3Key";
 
 // Valid audio file extensions and MIME types
 const VALID_AUDIO_EXTENSIONS = [".mp3", ".wav", ".m4a", ".aac", ".ogg", ".flac"];
@@ -49,32 +55,46 @@ async function getS3AudioSignedUrl(audioS3Key: string): Promise<string> {
   }
 }
 
+function audioSourcesContainKey(sourcesValue: unknown, s3Key: string): boolean {
+  if (!sourcesValue) return false;
+  const sources = Array.isArray(sourcesValue) ? sourcesValue : JSON.parse((sourcesValue as string) || "[]");
+  const requestedFilename = s3Key.replace(/^public\/audio\//, "");
+
+  return sources.some((src: { s3Key?: string; metadata?: { filename?: string } }) => {
+    const srcS3Key = src.s3Key;
+    const srcFilename = src.metadata?.filename;
+    return (
+      srcS3Key === s3Key ||
+      srcS3Key === requestedFilename ||
+      srcFilename === requestedFilename ||
+      srcFilename === s3Key
+    );
+  });
+}
+
+async function loadAnswerDocumentData(docId: string): Promise<Record<string, unknown> | null> {
+  if (!db) return null;
+  const snap = await db.collection(getAnswersCollectionName()).doc(docId).get();
+  if (!snap.exists) return null;
+  return (snap.data() as Record<string, unknown> | undefined) ?? null;
+}
+
 async function validateShareAccess(docId: string, s3Key: string): Promise<boolean> {
   try {
-    if (!db) return false;
-    const docRef = db.collection(getAnswersCollectionName()).doc(docId);
-    const snap = await docRef.get();
-    if (!snap.exists) return false;
-    const data = snap.data() as any;
-    if (!data?.sources) return false;
-    const sources = Array.isArray(data.sources) ? data.sources : JSON.parse(data.sources || "[]");
+    const data = await loadAnswerDocumentData(docId);
+    if (!data) return false;
+    return audioSourcesContainKey(data.sources, s3Key);
+  } catch (_error) {
+    return false;
+  }
+}
 
-    // Extract the filename part from the s3Key (remove public/audio/ prefix if present)
-    const requestedFilename = s3Key.replace(/^public\/audio\//, "");
-
-    const found = sources.some((src: any) => {
-      // Check both s3Key and metadata.filename fields
-      const srcS3Key = src.s3Key;
-      const srcFilename = src.metadata?.filename;
-
-      return (
-        srcS3Key === s3Key ||
-        srcS3Key === requestedFilename ||
-        srcFilename === requestedFilename ||
-        srcFilename === s3Key
-      );
-    });
-    return found;
+async function validateDocumentAccess(docId: string, uuid: string, s3Key: string): Promise<boolean> {
+  try {
+    const data = await loadAnswerDocumentData(docId);
+    if (!data) return false;
+    if (typeof data.uuid !== "string" || data.uuid !== uuid) return false;
+    return audioSourcesContainKey(data.sources, s3Key);
   } catch (_error) {
     return false;
   }
@@ -105,8 +125,9 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       return res.status(400).json({ message: "Invalid audio S3 key" });
     }
 
-    // Check for JWT authentication
+    // Check for JWT authentication. An anonymous web JWT is not login access.
     const authHeader = req.headers.authorization;
+    let decodedToken: JwtPayload | null = null;
     let isAuthenticated = false;
 
     if (authHeader && authHeader.startsWith("Bearer ")) {
@@ -114,21 +135,22 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       try {
         const decoded = verifyToken(token);
         if (decoded && !token.includes("placeholder")) {
-          isAuthenticated = true;
+          decodedToken = decoded;
+          isAuthenticated = Boolean(decoded.email);
         }
       } catch (_error) {
         // Token invalid, continue as anonymous
       }
     }
 
-    // For authenticated users, require UUID
+    // For logged-in users, require UUID
     if (isAuthenticated && (!uuid || typeof uuid !== "string" || uuid.length !== 36)) {
       return res.status(400).json({ message: "Invalid or missing UUID" });
     }
 
-    // For anonymous users, require docId for share validation
-    if (!isAuthenticated && (!docId || typeof docId !== "string")) {
-      return res.status(401).json({ message: "Authentication required for audio access" });
+    const siteId = getSiteIdForPublicS3Prefix();
+    if (hasForbiddenS3KeyShape(audioS3Key) || isOtherSitePublicKey(audioS3Key, siteId)) {
+      return res.status(403).json({ message: "Access denied: invalid audio key" });
     }
 
     // Construct the full S3 key with library path if provided
@@ -148,6 +170,26 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
         message: "Invalid file type - audio files only",
         validExtensions: VALID_AUDIO_EXTENSIONS,
       });
+    }
+
+    if (!isAllowedSitePublicS3Key(fullS3Key, siteId)) {
+      return res.status(403).json({ message: "Access denied: invalid audio key" });
+    }
+
+    // Every caller must prove share access or ownership of the requested doc.
+    if (!docId || typeof docId !== "string") {
+      return res.status(403).json({ message: "Access denied: document ID required" });
+    }
+
+    const loginUuid = typeof decodedToken?.uuid === "string" ? decodedToken.uuid : uuid;
+    const hasShareAccess = await validateShareAccess(docId, fullS3Key);
+    const hasDocAccess =
+      isAuthenticated && typeof loginUuid === "string"
+        ? await validateDocumentAccess(docId, loginUuid, fullS3Key)
+        : false;
+
+    if (!hasShareAccess && !hasDocAccess) {
+      return res.status(403).json({ message: "Access denied to audio file" });
     }
 
     // Additional security: Verify the file exists and is actually an audio file in S3
@@ -188,14 +230,6 @@ async function handler(req: NextApiRequest, res: NextApiResponse) {
       } else {
         console.error(`S3 verification error for ${fullS3Key}:`, s3Error);
         return res.status(500).json({ message: "Unable to verify audio file" });
-      }
-    }
-
-    // For anonymous users, validate share access
-    if (!isAuthenticated) {
-      const allowed = await validateShareAccess(docId, fullS3Key);
-      if (!allowed) {
-        return res.status(403).json({ message: "Access denied to audio file" });
       }
     }
 

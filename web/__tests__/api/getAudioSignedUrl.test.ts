@@ -14,7 +14,7 @@
 
 import { NextApiRequest, NextApiResponse } from "next";
 import { createMocks } from "node-mocks-http";
-import handler from "@/pages/api/getAudioSignedUrl";
+import actualHandler from "@/pages/api/getAudioSignedUrl";
 import { genericRateLimiter } from "@/utils/server/genericRateLimiter";
 import { s3Client } from "@/utils/server/awsConfig";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
@@ -44,11 +44,46 @@ jest.mock("@aws-sdk/s3-request-presigner", () => ({
 jest.mock("@/utils/server/jwtUtils", () => ({
   verifyToken: jest.fn((token) => {
     if (token === "valid-jwt-token") {
-      return { userId: "test-user", email: "test@example.com" };
+      return { userId: "test-user", email: "test@example.com", uuid: "123e4567-e89b-12d3-a456-426614174000" };
     }
     throw new Error("Invalid token");
   }),
 }));
+
+const mockDocGet = jest.fn();
+jest.mock("@/services/firebase", () => ({
+  db: {
+    collection: jest.fn(() => ({
+      doc: jest.fn(() => ({ get: mockDocGet })),
+      add: jest.fn().mockResolvedValue({ id: "log-1" }),
+    })),
+  },
+}));
+jest.mock("@/utils/server/loadSiteConfig", () => ({
+  loadSiteConfigSync: jest.fn(() => ({ siteId: "ananda" })),
+}));
+jest.mock("@/utils/server/firestoreUtils", () => ({
+  getAnswersCollectionName: jest.fn(() => "test_chatLogs"),
+}));
+
+async function handler(req: NextApiRequest, res: NextApiResponse) {
+  const key = typeof req.body?.audioS3Key === "string" ? req.body.audioS3Key : "";
+  const library = typeof req.body?.library === "string" ? req.body.library : "";
+  let fullKey = key;
+  if (library && key && !key.includes("/")) {
+    fullKey = `public/audio/${library.toLowerCase()}/${key}`;
+  } else if (key && !key.startsWith("public/audio/")) {
+    fullKey = `public/audio/${key}`;
+  }
+  mockDocGet.mockResolvedValue({
+    exists: true,
+    data: () => ({
+      uuid: "123e4567-e89b-12d3-a456-426614174000",
+      sources: fullKey ? [{ s3Key: fullKey, metadata: { filename: key } }] : [],
+    }),
+  });
+  return actualHandler(req, res);
+}
 
 const mockRateLimiter = genericRateLimiter as jest.MockedFunction<typeof genericRateLimiter>;
 const mockS3Client = s3Client as any;
@@ -80,9 +115,9 @@ describe("/api/getAudioSignedUrl", () => {
 
       await handler(req, res);
 
-      expect(res.statusCode).toBe(401);
+      expect(res.statusCode).toBe(403);
       expect(res._getJSONData()).toEqual({
-        message: "Authentication required for audio access",
+        message: "Access denied: document ID required",
       });
     });
 
@@ -95,6 +130,7 @@ describe("/api/getAudioSignedUrl", () => {
         body: {
           audioS3Key: "test-audio.mp3",
           uuid: "123e4567-e89b-12d3-a456-426614174000",
+            docId: "doc-1",
         },
       });
 
@@ -137,6 +173,7 @@ describe("/api/getAudioSignedUrl", () => {
         body: {
           audioS3Key: "test-audio.mp3",
           uuid: "123e4567-e89b-12d3-a456-426614174000",
+            docId: "doc-1",
         },
       });
 
@@ -160,6 +197,7 @@ describe("/api/getAudioSignedUrl", () => {
         body: {
           audioS3Key: "test-audio.mp3",
           uuid: "123e4567-e89b-12d3-a456-426614174000",
+            docId: "doc-1",
         },
       });
 
@@ -197,6 +235,7 @@ describe("/api/getAudioSignedUrl", () => {
         body: {
           audioS3Key: 123, // Invalid type
           uuid: "123e4567-e89b-12d3-a456-426614174000",
+            docId: "doc-1",
         },
       });
 
@@ -223,6 +262,7 @@ describe("/api/getAudioSignedUrl", () => {
           body: {
             audioS3Key: `test-audio${ext}`,
             uuid: "123e4567-e89b-12d3-a456-426614174000",
+            docId: "doc-1",
           },
         });
 
@@ -242,6 +282,7 @@ describe("/api/getAudioSignedUrl", () => {
           body: {
             audioS3Key: `test-file${ext}`,
             uuid: "123e4567-e89b-12d3-a456-426614174000",
+            docId: "doc-1",
           },
         });
 
@@ -266,6 +307,7 @@ describe("/api/getAudioSignedUrl", () => {
         body: {
           audioS3Key: "test-audio.mp3",
           uuid: "123e4567-e89b-12d3-a456-426614174000",
+            docId: "doc-1",
         },
       });
 
@@ -294,6 +336,7 @@ describe("/api/getAudioSignedUrl", () => {
         body: {
           audioS3Key: "nonexistent-audio.mp3",
           uuid: "123e4567-e89b-12d3-a456-426614174000",
+            docId: "doc-1",
         },
       });
 
@@ -318,6 +361,7 @@ describe("/api/getAudioSignedUrl", () => {
         body: {
           audioS3Key: "restricted-audio.mp3",
           uuid: "123e4567-e89b-12d3-a456-426614174000",
+            docId: "doc-1",
         },
       });
 
@@ -344,6 +388,7 @@ describe("/api/getAudioSignedUrl", () => {
         body: {
           audioS3Key: "test-audio.mp3",
           uuid: "123e4567-e89b-12d3-a456-426614174000",
+            docId: "doc-1",
         },
       });
 
@@ -365,6 +410,7 @@ describe("/api/getAudioSignedUrl", () => {
         body: {
           audioS3Key: "fake-audio.mp3",
           uuid: "123e4567-e89b-12d3-a456-426614174000",
+            docId: "doc-1",
         },
       });
 
@@ -390,6 +436,7 @@ describe("/api/getAudioSignedUrl", () => {
         body: {
           audioS3Key: "old-audio.mp3",
           uuid: "123e4567-e89b-12d3-a456-426614174000",
+            docId: "doc-1",
         },
       });
 
@@ -416,6 +463,7 @@ describe("/api/getAudioSignedUrl", () => {
         body: {
           audioS3Key: "legacy-audio.mp3",
           uuid: "123e4567-e89b-12d3-a456-426614174000",
+            docId: "doc-1",
         },
       });
 
@@ -441,6 +489,7 @@ describe("/api/getAudioSignedUrl", () => {
           audioS3Key: "meditation.mp3",
           library: "Ananda",
           uuid: "123e4567-e89b-12d3-a456-426614174000",
+            docId: "doc-1",
         },
       });
 
@@ -466,6 +515,7 @@ describe("/api/getAudioSignedUrl", () => {
           audioS3Key: "public/audio/library/meditation.mp3",
           library: "Ananda", // Should be ignored since path is already complete
           uuid: "123e4567-e89b-12d3-a456-426614174000",
+            docId: "doc-1",
         },
       });
 
@@ -496,6 +546,7 @@ describe("/api/getAudioSignedUrl", () => {
         body: {
           audioS3Key: "test-audio.mp3",
           uuid: "123e4567-e89b-12d3-a456-426614174000",
+            docId: "doc-1",
         },
       });
 
@@ -519,6 +570,7 @@ describe("/api/getAudioSignedUrl", () => {
         body: {
           audioS3Key: "test-audio.mp3",
           uuid: "123e4567-e89b-12d3-a456-426614174000",
+            docId: "doc-1",
         },
       });
 
@@ -541,6 +593,7 @@ describe("/api/getAudioSignedUrl", () => {
         body: {
           audioS3Key: "test-audio.mp3",
           uuid: "123e4567-e89b-12d3-a456-426614174000",
+            docId: "doc-1",
         },
       });
 
