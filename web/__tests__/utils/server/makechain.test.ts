@@ -3916,6 +3916,103 @@ describe("makeChain", () => {
       expect(JSON.stringify(retrievalFilterCapture.filter ?? {})).toContain("Asha Nayaswami");
     });
 
+    it("searches embeddingQuery, not the raw follow-up, on the named-author path", async () => {
+      const history = "Human: How do I practice patience?\nAI: Begin with a quiet mind.";
+      const rawQuestion = 'What did Asha say: "Keep the heart open when the mind is busy with plans."';
+      const embeddingQuery = "Keep the heart open when the mind is busy with plans.";
+      const ashaDoc = new Document({
+        pageContent: "teaching on a quiet heart",
+        metadata: { library: "library1", source: "asha", author: "Asha Nayaswami" },
+      });
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([[ashaDoc, 0.9]]);
+      mockRetriever.vectorStore = {
+        similaritySearch: jest.fn(),
+        similaritySearchWithScore,
+      } as any;
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        jest.fn(),
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        autoSiteConfig,
+        rawQuestion,
+        undefined,
+        "auto"
+      );
+
+      const rewriteQuestion = getQuestionRewriterFromMakeChain();
+      const rewritten = await rewriteQuestion({
+        question: rawQuestion,
+        chat_history: history,
+      });
+      expect(rewritten).toBe(rawQuestion);
+
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      await retrievalSequence.invoke({
+        question: rewritten,
+        chat_history: history,
+      });
+
+      const searchQueries = similaritySearchWithScore.mock.calls.map((call) => call[0]);
+      expect(searchQueries.length).toBeGreaterThan(0);
+      expect(searchQueries.every((query) => query === embeddingQuery)).toBe(true);
+      expect(searchQueries).not.toContain(rawQuestion);
+      expect(JSON.stringify(similaritySearchWithScore.mock.calls[0][2])).toContain("Asha Nayaswami");
+    });
+
+    it("still searches the rewritten standalone query on the standard path", async () => {
+      const history = "Human: How do I practice patience?\nAI: Begin with a quiet mind.";
+      const rawQuestion = "Tell me more about that.";
+      const standardDoc = new Document({
+        pageContent: "teaching on patience",
+        metadata: { library: "library1", source: "standard" },
+      });
+      const similaritySearchWithScore = jest.fn().mockResolvedValue([[standardDoc, 0.9]]);
+      mockRetriever.vectorStore = {
+        similaritySearch: jest.fn(),
+        similaritySearchWithScore,
+      } as any;
+
+      await makeChain(
+        mockRetriever,
+        { model: "gpt-4o-mini", temperature: 0.7 },
+        4,
+        undefined,
+        jest.fn(),
+        undefined,
+        undefined,
+        false,
+        [],
+        undefined,
+        { ...mockSiteConfig, includedLibraries: [] }
+      );
+
+      const rewriteQuestion = getQuestionRewriterFromMakeChain();
+      const retrievalSequence = getRetrievalSequenceFromMakeChain();
+      const rewritten = await rewriteQuestion({
+        question: rawQuestion,
+        chat_history: history,
+      });
+      expect(rewritten).toBe("Converted standalone question");
+
+      await retrievalSequence.invoke({
+        question: rewritten,
+        chat_history: history,
+      });
+
+      const searchQueries = similaritySearchWithScore.mock.calls.map((call) => call[0]);
+      expect(searchQueries.length).toBeGreaterThan(0);
+      expect(searchQueries.every((query) => query === rewritten)).toBe(true);
+      expect(searchQueries).not.toContain(rawQuestion);
+    });
+
     it("retries preferred Yogananda hits that only match yoga inside the author name", async () => {
       const kitchenDoc = new Document({
         pageContent: "Kitchen notes and a cooking class schedule.",
