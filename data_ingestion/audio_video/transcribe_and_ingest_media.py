@@ -26,7 +26,7 @@ Required:
 
 Processing Control:
   -f, --force                  Force re-transcription and re-indexing
-  -c, --clear-vectors          Clear existing vectors before processing
+  -c, --clear-vectors          Clear audio and video vectors for queued libraries
   -o, --override-conflicts     Continue processing even if filename conflicts are found
 
 Queue Management:
@@ -1205,7 +1205,7 @@ def _parse_arguments():
         "-c",
         "--clear-vectors",
         action="store_true",
-        help="Clear existing vectors before processing",
+        help="Clear audio and video vectors for queued libraries",
     )
     processing.add_argument(
         "-o",
@@ -1302,7 +1302,12 @@ def _setup_vector_clearing(args, ingest_queue):
             else:
                 for library in libraries:
                     logger.info(f"Clearing vectors for library: {library}")
-                    clear_library_vectors(index, library, ask_confirmation=False)
+                    clear_library_vectors(
+                        index,
+                        library,
+                        ask_confirmation=False,
+                        content_types=("audio", "video"),
+                    )
         except Exception as e:
             logger.error(f"Error clearing vectors: {str(e)}")
             if not args.override_conflicts:
