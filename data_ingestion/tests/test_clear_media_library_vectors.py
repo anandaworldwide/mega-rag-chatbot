@@ -122,9 +122,7 @@ def test_clear_vectors_lists_audio_ids_across_more_than_one_page():
 
     audio_prefix = f"audio||{LIBRARY_X}||"
     remaining_audio_x = [
-        vector_id
-        for vector_id in index.vectors
-        if vector_id.startswith(audio_prefix)
+        vector_id for vector_id in index.vectors if vector_id.startswith(audio_prefix)
     ]
 
     assert index.list_page_counts[audio_prefix] > 1

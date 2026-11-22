@@ -278,42 +278,20 @@ async def create_pinecone_index_if_not_exists_async(
         sys.exit(1)
 
 
-def clear_library_vectors(
+def _list_vector_ids_for_content_types(
     pinecone_index: Any,
     library_name: str,
-    dry_run: bool = False,
-    ask_confirmation: bool = True,
+    content_types: tuple[str, ...],
     progress_callback: Callable | None = None,
-) -> bool:
-    """
-    Delete all vectors associated with a specific library (synchronous version).
-
-    Unified function that works for both PDF and SQL ingestion patterns.
-    Handles different Pinecone API response formats robustly.
-
-    Args:
-        pinecone_index: Pinecone index instance
-        library_name: Name of the library to clear vectors for
-        dry_run: If True, only lists vectors without deleting
-        ask_confirmation: If True, asks for user confirmation before deletion
-        progress_callback: Optional function to call for progress updates
-
-    Returns:
-        bool: True if operation completed successfully, False otherwise
-    """
-    if dry_run:
-        print(f"Dry run: Skipping vector deletion for library '{library_name}'.")
-        return True
-
-    prefix = f"text||{library_name}||"
-    print(f"Listing existing vectors with prefix '{prefix}'...")
-
-    vector_ids = []
+    batch_limit: int = 100,
+) -> list[str]:
+    """List vector IDs for each content-type prefix of one library."""
+    vector_ids: list[str] = []
     total_listed = 0
-    batch_limit = 100
 
-    try:
-        # Use the list() generator to get all vector IDs
+    for content_type in content_types:
+        prefix = f"{content_type}||{library_name}||"
+        print(f"Listing existing vectors with prefix '{prefix}'...")
         list_response_generator = pinecone_index.list(prefix=prefix, limit=batch_limit)
 
         for id_batch in list_response_generator:
@@ -324,12 +302,51 @@ def clear_library_vectors(
                 if progress_callback:
                     progress_callback(total_listed, 0, "listing")
 
-                # Progress update
                 if total_listed > 0 and total_listed % 1000 == 0:
                     print(f"Listed {total_listed} vectors so far...")
             else:
                 logger.warning(f"Unexpected vector info format: {type(id_batch)}")
 
+    return vector_ids
+
+
+def clear_library_vectors(
+    pinecone_index: Any,
+    library_name: str,
+    dry_run: bool = False,
+    ask_confirmation: bool = True,
+    progress_callback: Callable | None = None,
+    content_types: tuple[str, ...] = ("text",),
+) -> bool:
+    """
+    Delete vectors associated with a specific library (synchronous version).
+
+    Unified function that works for PDF, SQL, and audio/video ingestion.
+    Default content type is text. Audio ingest passes audio and video so
+    text vectors for the library stay.
+
+    Args:
+        pinecone_index: Pinecone index instance
+        library_name: Name of the library to clear vectors for
+        dry_run: If True, only lists vectors without deleting
+        ask_confirmation: If True, asks for user confirmation before deletion
+        progress_callback: Optional function to call for progress updates
+        content_types: Vector ID prefixes to clear (text, audio, and/or video)
+
+    Returns:
+        bool: True if operation completed successfully, False otherwise
+    """
+    if dry_run:
+        print(f"Dry run: Skipping vector deletion for library '{library_name}'.")
+        return True
+
+    try:
+        vector_ids = _list_vector_ids_for_content_types(
+            pinecone_index,
+            library_name,
+            content_types,
+            progress_callback,
+        )
         print(f"Found {len(vector_ids)} vectors for library '{library_name}'")
 
     except Exception as e:
