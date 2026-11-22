@@ -1056,7 +1056,7 @@ Error details: ${errorString}`,
             (filter) =>
               runStandardRetrieval(
                 retriever,
-                input.question,
+                embeddingQuery,
                 sourceCount,
                 filter,
                 includedLibraries,
