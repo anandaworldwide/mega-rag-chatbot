@@ -62,6 +62,7 @@ except ImportError:
 # Import shared utility
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.author_ingest_guard import prepare_ingest_author
+from utils.embeddings_utils import get_embedding_dimension
 from utils.pinecone_utils import (
     generate_vector_id,
 )
@@ -115,6 +116,8 @@ CSV_TIMEOUT_MS = 30000  # 30 seconds for CSV downloads
 
 SQLITE_NORMALIZED_NEXT_CRAWL = "datetime(replace(substr(next_crawl,1,19),'T',' '))"
 SQLITE_NORMALIZED_RETRY_AFTER = "datetime(replace(substr(retry_after,1,19),'T',' '))"
+PINECONE_QUERY_PAGE_SIZE = 1000
+PINECONE_DELETE_BATCH_SIZE = 100
 
 # Configure logging defaults (main() will override with _configure_logging()).
 logging.basicConfig(
@@ -2092,16 +2095,24 @@ class WebsiteCrawler:
             PineconeCleanupError: If the query fails (e.g., dimension mismatch)
         """
         try:
-            response = pinecone_index.query(
-                vector=dummy_vector,
-                filter={field: {"$eq": value}},
-                top_k=1000,
-                include_metadata=True,
-                include_values=False,
-            )
-            if response.matches:
-                return {match.id for match in response.matches}
-            return set()
+            vector_ids: set[str] = set()
+            while True:
+                response = pinecone_index.query(
+                    vector=dummy_vector,
+                    filter={field: {"$eq": value}},
+                    top_k=PINECONE_QUERY_PAGE_SIZE,
+                    include_metadata=True,
+                    include_values=False,
+                )
+                matches = list(response.matches or [])
+                page_ids = {match.id for match in matches}
+                new_ids = page_ids - vector_ids
+                if not new_ids:
+                    break
+                vector_ids.update(new_ids)
+                if len(matches) < PINECONE_QUERY_PAGE_SIZE:
+                    break
+            return vector_ids
         except Exception as e:
             logging.warning(f"Error querying Pinecone by '{field}' field: {e}")
             raise PineconeCleanupError(
@@ -2130,60 +2141,99 @@ class WebsiteCrawler:
             logging.error(f"Failed to delete vector batch for URL {url}: {e}")
             return 0
 
-    def remove_url_from_pinecone(self, pinecone_index, url: str) -> int:
-        """Remove all vectors for a specific URL from Pinecone.
+    def _collect_vector_ids_for_url(
+        self, pinecone_index, url: str, dummy_vector: list
+    ) -> set[str]:
+        """Collect Pinecone vector IDs that match a URL on url or source metadata."""
+        normalized_url = self.normalize_url(url)
+        logging.debug(
+            f"Querying Pinecone for vectors with normalized URL: {normalized_url}"
+        )
+        vector_ids_set = self._query_pinecone_by_field(
+            pinecone_index, "url", normalized_url, dummy_vector
+        )
+        vector_ids_set.update(
+            self._query_pinecone_by_field(
+                pinecone_index, "source", normalized_url, dummy_vector
+            )
+        )
+        return vector_ids_set
+
+    def _delete_stale_vector_ids(
+        self, pinecone_index, stale_ids: list[str], url: str
+    ) -> int:
+        """Delete stale vector IDs in batches. Returns count, or -1 on failure."""
+        deleted_count = 0
+        for i in range(0, len(stale_ids), PINECONE_DELETE_BATCH_SIZE):
+            batch_ids = stale_ids[i : i + PINECONE_DELETE_BATCH_SIZE]
+            deleted = self._delete_pinecone_batch(pinecone_index, batch_ids, url)
+            if deleted == 0:
+                return -1
+            deleted_count += deleted
+        return deleted_count
+
+    def remove_url_from_pinecone(
+        self,
+        pinecone_index,
+        url: str,
+        keep_ids: set[str] | None = None,
+    ) -> int:
+        """Remove vectors for a URL from Pinecone, keeping any IDs in keep_ids.
+
+        Pages through query matches until no stale vectors remain.
 
         Args:
             pinecone_index: Pinecone index instance
             url: URL to remove from Pinecone
+            keep_ids: Vector IDs that must not be deleted (newly upserted vectors)
 
         Returns:
-            Number of vectors successfully deleted (or would be deleted in dry-run mode)
+            Number of vectors successfully deleted (or would be deleted in dry-run
+            mode). Returns -1 when a delete batch fails.
         """
+        keep_ids = set(keep_ids or [])
         try:
-            vector_dimension = int(os.getenv("OPENAI_EMBEDDING_DIMENSION", 3072))
-            dummy_vector = [0.0] * vector_dimension
-            normalized_url = self.normalize_url(url)
-
-            logging.debug(
-                f"Querying Pinecone for vectors with normalized URL: {normalized_url}"
-            )
-
-            # Query both 'url' and 'source' fields (Pinecone doesn't support $or)
-            vector_ids_set = self._query_pinecone_by_field(
-                pinecone_index, "url", normalized_url, dummy_vector
-            )
-            vector_ids_set.update(
-                self._query_pinecone_by_field(
-                    pinecone_index, "source", normalized_url, dummy_vector
-                )
-            )
-
-            if not vector_ids_set:
-                logging.info(f"No vectors found in Pinecone for URL: {url}")
-                return 0
-
-            vector_ids = list(vector_ids_set)
-            logging.info(f"Found {len(vector_ids)} vectors to delete for URL: {url}")
-
-            # Delete in batches of 100 (Pinecone limit)
+            dummy_vector = [0.0] * get_embedding_dimension()
+            already_deleted: set[str] = set()
             deleted_count = 0
-            batch_size = 100
-            for i in range(0, len(vector_ids), batch_size):
-                batch_ids = vector_ids[i : i + batch_size]
-                deleted_count += self._delete_pinecone_batch(
-                    pinecone_index, batch_ids, url
+            while True:
+                vector_ids_set = self._collect_vector_ids_for_url(
+                    pinecone_index, url, dummy_vector
                 )
+                stale_ids = [
+                    vid
+                    for vid in vector_ids_set
+                    if vid not in keep_ids and vid not in already_deleted
+                ]
+                if not stale_ids:
+                    if deleted_count == 0:
+                        logging.info(f"No vectors found in Pinecone for URL: {url}")
+                    else:
+                        logging.info(
+                            f"Successfully deleted {deleted_count} vectors for URL: {url}"
+                        )
+                    return deleted_count
 
-            logging.info(f"Successfully deleted {deleted_count} vectors for URL: {url}")
-            return deleted_count
+                logging.info(f"Found {len(stale_ids)} vectors to delete for URL: {url}")
+                batch_deleted = self._delete_stale_vector_ids(
+                    pinecone_index, stale_ids, url
+                )
+                if batch_deleted < 0:
+                    return -1
+                already_deleted.update(stale_ids)
+                deleted_count += batch_deleted
+                if len(vector_ids_set) < PINECONE_QUERY_PAGE_SIZE:
+                    logging.info(
+                        f"Successfully deleted {deleted_count} vectors for URL: {url}"
+                    )
+                    return deleted_count
 
         except PineconeCleanupError:
             # Let this propagate so the URL gets marked for retry
             raise
         except Exception as e:
             logging.error(f"Error removing URL from Pinecone {url}: {e}")
-            return 0
+            return -1
 
     @requires_db
     def should_process_content(self, url: str, current_hash: str) -> bool:

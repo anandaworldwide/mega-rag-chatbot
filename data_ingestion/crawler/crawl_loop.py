@@ -316,14 +316,14 @@ def _process_pinecone_deletions(crawler: "WebsiteCrawler", pinecone_index) -> in
     for url in pending_urls:
         try:
             deleted_vectors = crawler.remove_url_from_pinecone(pinecone_index, url)
-            if deleted_vectors >= 0:  # Success (even if 0 vectors found)
-                crawler.mark_pinecone_cleanup_complete(url)
-                processed_count += 1
-                logging.info(
-                    f"Pinecone cleanup completed for 404'd URL: {url} ({deleted_vectors} vectors removed)"
-                )
-            else:
+            if deleted_vectors < 0:
                 logging.warning(f"Failed to clean up Pinecone vectors for {url}")
+                continue
+            crawler.mark_pinecone_cleanup_complete(url)
+            processed_count += 1
+            logging.info(
+                f"Pinecone cleanup completed for 404'd URL: {url} ({deleted_vectors} vectors removed)"
+            )
         except Exception as e:
             logging.error(f"Error processing Pinecone deletion for {url}: {e}")
             continue
