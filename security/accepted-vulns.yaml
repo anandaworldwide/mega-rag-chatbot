@@ -164,15 +164,3 @@ python:
       are loaded.
     review_by: "2027-01-05"
     mitigation: "Dormant reranking subgraph; not reachable in production."
-
-node:
-  - id: "1240992"
-    package: braces
-    reason: >-
-      no patched release; reachability limited
-    review_by: "2026-11-04"
-    mitigation: >-
-      GHSA-vfj7-8cjw-p6xm affects braces <=3.0.3 and lists no patched release.
-      The 3.x line stops at 3.0.3. Lockfile parents are chokidar 3.6.0 and
-      micromatch 4.0.8. Both are dev tooling and expand tool globs, not
-      request input.
