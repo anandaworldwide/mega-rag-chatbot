@@ -1,7 +1,7 @@
 [project]
 name = "mega-rag-chatbot-wordpress-analytics"
 version = "0.1.0"
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.11.5,<3.12"
 dependencies = [
     "google-analytics-data>=0.18.0",
     "matplotlib>=3.7.0",

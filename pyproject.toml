@@ -1,7 +1,7 @@
 [project]
 name = "mega-rag-chatbot"
 version = "0.1.0"
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.11.5,<3.12"
 dependencies = [
     "aiohttp>=3.14.4",
     "beautifulsoup4==4.12.2",
