@@ -56,8 +56,16 @@ jobs:
       # Fork and Dependabot pull requests get no secrets: skip their dry run
       # with a warning instead of failing.
       - name: Skip dry run without a deploy key
-        if: env.HAS_KEY != 'true'
+        if: env.HAS_KEY != 'true' && env.DRY_RUN == 'true'
         run: echo "::warning::No CLOUDWAYS_SSH_KEY available (fork or Dependabot PR); skipping the deploy dry run."
+
+      # A real deploy without the key must fail loudly, never pass green
+      # having copied nothing.
+      - name: Fail deploy without a deploy key
+        if: env.HAS_KEY != 'true' && env.DRY_RUN != 'true'
+        run: |
+          echo "::error::CLOUDWAYS_SSH_KEY is missing or empty; nothing was deployed."
+          exit 1
 
       - name: Install SSH key
         if: env.HAS_KEY == 'true'
@@ -82,8 +90,8 @@ jobs:
       # end instead of one by one while the live site is loading them.
       # -f 'R .~tmp~/': lets a later deploy sweep a holding folder that a
       # cancelled deploy left behind in this web-served directory.
-      # Dry runs compare checksums, so they list only files whose contents
-      # differ.
+      # --no-times plus --checksum on dry runs: they list only files whose
+      # contents differ, not every file whose timestamp does.
       - name: Deploy plugin folder via rsync
         if: env.HAS_KEY == 'true'
         run: |
@@ -94,7 +102,7 @@ jobs:
             echo "Dry run: nothing on the server will change."
           fi
           rsync -avz --delete --delete-delay --delay-updates -f 'R .~tmp~/' \
-            --no-perms --no-owner --no-group --omit-dir-times \
+            --no-times --no-perms --no-owner --no-group --omit-dir-times \
             "${extra[@]}" \
             ./wordpress/plugins/ananda-ai-chatbot/ \
             "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DEST"
