@@ -1,9 +1,32 @@
 name: Deploy Public Chatbot Plugin to Cloudways
 
+# Pushes to main deploy the plugin to ananda.org. Pull requests into main only
+# dry-run: their log and job summary list every file the merge would change on
+# the server, and change nothing. Both run only when the plugin (or this file)
+# changes, so merges that touch other parts of the monorepo don't deploy.
 on:
   push:
     branches:
       - main
+    paths:
+      - 'wordpress/plugins/ananda-ai-chatbot/**'
+      - '.github/workflows/deploy-public-chatbot.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'wordpress/plugins/ananda-ai-chatbot/**'
+      - '.github/workflows/deploy-public-chatbot.yml'
+
+# One deploy at a time, never cancelled half-way through an rsync. Pull request
+# dry runs get their own group per PR, so a queued dry run can't replace a
+# merge's deploy waiting its turn.
+concurrency:
+  group: deploy-public-chatbot-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || 'production' }}
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # Forces the runner to use Node 24
 
 jobs:
   deploy:
@@ -12,16 +35,18 @@ jobs:
 
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Install SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.CLOUDWAYS_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H 45.63.93.73 >> ~/.ssh/known_hosts
-
-      - name: Deploy plugin folder via rsync
-        run: |
-          rsync -avz --delete --no-perms --no-owner --no-group --omit-dir-times ./wordpress/plugins/ananda-ai-chatbot/ \
-            github-ananda-org@45.63.93.73:/home/master/applications/aghzsnrmqf/public_html/wp-content/plugins/ananda-ai-chatbot/
+      # Shared deploy: ananda-ci's cloudways-deploy action (see its README).
+      # It targets the app's real path, never the /home/master/applications
+      # symlink that rsync 3.5+ on the server refuses to follow.
+      - name: Deploy plugin folder
+        uses: anandaworldwide/ananda-ci/.github/actions/cloudways-deploy@deploy-v1
+        with:
+          server: ananda-org
+          app: aghzsnrmqf
+          user: github-ananda-org
+          ssh-key: ${{ secrets.CLOUDWAYS_SSH_KEY }}
+          src: ./wordpress/plugins/ananda-ai-chatbot/
+          dest: public_html/wp-content/plugins/ananda-ai-chatbot/
+          dry-run: ${{ github.event_name == 'pull_request' }}
