@@ -1,9 +1,13 @@
 name: Deploy Public Chatbot Plugin to Cloudways
 
 # Pushes to main deploy the plugin to ananda.org. Pull requests into main only
-# dry-run: their log and job summary list every file the merge would change on
-# the server, and change nothing. Both run only when the plugin (or this file)
-# changes, so merges that touch other parts of the monorepo don't deploy.
+# dry-run: their log lists every file the merge would change on the server,
+# and changes nothing. Both run only when the plugin (or this file) changes,
+# so merges that touch other parts of the monorepo don't deploy.
+#
+# This repo is public, so it can't use ananda-ci's shared cloudways-deploy
+# action (ananda-ci is private, and GitHub doesn't let public repos call
+# actions in private ones). The script below follows that action's rules.
 on:
   push:
     branches:
@@ -33,20 +37,64 @@ jobs:
     name: Deploy wordpress/plugins folder via SSH
     runs-on: ubuntu-latest
 
+    env:
+      DEPLOY_HOST: 45.63.93.73
+      DEPLOY_USER: github-ananda-org
+      # The app's REAL path. Never /home/master/applications/...: that is a
+      # symlink owned by the master user, and rsync 3.5+ on the server refuses
+      # to follow it ("refusing to follow a symlink owned by an untrusted
+      # user", exit 3). Same path as ananda-ci's servers.json entry
+      # "ananda-org" + app aghzsnrmqf.
+      DEPLOY_DEST: /home/734274.cloudwaysapps.com/aghzsnrmqf/public_html/wp-content/plugins/ananda-ai-chatbot/
+      DRY_RUN: ${{ github.event_name == 'pull_request' }}
+      HAS_KEY: ${{ secrets.CLOUDWAYS_SSH_KEY != '' }}
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      # Shared deploy: ananda-ci's cloudways-deploy action (see its README).
-      # It targets the app's real path, never the /home/master/applications
-      # symlink that rsync 3.5+ on the server refuses to follow.
-      - name: Deploy plugin folder
-        uses: anandaworldwide/ananda-ci/.github/actions/cloudways-deploy@deploy-v1
-        with:
-          server: ananda-org
-          app: aghzsnrmqf
-          user: github-ananda-org
-          ssh-key: ${{ secrets.CLOUDWAYS_SSH_KEY }}
-          src: ./wordpress/plugins/ananda-ai-chatbot/
-          dest: public_html/wp-content/plugins/ananda-ai-chatbot/
-          dry-run: ${{ github.event_name == 'pull_request' }}
+      # Fork and Dependabot pull requests get no secrets: skip their dry run
+      # with a warning instead of failing.
+      - name: Skip dry run without a deploy key
+        if: env.HAS_KEY != 'true'
+        run: echo "::warning::No CLOUDWAYS_SSH_KEY available (fork or Dependabot PR); skipping the deploy dry run."
+
+      - name: Install SSH key
+        if: env.HAS_KEY == 'true'
+        env:
+          SSH_KEY: ${{ secrets.CLOUDWAYS_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          for attempt in 1 2 3; do
+            if ssh-keyscan -T 30 -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null && [ -s ~/.ssh/known_hosts ]; then
+              exit 0
+            fi
+            echo "ssh-keyscan attempt $attempt failed; retrying"
+            sleep 5
+          done
+          echo "::error::ssh-keyscan of $DEPLOY_HOST failed 3 times"
+          exit 1
+
+      # --delay-updates / --delete-delay: new files swap in together at the
+      # end instead of one by one while the live site is loading them.
+      # -f 'R .~tmp~/': lets a later deploy sweep a holding folder that a
+      # cancelled deploy left behind in this web-served directory.
+      # Dry runs compare checksums, so they list only files whose contents
+      # differ.
+      - name: Deploy plugin folder via rsync
+        if: env.HAS_KEY == 'true'
+        run: |
+          set -euo pipefail
+          extra=()
+          if [ "$DRY_RUN" = "true" ]; then
+            extra=(--dry-run --itemize-changes --checksum)
+            echo "Dry run: nothing on the server will change."
+          fi
+          rsync -avz --delete --delete-delay --delay-updates -f 'R .~tmp~/' \
+            --no-perms --no-owner --no-group --omit-dir-times \
+            "${extra[@]}" \
+            ./wordpress/plugins/ananda-ai-chatbot/ \
+            "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_DEST"
